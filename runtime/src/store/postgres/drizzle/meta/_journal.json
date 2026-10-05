@@ -78,6 +78,13 @@
       "when": 1791107553412,
       "tag": "0010_oss_auth_removals",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791196553461,
+      "tag": "0011_key_roles",
+      "breakpoints": true
     }
   ]
 }

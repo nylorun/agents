@@ -34,6 +34,7 @@
  * Columns are listed in the order the tables have them, so a database created by these
  * migrations and one created by the hand-written migrations they replaced dump the same.
  */
+import type { KeyRole } from "@nylorun/core/compatibility";
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -197,10 +198,13 @@ export const links = nylorun.table(
   (t) => [index("links_workflow").on(t.workflowSessionId)],
 );
 
-/** An application principal: who holds a key, by its SHA-256. */
+/**
+ * A principal: who holds a key, by its SHA-256, and what the key reaches (`role`, protocol 8):
+ * `application` the Runtime API, `management` the Management API, `studio` both.
+ */
 export const principals = nylorun.table("principals", {
   id: textC().primaryKey(),
-  role: text().$type<"application" | (string & {})>().notNull(),
+  role: text().$type<KeyRole>().notNull(),
   tokenHash: text().notNull().unique("principals_token_hash_key"),
   idempotencyKey: text(),
   createdAt: text().notNull(),

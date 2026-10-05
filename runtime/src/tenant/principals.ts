@@ -10,6 +10,7 @@
  * the same.
  */
 import { createHmac } from "node:crypto";
+import { BOOTSTRAP_KEY_ID } from "@nylorun/core/compatibility";
 import { hashToken } from "../core/bearer.js";
 import type { InitialPrincipal } from "../store/postgres/tenant.js";
 
@@ -32,8 +33,23 @@ export function hostPrincipals(options: {
   application?: { principalId: string; key: string };
   /** Registers `studio` with this hash instead of the admin key's derivation. */
   studioCredentialHash?: string;
+  /**
+   * The management key of `NYLORUN_MANAGEMENT_KEY_FILE`: registered as `bootstrap`, and
+   * replaced at the next start when the file changed.
+   */
+  bootstrapKey?: string;
 }): (tenantId: string) => InitialPrincipal[] {
   return (tenantId) => [
+    ...(options.bootstrapKey
+      ? [
+          {
+            id: BOOTSTRAP_KEY_ID,
+            role: "management" as const,
+            credentialHash: hashToken(options.bootstrapKey),
+            replace: true,
+          },
+        ]
+      : []),
     ...(options.application
       ? [
           {
@@ -44,6 +60,8 @@ export function hostPrincipals(options: {
       : []),
     {
       id: STUDIO_PRINCIPAL_ID,
+      // Studio runs sessions and edits the Tenant's settings: both APIs (protocol 8).
+      role: "studio" as const,
       credentialHash:
         options.studioCredentialHash ??
         hashToken(deriveStudioKey(options.adminKey, tenantId)),

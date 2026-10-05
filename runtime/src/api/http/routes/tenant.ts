@@ -63,8 +63,10 @@ import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
 import { rearmPodTimers } from "../../../tenant/sandboxes.js";
 
+/** A Management API route (`/v1/tenant/*`): a management key, or an application key until protocol 8. */
 const settings = (scopes: readonly SubjectScope[] | "never"): RouteAccess => ({
-  credentials: scopes === "never" ? ["application"] : ["application", "subject"],
+  credentials:
+    scopes === "never" ? ["application", "management"] : ["application", "subject", "management"],
   scopes,
 });
 const SETTINGS = settings(["tenant:settings"]);

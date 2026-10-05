@@ -104,6 +104,12 @@ export interface Session {
 export type AuthScope =
   | { kind: "application"; principalId: string }
   /**
+   * A management key (role `management`), or Studio's key on a Management API route: the
+   * principal acting as itself, never for a subject. It reaches only the Management API
+   * (`/v1/tenant/*`) and `/v1/me`.
+   */
+  | { kind: "management"; principalId: string }
+  /**
    * A trusted issuer's token (Host feature `trusted-issuers`, F9-D12): one subject, with the
    * issuer's scopes, agents and sandbox grants, until `expiresAt` (ms). Only its expiry ends it.
    */

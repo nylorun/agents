@@ -98,6 +98,24 @@ function loadIssuers(path: string): TrustedIssuers {
   return createTrustedIssuers(parseIdentityFile(text, path));
 }
 
+/** The bootstrap management key: 64 hex characters, surrounding whitespace ignored. */
+function loadManagementKey(path: string): string {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    throw new Error(
+      `NYLORUN_MANAGEMENT_KEY_FILE names ${path}, which cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const key = text.trim();
+  if (!/^[0-9a-f]{64}$/.test(key))
+    throw new Error(
+      `NYLORUN_MANAGEMENT_KEY_FILE (${path}) must hold one key of 64 lowercase hex characters, such as \`openssl rand -hex 32\``,
+    );
+  return key;
+}
+
 function resolveHostRoot(): string {
   const fromEnv = process.env.NYLORUN_HOME;
   const root =
@@ -365,7 +383,12 @@ export async function main(): Promise<void> {
       create: {
         ...(tenantSettings.id ? { tenantId: tenantSettings.id } : {}),
         name: tenantSettings.name,
-        principals: hostPrincipals({ adminKey: credentials.adminKey }),
+        principals: hostPrincipals({
+          adminKey: credentials.adminKey,
+          ...(stack.tenant?.managementKeyFile
+            ? { bootstrapKey: loadManagementKey(stack.tenant.managementKeyFile) }
+            : {}),
+        }),
       },
       configFor,
       logger,

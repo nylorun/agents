@@ -15,13 +15,18 @@ import type { Context, Handler, MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import type { SubjectScope } from "@nylorun/core/contracts";
-import { authenticate, requireScopes } from "../../tenant/auth.js";
+import { authenticate, requireScopes, type KeyAccess } from "../../tenant/auth.js";
 import type { AuthScope } from "../../tenant/context.js";
 import { fail } from "../../tenant/http.js";
 import { ProtocolRejected, Rejected } from "../components.js";
 import type { TenantEnv } from "./app.js";
 
-export type Credential = "application" | "subject" | "token" | "delivery";
+/**
+ * A route's credentials. `application` and `subject` are an application key, alone or acting
+ * for a person; `management` a management key (the Management API, protocol 8); `token` a
+ * trusted issuer's JWT; `delivery` an Action's delivery token.
+ */
+export type Credential = "application" | "subject" | "management" | "token" | "delivery";
 
 export interface RouteAccess {
   readonly credentials: readonly Credential[];
@@ -46,6 +51,7 @@ export interface RouteAccess {
 const SCHEMES: Record<Credential, string> = {
   application: "applicationKey",
   subject: "applicationKey",
+  management: "managementKey",
   token: "issuerToken",
   delivery: "deliveryToken",
 };
@@ -74,10 +80,23 @@ export async function authenticateCaller(
   c: Context<TenantEnv>,
   /** The route serves public data (`RouteAccess.anonymous`): no credential is needed. */
   anonymous = false,
+  /** The keys the route takes; a Runtime API route's by default. */
+  keys?: KeyAccess,
 ): Promise<AuthScope> {
   const { tenant, incoming } = c.env;
   if (anonymous && incoming.headers.authorization === undefined) return { kind: "anonymous" };
-  return await authenticate(tenant, incoming);
+  return await authenticate(tenant, incoming, keys);
+}
+
+/** Which keys a route's credentials take. */
+export function keyAccess(access: RouteAccess): KeyAccess {
+  const takes = (credential: Credential) => access.credentials.includes(credential);
+  // Only a Management API route turns an application key away for its role; elsewhere the
+  // route's own checks answer as they always have (a delivery token's callbacks, say).
+  return {
+    application: takes("application") || takes("subject") || !takes("management"),
+    management: takes("management"),
+  };
 }
 
 /** A declared route: what `findTenantRoute` looks up. */
@@ -107,7 +126,7 @@ export function declaredRoute(
 
 function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
   return async (c, next) => {
-    const scope = await authenticateCaller(c, access.anonymous === true);
+    const scope = await authenticateCaller(c, access.anonymous === true, keyAccess(access));
     requireScopes(scope, access.scopes);
     // Handlers tell callers apart by kind, and a delivery token is none of theirs: only the
     // routes that list it may see one.
@@ -159,7 +178,11 @@ export function tenantRoute(
             ),
           }
         : {}),
-      403: rejected("Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)"),
+      403: rejected(
+        takes("management")
+          ? "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject"
+          : "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+      ),
       404: rejected("Not found, or a credential the Tenant does not know (`not_found`)"),
       426: { description: "`Nylorun-Protocol` missing or unsupported", content: { "application/json": { schema: ProtocolRejected } } },
       503: rejected("The Tenant's storage or streams are unavailable"),

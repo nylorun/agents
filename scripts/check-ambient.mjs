@@ -4,8 +4,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-/** Host entry may read ambient process/OS state; nothing else under runtime/src may. */
-const AMBIENT_ALLOWLIST = new Set(["host/main.ts"]);
+/**
+ * The process entries may read ambient process/OS state: the Host (`host/main.ts`) and the
+ * operator command (`host/operate.ts`). Nothing else under runtime/src may.
+ */
+const AMBIENT_ALLOWLIST = new Set(["host/main.ts", "host/operate.ts"]);
 
 const AMBIENT_PATTERN =
   /process\.env|process\.cwd\s*\(|\bhomedir\s*\(|\btmpdir\s*\(/g;
@@ -39,7 +42,7 @@ function collectMatches(source, pattern) {
 }
 
 /**
- * Fail on ambient process/OS reads under runtime/src (except host/main.ts)
+ * Fail on ambient process/OS reads under runtime/src (except the process entries)
  * and on console.* under runtime/src/tenant and runtime/src/api.
  *
  * @param {{ runtimeSrc?: string }} [options]
@@ -58,7 +61,7 @@ export function checkAmbient(options = {}) {
     if (!ambientAllowed) {
       for (const match of collectMatches(source, AMBIENT_PATTERN)) {
         violations.push(
-          `${rel}:${match.line}: ambient ${match.text} (allowed only in host/main.ts)`,
+          `${rel}:${match.line}: ambient ${match.text} (allowed only in host/main.ts and host/operate.ts)`,
         );
       }
     }

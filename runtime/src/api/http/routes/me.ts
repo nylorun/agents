@@ -38,6 +38,8 @@ export function describeCaller(scope: AuthScope): MeBody {
         sandboxes: [...(scope.sandboxes ?? [])],
         via: `issuer:${scope.issuer}`,
       };
+    case "management":
+      return { scopes: [], agents: [], via: `management:${scope.principalId}` };
     default:
       return fail(403, "This credential acts on no Tenant resource");
   }
@@ -46,7 +48,7 @@ export function describeCaller(scope: AuthScope): MeBody {
 export function meRoutes(api: OpenAPIHono<TenantEnv>): void {
   tenantRoute(
     api,
-    { credentials: ["application", "subject", "token"], scopes: "any" },
+    { credentials: ["application", "subject", "management", "token"], scopes: "any" },
     {
       method: "get",
       path: "/v1/me",
@@ -54,7 +56,8 @@ export function meRoutes(api: OpenAPIHono<TenantEnv>): void {
       summary: "Get who the caller is",
       description:
         "The subject, scopes, agents and sandbox grants of the credential that sends it: an " +
-        "application key (alone or acting for a subject), or a trusted issuer's token " +
+        "application key (alone or acting for a subject), a management key " +
+        "(`via: management:<principalId>`, no scopes, no agents), or a trusted issuer's token " +
         "(`via: issuer:<name>`).",
       responses: {
         200: {

@@ -54,6 +54,7 @@
  * (`streams/relay/`) feeds Durable Streams from it, and history and SSE read
  * them there (`tenant/session-streams.ts`).
  */
+import type { KeyRole } from "@nylorun/core/compatibility";
 import type { RecordReader } from "../streams/relay/types.js";
 import type {
   Action,
@@ -673,15 +674,20 @@ export interface Tx {
   insertPrincipal(row: PrincipalRow): Promise<void>;
   principalByTokenHash(tokenHash: string): Promise<PrincipalRow | undefined>;
   principalById(id: string): Promise<PrincipalRow | undefined>;
-  applicationTokenHashes(): Promise<string[]>;
   /** Every principal, ordered by id. */
   listPrincipals(): Promise<PrincipalRow[]>;
   /**
-   * Creates application principal `id` with `tokenHash`, or gives an existing one this hash
-   * (and `createdAt`): its previous key stops authenticating. Rejects when another principal
-   * holds the hash.
+   * Creates principal `id` with `tokenHash` and `role` (default `application`), or gives an
+   * existing one this hash (and `createdAt`): its previous key stops authenticating. Rejects
+   * when another principal holds the hash, and with `PrincipalRoleConflict` when `id` holds
+   * another role.
    */
-  putPrincipal(id: string, tokenHash: string, createdAt: string): Promise<PrincipalRow>;
+  putPrincipal(
+    id: string,
+    tokenHash: string,
+    createdAt: string,
+    role?: KeyRole,
+  ): Promise<PrincipalRow>;
   /** Deletes principal `id`; false when there was none. */
   deletePrincipal(id: string): Promise<boolean>;
 
