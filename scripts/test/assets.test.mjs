@@ -23,11 +23,10 @@ function fakeGh(assets) {
   return { calls, runner };
 }
 
-test("the Runtime's release carries its OpenAPI documents; other packages carry nothing", () => {
-  assert.deepEqual(RELEASE_ASSETS.runtime, ["openapi.json", "admin-openapi.json"]);
-  assert.deepEqual(missingAssets("runtime", []), ["openapi.json", "admin-openapi.json"]);
-  assert.deepEqual(missingAssets("runtime", ["openapi.json"]), ["admin-openapi.json"]);
-  assert.deepEqual(missingAssets("runtime", ["openapi.json", "admin-openapi.json"]), []);
+test("the Runtime's release carries its OpenAPI document; other packages carry nothing", () => {
+  assert.deepEqual(RELEASE_ASSETS.runtime, ["openapi.json"]);
+  assert.deepEqual(missingAssets("runtime", []), ["openapi.json"]);
+  assert.deepEqual(missingAssets("runtime", ["openapi.json"]), []);
   assert.deepEqual(missingAssets("core", []), []);
 });
 
@@ -37,7 +36,6 @@ test("uploads only the assets a release lacks, and never replaces one", async ()
   const fresh = fakeGh([]);
   assert.deepEqual(await uploadReleaseAssets({ ...release, runner: fresh.runner }), [
     "openapi.json",
-    "admin-openapi.json",
   ]);
   assert.deepEqual(fresh.calls.at(-1), [
     "gh",
@@ -45,16 +43,10 @@ test("uploads only the assets a release lacks, and never replaces one", async ()
     "upload",
     release.tag,
     "/d/package/dist/openapi.json",
-    "/d/package/dist/admin-openapi.json",
   ]);
   assert.ok(fresh.calls.every((call) => !call.includes("--clobber")));
 
-  const partial = fakeGh(["openapi.json"]);
-  assert.deepEqual(await uploadReleaseAssets({ ...release, runner: partial.runner }), [
-    "admin-openapi.json",
-  ]);
-
-  const complete = fakeGh(["openapi.json", "admin-openapi.json"]);
+  const complete = fakeGh(["openapi.json"]);
   assert.deepEqual(await uploadReleaseAssets({ ...release, runner: complete.runner }), []);
   assert.ok(complete.calls.every((call) => call[2] !== "upload"));
 
@@ -72,14 +64,14 @@ test("extracts assets from the package tarball, byte for byte", async () => {
     const packed = join(temporary, "packed");
     await mkdir(join(packed, "package", "dist"), { recursive: true });
     await writeFile(join(packed, "package", "dist", "openapi.json"), '{"openapi":"3.2.0"}\n');
-    await writeFile(join(packed, "package", "dist", "admin-openapi.json"), '{"openapi":"3.2.0","a":1}\n');
+    await writeFile(join(packed, "package", "dist", "other.json"), '{"openapi":"3.2.0","a":1}\n');
     const tarball = join(temporary, "runtime.tgz");
     execFileSync("tar", ["-czf", tarball, "-C", packed, "package"]);
     const out = join(temporary, "out");
     await mkdir(out);
-    const [tenant, admin] = await extractAssets(tarball, RELEASE_ASSETS.runtime, out);
-    assert.equal(await readFile(tenant, "utf8"), '{"openapi":"3.2.0"}\n');
-    assert.equal(await readFile(admin, "utf8"), '{"openapi":"3.2.0","a":1}\n');
+    const [runtime, other] = await extractAssets(tarball, [...RELEASE_ASSETS.runtime, "other.json"], out);
+    assert.equal(await readFile(runtime, "utf8"), '{"openapi":"3.2.0"}\n');
+    assert.equal(await readFile(other, "utf8"), '{"openapi":"3.2.0","a":1}\n');
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

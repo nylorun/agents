@@ -218,14 +218,14 @@ try {
         );
       await ready();
       console.log(`[failure] Runtime killed and restarted (${elapsed()})`);
-      const admin = await stack.admin();
-      await eventually(async () => (await admin.status()).aggregate?.harness?.connected === 1, {
+      // /ready reports the Tenant's harnesses (no key).
+      await eventually(async () => (await stack.ready()).harness?.connected === 1, {
         timeout: 120_000,
         interval: 500,
         message: "the harness to connect to the restarted Runtime",
       });
       assert.equal(await harnessStarted(), harnessBefore, "the harness container kept running");
-      assert.equal((await admin.status()).aggregate.harness.mode, "remote");
+      assert.equal((await stack.ready()).harness.mode, "remote");
 
       // The restarted Worker takes the session over once the dead lease lapses, re-sends the
       // journaled call and joins it: the turn completes with one provider call.

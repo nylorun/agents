@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { deriveStudioToken } from "@nylorun/admin";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
-import { AdminStatusSchema } from "@nylorun/core/contracts";
 import { MemoryExecution } from "../../src/execution/memory.js";
 import { createHost } from "../../src/host/create-host.js";
 import { createHostExecution } from "../../src/host/execution.js";
@@ -26,7 +25,7 @@ import type { TenantConfig } from "../../src/tenant/types.js";
 import { configForRoot } from "../tenant/support.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
 import { tenantTestDatabase } from "../support/database.js";
-import { ADMIN_KEY, adminHeaders, freePort, getJson } from "./support.js";
+import { ADMIN_KEY, freePort, getJson } from "./support.js";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -97,7 +96,6 @@ async function startHost(options: { overrides?: Record<string, string>; gate?: P
     hostRoot,
     module,
     config,
-    credentials: { adminKey: ADMIN_KEY },
     logger,
     coreVersion: "test",
     ...(infra.readiness ? { readiness: infra.readiness } : {}),
@@ -155,12 +153,10 @@ describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
     expect(ready.body).toMatchObject({ checks: { postgres: true, s2: false } });
   });
 
-  it("creates its Tenant in its database and serves it, and admin shutdown ends the infrastructure", async () => {
-    const { host, listening, infra, steps } = await startHost();
+  it("creates its Tenant in its database and serves it, and shutdown ends the infrastructure", async () => {
+    const { host, listening, infra, steps, module } = await startHost();
     await listening;
-    const status = AdminStatusSchema.parse(
-      (await getJson(`${host.url}/v1/admin/status`, { headers: adminHeaders() })).body,
-    );
+    const status = { tenant: module.tenant() };
     expect(status.tenant).toMatchObject({ name: "pg", state: "open" });
     const tenantId = status.tenant.id!;
     const tenant = await getJson(`${host.url}/v1/tenant`, {
@@ -173,11 +169,8 @@ describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
     // The envelope, and its Postgres schema version, is the same everywhere.
     expect((tenant.body as { tenant: unknown }).tenant).toEqual(status.tenant.envelope);
 
-    const shutdown = await getJson(`${host.url}/v1/admin/host/shutdown`, {
-      method: "POST",
-      headers: adminHeaders(),
-    });
-    expect(shutdown.status).toBe(200);
+    // What SIGTERM does (host/main.ts).
+    void host.close();
     await host.closed;
     expect(steps).toEqual(["worker", "infra"]);
     await expect(infra.database!`select 1`).rejects.toThrow();

@@ -9,7 +9,7 @@
  * reset again afterwards.
  */
 import { randomUUID } from "node:crypto";
-import { hostTenant, runtimeHeaders } from "./stack.mjs";
+import { runtimeHeaders } from "./stack.mjs";
 
 /** The Host feature a fixture-model Tenant needs. */
 export const FIXTURE_MODEL_FEATURE = "tenant-fixture-model";
@@ -30,20 +30,21 @@ export async function resetStackTenant({ runtimeUrl, managementKey }) {
 }
 
 /**
- * `managementKey`: a management key for the Tenant (`stack.managementKey()`).
- * @param {{ admin: { url: string, adminUrl: string, status(): Promise<{ tenant: { id: string | null, state: string } }>, keys: { put(id: string): Promise<{ key: string }> } }, managementKey: string, name: string, log?: (line: string) => void }} options
+ * `stack`: a started Tenant (`withStack`); `stack.tenant()` gives its id, the checks'
+ * application key and their management key.
+ * @param {{ stack: { runtimeUrl?: string, tenant(): Promise<{ id: string, key: string, managementKey: string }> }, name: string, log?: (line: string) => void }} options
  * @param {(tenant: { id: string, key: string, managementKey: string, env: Record<string, string> }) => Promise<T>} fn
  * @template T
  */
-export async function withResetTenant({ admin, managementKey, name, log = console.log }, fn) {
-  if (!managementKey) throw new Error("withResetTenant needs a management key (stack.managementKey()).");
-  const runtimeUrl = admin.url.replace(/\/$/, "");
+export async function withResetTenant({ stack, name, log = console.log }, fn) {
+  if (!stack.runtimeUrl) throw new Error("withResetTenant needs a started Tenant (stack.start).");
+  const runtimeUrl = stack.runtimeUrl.replace(/\/$/, "");
   const health = await (await fetch(`${runtimeUrl}/health`, { signal: AbortSignal.timeout(5_000) })).json();
   if (!health.protocol?.features?.includes(FIXTURE_MODEL_FEATURE))
     throw new Error(
       `The Runtime at ${runtimeUrl} (${health.version ?? "?"}) lacks Host feature ${FIXTURE_MODEL_FEATURE}.`,
     );
-  const { id, key } = await hostTenant(admin);
+  const { id, key, managementKey } = await stack.tenant();
   await resetStackTenant({ runtimeUrl, managementKey });
   try {
     const seeded = await fetch(`${runtimeUrl}/v1/tenant/config/seed`, {

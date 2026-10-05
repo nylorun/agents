@@ -2,8 +2,8 @@
  * The principals the Host gives its Tenant when it creates it (tenancy.md §4): the Studio
  * principal, whose key the admin key derives, so Studio (and an app embedding it) stores none,
  * and, for the ephemeral Runtime, one application principal with a key of its own. The Tenant
- * keeps only their hashes. Every other application key is an operator key
- * (`PUT /v1/admin/keys/{id}`, `operator-keys.ts`); no other key is derived.
+ * keeps only their hashes. Every other key is put by name (`PUT /v1/tenant/keys/{keyId}`,
+ * `nylorun-operate keys`, `operator-keys.ts`); no other key is derived.
  *
  * The derivation is the one `@nylorun/admin` computes on the client side
  * (`admin/src/derived-credentials.ts`: `deriveStudioToken`); both sides must stay byte for byte

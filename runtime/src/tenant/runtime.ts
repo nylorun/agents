@@ -15,7 +15,7 @@
  */
 import type { ServerResponse, IncomingMessage } from "node:http";
 import { mkdirSync } from "node:fs";
-import type { TenantEnvelope } from "@nylorun/core/contracts";
+import type { HarnessStatus, TenantEnvelope } from "@nylorun/core/contracts";
 import { resolveFlowLimits, type FlowLimits } from "../core/limits.js";
 import {
   scriptedModel,
@@ -101,7 +101,6 @@ import { hostAuthority, type HostAuthority } from "../sandbox/join.js";
 import { reconcileSandbox } from "../sandbox/pods/reconcile.js";
 import type { TenantPods } from "./context.js";
 import { sandboxWorkspaceReader } from "../artifacts/workspace.js";
-import { operatorKeys, type OperatorKeys } from "./operator-keys.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -551,9 +550,8 @@ export class TenantRuntime implements TenantHandle {
     return this.ctx.harness.attach(channel, peer);
   }
 
-  /** The Tenant's operator keys (F9 I1), over its store. */
-  operatorKeys(): OperatorKeys {
-    return operatorKeys(this.ctx.store);
+  harnessStatus(): HarnessStatus {
+    return harnessStatusOf(this.ctx);
   }
 
 

@@ -1,6 +1,6 @@
 /**
  * The Harness API listener (F6.2): core's own port for harnesses (`NYLORUN_HARNESS_LISTEN_*`,
- * default 4200), apart from the Tenant and Admin APIs. It accepts the harness credential
+ * default 4200), apart from the Runtime and Management APIs. It accepts the harness credential
  * (`NYLORUN_HARNESS_TOKEN`), and nothing else does; nothing else is served here.
  *
  * An upgrade is accepted only on `/nylorun/harness/v1`, with a `Host` in the allowlist (421),

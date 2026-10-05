@@ -14,10 +14,9 @@ import {
   temporaryDir,
   temporaryHome,
   testDeps,
+  readyResponse,
   type FakeKeys,
 } from "./support.js";
-
-const TENANT_ID = "tn_01TESTSTACK000000000000001";
 
 const psUp = {
   code: 0,
@@ -42,8 +41,7 @@ async function running(options: { project?: boolean } = {}) {
       const { hostId } = JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { hostId: string };
       return json({ status: "ok", version: "0.10.0-beta", hostId });
     }
-    if (path === "/v1/admin/status")
-      return json({ tenant: { id: TENANT_ID, name: "t", state: "open", envelope: null } });
+    if (path === "/ready") return readyResponse();
     if (path === "/v1/me")
       return bearerIn(keys.values(), init)
         ? json({ kind: "application" })
@@ -158,6 +156,18 @@ describe("nylorun key", () => {
       message: "The Tenant is not open: The database holds no Tenant yet: start the Runtime first",
       exitCode: 7,
     });
+    // /ready says the Tenant is not open: refused before nylorun-operate runs.
+    const notReady = Object.assign(
+      async (url: string, init?: RequestInit) =>
+        url.endsWith("/ready") ? readyResponse(false) : await deps.fetch(url, init),
+      { requests: [] },
+    );
+    const docker = fakeDocker({ respond: (args) => (args.includes("ps") ? psUp : undefined) });
+    await expect(keyCommand({ ...deps, fetch: notReady, docker }, ["list"])).rejects.toMatchObject({
+      message: 'Tenant home-root is not open. See "nylorun status".',
+      exitCode: 7,
+    });
+    expect(docker.calls.some((args) => args.includes("nylorun-operate"))).toBe(false);
     const missing = fakeDocker({
       respond: (args) =>
         args.includes("ps")

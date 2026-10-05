@@ -332,7 +332,7 @@ export async function tenantReset(ctx: TenantContext): Promise<void> {
   wiring.retire(generations.retired);
 }
 
-/** Tenant status of the streams seam (for `GET /v1/tenant` and the Admin API). */
+/** Tenant status of the streams seam (for `GET /v1/tenant`). */
 export interface StreamsStatus {
   /** The streams' service answered a probe (`probeStreams`) within the timeout. */
   reachable: boolean;

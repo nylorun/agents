@@ -8,7 +8,7 @@
 // sandbox pod (`pod-stack.mjs`):
 //
 // - open: the Harness API, the gates and egress-gate on the host address;
-// - closed: Postgres, Restate (8080, 9070), s2, the runtime (4000, 4001) and the gateway's own
+// - closed: Postgres, Restate (8080, 9070), s2, the runtime (4000, 4200) and the gateway's own
 //   port on their Compose addresses, the runtime's and Restate's published ports on the host
 //   address, another pod in the namespace, the API server (10.96.0.1:443), kube-dns,
 //   1.1.1.1:443 and the metadata address 169.254.169.254;
@@ -44,7 +44,7 @@ try {
       postgres: [5432],
       restate: [8080, 9070, 9080],
       "s2-lite": [80],
-      runtime: [4000, 4001, 4200],
+      runtime: [4000, 4200],
       harness: [4300],
       gateway: [4100, 4200],
       sandboxes: [4300],
@@ -54,7 +54,7 @@ try {
       const address = await addressOf(`${project}-${service}`);
       if (address) for (const port of servicePorts) closed.push([`${service}`, address, port]);
     }
-    for (const [label, port] of [["runtime (published)", ports.runtime], ["admin (published)", ports.admin], ["Restate admin (published)", ports.restate], ["Postgres", 5432], ["Restate", 8080]])
+    for (const [label, port] of [["runtime (published)", ports.runtime], ["Restate admin (published)", ports.restate], ["Postgres", 5432], ["Restate", 8080]])
       if (port) closed.push([label, host, port]);
     const dns = (await kubectl(["get", "service", "kube-dns", "-n", "kube-system", "-o", "jsonpath={.spec.clusterIP}"])).trim();
     closed.push(

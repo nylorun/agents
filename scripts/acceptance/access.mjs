@@ -332,9 +332,7 @@ try {
   const images = await ensureImages();
   await withStack({ name: "nylorun-access", images, startArgs: ["--no-studio"] }, async (stack) => {
     const runtime = stack.runtimeUrl;
-    const admin = await stack.admin();
-    const managementKey = await stack.managementKey();
-    await withResetTenant({ admin, managementKey, name: "access" }, async (tenant) => {
+    await withResetTenant({ stack, name: "access" }, async (tenant) => {
       const app = createClient({
         url: tenant.env.NYLORUN_RUNTIME_URL,
         key: tenant.env.NYLORUN_SERVER_KEY,

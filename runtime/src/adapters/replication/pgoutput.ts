@@ -186,7 +186,7 @@ export function createPgoutputSource(options: PgoutputSourceOptions): ChangeSour
     },
     async lag() {
       // An idle relay confirms one byte past the last record, ahead of pg_current_wal_lsn():
-      // that is no lag, not -1 (the Admin status refuses a negative lag).
+      // that is no lag, not -1.
       const { rows } = await pool.query<{ lag: string | null }>(
         `SELECT GREATEST(pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn), 0)::text AS lag
          FROM pg_replication_slots WHERE slot_name = $1`,

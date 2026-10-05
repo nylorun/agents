@@ -133,7 +133,7 @@ export interface HarnessApiServer {
   close(): void;
 }
 
-/** The Harness API's state, for Tenant and admin status. */
+/** The Harness API's state, for Tenant status and `/ready`. */
 export interface HarnessStatus {
   readonly connected: number;
   readonly workspace: boolean;

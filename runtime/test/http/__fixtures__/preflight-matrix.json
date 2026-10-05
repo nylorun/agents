@@ -311,7 +311,8 @@
     "status": 403
   },
   "GET /v1/admin/tenants": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "no Origin: OPTIONS /v1/agents": {
     "status": 204,

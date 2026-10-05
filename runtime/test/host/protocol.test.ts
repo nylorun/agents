@@ -45,7 +45,7 @@ it("C3: unsupported Nylorun-Protocol returns 426 before resolve", async () => {
   expect(resolve).not.toHaveBeenCalled();
 });
 
-it("C3: admin routes require protocol before admin auth", async () => {
+it("C3: the Admin API's old paths require the protocol first, as any route does", async () => {
   const { url } = await startTestHost();
   const missing = await getJson(`${url}/v1/admin/host`, {
     headers: { authorization: `Bearer ${"0".repeat(64)}` },

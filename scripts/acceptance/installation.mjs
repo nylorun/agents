@@ -10,14 +10,16 @@
  * NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE). One Tenant serves the selected
  * cases and is reset at the end. I5 needs no containers.
  *
- * I1  one Tenant per installation: the Admin API reports exactly one, open;
- *     Runtime and Management API requests without Nylorun-Tenant work, each with
- *     its own key; /v1/admin/tenants is 404
+ * I1  one Tenant per installation: nylorun-operate status, /ready and nylorun status
+ *     report exactly one, open; Runtime and Management API requests without
+ *     Nylorun-Tenant work, each with its own key; there is no Admin API (/v1/admin/*
+ *     is 404, even with the admin key) and no operator port
  * I2  protocol 4 compatibility: Nylorun-Tenant naming the Host's Tenant works,
  *     naming another Tenant is the opaque 404
  * I3  a request outside the protocol range fails with 426 before any mutation
  * I4  a Tenant restart (stop, start) restores sessions and agents; a database whose schema is
- *     newer than the Runtime leaves the Tenant unavailable (schema-too-new)
+ *     newer than the Runtime leaves the Tenant unavailable (schema-too-new), which
+ *     nylorun status reports
  * I5  sandbox reconciliation stays inside the Tenant's prefix (packed Runtime library)
  * I6  concurrent `nylorun start` on a running Tenant changes nothing; a refused
  *     start (host.json from a newer CLI) leaves the Tenant running
@@ -32,7 +34,6 @@ import { randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { ProcessGroup } from "../lib/processes.mjs";
 import { npm, packageName, root } from "../lib/repo.mjs";
 import {
@@ -249,13 +250,20 @@ async function i5(temporary, packed) {
 }
 
 // ── I1: one Tenant per installation ──
-async function i1(url, stack, admin, adminKey) {
-  const hostStatus = await admin.status();
-  const { tenant } = hostStatus;
-  assert.equal(hostStatus.tenants, undefined, "the Admin API reports one Tenant, not a list");
+async function i1(url, stack, adminKey) {
+  const operated = await stack.operateStatus();
+  const { tenant } = operated;
+  assert.equal(operated.tenants, undefined, "nylorun-operate reports one Tenant, not a list");
   assert.equal(tenant.state, "open", JSON.stringify(tenant));
   assert.match(tenant.id ?? "", /^tn_[0-9a-z]{26}$/);
-  const { key } = await hostTenant(admin);
+  assert.equal((await stack.ready()).checks.tenant, true, "/ready reports the Tenant open");
+  const reported = JSON.parse((await stack.nylorun(["status", "--json"], { echo: false })).stdout);
+  assert.deepEqual(
+    { id: reported.tenant?.id, state: reported.tenant?.state, ready: reported.runtime.ready },
+    { id: tenant.id, state: "open", ready: true },
+    "nylorun status reports the Tenant",
+  );
+  const { key } = await hostTenant(stack);
   const managementKey = await stack.managementKey();
   // Nothing in a request selects the Tenant: no Nylorun-Tenant header anywhere.
   await request(url, "/v1/tenant/config/seed", {
@@ -297,48 +305,46 @@ async function i1(url, stack, admin, adminKey) {
     (await runtimeGet(url, key, "/v1/endpoints")).endpoints.map((e) => e.url),
     ["http://localhost:9/installation"],
   );
-  // The Host creates its Tenant itself: the Admin API has no Tenant routes.
-  for (const method of ["GET", "POST"]) {
-    const routes = await request(admin.adminUrl, "/v1/admin/tenants", {
+  // The Host creates its Tenant itself, and there is no Admin API: no request accepts the
+  // admin key, and no operator port is published.
+  for (const [method, path] of [
+    ["GET", "/v1/admin/status"],
+    ["GET", "/v1/admin/keys"],
+    ["GET", "/v1/admin/tenants"],
+    ["POST", "/v1/admin/tenants"],
+  ]) {
+    const routes = await request(url, path, {
       method,
       headers: { authorization: `Bearer ${adminKey}`, [PROTOCOL_HEADER]: PROTOCOL },
       ...(method === "POST" ? { body: { name: "should-not-create", idempotencyKey: randomUUID() } } : {}),
     });
-    assert.equal(routes.status, 404, `${method} /v1/admin/tenants on the operator listener`);
+    assert.equal(routes.status, 404, `${method} ${path} with the admin key`);
   }
-  const onRuntimePort = await request(url, "/v1/admin/tenants", {
-    headers: { authorization: `Bearer ${adminKey}`, [PROTOCOL_HEADER]: PROTOCOL },
-  });
-  assert.equal(onRuntimePort.status, 404, "the Runtime port serves no admin routes");
-  assert.equal((await admin.status()).tenant.id, tenant.id, "still the one Tenant");
-  pass("I1", "one open Tenant per installation; its APIs need no Nylorun-Tenant; /v1/admin/tenants is 404");
+  const stackEnv = await readFile(join(stack.home, "docker", ".env"), "utf8");
+  assert.doesNotMatch(stackEnv, /NYLORUN_ADMIN_PORT/, "no operator port is published");
+  assert.equal((await stack.operateStatus()).tenant.id, tenant.id, "still the one Tenant");
+  pass("I1", "one open Tenant per installation; its APIs need no Nylorun-Tenant; no Admin API or operator port");
 }
 
 // ── I2: protocol 4 compatibility ──
-async function i2(url, admin) {
-  const { id, key } = await hostTenant(admin);
+async function i2(url, stack) {
+  const { id, key } = await hostTenant(stack);
   const v4 = (tenantId) => ({ [PROTOCOL_HEADER]: "4", [TENANT_HEADER]: tenantId });
   assert.equal(await status(url, "/v1/me", key, v4(id)), 200, "a protocol 4 client naming the Host's Tenant");
   assert.equal(await status(url, "/v1/agents", key, v4(id)), 200);
   const other = await request(url, "/v1/agents", { key, headers: v4(OTHER_TENANT) });
   assert.equal(other.status, 404, "a protocol 4 client naming another Tenant");
-  // Opaque: the same answer as an admin route on the Runtime port.
-  const opaque = await request(url, "/v1/admin/status");
+  // Opaque: the same answer as an unknown key.
+  const opaque = await request(url, "/v1/agents", { key: "0".repeat(64) });
   assert.equal(opaque.status, 404);
   assert.deepEqual(await other.json(), await opaque.json(), "the miss names nothing");
   pass("I2", "Nylorun-Tenant naming the Host's Tenant works; naming another is the opaque 404");
 }
 
 // ── I3: protocol range ──
-async function i3(url, admin, adminKey) {
-  const { key } = await hostTenant(admin);
-  // The packed admin client speaks the Runtime's protocol.
-  assert.equal((await admin.status()).tenant.state, "open");
+async function i3(url, stack) {
+  const { key } = await hostTenant(stack);
   assert.equal(await status(url, "/v1/me", key), 200);
-  const adminRejected = await request(admin.adminUrl, "/v1/admin/status", {
-    headers: { authorization: `Bearer ${adminKey}`, [PROTOCOL_HEADER]: "99" },
-  });
-  assert.equal(adminRejected.status, 426, await adminRejected.text());
   const rejected = await request(url, "/v1/agents/too-new", {
     method: "PUT",
     key,
@@ -358,8 +364,8 @@ async function i3(url, admin, adminKey) {
 }
 
 // ── I9: Project link rules ──
-async function i9(url, stack, admin, temporary) {
-  const { id, key } = await hostTenant(admin);
+async function i9(url, stack, temporary) {
+  const { id, key } = await hostTenant(stack);
   const project = join(temporary, "project-i9");
   await mkdir(project);
   await writeFile(join(project, "package.json"), '{"name":"link-demo"}');
@@ -446,7 +452,7 @@ async function i6(url, stack) {
 }
 
 // ── I8: two Projects linked to one Tenant run `npm run dev` at once ──
-async function i8(url, stack, admin, packed, temporary) {
+async function i8(url, stack, packed, temporary) {
   const makeProject = async (name) => {
     const project = join(temporary, `project-${name}`);
     await mkdir(join(project, "agents"), { recursive: true });
@@ -480,7 +486,7 @@ async function i8(url, stack, admin, packed, temporary) {
   };
   const names = ["alpha-dev", "beta-dev"];
   const projects = await Promise.all(names.map(makeProject));
-  const { id, key } = await hostTenant(admin);
+  const { id, key } = await hostTenant(stack);
   const group = new ProcessGroup();
   try {
     const devs = projects.map((project, index) =>
@@ -518,9 +524,9 @@ async function i8(url, stack, admin, packed, temporary) {
 }
 
 // ── I4: restart restores sessions; a too-new schema leaves the Tenant unavailable ──
-async function i4(stack, admin) {
+async function i4(stack) {
   const url = stack.runtimeUrl;
-  const { id, key } = await hostTenant(admin);
+  const { id, key } = await hostTenant(stack);
   const managementKey = await stack.managementKey();
   await putAgent(url, key, "restart-agent", "restart-agent-name");
   await putSession(url, key, "sess-restart", "restart-agent");
@@ -529,7 +535,7 @@ async function i4(stack, admin) {
   assert.equal(await status(url, "/v1/sessions/sess-restart", key), 200);
   const agents = await runtimeGet(url, key, "/v1/agents");
   assert.ok(agents.agents.some((agent) => agent.manifest.name === "restart-agent-name"));
-  assert.equal((await admin.status()).tenant.id, id, "the same Tenant after a restart");
+  assert.equal((await stack.operateStatus()).tenant.id, id, "the same Tenant after a restart");
   pass("I4", "a Tenant restart restores sessions and agents");
 
   // The Runtime records the migrations it applied in Drizzle's journal,
@@ -545,18 +551,26 @@ async function i4(stack, admin) {
   );
   // Only the Runtime restarts: `nylorun start` would wait for the Tenant to open.
   await stack.compose(["restart", "runtime"]);
+  // `nylorun status` reports the cause from nylorun-operate status in the runtime container.
   const unavailable = await eventually(
     async () => {
-      const { tenant } = await admin.status();
-      // While the runtime restarts, status can say `unavailable` before the open has a cause.
-      return tenant.state === "unavailable" && tenant.cause ? tenant : undefined;
+      const { tenant } = JSON.parse(
+        (await stack.nylorun(["status", "--json"], { check: false, echo: false })).stdout,
+      );
+      // While the runtime restarts, status can say `unavailable` before it names a cause.
+      return tenant?.state === "unavailable" && tenant.cause ? tenant : undefined;
     },
     { timeout: 120_000, message: "the Tenant to be unavailable with a cause" },
   );
-  assert.equal(unavailable.cause?.code, "schema-too-new", JSON.stringify(unavailable));
+  assert.equal(unavailable.cause, "schema-too-new", JSON.stringify(unavailable));
+  // nylorun-operate reads the cause from the database, so it can name it before the restarted
+  // Runtime listens: wait for the Runtime to answer, not ready.
+  await eventually(
+    async () => (await fetch(`${url}/ready`, { signal: AbortSignal.timeout(5_000) })).status === 503,
+    { timeout: 120_000, message: "the restarted Runtime to answer /ready with 503 (readiness fails)" },
+  );
   assert.equal(await status(url, "/v1/agents", key), 404, "the unavailable Tenant does not serve (opaque 404)");
   assert.equal(await status(url, "/v1/tenant", managementKey), 404, "nor its Management API");
-  assert.equal((await fetch(`${url}/ready`)).status, 503, "readiness fails");
   pass("I4", "a database schema newer than the Runtime leaves the Tenant unavailable (schema-too-new) and fails readiness");
 }
 
@@ -585,21 +599,18 @@ try {
       async (stack) => {
         assertNotRealHome(stack.home);
         const url = stack.runtimeUrl;
-        const admin = await stack.admin(
-          pathToFileURL(join(tools, "node_modules/@nylorun/admin/dist/index.js")).href,
-        );
         const { adminKey } = JSON.parse(
           await readFile(join(stack.home, "host-credentials.json"), "utf8"),
         );
-        if (selected("I1")) await i1(url, stack, admin, adminKey);
-        if (selected("I2")) await i2(url, admin);
-        if (selected("I3")) await i3(url, admin, adminKey);
-        if (selected("I9")) await i9(url, stack, admin, temporary);
+        if (selected("I1")) await i1(url, stack, adminKey);
+        if (selected("I2")) await i2(url, stack);
+        if (selected("I3")) await i3(url, stack);
+        if (selected("I9")) await i9(url, stack, temporary);
         if (selected("I7")) await i7(url, stack, packed, temporary);
         if (selected("I6")) await i6(url, stack);
-        if (selected("I8")) await i8(url, stack, admin, packed, temporary);
+        if (selected("I8")) await i8(url, stack, packed, temporary);
         // Last: it restarts the Tenant and leaves its Tenant unavailable.
-        if (selected("I4")) await i4(stack, admin);
+        if (selected("I4")) await i4(stack);
       },
     );
   }

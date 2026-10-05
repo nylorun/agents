@@ -162,14 +162,6 @@ async function ensureBucket(
   }
 }
 
-/** The slot's lag in WAL bytes, when the source can tell. */
-async function lagOf(source: {
-  lag?(): Promise<number | undefined>;
-}): Promise<{ lagBytes?: number }> {
-  const lagBytes = await source.lag?.().catch(() => undefined);
-  return lagBytes === undefined ? {} : { lagBytes };
-}
-
 /**
  * The gateway's services: the Model Gate's listener (gates, keys) and egress-gate's (egress), over
  * the Postgres pool and the Host's tenant directory. Writes nothing to the Host root (the local
@@ -325,9 +317,6 @@ export async function main(): Promise<void> {
   // running core runs one, once the Tenant is open (the relay reads its id); the replication
   // slot lets exactly one be active. Without S2, the Tenant relays its own commits.
   let relay: StreamRelay | undefined;
-  let relayLag:
-    | (() => Promise<ReturnType<StreamRelay["status"]> & { lagBytes?: number }>)
-    | undefined;
   if (streams && stack.services.has("core")) await assertLogicalReplication(database);
   const startRelay = (tenantId: string) => {
     if (!streams || !stack.services.has("core") || relay) return;
@@ -342,8 +331,6 @@ export async function main(): Promise<void> {
       streams,
       log: (message, fields) => logger.info(message, fields),
     });
-    const status = relay.status;
-    relayLag = async () => ({ ...status(), ...(await lagOf(source)) });
     relay.start();
   };
   // With the gates service the Tenant's vault-backed model calls, remote MCP calls and Action
@@ -408,31 +395,17 @@ export async function main(): Promise<void> {
     }),
     logger,
     onOpen: (handle) => startRelay(handle.envelope.id),
-    relayStatus: async () => {
-      if (!relayLag) throw new Error("no relay");
-      return relayLag();
-    },
   });
 
   const options: CreateHostOptions = {
     hostRoot,
     module,
     config,
-    credentials,
     logger,
     coreVersion: coreVersion(),
     ...(stack.listen ? { listen: stack.listen } : {}),
-    ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
-    // The Admin API on its own listener: from the container environment, or from host.json
-    // (loopback, on the same host) when the Host runs outside a container.
-    ...(stack.operator
-      ? { operator: stack.operator }
-      : !stack.listen && typeof config.adminPort === "number"
-        ? { operator: { host: config.host, port: config.adminPort } }
-        : {}),
     ...(infra.readiness ? { readiness: infra.readiness } : {}),
-    // SIGTERM and POST /v1/admin/host/shutdown both close the Host this way:
-    // stop the Worker and the relay, close the Tenant, then end the infrastructure clients.
+    // SIGTERM closes the Host this way: stop the Worker and the relay, close the Tenant, then end the infrastructure clients.
     shutdown: {
       beforeTenants: async () => {
         await hostExecution.stop();
@@ -456,8 +429,8 @@ export async function main(): Promise<void> {
   // listener starts and opens the Tenant (migrating its database, creating it on
   // first start); opening arms its sweep, which recovers wakes lost with
   // Restate's state (§14.8), and starts the stream relay. A Tenant that cannot
-  // be opened leaves the Host listening but not ready, with the cause in
-  // `/v1/admin/status`.
+  // be opened leaves the Host listening but not ready; `nylorun-operate status` names the
+  // cause.
   // The Harness API listener (NYLORUN_HARNESS=remote): only harnesses connect here, with the
   // harness credential, and only while the Tenant is open.
   let harnessListener: HarnessListener | undefined;

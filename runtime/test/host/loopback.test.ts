@@ -3,7 +3,6 @@ import { expect, it } from "vitest";
 import { ERROR_CODES } from "@nylorun/core/compatibility";
 import { RejectedResponseSchema } from "@nylorun/core/contracts";
 import {
-  adminHeaders,
   createFakeModule,
   getJson,
   startTestHost,
@@ -93,17 +92,13 @@ it("A3: foreign Host is 421 host_rejected on every route including /health", asy
   const routes = [
     "/health",
     "/ready",
-    "/v1/admin/status",
     `/v1/agents`,
   ] as const;
   for (const path of routes) {
     const headers: Record<string, string> = {
       host: `evil.example:${port}`,
     };
-    if (path.startsWith("/v1/admin")) {
-      Object.assign(headers, adminHeaders());
-      headers.host = `evil.example:${port}`;
-    } else if (path.startsWith("/v1/")) {
+    if (path.startsWith("/v1/")) {
       Object.assign(headers, tenantHeaders());
       headers.host = `evil.example:${port}`;
     }
@@ -211,7 +206,6 @@ it("A6: security rejections match RejectedResponseSchema and ERROR_CODES", async
     },
     {
       headers: {
-        ...adminHeaders(),
         host: `127.0.0.1:${port}`,
         "content-type": "application/xml",
       },
@@ -222,7 +216,7 @@ it("A6: security rejections match RejectedResponseSchema and ERROR_CODES", async
     },
   ];
   for (const c of cases) {
-    const res = await rawRequest(`${url}/v1/admin/status`, {
+    const res = await rawRequest(`${url}/health`, {
       method: c.method ?? "GET",
       headers: c.headers,
       body: c.body,

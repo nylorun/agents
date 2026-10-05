@@ -1,29 +1,19 @@
+/**
+ * Shutdown: `close()`, which SIGTERM calls (`host/main.ts`). There is no shutdown route since
+ * the Admin API went (protocol 8).
+ */
 import { expect, it } from "vitest";
-import {
-  adminHeaders,
-  createFakeModule,
-  getJson,
-  startTestHost,
-} from "./support.js";
+import { createFakeModule, getJson, startTestHost } from "./support.js";
 
-it("C6: admin shutdown stops accepting", async () => {
+it("C6: close stops accepting", async () => {
   const module = createFakeModule();
   const { url, host } = await startTestHost({ module });
-
-  const shutdown = await getJson(`${url}/v1/admin/host/shutdown`, {
-    method: "POST",
-    headers: adminHeaders(),
-  });
-  expect(shutdown.status).toBe(200);
-
-  // Allow close to finish.
-  await new Promise((r) => setTimeout(r, 50));
+  expect((await getJson(`${url}/health`)).status).toBe(200);
   await host.close();
-
   await expect(getJson(`${url}/health`)).rejects.toThrow();
 });
 
-it("admin shutdown stops the Worker, closes the Tenants, then the infrastructure, and settles closed", async () => {
+it("close stops the Worker, closes the Tenants, then the infrastructure, and settles closed", async () => {
   const steps: string[] = [];
   const base = createFakeModule();
   const module = {
@@ -33,21 +23,17 @@ it("admin shutdown stops the Worker, closes the Tenants, then the infrastructure
       await base.close();
     },
   };
-  const { url, host } = await startTestHost({
+  const { host } = await startTestHost({
     module,
     shutdown: {
       beforeTenants: async () => void steps.push("worker"),
       afterTenants: async () => void steps.push("infra"),
     },
   });
-  const shutdown = await getJson(`${url}/v1/admin/host/shutdown`, {
-    method: "POST",
-    headers: adminHeaders(),
-  });
-  expect(shutdown.status).toBe(200);
+  void host.close();
   await host.closed;
   expect(steps).toEqual(["worker", "tenants", "infra"]);
-  // A second close (SIGTERM after the route) runs nothing again.
+  // A second close (SIGTERM, then SIGINT) runs nothing again.
   await host.close();
   expect(steps).toEqual(["worker", "tenants", "infra"]);
 });

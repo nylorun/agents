@@ -37,11 +37,11 @@ replace `nylo tenant status|reset|endpoints`. `nylorun dev` was removed: run
 
 ## `nylo status`
 
-Reads the Tenant API status (`GET /v1/tenant`) and prints the Tenant, the
-Runtime URL, the checks, the counts and the sandbox
+Reads the Management API's status (`GET /v1/tenant`, with a management key) and
+prints the Tenant, the Runtime URL, the checks, the counts and the sandbox
 backend. When the Tenant is not open it does not answer; `nylo status` then
-asks the Admin API (`/v1/admin/status`, through the local Tenant's Host root or
-`NYLORUN_ADMIN_URL` and `NYLORUN_ADMIN_KEY`) and prints why, with the repair.
+fails and says to run `npx nylorun status`, which reports why from the
+Runtime's container (`nylorun-operate status`).
 
 ## `nylo reset`
 

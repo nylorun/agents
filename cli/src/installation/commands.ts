@@ -4,7 +4,6 @@
  * Runtime API's (its application key).
  */
 import { createInterface } from "node:readline/promises";
-import { createAdmin, type HostTenant } from "@nylorun/admin";
 import { createClient } from "@nylorun/agents";
 import { CliError } from "../errors.js";
 import {
@@ -25,7 +24,10 @@ const clientFor = (connection: LinkedConnection) => {
   return createClient({ url: connection.url, key: connection.key });
 };
 
-/** `nylo status [--json]`: the Tenant, its checks and counts; the Host's cause when it is not open. */
+/**
+ * `nylo status [--json]`: the Tenant, its checks and counts. A Tenant that is not open does not
+ * answer: `npx nylorun status` reports why.
+ */
 export async function statusCommand(args: readonly string[]): Promise<void> {
   const json = args.includes("--json");
   if (args.some((a) => a !== "--json"))
@@ -33,51 +35,31 @@ export async function statusCommand(args: readonly string[]): Promise<void> {
   const root = projectRoot();
   const connection = await linkedConnection(root);
   const admin = managementClient(connection);
-  let reason: unknown;
+  let body: Awaited<ReturnType<typeof admin.tenant.status>>;
   try {
-    const body = await admin.tenant.status();
-    if (json) {
-      console.log(JSON.stringify(body, null, 2));
-      return;
-    }
-    console.log(`${body.tenant.name}  ${body.tenant.id}`);
-    console.log(`runtime  ${connection.url}`);
-    console.log(`path     ${body.path}`);
-    console.log(
-      `checks   ${Object.entries(body.checks)
-        .map(([k, v]) => `${k}=${v ? "ok" : "fail"}`)
-        .join(" ")}`,
-    );
-    console.log(
-      `counts   sessions=${body.counts.sessions} running=${body.counts.runningSessions} pending=${body.counts.pendingActions}`,
-    );
-    console.log(`sandbox  ${body.sandbox.backend ?? "none"}`);
-    return;
+    body = await admin.tenant.status();
   } catch (error) {
-    // A Tenant that is not open does not answer: the Admin API says why.
-    reason = error;
-  }
-  let tenant: HostTenant;
-  try {
-    tenant = (await createAdmin({ cwd: root }).status()).tenant;
-  } catch {
     throw new CliError(
-      reason instanceof Error
-        ? reason.message
-        : `The Tenant at ${connection.url} is not reachable.`,
+      `${(error instanceof Error ? error.message : `The Tenant at ${connection.url} is not reachable`).replace(/\.?$/, ".")} Run "npx nylorun status" to see the Tenant's state and why it is not open.`,
       1,
     );
   }
   if (json) {
-    console.log(JSON.stringify({ tenant }, null, 2));
+    console.log(JSON.stringify(body, null, 2));
     return;
   }
-  console.log(`${tenant.name ?? "(unreadable)"}  ${tenant.id ?? "(unknown)"}  ${tenant.state}`);
+  console.log(`${body.tenant.name}  ${body.tenant.id}`);
   console.log(`runtime  ${connection.url}`);
-  if (tenant.cause) {
-    console.log(`reason   ${tenant.cause.code}: ${tenant.cause.message}`);
-    console.log(`repair   ${tenant.cause.repair}`);
-  }
+  console.log(`path     ${body.path}`);
+  console.log(
+    `checks   ${Object.entries(body.checks)
+      .map(([k, v]) => `${k}=${v ? "ok" : "fail"}`)
+      .join(" ")}`,
+  );
+  console.log(
+    `counts   sessions=${body.counts.sessions} running=${body.counts.runningSessions} pending=${body.counts.pendingActions}`,
+  );
+  console.log(`sandbox  ${body.sandbox.backend ?? "none"}`);
 }
 
 const RESET_USAGE = "Usage: nylo reset [--sessions|--sandboxes|--all] [--yes]";

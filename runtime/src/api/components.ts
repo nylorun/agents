@@ -82,8 +82,6 @@ import {
   ArtifactTreeSchema,
   ArtifactDiffSchema,
   SessionCommandSchema,
-  AdminStatusSchema,
-  HostShutdownResponseSchema,
   ListOperatorKeysResponseSchema,
   PutOperatorKeyResponseSchema,
   DeleteOperatorKeyResponseSchema,
@@ -101,8 +99,6 @@ function named<T extends z.ZodType>(id: string, schema: T): T {
 
 export const Rejected = named("Rejected", RejectedResponseSchema);
 export const ProtocolRejected = named("ProtocolRejected", ProtocolRejectedResponseSchema);
-export const AdminStatus = named("AdminStatus", AdminStatusSchema);
-export const HostShutdownResponse = named("HostShutdownResponse", HostShutdownResponseSchema);
 export const OperatorKey = named("OperatorKey", OperatorKeySchema);
 export const ListOperatorKeysResponse = named(
   "ListOperatorKeysResponse",

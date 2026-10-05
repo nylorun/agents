@@ -14,8 +14,8 @@
 // - the gates: the keys service and deliveries with a run, host or egress token, model calls with
 //   a host or egress token → 401;
 // - the Harness API listener: the pod's join token replayed from another pod (the probe's UID),
-//   a wrong join token, renewal with an egress, run or stale-epoch host token → 401; the Tenant
-//   and Admin APIs' routes with a host or run token → never answered.
+//   a wrong join token, renewal with an egress, run or stale-epoch host token → 401; the Runtime
+//   and Management APIs' routes with a host or run token → never answered.
 import assert from "node:assert/strict";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { tenantTokenIssuer } from "@nylorun/core/contracts";
@@ -99,9 +99,9 @@ try {
     // The replays moved nothing: the pod's egress token still works at its epoch.
     assert.equal(await connect(`${ALLOWED_HOST}:443`, egress), 200, "the refused joins left the host epoch alone");
 
-    step("the Harness API listener serves neither the Runtime API, the Management API nor the Admin API");
+    step("the Harness API listener serves neither the Runtime API nor the Management API");
     for (const [label, token] of [["host", hostToken], ["run", runToken]])
-      for (const path of ["/v1/sessions", "/v1/tenant", "/v1/tenant/keys", "/v1/tenant/vaults", "/v1/admin/status", "/nylorun/v1/keys/sign"]) {
+      for (const path of ["/v1/sessions", "/v1/tenant", "/v1/tenant/keys", "/v1/tenant/vaults", "/nylorun/v1/keys/sign"]) {
         const status = await http(host, ports.harness, "GET", path, bearer(token));
         assert.ok(!(status >= 200 && status < 400), `GET ${path} with a ${label} token on the Harness API answered ${status}`);
       }

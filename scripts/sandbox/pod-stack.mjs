@@ -92,7 +92,6 @@ export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
         gates: Number(env.NYLORUN_SANDBOX_GATES_PORT),
         egress: Number(env.NYLORUN_SANDBOX_EGRESS_PORT),
         runtime: Number(env.NYLORUN_PORT),
-        admin: Number(env.NYLORUN_ADMIN_PORT),
         restate: Number(env.NYLORUN_RESTATE_PORT),
       };
       assert.ok(host && ports.harness && ports.gates && ports.egress, "enable records the host address and pod-facing ports");

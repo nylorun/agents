@@ -23,7 +23,6 @@
         "sandboxes",
         "sandbox-pods",
         "trusted-issuers",
-        "operator-keys",
         "session-reads",
         "calls-export"
       ]
@@ -45,7 +44,7 @@
       "applicationKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An application key of the Tenant: an operator key (`PUT /v1/admin/keys/{id}`), or Studio's key, derived from the admin key. With `Nylorun-Subject` and `Nylorun-Scopes`, it acts for that person, narrowed to those scopes. Never accepted from a browser (`Origin`)."
+        "description": "An application key of the Tenant (`PUT /v1/tenant/keys/{keyId}`), or Studio's key, derived from the admin key. With `Nylorun-Subject` and `Nylorun-Scopes`, it acts for that person, narrowed to those scopes. Never accepted from a browser (`Origin`)."
       },
       "managementKey": {
         "type": "http",
@@ -6205,6 +6204,26 @@
             "additionalProperties": {
               "type": "boolean"
             }
+          },
+          "harness": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "remote",
+                  "in-process"
+                ]
+              },
+              "connected": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "mode",
+              "connected"
+            ]
           }
         },
         "required": [
@@ -21716,7 +21735,7 @@
           "Host"
         ],
         "summary": "Check the Runtime is ready",
-        "description": "The listeners, the Tenant (open), Postgres, Restate and S2.",
+        "description": "The listener, the Tenant (open), Postgres, Restate and S2, and the open Tenant's harnesses.",
         "responses": {
           "200": {
             "description": "Ready",

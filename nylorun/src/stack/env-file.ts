@@ -14,8 +14,6 @@ export const DEFAULT_STUDIO_FRAME_ANCESTORS: readonly string[] = [];
 export interface StackEnv {
   /** Published Runtime port (loopback): the Tenant API. */
   runtimePort: number;
-  /** Published operator port (loopback): the Admin API. */
-  adminPort: number;
   /** Published Studio port (loopback). */
   studioPort: number;
   /** Restate UI and admin port (loopback), published only with `restateUi`. */
@@ -97,7 +95,6 @@ const SANDBOX_KEYS = {
 
 const KEYS = {
   runtimePort: "NYLORUN_PORT",
-  adminPort: "NYLORUN_ADMIN_PORT",
   studioPort: "NYLORUN_STUDIO_PORT",
   restatePort: "NYLORUN_RESTATE_PORT",
   restateUi: "NYLORUN_RESTATE_UI",
@@ -150,7 +147,6 @@ export function renderEnvFile(env: StackEnv): string {
     "",
     "# Published on 127.0.0.1; clients use http://localhost:<port>.",
     line("runtimePort"),
-    line("adminPort"),
     line("studioPort"),
     "# Restate's UI and admin (unauthenticated) are published only with",
     "# nylorun start --restate-ui (or NYLORUN_RESTATE_UI=1); decided on every start.",
@@ -237,7 +233,6 @@ function port(value: string | undefined): number | undefined {
 /** The settings that persist across starts, from an existing .env. */
 export interface PersistedStackEnv {
   runtimePort?: number;
-  adminPort?: number;
   studioPort?: number;
   restatePort?: number;
   /** Whether the last start published Restate's UI (`NYLORUN_RESTATE_UI=1`). */
@@ -274,8 +269,6 @@ export function parsePersisted(text: string): PersistedStackEnv {
   const out: PersistedStackEnv = {};
   const runtimePort = port(values.get(KEYS.runtimePort));
   if (runtimePort) out.runtimePort = runtimePort;
-  const adminPort = port(values.get(KEYS.adminPort));
-  if (adminPort) out.adminPort = adminPort;
   const studioPort = port(values.get(KEYS.studioPort));
   if (studioPort) out.studioPort = studioPort;
   const restatePort = port(values.get(KEYS.restatePort));

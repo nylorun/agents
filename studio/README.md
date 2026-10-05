@@ -54,10 +54,10 @@ session cookie; `nylorun studio --tenant <name>` opens any of them signed in.
    [Studio behind a sign-in proxy](../DEPLOYMENT.md#studio-behind-a-sign-in-proxy).
 
 Studio serves its installation's one Tenant: there is no Tenant list, picker
-or create. It reads the Tenant from the Admin API (`admin.status().tenant`), and
-`/` redirects to `/tenants/<id>`. While the Host cannot open its Tenant, `/`
-answers `503` with the cause and its repair, the dashboard shows the same, and
-Studio asks the Admin API again on the next request. The `/tenants/<id>` routes
+or create. It reads the Tenant from the Runtime's `GET /v1/tenant` with its own
+key, and `/` redirects to `/tenants/<id>`. While the Host cannot open its
+Tenant, `/` answers `503` and points to `nylorun status` for the cause, the
+dashboard shows the same, and Studio asks the Runtime again on the next request. The `/tenants/<id>` routes
 and the `tenant` claim of embed login tokens stay (the embed contract); they
 must name that Tenant, and any other id is an unknown Tenant (`404`).
 
