@@ -24,6 +24,12 @@ session cookie; `nylorun studio --tenant <name>` opens any of them signed in.
 
 ## Login and access
 
+Studio on this machine needs no sign-in: a request on the published loopback
+address (`localhost` or `127.0.0.1` at Studio's port) with no session is served
+as signed in, for the whole Tenant and no subject. A host in
+`NYLORUN_STUDIO_ALLOWED_HOSTS` (a sign-in proxy) and an embedded Studio keep
+their sign-in, below.
+
 1. The CLI asks Studio for a login token: `POST /_studio/login-tokens` with the
    Host's admin key. The token is 256 random bits, single-use, and valid for
    two minutes. Its login URL is on the origin the CLI called (`localhost` or
@@ -33,7 +39,7 @@ session cookie; `nylorun studio --tenant <name>` opens any of them signed in.
    `HttpOnly`, `SameSite=Strict` session cookie for 30 days and redirects to
    `next` or `/`.
 3. Every `/_studio/*` request needs that cookie (or an embedded session's
-   bearer). The dashboard's files carry no data and the `/` redirect names only
+   bearer, or the loopback address). The dashboard's files carry no data and the `/` redirect names only
    the Tenant id, so they need none. The `Host` header must be `localhost` or
    `127.0.0.1` on the published port, or a host in
    `NYLORUN_STUDIO_ALLOWED_HOSTS` (any other answers `421`);
@@ -65,9 +71,10 @@ A Tenant with no agents shows its name, full Tenant id and Runtime connection
 status, with a short link to the documentation. Developers can use the SDK, CLI
 or any Runtime API client; the agent list appears when the first agent registers.
 Existing sessions open with their original owner and sandbox settings.
-The dashboard calls the Tenant API through
-`/_studio/tenants/<id>/runtime/…`, which the server forwards with the Tenant's
-Studio key (derived from the admin key and the Tenant id in memory) and no
+The dashboard calls the Runtime through
+`/_studio/tenants/<id>/runtime/…`, which the server forwards with Studio's key
+(`deriveStudioToken(adminKey)`, derived from the admin key in memory; role
+`studio`, which reaches the Runtime API and the Management API) and no
 `Nylorun-Tenant` header. No Runtime, admin or Tenant credential ever reaches
 the browser.
 
@@ -76,7 +83,8 @@ assistant responses and tool inputs/results, restores history, observes
 canonical SSE events, and cancels a turn. Each session shows chat beside an
 **Events** inspector and an optional Agent Manifest tab. **Tenant settings** groups
 Overview, Models and Credentials. Credentials lists installation vaults and
-manages their URL-bound bearer or OAuth credentials through the Tenant API;
+manages their URL-bound bearer or OAuth credentials through the Management API
+(`@nylorun/admin/client`, `/v1/tenant/vaults`); Overview and Models use it too;
 secret reads return metadata only. Attach vaults explicitly using `vaultIds` when
 creating a session with the SDK or API. Studio-created sessions attach none.
 Personal MCP credentials come from the operator's external resolver. Use

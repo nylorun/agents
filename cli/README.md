@@ -21,12 +21,16 @@ nylo endpoints [--json]|ping <agent>  # the registered Action endpoints and thei
 nylo access signing-keys …            # the Tenant's signing keys: list, rotate, revoke
 nylo configure                        # set or replace the Tenant's model provider
 nylo env                              # export lines for the linked Project
-nylo doctor sandbox [--json]          # sandbox backend via the Tenant API
+nylo doctor sandbox [--json]          # sandbox backend via the Management API
 ```
 
 Every command acts on the linked installation: the Project link and
 credentials (below), or `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY` when the
 Project has no link. An installation serves one Tenant, so nothing selects it.
+`status`, `reset`, `access`, `configure` and `doctor` use the Management API
+with the Project's management key, or `NYLORUN_MANAGEMENT_KEY` (with
+`NYLORUN_RUNTIME_URL` when there is no link); `endpoints` uses the Runtime API
+with the application key.
 
 Local Tenant commands (`up`, `down`, `start`, `stop`, `logs`, `studio`) exit 2
 naming `npx nylorun <command>`. `nylo tenant …` exits 2: `npx nylorun start`
@@ -55,7 +59,9 @@ not in a terminal. The Project link and credentials are kept.
 
 - `.nylorun/link.json`: `{ format: 3, tenant, hostUrl, hostId, tenantId }`
   (`tenant` is the local Tenant's name; `tenantId` is information)
-- `.nylorun/credentials.json`: the operator key `project` and its id (0600)
+- `.nylorun/credentials.json` (0600): the application key `project` and the
+  management key `project-management`, with their ids (`applicationKey`,
+  `principalId`, `managementKey`, `managementPrincipalId`)
 - `.nylorun/.gitignore` containing `*`
 
 A link from an older nylorun (format 0 to 2): `nylo` refuses it and says to run
@@ -85,7 +91,9 @@ eval "$(npx @nylorun/cli env)"
 | Symptom | What to do |
 | --- | --- |
 | No Runtime answers | `npx nylorun start`, then `npx nylorun status` |
-| Tenant not open | `nylo status` shows the cause and its `repair` |
+| Tenant not open | `npx nylorun status` shows the cause and its `repair` |
+| No management key | `npx nylorun start` in the project writes one; elsewhere set `NYLORUN_MANAGEMENT_KEY` |
+| `403 key_role_mismatch` | The key belongs to the other API: a management key for the Management API, an application key for the Runtime API |
 | Old Project link refused | `npx nylorun start` in the project |
 | `426` from the Runtime | Upgrade the CLI, or pin a matching older set |
 

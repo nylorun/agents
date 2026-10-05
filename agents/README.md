@@ -1,7 +1,9 @@
 # @nylorun/agents
 
-Tenant API client package: definition authoring, a session client, and the
-Action endpoint that runs your tools (`createActionHandler`). Depends only on `@nylorun/core` among Nylorun
+Runtime API client package: definition authoring, a session client, and the
+Action endpoint that runs your tools (`createActionHandler`). The Tenant's
+settings, models, vaults, signing keys and application keys are the Management
+API's, through [`@nylorun/admin`](../admin/README.md). Depends only on `@nylorun/core` among Nylorun
 packages. A developer application's production tree should contain only this
 package and `@nylorun/core` from Nylorun. Vocabulary:
 [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
@@ -74,7 +76,7 @@ const assistant = Agent({ id: "assistant", name: "Assistant" })
     }),
   );
 
-// Explicit Tenant API client (options or env / link via createClient()).
+// Explicit Runtime API client (options or env / link via createClient()).
 const client = createClient({
   url: process.env.NYLORUN_RUNTIME_URL,
   key: process.env.NYLORUN_SERVER_KEY,
@@ -377,7 +379,7 @@ no reasoning, state, activity or subagent events, and an agent used as a tool
 shows only its result; frontend tools in `RunAgentInput.tools` are rejected
 (`400`); one text part per user message; earlier messages cannot be edited or
 regenerated. A browser reaches the Runtime only with a trusted issuer's token,
-never with a Tenant key.
+never with a key.
 
 ## A2A
 
@@ -495,12 +497,12 @@ completes.
 ## Acting for a person (app servers)
 
 A server that signs people in and calls the Runtime for them (an "app server")
-keeps the Tenant key to itself and names the person on each call:
+keeps its application key to itself and names the person on each call:
 
 ```ts
 import { createClient } from "@nylorun/agents";
 
-const app = createClient(); // the Tenant key, on the server only
+const app = createClient(); // the application key, on the server only
 
 // Per request, after your own sign-in:
 const person = app.as(`app:${user.id}`, { scopes: ["sessions:own"] });
@@ -519,22 +521,26 @@ compatibility check, so calling `as()` per request is cheap.
 | --- | --- |
 | `sessions:own` | The person's own sessions: create, list, read, stream, message, approve, respond, cancel; and their artifacts |
 | `agents:read` | Listing the Tenant's agents |
-| `agents:write` | Saving agents; listing agents, models and providers |
-| `tenant:settings` | The Tenant's status, model provider and sandbox settings |
+| `agents:write` | Saving agents; listing agents |
 
-No scope reaches Tenant reset, config seed, Action endpoints, actions, vaults or
-the sandbox tool routes; call those without `as()`. Vaults are the
-installation's (`createVault({ scope: "installation", … })`); a person's own
-credentials come from your credential resolver
+No scope reaches Action endpoints, actions or the sandbox tool routes; call
+those without `as()`. `tenant:settings` is retired (protocol 8): it grants
+nothing, and no subject reaches the Management API (`/v1/tenant/*`). Vaults are
+the installation's, created through the Management API with a management key
+(`admin.vaults.create({ scope: "installation", … })` in
+[`@nylorun/admin`](../admin/README.md)); a session attaches them with
+`vaultIds`, and a person's own credentials come from your credential resolver
 ([DEPLOYMENT.md](../DEPLOYMENT.md#credentials)). A subject is 1–200 visible ASCII
 characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act
 for a subject.
 
-The Tenant's signing keys sign delivery tokens and capability links:
-`app.access.signingKeys.list()`, `.rotate()` (`{ force: true }` for incidents),
-`.revoke(kid)` and `app.access.jwks()`, or `nylo access signing-keys …` from the
-terminal.
+The Tenant's signing keys sign delivery tokens and capability links.
+`app.access.jwks()` reads the public keys (`GET /v1/access/jwks`, no key
+needed), which `createActionHandler` verifies deliveries with. Listing, rotating
+and revoking them is management: `admin.signingKeys.list()`, `.rotate()`
+(`{ force: true }` for incidents) and `.revoke(kid)` in `@nylorun/admin`, or
+`nylo access signing-keys …` from the terminal.
 
 ## In the browser
 

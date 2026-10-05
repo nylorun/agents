@@ -5,7 +5,7 @@ belongs to Nylorun. It shows each front door of [SELF_HOSTING.md](../../SELF_HOS
 
 - people sign in with **Keycloak**, and their access tokens call the Runtime directly (a trusted
   issuer in [`identity.yaml`](./identity.yaml));
-- a backend uses an **operator key** and acts for any person with `Nylorun-Subject`;
+- a backend uses an **application key** and acts for any person with `Nylorun-Subject`;
 - a person's own MCP credential comes from **OpenBao** through a **credential resolver**
   ([`resolver/resolver.mjs`](./resolver/resolver.mjs), about 50 lines, no dependencies);
 - **oauth2-proxy** signs people in to Studio, and only those with the `studio` scope get in.
@@ -30,7 +30,7 @@ so the runtime fetches Keycloak's keys at `http://keycloak:8080`, the gateway re
 
 ## Run it
 
-Needs Docker with Compose v2, Node.js 24, `curl`, and a `nylorun` release that speaks protocol 7.
+Needs Docker with Compose v2, Node.js 24, `curl`, and a `nylorun` release that speaks protocol 8.
 Run the commands from this directory. `--no-link` keeps the Tenant from linking a project here.
 
 ```sh
@@ -68,7 +68,7 @@ and naming the `studio` scope.
 1. `GET /v1/me` with ben's token renders `issuer:keycloak`, the subject `u:<Keycloak user id>`,
    `agents:read` and `sessions:own` but not `studio`, and the sandbox grant `acme/*`; ada's has
    `studio`. A request with an `Origin` and ben's token is served.
-2. An operator key (`nylorun key put smoke`, which rotates that key on each run) acts for any
+2. An application key (`nylorun key put smoke`, which rotates that key on each run) acts for any
    person: it creates an agent, then a session for ben and one for another person with
    `Nylorun-Subject`. The same key sent with an `Origin` is `403 origin_rejected`.
 3. ben's token lists his session and not the other one, gets `404` for the other one, `403` for a

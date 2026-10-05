@@ -41,7 +41,7 @@ export async function accessCommand(
   }
   if (topic === "policy" || topic === "keys" || topic === "revoke" || topic === "token")
     throw usageError(
-      `nylo access ${topic} was removed: the Runtime no longer mints subject tokens or keeps an access policy, browser keys or revocations (protocol 7). Trust your identity provider's tokens with an identity file, and give servers an operator key (nylorun key put <id>).`
+      `nylo access ${topic} was removed: the Runtime no longer mints subject tokens or keeps an access policy, browser keys or revocations (protocol 7). Trust your identity provider's tokens with an identity file, and give servers an application key (nylorun key put <id>).`
     );
   throw usageError();
 }

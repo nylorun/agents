@@ -1,3 +1,196 @@
+# Runtime and Management APIs (protocol 8)
+
+Every Tenant now serves two APIs on its one URL, split by route and by key. The **Runtime API**
+is for developers: everything under `/v1` but `/v1/tenant/*` (agents, Action endpoints and
+deliveries, sessions with AG-UI and A2A, sandboxes, artifacts, `/v1/me` and the JWKS). It takes
+application keys, trusted issuers' tokens and delivery tokens, through `@nylorun/agents`. The
+**Management API** is for operators: `/v1/tenant/*` (models, vaults, signing keys, settings,
+application keys, seed and reset) and `GET /v1/oauth/callback`. It takes **management keys**
+only, through `@nylorun/admin`. The Admin API and its operator listener are gone: Host work runs
+on the machine, with `nylorun` or `nylorun-operate`.
+[SELF_HOSTING.md](./SELF_HOSTING.md#keys) describes the result.
+
+The protocol is now 8, with the required feature `management-api`. A Runtime of this release
+serves protocols 4 to 8: an older client keeps reaching the Runtime API, whose routes keep their
+request and response shapes, but not `/v1/tenant/*` with an application key, nor the moved and
+removed paths. Upgrade every package together (`@nylorun/core`, `@nylorun/runtime`,
+`@nylorun/agents`, `@nylorun/admin`, `@nylorun/cli`, `nylorun` and Studio; `nylorun start` pins
+the matching images). Old paths answer `404`, with no alias.
+
+**Who is affected.** A developer on a local Tenant who uses the SDK with the Project link, Studio,
+`nylo` and `nylorun` has nothing to do: the first `nylorun start` of this release gives the
+project a management key beside its application key. You are affected if you:
+
+- configure the Tenant (models, budgets, sandbox or artifact settings, seed, reset) with an
+  application key, or act for a subject with `tenant:settings`;
+- create vaults or rotate signing keys from an app (`client.createVault`,
+  `client.access.signingKeys`, `/v1/vaults`, `/v1/access/signing-keys`);
+- call the Admin API (`/v1/admin/*`, `admin.status()`, `NYLORUN_ADMIN_URL` and
+  `NYLORUN_ADMIN_KEY`), or issue keys with it;
+- run a Runtime yourself with `NYLORUN_ADMIN_LISTEN_*` or `adminPort`, or proxy `/v1/admin`;
+- embed Studio and derive its key with `deriveStudioToken(adminKey, tenantId)`;
+- publish or read `admin-openapi.json`.
+
+What to do:
+
+1. **`/v1/tenant/*` → a management key and `@nylorun/admin`.** An application key there, alone or
+   acting for a subject, is `403 key_role_mismatch`, and so is a management key on any other
+   route but `/v1/me` and the public `GET /v1/access/jwks`. Get a management key (step 5), then
+   move the calls to `createAdmin()`, which reads `NYLORUN_RUNTIME_URL` and
+   `NYLORUN_MANAGEMENT_KEY`, or the Project link's management key:
+
+   ```ts
+   // Before: an application key, by hand
+   await fetch(`${url}/v1/tenant/sandbox`, {
+     method: "PUT",
+     headers: { authorization: `Bearer ${process.env.NYLORUN_SERVER_KEY}`, "nylorun-protocol": "7", "content-type": "application/json" },
+     body: JSON.stringify({ default: "virtual" }),
+   });
+
+   // After: a management key
+   import { createAdmin } from "@nylorun/admin";
+
+   const admin = createAdmin();
+   await admin.settings.sandbox.put({ default: "virtual" });
+   ```
+
+   Over HTTP, send the management key with `Nylorun-Protocol: 8`. The groups are
+   `admin.tenant` (status, seed, reset), `admin.keys`, `admin.models` (catalog, providers,
+   credentials, selection, usage, budgets), `admin.vaults`, `admin.signingKeys` and
+   `admin.settings` (sandbox, artifacts) ([admin/README.md](./admin/README.md)). `nylo status`,
+   `reset`, `configure`, `doctor` and `access signing-keys` use the Project's management key, or
+   `NYLORUN_MANAGEMENT_KEY`. `/v1/tenant/models` and `/v1/tenant/providers` no longer admit
+   `agents:write` subjects: apps don't read the model catalog.
+2. **Vaults and signing keys moved to the Management API.** `/v1/vaults…` (including
+   `…/oauth/start`) is now `/v1/tenant/vaults…`, and `/v1/access/signing-keys…` is
+   `/v1/tenant/signing-keys…`, for management keys only. `@nylorun/agents` drops the vault
+   methods (`createVault`, `listVaults`, `getVault`, `deleteVault`, `createCredential`,
+   `listCredentials`, `getCredential`, `rotateCredential`, `deleteCredential`),
+   `client.access.signingKeys` and `SigningKeysClient`:
+
+   ```ts
+   // Before (@nylorun/agents, an application key)
+   const vault = await client.createVault({ scope: "installation", name: "tools", idempotencyKey: "tools" });
+   await client.createCredential(vault.id, { name: "linear", idempotencyKey: "linear", auth });
+   const { vaults } = await client.listVaults();
+   await client.access.signingKeys.rotate();
+
+   // After (@nylorun/admin, a management key)
+   const vault = await admin.vaults.create({ scope: "installation", name: "tools", idempotencyKey: "tools" });
+   await admin.vaults.credentials.create(vault.id, { name: "linear", idempotencyKey: "linear", auth });
+   const vaults = await admin.vaults.list(); // the array itself
+   await admin.signingKeys.rotate();
+   ```
+
+   An MCP OAuth connect starts with `admin.vaults.startOAuth(vaultId, { url, server,
+   clientId? })`; `nylorun mcp connect` already does. Unchanged: opening a session with
+   `vaultIds`, `GET /v1/oauth/callback` (providers keep the redirect URI they have), and
+   `GET /v1/access/jwks` with `client.access.jwks()`, which Action endpoints verify deliveries
+   with.
+3. **`tenant:settings` is retired.** It leaves `SUBJECT_SCOPES`; `Nylorun-Scopes` may still name
+   it, and it grants nothing. No subject reaches the Management API: a management key with
+   `Nylorun-Subject` or `Nylorun-Scopes` is `403 subject_invalid`, and one sent with an `Origin`
+   is `403 origin_rejected`. An app server that changed settings for a person calls the
+   Management API from the server, as the management key itself, and keeps its own record of
+   who asked.
+4. **The Admin API and the operator listener → the machine.** `/v1/admin/*` (status, host,
+   shutdown, keys, `openapi.json`) answers `404`. The operator listener,
+   `NYLORUN_ADMIN_LISTEN_PORT`, `NYLORUN_ADMIN_LISTEN_HOST`, `NYLORUN_ADMIN_ALLOWED_HOSTS`,
+   `host.json`'s `adminPort` and nylorun's `NYLORUN_ADMIN_PORT` are gone (an existing one in
+   `docker/.env` is ignored and no longer published). `@nylorun/admin` drops `admin.status()`,
+   `adminUrl`, `NYLORUN_ADMIN_URL`, `NYLORUN_ADMIN_KEY`, the Admin API's keys and
+   `OPERATOR_KEYS_FEATURE`. Host work runs on the Tenant's machine:
+
+   ```sh
+   # Before: the Admin API on the operator port
+   curl -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8788/v1/admin/status
+   curl -X PUT -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8788/v1/admin/keys/backend
+
+   # After: a local Tenant
+   npx nylorun status                       # runs nylorun-operate status in the runtime container
+   npx nylorun key put backend              # an application key
+   npx nylorun stop
+
+   # After: a Runtime you run yourself
+   docker compose exec runtime nylorun-operate status --json
+   kubectl exec <runtime pod> -- nylorun-operate keys list
+   ```
+
+   `nylorun-operate status [--json]` reports the version, protocol and the Tenant's id, name,
+   state and cause, and exits 2 when the Tenant is not open; it needs no key, so it works when
+   the Tenant cannot open. The Tenant's own status over HTTP is `admin.tenant.status()`
+   (`GET /v1/tenant`). `/ready` adds `harness: { mode, connected }`, and `nylorun start` waits
+   for `/ready`. Stop a Runtime with SIGTERM. `startEphemeralRuntime` loses `operatorListener`
+   and `adminUrl`, takes `managementKey`, and returns it (the key `bootstrap`).
+5. **Issue management keys on the machine.** No API call creates one, so a leaked key can't mint
+   another. `nylorun start` gives a linked project `project-management` (and keeps `cli-management`
+   outside a project), in `.nylorun/credentials.json` (`managementKey`,
+   `managementPrincipalId`; still format 1) and the Host root's credentials files. Elsewhere:
+
+   ```sh
+   npx nylorun key put ci --management                                       # a local Tenant
+   docker compose exec runtime nylorun-operate keys put ci --role management  # your own Compose file
+   kubectl exec <runtime pod> -- nylorun-operate keys put ci --role management
+   ```
+
+   Or mount a **bootstrap secret**: a file holding a key of 64 lowercase hex characters
+   (`openssl rand -hex 32`), named by `NYLORUN_MANAGEMENT_KEY_FILE` on the runtime. The Runtime
+   registers it as the management key `bootstrap` at every start, and replaces it when the file
+   changes. Give the tool `NYLORUN_RUNTIME_URL` and `NYLORUN_MANAGEMENT_KEY`. Application keys
+   now come from a management key: `admin.keys.put(id)` or `PUT /v1/tenant/keys/{keyId}`, which
+   refuse a management key's id, `studio` and `bootstrap`; `nylorun key put <id>` still works.
+   Existing keys stay application keys.
+6. **Self-hosted Runtime and reverse proxy.** Remove `NYLORUN_ADMIN_LISTEN_*` and `adminPort`, and
+   the proxy's `/v1/admin` block: the Runtime has one listener and the path answers `404`.
+   Optionally answer `/v1/tenant/*` with `403` outside your operator networks, leaving
+   `/v1/oauth/callback` open
+   ([DEPLOYMENT.md](./DEPLOYMENT.md#reaching-the-runtime-from-another-machine)). Clients that
+   check `/health` look for `management-api`: `operator-keys` is gone, and the Host advertises
+   `admin-status` only for protocol 5 to 7 clients. Migration `0011_key_roles` gives the `studio`
+   principal its role. The reference documents are `GET /openapi/runtime.json` (alias
+   `/openapi.json`) and `GET /openapi/management.json`, with no key; the package and each release
+   ship `openapi.json` and `management-openapi.json`, which replaces `admin-openapi.json`.
+7. **Studio: key v2, and no login on loopback.** Studio's key is derived from the admin key alone
+   (HMAC-SHA256 over `nylorun/studio/v2`), and the Host registers the new key's hash at its next
+   start, replacing the old one. An app that embeds Studio and derives its key updates the call:
+
+   ```ts
+   // Before
+   const studioKey = deriveStudioToken(adminKey, tenantId);
+   // After
+   const studioKey = deriveStudioToken(adminKey);
+   ```
+
+   `mintStudioLoginToken` is unchanged, and embedding keeps its login. Local Studio needs no
+   login on its published loopback address (`localhost` or `127.0.0.1` at its port); a host
+   behind a sign-in proxy keeps its sign-in. Studio reads its Tenant from `GET /v1/tenant` with
+   its own key, and its Connections page manages vaults at `/v1/tenant/vaults`.
+
+| Before | After |
+| --- | --- |
+| An application key on `/v1/tenant/*` | A management key: `createAdmin()` (`NYLORUN_RUNTIME_URL` + `NYLORUN_MANAGEMENT_KEY`) |
+| `client.createVault`, `listVaults`, `getVault`, `deleteVault`, `createCredential`, `listCredentials`, `getCredential`, `rotateCredential`, `deleteCredential`; `/v1/vaults…` | `admin.vaults.create`, `list`, `get`, `delete`, `credentials.create`, `.list`, `.get`, `.rotate`, `.delete`; `/v1/tenant/vaults…` |
+| `POST /v1/vaults/{vaultId}/oauth/start` | `admin.vaults.startOAuth(vaultId, …)`; `POST /v1/tenant/vaults/{vaultId}/oauth/start` |
+| `client.access.signingKeys.list`, `rotate`, `revoke`; `SigningKeysClient`; `/v1/access/signing-keys…` | `admin.signingKeys.list`, `rotate`, `revoke`; `/v1/tenant/signing-keys…` |
+| `tenant:settings` | Retired: the Management API as the management key itself |
+| `GET /v1/admin/status`, `GET /v1/admin/host`, `admin.status()` | `nylorun status`, `nylorun-operate status`; `admin.tenant.status()` for the open Tenant |
+| `POST /v1/admin/host/shutdown` | `nylorun stop`; SIGTERM |
+| `PUT /v1/admin/keys/{id}`, `GET /v1/admin/keys`, `DELETE /v1/admin/keys/{id}` | `PUT`, `GET`, `DELETE /v1/tenant/keys…` (`admin.keys`, application keys); `nylorun key put <id> [--management]`, `nylorun-operate keys` |
+| `GET /v1/admin/openapi.json`, `@nylorun/runtime/admin-openapi.json` | `GET /openapi/management.json`, `@nylorun/runtime/management-openapi.json` |
+| `GET /openapi.json` | `GET /openapi/runtime.json` (`/openapi.json` stays as its alias) |
+| `NYLORUN_ADMIN_URL`, `NYLORUN_ADMIN_KEY`, `adminUrl` | `NYLORUN_RUNTIME_URL`, `NYLORUN_MANAGEMENT_KEY` |
+| `NYLORUN_ADMIN_PORT`, `NYLORUN_ADMIN_LISTEN_PORT`, `NYLORUN_ADMIN_LISTEN_HOST`, `NYLORUN_ADMIN_ALLOWED_HOSTS`, `adminPort`; the operator listener | One listener; `nylorun-operate` in the runtime container |
+| `startEphemeralRuntime({ operatorListener })`, `.adminUrl` | `managementKey` (option and result) |
+| `deriveStudioToken(adminKey, tenantId)` | `deriveStudioToken(adminKey)` |
+| Required feature `admin-status`; Host feature `operator-keys`; `OPERATOR_KEYS_FEATURE` | Required feature `management-api` |
+| Core: `AdminStatusSchema`, `AdminHostStatusSchema`, `HostAggregateSchema`, `HostShutdownResponseSchema` | Removed; `KEY_ROLES`, `KeyRole`, `BOOTSTRAP_KEY_ID` and the error code `key_role_mismatch` are new |
+
+- **Kept:** every Runtime API route and its shapes, application keys (existing keys stay
+  `application`), `client.as()` with `Nylorun-Subject` and `Nylorun-Scopes`, `vaultIds` on
+  sessions, `GET /v1/access/jwks`, `GET /v1/oauth/callback`, `GET /v1/me` (a management key is
+  `via: management:<id>`), the admin key in `host-credentials.json` (no request accepts it),
+  `mintStudioLoginToken`, and the package name `@nylorun/admin`.
+
 # Open-source auth (protocol 7)
 
 Open source now verifies and enforces, and leaves sign-in, people and their secrets to you.

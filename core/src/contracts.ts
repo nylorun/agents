@@ -941,7 +941,7 @@ export const CreateVaultRequestSchema = z
     /**
      * `user` (the default): one person's vault, owned by `ownerUserId`. `installation`: the
      * installation's own vault, owned by `installation`, which any session may attach;
-     * application keys only.
+     * management keys only (the Management API).
      */
     scope: z.enum(["user", "installation"]).optional(),
     /** Required for a `user` vault; absent (or `installation`) for an installation vault. */
@@ -2274,7 +2274,7 @@ export type ResetTenantRequest = z.infer<typeof ResetTenantRequestSchema>;
  * narrow a request to. `sessions:own` reaches only the subject's own sessions; the others reach
  * Tenant-wide resources. `sandboxes:write` creates and deletes sandboxes (Host feature
  * `sandboxes`); a token caller's reach only the ids its sandbox grants name. Vaults are the
- * installation's, managed by application keys acting for no one (protocol 7).
+ * installation's, managed with management keys on the Management API (protocol 8).
  */
 export const SUBJECT_SCOPES = [
   "agents:read",

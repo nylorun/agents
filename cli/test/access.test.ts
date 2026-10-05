@@ -35,7 +35,7 @@ describe("nylo access", () => {
       const error = await run(args).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(CliError);
       expect((error as CliError).exitCode).toBe(2);
-      expect((error as Error).message).toMatch(/was removed.*identity file.*operator key/s);
+      expect((error as Error).message).toMatch(/was removed.*identity file.*application key/s);
     }
     expect(calls).toEqual([]);
   });

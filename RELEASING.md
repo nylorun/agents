@@ -142,7 +142,7 @@ package has no tarball there.
    fix finishing an interrupted publish).
 3. Check the workflow summary, the images on `ghcr.io/nylorun`, npm
    versions/dist-tags, and package GitHub releases. The Runtime's release carries
-   its OpenAPI documents (`openapi.json`, `admin-openapi.json`), taken from the
+   its OpenAPI documents (`openapi.json`, `management-openapi.json`), taken from the
    tarball npm published; a rerun uploads only a missing one
    and never replaces one (`scripts/release/assets.mjs`).
 

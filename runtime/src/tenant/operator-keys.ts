@@ -28,8 +28,14 @@ import { STUDIO_PRINCIPAL_ID } from "./principals.js";
  */
 export type OperatorKeyRefusal = { reason: "invalid" | "reserved" | "role"; message: string };
 
-/** The refusal for `id`, or undefined when operator keys may use it. */
-export function refuseOperatorKeyId(id: string): OperatorKeyRefusal | undefined {
+/**
+ * The refusal for `id`, or undefined when it may be `put` or deleted. `bootstrap` is never put
+ * here (its file is its only source) but may be deleted on the machine (AP18).
+ */
+export function refuseOperatorKeyId(
+  id: string,
+  purpose: "put" | "delete" = "put",
+): OperatorKeyRefusal | undefined {
   if (!APPLICATION_KEY_ID_PATTERN.test(id))
     return {
       reason: "invalid",
@@ -40,7 +46,7 @@ export function refuseOperatorKeyId(id: string): OperatorKeyRefusal | undefined 
       reason: "reserved",
       message: "The studio key is derived from the admin key: it is not put or deleted here",
     };
-  if (id === BOOTSTRAP_KEY_ID)
+  if (id === BOOTSTRAP_KEY_ID && purpose === "put")
     return {
       reason: "reserved",
       message: "The bootstrap key comes from NYLORUN_MANAGEMENT_KEY_FILE: change that file to rotate it",
@@ -95,7 +101,7 @@ export function operatorKeys(
       }
     },
     async delete(id, role) {
-      const refused = refuseOperatorKeyId(id);
+      const refused = refuseOperatorKeyId(id, "delete");
       if (refused) return refused;
       return await store.tx(async (t) => {
         if (role !== undefined) {
