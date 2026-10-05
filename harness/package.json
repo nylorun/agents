@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/harness",
-  "version": "0.22.2-beta",
+  "version": "0.23.0-beta",
   "description": "Nylorun's TypeScript agent execution engine. See github.com/nylorun/agents.",
   "type": "module",
   "license": "Apache-2.0",
@@ -81,7 +81,7 @@
     "zod": "^4.6.5"
   },
   "dependencies": {
-    "@nylorun/core": "0.14.0-beta"
+    "@nylorun/core": "0.15.0-beta"
   },
   "peerDependencies": {
     "zod": "^4.6.5"

@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/create-agent",
-  "version": "0.13.5-beta",
+  "version": "0.14.0-beta",
   "description": "Create a local Nylorun Harness agent project.",
   "type": "module",
   "license": "Apache-2.0",
