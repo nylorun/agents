@@ -102,7 +102,6 @@ export async function prepareStack(input: {
     return port;
   };
   const runtimePort = await pick(DEFAULT_PORTS.runtime, persisted.runtimePort);
-  const adminPort = await pick(DEFAULT_PORTS.admin, persisted.adminPort);
   const studioPort = await pick(DEFAULT_PORTS.studio, persisted.studioPort);
   const restatePort = await pick(DEFAULT_PORTS.restate, persisted.restatePort);
 
@@ -125,7 +124,6 @@ export async function prepareStack(input: {
 
   const env: StackEnv = {
     runtimePort,
-    adminPort,
     studioPort,
     restatePort,
     postgresPassword: persisted.postgresPassword ?? randomBytes(24).toString("hex"),
@@ -159,7 +157,6 @@ export async function prepareStack(input: {
   await ensureVaultKey(paths);
   const host = await writeStackHostConfig(paths, {
     port: runtimePort,
-    adminPort,
     runtimeVersion: input.runtimeVersion,
   });
   await writeFileMode(paths.env, renderEnvFile(env), 0o600);

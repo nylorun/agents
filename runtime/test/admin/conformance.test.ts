@@ -1,10 +1,7 @@
-import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { z } from "zod";
-import { Agent, tool } from "@nylorun/agents";
 import { createAdmin, deriveStudioToken } from "@nylorun/admin";
 import {
   ERROR_CODES,
@@ -13,9 +10,8 @@ import {
   TENANT_HEADER,
   newTenantId,
 } from "@nylorun/core/compatibility";
-import { AdminStatusSchema, RejectedResponseSchema } from "@nylorun/core/contracts";
+import { RejectedResponseSchema } from "@nylorun/core/contracts";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
-import { startEndpoint } from "../support/endpoint.js";
 import { isolatedTestDatabase } from "../support/store.js";
 
 const closers: { close(): Promise<void> }[] = [];
@@ -27,9 +23,9 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 
-function adminHeaders(adminKey: string): Record<string, string> {
+function keyHeaders(key: string): Record<string, string> {
   return {
-    authorization: `Bearer ${adminKey}`,
+    authorization: `Bearer ${key}`,
     [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
   };
 }
@@ -59,9 +55,7 @@ async function getJson(
   return { status: response.status, body, headers: response.headers };
 }
 
-async function startHost(
-  options: { model?: { kind: "fixture" } } = {},
-) {
+async function startHost() {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-admin-conf-"));
   roots.push(hostRoot);
   // A database of its own: the Host creates its Tenant there.
@@ -70,129 +64,47 @@ async function startHost(
     hostRoot,
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     retainRoot: true,
-    ...(options.model ? { model: options.model } : {}),
     database: database.sql,
   });
   closers.push(runtime, { close: database.drop });
   return { ...runtime, database: database.sql };
 }
 
-it("A7: Admin API conformance — status names the Host's Tenant and its work; no Tenant routes", async () => {
-  // The fixture model calls `lookup_order`, so the Tenant has a delivery in flight.
-  const runtime = await startHost({ model: { kind: "fixture" } });
-  const { url, adminKey, tenantId, applicationKey } = runtime;
-  const headers = adminHeaders(adminKey);
-
-  const status = await getJson(`${url}/v1/admin/status`, { headers });
-  const host = await getJson(`${url}/v1/admin/host`, { headers });
-  expect(status.status).toBe(200);
-  expect(host.status).toBe(200);
-  expect(host.body).toEqual(status.body);
-  const parsedStatus = AdminStatusSchema.parse(status.body);
-  expect(parsedStatus.service).toBe("nylorun-runtime");
-  expect(parsedStatus.host).toEqual({
-    hostId: expect.any(String),
-    url,
-    pid: expect.any(Number),
-  });
-  expect(parsedStatus.host!.hostId).toMatch(/^host_/);
-  expect(parsedStatus.tenant).toEqual({
-    id: tenantId,
-    name: "ephemeral",
-    state: "open",
-    envelope: expect.objectContaining({ id: tenantId, name: "ephemeral" }),
-  });
-  // The client parses the same answer.
-  expect((await createAdmin({ url, key: adminKey }).status()).tenant.id).toBe(tenantId);
-
-  // The Tenant routes of protocol 4 are gone, with the admin key too.
-  for (const [method, path] of [
-    ["GET", "/v1/admin/tenants"],
-    ["POST", "/v1/admin/tenants"],
-    ["GET", `/v1/admin/tenants/${tenantId}`],
-    ["DELETE", `/v1/admin/tenants/${tenantId}?activeWork=cancel`],
-  ] as const) {
-    const gone = await getJson(`${url}${path}`, {
-      method,
-      headers: { ...headers, "content-type": "application/json" },
-      ...(method === "POST" ? { body: JSON.stringify({ name: "second" }) } : {}),
-    });
-    expect(gone.status, `${method} ${path}`).toBe(404);
-    const rejected = RejectedResponseSchema.parse(gone.body);
-    expect(ERROR_CODES).toContain(rejected.code);
+it("A5: the Admin API is gone: /v1/admin/* answers as any unknown route does, with any key", async () => {
+  const runtime = await startHost();
+  const { url, adminKey, managementKey, applicationKey } = runtime;
+  for (const key of [adminKey, managementKey, applicationKey]) {
+    const unknown = await getJson(`${url}/v1/no-such-route`, { headers: keyHeaders(key) });
+    expect(unknown.status).toBe(404);
+    expect(ERROR_CODES).toContain(RejectedResponseSchema.parse(unknown.body).code);
+    for (const [method, path] of [
+      ["GET", "/v1/admin/status"],
+      ["GET", "/v1/admin/host"],
+      ["POST", "/v1/admin/host/shutdown"],
+      ["GET", "/v1/admin/keys"],
+      ["PUT", "/v1/admin/keys/backend"],
+      ["DELETE", "/v1/admin/keys/backend"],
+      ["GET", "/v1/admin/openapi.json"],
+      ["GET", "/v1/admin/tenants"],
+    ] as const) {
+      const gone = await getJson(`${url}${path}`, { method, headers: keyHeaders(key) });
+      expect({ status: gone.status, body: gone.body }, `${method} ${path}`).toEqual({
+        status: unknown.status,
+        body: unknown.body,
+      });
+    }
   }
-
-  const agent = Agent({ id: "conf-agent", name: "Conf" })
-    .use({
-      id: "orders",
-      tools: [
-        tool({
-          name: "lookup_order",
-          input: z.object({ orderId: z.string() }),
-          async run() {
-            return "found";
-          },
-        }),
-      ],
-    })
-    .build();
-  const api = tenantApiHeaders(applicationKey);
-  const saved = await getJson(`${url}/v1/agents/${agent.manifest.id}`, {
-    method: "PUT",
-    headers: api,
-    body: JSON.stringify({
-      requestId: randomBytes(8).toString("hex"),
-      implementationVersion: "dev",
-      manifest: agent.manifest,
-    }),
-  });
-  expect(saved.status).toBe(200);
-
-  // An endpoint that never answers keeps the delivery in flight.
-  const endpoint = await startEndpoint({ runtime: { url }, answer: () => "hang" });
-  closers.push(endpoint);
-  const registered = await getJson(`${url}/v1/endpoints`, {
-    method: "PUT",
-    headers: api,
-    body: JSON.stringify({
-      endpoints: [{ agentId: agent.manifest.id, url: endpoint.url, implementationVersion: "dev" }],
-    }),
-  });
-  expect(registered.status).toBe(200);
-  expect(
-    (
-      await getJson(`${url}/v1/sessions/busy-session`, {
-        method: "PUT",
-        headers: api,
-        body: JSON.stringify({ requestId: "busy-session", agentId: agent.manifest.id, ownerUserId: "user" }),
-      })
-    ).status,
-  ).toBe(200);
-  expect(
-    (
-      await getJson(`${url}/v1/sessions/busy-session/commands`, {
-        method: "POST",
-        headers: api,
-        body: JSON.stringify({ type: "message", requestId: "m1", idempotencyKey: "m1", content: "look it up" }),
-      })
-    ).status,
-  ).toBe(200);
-  await endpoint.next();
-
-  // The Host sees the delivery in flight.
-  let inFlight = 0;
-  for (let i = 0; i < 50 && inFlight === 0; i++) {
-    const snap = await getJson(`${url}/v1/admin/status`, { headers });
-    inFlight = AdminStatusSchema.parse(snap.body).aggregate.inFlightDeliveries;
-    if (inFlight === 0) await new Promise((r) => setTimeout(r, 20));
-  }
-  expect(inFlight).toBe(1);
+  // The old shutdown route stopped nothing; SIGTERM is the only way (host/main.ts).
+  expect((await getJson(`${url}/ready`)).status).toBe(200);
+  const health = (await getJson(`${url}/health`)).body as { protocol: { features: string[] } };
+  expect(health.protocol.features).toContain("management-api");
+  expect(health.protocol.features).not.toContain("operator-keys");
 });
 
 it("the Studio key the admin key derives reaches the Tenant; nothing else derived does", async () => {
   const runtime = await startHost();
-  const { url, adminKey, tenantId, applicationKey } = runtime;
-  const admin = createAdmin({ url, key: adminKey });
+  const { url, adminKey, tenantId, applicationKey, managementKey } = runtime;
+  const admin = createAdmin({ url, key: managementKey });
   const agents = (key: string, tenant?: string) =>
     getJson(`${url}/v1/agents`, { headers: tenantApiHeaders(key, tenant) });
 

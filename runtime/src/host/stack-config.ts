@@ -256,16 +256,10 @@ export interface StackConfig {
   listen?: ContainerListen;
   endpoints: StackEndpoints;
   /**
-   * The URL clients use to reach this Host (`NYLORUN_PUBLIC_URL`), reported by
-   * `/v1/admin/status`. In container mode the bind address (`0.0.0.0:4000`)
-   * means nothing outside the container.
+   * The URL clients use to reach this Host (`NYLORUN_PUBLIC_URL`). In container mode the bind
+   * address (`0.0.0.0:4000`) means nothing outside the container.
    */
   publicUrl?: string;
-  /**
-   * The operator listener in container mode (`NYLORUN_ADMIN_LISTEN_PORT`, `…_HOST`,
-   * `…_ALLOWED_HOSTS`). Absent: one listener serves the Admin API and the Tenant API.
-   */
-  operator?: ContainerListen;
   /**
    * How the Runtime may call Action endpoints: `NYLORUN_ENDPOINT_LOOPBACK=docker-host` (the local
    * stack: `localhost` means the machine that runs Docker), `NYLORUN_ENDPOINT_PRIVATE`
@@ -499,36 +493,6 @@ function parseListen(env: EnvSnapshot): ContainerListen | undefined {
   return { host, port, allowedHosts };
 }
 
-function parseAdminListen(env: EnvSnapshot): ContainerListen | undefined {
-  const rawPort = read(env, "NYLORUN_ADMIN_LISTEN_PORT");
-  const rawHost = read(env, "NYLORUN_ADMIN_LISTEN_HOST");
-  const rawAllowed = read(env, "NYLORUN_ADMIN_ALLOWED_HOSTS");
-  if (rawPort === undefined) {
-    if (rawHost !== undefined || rawAllowed !== undefined)
-      throw new StackConfigError(
-        "NYLORUN_ADMIN_LISTEN_PORT is required with NYLORUN_ADMIN_LISTEN_HOST or NYLORUN_ADMIN_ALLOWED_HOSTS",
-      );
-    return undefined;
-  }
-  const host = rawHost ?? DEFAULT_CONTAINER_LISTEN_HOST;
-  if (/\s|\//.test(host))
-    throw new StackConfigError(`NYLORUN_ADMIN_LISTEN_HOST is not an address: ${host}`);
-  const port = parsePort("NYLORUN_ADMIN_LISTEN_PORT", rawPort);
-  const explicit =
-    rawAllowed === undefined
-      ? []
-      : rawAllowed
-          .split(",")
-          .map((entry) => entry.trim())
-          .filter((entry) => entry !== "")
-          .map((entry) => normalizeAllowedHost("NYLORUN_ADMIN_ALLOWED_HOSTS", entry));
-  if (explicit.length === 0 && !isLoopbackAddress(host))
-    throw new StackConfigError(
-      `NYLORUN_ADMIN_ALLOWED_HOSTS is required when NYLORUN_ADMIN_LISTEN_HOST is ${host}: list the Host headers operators send, e.g. runtime:${port},localhost:<published port>`,
-    );
-  return { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] };
-}
-
 const IDENTITY_KEY = /^publickeyv1_[1-9A-HJ-NP-Za-km-z]{32,64}$/;
 
 function parseIdentityKeys(env: EnvSnapshot): string[] | undefined {
@@ -556,17 +520,12 @@ export function parseStackConfig(
   // The image sets NYLORUN_LISTEN_*: only the API's processes read them.
   const servesApi = services.has("core") || services.has("loop");
   const listen = servesApi ? parseListen(env) : undefined;
-  const operator = servesApi ? parseAdminListen(env) : undefined;
   const gates = services.has("gates") || services.has("keys") ? parseGates(env) : undefined;
   const egress = services.has("egress") ? parseEgress(env) : undefined;
   // The gates service's clients: the loop's model and tool calls, and core's endpoint pings.
   const modelGate = servesApi ? parseModelGate(env) : undefined;
   // The keys service is the gateway's unless NYLORUN_KEYS_URL names another listener.
   const keys = servesApi ? (parseKeysEndpoint(env) ?? modelGate) : undefined;
-  if (operator && listen && operator.port === listen.port)
-    throw new StackConfigError(
-      "NYLORUN_ADMIN_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT",
-    );
   if (services.has("loop") && listen && !modelGate)
     throw new StackConfigError(
       "NYLORUN_GATES_URL is required for the loop service in a container: model calls go through the gates service (the gateway container), so the loop never holds a model credential. Set NYLORUN_GATES_URL and NYLORUN_GATES_TOKEN (`nylorun start` sets both)",
@@ -608,13 +567,8 @@ export function parseStackConfig(
     harnessMode === "remote" || sandboxes
       ? parseHarnessListener(env, harnessMode === "remote")
       : undefined;
-  if (
-    harnessListener &&
-    [listen?.port, operator?.port].includes(harnessListener.listen.port)
-  )
-    throw new StackConfigError(
-      "NYLORUN_HARNESS_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT and NYLORUN_ADMIN_LISTEN_PORT",
-    );
+  if (harnessListener && listen?.port === harnessListener.listen.port)
+    throw new StackConfigError("NYLORUN_HARNESS_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT");
   const delivery = parseDelivery(env);
   const tenant = servesApi ? parseTenant(env) : undefined;
   const objectStore = parseObjectStore(env);
@@ -632,7 +586,6 @@ export function parseStackConfig(
     ...(harnessMode ? { harnessMode } : {}),
     ...(harnessListener ? { harnessListener } : {}),
     ...(sandboxes ? { sandboxes } : {}),
-    ...(operator ? { operator } : {}),
     ...(delivery ? { delivery } : {}),
     ...(tenant ? { tenant } : {}),
     ...(objectStore ? { objectStore } : {}),

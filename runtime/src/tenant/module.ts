@@ -1,9 +1,4 @@
-import type {
-  HostAggregate,
-  HostTenant,
-  StreamRelayStatus,
-  TenantEnvelope,
-} from "@nylorun/core/contracts";
+import type { HarnessStatus, HostTenant, TenantEnvelope } from "@nylorun/core/contracts";
 import { openError, TenantOpenError, type TenantCause } from "./cause.js";
 import { TimeoutError, withTimeout } from "./pool.js";
 import {
@@ -31,8 +26,6 @@ export interface CreateTenantModuleOptions {
    * Tenant's id (its stream relay). A failure is logged; the Tenant stays open.
    */
   onOpen?: (handle: TenantHandle) => void | Promise<void>;
-  /** This process's stream relay, for the Host aggregate (a Host with S2 runs one). */
-  relayStatus?: () => Promise<StreamRelayStatus>;
 }
 
 type State =
@@ -49,7 +42,7 @@ type State =
  *
  * `start` opens it once, even when requests or Worker calls ask at the same time. An open that
  * fails for a reason in the Tenant (a `TenantOpenError`, or a timeout) is kept as the Tenant's
- * cause: the Host is not ready, `/v1/admin/status` names it, requests get the opaque 404.
+ * cause: the Host is not ready, `nylorun-operate status` names it, requests get the opaque 404.
  * One that fails outside the Tenant (`TenantUnavailableError`) is retried in the background
  * with backoff, and by the next request, which gets 503 meanwhile.
  */
@@ -194,18 +187,9 @@ export function createTenantModule(options: CreateTenantModuleOptions): TenantMo
       }
     },
 
-    async summarize(): Promise<HostAggregate> {
+    harnessStatus(): HarnessStatus | undefined {
       const now = current();
-      const summary = now.kind === "open" ? await now.handle.summary() : undefined;
-      const relay = await options.relayStatus?.().catch(() => undefined);
-      return {
-        runningSessions: summary?.runningSessions ?? 0,
-        inFlightDeliveries: summary?.inFlightDeliveries ?? 0,
-        pendingActions: summary?.pendingActions ?? 0,
-        uncertainEffects: summary?.uncertainEffects ?? 0,
-        ...(relay ? { relay } : {}),
-        ...(summary?.harness ? { harness: summary.harness } : {}),
-      };
+      return now.kind === "open" ? now.handle.harnessStatus?.() : undefined;
     },
 
     async close() {

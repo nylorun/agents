@@ -189,25 +189,24 @@ try {
       // NYLORUN_TENANT) and links the project.
       const { runtimeUrl } = await stack.start([], { cwd: project });
       assert.match(runtimeUrl ?? "", /^http:\/\/localhost:\d+$/);
-      const admin = await stack.admin(
-        pathToFileURL(join(tools, "node_modules/@nylorun/admin/dist/index.js")).href,
-      );
       const { link, credentials } = await readProject(project);
       assert.equal(link.format, 3);
       assert.equal(link.tenant, env.NYLORUN_TENANT, "the link names the Tenant");
       assert.equal(link.hostUrl, runtimeUrl);
       assert.equal((await stat(join(project, ".nylorun/credentials.json"))).mode & 0o777, 0o600);
-      const { tenant } = await admin.status();
+      const { tenant } = await stack.operateStatus();
       assert.equal(tenant.state, "open");
       assert.equal(tenant.id, link.tenantId, "the link names the Host's one Tenant");
-      // The application key `project`, put by `nylorun start` and listed (never shown) by the Admin
-      // API, and the management key `project-management` beside it.
+      // The application key `project`, put by `nylorun start` and listed (never shown) by the
+      // Management API, and the management key `project-management` beside it.
       assert.equal(credentials.principalId, "project");
       assert.match(credentials.applicationKey, /^[0-9a-f]{64}$/);
       assert.equal(credentials.managementPrincipalId, "project-management");
       assert.ok(
-        (await admin.keys.list()).some((key) => key.id === "project"),
-        "the Admin API lists the project key",
+        (await runtimeGet(runtimeUrl, credentials.managementKey, "/v1/tenant/keys")).keys.some(
+          (key) => key.id === "project",
+        ),
+        "the Management API lists the project key",
       );
 
       const key = credentials.applicationKey;
@@ -304,7 +303,7 @@ try {
       });
       await connected();
       assert.equal((await readProject(project)).link.tenantId, tenantId);
-      assert.equal((await admin.status()).tenant.id, tenantId, "the Tenant is reused");
+      assert.equal((await stack.operateStatus()).tenant.id, tenantId, "the Tenant is reused");
       await again.stop();
       await disconnected();
 
@@ -324,8 +323,7 @@ try {
 
       // 9. The Tenant, reset and seeded with the fixture model, runs a turn that
       // calls the starter's tool.
-      const managementKey = await stack.managementKey();
-      await withResetTenant({ admin, managementKey, name: "starter-smoke" }, async (fixture) => {
+      await withResetTenant({ stack, name: "starter-smoke" }, async (fixture) => {
         assert.equal(fixture.id, tenantId, "the Host's one Tenant");
         // The two variables take precedence over the Project link.
         const runner = group.start("dev-fixture", process.execPath, [npmCli(), "run", "dev"], {
@@ -379,7 +377,7 @@ try {
         assert.ok(answer.includes("demo-123"), "the tool ran for demo-123");
         await runner.stop();
       });
-      assert.equal((await admin.status()).tenant.id, tenantId, "the reset kept the Tenant");
+      assert.equal((await stack.operateStatus()).tenant.id, tenantId, "the reset kept the Tenant");
 
       // 10. Without Docker, `nylorun start` says what to install and starts nothing.
       const noDocker = await run(process.execPath, [nylorunBin, "start"], {

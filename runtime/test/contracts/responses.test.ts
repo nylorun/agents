@@ -1,5 +1,5 @@
 /**
- * Every successful answer of the Tenant and Admin APIs parses, exactly, with its schema in
+ * Every successful answer of the Runtime and Management APIs parses, exactly, with its schema in
  * `@nylorun/core/contracts`: the schemas the Runtime's OpenAPI document is generated from.
  * The schemas are strict, so a field the Runtime sends that a schema lacks fails here.
  */
@@ -13,7 +13,6 @@ import {
   ERROR_CODES,
   AcceptedResponseSchema,
   ActionResultReceiptSchema,
-  AdminStatusSchema,
   CredentialInfoSchema,
   DeleteEndpointResponseSchema,
   DeliveryHeartbeatResponseSchema,
@@ -75,13 +74,13 @@ async function answer(
   schema: ZodType,
   method: string,
   path: string,
-  options: { body?: unknown; headers?: Record<string, string>; base?: string } = {},
+  options: { body?: unknown; headers?: Record<string, string> } = {},
 ): Promise<any> {
   const headers = {
     ...(options.headers ?? (path.startsWith("/v1/tenant") ? management() : app())),
   };
   if (options.body !== undefined) headers["content-type"] = "application/json";
-  const response = await fetch(`${options.base ?? rt.url}${path}`, {
+  const response = await fetch(`${rt.url}${path}`, {
     method,
     headers,
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
@@ -102,7 +101,6 @@ beforeAll(async () => {
   rt = await startEphemeralRuntime({
     database: testPool(),
     hostRoot: root,
-    operatorListener: true,
     issuers: (issuer = await testIssuer()).configs,
     model: { kind: "fixture" },
   });
@@ -114,16 +112,10 @@ afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
-it("Host and Admin answers", async () => {
-  const admin = { "nylorun-protocol": "5", authorization: `Bearer ${rt.adminKey}` };
+it("Host answers", async () => {
   await answer(HealthResponseSchema, "GET", "/health", { headers: {} });
-  await answer(ReadyResponseSchema, "GET", "/ready", { headers: {} });
-  const status = await answer(AdminStatusSchema, "GET", "/v1/admin/status", {
-    headers: admin,
-    base: rt.adminUrl,
-  });
-  expect(status.tenant).toMatchObject({ id: rt.tenantId, state: "open" });
-  await answer(AdminStatusSchema, "GET", "/v1/admin/host", { headers: admin, base: rt.adminUrl });
+  const ready = await answer(ReadyResponseSchema, "GET", "/ready", { headers: {} });
+  expect(ready.harness).toEqual({ mode: "in-process", connected: expect.any(Number) });
 });
 
 it("agents, sessions and Action endpoints", async () => {

@@ -244,10 +244,28 @@ export async function createStack({
       assert.match(url ?? "", /^http:\/\/localhost:\d+\/login\?token=/, stdout);
       return url;
     },
-    /** `@nylorun/admin` for this Host root (`module`: a packed install's entry). */
-    async admin(module = "@nylorun/admin") {
-      const { createAdmin } = await import(module);
-      return createAdmin({ home });
+    /**
+     * The Runtime's `GET /ready` (no key): `{ status, checks, harness? }`, 503 while not ready.
+     * `checks.tenant` is true while the Tenant is open.
+     */
+    async ready() {
+      assert.ok(stack.runtimeUrl, "start the Tenant first (stack.start)");
+      const response = await fetch(`${stack.runtimeUrl}/ready`, { signal: AbortSignal.timeout(10_000) });
+      return await response.json();
+    },
+    /**
+     * `nylorun-operate status --json` in the runtime container: `{ version, protocol, tenant: {
+     * id, name, state, cause?, message? } }`. It answers (exit 2) when the Tenant is not open too.
+     */
+    async operateStatus() {
+      const result = await exec(
+        "docker",
+        composeArgs("exec", "-T", "runtime", "nylorun-operate", "status", "--json"),
+        { env, echo: false, timeout: 60_000 },
+      );
+      if (result.code !== 0 && result.code !== 2)
+        throw new Error(`nylorun-operate status exited with ${result.code}`);
+      return JSON.parse(result.stdout);
     },
     /**
      * The checks' management key (`checks-management`): `nylorun key put --management` on the
@@ -274,8 +292,8 @@ export async function createStack({
      * The Tenant's id, the checks' application key (see `hostTenant`) and their management key
      * (`managementKey`, for `/v1/tenant/*`).
      */
-    async tenant(module) {
-      const tenant = await hostTenant(await stack.admin(module));
+    async tenant() {
+      const tenant = await hostTenant(stack);
       return { ...tenant, managementKey: await stack.managementKey() };
     },
     async logs(tail = 200) {
@@ -366,7 +384,7 @@ export async function eventually(check, { timeout = 60_000, interval = 250, mess
 
 /** The application key the checks use; `project` stays the linked projects' own. */
 export const CHECKS_KEY_ID = "checks";
-/** The checks key per Admin API URL and Tenant id, put once in this process. */
+/** The checks key per Host root and Tenant id, put once in this process. */
 const checksKeys = new Map();
 /**
  * The management key the checks use for the Management API (`/v1/tenant/*`), which takes no
@@ -377,23 +395,28 @@ export const CHECKS_MANAGEMENT_KEY_ID = "checks-management";
 const managementKeys = new Map();
 
 /**
- * The Host's one Tenant from `admin.status()`, once it is open, with a key for
- * the checks: the application key `checks` (F9 I1), put through `admin.keys.put`
- * once per Tenant in this process and reused after. Putting it again would
- * rotate it, and a linked project's `project` key is never touched. It reaches
- * the Runtime API only; `/v1/tenant/*` takes the management key
- * (`stack.managementKey()`, or `stack.tenant()` for both).
- * @param {{ adminUrl: string, status(): Promise<{ tenant: { id: string | null, state: string } }>, keys: { put(id: string): Promise<{ key: string }> } }} admin
+ * The Host's one Tenant from `nylorun-operate status`, once it is open, with a key for the
+ * checks: the application key `checks` (F9 I1), put with `nylorun key put checks` once per
+ * Tenant in this process and reused after. Putting it again would rotate it, and a linked
+ * project's `project` key is never touched. It reaches the Runtime API only; `/v1/tenant/*`
+ * takes the management key (`stack.managementKey()`, or `stack.tenant()` for both).
+ * @param {{ home: string, operateStatus(): Promise<{ tenant: { id: string | null, state: string, cause?: string } }>, nylorun(args: string[], options?: object): Promise<{ stdout: string }> }} stack
  * @returns {Promise<{ id: string, key: string }>}
  */
-export async function hostTenant(admin) {
-  const { tenant } = await admin.status();
+export async function hostTenant(stack) {
+  const { tenant } = await stack.operateStatus();
   if (tenant.state !== "open" || !tenant.id)
-    throw new Error(`The Host's Tenant is not open (${tenant.state}${tenant.id ? `, ${tenant.id}` : ""}).`);
-  const cached = `${admin.adminUrl} ${tenant.id}`;
+    throw new Error(
+      `The Host's Tenant is not open (${tenant.state}${tenant.cause ? `: ${tenant.cause}` : ""}${tenant.id ? `, ${tenant.id}` : ""}).`,
+    );
+  const cached = `${stack.home} ${tenant.id}`;
   let key = checksKeys.get(cached);
   if (!key) {
-    key = admin.keys.put(CHECKS_KEY_ID).then((put) => put.key);
+    key = stack.nylorun(["key", "put", CHECKS_KEY_ID], { echo: false }).then(({ stdout }) => {
+      const issued = stdout.trim();
+      assert.match(issued, /^\S+$/, "nylorun key put prints the key alone");
+      return issued;
+    });
     checksKeys.set(cached, key);
     key.catch(() => checksKeys.delete(cached));
   }

@@ -135,7 +135,7 @@ recorded version.
 ## The Project link
 
 `nylorun start` in a project waits until the Tenant is open
-(`/v1/admin/status`), then writes, in a `.nylorun/` directory (mode 0700, with
+(`/ready`), then writes, in a `.nylorun/` directory (mode 0700, with
 its own `.gitignore` of `*`):
 
 - `link.json`: `{ "format": 3, "tenant", "tenantId", "hostUrl", "hostId" }`.
@@ -146,7 +146,7 @@ its own `.gitignore` of `*`):
   while its key still reaches the Tenant (one authenticated read); otherwise it
   writes the Tenant's `project` key, which the Host root keeps in
   `project-credentials.json` (mode 0600) so every checkout linked to the Tenant
-  shares one key, or puts a new one through the Admin API.
+  shares one key, or puts a new one through `nylorun-operate keys`.
 
 Later starts reuse the Tenant and rewrite the link only when the Tenant's name,
 URL, Host or id changed (after `nylorun reset`, for example). When it writes a
@@ -214,8 +214,8 @@ its own defaults. A running Tenant uses about 1.2 GB, most of it Restate; stop
 the Tenants you are not using (`nylorun stop`, or `nylorun stop --all`). The Runtime and Studio images are pinned by
 this release (`package.json` `nylorun.runtime` and `nylorun.studio`);
 `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` override them (local builds,
-CI). Ports publish on loopback only: the Runtime on `8787`, its operator
-listener (Admin API) on `8788` and Studio on `4161`, or free ports chosen on the
+CI). Ports publish on loopback only: the Runtime on `8787` and Studio on
+`4161`, or free ports chosen on the
 Tenant's first start, avoiding the ports other Tenants keep, and kept in its
 `.env`. Restate's UI and admin API (unauthenticated) are not published; `nylorun
 start --restate-ui` (or `NYLORUN_RESTATE_UI=1`) publishes them for that start on

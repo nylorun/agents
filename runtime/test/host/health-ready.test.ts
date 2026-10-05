@@ -48,6 +48,21 @@ it("C2: /ready is 200 after listen once the Tenant is open", async () => {
   });
 });
 
+it("I-D5: /ready reports the open Tenant's harnesses, and none while it is not open", async () => {
+  const module = createFakeModule({
+    tenant: { harness: { mode: "remote", connected: 2, workspace: true } },
+  });
+  const { url } = await startTestHost({ module });
+  const ready = await getJson(`${url}/ready`);
+  expect(ready.status).toBe(200);
+  expect(ReadyResponseSchema.parse(ready.body).harness).toEqual({ mode: "remote", connected: 2 });
+  expect(ready.body).not.toHaveProperty("harness.workspace");
+
+  module.fake.state = "unavailable";
+  const closed = await getJson(`${url}/ready`);
+  expect(closed.body).not.toHaveProperty("harness");
+});
+
 it("C2: /ready is 503 while the Tenant could not be opened", async () => {
   const { url } = await startTestHost({
     module: createFakeModule({
@@ -90,7 +105,6 @@ it("C2: /ready is 503 while the Tenant opens", async () => {
     hostRoot: root,
     module: mod,
     config,
-    credentials: { adminKey: ADMIN_KEY },
     logger: createHostLogger(() => {}),
     coreVersion: "0.4.0-beta",
   });

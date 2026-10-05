@@ -14,6 +14,7 @@ import {
   fakeFetch,
   fakeOperate,
   json,
+  readyResponse,
   temporaryDir,
   testDeps,
   type FakeDocker,
@@ -37,9 +38,9 @@ async function project(dir: string, env?: string): Promise<string> {
 const readJson = (path: string) => JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
 
 /**
- * A fetch that answers for every Tenant under `base`: the Host on each Tenant's Runtime port, the
- * Tenant (one id per name) on its operator port, and `/v1/me`, which authenticates the keys
- * `nylorun-operate` put (`operate`, a `fakeDocker` respond).
+ * A fetch that answers for every Tenant under `base` on its Runtime port: the Host, `/ready`, and
+ * `/v1/me`, which authenticates the keys `nylorun-operate` put (`operate`, a `fakeDocker`
+ * respond, which also reports the Tenant: one id per name).
  */
 function machineFetch(base: string, options: { modelConfigured?: boolean } = {}) {
   const tenants = new Map<string, string>();
@@ -49,12 +50,12 @@ function machineFetch(base: string, options: { modelConfigured?: boolean } = {})
     if (!keys.has(name)) keys.set(name, new Map());
     return keys.get(name)!;
   };
-  const tenantOn = (url: string, field: "port" | "adminPort") => {
+  const tenantOn = (url: string) => {
     const port = Number(new URL(url).port);
     const tenants = join(base, "tenants");
     for (const name of existsSync(tenants) ? readdirSync(tenants) : []) {
       const host = join(tenants, name, "host.json");
-      if (existsSync(host) && readJson(host)[field] === port)
+      if (existsSync(host) && readJson(host).port === port)
         return { name, hostId: readJson(host).hostId as string };
     }
     return undefined;
@@ -65,17 +66,12 @@ function machineFetch(base: string, options: { modelConfigured?: boolean } = {})
   };
   const fetch = fakeFetch((url, init) => {
     if (url.endsWith("/health")) {
-      const tenant = tenantOn(url, "port");
+      const tenant = tenantOn(url);
       return tenant ? json({ status: "ok", version: "0.10.0-beta", hostId: tenant.hostId }) : undefined;
     }
-    if (url.endsWith("/v1/admin/status")) {
-      const tenant = tenantOn(url, "adminPort");
-      return tenant
-        ? json({ tenant: { id: tenantOf(tenant.name), name: tenant.name, state: "open", envelope: null } })
-        : undefined;
-    }
+    if (url.endsWith("/ready")) return tenantOn(url) ? readyResponse() : undefined;
     if (url.endsWith("/v1/me")) {
-      const tenant = tenantOn(url, "port");
+      const tenant = tenantOn(url);
       if (!tenant) return undefined;
       return bearerIn(keysOf(tenant.name).values(), init)
         ? json({ kind: "application" })
@@ -86,17 +82,23 @@ function machineFetch(base: string, options: { modelConfigured?: boolean } = {})
       return json(options.modelConfigured ? { configured: true, provider: "p", model: "m", authType: "api_key" } : { configured: false });
     return undefined;
   });
-  const operate = fakeOperate((project) => keysOf(project.replace(/^nylorun-/, "")));
+  const operate = fakeOperate(
+    (project) => keysOf(project.replace(/^nylorun-/, "")),
+    (project) => {
+      const name = project.replace(/^nylorun-/, "");
+      return { id: tenantOf(name), name, state: "open" };
+    },
+  );
   return Object.assign(fetch, { tenantOf, keysOf, operate });
 }
 
 /** A key the fake Tenant holds, as a project file would. */
 const held = (key: string) => ({ key, role: "application", createdAt: "2026-10-01T00:00:00.000Z" });
 
-/** The `nylorun-operate` arguments of each run in a runtime container. */
+/** The `nylorun-operate keys` arguments of each run in a runtime container. */
 const operated = (docker: { calls: string[][] }) =>
   docker.calls
-    .filter((args) => args.includes("nylorun-operate"))
+    .filter((args) => args[args.indexOf("nylorun-operate") + 1] === "keys")
     .map((args) => args.slice(args.indexOf("nylorun-operate") + 1).join(" "));
 
 /** Dependencies for `~/.nylorun` = `base`, run in `cwd`, with no NYLORUN_HOME. */
@@ -179,7 +181,6 @@ describe("start in a project", () => {
       "compose", "--project-name", "nylorun-my-shop", "--file", paths.compose, "--env-file", paths.env,
       "exec", "-T", "runtime", "nylorun-operate",
     ]);
-    expect(fetch.requests.filter((r) => r.url.includes("/v1/admin/keys"))).toEqual([]);
     expect(deps.lines.slice(0, 2)).toEqual([`Tenant    my-shop  (${tenantId})`, "Runtime   http://localhost:8787"]);
     expect(deps.errors).toContain(
       `Created Tenant my-shop under ${root} (Runtime port 8787, Studio port 4161).`,
@@ -476,9 +477,9 @@ describe("ls", () => {
         memoryBytes: 100 * 2 ** 20 + 1.5 * 2 ** 30,
         runtimeUrl: "http://localhost:8787",
         studioUrl: "http://localhost:4161",
-        ports: { runtime: 8787, admin: 8788, studio: 4161, restate: 9070 },
+        ports: { runtime: 8787, studio: 4161, restate: 9070 },
       },
-      expect.objectContaining({ name: "scratch", state: "stopped", memoryBytes: null, ports: { runtime: 50000, admin: 50001, studio: 50002, restate: 50003 } }),
+      expect.objectContaining({ name: "scratch", state: "stopped", memoryBytes: null, ports: { runtime: 50000, studio: 50001, restate: 50002 } }),
     ]);
     expect(docker.calls.filter((args) => args[0] === "compose")).toEqual([["compose", "ls", "--all", "--format", "json"]]);
     expect(docker.calls.filter((args) => args[0] === "stats")).toEqual([
@@ -604,7 +605,7 @@ describe("Studio", () => {
       url.endsWith("/_studio/login-tokens")
         ? (login(new URL(url).origin) ?? Promise.reject(new TypeError("fetch failed")))
         : machine(url, init);
-    return Object.assign(fetch, { tenantOf: machine.tenantOf });
+    return Object.assign(fetch, { tenantOf: machine.tenantOf, operate: machine.operate });
   }
 
   it("start serves Studio at http://localhost:<port>; nylorun studio signs in there", async () => {
@@ -638,7 +639,7 @@ describe("Studio", () => {
     });
     const two = machineDeps(base, tmp, { docker });
     expect(await runStackCommand("start", ["--tenant", "two"], two)).toBe(0);
-    expect(two.lines).toContain("Studio    http://localhost:50002");
+    expect(two.lines).toContain("Studio    http://localhost:50001");
     expect(two.errors.at(-2)).toBe('Also running: default (about 1.2 GB). "nylorun stop --all" stops them all.');
     expect(readJson(join(base, "tenants", "two", "host.json")).port).toBe(50000);
   });

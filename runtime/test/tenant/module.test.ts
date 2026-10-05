@@ -165,42 +165,13 @@ it("retries an open that failed outside the Tenant, and 503s meanwhile", async (
   await module.close();
 });
 
-it("summarizes the open Tenant's counts and the relay", async () => {
-  const h = handle();
-  h.setSummary({
-    ready: true,
-    runningSessions: 2,
-    inFlightDeliveries: 1,
-    pendingActions: 3,
-    uncertainEffects: 4,
-  });
-  const relay = {
-    active: true,
-    pendingTxs: 0,
-    pendingRows: 0,
-    confirmed: null,
-    reconciliations: 0,
-    lastError: null,
-  };
-  const module = createTenantModule({
-    open: async () => h,
-    logger: silentLogger(),
-    relayStatus: async () => relay,
-  });
-  expect(await module.summarize()).toEqual({
-    runningSessions: 0,
-    inFlightDeliveries: 0,
-    pendingActions: 0,
-    uncertainEffects: 0,
-    relay,
-  });
+it("reports the open Tenant's harnesses, for /ready", async () => {
+  const harness = { mode: "remote" as const, connected: 1, workspace: true };
+  const h = { ...handle(), harnessStatus: () => harness };
+  const module = createTenantModule({ open: async () => h, logger: silentLogger() });
+  expect(module.harnessStatus()).toBeUndefined();
   await module.start();
-  expect(await module.summarize()).toEqual({
-    runningSessions: 2,
-    inFlightDeliveries: 1,
-    pendingActions: 3,
-    uncertainEffects: 4,
-    relay,
-  });
+  expect(module.harnessStatus()).toEqual(harness);
   await module.close();
+  expect(module.harnessStatus()).toBeUndefined();
 });

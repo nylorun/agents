@@ -7,7 +7,7 @@ export {
   hostProcessEnvironment,
   tenantChildEnvironment,
 } from "./environment.js";
-export { createHost, adminKeyMatches, type CreateHostOptions, type HostServer } from "./create-host.js";
+export { createHost, type CreateHostOptions, type HostServer } from "./create-host.js";
 export { createHostLogger } from "./logger.js";
 export { configForFactory } from "./config-for.js";
 export {

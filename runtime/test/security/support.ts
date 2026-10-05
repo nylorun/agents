@@ -341,7 +341,6 @@ export async function startSecurityHost(options?: {
     hostRoot,
     module,
     config,
-    credentials,
     logger: hostLogger,
     coreVersion: "0.4.0-test",
   });

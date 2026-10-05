@@ -1946,6 +1946,10 @@ export const ReadyResponseSchema = z.object({
   status: z.enum(["ready", "not_ready"]),
   service: z.string(),
   checks: z.record(z.string(), z.boolean()),
+  /** The open Tenant's harnesses: `connected` counts those on the Harness API listener. */
+  harness: z
+    .object({ mode: z.enum(["remote", "in-process"]), connected: z.number().int().nonnegative() })
+    .optional(),
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 export type ReadyResponse = z.infer<typeof ReadyResponseSchema>;
@@ -1997,8 +2001,8 @@ export const TenantCauseSchema = z
 export type TenantCause = z.infer<typeof TenantCauseSchema>;
 
 /**
- * The Host's one Tenant, as `/v1/admin/status` reports it. `unavailable` while it opens, when
- * opening it failed (`cause`), or when it is closing.
+ * The Host's one Tenant. `unavailable` while it opens, when opening it failed (`cause`), or
+ * when it is closing.
  */
 export const HostTenantSchema = z
   .object({
@@ -2046,58 +2050,9 @@ export const HarnessStatusSchema = z
   .strict();
 export type HarnessStatus = z.infer<typeof HarnessStatusSchema>;
 
-export const HostAggregateSchema = z
-  .object({
-    runningSessions: z.number().int().nonnegative(),
-    /** Deliveries to Action endpoints in flight on this Host. */
-    inFlightDeliveries: z.number().int().nonnegative(),
-    pendingActions: z.number().int().nonnegative(),
-    uncertainEffects: z.number().int().nonnegative(),
-    /** This process's stream relay, when it runs one (a Host with S2). */
-    relay: StreamRelayStatusSchema.optional(),
-    /** The open Tenant's harnesses. */
-    harness: HarnessStatusSchema.optional(),
-  })
-  .strict();
-export type HostAggregate = z.infer<typeof HostAggregateSchema>;
-
-export const AdminHostStatusSchema = z
-  .object({
-    hostId: z.string().min(1),
-    url: z.string().min(1),
-    pid: z.number().int(),
-    version: z.string().min(1),
-    protocol: ProtocolRangeSchema,
-    tenant: HostTenantSchema,
-    aggregate: HostAggregateSchema,
-  })
-  .strict();
-export type AdminHostStatus = z.infer<typeof AdminHostStatusSchema>;
-
-/** Shared Admin API status (D§4.1). OSS fills `host`; Cloud omits it. */
-export const AdminStatusSchema = z
-  .object({
-    service: z.string().min(1),
-    version: z.string().min(1),
-    protocol: ProtocolRangeSchema,
-    /** The Tenant this installation serves. */
-    tenant: HostTenantSchema,
-    aggregate: HostAggregateSchema,
-    host: z
-      .object({
-        hostId: z.string().min(1),
-        url: z.string().min(1),
-        pid: z.number().int(),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
-export type AdminStatus = z.infer<typeof AdminStatusSchema>;
-
 /**
- * An operator key (Host feature `operator-keys`): a revocable application key of the Tenant,
- * named by its id (`APPLICATION_KEY_ID_PATTERN`). The Runtime keeps only its hash.
+ * A key of the Tenant (`/v1/tenant/keys`, `nylorun-operate keys`), named by its id
+ * (`APPLICATION_KEY_ID_PATTERN`), with its role. The Runtime keeps only its hash.
  */
 export const OperatorKeySchema = z
   .object({
@@ -2108,18 +2063,18 @@ export const OperatorKeySchema = z
   })
   .strict();
 export type OperatorKey = z.infer<typeof OperatorKeySchema>;
-/** `GET /v1/admin/keys`: every key of the Tenant (Studio's and derived ones too), by id. */
+/** `GET /v1/tenant/keys`: the Tenant's keys, by id. */
 export const ListOperatorKeysResponseSchema = z
   .object({ keys: z.array(OperatorKeySchema) })
   .strict();
 export type ListOperatorKeysResponse = z.infer<typeof ListOperatorKeysResponseSchema>;
-/** `PUT /v1/admin/keys/{id}`: the new key, shown this once; `rotated` when it replaced one. */
+/** `PUT /v1/tenant/keys/{keyId}`: the new key, shown this once; `rotated` when it replaced one. */
 export const PutOperatorKeyResponseSchema = OperatorKeySchema.extend({
   key: z.string().regex(/^[0-9a-f]{64}$/),
   rotated: z.boolean(),
 }).strict();
 export type PutOperatorKeyResponse = z.infer<typeof PutOperatorKeyResponseSchema>;
-/** `DELETE /v1/admin/keys/{id}`: the key no longer authenticates. */
+/** `DELETE /v1/tenant/keys/{keyId}`: the key no longer authenticates. */
 export const DeleteOperatorKeyResponseSchema = z
   .object({ id: z.string().min(1), deleted: z.literal(true) })
   .strict();
@@ -2530,7 +2485,7 @@ export function isSerializedOrigin(value: string): boolean {
   );
 }
 
-// Successful answers of the Tenant and Admin APIs that had no schema of their own. With the
+// Successful answers of the Runtime and Management APIs that had no schema of their own. With the
 // request schemas above they describe every body the Runtime sends (its OpenAPI document).
 
 /** `GET /v1/agents` with an application key: every definition, manifest included. */
@@ -2859,10 +2814,6 @@ export type StartOAuthResponse = z.infer<typeof StartOAuthResponseSchema>;
 /** A deleted vault or credential. */
 export const DeletedResponseSchema = z.object({ id: z.string() }).strict();
 export type DeletedResponse = z.infer<typeof DeletedResponseSchema>;
-
-export const HostShutdownResponseSchema = z
-  .object({ status: z.literal("shutting_down") })
-  .strict();
 
 /**
  * The last frame of a session stream the Runtime ends: `event: nylorun.closed`, when the

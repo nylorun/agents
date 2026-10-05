@@ -1,16 +1,14 @@
 /**
- * The Runtime's OpenAPI documents: valid OpenAPI 3.2 (as Scalar, which renders them, reads
- * them), served as generated, every declared route in them once, and the Admin API's kept to
- * the admin key on the listener that serves it.
+ * The Runtime's OpenAPI document: valid OpenAPI 3.2 (as Scalar, which renders it, reads it),
+ * served as generated, with every declared route in it once.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validate } from "@scalar/openapi-parser";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { tenantApi } from "../../src/api/http/app.js";
-import { adminDocument, tenantDocument } from "../../src/api/openapi.js";
+import { tenantDocument } from "../../src/api/openapi.js";
 import { RUNTIME_VERSION } from "../../src/version.js";
 import { startEphemeralRuntime, type EphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { testPool } from "../support/store.js";
@@ -19,7 +17,7 @@ let root: string;
 let rt: EphemeralRuntime;
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-openapi-"));
-  rt = await startEphemeralRuntime({ database: testPool(), hostRoot: root, operatorListener: true, model: { kind: "fixture" } });
+  rt = await startEphemeralRuntime({ database: testPool(), hostRoot: root, model: { kind: "fixture" } });
 });
 afterAll(async () => {
   await rt?.close();
@@ -33,14 +31,14 @@ const operations = (document: { paths?: Record<string, unknown> }) =>
       .map((method) => `${method.toUpperCase()} ${path}`),
   );
 
-it("makes valid OpenAPI 3.2 documents", async () => {
-  for (const document of [tenantDocument(), adminDocument()]) {
-    expect(document.openapi).toBe("3.2.0");
-    expect(document.info.version).toBe(RUNTIME_VERSION);
-    const { valid, errors } = await validate(structuredClone(document));
-    expect(errors ?? []).toEqual([]);
-    expect(valid).toBe(true);
-  }
+it("makes a valid OpenAPI 3.2 document", async () => {
+  const document = tenantDocument();
+  expect(document.openapi).toBe("3.2.0");
+  expect(document.info.version).toBe(RUNTIME_VERSION);
+  const { valid, errors } = await validate(structuredClone(document));
+  expect(errors ?? []).toEqual([]);
+  expect(valid).toBe(true);
+  expect(operations(document).filter((operation) => operation.includes("/v1/admin"))).toEqual([]);
 });
 
 it("documents every Tenant operation once, with who may call it", () => {
@@ -71,20 +69,4 @@ it("serves the Tenant API's document to anyone, but not to a browser", async () 
     headers: { origin: "https://app.example.com" },
   });
   expect(fromBrowser.status).toBe(403);
-});
-
-it("serves the Admin API's document with the admin key, on the listener that serves it", async () => {
-  const admin = { "nylorun-protocol": String(PROTOCOL_VERSION), authorization: `Bearer ${rt.adminKey}` };
-  const served = await fetch(`${rt.adminUrl}/v1/admin/openapi.json`, { headers: admin });
-  expect(served.status).toBe(200);
-  expect(await served.json()).toEqual(JSON.parse(JSON.stringify(adminDocument())));
-  expect(operations(adminDocument())).toContain("GET /v1/admin/openapi.json");
-  expect((await fetch(`${rt.url}/v1/admin/openapi.json`, { headers: admin })).status).toBe(404);
-  expect(
-    (
-      await fetch(`${rt.adminUrl}/v1/admin/openapi.json`, {
-        headers: { ...admin, authorization: "Bearer wrong" },
-      })
-    ).status,
-  ).toBe(404);
 });

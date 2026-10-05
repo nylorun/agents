@@ -147,7 +147,7 @@ describe("nylorun sandbox", () => {
 
 describe(".env and compose.yaml with sandboxes", () => {
   const env: StackEnv = {
-    runtimePort: 8787, adminPort: 8788, studioPort: 4161, restatePort: 9070,
+    runtimePort: 8787, studioPort: 4161, restatePort: 9070,
     restateUi: false, postgresPassword: "0123456789abcdef0123456789abcdef", gatesToken: "ab".repeat(32),
     harnessToken: "ef".repeat(32), harness: "remote", objectStoreSecretKey: "12".repeat(32),
     restateIdentityKey: "publickeyv1_x", uid: 501, gid: 20, hostRoot: "/h", runtimeImage: "r",

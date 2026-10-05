@@ -12,7 +12,6 @@ export { hashManifest } from "./utils/hash.js";
 export const PROTOCOL_VERSION = 8;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
-  "admin-status",
   "studio-principal",
   "action-endpoints",
   "artifacts",
@@ -51,9 +50,6 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * (`NYLORUN_IDENTITY_FILE`) as bearers, from servers and from browsers alike, with the
  * issuer's subject, scopes (and the issuer-only `studio`), agents and sandbox grants; `GET
  * /v1/me` reports who any credential is.
- * `operator-keys`: the Admin API creates, rotates, lists and deletes the Tenant's application
- * keys by name (`PUT`/`GET`/`DELETE /v1/admin/keys`); a deleted or rotated key stops
- * authenticating at once. `studio` is not managed there.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -65,7 +61,6 @@ export const OPTIONAL_HOST_FEATURES = [
   "sandboxes",
   "sandbox-pods",
   "trusted-issuers",
-  "operator-keys",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -74,15 +69,16 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 /**
- * What this Host serves. `runtime-tenants` (protocol 4 clients require it) is still advertised
- * for the compatibility window; protocol 5 and later clients no longer require it. `artifacts`
- * (protocol 6 and 7, required by their clients): file artifacts, capability links and message
- * `parts`.
+ * What this Host serves. `runtime-tenants` (protocol 4 clients require it) and `admin-status`
+ * (protocol 5 to 7 clients require it) are still advertised for the compatibility window, so
+ * those clients keep reaching the Runtime API; protocol 8 clients require neither. The Admin
+ * API itself is gone (protocol 8): `/v1/admin/*` is the opaque 404. `artifacts` (protocol 6 and
+ * 7, required by their clients): file artifacts, capability links and message `parts`.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 4,
   max: 8,
-  features: ["runtime-tenants", ...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
+  features: ["runtime-tenants", "admin-status", ...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
 

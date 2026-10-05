@@ -4,11 +4,6 @@ export interface HostConfigFile {
   host: string;
   port: number; // loopback by default
   allowNonLoopback?: boolean;
-  /**
-   * The operator listener's port: the Admin API moves there (on `host`, loopback only), and
-   * `port` serves the Tenant API alone. Absent: one port serves both.
-   */
-  adminPort?: number;
   proxy?: {
     httpsProxy?: string;
     noProxy?: string;

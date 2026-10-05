@@ -206,7 +206,7 @@ describe("createClient (C2)", () => {
 
 describe("compatibility re-exports (C7)", () => {
   it("re-exports PROTOCOL_FEATURES, ERROR_CODES, ErrorCode and compareVersions", () => {
-    expect(PROTOCOL_FEATURES).toContain("admin-status");
+    expect(PROTOCOL_FEATURES).toContain("management-api");
     expect(ERROR_CODES).toContain("connection_missing");
     expect(compareVersions("1.0.0", "1.0.1")).toBe(-1);
   });

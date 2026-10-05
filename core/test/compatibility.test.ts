@@ -16,13 +16,13 @@ import {
   newTenantId,
 } from "../src/compatibility.js";
 import {
-  AdminStatusSchema,
   DeleteOperatorKeyResponseSchema,
   HostTenantSchema,
   ListOperatorKeysResponseSchema,
   PutOperatorKeyResponseSchema,
   ProjectCredentialsFileSchema,
   ProjectLinkFileSchema,
+  ReadyResponseSchema,
   RejectedResponseSchema,
 } from "../src/contracts.js";
 
@@ -86,32 +86,14 @@ describe("compareVersions", () => {
 });
 
 describe("Wave 0 schemas", () => {
-  it("parses AdminStatusSchema with optional host", () => {
-    const body = {
-      service: "nylorun-runtime",
-      version: "0.9.0-beta",
-      protocol: {
-        min: 2,
-        max: 2,
-        features: ["admin-status"],
-      },
-      tenant: {
-        id: "tn_00000000000000000000000000",
-        name: "default",
-        state: "open",
-        envelope: null,
-      },
-      aggregate: {
-        runningSessions: 0,
-        inFlightDeliveries: 0,
-        pendingActions: 0,
-        uncertainEffects: 0,
-      },
-      host: { hostId: "host_1", url: "http://127.0.0.1:7432", pid: 1 },
-    };
-    expect(AdminStatusSchema.parse(body).host?.hostId).toBe("host_1");
-    const { host: _host, ...cloud } = body;
-    expect(AdminStatusSchema.parse(cloud).host).toBeUndefined();
+  it("parses /ready with the open Tenant's harnesses, and without them", () => {
+    const ready = { status: "ready", service: "nylorun-runtime", checks: { listener: true, tenant: true } };
+    expect(ReadyResponseSchema.parse(ready).harness).toBeUndefined();
+    expect(ReadyResponseSchema.parse({ ...ready, harness: { mode: "remote", connected: 2 } }).harness).toEqual({
+      mode: "remote",
+      connected: 2,
+    });
+    expect(() => ReadyResponseSchema.parse({ ...ready, harness: { mode: "pod", connected: 0 } })).toThrow();
   });
 
   it("reports a Tenant that could not be opened, with its cause", () => {
@@ -198,7 +180,8 @@ describe("checkCompatibility", () => {
     expect(
       checkCompatibility({ version: 4, required: ["runtime-tenants"] }, HOST_PROTOCOL),
     ).toEqual({ ok: true });
-    // A protocol 5 client still works.
+    // A protocol 5 to 7 client still works: it requires admin-status, which the Host still
+    // advertises though the Admin API is gone (protocol 8).
     expect(
       checkCompatibility(
         { version: 5, required: ["admin-status", "studio-principal", "action-endpoints"] },
@@ -254,19 +237,20 @@ describe("checkCompatibility", () => {
     });
   });
 
-  it("advertises admin-status", () => {
-    expect(PROTOCOL_FEATURES).toContain("admin-status");
+  it("retires admin-status: protocol 8 clients do not require it, and the Host keeps it for older ones", () => {
+    expect(PROTOCOL_FEATURES).not.toContain("admin-status");
+    expect(HOST_PROTOCOL.features).toContain("admin-status");
   });
 });
 
-describe("operator keys (F9 I1)", () => {
-  it("is an optional Host feature: no client requires it", () => {
-    expect(OPTIONAL_HOST_FEATURES).toContain("operator-keys");
-    expect(HOST_PROTOCOL.features).toContain("operator-keys");
+describe("keys by name (F9 I1, /v1/tenant/keys)", () => {
+  it("retires the operator-keys Host feature with the Admin API (protocol 8)", () => {
+    expect(OPTIONAL_HOST_FEATURES).not.toContain("operator-keys");
+    expect(HOST_PROTOCOL.features).not.toContain("operator-keys");
     expect(PROTOCOL_FEATURES).not.toContain("operator-keys");
   });
 
-  it("parses the Admin API's key answers, and a put's key is 64 hex", () => {
+  it("parses the key answers, and a put's key is 64 hex", () => {
     const key = { id: "backend", role: "application", createdAt: "2026-10-04T00:00:00.000Z" };
     expect(ListOperatorKeysResponseSchema.parse({ keys: [key] }).keys).toEqual([key]);
     expect(

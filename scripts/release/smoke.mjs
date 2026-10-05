@@ -12,7 +12,7 @@
  *   (`ghcr.io/nylorun/{runtime,studio}:<pin>`, pulled from GHCR, never built
  *   here), and links the project to it;
  *   the project's `npm run dev` serves and registers its Action endpoint.
- * - Checks: the Tenant runs exactly the pinned images; the Admin API reports
+ * - Checks: the Tenant runs exactly the pinned images; `nylorun status` reports
  *   the linked Tenant open; `assistant` is registered and the Runtime reaches
  *   its Action endpoint (a ping through the Runtime answers 200); the login
  *   from `nylorun studio` lands on the Tenant and Studio proxies its API.
@@ -25,7 +25,6 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { npmCli } from "../lib/repo.mjs";
 import { ProcessGroup } from "../lib/processes.mjs";
 import {
@@ -181,14 +180,14 @@ export async function publicCreatorSmoke(versions, pins) {
           // The published nylo works on the link.
           await stack.nylo(["status"], { cwd: project });
 
-          const admin = await stack.admin(
-            pathToFileURL(join(tools, "node_modules/@nylorun/admin/dist/index.js")).href,
+          // The published nylorun reports the Tenant (nylorun-operate status in the runtime container).
+          const { tenant } = JSON.parse(
+            (await stack.nylorun(["status", "--json"], { cwd: project, echo: false })).stdout,
           );
-          const { tenant } = await admin.status();
           assert.deepEqual(
-            { id: tenant.id, state: tenant.state },
+            { id: tenant?.id, state: tenant?.state },
             { id: tenantId, state: "open" },
-            "the Admin API reports the Project's Tenant open",
+            "nylorun status reports the Project's Tenant open",
           );
           group.start("dev", process.execPath, [npmCli(), "run", "dev"], {
             cwd: project,

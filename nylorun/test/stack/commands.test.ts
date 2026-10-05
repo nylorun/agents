@@ -1,4 +1,3 @@
-import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { doctorStack } from "../../src/doctor.js";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -18,27 +17,29 @@ import {
 import { parseComposePs } from "../../src/stack/docker.js";
 import { stackPaths } from "../../src/stack/paths.js";
 import { STUDIO_ANALYTICS_ID, TELEMETRY_NOTICE, telemetryCommand } from "../../src/telemetry.js";
-import { fakeDocker, fakeFetch, json, temporaryHome, testDeps } from "./support.js";
+import {
+  fakeDocker,
+  fakeFetch,
+  json,
+  operateStatusResult,
+  readyResponse,
+  TEST_TENANT_ID,
+  temporaryHome,
+  testDeps,
+} from "./support.js";
 
 /** host.json is written during `start`, so the fakes read it lazily. */
 const hostId = (home: string) =>
   (JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { hostId: string }).hostId;
 
-const TENANT_ID = "tn_01TESTSTACK000000000000001";
-
-/** `/v1/admin/status` of a Runtime whose Tenant is open. */
-const openTenant = (name = "home-root") =>
-  json({
-    tenant: { id: TENANT_ID, name, state: "open", envelope: null },
-    aggregate: { harness: { mode: "remote", connected: 1, workspace: true } },
-  });
+const TENANT_ID = TEST_TENANT_ID;
 
 /** A fetch that answers like a healthy Tenant on the persisted ports. */
 async function healthyFetch(home: string, loginBody: unknown = { token: "tok en" }) {
   return fakeFetch((url) => {
     if (url.endsWith("/health"))
       return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
-    if (url.endsWith("/v1/admin/status")) return openTenant();
+    if (url.endsWith("/ready")) return readyResponse();
     if (url.endsWith("/_studio/login-tokens")) return json(loginBody, 201);
     return undefined;
   });
@@ -173,52 +174,90 @@ describe("start", () => {
     expect(readFileSync(stackPaths(home).env, "utf8")).toBe(env);
   });
 
-  it("waits for the Tenant to open, and creates nothing itself", async () => {
+  it("waits on /ready for the Tenant to open, then reads its id with nylorun-operate status", async () => {
     const home = await temporaryHome();
     let polls = 0;
     const fetch = fakeFetch((url) => {
       if (url.endsWith("/health"))
         return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
-      if (url.endsWith("/v1/admin/status"))
-        return (polls += 1) < 3
-          ? json({ tenant: { id: null, name: null, state: "unavailable", envelope: null } })
-          : openTenant();
+      if (url.endsWith("/ready")) return readyResponse((polls += 1) >= 3);
       return undefined;
     });
-    const deps = testDeps(home, { fetch });
+    const docker = fakeDocker();
+    const deps = testDeps(home, { fetch, docker });
     expect(await runStackCommand("up", ["--no-studio"], deps)).toBe(0);
     expect(polls).toBe(3);
     expect(deps.lines).toEqual(startLines(home, false));
-    const admin = fetch.requests.find((r) => r.url.endsWith("/v1/admin/status"))!;
-    expect(admin.url).toBe("http://localhost:8788/v1/admin/status");
-    expect((admin.init?.headers as Record<string, string>)["Nylorun-Protocol"]).toBe(String(PROTOCOL_VERSION));
+    const ready = fetch.requests.find((r) => r.url.endsWith("/ready"))!;
+    expect(ready.url).toBe("http://localhost:8787/ready");
+    expect(new Headers(ready.init?.headers).has("authorization")).toBe(false);
+    // One nylorun-operate status, once the Tenant is open.
+    expect(docker.calls.filter((args) => args.includes("nylorun-operate"))).toEqual([
+      [...compose(home), "exec", "-T", "runtime", "nylorun-operate", "status", "--json"],
+    ]);
     expect(fetch.requests.filter((request) => request.init?.method === "POST")).toEqual([]);
+    expect(fetch.requests.some((request) => request.url.includes("/v1/admin"))).toBe(false);
   });
 
-  it("reports why the Tenant is unavailable (exit 7)", async () => {
+  it("reports why the Tenant is unavailable, from nylorun-operate status (exit 7)", async () => {
     const home = await temporaryHome();
-    const unavailable = json({
-      tenant: {
-        id: TENANT_ID,
-        name: "home-root",
-        state: "unavailable",
-        envelope: null,
-        cause: { code: "kek-missing", message: "The vault key is missing.", repair: "Restore tenant/vault-kek." },
-      },
-    });
+    const docker = (streamCode = 0) =>
+      fakeDocker({
+        streamCode: () => streamCode,
+        respond: (args) =>
+          args.includes("nylorun-operate")
+            ? operateStatusResult({
+                id: TENANT_ID,
+                name: "home-root",
+                state: "unavailable",
+                cause: "kek-missing",
+                message: "The vault key is missing. Restore tenant/vault-kek.",
+              })
+            : undefined,
+      });
     const fetch = fakeFetch((url) => {
       if (url.endsWith("/health")) return json({ status: "ok", hostId: hostId(home) });
-      if (url.endsWith("/v1/admin/status")) return unavailable.clone();
+      if (url.endsWith("/ready")) return readyResponse(false);
       return undefined;
     });
-    const started = runStackCommand("up", ["--no-studio"], testDeps(home, { fetch }));
+    // It does not wait out the timeout: nylorun-operate names a cause only when the Tenant cannot open.
+    const started = runStackCommand(
+      "up",
+      ["--no-studio"],
+      testDeps(home, { fetch, docker: docker(), healthTimeoutMs: 60_000 }),
+    );
     await expect(started).rejects.toMatchObject({ exitCode: 7 });
     await expect(started).rejects.toThrow(
       /Tenant home-root is unavailable \(kek-missing\): The vault key is missing\. Restore tenant\/vault-kek\./,
     );
     // The Runtime fails readiness, so Compose fails first: the cause is reported all the same.
-    const composeFails = testDeps(home, { fetch, docker: fakeDocker({ streamCode: () => 1 }) });
+    const composeFails = testDeps(home, { fetch, docker: docker(1) });
     await expect(runStackCommand("up", [], composeFails)).rejects.toThrow(/unavailable \(kek-missing\)/);
+  });
+
+  it("says the Tenant did not open when nylorun-operate names no cause", async () => {
+    const home = await temporaryHome();
+    const fetch = fakeFetch((url) => {
+      if (url.endsWith("/health")) return json({ status: "ok", hostId: hostId(home) });
+      if (url.endsWith("/ready")) return readyResponse(false);
+      return undefined;
+    });
+    const docker = fakeDocker({
+      respond: (args) =>
+        args.includes("nylorun-operate")
+          ? operateStatusResult({
+              id: TENANT_ID,
+              name: "home-root",
+              state: "unavailable",
+              message: "The Runtime is running but has not opened the Tenant: its log names the cause",
+            })
+          : undefined,
+    });
+    await expect(
+      runStackCommand("up", ["--no-studio"], testDeps(home, { fetch, docker })),
+    ).rejects.toThrow(
+      'Tenant home-root did not open (http://localhost:8787/ready: not open): The Runtime is running but has not opened the Tenant: its log names the cause. See "nylorun status"',
+    );
   });
 
   it("uses the project override", async () => {
@@ -288,7 +327,7 @@ describe("start never runs a Runtime older than the Tenant's database", () => {
   const runningFetch = (home: string, version: string) =>
     fakeFetch((url) => {
       if (url.endsWith("/health")) return json({ status: "ok", version, hostId: hostId(home) });
-      if (url.endsWith("/v1/admin/status")) return openTenant();
+      if (url.endsWith("/ready")) return readyResponse();
       return undefined;
     });
 
@@ -526,10 +565,8 @@ describe("stop, logs, status", () => {
       harness: { mode: "remote", state: "running, healthy", healthy: true, connected: 1 },
     });
     expect(status.restate).not.toHaveProperty("url");
-    const admin = (deps.fetch as ReturnType<typeof fakeFetch>).requests.find((r) =>
-      r.url.endsWith("/v1/admin/status"),
-    );
-    expect((admin?.init?.headers as Record<string, string>)["Nylorun-Protocol"]).toMatch(/^\d+$/);
+    expect(status.runtime).toMatchObject({ ready: true });
+    expect(status.runtime).not.toHaveProperty("adminUrl");
   });
 
   it("status in words, and exit 3 when the Runtime does not answer", async () => {
@@ -539,11 +576,47 @@ describe("stop, logs, status", () => {
       "Tenant      home-root  running (Compose project nylorun-home-root)",
       `Host root   ${deps.env.NYLORUN_HOME} (admin key in host-credentials.json, mode 0600)`,
       `Tenant id   ${TENANT_ID} (home-root)  open`,
-      expect.stringMatching(/^Runtime     http:\/\/localhost:8787  healthy, 0\.10\.0-beta, host_\w+$/),
+      expect.stringMatching(/^Runtime     http:\/\/localhost:8787  healthy, ready, 0\.10\.0-beta, host_\w+$/),
     ]);
     const down = testDeps(deps.env.NYLORUN_HOME!, { docker: fakeDocker() });
     expect(await runStackCommand("status", [], down)).toBe(3);
     expect(down.lines[0]).toBe("Tenant      home-root  stopped (Compose project nylorun-home-root)");
+  });
+
+  it("status reports a Tenant that cannot open: not ready on /ready, the cause from nylorun-operate", async () => {
+    const { home, docker } = await started();
+    const run = docker.run.bind(docker);
+    const broken = testDeps(home, {
+      docker: Object.assign(docker, {
+        run: async (args: readonly string[]) =>
+          args.includes("nylorun-operate")
+            ? operateStatusResult({
+                id: TENANT_ID,
+                name: "home-root",
+                state: "unavailable",
+                cause: "kek-missing",
+                message: "The vault key is missing.",
+              })
+            : await run(args),
+      }),
+      fetch: fakeFetch((url) => {
+        if (url.endsWith("/health"))
+          return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
+        if (url.endsWith("/ready")) return readyResponse(false, { mode: "remote", connected: 0 });
+        return undefined;
+      }),
+    });
+    await runStackCommand("status", [], broken);
+    expect(broken.lines).toContain(`Tenant id   ${TENANT_ID} (home-root)  unavailable: kek-missing: The vault key is missing.`);
+    expect(broken.lines.find((line) => line.startsWith("Runtime "))).toMatch(/healthy, not ready, /);
+    expect(broken.lines.some((line) => /Admin API|8788/.test(line))).toBe(false);
+    broken.lines.length = 0;
+    await runStackCommand("status", ["--json"], broken);
+    expect(JSON.parse(broken.lines.join("\n"))).toMatchObject({
+      runtime: { healthy: true, ready: false },
+      tenant: { state: "unavailable", cause: "kek-missing", message: "The vault key is missing." },
+      harness: { mode: "remote", connected: 0 },
+    });
   });
 
   it("status names the harness and says Restate's UI is closed", async () => {
@@ -720,12 +793,13 @@ describe("ensureStack", () => {
       name: "home-root",
       home,
       runtimeUrl: "http://localhost:8787",
-      adminUrl: "http://localhost:8788",
       hostId: hostId(home),
       studioPort: 4161,
       studioUp: true,
       started: false,
     });
+    expect(stack).not.toHaveProperty("adminUrl");
+    // The admin key mints Studio logins.
     expect(stack.adminKey).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -787,5 +861,30 @@ describe("doctor with a running Tenant", () => {
     const lines: string[] = [];
     expect(await doctorStack({ json: false, deps, log: (text) => lines.push(text) })).toBe(code);
     expect(lines.join("\n")).toMatch(line);
+  });
+
+  it("fails on a Tenant that is not open, with nylorun-operate's reason (exit 1)", async () => {
+    const home = await temporaryHome();
+    let open = true;
+    const docker = fakeDocker({
+      respond: (args) =>
+        args.includes("ps")
+          ? {
+              code: 0,
+              stdout: JSON.stringify(
+                ["gateway", "runtime", "harness", "studio"].map((Service) => ({ Service, State: "running", Health: "healthy" })),
+              ),
+              stderr: "",
+            }
+          : args.includes("nylorun-operate") && !open
+            ? operateStatusResult({ id: TENANT_ID, name: "home-root", state: "unavailable", message: "Its log names the cause" })
+            : undefined,
+    });
+    const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
+    await runStackCommand("start", ["--no-studio"], deps);
+    open = false;
+    const lines: string[] = [];
+    expect(await doctorStack({ json: false, deps, log: (text) => lines.push(text) })).toBe(1);
+    expect(lines.join("\n")).toMatch(/tenant id\s+✗ tn_\w+ unavailable: Its log names the cause/);
   });
 });

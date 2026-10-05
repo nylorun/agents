@@ -77,8 +77,6 @@ export interface StartEphemeralRuntimeOptions {
   sandboxBackend?: "auto" | "virtual";
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
-  /** Serve the Admin API on its own loopback listener (`adminUrl`). Default off. */
-  operatorListener?: boolean;
   /**
    * Trusted issuers whose JWTs the Tenant API accepts (Host feature `trusted-issuers`): the
    * issuers of an identity file (`parseIdentityFile`), or ones already built with
@@ -102,8 +100,6 @@ export interface StartEphemeralRuntimeOptions {
 
 export interface EphemeralRuntime {
   url: string;
-  /** Where the Admin API answers: `url`, or the operator listener when requested. */
-  adminUrl: string;
   tenantId: string;
   applicationKey: string;
   /** The Management API's key (`/v1/tenant/*`), principal `bootstrap`. */
@@ -243,12 +239,8 @@ export async function startEphemeralRuntime(
       hostRoot,
       module,
       config: hostConfig,
-      credentials,
       logger,
       coreVersion: coreVersion(),
-      ...(options.operatorListener
-        ? { operator: { host: "127.0.0.1", port: 0 } }
-        : {}),
     });
     // Opens the Tenant: creates it in the database first when it holds none.
     await host.listen();
@@ -273,7 +265,6 @@ export async function startEphemeralRuntime(
   let closed = false;
   return {
     url: started.url,
-    adminUrl: started.adminUrl,
     tenantId,
     applicationKey,
     managementKey,

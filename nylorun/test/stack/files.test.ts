@@ -16,7 +16,6 @@ import { fakePorts, temporaryHome } from "./support.js";
 
 const env: StackEnv = {
   runtimePort: 8787,
-  adminPort: 8788,
   studioPort: 4161,
   restatePort: 9070,
   restateUi: false,
@@ -72,10 +71,9 @@ describe("compose.yaml", () => {
   const publishedOf = (text: string) =>
     [...text.matchAll(/^\s+- "([^"]+):(\d+)"/gm)].map((m) => `${m[1]}:${m[2]}`);
 
-  it("publishes only the Runtime, its operator port and Studio, all on loopback", () => {
+  it("publishes only the Runtime and Studio, both on loopback", () => {
     expect(publishedOf(compose)).toEqual([
       "127.0.0.1:${NYLORUN_PORT:?run nylorun start}:4000",
-      "127.0.0.1:${NYLORUN_ADMIN_PORT:?run nylorun start}:4001",
       "127.0.0.1:${NYLORUN_STUDIO_PORT:?run nylorun start}:3000",
     ]);
   });
@@ -155,11 +153,10 @@ describe("compose.yaml", () => {
     expect(compose).toContain("host.docker.internal: host-gateway");
   });
 
-  it("serves the Admin API on the operator listener, and Studio on the public listener", () => {
-    expect(compose).toContain('NYLORUN_ADMIN_LISTEN_PORT: "4001"');
-    expect(compose).toContain(
-      "NYLORUN_ADMIN_ALLOWED_HOSTS: runtime:4001,localhost:${NYLORUN_ADMIN_PORT},127.0.0.1:${NYLORUN_ADMIN_PORT}",
-    );
+  it("has no operator listener: the Runtime serves one listener, to Studio too", () => {
+    expect(compose).not.toContain("NYLORUN_ADMIN_LISTEN_PORT");
+    expect(compose).not.toContain("NYLORUN_ADMIN_ALLOWED_HOSTS");
+    expect(compose).not.toContain("NYLORUN_ADMIN_PORT");
     // Studio reaches the Runtime and Management APIs where apps do; runtime:4000 is an allowed Host.
     expect(compose).toContain("NYLORUN_RUNTIME_URL: http://runtime:4000");
     expect(compose).toContain("NYLORUN_ALLOWED_HOSTS: runtime:4000,");
@@ -309,7 +306,6 @@ describe(".env", () => {
   it("round-trips the persisted settings", () => {
     expect(parsePersisted(renderEnvFile(env))).toEqual({
       runtimePort: 8787,
-      adminPort: 8788,
       studioPort: 4161,
       restatePort: 9070,
       postgresPassword: env.postgresPassword,
@@ -344,6 +340,11 @@ describe(".env", () => {
 
   it("ignores a NYLORUN_DERIVED_PRINCIPALS line an older nylorun wrote", () => {
     expect(parsePersisted("NYLORUN_DERIVED_PRINCIPALS=project,backend\n")).toEqual({});
+  });
+
+  it("ignores the NYLORUN_ADMIN_PORT an older nylorun wrote, and writes none", () => {
+    expect(parsePersisted("NYLORUN_PORT=8787\nNYLORUN_ADMIN_PORT=8788\n")).toEqual({ runtimePort: 8787 });
+    expect(renderEnvFile(env)).not.toContain("NYLORUN_ADMIN_PORT");
   });
 
   it("ignores malformed persisted values", () => {
@@ -422,7 +423,7 @@ describe("prepareStack", () => {
     const paths = stackPaths(home);
     const prepared = await prepare(home);
     expect(prepared.firstRun).toBe(true);
-    expect(prepared.env).toMatchObject({ runtimePort: 8787, adminPort: 8788, studioPort: 4161, restatePort: 9070, uid: 501, gid: 20, hostRoot: paths.root });
+    expect(prepared.env).toMatchObject({ runtimePort: 8787, studioPort: 4161, restatePort: 9070, uid: 501, gid: 20, hostRoot: paths.root });
     expect(prepared.env.postgresPassword).toMatch(/^[0-9a-f]{48}$/);
     expect(prepared.env.gatesToken).toMatch(/^[0-9a-f]{64}$/);
     expect(prepared.env.objectStoreSecretKey).toMatch(/^[0-9a-f]{64}$/);
@@ -442,7 +443,6 @@ describe("prepareStack", () => {
       hostId: expect.stringMatching(/^host_[0-9a-hjkmnp-tv-z]{26}$/),
       host: "localhost",
       port: 8787,
-      adminPort: 8788,
       runtimeVersion: "0.10.0-beta",
     });
     const credentials = JSON.parse(await readFile(paths.credentials, "utf8"));
@@ -479,9 +479,9 @@ describe("prepareStack", () => {
   it("avoids ports other Tenants keep for new ports only", async () => {
     const home = await temporaryHome();
     const first = await prepare(home, fakePorts(), { reserved: [8787, 4161] });
-    expect(first.env).toMatchObject({ runtimePort: 50000, adminPort: 8788, studioPort: 50001 });
-    const second = await prepare(home, fakePorts(), { reserved: [50000, 8788] });
-    expect(second.env).toMatchObject({ runtimePort: 50000, adminPort: 8788, studioPort: 50001 });
+    expect(first.env).toMatchObject({ runtimePort: 50000, studioPort: 50001 });
+    const second = await prepare(home, fakePorts(), { reserved: [50000, 50001] });
+    expect(second.env).toMatchObject({ runtimePort: 50000, studioPort: 50001 });
   });
 
   it("persists ports and the password; refreshes images and UID", async () => {
@@ -525,18 +525,21 @@ describe("prepareStack", () => {
     await mkdir(paths.root, { recursive: true });
     await writeFile(
       paths.config,
-      JSON.stringify({ format: 1, hostId: "host_0123456789abcdefghjkmnpqrs", host: "127.0.0.1", port: 8787, proxy: { noProxy: "x" } }),
+      JSON.stringify({ format: 1, hostId: "host_0123456789abcdefghjkmnpqrs", host: "127.0.0.1", port: 8787, adminPort: 8788, proxy: { noProxy: "x" } }),
     );
     const adminKey = "ab".repeat(32);
     await writeFile(paths.credentials, JSON.stringify({ adminKey }), { mode: 0o644 });
     const prepared = await prepare(home);
     expect(prepared.adminKey).toBe(adminKey);
     expect(await mode(paths.credentials)).toBe(0o600);
-    expect(JSON.parse(await readFile(paths.config, "utf8"))).toMatchObject({
+    const host = JSON.parse(await readFile(paths.config, "utf8"));
+    expect(host).toMatchObject({
       hostId: "host_0123456789abcdefghjkmnpqrs",
       host: "localhost",
       proxy: { noProxy: "x" },
     });
+    // An older Host root's operator port goes: there is no operator listener.
+    expect(host).not.toHaveProperty("adminPort");
   });
 
   it("keeps an existing identity key, fixes its mode and refuses a corrupt one", async () => {

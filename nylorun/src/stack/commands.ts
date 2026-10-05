@@ -1,12 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import {
-  compareVersions,
-  PROTOCOL_HEADER,
-  PROTOCOL_VERSION,
-} from "@nylorun/core/compatibility";
-import type { HostTenant } from "@nylorun/core/contracts";
+import { compareVersions } from "@nylorun/core/compatibility";
 import { CliError } from "../errors.js";
 import {
   credentialsPath,
@@ -385,47 +380,42 @@ async function waitForHealth(
   }
 }
 
-/** The Host's one Tenant as `/v1/admin/status` reports it (no envelope). */
-export type StackTenant = Pick<HostTenant, "id" | "name" | "state" | "cause">;
+/** The Host's one Tenant as `nylorun-operate status --json` reports it. */
+export interface StackTenant {
+  /** Null until the Tenant row has been read. */
+  id: string | null;
+  name: string | null;
+  state: "open" | "unavailable";
+  /** Why it cannot open (`schema-too-new`, `database-layout-old`, …); `message` says more. */
+  cause?: string;
+  message?: string;
+}
 
-/** `/v1/admin/status` on the operator listener: the Tenant, and its harnesses (F6.2). */
-interface StackAdminStatus {
-  tenant: StackTenant;
+/** `GET /ready` (no key): whether the Tenant is open, and its harnesses (I-D5). */
+interface StackReady {
+  ready: boolean;
+  tenant: boolean;
   harness?: { mode: HarnessMode; connected: number };
 }
 
-/** `/v1/admin/status` on the operator listener; undefined when it does not answer. */
-async function fetchAdminStatus(
-  deps: StackDeps,
-  adminUrl: string,
-  adminKey: string | undefined,
-): Promise<StackAdminStatus | undefined> {
-  if (!adminKey) return undefined;
+/** The Runtime's `/ready` (503 while not ready, same body); undefined when it does not answer. */
+async function fetchReady(deps: StackDeps, runtimeUrl: string): Promise<StackReady | undefined> {
   try {
-    const response = await deps.fetch(`${adminUrl}/v1/admin/status`, {
-      headers: {
-        authorization: `Bearer ${adminKey}`,
-        [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
-        accept: "application/json",
-      },
+    const response = await deps.fetch(`${runtimeUrl}/ready`, {
+      headers: { accept: "application/json" },
       signal: AbortSignal.timeout(3000),
       redirect: "error",
     });
-    if (!response.ok) return undefined;
     const body = (await response.json()) as {
-      tenant?: Partial<HostTenant>;
-      aggregate?: { harness?: { mode?: unknown; connected?: unknown } };
+      status?: unknown;
+      checks?: Record<string, unknown>;
+      harness?: { mode?: unknown; connected?: unknown };
     };
-    const tenant = body.tenant;
-    if (!tenant || (tenant.state !== "open" && tenant.state !== "unavailable")) return undefined;
-    const harness = body.aggregate?.harness;
+    if (body.status !== "ready" && body.status !== "not_ready") return undefined;
+    const harness = body.harness;
     return {
-      tenant: {
-        id: typeof tenant.id === "string" ? tenant.id : null,
-        name: typeof tenant.name === "string" ? tenant.name : null,
-        state: tenant.state,
-        ...(tenant.cause ? { cause: tenant.cause } : {}),
-      },
+      ready: body.status === "ready",
+      tenant: body.checks?.tenant === true,
       ...((harness?.mode === "remote" || harness?.mode === "in-process") &&
       typeof harness.connected === "number"
         ? { harness: { mode: harness.mode, connected: harness.connected } }
@@ -436,46 +426,67 @@ async function fetchAdminStatus(
   }
 }
 
-/** `/v1/admin/status`'s Tenant on the operator listener; undefined when it does not answer. */
-async function fetchTenant(
-  deps: StackDeps,
-  adminUrl: string,
-  adminKey: string | undefined,
+/**
+ * `nylorun-operate status --json` in the runtime container (exit 0 open, 2 not open): the
+ * Tenant's id and name, and why it cannot open. Undefined when it does not answer.
+ */
+async function operateStatus(
+  ctx: Pick<Context, "deps" | "project" | "paths">,
 ): Promise<StackTenant | undefined> {
-  return (await fetchAdminStatus(deps, adminUrl, adminKey))?.tenant;
+  const result = await operateEndpoint(ctx).operate(["status", "--json"]);
+  if (result.code !== 0 && result.code !== 2) return undefined;
+  let tenant: Partial<Record<keyof StackTenant, unknown>> | undefined;
+  try {
+    tenant = (JSON.parse(result.stdout) as { tenant?: typeof tenant }).tenant;
+  } catch {
+    return undefined;
+  }
+  if (!tenant || (tenant.state !== "open" && tenant.state !== "unavailable")) return undefined;
+  return {
+    id: typeof tenant.id === "string" ? tenant.id : null,
+    name: typeof tenant.name === "string" ? tenant.name : null,
+    state: tenant.state,
+    ...(typeof tenant.cause === "string" ? { cause: tenant.cause } : {}),
+    ...(typeof tenant.message === "string" ? { message: tenant.message } : {}),
+  };
 }
 
-/** Why the Tenant is unavailable, with the repair the Runtime names. */
+/** Why the Tenant is unavailable, as `nylorun-operate status` names it. */
 function tenantCauseMessage(ctx: Context, tenant: StackTenant): string {
-  const cause = tenant.cause!;
   const hint =
-    cause.code === "schema-too-new"
+    tenant.cause === "schema-too-new"
       ? ` This nylorun pins Runtime ${ctx.deps.runtimeVersion}, older than the Tenant's database: update nylorun (npx nylorun@latest start).`
       : "";
-  return `Tenant ${ctx.name} is unavailable (${cause.code}): ${cause.message} ${cause.repair}${hint} See "nylorun logs runtime".`;
+  const message = tenant.message ? `: ${tenant.message.replace(/\.?$/, ".")}` : ".";
+  return `Tenant ${ctx.name} is unavailable (${tenant.cause})${message}${hint} See "nylorun logs runtime".`;
 }
 
 /**
- * Wait until the Tenant is open: the Runtime creates it on the first start and opens
- * it on later ones. A Tenant that could not be opened has a cause; report it.
+ * Wait until the Tenant is open (`/ready`'s `tenant` check): the Runtime creates it on the
+ * first start and opens it on later ones. Then `nylorun-operate status` gives its id. While it
+ * is not open, `nylorun-operate status` is asked now and then: it names a cause only when the
+ * Tenant cannot open (`schema-too-new`, `database-layout-old`), which ends the wait.
  */
 async function waitForTenant(
   ctx: Context,
-  adminUrl: string,
-  adminKey: string,
+  runtimeUrl: string,
 ): Promise<StackTenant & { id: string }> {
   const deadline = Date.now() + (ctx.deps.healthTimeoutMs ?? 60_000);
-  for (;;) {
-    const tenant = await fetchTenant(ctx.deps, adminUrl, adminKey);
-    if (tenant?.state === "open" && tenant.id) return { ...tenant, id: tenant.id };
-    if (tenant?.cause) throw new CliError(tenantCauseMessage(ctx, tenant), 7);
-    if (Date.now() > deadline)
-      throw new CliError(
-        `Tenant ${ctx.name} did not open (${adminUrl}/v1/admin/status: ${
-          tenant ? tenant.state : "no answer"
-        }). See "nylorun status" and "nylorun logs runtime".`,
-        7,
-      );
+  for (let poll = 1; ; poll += 1) {
+    const open = (await fetchReady(ctx.deps, runtimeUrl))?.tenant === true;
+    const late = Date.now() > deadline;
+    if (open || late || poll % 10 === 0) {
+      const tenant = await operateStatus(ctx);
+      if (tenant?.state === "open" && tenant.id) return { ...tenant, id: tenant.id };
+      if (!open && tenant?.cause) throw new CliError(tenantCauseMessage(ctx, tenant), 7);
+      if (late)
+        throw new CliError(
+          `Tenant ${ctx.name} did not open (${runtimeUrl}/ready: ${
+            open ? "open, but nylorun-operate status did not answer" : "not open"
+          })${tenant?.message ? `: ${tenant.message.replace(/\.$/, "")}` : ""}. See "nylorun status" and "nylorun logs runtime".`,
+          7,
+        );
+    }
     await sleep(ctx.deps.pollMs ?? 500);
   }
 }
@@ -559,7 +570,6 @@ async function tenantPorts(base: string, except?: string): Promise<Set<number>> 
     const persisted = await readStackEnv(paths);
     for (const port of [
       persisted?.runtimePort,
-      persisted?.adminPort,
       persisted?.studioPort,
       persisted?.restatePort,
     ])
@@ -575,7 +585,6 @@ async function reservedPorts(ctx: Context): Promise<Set<number>> {
 
 interface Started {
   runtimeUrl: string;
-  adminUrl: string;
   hostId: string;
   studioPort: number;
   /** `http://localhost:<studio port>` */
@@ -643,7 +652,6 @@ async function bringUp(
       `Created Tenant ${ctx.name} under ${ctx.paths.root} (Runtime port ${prepared.env.runtimePort}, Studio port ${prepared.env.studioPort}).`,
     );
   const runtimeUrl = `http://${STACK_CLIENT_HOST}:${prepared.env.runtimePort}`;
-  const adminUrl = `http://${STACK_CLIENT_HOST}:${prepared.env.adminPort}`;
   const up = await deps.docker.stream(
     // --remove-orphans: a service this start's file no longer has (the harness after a rollback
     // to NYLORUN_HARNESS=in-process, sandboxes after disable) is removed, not left running.
@@ -659,8 +667,8 @@ async function bringUp(
     ),
   );
   if (up !== 0) {
-    // A Runtime whose Tenant cannot open fails readiness; its status names the cause.
-    const tenant = await fetchTenant(deps, adminUrl, prepared.adminKey);
+    // A Runtime whose Tenant cannot open fails readiness; nylorun-operate names the cause.
+    const tenant = await operateStatus(ctx);
     if (tenant?.cause) throw new CliError(tenantCauseMessage(ctx, tenant), 7);
     throw new CliError(
       `docker compose up failed (exit ${up}). See "nylorun logs runtime", "nylorun logs gateway", "nylorun logs harness" and "nylorun status".`,
@@ -688,7 +696,6 @@ async function bringUp(
   }
   return {
     runtimeUrl,
-    adminUrl,
     hostId: prepared.host.hostId,
     studioPort: prepared.env.studioPort,
     studioUrl: studioOrigin(prepared.env.studioPort),
@@ -851,7 +858,7 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
       ? { studioEmbedOrigins: { add: embedOrigins, reset: resetEmbed } }
       : {}),
   });
-  const tenant = await waitForTenant(ctx, started.adminUrl, started.adminKey);
+  const tenant = await waitForTenant(ctx, started.runtimeUrl);
   if (ctx.projectDir) await linkProject({ ...ctx, projectDir: ctx.projectDir }, started, tenant.id);
   deps.out(`Tenant    ${ctx.name}  (${tenant.id})`);
   deps.out(`Runtime   ${started.runtimeUrl}`);
@@ -938,13 +945,13 @@ export interface StackStatus {
   state: "running" | "stopped" | "absent";
   runtime: {
     url?: string;
-    /** The Admin API (operator listener), when the Tenant publishes one. */
-    adminUrl?: string;
     healthy: boolean;
+    /** `/ready`: the Tenant is open and the Runtime's stores answer. */
+    ready: boolean;
     version?: string;
     hostId?: string;
   };
-  /** The Tenant as the Runtime reports it, while it answers. */
+  /** The Tenant as `nylorun-operate status` reports it, while the runtime container runs. */
   tenant?: StackTenant;
   studio: {
     /** `http://localhost:<port>`: also what an embedding app frames (same site as its own localhost). */
@@ -972,7 +979,7 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
     project: ctx.project,
     home: ctx.paths.root,
     state: "absent",
-    runtime: { healthy: false },
+    runtime: { healthy: false, ready: false },
     studio: { state: "absent" },
     restate: { published: false },
     gateway: { state: "absent", healthy: false },
@@ -990,15 +997,11 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
   const host = await readHostConfig(ctx.paths);
   const healthy =
     health?.status === "ok" && (host === undefined || health.hostId === host.hostId);
-  // The Admin API answers on the operator port; an older Host root has only the Runtime port.
-  const adminUrl = persisted.adminPort
-    ? `http://${STACK_CLIENT_HOST}:${persisted.adminPort}`
-    : runtimeUrl;
-  const answered =
-    healthy && adminUrl
-      ? await fetchAdminStatus(ctx.deps, adminUrl, await readAdminKey(ctx.paths))
-      : undefined;
-  const tenant = answered?.tenant;
+  const ready = healthy && runtimeUrl ? await fetchReady(ctx.deps, runtimeUrl) : undefined;
+  // nylorun-operate answers while the container runs, also when the Tenant cannot open.
+  const tenant = services.some((s) => s.service === "runtime" && s.state === "running")
+    ? await operateStatus(ctx)
+    : undefined;
   const studio = services.find((s) => s.service === "studio");
   const gateway = services.find((s) => s.service === "gateway");
   const harness = services.find((s) => s.service === "harness");
@@ -1008,8 +1011,8 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
     state: services.some((s) => s.state === "running") ? "running" : "stopped",
     runtime: {
       ...(runtimeUrl ? { url: runtimeUrl } : {}),
-      ...(persisted.adminPort && adminUrl ? { adminUrl } : {}),
       healthy,
+      ready: ready?.ready ?? false,
       ...(health?.version ? { version: health.version } : {}),
       ...(health?.hostId ? { hostId: health.hostId } : {}),
     },
@@ -1030,10 +1033,10 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
       healthy: isUp(services, "gateway"),
     },
     harness: {
-      mode: answered?.harness?.mode ?? harnessMode,
+      mode: ready?.harness?.mode ?? harnessMode,
       state: harness ? [harness.state, harness.health].filter(Boolean).join(", ") : "absent",
       healthy: isUp(services, "harness"),
-      ...(answered?.harness ? { connected: answered.harness.connected } : {}),
+      ...(ready?.harness ? { connected: ready.harness.connected } : {}),
     },
     services,
   };
@@ -1051,9 +1054,8 @@ export async function readStackStatus(
 function describeTenant(tenant: StackTenant): string {
   const who = `${tenant.id ?? "(no id yet)"}${tenant.name ? ` (${tenant.name})` : ""}`;
   if (tenant.state === "open") return `${who}  open`;
-  return tenant.cause
-    ? `${who}  unavailable: ${tenant.cause.code}: ${tenant.cause.message} ${tenant.cause.repair}`
-    : `${who}  unavailable (opening)`;
+  const why = [tenant.cause, tenant.message].filter(Boolean).join(": ");
+  return `${who}  unavailable${why ? `: ${why}` : " (opening)"}`;
 }
 
 async function status(deps: StackDeps, args: readonly string[]): Promise<number> {
@@ -1071,11 +1073,9 @@ async function status(deps: StackDeps, args: readonly string[]): Promise<number>
     out(`Host root   ${result.home} (admin key in host-credentials.json, mode 0600)`);
     if (result.tenant) out(`Tenant id   ${describeTenant(result.tenant)}`);
     const runtimeDetail = result.runtime.healthy
-      ? `healthy, ${result.runtime.version ?? "?"}, ${result.runtime.hostId ?? "?"}`
+      ? `healthy, ${result.runtime.ready ? "ready" : "not ready"}, ${result.runtime.version ?? "?"}, ${result.runtime.hostId ?? "?"}`
       : "not answering";
     out(`Runtime     ${result.runtime.url ?? "?"}  ${runtimeDetail}`);
-    if (result.runtime.adminUrl)
-      out(`Admin API   ${result.runtime.adminUrl}  (operators only, never proxied)`);
     out(`Studio      ${result.studio.url ?? "?"}  ${result.studio.state} (log in with "nylorun studio")`);
     if (result.studio.embedOrigins?.length)
       out(`Embeds      ${result.studio.embedOrigins.join(" ")}  (may show Studio in a frame)`);
@@ -1187,7 +1187,7 @@ interface ListedTenant {
   memoryBytes: number | null;
   runtimeUrl?: string;
   studioUrl?: string;
-  ports: { runtime?: number; admin?: number; studio?: number; restate?: number };
+  ports: { runtime?: number; studio?: number; restate?: number };
 }
 
 /** Compose projects on this Docker engine and whether any container runs; undefined without Docker. */
@@ -1236,7 +1236,6 @@ async function ls(deps: StackDeps, args: readonly string[]): Promise<number> {
       ...(persisted.studioPort ? { studioUrl: studioOrigin(persisted.studioPort) } : {}),
       ports: {
         ...(persisted.runtimePort ? { runtime: persisted.runtimePort } : {}),
-        ...(persisted.adminPort ? { admin: persisted.adminPort } : {}),
         ...(persisted.studioPort ? { studio: persisted.studioPort } : {}),
         ...(persisted.restatePort ? { restate: persisted.restatePort } : {}),
       },
@@ -1304,9 +1303,8 @@ export interface StackEndpoints {
   home: string;
   /** `http://localhost:<port>` */
   runtimeUrl: string;
-  /** The operator listener (Admin API). */
-  adminUrl: string;
   hostId: string;
+  /** The admin key (host-credentials.json): it mints Studio logins. */
   adminKey: string;
   studioPort: number;
   /** `http://localhost:<studio port>` */
@@ -1341,9 +1339,6 @@ async function runningStack(
     name: ctx.name,
     home: ctx.paths.root,
     runtimeUrl,
-    adminUrl: persisted.adminPort
-      ? `http://${STACK_CLIENT_HOST}:${persisted.adminPort}`
-      : runtimeUrl,
     hostId: host.hostId,
     adminKey,
     studioPort: persisted.studioPort,
@@ -1366,7 +1361,6 @@ async function ensureSelected(ctx: Context, options: { studio: boolean }): Promi
     name: ctx.name,
     home: ctx.paths.root,
     runtimeUrl: started.runtimeUrl,
-    adminUrl: started.adminUrl,
     hostId: started.hostId,
     adminKey: started.adminKey,
     studioPort: started.studioPort,
@@ -1407,8 +1401,7 @@ async function runningSelected(
   const running = await runningStack(ctx, { studio: false });
   if (!running)
     throw new CliError(`Tenant ${ctx.name} is not running. Run "nylorun start" first.`, 3);
-  const tenant = await fetchTenant(deps, running.adminUrl, running.adminKey);
-  if (!tenant?.id || tenant.state !== "open")
+  if ((await fetchReady(deps, running.runtimeUrl))?.tenant !== true)
     throw new CliError(`Tenant ${ctx.name} is not open. See "nylorun status".`, 7);
   return {
     ctx,
@@ -1574,7 +1567,7 @@ async function studio(
   // Studio serves the one Tenant; the link's Tenant id stands in while it is opening.
   let next = options.next;
   if (next === undefined) {
-    const tenant = await fetchTenant(deps, running.adminUrl, running.adminKey);
+    const tenant = await operateStatus(ctx);
     const linked =
       ctx.link?.tenant === ctx.name ? ctx.link.tenantId : undefined;
     const tenantId = tenant?.id ?? linked;

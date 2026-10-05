@@ -25,8 +25,6 @@ export interface HostConfigFile {
   hostId: string;
   host: string;
   port: number;
-  /** The operator listener's published port (the Admin API); absent on older Host roots. */
-  adminPort?: number;
   runtimeVersion?: string;
   [field: string]: unknown;
 }
@@ -84,9 +82,10 @@ export async function readHostConfig(
  */
 export async function writeStackHostConfig(
   paths: StackPaths,
-  input: { port: number; adminPort?: number; runtimeVersion: string | undefined },
+  input: { port: number; runtimeVersion: string | undefined },
 ): Promise<HostConfigFile> {
-  const existing = (await readHostConfig(paths)) ?? {};
+  // An older Host root's operator port (`adminPort`) is dropped: there is no operator listener.
+  const { adminPort: _, ...existing } = (await readHostConfig(paths)) ?? {};
   const format = existing.format;
   if (
     format !== undefined &&
@@ -106,7 +105,6 @@ export async function writeStackHostConfig(
     hostId,
     host: STACK_CLIENT_HOST,
     port: input.port,
-    ...(input.adminPort === undefined ? {} : { adminPort: input.adminPort }),
     ...(input.runtimeVersion !== undefined ? { runtimeVersion: input.runtimeVersion } : {}),
   };
   await writeAtomic(paths.config, `${JSON.stringify(config, null, 2)}\n`);

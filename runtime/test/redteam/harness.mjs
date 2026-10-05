@@ -95,7 +95,7 @@ function http2Status(origin, path, headers = {}) {
 }
 
 /**
- * Refused by the Tenant or Admin API: 401, or the opaque 404 an unknown credential gets
+ * Refused by the Runtime or Management API: 401, or the opaque 404 an unknown credential gets
  * (`{"status":"rejected","code":"not_found"}`, the same as for a route that does not exist).
  */
 const apiRefused = (answer) =>
@@ -277,10 +277,10 @@ const tenantApi = await http("http://runtime:4000/v1/sessions", {
   headers: { authorization: `Bearer ${TOKEN}`, "nylorun-protocol": PROTOCOL },
 });
 report("Tenant API refuses the harness token", apiRefused(tenantApi), `${tenantApi.status} ${tenantApi.text.slice(0, 120)}`);
-const adminApi = await http("http://runtime:4001/v1/admin/status", {
+const managementApi = await http("http://runtime:4000/v1/tenant", {
   headers: { authorization: `Bearer ${TOKEN}`, "nylorun-protocol": PROTOCOL },
 });
-report("Admin API refuses the harness token", apiRefused(adminApi), `${adminApi.status} ${adminApi.text.slice(0, 120)}`);
+report("Management API refuses the harness token", apiRefused(managementApi), `${managementApi.status} ${managementApi.text.slice(0, 120)}`);
 const worker = await http2Status("http://runtime:9080", "/discover", { authorization: `Bearer ${TOKEN}` });
 report("Worker endpoint refuses a caller without Restate's identity", worker === 401 || worker === 403, worker);
 

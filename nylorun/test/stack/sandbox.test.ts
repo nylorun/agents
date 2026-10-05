@@ -12,10 +12,9 @@ import {
   json,
   temporaryHome,
   testDeps,
+  readyResponse,
   type FakeKeys,
 } from "./support.js";
-
-const TENANT_ID = "tn_01TESTSTACK000000000000001";
 
 const hostId = (home: string) =>
   (JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { hostId: string }).hostId;
@@ -65,8 +64,7 @@ async function running(options: { up?: boolean } = {}) {
   const fetch = fakeFetch((url, init) => {
     if (url.endsWith("/health"))
       return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
-    if (url.endsWith("/v1/admin/status"))
-      return json({ tenant: { id: TENANT_ID, name: "home-root", state: "open", envelope: null } });
+    if (url.endsWith("/ready")) return readyResponse();
     if (url.endsWith("/_studio/login-tokens")) return json({ token: "t" }, 201);
     const path = new URL(url).pathname;
     if (path === "/v1/me")
@@ -113,7 +111,7 @@ describe("nylorun sandbox", () => {
     expect(statSync(file).mode & 0o777).toBe(0o600);
     // A later command reuses the kept keys: no second put.
     expect(await sandboxCommand(deps, ["ls"])).toBe(0);
-    expect(docker.calls.filter((args) => args.includes("nylorun-operate"))).toHaveLength(2);
+    expect(docker.calls.filter((args) => args.includes("keys"))).toHaveLength(2);
   });
 
   it("ls --json prints the sandboxes", async () => {

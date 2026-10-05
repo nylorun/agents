@@ -8,7 +8,8 @@
 // Needs the CLI and @nylorun/admin built. Starts the Tenant (NYLORUN_TENANT) outside
 // any project (no Project link), checks `nylorun status --json` and the Runtime's /ready
 // (Postgres, Restate, S2), checks that Studio is printed without a login
-// token, that the Admin API reports the Host's one open Tenant, mints a Studio
+// token, that /ready and `nylorun-operate status` report the Host's one open Tenant (no
+// operator port is published), mints a Studio
 // login that lands on it, embeds Studio the way an embedding app does (the origins it
 // sets with --studio-embed-origin, a Tenant-limited token, a bearer session), links a Project with `nylorun
 // start` in its directory (the same Tenant through NYLORUN_TENANT), runs
@@ -200,7 +201,15 @@ try {
     assert.equal(status.state, "running");
     assert.equal(status.project, stack.project);
     assert.equal(status.runtime.healthy, true);
+    assert.equal(status.runtime.ready, true, "status reports the Runtime ready (/ready)");
     assert.equal(status.runtime.url, runtimeUrl);
+    assert.equal(status.tenant?.state, "open", "status reports the Tenant open (nylorun-operate status)");
+    assert.equal("adminUrl" in status.runtime, false, "no Admin API");
+    assert.doesNotMatch(
+      await readFile(join(home, "docker", ".env"), "utf8"),
+      /NYLORUN_ADMIN_PORT/,
+      "no operator port is published",
+    );
     for (const service of ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime", "harness", "studio"]) {
       const entry = status.services.find((s) => s.service === service);
       assert.equal(entry?.state, "running", `${service} is running`);
@@ -274,11 +283,15 @@ console.log(JSON.stringify(found));
     const logs = await stack.nylorun(["logs", "restate", "--tail", "100000"], { echo: false });
     assert.ok(logs.stdout.includes(`kid: "${identityKey}"`), "Restate logs the same key id");
 
-    // The Runtime created the installation's one Tenant on its first start.
-    const admin = await stack.admin();
-    assert.equal((await admin.status()).host?.url, runtimeUrl, "admin status reports the public URL");
-    const tenant = await hostTenant(admin);
-    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "an application key put through the Admin API reaches the Runtime API");
+    // The Runtime created the installation's one Tenant on its first start: /ready says it is
+    // open, and nylorun-operate (in the runtime container) names it.
+    assert.equal(readyBody.checks.tenant, true, "/ready reports the Tenant open");
+    const operated = await stack.operateStatus();
+    assert.equal(operated.tenant.state, "open");
+    assert.equal(operated.tenant.id, status.tenant.id, "nylorun status reports nylorun-operate's Tenant");
+    const tenant = await hostTenant(stack);
+    assert.equal(tenant.id, operated.tenant.id);
+    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "an application key put with nylorun key put reaches the Runtime API");
     assert.ok(!existsSync(join(home, ".nylorun")), "start outside a project writes no Project link");
 
     const studio = await studioSession(await stack.studioLogin());
@@ -346,7 +359,10 @@ console.log(JSON.stringify(found));
     });
     assert.equal(refused.status, 403, "the project's application key does not reach the Management API");
     assert.equal((await refused.json()).code, "key_role_mismatch");
-    assert.ok((await admin.keys.list()).some((key) => key.id === "project"), "the Admin API lists the project key");
+    assert.ok(
+      (await runtimeGet(runtimeUrl, credentials.managementKey, "/v1/tenant/keys")).keys.some((key) => key.id === "project"),
+      "the Management API lists the project key",
+    );
 
     // `down` and `up` are the Compose spellings of `stop` and `start`: a second
     // `up` reuses the Compose files it set up, and the stopped volumes keep the Tenant.
@@ -364,7 +380,7 @@ console.log(JSON.stringify(found));
     assert.match(up.stdout, /^Runtime\s+http:\/\/localhost:\d+$/m);
     assert.deepEqual(await stackFiles(), before, "up reuses the Compose files");
     assert.equal(JSON.parse((await stack.nylorun(["status", "--json"])).stdout).runtime.healthy, true);
-    assert.equal((await admin.status()).tenant.id, tenant.id, "the Tenant survives down and up");
+    assert.equal((await stack.operateStatus()).tenant.id, tenant.id, "the Tenant survives down and up");
 
     // The Runtime and Studio run as this user, so nothing in the bind-mounted
     // Host root may belong to anyone else (Linux maps UIDs through unchanged).

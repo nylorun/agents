@@ -3,11 +3,11 @@ import { run } from "../lib/repo.mjs";
 
 /**
  * Files a package's GitHub Release carries beside its notes, from the package's `dist/`: the
- * Runtime's OpenAPI documents, for tools that read an API description from a release (API
+ * Runtime's OpenAPI document, for tools that read an API description from a release (API
  * reference renderers such as Scalar).
  */
 export const RELEASE_ASSETS = {
-  runtime: ["openapi.json", "admin-openapi.json"],
+  runtime: ["openapi.json"],
 };
 
 /** The assets `name`'s release should carry that `existing` (their names) lacks. */
