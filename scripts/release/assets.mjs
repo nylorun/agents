@@ -7,7 +7,7 @@ import { run } from "../lib/repo.mjs";
  * reference renderers such as Scalar).
  */
 export const RELEASE_ASSETS = {
-  runtime: ["openapi.json"],
+  runtime: ["openapi.json", "management-openapi.json"],
 };
 
 /** The assets `name`'s release should carry that `existing` (their names) lacks. */

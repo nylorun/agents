@@ -32,6 +32,7 @@ for (const path of [
   "dist/host/main.js",
   "dist/version.js",
   "dist/openapi.json",
+  "dist/management-openapi.json",
   "README.md",
   "CHANGELOG.md",
   "LICENSE",
