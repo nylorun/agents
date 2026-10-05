@@ -14,7 +14,7 @@ import { failure } from "../model/classify.js";
 import type {
   ModelBudgetRow,
   ModelUsageQuery,
-  ModelUsageRow,
+  ModelUsageWrite,
   ModelUsageTotals,
   SessionStore,
 } from "../store/types.js";
@@ -126,7 +126,7 @@ export function usageRow(
   request: ModelGateRequest,
   outcome: ModelGateOutcome,
   at: Date,
-): Omit<ModelUsageRow, "duplicate"> | undefined {
+): ModelUsageWrite | undefined {
   if (typeof outcome !== "object" || "kind" in outcome || !outcome.usage) return undefined;
   const usage = outcome.usage;
   const producer = producerOf(outcome);
@@ -135,6 +135,14 @@ export function usageRow(
   return {
     id: randomUUID(),
     effectKey: request.effectId,
+    tokensReported:
+      typeof outcome.evidence?.extras?.tokensReported === "boolean"
+        ? outcome.evidence.extras.tokensReported
+        : null,
+    costKnown:
+      typeof outcome.evidence?.extras?.costKnown === "boolean"
+        ? outcome.evidence.extras.costKnown
+        : null,
     sessionId: request.sessionId,
     turnId: request.turnId,
     agentId: request.agentId,

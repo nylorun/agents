@@ -6,6 +6,15 @@
  */
 import { z } from "zod";
 import {
+  SessionListItemSchema,
+  ModelCallSchema,
+  SessionPageSchema,
+  SessionManifestViewSchema,
+  HistoryPageSchema,
+  SessionUsageTotalsSchema,
+  ModelCallsPageSchema,
+  ModelCallExportPageSchema,
+  SandboxPageSchema,
   JwksSchema,
   SigningKeyListSchema,
   SigningKeyViewSchema,
@@ -207,4 +216,13 @@ export const SigningKeyList = named("SigningKeyList", SigningKeyListSchema);
 export const SigningKeyView = named("SigningKeyView", SigningKeyViewSchema);
 export const RotateSigningKeysRequest = named("RotateSigningKeysRequest", RotateSigningKeysRequestSchema);
 export const RevokeSigningKeyRequest = named("RevokeSigningKeyRequest", RevokeSigningKeyRequestSchema);
+export const SessionListItem = named("SessionListItem", SessionListItemSchema);
+export const ModelCall = named("ModelCall", ModelCallSchema);
+export const SessionPage = named("SessionPage", SessionPageSchema.extend({ sessions: z.array(SessionListItem) }));
+export const SessionManifestView = named("SessionManifestView", SessionManifestViewSchema);
+export const HistoryPage = named("HistoryPage", HistoryPageSchema.extend({ items: z.array(SessionEvent) }));
+export const SessionUsageTotals = named("SessionUsageTotals", SessionUsageTotalsSchema);
+export const ModelCallsPage = named("ModelCallsPage", ModelCallsPageSchema.extend({ calls: z.array(ModelCall) }));
+export const ModelCallExportPage = named("ModelCallExportPage", ModelCallExportPageSchema.extend({ calls: z.array(ModelCall) }));
+export const SandboxPage = named("SandboxPage", SandboxPageSchema.extend({ sandboxes: z.array(SandboxView) }));
 export const MeResponse = named("MeResponse", MeResponseSchema);

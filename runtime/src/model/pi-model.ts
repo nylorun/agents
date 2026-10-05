@@ -302,6 +302,9 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       evidence: {
         resolvedModel: response.responseModel ?? selected.id,
         extras: {
+          // pi-ai initializes missing counters to zero; reporting provenance is unknown.
+          tokensReported: null,
+          costKnown: !selection.custom,
           producer: {
             provider: selected.provider,
             api: selected.api,

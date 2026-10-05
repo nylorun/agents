@@ -76,6 +76,7 @@ import type {
   ArtifactVersionRow,
   ModelBudgetRow,
   ModelUsageRow,
+  ModelUsageWrite,
   PrincipalRow,
   ToolCrossingRow,
   SigningKeyRow,
@@ -338,6 +339,7 @@ export type {
   ArtifactVersionRow,
   ModelBudgetRow,
   ModelUsageRow,
+  ModelUsageWrite,
   ToolCrossingRow,
   PrincipalRow,
   SigningKeyRow,
@@ -770,7 +772,7 @@ export interface Tx {
   // --- model usage ---------------------------------------------------------
 
   /** Appends a row, setting `duplicate` when one with the same `effectKey` exists; returns it. */
-  recordModelUsage(row: Omit<ModelUsageRow, "duplicate">): Promise<ModelUsageRow>;
+  recordModelUsage(row: ModelUsageWrite): Promise<ModelUsageRow>;
   modelUsageTotals(query: ModelUsageQuery): Promise<ModelUsageTotals>;
   /** Every budget, ordered by scope, then scope id. */
   listModelBudgets(): Promise<ModelBudgetRow[]>;

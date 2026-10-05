@@ -27,6 +27,7 @@ const substrates = {
 // already-authorized Tenant and session, never reaches into tenant, engine, API or store code.
 const moduleImports = {
   runtime: [
+    { dir: "reads", forbidden: ["core", "execution", "host", "gates", "api"], forbiddenFiles: ["tenant/advance", "tenant/commands", "tenant/scheduler", "tenant/sessions"], except: [] },
     {
       dir: "streams",
       forbidden: ["tenant", "core", "api", "store", "host", "execution"],

@@ -187,6 +187,9 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "POST /v1/sessions/{sessionId}/commands",
       "GET /v1/sessions/{sessionId}/events",
       "GET /v1/sessions/{sessionId}/items",
+      "GET /v1/sessions/{sessionId}/manifest",
+      "GET /v1/sessions/{sessionId}/usage",
+      "GET /v1/sessions/{sessionId}/calls/model",
       "POST /v1/sessions/{sessionId}/sandbox/{tool}",
     ],
   },
@@ -268,7 +271,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   {
     name: "Models",
     description:
-      "Model providers, their credentials, the model the Tenant uses, what it spent and the budgets that cap it. `admin.models`.",
+      "Model providers, their credentials, the model the Tenant uses, what it spent, every model call for export, and the budgets that cap it. `admin.models`.",
     operations: [
       "GET /v1/tenant/models",
       "GET /v1/tenant/providers",
@@ -276,6 +279,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
       "PUT /v1/tenant/model",
       "PUT /v1/tenant/model/selection",
       "GET /v1/tenant/usage",
+      "GET /v1/tenant/calls/model",
       "GET /v1/tenant/budgets",
       "PUT /v1/tenant/budgets",
     ],

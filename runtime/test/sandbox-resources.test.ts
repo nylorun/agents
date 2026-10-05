@@ -327,6 +327,29 @@ describe("sandbox grants", { timeout: 60_000 }, () => {
     expect((await call("GET", path("read/b/one"), undefined, token)).status).toBe(404);
     const listed = await call("GET", "/v1/sandboxes", undefined, token);
     expect(listed.body.sandboxes.map((item: { id: string }) => item.id)).toEqual(["read/a/one"]);
+    await call("PUT", path("read/a/two"), { labels: { project: "paging", env: "dev" } });
+    await open("page-own", { id: "read/a/two" }, { owner: "app:rae" });
+    await open("page-other", { id: "read/a/two" }, { owner: "app:other" });
+    const first = await call("GET", "/v1/sandboxes?limit=1", undefined, token);
+    expect(first.status).toBe(200);
+    expect(first.body.sandboxes.map((item: { id: string }) => item.id)).toEqual(["read/a/one"]);
+    const second = await call("GET", `/v1/sandboxes?limit=1&cursor=${first.body.nextCursor}`, undefined, token);
+    expect(second.body.sandboxes[0].sessions.map((item: { id: string }) => item.id)).toEqual(["page-own"]);
+    expect(second.body.nextCursor).toBeNull();
+    const restricted = await mint("app:rae", "member", "read/b/*");
+    const changed = await call("GET", `/v1/sandboxes?limit=1&cursor=${first.body.nextCursor}`, undefined, restricted);
+    expect(changed.body.sandboxes.map((item: {id: string}) => item.id)).toEqual(["read/b/one"]);
+    const filtered = await call("GET", "/v1/sandboxes?limit=1&label=project=paging&label=env=dev", undefined, token);
+    expect(filtered.body.sandboxes.map((item: { id: string }) => item.id)).toEqual(["read/a/two"]);
+    expect((await call("GET", `/v1/sandboxes?limit=1&label=project=other&cursor=${first.body.nextCursor}`, undefined, token)).status).toBe(400);
+    // Even an issuer token holding every read scope cannot use application-only reads.
+    const privileged = await issuer.sign("app:rae", "sessions:own agents:read agents:write");
+    for (const key of [token, privileged]) {
+      for (const suffix of ["manifest", "usage", "calls/model"])
+        expect((await call("GET", `/v1/sessions/page-own/${suffix}`, undefined, key)).status).toBe(403);
+      expect((await call("GET", "/v1/tenant/calls/model", undefined, key)).status).toBe(403);
+    }
+
   });
 });
 

@@ -72,3 +72,34 @@ export async function assertLogicalReplication(sql: Sql): Promise<void> {
       "The Runtime's Postgres role cannot replicate: grant it REPLICATION (ALTER ROLE … REPLICATION). See DEPLOYMENT.md.",
     );
 }
+
+/** Separate, bounded pool for read projections; inherits the Tenant connection credentials. */
+export function createPostgresReadClient(source: PostgresClient): PostgresClient {
+  const options: postgres.Options<{}> = {
+    host:
+      source.options.host.length === 1
+        ? source.options.host[0]
+        : source.options.host
+            .map((host, i) => `${host}:${source.options.port[i] ?? source.options.port[0]}`)
+            .join(","),
+    port: source.options.port[0],
+    database: source.options.database,
+    username: source.options.user,
+    pass: source.options.pass ?? "",
+    ssl: source.options.ssl,
+    path: source.options.path,
+    max: 4,
+    idle_timeout: 30,
+    connect_timeout: 2,
+    onnotice() {},
+    connection: {
+      ...source.options.connection,
+      application_name: "nylorun-reads",
+      statement_timeout: 2000,
+      idle_in_transaction_session_timeout: 2000,
+      default_transaction_read_only: true,
+    },
+  };
+  const pool = postgres(options);
+  return pool;
+}

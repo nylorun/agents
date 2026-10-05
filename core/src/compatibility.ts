@@ -61,6 +61,8 @@ export const OPTIONAL_HOST_FEATURES = [
   "sandboxes",
   "sandbox-pods",
   "trusted-issuers",
+  "session-reads",
+  "calls-export",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

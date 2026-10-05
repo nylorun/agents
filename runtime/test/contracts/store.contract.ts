@@ -19,7 +19,7 @@ import {
 import {
   DOC_TABLES,
   type Commit,
-  type ModelUsageRow,
+  type ModelUsageWrite,
   type SessionStore,
   type SessionStoreOptions,
   type VaultCredentialRow,
@@ -966,7 +966,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
     });
 
     describe("model usage", () => {
-      const usage = (id: string, patch: Partial<ModelUsageRow> = {}) => ({
+      const usage = (id: string, patch: Partial<ModelUsageWrite> = {}) => ({
         id,
         effectKey: `turn-1:0:model:${id}`,
         sessionId: "s1",
@@ -988,7 +988,9 @@ export function storeContract(name: string, factory: StoreFactory): void {
       it("records rows, flagging a second row for the same effect", async () => {
         const store = await fresh();
         const first = await store.tx((t) => t.recordModelUsage(usage("u1")));
-        expect(first).toEqual({ ...usage("u1"), duplicate: false });
+        expect(first).toEqual({
+          ...usage("u1"), duplicate: false, tokensReported: null, costKnown: null, txid: expect.any(String),
+        });
         const again = await store.tx((t) =>
           t.recordModelUsage({ ...usage("u2"), effectKey: usage("u1").effectKey }),
         );

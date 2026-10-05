@@ -11,6 +11,7 @@ import {
   DeleteSandboxResponse,
   ListSandboxEventsResponse,
   ListSandboxesResponse,
+  SandboxPage,
   PutSandboxRequest,
   SandboxView,
 } from "../../components.js";
@@ -27,6 +28,7 @@ import {
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
+import { pageQuery, sandboxPage } from "./reads.js";
 import { jsonResponse } from "../respond.js";
 
 /** Reading a sandbox: any caller that may use sessions, or change sandboxes. */
@@ -83,19 +85,21 @@ export function sandboxRoutes(api: OpenAPIHono<TenantEnv>): void {
       description:
         "Every sandbox with all the labels asked for. A token caller sees only the sandboxes its grants reach.",
       request: {
-        query: z.object({
+        query: pageQuery.extend({
           label: z
             .union([z.string(), z.array(z.string())])
             .optional()
             .meta({ description: "`key=value`; repeat it to require several labels" }),
         }),
       },
-      responses: { 200: json(ListSandboxesResponse, "The sandboxes") },
+      responses: { 200: json(z.union([ListSandboxesResponse, SandboxPage]), "The sandboxes; limit opts into pagination") },
     },
     async (c) =>
       jsonResponse(
         200,
-        await listSandboxes(c.env.tenant, labelsOf(c.req.queries("label")), c.get("scope")),
+        c.req.query("limit") !== undefined
+          ? await sandboxPage(c.env.tenant, c.get("scope"), c.req.query(), labelsOf(c.req.queries("label")))
+          : await listSandboxes(c.env.tenant, labelsOf(c.req.queries("label")), c.get("scope")),
       ),
   );
 

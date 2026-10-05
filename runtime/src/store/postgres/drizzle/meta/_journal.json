@@ -85,6 +85,13 @@
       "when": 1791196553461,
       "tag": "0011_key_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791209959436,
+      "tag": "0012_session_reads",
+      "breakpoints": true
     }
   ]
 }

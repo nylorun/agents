@@ -385,6 +385,7 @@ export class TenantRuntime implements TenantHandle {
       ctx = {
         config,
         envelope,
+        reads: hooks.reads,
         store: opened,
         vault,
         credentials,
@@ -486,6 +487,7 @@ export class TenantRuntime implements TenantHandle {
       await detach?.().catch(() => undefined);
       await harness?.stop().catch(() => undefined);
       await wired?.close().catch(() => undefined);
+      await hooks.reads?.close().catch(() => undefined);
       await store.close().catch(() => undefined);
       throw error;
     }
@@ -584,6 +586,7 @@ export class TenantRuntime implements TenantHandle {
           return closeStreams(ctx);
         },
       ],
+      ["reads", () => ctx.reads?.close()],
       ["store", () => ctx.store.close()],
     ];
     let failure: { error: unknown } | undefined;

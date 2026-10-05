@@ -279,3 +279,13 @@ the Project link (outside a project it runs the Tenant `default`); the project's
 | Logs | `nylorun logs runtime` |
 
 Definitions have no `agent.run()`; applications use `@nylorun/agents`.
+
+## Session reads
+
+Hosts advertising `session-reads` serve pinned session manifests, recorded usage, model-call
+pages and opt-in session/history/sandbox pagination. `calls-export` adds the Management API's
+unfiltered, resumable model ledger export (`GET /v1/tenant/calls/model`, a management key) in
+safe transaction order. Existing list/history
+requests without `limit` retain their response shapes. These are public APIs for Studio,
+CLI and custom clients; clients never need database access. See the
+[API contracts, authorization, SDK examples and Studio handoff](https://github.com/nylorun/agents/blob/main/runtime/docs/session-reads.md).

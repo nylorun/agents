@@ -115,6 +115,7 @@ import type {
   ModelBudgetRow,
   ModelUsageQuery,
   ModelUsageRow,
+  ModelUsageWrite,
   ModelUsageTotals,
   StoredSession,
   ToolCrossingRow,
@@ -1343,7 +1344,7 @@ class PostgresTx implements Tx {
 
   // --- model usage ---------------------------------------------------------
 
-  async recordModelUsage(row: Omit<ModelUsageRow, "duplicate">): Promise<ModelUsageRow> {
+  async recordModelUsage(row: ModelUsageWrite): Promise<ModelUsageRow> {
     this.check();
     const [inserted] = await this.db
       .insert(modelUsage)
@@ -1351,8 +1352,8 @@ class PostgresTx implements Tx {
         ...row,
         duplicate: sql`EXISTS (SELECT 1 FROM ${modelUsage} WHERE ${modelUsage.effectKey} = ${row.effectKey})`,
       })
-      .returning({ duplicate: modelUsage.duplicate });
-    return { ...row, duplicate: inserted!.duplicate };
+      .returning();
+    return inserted!;
   }
 
   async modelUsageTotals(query: ModelUsageQuery): Promise<ModelUsageTotals> {

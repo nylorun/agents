@@ -9,6 +9,7 @@ import {
   PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
 import {
+  ModelCallExportPageSchema,
   RejectedResponseSchema,
   type CreateCredentialRequest,
   type CreateVaultRequest,
@@ -16,6 +17,7 @@ import {
   type HostModelCatalog,
   type HostModelView,
   type ListProvidersResponse,
+  type ModelCallExportPage,
   type ModelBudgets,
   type ModelUsageQuery,
   type ModelUsageTotals,
@@ -87,6 +89,12 @@ export interface ManagementModels {
   select(request: Body<SelectHostModelRequest>): Promise<HostModelView>;
   /** What the Tenant's model calls used, for one scope and period. */
   usage(query: ModelUsageQuery): Promise<ModelUsageTotals>;
+  /**
+   * Every recorded model call, unfiltered, in safe transaction order (Host feature
+   * `calls-export`): pages from `after` until `caughtUp`. Each page's `next` is the position to
+   * resume from; call again to follow. Deduplicate by row id.
+   */
+  exportCalls(options?: { after?: string; limit?: number }): AsyncIterable<ModelCallExportPage>;
   readonly budgets: {
     get(): Promise<ModelBudgets>;
     /** Replaces every budget; an empty list removes every cap. */
@@ -197,6 +205,7 @@ export class ManagementClient {
         );
         return call("GET", `/v1/tenant/usage?${search}`);
       },
+      exportCalls: (options = {}) => this.pageCalls(options),
       budgets: {
         get: () => call("GET", "/v1/tenant/budgets"),
         put: (request) => call("PUT", "/v1/tenant/budgets", withId(request)),
@@ -255,6 +264,25 @@ export class ManagementClient {
         put: (request) => call("PUT", "/v1/tenant/artifacts", withId(request)),
       },
     };
+  }
+
+  private async *pageCalls(options: {
+    after?: string;
+    limit?: number;
+  }): AsyncIterable<ModelCallExportPage> {
+    let after = options.after;
+    while (true) {
+      const query = new URLSearchParams({ limit: String(options.limit ?? 200) });
+      if (after !== undefined) query.set("after", after);
+      const page = ModelCallExportPageSchema.parse(
+        await this.request<unknown>("GET", `/v1/tenant/calls/model?${query}`),
+      );
+      yield page;
+      if (page.caughtUp) return;
+      if (page.next === null || page.next === after)
+        throw new Error("Model export did not advance its cursor");
+      after = page.next;
+    }
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {

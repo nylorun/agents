@@ -3327,3 +3327,90 @@ export const TenantArtifactsViewSchema = z
   })
   .strict();
 export type TenantArtifactsView = z.infer<typeof TenantArtifactsViewSchema>;
+
+/** Opt-in session reads (Host feature `session-reads`). */
+export const SessionListItemSchema = SessionSummarySchema.extend({
+  lastTurnId: z.string().nullable(),
+  sandboxId: z.string().nullable(),
+  createdAt: z.string().nullable(),
+  lastEventAt: z.string().nullable(),
+}).strict();
+export type SessionListItem = z.infer<typeof SessionListItemSchema>;
+export const SessionPageSchema = z
+  .object({ sessions: z.array(SessionListItemSchema), nextCursor: z.string().nullable() })
+  .strict();
+export type SessionPage = z.infer<typeof SessionPageSchema>;
+export const SessionManifestViewSchema = z
+  .object({
+    sessionId: z.string(),
+    agentId: z.string(),
+    manifestHash: z.string(),
+    implementationVersion: z.string(),
+    manifest: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+export type SessionManifestView = z.infer<typeof SessionManifestViewSchema>;
+export const HistoryPageSchema = SessionItemsResponseSchema.extend({ tail: z.boolean() });
+export type HistoryPage = z.infer<typeof HistoryPageSchema>;
+const usageNumbers = {
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  cachedTokens: z.number().int().nonnegative(),
+  cacheWriteTokens: z.number().int().nonnegative(),
+  reasoningTokens: z.number().int().nonnegative(),
+  costUsd: z.number().nonnegative(),
+};
+export const SessionUsageTotalsSchema = z
+  .object({
+    sessionId: z.string(),
+    turnId: z.string().nullable(),
+    asOf: z.string(),
+    ...usageNumbers,
+    calls: z.number().int().nonnegative(),
+    duplicates: z.number().int().nonnegative(),
+    unpricedCalls: z.number().int().nonnegative(),
+    unreportedCalls: z.number().int().nonnegative(),
+    unknownQualityCalls: z.number().int().nonnegative(),
+  })
+  .strict();
+export type SessionUsageTotals = z.infer<typeof SessionUsageTotalsSchema>;
+export const ModelCallSchema = z
+  .object({
+    id: z.string(),
+    sessionId: z.string(),
+    turnId: z.string(),
+    agentId: z.string(),
+    provider: z.string().nullable(),
+    model: z.string().nullable(),
+    at: z.string(),
+    outcome: z.enum(["completed", "failed"]),
+    usage: z
+      .object({
+        ...usageNumbers,
+        duplicate: z.boolean(),
+        tokensReported: z.boolean().nullable(),
+        costKnown: z.boolean().nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type ModelCall = z.infer<typeof ModelCallSchema>;
+export const ModelCallsPageSchema = z
+  .object({ calls: z.array(ModelCallSchema), nextCursor: z.string().nullable(), asOf: z.string() })
+  .strict();
+export type ModelCallsPage = z.infer<typeof ModelCallsPageSchema>;
+export const ModelCallExportPageSchema = z
+  .object({
+    calls: z.array(ModelCallSchema),
+    next: z.string().nullable(),
+    caughtUp: z.boolean(),
+    asOf: z.string(),
+  })
+  .strict();
+export type ModelCallExportPage = z.infer<typeof ModelCallExportPageSchema>;
+export const SandboxPageSchema = z
+  .object({ sandboxes: z.array(SandboxViewSchema), nextCursor: z.string().nullable() })
+  .strict();
+export type SandboxPage = z.infer<typeof SandboxPageSchema>;

@@ -12,6 +12,8 @@ import {
   ListAgentsResponse,
   ListPublicAgentsResponse,
   ListSessionsResponse,
+  SessionPage,
+  HistoryPage,
   SessionEvent,
   PutAgentRequest,
   PutAgentResponse,
@@ -39,6 +41,7 @@ import {
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
+import { pageQuery, sessionPage, sessionPageQuery, parseQuery } from "./reads.js";
 import { jsonResponse } from "../respond.js";
 
 const OWN_SESSIONS: RouteAccess = {
@@ -146,11 +149,12 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sessions"],
       summary: "List sessions",
       description: "Acting for a person, only theirs.",
-      request: { query: z.object({ agentId: z.string().optional() }) },
-      responses: { 200: json(ListSessionsResponse, "The sessions") },
+      request: { query: sessionPageQuery },
+      responses: { 200: json(z.union([ListSessionsResponse, SessionPage]), "The sessions; limit opts into pagination") },
     },
     async (c) => {
       const scope = c.get("scope");
+      if (c.req.query("limit") !== undefined) return jsonResponse(200, await sessionPage(c.env.tenant, scope, c.req.query()));
       return jsonResponse(
         200,
         await listSessions(c.env.tenant, c.req.query("agentId") ?? null, accessOf(scope)),
@@ -226,20 +230,22 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       request: {
         params: sessionId,
         query: resume.extend({
+          limit: pageQuery.shape.limit,
           agent: z
             .string()
             .optional()
             .meta({ description: "Only the events of this agent (the root agent, or one it uses as a tool)" }),
         }),
       },
-      responses: { 200: json(SessionItemsResponse, "Events up to now, and the cursor to continue") },
+      responses: { 200: json(z.union([SessionItemsResponse, HistoryPage]), "Events up to now; limit returns a bounded page and tail") },
     },
     async (c) => {
       const scope = c.get("scope");
       const ctx = c.env.tenant;
       const id = c.req.param("sessionId")!;
       const cursor = await sessionBelow(ctx, c.env.incoming, id, accessOf(scope));
-      return jsonResponse(200, await readHistory(ctx, id, cursor, c.req.query("agent")));
+      const { limit } = parseQuery(pageQuery.pick({ limit: true }), { limit: c.req.query("limit") });
+      return jsonResponse(200, await readHistory(ctx, id, cursor, c.req.query("agent"), limit));
     },
   );
 

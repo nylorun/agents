@@ -21,7 +21,9 @@
         "action-endpoints",
         "sandboxes",
         "sandbox-pods",
-        "trusted-issuers"
+        "trusted-issuers",
+        "session-reads",
+        "calls-export"
       ]
     },
     "description": "For operators: the Tenant's models, vaults, signing keys, settings and application keys, at `/v1/tenant/*` on the Tenant's URL, through `@nylorun/admin`. Every operation takes a management key, acting as itself: never for a subject and never from a browser. Management keys are issued only on the Tenant's machine (`nylorun key put <id> --management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`."
@@ -2808,6 +2810,151 @@
           "via"
         ],
         "additionalProperties": false
+      },
+      "ModelCall": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "at": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed"
+            ]
+          },
+          "usage": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "inputTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "outputTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "totalTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "cachedTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "cacheWriteTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reasoningTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "costUsd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "duplicate": {
+                "type": "boolean"
+              },
+              "tokensReported": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "costKnown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "inputTokens",
+              "outputTokens",
+              "totalTokens",
+              "cachedTokens",
+              "cacheWriteTokens",
+              "reasoningTokens",
+              "costUsd",
+              "duplicate",
+              "tokensReported",
+              "costKnown"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "sessionId",
+          "turnId",
+          "agentId",
+          "provider",
+          "model",
+          "at",
+          "outcome",
+          "usage"
+        ],
+        "additionalProperties": false
+      },
+      "ModelCallExportPage": {
+        "type": "object",
+        "properties": {
+          "calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelCall"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "caughtUp": {
+            "type": "boolean"
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "calls",
+          "next",
+          "caughtUp",
+          "asOf"
+        ],
+        "additionalProperties": false
       }
     },
     "parameters": {}
@@ -4077,6 +4224,116 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ModelUsageTotals"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenant/calls/model": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Export committed model calls in safe transaction order",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `8`"
+            },
+            "required": true,
+            "description": "The protocol version, `8`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "An unfiltered resumable ledger page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCallExportPage"
                 }
               }
             }
@@ -6234,7 +6491,7 @@
     },
     {
       "name": "Models",
-      "description": "Model providers, their credentials, the model the Tenant uses, what it spent and the budgets that cap it. `admin.models`."
+      "description": "Model providers, their credentials, the model the Tenant uses, what it spent, every model call for export, and the budgets that cap it. `admin.models`."
     },
     {
       "name": "Vaults",

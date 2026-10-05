@@ -513,6 +513,36 @@ export function tenantStreamsSuite(
       expect(seqs((await t.items(b)).items)).toEqual(range(0, base + 30));
     });
 
+
+    it("drains bounded pages then resumes SSE on another node across internal records", async () => {
+      const env = await setup();
+      const first = await env.node();
+      await env.createSession(first);
+      await contextOf(first.handle).store.tx(async t => {
+        await t.event("s1", null, "transcript.updated", { keep: 0, entries: [], length: 0 });
+        await t.event("s1", null, "turn.completed", { output: {} });
+      });
+      await env.relayed(first);
+      const legacy = await env.items(first);
+      let cursor: string | undefined; const seen: LiveEvent[] = [];
+      for (let n = 0; n < 20; n++) {
+        const response = await fetch(`${first.url}/v1/sessions/s1/items?limit=1${cursor ? `&cursor=${cursor}` : ""}`, { headers: first.headers() });
+        expect(response.status).toBe(200);
+        const page = await response.json() as { items: LiveEvent[]; cursor: string; tail: boolean };
+        seen.push(...page.items); cursor = page.cursor;
+        if (page.tail) break;
+      }
+      expect(seen).toEqual(legacy.items);
+      // Append between history and SSE, then reconnect to another Runtime process.
+      const appended = await contextOf(first.handle).store.tx(t => t.event("s1", null, "turn.completed", { output: {} }));
+      await env.relayed(first);
+      const second = await env.node();
+      const live = env.observe(second, cursor);
+      await live.ready();
+      await live.until("the event appended during handoff", frames => frames.length === 1);
+      expect(live.close()).toEqual([appended]);
+    });
+
     it("pages history by cursor and filters by agent in the Runtime", async () => {
       const t = await setup();
       const a = await t.node();

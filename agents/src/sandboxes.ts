@@ -13,6 +13,7 @@
  * Ids may hold `/`; they are sent percent-encoded as one path segment.
  */
 import {
+  SandboxPageSchema,
   isSandboxId,
   type DeleteSandboxResponse,
   type PutSandboxRequest,
@@ -98,6 +99,23 @@ export class SandboxesClient {
     return reply.sandboxes;
   }
 
+  async page(
+    options: {
+      labels?: Readonly<Record<string, string>>;
+      limit?: number;
+      cursor?: string;
+      signal?: AbortSignal;
+    } = {},
+  ) {
+    await this.transport.requireFeature("session-reads", options.signal);
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    for (const [key, value] of Object.entries(options.labels ?? {}))
+      query.append("label", `${key}=${value}`);
+    return SandboxPageSchema.parse(
+      await this.transport.json(`/v1/sandboxes?${query}`, "GET", undefined, options.signal),
+    );
+  }
   /** Deletes the sandbox and its files; `deleted` is false when there was none. */
   async delete(
     sandboxId: string,

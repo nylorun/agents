@@ -1,3 +1,4 @@
+import { createPostgresReadStore } from "../../src/store/postgres/reads.js";
 import { createServer } from "node:http";
 import { getRequestListener } from "@hono/node-server";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
@@ -40,7 +41,7 @@ import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
 import type { SessionStore } from "../../src/store/types.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { DurableStreams } from "../../src/streams/types.js";
-import { dropTestTenant, openTestTenant, withTestSessionStore } from "./store.js";
+import { dropTestTenant, openTestTenant, withTestSessionStore, testTenantPool } from "./store.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
   /** Action endpoints registered once the Tenant is up (`PUT /v1/endpoints`). */
@@ -207,9 +208,10 @@ export async function startTestTenant(
         message: error instanceof Error ? error.message : String(error),
       }),
   });
-  const opened: Pick<TenantOpenHooks, "store" | "envelope"> = {
+  const opened: Pick<TenantOpenHooks, "store" | "envelope" | "reads"> = {
     store: result.store,
     envelope: result.envelope,
+    reads: createPostgresReadStore(testTenantPool(tenantId), tenantId),
   };
 
   const mode = options.mode ?? "test";
