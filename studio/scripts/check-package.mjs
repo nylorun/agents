@@ -78,11 +78,9 @@ for (const path of walk("web/src")) {
     /@nylorun\/core/,
     // Only the Management client, which loads no Node modules.
     /@nylorun\/admin(?!\/client["'])/,
-    /action-handler/,
-    /execute-action/,
   ])
     if (pattern.test(source))
-      throw new Error(`SD-I5: ${path} must not import engine/host/Action execution (${pattern})`);
+      throw new Error(`SD-I5: ${path} must not import the engine or the host (${pattern})`);
 }
 
 // What the image copies: the server entry and the built dashboard.

@@ -78,8 +78,6 @@ export type {
   SessionEventOf,
   EventType,
   SessionCommand,
-  Action,
-  ActionOutcome,
   CredentialInfo,
   CredentialSelection,
   VaultInfo,
@@ -119,16 +117,6 @@ export type {
 } from "./client.js";
 export { SandboxesClient } from "./client.js";
 export { AccessClient } from "./access.js";
-export { createActionHandler } from "./action-handler.js";
-export type {
-  ActionHandler,
-  ActionHandlerOptions,
-  RegisterOptions,
-} from "./action-handler.js";
-export type {
-  ExecuteActionOptions,
-  ExecutableDefinition,
-} from "./execute-action.js";
 export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
@@ -153,15 +141,5 @@ export type {
 } from "./skills/index.js";
 export { mcp, McpError } from "./mcp/index.js";
 export type { McpCapability, McpOptions, McpServerSpec } from "./mcp/index.js";
-export type {
-  ActionSandbox,
-  ActionSandboxToolResult,
-  CreateActionSandboxOptions,
-} from "./sandbox/index.js";
-export {
-  createActionSandbox,
-  definitionDeclaresSandbox,
-  isActionSandboxTool,
-} from "./sandbox/index.js";
 
 export type { SessionPageOptions } from "./reads.js";

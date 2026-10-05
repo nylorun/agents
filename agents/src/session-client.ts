@@ -13,6 +13,7 @@ import type {
 } from "@nylorun/core/define";
 import {
   SANDBOX_TOOL_NAMES,
+  codeToolRefusal,
   delegateOf,
   isBuiltWorkflow,
   isSandboxToolName,
@@ -42,7 +43,7 @@ import { AccessClient } from "./access.js";
 import { SandboxesClient } from "./sandboxes.js";
 import { ArtifactsClient } from "./artifacts.js";
 import { FilesClient } from "./files.js";
-import { Transport, id, segment, type Destination } from "./http.js";
+import { Transport, env, id, segment, type Destination } from "./http.js";
 import { observeSSE } from "./sse.js";
 
 /** Application-principal access to a session's sandbox built-ins (workflows.md §8). */
@@ -179,7 +180,7 @@ export class AgentsClient {
       subject,
     });
   }
-  /** The signing keys and the public keys that verify delivery tokens. Application key only. */
+  /** The public keys that verify the tokens the Tenant signs. */
   get access(): AccessClient {
     return new AccessClient(this.transport);
   }
@@ -225,33 +226,35 @@ export class AgentsClient {
   }
   /**
    * Registers the agent's definition (`PUT /v1/agents/{id}`), first uploading the skill files
-   * it names that the Runtime does not hold.
+   * it names that the Runtime does not hold. A definition with a tool that runs your code
+   * (`tool({ run })`, a flow's tool stage) is refused before anything is sent: the Runtime runs
+   * no code of yours during a session. `implementationVersion` defaults to
+   * `NYLORUN_IMPLEMENTATION_VERSION`, else `dev`.
    */
   async saveAgent(
     agent: AgentSource | BuiltWorkflow,
-    options: { implementationVersion: string; requestId?: string }
+    options: { implementationVersion?: string; requestId?: string } = {}
   ) {
+    const files = new Map<string, SkillFileSource>();
     if (isBuiltWorkflow(agent)) {
       // A flow agent embeds its agents: one document, carrying their files.
-      const files = new Map<string, SkillFileSource>();
       for (const binding of Object.values(agent.getBinding().agents)) {
         const leaf = { id: binding.manifest.id, manifest: binding.manifest, getBinding: () => binding };
         assertNoMiddlewareClosures(leaf);
         skillFilesOf(leaf, files);
       }
-      await this.files.ensure(files);
-      return this.transport.json(`/v1/agents/${segment(agent.id)}`, "PUT", {
-        requestId: options.requestId ?? id(),
-        manifest: agent.manifest,
-        implementationVersion: options.implementationVersion,
-      });
+    } else {
+      assertNoMiddlewareClosures(agent);
+      skillFilesOf(agent, files);
     }
-    assertNoMiddlewareClosures(agent);
-    await this.files.ensure(skillFilesOf(agent));
+    const refusal = codeToolRefusal(agent.manifest as AgentManifest | WorkflowManifest);
+    if (refusal) throw new Error(refusal);
+    await this.files.ensure(files);
     return this.transport.json(`/v1/agents/${segment(agent.id)}`, "PUT", {
       requestId: options.requestId ?? id(),
       manifest: agent.manifest,
-      implementationVersion: options.implementationVersion,
+      implementationVersion:
+        options.implementationVersion ?? env("NYLORUN_IMPLEMENTATION_VERSION") ?? "dev",
     });
   }
   async createSession(options: CreateSessionOptions): Promise<SessionClient> {

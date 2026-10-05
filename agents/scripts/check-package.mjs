@@ -20,13 +20,15 @@ try {
   if (embedNodeOnly.length)
     throw new Error(`Studio embed entry loaded Node-only modules: ${embedNodeOnly.join(", ")}`);
   const sdk = await import("@nylorun/agents");
-  for (const name of ["Agent", "createClient", "createActionHandler"])
+  for (const name of ["Agent", "createClient", "http"])
     if (typeof sdk[name] !== "function")
       throw new Error(`Missing SDK export ${name}`);
-  // Executors were removed in protocol 3, subject tokens and the browser client in protocol 7:
-  // no such export or subpath remains.
+  // Executors were removed in protocol 3, subject tokens and the browser client in protocol 7,
+  // Action endpoints in protocol 8 (track R2): no such export or subpath remains.
   for (const name of [
     "connectAgents",
+    "createActionHandler",
+    "createActionSandbox",
     "deriveExecutorToken",
     "createTokenEndpoint",
     "createBrowserClient",

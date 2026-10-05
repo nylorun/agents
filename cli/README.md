@@ -17,7 +17,6 @@ npx @nylorun/cli status               # the linked Tenant
 ```sh
 nylo status [--json]                  # the Tenant, its checks and counts
 nylo reset [--sessions|--sandboxes|--all] [--yes]
-nylo endpoints [--json]|ping <agent>  # the registered Action endpoints and their health
 nylo access signing-keys …            # the Tenant's signing keys: list, rotate, revoke
 nylo configure                        # set or replace the Tenant's model provider
 nylo env                              # export lines for the linked Project
@@ -67,9 +66,10 @@ not in a terminal. The Project link and credentials are kept.
 A link from an older nylorun (format 0 to 2): `nylo` refuses it and says to run
 `npx nylorun start`, which links the project again.
 
-`createActionHandler` and `createClient` in `@nylorun/agents` read the link (or
-the two variables), so the project's `npm run dev` and `npm start` need no
-Nylorun tool.
+`createClient` in `@nylorun/agents` reads the link (or the two variables), so the
+project's `npm run dev` and `npm start`, which save its agents, need no Nylorun tool.
+`nylo endpoints` was removed with Action endpoints (protocol 8): the Runtime runs no code
+of yours during a session.
 
 ```sh
 eval "$(npx @nylorun/cli env)"

@@ -22,7 +22,7 @@ function set(
 
 /**
  * Colour / status for each manifest path from seam LiveEvents
- * (`node.*`, `switch.*`, `map.*`, `loop.*`, `action.*` with path).
+ * (`node.*`, `switch.*`, `map.*`, `loop.*`).
  */
 export function liveStatusFromEvents(
   events: readonly EventLike[],
@@ -115,23 +115,6 @@ export function liveStatusFromEvents(
         set(byPath, path, {
           status: payload.pass === true ? "completed" : "running",
           iteration: Number(payload.n ?? 0),
-        });
-        break;
-      case "action.pending":
-      case "action.delivered":
-      case "action.delivery_failed":
-        set(byPath, path, { status: "running", ...(iterations ? { iterations } : {}) });
-        break;
-      case "action.completed":
-        set(byPath, path, {
-          status: "completed",
-          ...(iterations ? { iterations } : {}),
-        });
-        break;
-      case "action.uncertain":
-        set(byPath, path, {
-          status: "waiting",
-          ...(iterations ? { iterations } : {}),
         });
         break;
       default:

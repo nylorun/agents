@@ -40,7 +40,7 @@ test("SD-I5: studio package deps stay admin and agents among @nylorun/*", () => 
   assert.deepEqual(nylorun, ["@nylorun/admin", "@nylorun/agents"]);
 });
 
-test("SD-I5: browser sources exclude engine, host and Action execution", () => {
+test("SD-I5: browser sources exclude the engine and the host", () => {
   const webSrc = join(studioRoot, "web/src");
   const forbidden = [
     /@nylorun\/harness/,
@@ -48,7 +48,6 @@ test("SD-I5: browser sources exclude engine, host and Action execution", () => {
     /@nylorun\/core/,
     // Only the Management client, which loads no Node modules.
     /@nylorun\/admin(?!\/client["'])/,
-    /agents\/(?:dist|src)\/(?:action-handler|execute-action)/,
     /from\s+["'][^"']*harness\/src\/flow/,
   ];
   for (const path of files(webSrc)) {

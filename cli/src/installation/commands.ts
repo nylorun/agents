@@ -1,28 +1,13 @@
 /**
- * `nylo status`, `nylo reset` and `nylo endpoints`: the linked installation's one Tenant.
- * Status and reset are the Management API's (the Project's management key); endpoints are the
- * Runtime API's (its application key).
+ * `nylo status` and `nylo reset`: the linked installation's one Tenant, through the Management
+ * API (the Project's management key).
  */
 import { createInterface } from "node:readline/promises";
-import { createClient } from "@nylorun/agents";
 import { CliError } from "../errors.js";
-import {
-  linkedConnection,
-  managementClient,
-  type LinkedConnection,
-} from "../project/connection.js";
+import { linkedConnection, managementClient } from "../project/connection.js";
 import { findProjectRoot } from "../project/root.js";
 
 const projectRoot = () => findProjectRoot() ?? process.cwd();
-
-const clientFor = (connection: LinkedConnection) => {
-  if (!connection.key)
-    throw new CliError(
-      `No application key for the Tenant at ${connection.url}: run npx nylorun start, or set NYLORUN_SERVER_KEY.`,
-      1,
-    );
-  return createClient({ url: connection.url, key: connection.key });
-};
 
 /**
  * `nylo status [--json]`: the Tenant, its checks and counts. A Tenant that is not open does not
@@ -57,7 +42,7 @@ export async function statusCommand(args: readonly string[]): Promise<void> {
       .join(" ")}`,
   );
   console.log(
-    `counts   sessions=${body.counts.sessions} running=${body.counts.runningSessions} pending=${body.counts.pendingActions}`,
+    `counts   sessions=${body.counts.sessions} running=${body.counts.runningSessions} uncertain=${body.counts.uncertainEffects}`,
   );
   console.log(`sandbox  ${body.sandbox.backend ?? "none"}`);
 }
@@ -109,69 +94,4 @@ async function confirmOrThrow(prompt: string): Promise<void> {
   } finally {
     rl.close();
   }
-}
-
-/** `nylo endpoints [--json]` and `nylo endpoints ping <agent>`. */
-export async function endpointsCommand(args: readonly string[]): Promise<void> {
-  if (args[0] === "ping") {
-    const agentId = args[1];
-    if (!agentId || args.length > 2)
-      throw new CliError("Usage: nylo endpoints ping <agent>", 2);
-    const client = clientFor(await linkedConnection(projectRoot()));
-    const answer = await client.transport.json<{
-      agentId: string;
-      implementationVersion: string;
-      manifestHash?: string;
-    }>(`/v1/endpoints/${encodeURIComponent(agentId)}/ping`, "POST");
-    console.log(
-      `${answer.agentId}  serves ${answer.implementationVersion}${answer.manifestHash ? `  ${answer.manifestHash}` : ""}`,
-    );
-    return;
-  }
-  const json = args.includes("--json");
-  if (args.some((a) => a !== "--json"))
-    throw new CliError("Usage: nylo endpoints [--json] | nylo endpoints ping <agent>", 2);
-  const client = clientFor(await linkedConnection(projectRoot()));
-  const body = await client.transport.json<{
-    endpoints: {
-      agentId: string;
-      url: string;
-      implementationVersion: string;
-      health: {
-        consecutiveFailures: number;
-        lastSuccessAt?: string;
-        lastError?: { code: string; message: string };
-      };
-    }[];
-  }>("/v1/endpoints", "GET");
-  if (json) {
-    console.log(JSON.stringify(body, null, 2));
-    return;
-  }
-  if (body.endpoints.length === 0) {
-    console.log("No Action endpoints. Register one with createActionHandler(...).register({ url }).");
-    return;
-  }
-  for (const endpoint of body.endpoints) console.log(endpointLine(endpoint));
-}
-
-/** One line of `nylo endpoints`: the agent, its URL and version, and how it is doing. */
-export function endpointLine(endpoint: {
-  agentId: string;
-  url: string;
-  implementationVersion: string;
-  health: {
-    consecutiveFailures: number;
-    lastSuccessAt?: string;
-    lastError?: { code: string; message: string };
-  };
-}): string {
-  const { health } = endpoint;
-  const state =
-    health.consecutiveFailures > 0
-      ? `failing (${health.consecutiveFailures}): ${health.lastError?.message || health.lastError?.code || "unknown"}`
-      : health.lastSuccessAt
-        ? `ok (last ${health.lastSuccessAt})`
-        : "no deliveries yet";
-  return `${endpoint.agentId}  ${endpoint.url}  ${endpoint.implementationVersion}  ${state}`;
 }

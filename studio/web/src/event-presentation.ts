@@ -40,11 +40,7 @@ const LABELS: Readonly<Record<string, string>> = {
   "turn.failed": "Turn failed",
   "turn.cancelled": "Turn cancelled",
   "turn.runnable": "Turn runnable",
-  "action.pending": "Action pending",
-  "action.delivered": "Action delivered",
-  "action.delivery_failed": "Delivery failed",
-  "action.completed": "Action completed",
-  "action.uncertain": "Action uncertain",
+  "tool.completed": "Tool completed",
   "effect.uncertain": "Effect uncertain",
   "delegation.started": "Delegation started",
   "delegation.completed": "Delegation completed",
@@ -76,18 +72,11 @@ export function agentOf(
     : undefined;
 }
 
-/** Names what an action runs: `Hook · before step (a, b)` or `Tool · name`. */
-export function actionLabel(payload: Readonly<Record<string, unknown>>): string {
-  const hook = payload.hook as
-    | { at?: unknown; scope?: unknown; capabilityIds?: unknown }
-    | undefined;
+/** Names the tool a `tool.completed` event is for: `Tool · name`, with its agent. */
+export function toolLabel(payload: Readonly<Record<string, unknown>>): string {
   const agent = agentOf(payload);
   const owner = agent ? `${agent.id} › ` : "";
-  if (hook && typeof hook === "object") {
-    const ids = Array.isArray(hook.capabilityIds) ? hook.capabilityIds.join(", ") : "";
-    return `${owner}Hook · ${String(hook.at)} ${String(hook.scope)}${ids ? ` (${ids})` : ""}`;
-  }
-  return `${owner}Tool · ${text(payload.toolName, text(payload.actionId, "action"))}`;
+  return `${owner}Tool · ${text(payload.toolName, "tool")}`;
 }
 
 export function eventLabel(event: Pick<LiveEvent, "type">): string {
@@ -115,24 +104,8 @@ export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string
     case "turn.uncertain":
     case "turn.runnable":
       return compact(payload.waits ?? payload);
-    case "action.delivery_failed": {
-      const retry = Number(payload.retryInMs);
-      const reason = text(payload.message, text(payload.reason, "The endpoint did not answer"));
-      return Number.isFinite(retry)
-        ? `${reason} (retrying in ${Math.max(1, Math.round(retry / 1000))} s)`
-        : reason;
-    }
-    case "action.pending":
-    case "action.delivered":
-    case "action.completed":
-    case "action.uncertain": {
-      const name = actionLabel(payload);
-      if (event.type === "action.pending")
-        return `${name}: ${compact(payload.input)}`;
-      if (event.type === "action.completed")
-        return `${name}: ${compact(payload.result ?? payload.outcome)}`;
-      return name;
-    }
+    case "tool.completed":
+      return `${toolLabel(payload)}: ${compact(payload.error ?? payload.output)}`;
     case "delegation.started":
       return `${agentOf(payload)?.id ?? "agent"}: ${compact(payload.task)}`;
     case "delegation.completed": {

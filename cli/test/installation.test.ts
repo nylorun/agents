@@ -4,7 +4,6 @@ import { rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
-import { endpointLine } from "../src/installation/commands.js";
 import {
   APPLICATION_KEY,
   HOST_ID,
@@ -55,29 +54,14 @@ async function runtime(options: { tenantOpen?: boolean } = {}) {
         JSON.stringify({
           tenant: { id: TENANT_ID, name: "demo" },
           path: "/nylorun/tenant",
-          checks: { store: true, scheduler: true, model: false, endpoints: true, schema: true },
-          counts: { sessions: 3, runningSessions: 1, pendingActions: 0, uncertainEffects: 0 },
+          checks: { store: true, scheduler: true, model: false, schema: true },
+          counts: { sessions: 3, runningSessions: 1, uncertainEffects: 0 },
           sandbox: { backend: "virtual", retained: 0 },
         }),
       );
     }
     if (url === "/v1/tenant/reset" && request.method === "POST")
       return void response.end(JSON.stringify({ scope: "sessions" }));
-    if (url === "/v1/endpoints" && request.method === "GET")
-      return void response.end(
-        JSON.stringify({
-          endpoints: [
-            {
-              agentId: "support",
-              url: "http://localhost:3000/actions",
-              implementationVersion: "dev",
-              health: { consecutiveFailures: 0 },
-            },
-          ],
-        }),
-      );
-    if (url === "/v1/endpoints/support/ping" && request.method === "POST")
-      return void response.end(JSON.stringify({ agentId: "support", implementationVersion: "dev" }));
     response.statusCode = 404;
     response.end(JSON.stringify({ code: "not_found", message: "Not found" }));
   });
@@ -121,7 +105,7 @@ function nylo(args: string[], cwd: string, env: Record<string, string> = {}) {
   });
 }
 
-describe("nylo status|reset|endpoints on the linked installation", { timeout: 20_000 }, () => {
+describe("nylo status|reset on the linked installation", { timeout: 20_000 }, () => {
   it("status shows the Tenant", async () => {
     const host = await runtime();
     const root = await linkedProject(host.url);
@@ -130,7 +114,7 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
     expect(text.stdout).toContain(`demo  ${TENANT_ID}`);
     expect(text.stdout).not.toContain("stack");
     expect(text.stdout).toContain(`runtime  ${host.url}`);
-    expect(text.stdout).toContain("counts   sessions=3 running=1 pending=0");
+    expect(text.stdout).toContain("counts   sessions=3 running=1 uncertain=0");
     const json = await nylo(["status", "--json"], root);
     expect(json.code).toBe(0);
     expect(JSON.parse(json.stdout)).toMatchObject({ tenant: { id: TENANT_ID } });
@@ -170,18 +154,19 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
       expect((await nylo(args, root)).code).toBe(2);
   });
 
-  it("endpoints lists and pings the Action endpoints", async () => {
+  it("endpoints is a usage error: Action endpoints are gone", async () => {
     const host = await runtime();
     const root = await linkedProject(host.url);
-    const list = await nylo(["endpoints"], root);
-    expect(list.code).toBe(0);
-    expect(list.stdout).toContain("support  http://localhost:3000/actions  dev  no deliveries yet");
-    const ping = await nylo(["endpoints", "ping", "support"], root);
-    expect(ping.code).toBe(0);
-    expect(ping.stdout).toContain("support  serves dev");
+    for (const args of [["endpoints"], ["endpoints", "ping", "support"]]) {
+      const result = await nylo(args, root);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain("nylo endpoints was removed");
+      expect(result.stderr).toContain("http() tools and remote MCP servers");
+    }
+    expect(host.requests).toEqual([]);
   });
 
-  it("uses NYLORUN_RUNTIME_URL with NYLORUN_MANAGEMENT_KEY or NYLORUN_SERVER_KEY without a link", async () => {
+  it("uses NYLORUN_RUNTIME_URL with NYLORUN_MANAGEMENT_KEY without a link", async () => {
     const host = await runtime();
     const root = await project("nylo-installation-");
     roots.push(root);
@@ -191,16 +176,10 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
     });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`runtime  ${host.url}`);
-    const endpoints = await nylo(["endpoints"], root, {
-      NYLORUN_RUNTIME_URL: host.url,
-      NYLORUN_SERVER_KEY: APPLICATION_KEY,
-    });
-    expect(endpoints.code).toBe(0);
     expect(host.requests.map((r) => `${r.url} ${r.headers.authorization}`)).toEqual([
       `/v1/tenant Bearer ${MANAGEMENT_KEY}`,
-      `/v1/endpoints Bearer ${APPLICATION_KEY}`,
     ]);
-    // Each API needs its own key.
+    // The Management API needs a management key.
     const status = await nylo(["status"], root, {
       NYLORUN_RUNTIME_URL: host.url,
       NYLORUN_SERVER_KEY: APPLICATION_KEY,
@@ -226,21 +205,17 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
     expect(host.requests).toEqual([]);
     // NYLORUN_MANAGEMENT_KEY stands in for the missing one.
     expect((await nylo(["status"], root, { NYLORUN_MANAGEMENT_KEY: MANAGEMENT_KEY })).code).toBe(0);
-    // The Runtime API needs only the application key.
-    expect((await nylo(["endpoints"], root)).code).toBe(0);
   });
 
   it("requests carry the key of their API and the protocol, and never a Nylorun-Tenant header", async () => {
     const host = await runtime();
     const root = await linkedProject(host.url);
-    for (const args of [["status"], ["reset", "--yes"], ["endpoints"], ["endpoints", "ping", "support"]])
+    for (const args of [["status"], ["reset", "--yes"]])
       expect((await nylo(args, root)).code).toBe(0);
     const requests = host.requests;
     expect(requests.map((r) => `${r.url} ${r.headers.authorization}`)).toEqual([
       `/v1/tenant Bearer ${MANAGEMENT_KEY}`,
       `/v1/tenant/reset Bearer ${MANAGEMENT_KEY}`,
-      `/v1/endpoints Bearer ${APPLICATION_KEY}`,
-      `/v1/endpoints/support/ping Bearer ${APPLICATION_KEY}`,
     ]);
     for (const request of requests) {
       expect(request.headers["nylorun-protocol"]).toBe(String(PROTOCOL_VERSION));
@@ -263,14 +238,14 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
   it("without a link or variables it says to run nylorun start", async () => {
     const root = await project("nylo-installation-");
     roots.push(root);
-    const result = await nylo(["endpoints"], root);
+    const result = await nylo(["status"], root);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('Run "npx nylorun start" in this project');
   });
 });
 
 describe("nylo tenant", () => {
-  it("is a usage error that points at nylorun start and nylo status|reset|endpoints", async () => {
+  it("is a usage error that points at nylorun start and nylo status|reset", async () => {
     const root = await project("nylo-installation-");
     roots.push(root);
     for (const args of [["tenant"], ["tenant", "create"], ["tenant", "use", TENANT_ID], ["tenant", "list"]]) {
@@ -278,7 +253,7 @@ describe("nylo tenant", () => {
       expect(result.code).toBe(2);
       expect(result.stderr).toContain("an installation serves one Tenant");
       expect(result.stderr).toContain('"npx nylorun start"');
-      expect(result.stderr).toContain("nylo status, nylo reset and nylo endpoints");
+      expect(result.stderr).toContain("nylo status and nylo reset");
     }
   });
 
@@ -288,32 +263,6 @@ describe("nylo tenant", () => {
     const result = await nylo(["--help"], root);
     expect(result.code).toBe(0);
     expect(result.stdout).not.toMatch(/\btenant (create|use|list|current|delete)\b/);
-    expect(result.stdout).toMatch(/^nylo <status\|reset\|endpoints\|access\|configure\|env\|doctor>/);
+    expect(result.stdout).toMatch(/^nylo <status\|reset\|access\|configure\|env\|doctor>/);
   });
-});
-
-it("says how each endpoint is doing", () => {
-  const endpoint = (health: Parameters<typeof endpointLine>[0]["health"]) => ({
-    agentId: "support",
-    url: "http://localhost:3000/actions",
-    implementationVersion: "dev",
-    health,
-  });
-  expect(endpointLine(endpoint({ consecutiveFailures: 0 }))).toBe(
-    "support  http://localhost:3000/actions  dev  no deliveries yet",
-  );
-  expect(endpointLine(endpoint({ consecutiveFailures: 0, lastSuccessAt: "2030-01-01T00:00:00.000Z" }))).toBe(
-    "support  http://localhost:3000/actions  dev  ok (last 2030-01-01T00:00:00.000Z)",
-  );
-  expect(
-    endpointLine(
-      endpoint({
-        consecutiveFailures: 3,
-        lastError: { code: "endpoint.unreachable", message: "connect ECONNREFUSED 127.0.0.1:3000" },
-      }),
-    ),
-  ).toBe("support  http://localhost:3000/actions  dev  failing (3): connect ECONNREFUSED 127.0.0.1:3000");
-  expect(endpointLine(endpoint({ consecutiveFailures: 1, lastError: { code: "endpoint.busy", message: "" } }))).toMatch(
-    /failing \(1\): endpoint.busy$/,
-  );
 });

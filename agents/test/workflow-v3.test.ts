@@ -4,58 +4,34 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
-import type { Action } from "@nylorun/core/contracts";
-import { Agent, hashManifest, tool } from "../src/index.js";
-import { createActionHandler } from "../src/action-handler.js";
+import { Agent, tool } from "../src/index.js";
 import { AgentsClient } from "../src/client.js";
-import { executeAction } from "../src/execute-action.js";
 
 /**
- * Flow agents in the SDK: a flow agent is saved as one workflow manifest v3 document, and
- * its Action endpoint serves tool node Actions only for the manifest it runs.
+ * Flow agents in the SDK: a flow agent is saved as one workflow manifest v3 document. Its
+ * stages are agents: a tool stage would run your code, so `saveAgent` refuses it.
  */
 
 const KEY = "a".repeat(64);
 const URL = "http://127.0.0.1:8787";
-const ENDPOINT = "http://localhost:3000/nylorun/actions";
 
-/** Registers `agents` against a fake Runtime; returns what was saved and registered. */
-async function register(agents: Parameters<typeof createActionHandler>[0]["agents"]) {
-  const saved: string[] = [];
-  let registrations: { agentId: string; manifestHash?: string }[] = [];
-  const application = new AgentsClient({
+/** A client of a fake Runtime that records every definition it is sent. */
+function recording() {
+  const puts: { path: string; body: any }[] = [];
+  const client = new AgentsClient({
     url: URL,
     key: KEY,
     fetch: async (url, init) => {
-      const path = String(url);
-      if (path.endsWith("/health")) return healthOk();
-      if (path.includes("/v1/files/")) return heldFile(init);
-      if (path.includes("/v1/agents/") && init?.method === "PUT") {
-        saved.push(decodeURIComponent(path.split("/").pop()!));
+      if (String(url).endsWith("/health")) return healthOk();
+      if (String(url).includes("/v1/files/")) return heldFile(init);
+      if (init?.method === "PUT") {
+        puts.push({ path: decodeURIComponent(String(url).split("/").pop()!), body: JSON.parse(String(init.body)) });
         return Response.json({ ok: true });
       }
-      if (path.endsWith("/v1/endpoints") && init?.method === "PUT") {
-        registrations = JSON.parse(String(init.body)).endpoints;
-        return Response.json({ endpoints: [] });
-      }
-      if (path.endsWith("/ping")) {
-        const agentId = decodeURIComponent(path.split("/").at(-2)!);
-        const manifestHash = registrations.find((r) => r.agentId === agentId)?.manifestHash;
-        return Response.json({
-          agentId,
-          implementationVersion: "test",
-          ...(manifestHash ? { manifestHash } : {}),
-        });
-      }
-      throw new Error(`unexpected ${path}`);
+      throw new Error(`unexpected ${url}`);
     },
   });
-  const answers = await createActionHandler({
-    agents,
-    client: application,
-    implementationVersion: "test",
-  }).register({ url: ENDPOINT });
-  return { saved, registrations, answers };
+  return { client, puts };
 }
 
 /** The Runtime holds every skill file already: `saveAgent` asks (HEAD) and uploads nothing. */
@@ -108,100 +84,40 @@ function deskWith(pluginDir: string) {
     .instructions("Write.")
     .plugin(pluginDir)
     .output(z.object({ word: z.string() }));
-  return Agent({ id: "desk" }).pipe(writer, shout).build();
+  return Agent({ id: "desk" }).pipe(writer, Agent({ id: "editor" }).instructions("Edit.")).build();
 }
 
 describe("saveAgent with a flow agent", () => {
   it("PUTs one document", async () => {
     const desk = deskWith(pluginFolder());
-    const puts: { path: string; body: any }[] = [];
-    const client = new AgentsClient({
-      url: URL,
-      key: KEY,
-      fetch: async (url, init) => {
-        if (String(url).endsWith("/health")) return healthOk();
-        if (String(url).includes("/v1/files/")) return heldFile(init);
-        if (init?.method === "PUT") {
-          puts.push({ path: decodeURIComponent(String(url).split("/").pop()!), body: JSON.parse(String(init.body)) });
-          return Response.json({ ok: true });
-        }
-        throw new Error(`unexpected ${url}`);
-      },
-    });
+    const { client, puts } = recording();
     await client.saveAgent(desk, { implementationVersion: "test" });
     expect(puts.map((p) => p.path)).toEqual(["desk"]);
     expect(puts[0]!.body.manifest.workflowSchemaVersion).toBe(3);
     expect(Object.keys(puts[0]!.body).sort()).toEqual(["implementationVersion", "manifest", "requestId"]);
   });
-});
 
-describe("createActionHandler with a flow agent", () => {
-  it("saves only the flow agent, and registers its endpoint with the manifest hash", async () => {
-    const desk = deskWith(pluginFolder());
-    const { saved, registrations, answers } = await register([desk]);
-    expect(saved).toEqual(["desk"]);
-    expect(registrations.map((r) => [r.agentId, r.manifestHash])).toEqual([
-      ["desk", hashManifest(desk.manifest)],
-      ["writer", undefined],
-    ]);
-    expect(answers[0]).toEqual({
-      agentId: "desk",
-      implementationVersion: "test",
-      manifestHash: hashManifest(desk.manifest),
-    });
-  });
-});
-
-describe("executeAction on a flow agent", () => {
-  it("routes tool node actions by stage key", async () => {
-    const desk = deskWith(pluginFolder());
-    const base = {
-      sessionId: "s1",
-      turnId: "t1",
-      agentId: "desk",
-      manifestHash: hashManifest(desk.manifest),
-      implementationVersion: "test",
-      context: {},
-      status: "delivering" as const,
-      generation: 1,
-    };
-    const loud = await executeAction(
-      { ...base, actionId: "a2", kind: "tool", path: "shout", key: "shout", input: { word: "hello" } } as Action,
-      desk,
-      new AbortController().signal
+  it("refuses a tool stage before sending anything", async () => {
+    const desk = Agent({ id: "desk" }).pipe(Agent({ id: "writer" }).instructions("Write."), shout).build();
+    const { client, puts } = recording();
+    await expect(client.saveAgent(desk)).rejects.toThrow(
+      "The tool stage 'shout' of flow agent 'desk' runs your code, and the Runtime runs no code of yours during a session.",
     );
-    expect(loud).toMatchObject({ value: { kind: "completed", output: "HELLO" } });
+    expect(puts).toEqual([]);
   });
 });
 
 describe("a flow agent used as a tool (Phase 3)", () => {
   const research = Agent({ id: "research", description: "Researches a question." }).pipe(
     Agent({ id: "searcher" }).instructions("Search.").plugin(pluginFolder()).output(z.object({ word: z.string() })),
-    shout
+    Agent({ id: "summarizer" }).instructions("Summarize."),
   );
   const lead = Agent({ id: "lead" }).instructions("Delegate.").subagents(research);
 
   it("is saved inside its parent", async () => {
-    const puts: { path: string; body: any }[] = [];
-    const client = new AgentsClient({
-      url: URL,
-      key: KEY,
-      fetch: async (url, init) => {
-        if (String(url).endsWith("/health")) return healthOk();
-        if (String(url).includes("/v1/files/")) return heldFile(init);
-        puts.push({ path: decodeURIComponent(String(url).split("/").pop()!), body: JSON.parse(String(init!.body)) });
-        return Response.json({ ok: true });
-      },
-    });
+    const { client, puts } = recording();
     await client.saveAgent(lead, { implementationVersion: "test" });
     expect(puts.map((p) => p.path)).toEqual(["lead"]);
     expect(Object.keys(puts[0]!.body).sort()).toEqual(["implementationVersion", "manifest", "requestId"]);
-  });
-
-  it("is served by the parent's Action endpoint, with its agents", async () => {
-    const { saved, registrations } = await register([lead]);
-    expect(saved).toEqual(["lead"]);
-    expect(registrations.map((r) => r.agentId)).toEqual(["lead", "research", "searcher"]);
-    expect(registrations[1]!.manifestHash).toBe(hashManifest(research.manifest));
   });
 });
