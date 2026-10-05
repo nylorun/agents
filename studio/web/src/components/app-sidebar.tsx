@@ -7,7 +7,6 @@ import {
   CirclePlus,
   Database,
   GitBranch,
-  KeyRound,
   LoaderCircle,
   ServerOff,
   Settings,
@@ -213,14 +212,12 @@ export function AppSidebar({
   activeAgentId,
   activeSessionId,
   settingsActive,
-  vaultActive,
 }: Readonly<{
   connection: Connection;
   tenant?: StudioTenantInfo;
   activeAgentId?: string;
   activeSessionId?: string;
   settingsActive?: boolean;
-  vaultActive?: boolean;
 }>) {
   const availability =
     connection.status === "Running"
@@ -274,7 +271,7 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Agents & workflows</SidebarGroupLabel>
+          <SidebarGroupLabel>Agents</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {connection.agents.map((agent) => (
@@ -290,7 +287,7 @@ export function AppSidebar({
               connection.agents.length === 0 ? (
                 <SidebarMenuItem>
                   <span className="block px-2 py-1 text-sm text-muted-foreground">
-                    No agents exposed
+                    None
                   </span>
                 </SidebarMenuItem>
               ) : null}
@@ -309,22 +306,14 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={vaultActive} tooltip="Connections">
-                  <Link to="/vault">
-                    <KeyRound />
-                    <span>Connections</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
                   isActive={settingsActive}
-                  tooltip="Model Settings"
+                  tooltip="Tenant settings"
                 >
-                  <Link to="/settings">
+                  <Link to="/settings/overview">
                     <Settings />
-                    <span>Model Settings</span>
+                    <span>Tenant settings</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

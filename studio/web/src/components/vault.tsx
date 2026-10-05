@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { RuntimeError } from "@nylorun/agents/client";
+import type { CredentialInfo, VaultInfo } from "@nylorun/agents";
 import { KeyRound, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,27 +30,7 @@ import {
 import { createTenantClient } from "@/proxy-client";
 import { listFrom } from "@/runtime-body.ts";
 
-const OWNER = "local-developer";
 const SECRET_MASK = "••••••••••••••••";
-
-type VaultInfo = {
-  id: string;
-  name: string;
-  ownerUserId: string;
-  metadata?: Record<string, string>;
-  createdAt: string;
-};
-
-type CredentialInfo = {
-  id: string;
-  vaultId: string;
-  name: string;
-  type: "bearer" | "oauth";
-  binding: { url: string };
-  expiresAt?: string;
-  createdAt: string;
-  rotatedAt?: string;
-};
 
 type PanelMode = "add-vault" | "add-credential" | "view" | "update" | "delete";
 
@@ -99,7 +80,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
   const refresh = useCallback(async () => {
     const sdk = client(tenantId);
     const nextVaults = listFrom<VaultInfo>(
-      await sdk.listVaults(OWNER),
+      await sdk.listVaults(),
       "vaults",
       "The Runtime did not return the Tenant's vaults.",
     );
@@ -184,7 +165,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
       if (panelMode === "add-vault") {
         await sdk.createVault({
           name: vaultName.trim(),
-          ownerUserId: OWNER,
+          scope: "installation",
           idempotencyKey: crypto.randomUUID(),
         });
         setSaved(`Created vault “${vaultName.trim()}”.`);
@@ -271,7 +252,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
       : panelMode === "add-credential"
         ? "Add credential"
         : panelMode === "update"
-          ? "Update credential"
+        ? "Rotate credential"
           : panelMode === "delete"
             ? "Delete credential"
             : "Credential details";
@@ -289,11 +270,11 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-auto p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Connections</h1>
+          <h1 className="text-2xl font-semibold">Credentials</h1>
           <p className="mt-2 text-muted-foreground">
-            The installation's own URL-bound credentials for MCP and other
-            outbound calls, which any session may use. Secrets stay in the
-            Runtime vault; Studio never keeps a copy.
+            Manage this Runtime installation's credentials for remote MCP
+            servers. Secrets stay encrypted in the Runtime vault; reads return
+            metadata only.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -317,7 +298,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="grid min-w-56 flex-1 gap-1 text-sm">
-          Vault
+          Installation vault
           <select
             className="h-9 rounded-md border bg-transparent px-3"
             value={selectedVaultId}
@@ -346,6 +327,12 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
           </Button>
         ) : null}
       </div>
+      {selectedVault ? (
+        <p className="break-all text-sm text-muted-foreground">
+          Vault ID:{" "}
+          <code className="font-mono text-xs text-foreground">{selectedVault.id}</code>
+        </p>
+      ) : null}
 
       {error && !panelOpen ? (
         <p role="alert" className="text-sm text-red-600">
@@ -360,8 +347,9 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
-              <TableHead>Binding URL</TableHead>
-              <TableHead>Updated</TableHead>
+              <TableHead>Destination URL</TableHead>
+              <TableHead>Expires</TableHead>
+              <TableHead>Rotated</TableHead>
               <TableHead className="w-24 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -369,7 +357,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             {vaults.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="h-24 text-center text-muted-foreground"
                 >
                   Create a vault to store credentials.
@@ -378,7 +366,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             ) : visible.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="h-24 text-center text-muted-foreground"
                 >
                   No credentials in this vault yet.
@@ -398,13 +386,17 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                       {row.credential.type === "oauth" ? "OAuth" : "Bearer"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="max-w-xs truncate font-mono text-xs">
+                  <TableCell
+                    className="max-w-xs truncate font-mono text-xs"
+                    title={row.credential.binding.url}
+                  >
                     {row.credential.binding.url}
                   </TableCell>
                   <TableCell>
-                    {formatWhen(
-                      row.credential.rotatedAt ?? row.credential.createdAt,
-                    )}
+                    {formatWhen(row.credential.expiresAt)}
+                  </TableCell>
+                  <TableCell>
+                    {formatWhen(row.credential.rotatedAt)}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -426,7 +418,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                         <DropdownMenuItem
                           onSelect={() => openPanel("update", row)}
                         >
-                          Update
+                          Rotate
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() => openPanel("delete", row)}
@@ -442,6 +434,43 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
           </TableBody>
         </Table>
       </div>
+
+      <details className="rounded-lg bg-muted p-4 text-sm">
+        <summary className="cursor-pointer font-medium">
+          Using credentials in a session
+        </summary>
+        <div className="mt-3 space-y-3 text-muted-foreground">
+          <p>
+            These credentials belong to this Runtime installation. Attach a
+            vault when creating a session to use its credentials. Declare the
+            MCP server in your agent with the matching destination URL.
+          </p>
+          <pre className="whitespace-pre-wrap break-all rounded-md border bg-background p-3 text-xs text-foreground">
+            {`await client.createSession({\n  agentId: "assistant",\n  ownerUserId: "developer",\n  vaultIds: [${JSON.stringify(selectedVault?.id ?? "vault-id")}],\n});`}
+          </pre>
+          <p>
+            For an MCP server with OAuth, use the CLI to connect and refresh the
+            installation's credential:
+          </p>
+          <pre className="whitespace-pre-wrap break-all rounded-md border bg-background p-3 text-xs text-foreground">
+            {`nylorun mcp connect https://mcp.example.com/mcp --server example${selectedVault ? ` --vault ${selectedVault.id}` : ""}`}
+          </pre>
+          <p>
+            Studio-created sessions do not attach vaults automatically. Personal
+            credentials are supplied by your operator's external credential
+            resolver.
+            Model-provider credentials are managed in the Models tab.
+          </p>
+          <a
+            className="text-primary underline underline-offset-4"
+            href="https://docs.nylorun.com"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Runtime documentation
+          </a>
+        </div>
+      </details>
 
       <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
         <SheetContent side="right" className="w-full sm:max-w-md">
@@ -518,11 +547,11 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                   </label>
                 )}
                 <label className="grid gap-1 text-sm">
-                  Binding URL
+                  Destination URL
                   <Input
                     value={bindingUrl}
                     onChange={(event) => setBindingUrl(event.target.value)}
-                    placeholder="mcp.example.com/service"
+                    placeholder="https://mcp.example.com/mcp"
                     required={panelMode === "add-credential"}
                     readOnly={panelMode !== "add-credential"}
                   />
@@ -602,7 +631,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                       : panelMode === "add-credential"
                         ? "Save credential"
                         : panelMode === "update"
-                          ? "Update credential"
+                          ? "Rotate credential"
                           : "Delete credential"}
                 </Button>
               )}

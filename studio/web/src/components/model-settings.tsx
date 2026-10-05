@@ -288,7 +288,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
     <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-auto p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Model Settings</h1>
+          <h1 className="text-2xl font-semibold">Models</h1>
           <p className="mt-2 text-muted-foreground">
             {active?.configured
               ? `Active: ${active.provider} / ${active.model}. Credentials stay in the Runtime vault.`
