@@ -1,6 +1,6 @@
 /**
  * F4.1, the Tool Gate: remote MCP servers are opened through the gate (the loop never
- * authorizes one), the gate refuses servers a session does not declare and stdio servers, and
+ * authorizes one), the gate refuses servers a session does not declare, and
  * deliveries keep their meaning across the hop (`not_sent` before the request reached the gate,
  * the endpoint's answer after it).
  */
@@ -27,7 +27,7 @@ const quiet = { info() {}, warn() {}, error() {} } as never;
 const agent = Agent({ id: "bot", name: "Bot" })
   .mcp({
     github: { type: "streamable-http", url: "https://mcp.example.invalid/mcp" },
-    local: { type: "stdio", command: "./server.mjs" },
+    docs: { type: "sse", url: "https://docs.example.invalid/sse" },
   })
   .build();
 const capabilityId = agent.manifest.capabilities.find((c) => c.mcpServers)!.id;
@@ -53,13 +53,11 @@ describe("the loop's MCP pool with a Tool Gate", () => {
   it("opens remote servers through the gate and never authorizes them itself", async () => {
     const authorize = vi.fn();
     const opened: McpServerRef[] = [];
-    const local: string[] = [];
+    const inProcess: string[] = [];
     const pool = new McpPool({
-      pluginData: "/tmp/plugin-data",
-      childEnv: {},
       authorize,
       open: async (input) => {
-        local.push(input.server.name);
+        inProcess.push(input.server.name);
         return fakeConnection();
       },
       openRemote: async (server) => {
@@ -71,14 +69,16 @@ describe("the loop's MCP pool with a Tool Gate", () => {
       sessionId: "s1",
       manifest: agent.manifest,
       manifestHash: "h",
-      pluginRoots: {},
     });
     expect(found.snapshot.mcpTools.map((tool) => tool.name).sort()).toEqual([
+      "docs__echo",
       "github__echo",
-      "local__echo",
     ]);
-    expect(opened).toEqual([{ sessionId: "s1", capabilityId, serverName: "github" }]);
-    expect(local).toEqual(["local"]);
+    expect(opened).toEqual([
+      { sessionId: "s1", capabilityId, serverName: "github" },
+      { sessionId: "s1", capabilityId, serverName: "docs" },
+    ]);
+    expect(inProcess).toEqual([]);
     expect(authorize).not.toHaveBeenCalled();
     await pool.close();
   });
@@ -94,11 +94,9 @@ describe("the gate's MCP handler", () => {
       }) as never,
   });
 
-  it("refuses a stdio server, an undeclared server and an unknown session", async () => {
+  it("refuses an undeclared server and an unknown session", async () => {
     const open = vi.fn(async () => fakeConnection());
     const handler = createMcpHandler({ vaults: vaults(agent.manifest), logger: quiet, open });
-    const stdio = await handler.connect(undefined, { sessionId: "s1", capabilityId, serverName: "local" });
-    expect(stdio).toMatchObject({ ok: false, error: { message: expect.stringContaining("stdio") } });
     const missing = await handler.connect(undefined, { sessionId: "s1", capabilityId, serverName: "nope" });
     expect(missing).toMatchObject({ ok: false, error: { message: expect.stringContaining("not declared") } });
     const session = await handler.connect(undefined, { sessionId: "s2", capabilityId, serverName: "github" });

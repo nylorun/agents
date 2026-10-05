@@ -30,7 +30,7 @@ export {
   artifactsCapabilityManifest,
   sandboxCapabilityManifest,
 } from "./definition/sandbox-capability.js";
-export { mcp, McpError, normalizeMcpServers } from "./definition/mcp.js";
+export { mcp, McpError, normalizeMcpServers, stdioMcpRefusal } from "./definition/mcp.js";
 export { CapabilityBuilder, isCapabilityBuilder } from "./definition/capability.js";
 export type { CapabilityIdentity, CapabilityOptions } from "./definition/capability.js";
 export {

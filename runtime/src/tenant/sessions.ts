@@ -47,7 +47,6 @@ interface Definition {
   manifest: any;
   manifestHash: string;
   implementationVersion: string;
-  pluginRoots?: Record<string, string>;
 }
 
 export async function listDefinitions(ctx: TenantContext) {
@@ -235,7 +234,6 @@ export async function putSession(
       creation: body,
       vaultIds,
       credentialSelections,
-      pluginRoots: definition.pluginRoots ?? {},
       ...(sandbox.sandboxOwnerId !== undefined
         ? { sandboxOwnerId: sandbox.sandboxOwnerId }
         : {}),

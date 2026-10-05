@@ -104,7 +104,7 @@ it("pins manifest A after registration B and exposes no session internals", asyn
   ).toBe(200);
   expect(await client.session("s-a").manifest()).toEqual(a);
   expect(a.implementationVersion).toBe("A");
-  expect(JSON.stringify(a)).not.toMatch(/pluginRoots|checkpoint|credential/);
+  expect(JSON.stringify(a)).not.toMatch(/checkpoint|credential/);
   expect((await request("/v1/sessions/s-a/manifest", undefined, person("bob"))).status).toBe(404);
   // Spend is the application's: no subject scope reaches usage or calls (protocol 8).
   for (const suffix of ["usage", "calls/model"])

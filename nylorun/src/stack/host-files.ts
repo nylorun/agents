@@ -49,7 +49,6 @@ export async function ensureHostLayout(paths: StackPaths): Promise<void> {
     paths.tmp,
     paths.tenant,
     ...Object.values(paths.harness),
-    paths.plugins,
     paths.keys,
     paths.docker,
   ])

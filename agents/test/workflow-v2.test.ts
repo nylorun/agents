@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -96,8 +96,8 @@ const shout = tool({
   },
 });
 
-function deskWith(pluginRoot: string) {
-  const writer = Agent({ id: "writer" }).instructions("Write.").plugin(pluginRoot);
+function deskWith(pluginDir: string) {
+  const writer = Agent({ id: "writer" }).instructions("Write.").plugin(pluginDir);
   return Agent({ id: "desk" })
     .step(writer)
     .step(shout, { input: ({ input }) => ({ word: String(input) }) })
@@ -105,9 +105,8 @@ function deskWith(pluginRoot: string) {
 }
 
 describe("saveAgent with a v2 flow agent", () => {
-  it("PUTs one document, carrying its agents' plugin roots", async () => {
-    const root = pluginFolder();
-    const desk = deskWith(root);
+  it("PUTs one document", async () => {
+    const desk = deskWith(pluginFolder());
     const puts: { path: string; body: any }[] = [];
     const client = new AgentsClient({
       url: URL,
@@ -124,7 +123,7 @@ describe("saveAgent with a v2 flow agent", () => {
     await client.saveAgent(desk, { implementationVersion: "test" });
     expect(puts.map((p) => p.path)).toEqual(["desk"]);
     expect(puts[0]!.body.manifest.workflowSchemaVersion).toBe(2);
-    expect(puts[0]!.body.pluginRoots).toEqual({ "writer/github": realpathSync(root) });
+    expect(Object.keys(puts[0]!.body).sort()).toEqual(["implementationVersion", "manifest", "requestId"]);
   });
 });
 
@@ -181,13 +180,12 @@ describe("executeAction on a v2 flow agent", () => {
 });
 
 describe("a flow agent used as a tool (Phase 3)", () => {
-  const root = pluginFolder();
   const research = Agent({ id: "research", description: "Researches a question." })
-    .step(Agent({ id: "searcher" }).instructions("Search.").plugin(root))
+    .step(Agent({ id: "searcher" }).instructions("Search.").plugin(pluginFolder()))
     .step(shout, { input: ({ input }) => ({ word: String(input) }) });
   const lead = Agent({ id: "lead" }).instructions("Delegate.").subagents(research);
 
-  it("is saved inside its parent, with its agents' plugin roots under its id", async () => {
+  it("is saved inside its parent", async () => {
     const puts: { path: string; body: any }[] = [];
     const client = new AgentsClient({
       url: URL,
@@ -200,7 +198,7 @@ describe("a flow agent used as a tool (Phase 3)", () => {
     });
     await client.saveAgent(lead, { implementationVersion: "test" });
     expect(puts.map((p) => p.path)).toEqual(["lead"]);
-    expect(puts[0]!.body.pluginRoots).toEqual({ "research/searcher/github": realpathSync(root) });
+    expect(Object.keys(puts[0]!.body).sort()).toEqual(["implementationVersion", "manifest", "requestId"]);
   });
 
   it("is served by the parent's Action endpoint, with its agents", async () => {

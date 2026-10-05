@@ -83,10 +83,6 @@ export function configForRoot(
     paths: tenantPaths(hostRoot),
     sandbox: { backend: "virtual" },
     model: { kind: "fixture" },
-    childEnv: Object.freeze({
-      HOME: tenantPaths(hostRoot).home,
-      TMPDIR: tenantPaths(hostRoot).tmp,
-    }),
     logger: silentLogger(),
   });
 }

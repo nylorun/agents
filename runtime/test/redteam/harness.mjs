@@ -11,8 +11,8 @@
  *
  * Inputs (environment): SMOKE_SESSION_A, SMOKE_SESSION_B (session ids), SMOKE_POSTGRES_IP,
  * SMOKE_HOST_PORTS (host ports, comma-separated, that must not answer: Restate's), SMOKE_PROTOCOL,
- * SMOKE_SECRET_HASHES (sha256 hex of the stack's other secrets, comma-separated),
- * SMOKE_PLUGINS (the read-only plugins mount), and the harness's own NYLORUN_HARNESS_TOKEN.
+ * SMOKE_SECRET_HASHES (sha256 hex of the stack's other secrets, comma-separated), and the
+ * harness's own NYLORUN_HARNESS_TOKEN.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -233,29 +233,26 @@ function walk(dir, depth = 0) {
     }
   }
 }
-for (const dir of ["/harness", "/nylorun", "/run", "/tmp", "/home", "/root", "/etc", "/var", "/opt", "/srv", "/mnt", "/media", ...(env.SMOKE_PLUGINS ? [env.SMOKE_PLUGINS] : [])])
+for (const dir of ["/harness", "/nylorun", "/run", "/tmp", "/home", "/root", "/etc", "/var", "/opt", "/srv", "/mnt", "/media"])
   walk(dir);
 report("no readable file is a key or holds a secret", found.length === 0, found.length ? found.join(", ") : `${scanned} files read`);
 for (const path of ["/nylorun/keys/vault-kek", "/nylorun/host-credentials.json", "/nylorun/docker/restate-identity.pem", "/nylorun/docker/.env", "/run/nylorun/restate-identity.pem"])
   report(`${path} absent`, !existsSync(path));
 
-// 4. Nothing is mounted outside /harness/*, but the plugins directory, read-only.
+// 4. Nothing is mounted outside /harness/*.
 const SYSTEM = ["/", "/etc/resolv.conf", "/etc/hostname", "/etc/hosts"];
 const mounts = readFileSync("/proc/self/mountinfo", "utf8")
   .trim()
   .split("\n")
   .map((line) => {
     const fields = line.split(" ");
-    return { point: fields[4].replace(/\\040/g, " "), options: fields[5] };
+    return { point: fields[4].replace(/\\040/g, " ") };
   })
   .filter(({ point }) => !SYSTEM.includes(point) && !/^\/(proc|sys|dev)(\/|$)/.test(point));
-const harnessDirs = ["sandboxes", "plugin-data", "home", "tmp"].map((dir) => `/harness/${dir}`);
-const outside = mounts.filter(
-  ({ point, options }) =>
-    !harnessDirs.includes(point) && !(point === env.SMOKE_PLUGINS && options.split(",").includes("ro")),
-);
+const harnessDirs = ["/harness/sandboxes"];
+const outside = mounts.filter(({ point }) => !harnessDirs.includes(point));
 report(
-  "mounts only /harness/* (and the plugins directory read-only)",
+  "mounts only /harness/*",
   outside.length === 0 && harnessDirs.every((dir) => mounts.some((m) => m.point === dir)),
   JSON.stringify(outside.length ? outside : mounts),
 );

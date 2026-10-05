@@ -81,7 +81,6 @@ export interface Session {
   creation: unknown;
   vaultIds?: readonly string[];
   credentialSelections?: readonly CredentialSelection[];
-  pluginRoots?: Readonly<Record<string, string>>;
   mcpSnapshot?: McpSnapshot;
   mcpDiagnostics?: readonly McpDiagnostic[];
   /** Session id that keys the shared sandbox; absent means this session owns it. */

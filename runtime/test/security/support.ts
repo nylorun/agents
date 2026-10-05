@@ -22,10 +22,6 @@ import {
 } from "@nylorun/core/compatibility";
 import { createHost, type HostServer } from "../../src/host/create-host.js";
 import type { HostConfigFile, HostCredentialsFile } from "../../src/host/config.js";
-import {
-  baselineEnvironment,
-  tenantChildEnvironment,
-} from "../../src/host/environment.js";
 import { createHostLogger } from "../../src/host/logger.js";
 import { mintBearerToken } from "../../src/core/bearer.js";
 import { createTenantModule } from "../../src/tenant/module.js";
@@ -218,8 +214,6 @@ export async function startSecurityHost(options?: {
   tenantName?: string;
   model?: TenantModelConfig;
   sandboxBackend?: "auto" | "virtual";
-  /** When true, childEnv is built from baselineEnvironment(process.env). */
-  useHostileBaseline?: boolean;
   modelProvider?: ModelProvider;
   retainRoot?: boolean;
 }): Promise<SecurityHost> {
@@ -256,24 +250,18 @@ export async function startSecurityHost(options?: {
   const hostLogLines: string[] = [];
   const hostLogger = createHostLogger((line) => hostLogLines.push(line));
 
-  const baseline = options?.useHostileBaseline
-    ? baselineEnvironment(process.env)
-    : { PATH: process.env.PATH ?? "/usr/bin:/bin" };
-
   const model: TenantModelConfig =
     options?.model ?? ({ kind: "scripted", output: "ok" } as const);
   const sandboxBackend = options?.sandboxBackend ?? "virtual";
 
   const configFor = (tenantId: string): TenantConfig => {
     const tenant = tenantPaths(hostRoot);
-    const childEnv = tenantChildEnvironment(baseline, config, tenant);
     return {
       tenantId,
       mode: "test",
       paths: tenant,
       sandbox: { backend: sandboxBackend },
       model,
-      childEnv: Object.freeze(childEnv),
       logger: createTenantLogger({
         tenantId,
         logPath: tenant.log,

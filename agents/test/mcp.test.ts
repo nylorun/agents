@@ -45,17 +45,9 @@ it("builds a capability for Agent.use from an mcpServers map", () => {
   });
 });
 
-it("accepts stdio and sse transports and an explicit capability id", () => {
+it("accepts the sse transport and an explicit capability id", () => {
   const declaration = mcp(
     {
-      local: {
-        name: "local",
-        type: "stdio",
-        command: "npx",
-        args: ["-y", "demo-mcp"],
-        env: { MODE: "test" },
-        cwd: ".",
-      },
       legacy: {
         name: "legacy",
         type: "sse",
@@ -65,18 +57,14 @@ it("accepts stdio and sse transports and an explicit capability id", () => {
     { id: "integrations" }
   );
   expect(declaration.id).toBe("integrations");
-  expect(Object.keys(declaration.mcpServers).sort()).toEqual(["legacy", "local"]);
+  expect(Object.keys(declaration.mcpServers)).toEqual(["legacy"]);
 
   const agent = Agent({ id: "assistant", instructions: "Help." })
     .use(
       mcp(
         {
           github,
-          local: {
-            name: "local",
-            type: "stdio",
-            command: "./bin/tools",
-          },
+          legacy: { type: "sse", url: "https://mcp.example.com/sse" },
         },
         { id: "integrations" }
       )
@@ -88,9 +76,17 @@ it("accepts stdio and sse transports and an explicit capability id", () => {
     id: "integrations",
     mcpServers: {
       github,
-      local: { name: "local", type: "stdio", command: "./bin/tools" },
+      legacy: { name: "legacy", type: "sse", url: "https://mcp.example.com/sse" },
     },
   });
+});
+
+it("refuses a stdio server", () => {
+  expect(() =>
+    mcp({ local: { type: "stdio", command: "./bin/tools" } } as never)
+  ).toThrow(
+    "MCP server 'local' uses stdio; Nylorun accepts remote MCP servers only (streamable-http or sse). Run the server behind an HTTP transport and declare its URL."
+  );
 });
 
 it("composes with the existing .use({ id, mcpServers }) pattern", () => {

@@ -138,7 +138,6 @@ try {
             "-e", `SMOKE_HOST_PORTS=${valueOf("NYLORUN_RESTATE_PORT")}`,
             "-e", `SMOKE_PROTOCOL=${PROTOCOL_VERSION}`,
             "-e", `SMOKE_SECRET_HASHES=${secrets.map(sha256).join(",")}`,
-            "-e", `SMOKE_PLUGINS=${join(home, "plugins")}`,
             "--entrypoint", "node",
             "harness", "--input-type=module", "-",
           ],

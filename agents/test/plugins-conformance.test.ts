@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@nylorun/core/define";
 import { expect, it, vi } from "vitest";
-import { prepareStdioLaunch } from "../src/plugins/launch.js";
 import { loadPlugin, PluginError } from "../src/plugins/load.js";
 import { plugin } from "../src/plugins/plugin.js";
 import { Agent as FileAgent } from "../src/builder.js";
@@ -125,7 +124,7 @@ it("skips an invalid skill and keeps its sibling and MCP servers", () => {
     JSON.stringify({
       $schema: MCP_SCHEMA,
       mcpServers: {
-        bad: { type: "stdio", command: "has space" },
+        bad: { type: "websocket", url: "wss://mcp.example.com/ws" },
         github: { type: "streamable-http", url: "https://mcp.example.com/github" },
         local: { type: "streamable-http", url: "http://localhost:9/mcp" },
         insecure: { type: "streamable-http", url: "http://example.com/mcp" },
@@ -143,7 +142,7 @@ it("skips an invalid skill and keeps its sibling and MCP servers", () => {
     .filter((item) => item.code === "plugin.mcp-server-skipped")
     .map((item) => item.message);
   expect(skipped).toEqual([
-    "Skipped invalid MCP server 'bad': it is not a valid stdio declaration",
+    "Skipped invalid MCP server 'bad': type 'websocket' is not streamable-http or sse",
     "Skipped invalid MCP server 'insecure': plain http is allowed only for localhost, 127.0.0.1 or [::1]; use https for example.com",
     "Skipped invalid MCP server 'secret': url must not carry credentials; use headers",
   ]);
@@ -271,9 +270,6 @@ it("composes skills and MCP into one agent without putting the skill body in the
     name: "triage",
     description: "Triage an issue. Use when labeling.",
   });
-  expect(agent.getBinding().declarations.find((item) => item.id === "repository-tools")?.pluginRoot).toBe(
-    realpathSync(tools),
-  );
   expect(JSON.stringify(agent.manifest)).not.toContain(realpathSync(tools));
   expect(JSON.stringify(agent.manifest)).not.toContain("Body stays stored.");
   expect(JSON.stringify(agent.manifest)).not.toContain("# Labels");
@@ -329,32 +325,27 @@ it("rejects duplicate skill names across plugins", () => {
   ).toThrow(/Duplicate skill 'triage'/);
 });
 
-it("expands only the two placeholders and supplies PLUGIN_ROOT after env", () => {
+it("refuses a stdio MCP server when the plugin is read", () => {
   const directory = root();
-  const data = join(directory, "data");
-  const launch = prepareStdioLaunch(
-    {
-      name: "local",
-      type: "stdio",
-      command: "npx",
-      args: ["--config", "${PLUGIN_ROOT}/config.json", "${PLUGIN_DATA}/db"],
-      env: { DATA_DIR: "${PLUGIN_DATA}/database", PATH: "/from-plugin" },
-      cwd: "${PLUGIN_ROOT}",
-    },
-    {
-      pluginRoot: `${directory}/${"${PLUGIN_DATA}"}`,
-      pluginData: data,
-      baseEnv: { LANG: "en" },
-    }
+  write(directory, "plugin.json", manifest("local-tools"));
+  write(
+    directory,
+    "mcp.json",
+    JSON.stringify({
+      $schema: MCP_SCHEMA,
+      mcpServers: {
+        github: { type: "streamable-http", url: "https://mcp.example.com/github" },
+        local: { type: "stdio", command: "./server.mjs" },
+      },
+    })
   );
-  expect(launch.command).toBe("npx");
-  expect(launch.args[1]).toBe(`${directory}/${"${PLUGIN_DATA}"}/config.json`);
-  expect(launch.args[1]).toContain("${PLUGIN_DATA}");
-  expect(launch.args[2]).toBe(`${data}/db`);
-  expect(launch.cwd).toBe(`${directory}/${"${PLUGIN_DATA}"}`);
-  expect(launch.env.DATA_DIR).toBe(`${data}/database`);
-  expect(launch.env.PLUGIN_ROOT).toBe(`${directory}/${"${PLUGIN_DATA}"}`);
-  expect(launch.env.PLUGIN_DATA).toBe(data);
-  expect(launch.env.LANG).toBe("en");
-  expect(launch.env.PATH).toBe("/from-plugin");
+  const refusal =
+    "MCP server 'local' uses stdio; Nylorun accepts remote MCP servers only (streamable-http or sse). Run the server behind an HTTP transport and declare its URL.";
+  expect(() => loadPlugin(directory)).toThrow(refusal);
+  expect(() => FileAgent({ id: "bot", name: "Bot" }).plugin(directory)).toThrow(PluginError);
+  try {
+    loadPlugin(directory);
+  } catch (error) {
+    expect((error as PluginError).code).toBe("plugin.mcp-stdio");
+  }
 });

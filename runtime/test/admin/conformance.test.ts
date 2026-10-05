@@ -62,7 +62,6 @@ async function startHost() {
   const database = await isolatedTestDatabase();
   const runtime = await startEphemeralRuntime({
     hostRoot,
-    baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     retainRoot: true,
     database: database.sql,
   });

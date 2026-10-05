@@ -5,7 +5,6 @@ export type {
 export {
   baselineEnvironment,
   hostProcessEnvironment,
-  tenantChildEnvironment,
 } from "./environment.js";
 export { createHost, type CreateHostOptions, type HostServer } from "./create-host.js";
 export { createHostLogger } from "./logger.js";
