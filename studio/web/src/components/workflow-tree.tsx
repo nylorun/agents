@@ -7,10 +7,7 @@ import {
   type WorkflowTreeNode,
 } from "@/workflow";
 import { cn } from "@/lib/utils";
-
-function sessionHref(agentId: string, sessionId: string): string {
-  return `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`;
-}
+import { sessionHref } from "@/session-open";
 
 function NodeBadge({
   node,
@@ -76,10 +73,10 @@ function TreeBranch({
           : ""}
       </span>
       <NodeBadge node={node} live={live} />
-      {live?.agentSessionId && node.agentId ? (
+      {live?.agentSessionId ? (
         <Link
           className="ml-auto truncate text-xs text-primary underline-offset-2 hover:underline"
-          to={sessionHref(node.agentId, live.agentSessionId)}
+          to={sessionHref(live.agentSessionId)}
           onClick={(event) => event.stopPropagation()}
         >
           session
@@ -89,10 +86,10 @@ function TreeBranch({
   );
   return (
     <li className="list-none">
-      {node.kind === "agent" && live?.agentSessionId && node.agentId ? (
+      {node.kind === "agent" && live?.agentSessionId ? (
         <Link
           className={rowClass}
-          to={sessionHref(node.agentId, live.agentSessionId)}
+          to={sessionHref(live.agentSessionId)}
           style={{ paddingLeft: 8 + depth * 12 }}
         >
           {body}

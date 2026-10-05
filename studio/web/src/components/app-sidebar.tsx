@@ -15,6 +15,7 @@ import {
 import type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import { embedded } from "@/embed/index.ts";
+import { NEW_SESSION } from "@/session-open";
 import {
   Collapsible,
   CollapsibleContent,
@@ -123,7 +124,9 @@ function AgentNavigation({
         ]
       : sessions;
   const startSession = (): void => {
-    void navigate(sessionPath(agent.id, crypto.randomUUID()));
+    void navigate(sessionPath(agent.id, crypto.randomUUID()), {
+      state: NEW_SESSION,
+    });
   };
   return (
     <Collapsible open={open} onOpenChange={setOpen} asChild>
