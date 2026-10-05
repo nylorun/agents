@@ -1,6 +1,6 @@
 /**
  * The Tool Gate's wire format (blueprint §12, F4.1): the routes the loop calls on the gates
- * service for remote MCP servers and Action deliveries. Internal, like the model call route
+ * service for remote MCP servers, HTTP tools and Action deliveries. Internal, like the model call route
  * (`contract.ts`): same optional Tenant header, not in the published OpenAPI documents.
  *
  * Credentials (F5). A session's MCP requests carry its run token, and the gate takes the
@@ -23,6 +23,14 @@
  * answer, not a gate error. A keyed call whose earlier attempt was lost with the gateway answers
  * `{ok: false, error: {uncertain: true}}` and is never run again.
  *
+ * HTTP tools (R2 M3). `POST /nylorun/v1/http-calls` `{tool, effectId, turnId, input}`: one call
+ * of an HTTP tool. The loop names the tool (`{sessionId?, agentId?, capabilityId, toolName}`);
+ * the gate finds its URL, method and credential in the session's pinned manifest
+ * (`gates/http-tool.ts`). A run token's turn is the call's; `turnId` counts only under core's
+ * credential. Keyed like a tool call, and cancelled by the same route. It answers
+ * `200 {ok: true, result}` with the tool outcome (a failed request is a failed outcome the
+ * model sees), or `{ok: false, error: {uncertain: true}}` for a call lost with the gateway.
+ *
  * Action deliveries. `POST /nylorun/v1/deliveries` `{url, body, headers, timeoutMs}`: the gate
  * POSTs the signed delivery under the gateway's own address policy and answers `200 {result}`,
  * what `tenant/outbound.ts` `post` returned, with the answer's body in base64.
@@ -35,6 +43,7 @@ export const MCP_LIST_PATH = "/nylorun/v1/mcp/list";
 export const MCP_CLOSE_PATH = "/nylorun/v1/mcp/close";
 export const TOOL_CALLS_PATH = "/nylorun/v1/tool-calls";
 export const DELIVERIES_PATH = "/nylorun/v1/deliveries";
+export const HTTP_CALLS_PATH = "/nylorun/v1/http-calls";
 
 /** Largest tool call or delivery body the gate reads. */
 export const MAX_TOOL_BODY_BYTES = 8 * 1024 * 1024;
@@ -72,6 +81,21 @@ export const ToolCallBodySchema = z.object({
 });
 
 export type ToolCallBody = z.infer<typeof ToolCallBodySchema>;
+
+export const HttpCallBodySchema = z.object({
+  tool: z.object({
+    /** Required with core's credential; a run token names the session itself. */
+    sessionId: z.string().min(1).optional(),
+    agentId: z.string().min(1).optional(),
+    capabilityId: z.string().min(1),
+    toolName: z.string().min(1),
+  }),
+  effectId: z.string().min(1),
+  turnId: z.string().min(1),
+  input: z.unknown(),
+});
+
+export type HttpCallBody = z.infer<typeof HttpCallBodySchema>;
 
 /** Why an MCP request failed, as the loop's diagnostics read it (`mcp/connect.ts`). */
 export interface McpGateError {

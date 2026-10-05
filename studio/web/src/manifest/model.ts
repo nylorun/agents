@@ -10,7 +10,7 @@ const SKILL_TOOLS = new Set(["load_skill", "read_skill_resource"]);
 /** Tools the Runtime runs in a session's sandbox (core `createSandboxTools`). */
 export const SANDBOX_TOOLS = ["bash", "read", "write", "edit", "grep", "glob"] as const;
 
-export type ToolKind = "endpoint" | "subagent" | "flow-subagent" | "built-in";
+export type ToolKind = "endpoint" | "http" | "subagent" | "flow-subagent" | "built-in";
 
 export type SchemaField = {
   name: string;
@@ -24,6 +24,10 @@ export type ToolView = {
   kind: ToolKind;
   input: SchemaField[];
   output?: SchemaField[];
+  /** An HTTP tool's request, which the Runtime makes. */
+  http?: { method: string; url: string };
+  /** Each call waits for approval. */
+  approval?: true;
 };
 
 export type CapabilityView = {
@@ -34,6 +38,8 @@ export type CapabilityView = {
   tools: ToolView[];
   skills: { name: string; description?: string }[];
   mcpServers: string[];
+  /** The MCP servers whose every tool call waits for approval. */
+  mcpApproval: string[];
 };
 
 export type ManifestView = {
@@ -78,13 +84,16 @@ export function schemaFields(schema: unknown): SchemaField[] {
 function toolView(tool: Json, capability: Json): ToolView {
   const name = String(tool.name);
   const agent = tool.agent;
+  const http = isRecord(tool.http) ? tool.http : undefined;
   const kind: ToolKind = isRecord(agent)
     ? agent.kind === "workflow"
       ? "flow-subagent"
       : "subagent"
-    : SKILL_TOOLS.has(name) && isRecord(capability.skills)
-      ? "built-in"
-      : "endpoint";
+    : http
+      ? "http"
+      : SKILL_TOOLS.has(name) && isRecord(capability.skills)
+        ? "built-in"
+        : "endpoint";
   const output = tool.outputSchema ?? tool.output;
   return {
     name,
@@ -92,6 +101,10 @@ function toolView(tool: Json, capability: Json): ToolView {
     kind,
     input: schemaFields(tool.inputSchema ?? tool.input),
     ...(output === undefined ? {} : { output: schemaFields(output) }),
+    ...(http
+      ? { http: { method: typeof http.method === "string" ? http.method : "POST", url: String(http.url) } }
+      : {}),
+    ...(tool.approval === "always" ? { approval: true as const } : {}),
   };
 }
 
@@ -125,6 +138,11 @@ export function manifestView(manifest: unknown): ManifestView {
             }))
         : [],
       mcpServers: isRecord(capability.mcpServers) ? Object.keys(capability.mcpServers) : [],
+      mcpApproval: isRecord(capability.mcpServers)
+        ? Object.entries(capability.mcpServers)
+            .filter(([, server]) => isRecord(server) && server.approval === "always")
+            .map(([name]) => name)
+        : [],
     }));
   return {
     ...(typeof root.description === "string" ? { description: root.description } : {}),
@@ -172,7 +190,7 @@ export type ManifestStats = {
 export function manifestStats(view: ManifestView): ManifestStats {
   const all = view.capabilities.flatMap((capability) => capability.tools);
   return {
-    tools: all.filter((tool) => tool.kind === "endpoint").length,
+    tools: all.filter((tool) => tool.kind === "endpoint" || tool.kind === "http").length,
     subagents: all.filter((tool) => tool.kind === "subagent" || tool.kind === "flow-subagent")
       .length,
     skills: view.capabilities.reduce((sum, capability) => sum + capability.skills.length, 0),

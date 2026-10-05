@@ -10,6 +10,7 @@ import type { JsonObject, BuildDiagnostic } from "../../types/shared.js";
 import type { ToolSchemaSource } from "../../types/tool.js";
 import type { AgentManifest } from "../../types/manifest.js";
 import type { BuiltAgent } from "../../types/agent.js";
+import { httpToolOf } from "../http-tool.js";
 import type {
   WorkflowAgentNodeV2,
   WorkflowBinding,
@@ -218,6 +219,15 @@ function childNode(child: unknown, build: Build): WorkflowNodeV2 {
     }
     if (stages.length === 1) return compileStage(stages[0]!, build);
     return { chain: stages.map((stage) => compileStage(stage, build)) };
+  }
+  if (isToolDefinition(child) && httpToolOf(child)) {
+    build.diagnostics.push(
+      diagnostic(
+        "workflow.invalid-runnable",
+        "An HTTP tool runs in an agent's tools, not as a flow stage"
+      )
+    );
+    return { chain: [] };
   }
   if (isToolDefinition(child)) {
     const tool = bindToolNode(child);

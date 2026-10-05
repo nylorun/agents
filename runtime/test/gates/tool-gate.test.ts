@@ -7,13 +7,19 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Agent } from "@nylorun/core/define";
+import { z } from "zod";
+import { Agent, http } from "@nylorun/core/define";
 import { newTenantId } from "@nylorun/core/compatibility";
 import type { LiveConnection, McpClient } from "../../src/mcp/connect.js";
 import { McpPool, type McpServerRef } from "../../src/mcp/pool.js";
 import { createMcpHandler } from "../../src/gates/mcp-handler.js";
 import { httpToolGate } from "../../src/gates/tool-client.js";
-import { DELIVERIES_PATH, MCP_CONNECT_PATH, TOOL_CALLS_PATH } from "../../src/gates/tool-contract.js";
+import {
+  DELIVERIES_PATH,
+  HTTP_CALLS_PATH,
+  MCP_CONNECT_PATH,
+  TOOL_CALLS_PATH,
+} from "../../src/gates/tool-contract.js";
 import type { TenantVaults } from "../../src/gates/tenant-vaults.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
 import { createRunGrants } from "../../src/tenant/run-grants.js";
@@ -364,5 +370,116 @@ describe("deliveries through the gate", () => {
     expect(
       await wrong.post({ url: "http://127.0.0.1:9/x", body: "{}", headers: {}, timeoutMs: 1_000 }, new AbortController().signal),
     ).toMatchObject({ kind: "not_sent", code: "gateway.refused" });
+  });
+});
+
+describe("HTTP tool calls through the gate (R2 M3)", () => {
+  let runs: RunFixture;
+  beforeAll(async () => {
+    runs = await runFixture();
+  });
+
+  async function service(): Promise<{ url: string; seen: Record<string, unknown>[] }> {
+    const seen: Record<string, unknown>[] = [];
+    const server: Server = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        seen.push(req.headers);
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/refunds`, seen };
+  }
+
+  async function gate() {
+    const authorizeMcp = vi.fn(async (_sessionId: string, request: { url: string }) => ({
+      status: "authorized" as const,
+      url: request.url,
+      headers: { authorization: "Bearer vaulted" },
+    }));
+    const server = await startGates({
+      gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
+      logger: quiet,
+      vaults: {
+        open: async () =>
+          ({
+            tenantId: runs.tenantId,
+            store: runs.store,
+            session: (id: string) => runs.store.tx((t) => t.get("sessions", id)),
+            authorizeMcp,
+          }) as never,
+      },
+      drainMs: 0,
+    });
+    cleanup.push(() => server.close());
+    return { server, authorizeMcp };
+  }
+
+  const billing = (url: string) =>
+    Agent({ id: "bot", name: "Bot" })
+      .tools(http({ name: "refund", input: z.object({ id: z.string() }), url, credential: "billing" }))
+      .build();
+  const capabilityOf = (agent: ReturnType<typeof billing>) =>
+    agent.manifest.capabilities.find((c) => c.tools?.some((tool) => tool.name === "refund"))!.id;
+
+  it("calls the tool the token's session declares, with its vault credential and the token's turn", async () => {
+    const target = await service();
+    const { server, authorizeMcp } = await gate();
+    const agent = billing(target.url);
+    const grant = await runs.run("http-a", { manifest: agent.manifest });
+    const tools = httpToolGate({ url: server.url, token, runTokens: runs.grants });
+    const outcome = await tools.callHttp!(
+      {
+        tool: { sessionId: "http-a", capabilityId: capabilityOf(agent), toolName: "refund" },
+        effectId: "turn-x:0:tool:1",
+        turnId: "ignored-under-a-run-token",
+        input: { id: "A-1" },
+      },
+      new AbortController().signal,
+    );
+    expect(outcome).toEqual({ kind: "completed", output: { ok: true } });
+    expect(authorizeMcp).toHaveBeenCalledWith("http-a", {
+      kind: "http",
+      url: target.url,
+      serverName: "billing",
+    });
+    expect(target.seen).toEqual([
+      expect.objectContaining({
+        authorization: "Bearer vaulted",
+        "idempotency-key": "turn-x:0:tool:1",
+        "nylorun-session-id": "http-a",
+        "nylorun-turn-id": grant.claims.turnId,
+        "nylorun-agent-id": "bot",
+      }),
+    ]);
+  });
+
+  it("refuses another session's tool under a run token, and an undeclared tool is a tool error", async () => {
+    const target = await service();
+    const { server } = await gate();
+    const agent = billing(target.url);
+    const mine = await runs.run("http-b", { manifest: agent.manifest });
+    await runs.run("http-c", { manifest: agent.manifest });
+    const body = (sessionId: string | undefined, toolName = "refund") => ({
+      tool: { ...(sessionId ? { sessionId } : {}), capabilityId: capabilityOf(agent), toolName },
+      effectId: "e",
+      turnId: "t",
+      input: {},
+    });
+    const send = (bearer: string, value: unknown) =>
+      realFetch(new URL(HTTP_CALLS_PATH, server.url), {
+        method: "POST",
+        headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
+        body: JSON.stringify(value),
+      });
+    expect((await send(mine.token, body("http-c"))).status).toBe(403);
+    expect((await send(token, body(undefined))).status).toBe(400);
+    expect(await (await send(mine.token, body(undefined, "nope"))).json()).toEqual({
+      ok: true,
+      result: { kind: "failed", code: "http.undeclared", message: "'nope' is not an HTTP tool of the session" },
+    });
+    expect(target.seen).toEqual([]);
   });
 });

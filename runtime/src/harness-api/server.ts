@@ -370,7 +370,7 @@ export function createHarnessApiServer(
       }
       return {
         ...(current.mcpSnapshot ? { snapshot: current.mcpSnapshot } : {}),
-        sessionTools: [...(sessionToolsOf(current.mcpSnapshot) ?? [])],
+        sessionTools: [...(sessionToolsOf(current.mcpSnapshot, current.manifest) ?? [])],
       } as { snapshot: unknown; sessionTools: unknown[] };
     });
 

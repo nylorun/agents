@@ -1,12 +1,14 @@
 /**
  * The loop's client of the Tool Gate in the gates service (F4.1, `tool-contract.ts`): remote
  * MCP servers opened and called through the gate, which holds their connections and
- * credentials, and Action deliveries POSTed by the gate. Over `node:http`, like the model gate's
- * client (`http-client.ts`): a call answers only when it has finished.
+ * credentials, HTTP tools called by the gate (R2 M3), and Action deliveries POSTed by the gate.
+ * Over `node:http`, like the model gate's client (`http-client.ts`): a call answers only when it
+ * has finished.
  *
  * Failures keep the meaning they had in the loop's own process:
  * - An MCP request that fails, at the server or on the hop, throws, so the pool reports a
- *   diagnostic and `resolveEffect` marks a call `uncertain`, as before.
+ *   diagnostic and `resolveEffect` marks a call `uncertain`, as before. An HTTP tool call
+ *   throws only for the hop, or a call lost with the gateway: its own failures are outcomes.
  * - A delivery never throws. A hop that failed before the request was sent is `not_sent`
  *   (the deliverer sends it again, even a tool); one that failed after is `lost`.
  *
@@ -26,16 +28,19 @@ import { TENANT_HEADER } from "./contract.js";
 import { GATE_CLIENT_TIMEOUT_MS } from "./http-client.js";
 import {
   DELIVERIES_PATH,
+  HTTP_CALLS_PATH,
   MCP_CLOSE_PATH,
   MCP_CONNECT_PATH,
   MCP_LIST_PATH,
   TOOL_CALLS_PATH,
   type DeliveryAnswer,
+  type HttpCallBody,
   type McpAnswer,
   type McpGateError,
   type ToolCallBody,
 } from "./tool-contract.js";
 import type { DeliveryRequest, ToolGate } from "./tool-gate.js";
+import type { HttpOutcome, HttpToolCall } from "./http-tool.js";
 import type { RunTokens } from "../tenant/run-grants.js";
 
 /** How long a close or a cancel may take; neither changes an outcome. */
@@ -169,8 +174,11 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
     return { body: body(unnamed as McpServerRef), bearer: token };
   }
 
-  /** The result of an MCP request, or a throw the pool and `resolveEffect` read as before. */
-  async function mcp<T>(
+  /**
+   * The result of an MCP or HTTP tool request, or a throw the pool and `resolveEffect` read as
+   * before: the call's fate is unknown, and the effect becomes `uncertain`.
+   */
+  async function answered<T>(
     path: string,
     scope: Scoped<unknown>,
     request: { signal?: AbortSignal; idempotencyKey?: string },
@@ -201,10 +209,10 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
 
     async openMcp(server: McpServerRef): Promise<LiveConnection> {
       // The credential is read per request: the connection outlives the advance that opened it.
-      await mcp<null>(MCP_CONNECT_PATH, scoped(server, (named) => ({ server: named })), {});
+      await answered<null>(MCP_CONNECT_PATH, scoped(server, (named) => ({ server: named })), {});
       const client: McpClient = {
         listTools: (params, request) =>
-          mcp<McpToolPage>(
+          answered<McpToolPage>(
             MCP_LIST_PATH,
             scoped(server, (named) => ({
               server: named,
@@ -213,7 +221,7 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
             request?.signal ? { signal: request.signal } : {},
           ),
         callTool: (params, request) =>
-          mcp<Record<string, unknown>>(
+          answered<Record<string, unknown>>(
             TOOL_CALLS_PATH,
             scoped(
               server,
@@ -234,6 +242,17 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
         client,
         close: () => fireAndForget(MCP_CLOSE_PATH, scoped(server, (named) => ({ server: named }))),
       };
+    },
+
+    async callHttp(call: HttpToolCall, signal: AbortSignal): Promise<HttpOutcome> {
+      const token = options.runTokens?.token(call.tool.sessionId);
+      const { sessionId: _, ...unnamed } = call.tool;
+      const body: HttpCallBody = { ...call, tool: token ? unnamed : { ...call.tool } };
+      return answered<HttpOutcome>(
+        HTTP_CALLS_PATH,
+        { body, ...(token ? { bearer: token } : {}) },
+        { signal, idempotencyKey: call.effectId },
+      );
     },
 
     async cancel(request) {

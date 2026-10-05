@@ -24,6 +24,17 @@ export {
 export type { Delegate } from "./definition/delegate.js";
 export { capability, middleware, model, tool } from "./definition/helpers.js";
 export {
+  APPROVAL_MODES,
+  HTTP_TOOL_DEFAULT_TIMEOUT_MS,
+  HTTP_TOOL_MAX_TIMEOUT_MS,
+  HTTP_TOOL_METHODS,
+  http,
+  httpToolOf,
+  withHttpTarget,
+  type HttpTool,
+  type HttpToolOptions,
+} from "./definition/http-tool.js";
+export {
   ARTIFACTS_CAPABILITY_ID,
   SANDBOX_CAPABILITY_ID,
   SAVE_ARTIFACT_TOOL,
@@ -87,7 +98,10 @@ export type { Implementations } from "./definition/implementations.js";
 
 export type {
   AgentManifest,
+  ApprovalMode,
   CapabilityManifest,
+  HttpToolMethod,
+  HttpToolTarget,
   McpServerManifest,
   RuntimeManifest,
   SandboxManifest,

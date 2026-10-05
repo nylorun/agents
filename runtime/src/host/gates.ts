@@ -18,6 +18,7 @@ import { createModelCallHandler } from "../gates/handler.js";
 import { createInflightCalls, type InflightCallsOptions } from "../gates/inflight.js";
 import { createMcpHandler, GATE_MCP_IDLE_MS } from "../gates/mcp-handler.js";
 import { createToolCalls } from "../gates/tool-calls.js";
+import { gateHttpTools } from "../gates/http-tool.js";
 import type { openMcpServer } from "../mcp/connect.js";
 import type { OutboundPolicy } from "../tenant/outbound.js";
 import { existsSync } from "node:fs";
@@ -54,7 +55,10 @@ export interface StartGatesOptions {
   readonly drainMs?: number;
   /** How long keyed outcomes are kept, and how many (tests). */
   readonly inflight?: InflightCallsOptions;
-  /** How the gate may call Action endpoints and MCP servers (`NYLORUN_ENDPOINT_*`). Default: no limits. */
+  /**
+   * How the gate may call Action endpoints, MCP servers and HTTP tools (`NYLORUN_ENDPOINT_*`).
+   * Default: no limits.
+   */
   readonly delivery?: OutboundPolicy;
   /** How long an MCP connection may sit unused. Default `GATE_MCP_IDLE_MS`. */
   readonly mcpIdleMs?: number;
@@ -108,7 +112,6 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
   });
   const toolCalls = createToolCalls({
     vaults,
-    mcp,
     logger,
     ...(options.inflight ? { inflight: options.inflight } : {}),
   });
@@ -149,6 +152,7 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     },
     ...(options.maxBodyBytes !== undefined ? { maxBodyBytes: options.maxBodyBytes } : {}),
     mcp,
+    http: gateHttpTools(vaults, options.delivery ?? {}, logger),
     toolCalls,
     delivery: options.delivery ?? {},
     logger,

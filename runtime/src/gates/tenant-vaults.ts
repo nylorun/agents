@@ -36,17 +36,14 @@ export interface TenantVault {
   readHostModel(): Promise<HostModelSecret | undefined>;
   /** Writes back a credential pi-ai refreshed (OAuth). */
   writeHostCredential(credential: Credential): Promise<void>;
-  /** A session, for the remote MCP servers its pinned manifest declares (F4.1). */
+  /** A session, for the remote MCP servers and HTTP tools its pinned manifest declares. */
   session(sessionId: string): Promise<Session | undefined>;
   /**
-   * The authorization of one request to a session's remote MCP server: its credential from the
-   * session's attached vaults, refreshed when due (F4.1), else from the operator's credential
-   * resolver (F9 C1).
+   * The authorization of one request to a session's remote MCP server or HTTP tool: its
+   * credential from the session's attached vaults, refreshed when due (F4.1), else from the
+   * operator's credential resolver (F9 C1).
    */
-  authorizeMcp(
-    sessionId: string,
-    request: { url: string; serverName: string; agentId?: string },
-  ): Promise<AuthorizeResult>;
+  authorizeMcp(sessionId: string, request: McpCredentialRequest): Promise<AuthorizeResult>;
   /** Vault writes and token signing with the Tenant's vault key (the keys service, F4.2). */
   keys(): Keys;
 }
