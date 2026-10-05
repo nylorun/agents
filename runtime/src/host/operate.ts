@@ -231,7 +231,12 @@ function unavailable(
 /** The Tenant's store, when the Host has created and migrated it to this Runtime's schema. */
 async function openStore(sql: PostgresClient) {
   const db = database(sql);
-  const envelope = await readTenantEnvelope(db).catch(() => undefined);
+  const envelope = await readTenantEnvelope(db).catch((error: unknown) => {
+    throw new Exit(
+      EXIT_TENANT,
+      `The Tenant's database cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
   if (!envelope)
     throw new Exit(EXIT_TENANT, "The database holds no Tenant yet: start the Runtime first");
   const version = await readSchemaVersion(db);

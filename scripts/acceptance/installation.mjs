@@ -34,6 +34,7 @@ import { randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ProcessGroup } from "../lib/processes.mjs";
 import { npm, packageName, root } from "../lib/repo.mjs";
 import {
