@@ -149,7 +149,10 @@ package has no tarball there.
 The jobs run in this order:
 
 1. **validate** verifies that the selected commit belongs to `main` and passed
-   `ci`, runs `release:check` on the checkout, and saves the verified tarballs.
+   CI's full suite: the merge queue's `ci` on a merged release PR (CI runs the
+   full tier when the release plan changes), or `main`'s post-merge
+   `ci (push)` on a manual run. It then runs `release:check` on the checkout
+   and saves the verified tarballs.
 2. **images** builds `runtime/Dockerfile`, `studio/Dockerfile` and
    `sandboxes/Dockerfile` for `linux/amd64` and `linux/arm64` (QEMU and
    buildx, with a GitHub Actions layer cache) and pushes
