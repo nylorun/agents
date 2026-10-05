@@ -7,7 +7,6 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent, hashManifest } from "@nylorun/core/define";
-import { registerEndpoint, startEndpoint } from "./support/endpoint.js";
 import { patchStoredSession, startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -227,11 +226,10 @@ async function until(runtime: { url: string }, id: string, statuses: readonly st
   throw new Error(`session ${id} did not reach ${statuses.join(", ")}`);
 }
 
-it("discovers a remote MCP server with a bearer and calls it without delivering an Action", async () => {
+it("discovers a remote MCP server with a bearer and calls it from the Runtime", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mcp-bearer-"));
   const remote = await probe({ name: "github", tool: "get_issue", requiredToken: TOKEN });
   const seen: string[][] = [];
-  let cleanup = async () => {};
   const runtime = await boot(directory, async (effect: { input: unknown }) => {
     const call = effect.input as { tools?: { name: string }[]; prompt?: { kind?: string }[] };
     const names = (call.tools ?? []).map((tool) => tool.name);
@@ -260,10 +258,6 @@ it("discovers a remote MCP server with a bearer and calls it without delivering 
       .build();
     const registered = await register(runtime, agent.manifest);
     expect(registered.manifestHash).toBe(hashManifest(agent.manifest));
-    // The agent has an Action endpoint, but the MCP call never reaches it.
-    const endpoint = await startEndpoint({ runtime });
-    cleanup = () => endpoint.close();
-    await registerEndpoint(runtime, "bot", endpoint.url);
     const vault = await createBearer(runtime, "ada", remote.url, TOKEN);
     await openSession(runtime, "s1", { vaultIds: [vault.vaultId] });
     await say(runtime, "s1", "read the issue");
@@ -286,12 +280,15 @@ it("discovers a remote MCP server with a bearer and calls it without delivering 
         toolset: "issues",
       }),
     ]);
-    expect(endpoint.deliveries).toEqual([]);
+    // The Runtime made the call itself: the log has its result and no action.* events.
     const history = await (
       await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers: serverHeaders })
     ).json();
-    expect(history.items.some((item: { type: string }) => item.type === "action.pending")).toBe(
+    expect(history.items.some((item: { type: string }) => item.type.startsWith("action."))).toBe(
       false,
+    );
+    expect(history.items.some((item: { type: string }) => item.type === "tool.completed")).toBe(
+      true,
     );
   } finally {
     await runtime.close();

@@ -8,45 +8,32 @@
  * Wakes (`ctx.wake`, architecture §12.3) carry the command type as the reason and a dedupe
  * key naming the cause: `<type>:<turnId>:<segment>` for `message`, `approve` and `respond`
  * (every accepted one writes a new checkpoint segment), except that a workflow's `approve` and
- * `respond` name `<type>:<turnId>:<interactionId>`: a flow resumes in the same segment. An
- * Action's outcome (`recordActionOutcome`, from the deliverer) wakes with
- * `action_result:<turnId>:<actionId>:<generation>`.
+ * `respond` name `<type>:<turnId>:<interactionId>`: a flow resumes in the same segment.
  *
  * Cancel commits `cancelled` first; the engine host sees it before its next effect and before
  * settlement on any Worker. It then aborts an advance running on this process
  * (`ctx.abortLocal`); reaching an advance on another process is the control stream's job.
  */
 import { randomUUID } from "node:crypto";
-import type {
-  Action,
-  ActionOutcome,
-  LiveEvent,
-  SessionCommand,
-} from "@nylorun/core/contracts";
+import type { LiveEvent, SessionCommand } from "@nylorun/core/contracts";
 import {
   createDurableCheckpoint,
   createFlowCheckpoint,
   resumeFlowCheckpoint,
   type FlowCheckpoint,
 } from "@nylorun/harness/run";
-import {
-  schemaFromJSON,
-  type JsonObject,
-  type JsonValue,
-} from "@nylorun/core/define";
+import type { JsonValue } from "@nylorun/core/define";
 import {
   commandKey,
-  fenceWorkflowActions,
+  cancelQueuedEffects,
   flowInteractionOf,
   foreignInteractionConflict,
   isWorkflowManifest,
   planCancelCascade,
-  wakeForQueuedEffects,
   wakeLinkedWorkflow,
 } from "../core/flow-host.js";
 import { resolveMessageManifest } from "../core/turn-manifest.js";
 import { canonical } from "../store/canonical.js";
-import type { Tx } from "../store/types.js";
 import {
   lockedSession,
   type AuthScope,
@@ -56,73 +43,10 @@ import {
 import { fail } from "./http.js";
 import { accessOf } from "./auth.js";
 import { checkSandboxTurn } from "./sandboxes.js";
-import {
-  actionTarget,
-  rebaseSessionState,
-  turnManifestOf,
-  variantStore,
-} from "./session.js";
-import { signalActionOutcome, signalSessionCancel } from "./streams.js";
-import { toolIds } from "./transcript.js";
+import { rebaseSessionState, turnManifestOf, variantStore } from "./session.js";
+import { signalSessionCancel } from "./streams.js";
 import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
-
-/** `outcome`, or a failed one when a tool's output does not match its stored output schema. */
-export function acceptedOutcome(action: Action, outcome: ActionOutcome): ActionOutcome {
-  if (action.kind !== "tool" || !action.outputSchema) return outcome;
-  const value = outcome.value;
-  // Only a result carries output: failures, denials, interactions and deferrals pass as sent.
-  if (!isResultToolValue(value)) return outcome;
-  // Endpoints wrap successful tool output as `{ kind: "completed", output }`.
-  // Validate the tool payload, not the outcome envelope.
-  const candidate = completedToolOutput(value);
-  let matches = false;
-  try {
-    matches = schemaFromJSON(action.outputSchema as JsonObject).validate(
-      candidate
-    ).ok;
-  } catch {
-    matches = false;
-  }
-  if (matches) return outcome;
-  return {
-    ...outcome,
-    value: {
-      kind: "failed",
-      code: "tool.invalid-output",
-      message: "Tool result does not match the output schema stored on the action",
-    },
-  };
-}
-
-function completedToolOutput(value: unknown): unknown {
-  if (
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    (value as { kind?: unknown }).kind === "completed" &&
-    "output" in (value as object)
-  ) {
-    return (value as { output: unknown }).output;
-  }
-  return value;
-}
-
-const NON_RESULT_KINDS = new Set([
-  "failed",
-  "denied",
-  "interaction-required",
-  "deferred",
-]);
-
-function isResultToolValue(value: unknown): boolean {
-  return !(
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    NON_RESULT_KINDS.has((value as { kind?: unknown }).kind as string)
-  );
-}
 
 /** A command's identity for idempotency: everything but the request id. */
 const semantic = (value: any): string => {
@@ -171,27 +95,12 @@ export async function command(
         turnId: cancelledTurnId,
       });
       s.status = "cancelled";
-      if (workflowCancel) {
-        await fenceWorkflowActions({
+      if (workflowCancel)
+        await cancelQueuedEffects({
           t,
           workflowSessionId: id,
           turnId: cancelledTurnId,
         });
-      } else if (cancelledTurnId !== null) {
-        for (const a of await t.actionsForSession(id, {
-          turnId: cancelledTurnId,
-          statuses: ["pending", "delivering"],
-        })) {
-          // Delivered work may already have an external effect. Preserve it for reconciliation.
-          a.status = a.status === "pending" ? "cancelled" : "uncertain";
-          await t.put("actions", a.actionId, a);
-          const effect = await t.get("effects", a.actionId);
-          if (effect) {
-            effect.status = a.status;
-            await t.put("effects", a.actionId, effect);
-          }
-        }
-      }
       if (cancelledTurnId !== null)
         for (const effect of await t.effectsForTurn<any>(
           id,
@@ -406,65 +315,4 @@ export async function command(
     }
   }
   return response;
-}
-
-/**
- * Completes a delivered Action with `outcome`, in the caller's transaction, which
- * holds the lock of the Action's session `s`: the Action and its effect, the
- * `action.completed` event, the wake that resumes the turn, and queued workflow effects. The
- * Action deliverer and the background-result callback both record outcomes here. It sets
- * `s.status`; the caller writes `s`.
- */
-export async function recordActionOutcome(
-  t: Tx,
-  ctx: TenantContext,
-  s: Session,
-  action: Action,
-  received: ActionOutcome,
-  options: { requestId?: string } = {},
-): Promise<{ event: LiveEvent; receipt: Record<string, unknown> }> {
-  const outcome = acceptedOutcome(action, received);
-  const prior = await t.get("effects", action.actionId);
-  action.status = "completed";
-  await t.put("actions", action.actionId, action);
-  prior.status = "completed";
-  prior.outcome = outcome;
-  s.status = "runnable";
-  const resultWake = {
-    reason: "action_result" as const,
-    dedupeKey: `action_result:${action.turnId}:${action.actionId}:${action.generation}`,
-  };
-  t.afterCommit(() => ctx.wake(s.id, resultWake));
-  // A run held while the Action was pending goes on with it in the same lease (F6.2): here, or
-  // on the process whose harness holds it. The wake finds the session settled, or resumes it
-  // by replay when the run had already ended.
-  t.afterCommit(() => {
-    if (ctx.harness.holds(s.id)) ctx.harness.resolved(s.id, action.actionId, outcome);
-    else signalActionOutcome(ctx, s.id, action.actionId);
-  });
-  const event = await t.event(s.id, s.activeTurnId, "action.completed", {
-    actionId: action.actionId,
-    ...actionTarget(action),
-    kind: action.kind,
-    ...(action.kind === "tool" ? toolIds(action.context) : {}),
-    result: outcome.value,
-  });
-  const receipt = {
-    status: "accepted",
-    turnId: s.activeTurnId,
-    cursor: event.cursor,
-    ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
-  };
-  prior.receipt = receipt;
-  await t.put("effects", action.actionId, prior);
-  if (isWorkflowManifest(s.manifest) && s.activeTurnId) {
-    await wakeForQueuedEffects({
-      t,
-      workflowSessionId: s.id,
-      turnId: s.activeTurnId,
-      limits: ctx.flowLimits,
-      schedule: ctx.wake,
-    });
-  }
-  return { event, receipt };
 }

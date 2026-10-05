@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
-import type { Action, LiveEvent } from "@nylorun/core/contracts";
+import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../../src/record/index.js";
 import {
   OwnershipLostError,
@@ -46,28 +46,6 @@ function session(id: string, fields: Record<string, unknown> = {}) {
     activeTurnId: null,
     ...fields,
   };
-}
-
-function action(
-  id: string,
-  fields: Partial<Action> & Record<string, unknown> = {},
-): Action {
-  return {
-    actionId: id,
-    sessionId: "s1",
-    turnId: "t1",
-    agentId: "agent-a",
-    manifestHash: "m",
-    implementationVersion: "1",
-    input: {},
-    context: {},
-    status: "pending",
-    generation: 0,
-    kind: "tool",
-    capabilityId: "cap",
-    toolName: "tool",
-    ...fields,
-  } as Action;
 }
 
 function effect(
@@ -209,22 +187,19 @@ export function storeContract(name: string, factory: StoreFactory): void {
             ...effect("e1", "s1", "t1", "succeeded"),
             output: body,
           });
-          await t.put("actions", "a1", action("a1", { input: body }));
           await t.put("links", "l1", { workflowSessionId: "w\u0000", body });
           for (const table of DOC_TABLES)
-            if (!["sessions", "effects", "actions", "links"].includes(table))
+            if (!["sessions", "effects", "links"].includes(table))
               await t.put(table, "d1", body);
           await t.event("s1", "t1", "turn.completed", { tag: "tool.output", output: body });
         });
         const read = await store.tx(async (t) => ({
           session: await t.get("sessions", "s1"),
           effects: await t.effectsForSession("s1", { statuses: ["succeeded"] }),
-          actions: await t.actionsForSession("s1", { turnId: "t1" }),
-          pending: await t.pendingActions("agent-a"),
           sessions: await t.listSessions({ agentId: "agent-a" }),
           docs: await Promise.all(
             DOC_TABLES.filter(
-              (table) => !["sessions", "effects", "actions", "links"].includes(table),
+              (table) => !["sessions", "effects", "links"].includes(table),
             ).map((table) => t.get(table, "d1")),
           ),
         }));
@@ -232,8 +207,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect(read.session.state).toEqual(body);
         expect(read.sessions.map((s) => s.id)).toEqual(["s1"]);
         expect(read.effects.map((e: any) => e.output)).toEqual([body]);
-        expect(read.actions.map((a) => a.input)).toEqual([body]);
-        expect(read.pending.map((a) => a.actionId)).toEqual(["a1"]);
         for (const doc of read.docs) expect(doc).toEqual(body);
         expect(rows.map((row) => (row.body as LiveEvent).payload)).toEqual([
           { tag: "tool.output", output: body },
@@ -709,22 +682,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("effects", "e6", effect("e6", "wf", "wt", "queued", "tool"));
           await t.put("effects", "e7", effect("e7", "wf", "old", "queued", "tool"));
 
-          await t.put("actions", "a1", action("a1", { status: "pending" }));
-          await t.put("actions", "a2", action("a2", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:05.000Z" }));
-          await t.put("actions", "a3", action("a3", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:01.000Z", turnId: "t2" }));
-          await t.put("actions", "a4", action("a4", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:01:00.000Z" }));
-          await t.put("actions", "a5", action("a5", { status: "completed" }));
-          await t.put("actions", "a6", action("a6", { status: "pending", agentId: "agent-b", sessionId: "s2" }));
-          await t.put("actions", "a7", action("a7", { status: "uncertain" }));
-          await t.put("actions", "f1", {
-            ...action("f1", { sessionId: "wf", turnId: "wt", status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:03.000Z" }),
-            kind: "tool",
-            path: "p",
-            key: "k",
-            capabilityId: undefined,
-            toolName: undefined,
-          });
-
           await t.put("links", "wf-a", { workflowSessionId: "wf", path: "a", effectId: "e5", turnId: "wt" });
           await t.put("links", "wf-b", { workflowSessionId: "wf", path: "b/c", effectId: "e8", turnId: "wt" });
           await t.put("links", "ghost", { workflowSessionId: "wf", path: "g", effectId: "e9", turnId: "wt" });
@@ -735,8 +692,8 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("sandboxes", "sb1", { key: "sb1", state: "running" });
         });
       }
-      const ids = (rows: { id?: string; actionId?: string; request?: { effectId: string } }[]) =>
-        rows.map((r) => r.id ?? r.actionId ?? r.request!.effectId);
+      const ids = (rows: { id?: string; request?: { effectId: string } }[]) =>
+        rows.map((r) => r.id ?? r.request!.effectId);
 
       it("finds sessions by status, agent and orphaned lease", async () => {
         const store = await fresh();
@@ -757,23 +714,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
           expect(ids(await t.orphanedSessions(new Date(now.getTime() + 500), 10))).toEqual(["s2"]);
           expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 10))).toEqual(["s2", "s1"]);
           expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 1))).toEqual(["s2"]);
-        });
-      });
-
-      it("finds actions by delivery deadline, agent, session and kind", async () => {
-        const store = await fresh();
-        await seed(store);
-        await store.tx(async (t) => {
-          expect(ids(await t.expiredDeliveries(new Date("2030-01-01T00:00:05.000Z"), 10))).toEqual(["a3", "f1", "a2"]);
-          expect(ids(await t.expiredDeliveries(new Date("2030-01-01T00:00:05.000Z"), 2))).toEqual(["a3", "f1"]);
-          expect(ids(await t.expiredDeliveries(new Date("2030-01-01T00:00:00.000Z"), 10))).toEqual([]);
-          expect(ids(await t.pendingActions("agent-a"))).toEqual(["a1"]);
-          expect(ids(await t.pendingActions("agent-b"))).toEqual(["a6"]);
-          expect(ids(await t.actionsForSession("s1"))).toEqual(["a1", "a2", "a3", "a4", "a5", "a7"]);
-          expect(ids(await t.actionsForSession("s1", { turnId: "t1", statuses: ["pending", "delivering"] }))).toEqual(["a1", "a2", "a4"]);
-          expect(ids(await t.actionsForSession("s1", { statuses: ["pending", "delivering", "uncertain"] }))).toEqual(["a1", "a2", "a3", "a4", "a7"]);
-          expect(ids(await t.actionsWithStatus(["delivering"], { kinds: ["tool"] }))).toEqual(["a2", "a3", "a4", "f1"]);
-          expect(ids(await t.actionsWithStatus(["delivering"]))).toEqual(["a2", "a3", "a4", "f1"]);
         });
       });
 
@@ -811,7 +751,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect(await store.tx((t) => t.counts())).toEqual({
           sessions: 0,
           runningSessions: 0,
-          pendingActions: 0,
           uncertainEffects: 0,
           sandboxes: 0,
           definitions: 0,
@@ -823,7 +762,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
           expect(await t.counts()).toEqual({
             sessions: 7,
             runningSessions: 3,
-            pendingActions: 6,
             uncertainEffects: 1,
             sandboxes: 1,
             definitions: 2,
@@ -835,133 +773,8 @@ export function storeContract(name: string, factory: StoreFactory): void {
         const store = await fresh();
         await store.tx(async (t) => {
           await t.put("sessions", "s1", session("s1", { status: "runnable" }));
-          await t.put("actions", "a1", action("a1"));
           expect(ids(await t.sessionsWithStatus(["runnable"]))).toEqual(["s1"]);
-          expect(ids(await t.pendingActions("agent-a"))).toEqual(["a1"]);
         });
-      });
-    });
-
-    describe("Action endpoints", () => {
-      const endpoint = (agentId: string, fields: Record<string, unknown> = {}) => ({
-        agentId,
-        url: "http://localhost:3000/actions",
-        implementationVersion: "1",
-        timeoutMs: 60_000,
-        maxConcurrent: 16,
-        updatedAt: "2030-01-01T00:00:00.000Z",
-        ...fields,
-      });
-
-      it("upserts endpoints keeping createdAt, and keeps health only for the same URL", async () => {
-        const store = await fresh();
-        await store.tx(async (t) => {
-          await t.putEndpoint(endpoint("b", { manifestHash: "m", principalId: "p" }));
-          await t.putEndpoint(endpoint("a"));
-          await t.recordEndpointHealth("a", { kind: "failure", at: "2030-01-01T00:00:01.000Z", code: "endpoint.unreachable", message: "refused" });
-        });
-        await store.tx((t) =>
-          t.putEndpoint(endpoint("a", { implementationVersion: "2", timeoutMs: 5000, updatedAt: "2030-01-02T00:00:00.000Z" })),
-        );
-        await store.tx(async (t) => {
-          expect(await t.getEndpoint("a")).toEqual({
-            agentId: "a",
-            url: "http://localhost:3000/actions",
-            implementationVersion: "2",
-            timeoutMs: 5000,
-            maxConcurrent: 16,
-            lastDeliveryAt: "2030-01-01T00:00:01.000Z",
-            lastErrorCode: "endpoint.unreachable",
-            lastErrorMessage: "refused",
-            consecutiveFailures: 1,
-            createdAt: "2030-01-01T00:00:00.000Z",
-            updatedAt: "2030-01-02T00:00:00.000Z",
-          });
-          expect((await t.listEndpoints()).map((e) => e.agentId)).toEqual(["a", "b"]);
-          expect(await t.getEndpoint("b")).toMatchObject({ manifestHash: "m", principalId: "p", consecutiveFailures: 0 });
-        });
-        // A new URL starts with no health.
-        await store.tx((t) => t.putEndpoint(endpoint("a", { url: "https://app.example/actions", updatedAt: "2030-01-03T00:00:00.000Z" })));
-        expect(await store.tx((t) => t.getEndpoint("a"))).toEqual({
-          agentId: "a",
-          url: "https://app.example/actions",
-          implementationVersion: "1",
-          timeoutMs: 60_000,
-          maxConcurrent: 16,
-          consecutiveFailures: 0,
-          createdAt: "2030-01-01T00:00:00.000Z",
-          updatedAt: "2030-01-03T00:00:00.000Z",
-        });
-        await store.tx((t) => t.deleteEndpoint("a"));
-        expect(await store.tx((t) => t.getEndpoint("a"))).toBeUndefined();
-      });
-
-      it("records successes, failures and what a ping reported", async () => {
-        const store = await fresh();
-        await store.tx((t) => t.putEndpoint(endpoint("a")));
-        await store.tx(async (t) => {
-          await t.recordEndpointHealth("a", { kind: "failure", at: "2030-01-01T00:00:01.000Z", code: "x", message: "one" });
-          await t.recordEndpointHealth("a", { kind: "failure", at: "2030-01-01T00:00:02.000Z", code: "y", message: "two" });
-          await t.recordEndpointHealth("a", { kind: "served", implementationVersion: "7", manifestHash: "h" });
-          await t.recordEndpointHealth("missing", { kind: "success", at: "2030-01-01T00:00:02.000Z" });
-        });
-        expect(await store.tx((t) => t.getEndpoint("a"))).toMatchObject({
-          lastDeliveryAt: "2030-01-01T00:00:02.000Z",
-          lastErrorCode: "y",
-          lastErrorMessage: "two",
-          consecutiveFailures: 2,
-          servedImplementationVersion: "7",
-          servedManifestHash: "h",
-        });
-        await store.tx(async (t) => {
-          await t.recordEndpointHealth("a", { kind: "success", at: "2030-01-01T00:00:03.000Z" });
-          await t.recordEndpointHealth("a", { kind: "served", implementationVersion: "8" });
-        });
-        const healed = await store.tx((t) => t.getEndpoint("a"));
-        expect(healed).toMatchObject({
-          lastDeliveryAt: "2030-01-01T00:00:03.000Z",
-          lastSuccessAt: "2030-01-01T00:00:03.000Z",
-          consecutiveFailures: 0,
-          servedImplementationVersion: "8",
-        });
-        expect(healed).not.toHaveProperty("lastErrorCode");
-        expect(healed).not.toHaveProperty("servedManifestHash");
-        expect(await store.tx((t) => t.getEndpoint("missing"))).toBeUndefined();
-      });
-
-      it("finds deliveries by agent, endpoint and deadline", async () => {
-        const store = await fresh();
-        await store.tx(async (t) => {
-          await t.putEndpoint(endpoint("agent-a"));
-          await t.put("actions", "d1", action("d1", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:05.000Z" }));
-          await t.put("actions", "d2", action("d2", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:01.000Z" }));
-          await t.put("actions", "d3", action("d3", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:01:00.000Z", agentId: "agent-b" }));
-          await t.put("actions", "p1", action("p1", { status: "pending" }));
-          await t.put("actions", "p2", action("p2", { status: "pending", agentId: "agent-b" }));
-          await t.put("actions", "p0", action("p0", { status: "pending" }));
-          await t.put("actions", "c1", action("c1", { status: "completed", generation: 1 }));
-        });
-        await store.tx(async (t) => {
-          expect(await t.deliveringCount("agent-a")).toBe(2);
-          expect(await t.deliveringCount("agent-b")).toBe(1);
-          expect(await t.deliveringCount("agent-c")).toBe(0);
-          // agent-b has no endpoint, so its pending Action waits for one.
-          expect((await t.pendingActionsWithEndpoint(10)).map((a) => a.actionId)).toEqual(["p0", "p1"]);
-          expect((await t.pendingActionsWithEndpoint(1)).map((a) => a.actionId)).toEqual(["p0"]);
-          const at = (iso: string) => new Date(iso);
-          expect((await t.expiredDeliveries(at("2030-01-01T00:00:05.000Z"), 10)).map((a) => a.actionId)).toEqual(["d2", "d1"]);
-          expect((await t.expiredDeliveries(at("2030-01-01T00:00:05.000Z"), 1)).map((a) => a.actionId)).toEqual(["d2"]);
-          expect(await t.expiredDeliveries(at("2030-01-01T00:00:00.000Z"), 10)).toEqual([]);
-        });
-      });
-
-      it("removes endpoints on a full reset only", async () => {
-        const store = await fresh();
-        await store.tx((t) => t.putEndpoint(endpoint("a")));
-        await store.tx((t) => t.reset("sessions"));
-        expect(await store.tx((t) => t.getEndpoint("a"))).toBeDefined();
-        await store.tx((t) => t.reset("all"));
-        expect(await store.tx((t) => t.getEndpoint("a"))).toBeUndefined();
       });
     });
 
@@ -1256,12 +1069,10 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("sessions", "s1", session("s1"));
           await t.put("commands", "c1", { id: "c1" });
           await t.put("effects", "e1", effect("e1", "s1", "t1", "pending"));
-          await t.put("actions", "a1", action("a1"));
           await t.put("links", "l1", { workflowSessionId: "s1", path: "p", effectId: "e1", turnId: "t1" });
           await t.event("s1", null, "turn.completed", { tag: "x", output: {} });
           await t.put("sandboxes", "sb1", { key: "sb1" });
           await t.put("definitions", "agent-a", { manifest: { id: "agent-a" } });
-          await t.putEndpoint({ agentId: "agent-a", url: "http://localhost:3000/actions", implementationVersion: "1", timeoutMs: 60_000, maxConcurrent: 16, updatedAt: "x" });
           await t.insertPrincipal({ id: "pr_1", role: "application", tokenHash: "hp", idempotencyKey: null, createdAt: "x" });
           await t.insertVault({ id: "host", name: "Host", ownerUserId: "host", metadataJson: null, createdAt: "x", scope: "host" });
           await t.insertVault({ id: "v1", name: "A", ownerUserId: "u", metadataJson: null, createdAt: "x", scope: "user" });
@@ -1276,7 +1087,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await populate(store);
         await store.tx((t) => t.reset("sessions"));
         await store.tx(async (t) => {
-          const cleared = { sessions: "s1", commands: "c1", effects: "e1", actions: "a1", links: "l1" } as const;
+          const cleared = { sessions: "s1", commands: "c1", effects: "e1", links: "l1" } as const;
           for (const [table, id] of Object.entries(cleared))
             expect(await t.get(table as keyof typeof cleared, id)).toBeUndefined();
           expect(await t.listSandboxes()).toHaveLength(1);
@@ -1299,8 +1110,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await populate(store);
         await store.tx((t) => t.reset("all"));
         await store.tx(async (t) => {
-          expect(await t.counts()).toEqual({ sessions: 0, runningSessions: 0, pendingActions: 0, uncertainEffects: 0, sandboxes: 0, definitions: 0 });
-          expect(await t.listEndpoints()).toEqual([]);
+          expect(await t.counts()).toEqual({ sessions: 0, runningSessions: 0, uncertainEffects: 0, sandboxes: 0, definitions: 0 });
           expect(await t.getVault("v1")).toBeUndefined();
           expect(await t.getCredential("uc")).toBeUndefined();
           expect(await t.getVault("host")).toBeDefined();

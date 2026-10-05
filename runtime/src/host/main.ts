@@ -330,10 +330,10 @@ export async function main(): Promise<void> {
     });
     relay.start();
   };
-  // With the gates service the Tenant's vault-backed model calls, remote MCP calls and Action
-  // deliveries cross it, and this process never reads a model or MCP credential.
-  // Their credentials (F5): each advance's run token for its session's model and MCP calls,
-  // core's credential (NYLORUN_GATES_TOKEN) for deliveries and MCP requests outside a run.
+  // With the gates service the Tenant's vault-backed model calls, remote MCP calls and HTTP
+  // tool calls cross it, and this process never reads a model or MCP credential.
+  // Their credentials (F5): each advance's run token for its session's model and tool calls,
+  // core's credential (NYLORUN_GATES_TOKEN) for MCP requests outside a run.
   const runGrants = stack.modelGate ? createRunGrants() : undefined;
   const modelGate =
     stack.modelGate && runGrants

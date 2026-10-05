@@ -1,7 +1,7 @@
 /**
  * Definition files and skills (track R2 M4): the upload route, a definition refused while it
- * names a file the Runtime does not hold, the skill tools the Runtime serves itself (no Action
- * endpoint is registered anywhere here), and a skill's files in the session's virtual sandbox.
+ * names a file the Runtime does not hold, the skill tools the Runtime serves itself, and a
+ * skill's files in the session's virtual sandbox.
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -89,7 +89,6 @@ async function settle(runtime: Runtime, sessionId: string): Promise<string> {
 async function toolOutcomes(runtime: Runtime, sessionId: string) {
   const response = await fetch(`${runtime.url}/v1/sessions/${sessionId}/items`, { headers: auth });
   const { items } = (await response.json()) as { items: { type: string; payload: any }[] };
-  expect(items.some((item) => item.type === "action.pending")).toBe(false);
   return items.filter((item) => item.type === "tool.completed").map((item) => item.payload);
 }
 

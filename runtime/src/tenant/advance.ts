@@ -624,6 +624,7 @@ async function settle(
               interactions: ((result.result as any).pending ?? []).map(
                 (call: any) => ({
                   invocationId: call.invocationId,
+                  ...(typeof call.callId === "string" ? { callId: call.callId } : {}),
                   interaction: call.interaction,
                   wait: call.wait,
                   status: call.status,

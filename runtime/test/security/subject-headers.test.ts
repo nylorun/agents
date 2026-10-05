@@ -6,8 +6,6 @@
 import { request as httpRequest } from "node:http";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
-import type { TenantContext } from "../../src/tenant/context.js";
-import { mintDeliveryToken } from "../../src/tenant/delivery-token.js";
 import { APP, startSubjectTenant, type SubjectTenant } from "./subjects.js";
 
 let tenant: SubjectTenant;
@@ -26,25 +24,6 @@ it("advertises subject-headers", () => {
 
 it("acts for a subject only from an application principal", async () => {
   expect((await tenant.call("GET", "/v1/agents", { as: member })).status).toBe(200);
-  const { ctx } = tenant.runtime.handle as unknown as { ctx: TenantContext };
-  const { token: delivery } = await mintDeliveryToken(ctx, {
-    for: { kind: "action", actionId: "a1", agentId: "bot", generation: 1 },
-    audience: "http://127.0.0.1/actions",
-    body: '{"type":"action"}',
-    ttlSeconds: 60,
-  });
-  const heartbeat = "/v1/actions/a1/heartbeat";
-  const acting = await tenant.call("POST", heartbeat, { key: delivery, as: member });
-  expect(acting.status).toBe(403);
-  const scopesOnly = await tenant.call("POST", heartbeat, {
-    key: delivery,
-    headers: { "Nylorun-Scopes": "sessions:own" },
-  });
-  expect(scopesOnly.status).toBe(403);
-  // Without the headers the delivery token reaches its own callbacks (a1 is not an Action here).
-  const plain = await tenant.call("POST", heartbeat, { key: delivery });
-  expect(plain.status).toBe(404);
-  expect(plain.body.message).toBe("Action not found");
 });
 
 it("rejects missing, empty or unknown scopes and invalid subjects with 400", async () => {
@@ -114,5 +93,5 @@ it("answers an unknown credential with the same opaque 404, with or without the 
 it("leaves requests without Nylorun-Subject unchanged", async () => {
   const sessions = await tenant.call("GET", "/v1/sessions");
   expect(sessions.status).toBe(200);
-  expect((await tenant.call("GET", "/v1/endpoints")).status).toBe(200);
+  expect((await tenant.call("GET", "/v1/agents")).status).toBe(200);
 });

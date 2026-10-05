@@ -50,23 +50,13 @@ describe("RunTranslator", () => {
       toolCallName: "lookup",
       parentMessageId: "inv_m",
     });
-    // An approval request is no result; the interrupt names the model's call.
-    expect(
-      t.translate(
-        event("action.completed", {
-          actionId: "a1",
-          kind: "tool",
-          callId: "call-1",
-          invocationId: "inv_t",
-          result: { kind: "interaction-required" },
-        })
-      ).events
-    ).toEqual([]);
+    // The interrupt names the model's call.
     const paused = t.translate(
       event("turn.paused", {
         interactions: [
           {
             invocationId: "inv_t",
+            callId: "call-1",
             interaction: { id: "i1", kind: "approval", prompt: "OK?" },
             status: "interaction",
           },
@@ -86,14 +76,18 @@ describe("RunTranslator", () => {
   it("closes each call once, whichever event carries its result", () => {
     const t = new RunTranslator("t1", "r1");
     const done = {
-      actionId: "a1",
-      kind: "tool",
       callId: "call-1",
       invocationId: "inv_t",
-      result: { kind: "completed", output: { ok: true } },
+      capabilityId: "billing",
+      toolName: "refund",
+      output: { ok: true },
     };
-    expect(t.translate(event("action.completed", done)).events).toHaveLength(1);
-    expect(t.translate(event("action.completed", done)).events).toEqual([]);
+    expect(t.translate(event("tool.completed", done)).events[0]).toMatchObject({
+      type: "TOOL_CALL_RESULT",
+      toolCallId: "call-1",
+      content: '{"ok":true}',
+    });
+    expect(t.translate(event("tool.completed", done)).events).toEqual([]);
     const failed = t.translate(
       event("tool.completed", {
         callId: "call-2",
@@ -171,19 +165,12 @@ describe("messagesFromEvents", () => {
         text: "",
         toolCalls: [{ callId: "call-1", name: "lookup", input: {} }],
       }),
-      event("action.pending", {
-        actionId: "a1",
-        kind: "tool",
+      event("tool.completed", {
         callId: "call-1",
         invocationId: "inv_t",
-        input: {},
-      }),
-      event("action.completed", {
-        actionId: "a1",
-        kind: "tool",
-        callId: "call-1",
-        invocationId: "inv_t",
-        result: { kind: "completed", output: "shipped" },
+        capabilityId: "orders",
+        toolName: "lookup",
+        output: "shipped",
       }),
       event("message.assistant", { invocationId: "inv_n", text: "Shipped.", toolCalls: [] }),
       event("turn.completed", { output: "Shipped." }),

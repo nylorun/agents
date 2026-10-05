@@ -29,8 +29,6 @@ export function createFakeHandle(
   let summary: TenantSummary = options.summary ?? {
     ready: true,
     runningSessions: 0,
-    inFlightDeliveries: 0,
-    pendingActions: 0,
     uncertainEffects: 0,
   };
   return {
@@ -49,7 +47,6 @@ export function createFakeHandle(
       summary = {
         ...summary,
         runningSessions: 0,
-        pendingActions: 0,
       };
     },
     async close() {

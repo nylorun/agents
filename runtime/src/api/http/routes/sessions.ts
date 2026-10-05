@@ -1,14 +1,19 @@
 /**
- * Agents and sessions: the definitions a Tenant runs, the sessions of them, their history and
- * live events, and a session's sandbox tools.
+ * Agents and sessions: the definitions a Tenant runs, the sessions of them, their commands,
+ * history and live events, and a session's sandbox tools.
  */
 import type { IncomingMessage } from "node:http";
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import { z } from "zod";
-import { PutAgentRequestSchema, PutSessionRequestSchema } from "@nylorun/core/contracts";
+import {
+  PutAgentRequestSchema,
+  PutSessionRequestSchema,
+  SessionCommandSchema,
+} from "@nylorun/core/contracts";
 import { handleSessionSandboxTool, SandboxRouteError } from "../../../core/sandbox-routes.js";
 import {
+  AcceptedResponse,
   ListAgentsResponse,
   ListPublicAgentsResponse,
   ListSessionsResponse,
@@ -19,16 +24,17 @@ import {
   PutAgentResponse,
   PutSessionRequest,
   SandboxToolOutcome,
+  SessionCommand,
   SessionItemsResponse,
   SessionView,
   StreamClosedFrame,
 } from "../../components.js";
-import { sandboxRouteDeps } from "../../../tenant/actions.js";
 import { accessOf, requireApplication } from "../../../tenant/auth.js";
+import { command } from "../../../tenant/commands.js";
 import { loadSession, sessionOf, type TenantContext } from "../../../tenant/context.js";
 import type { SessionAccess } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
-import { sandboxGrantsOf } from "../../../tenant/sandboxes.js";
+import { sandboxGrantsOf, sandboxRouteDeps } from "../../../tenant/sandboxes.js";
 import { readHistory, requestCursor, streamHolderOf, streamSessionEvents } from "../../../tenant/session-streams.js";
 import {
   listAgentsPublic,
@@ -85,6 +91,34 @@ async function sessionBelow(
 }
 
 export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
+  tenantRoute(
+    api,
+    OWN_SESSIONS,
+    {
+      method: "post",
+      path: "/v1/sessions/{sessionId}/commands",
+      tags: ["Sessions"],
+      summary: "Send a command to a session",
+      description:
+        "A message starts a turn; the others answer what the session waits on, or cancel. Idempotent on the command's `idempotencyKey`.",
+      request: { params: sessionId, body: body(SessionCommand) },
+      responses: {
+        200: json(AcceptedResponse, "The command, accepted"),
+        409: { description: "A turn is running, or the session does not wait on this" },
+      },
+    },
+    async (c) =>
+      jsonResponse(
+        200,
+        await command(
+          c.env.tenant,
+          c.req.param("sessionId")!,
+          SessionCommandSchema.parse(await readJson(c.req.raw)),
+          c.get("scope"),
+        ),
+      ),
+  );
+
   tenantRoute(
     api,
     {

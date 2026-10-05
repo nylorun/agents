@@ -1,8 +1,8 @@
 /**
  * The keys seam (blueprint §14, F4.2): everything that needs the vault key. Vault writes that
  * touch a secret (creating and rotating a credential, setting and selecting the host model;
- * rotation and selection decrypt the old secret first) and all token signing (subject and
- * delivery tokens, signing-key rotation) run here, whole, so the process that calls them never
+ * rotation and selection decrypt the old secret first) and all token signing (capability
+ * links, run and host tokens, signing-key rotation) run here, whole, so the process that calls them never
  * holds the key or a private signing key.
  *
  * MCP OAuth connect (F9-D14) runs here too: discovery, registration, the code exchange and the

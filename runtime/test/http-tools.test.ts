@@ -205,9 +205,6 @@ describe("an HTTP tool call", () => {
     expect(turnId).toMatch(/\S/);
     expect(request!.headers["idempotency-key"]).toMatch(new RegExp(`^${turnId}:\\d+:tool:`));
     expect(request!.headers.authorization).toBeUndefined();
-    // Never an Action.
-    const history = await session.history();
-    expect(history.items.some((item) => item.type === "action.pending")).toBe(false);
   });
 
   it("takes a text answer when the tool has no output schema", async () => {

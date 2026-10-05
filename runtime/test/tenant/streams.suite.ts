@@ -1,6 +1,6 @@
 /**
  * The Tenant's Durable Streams seam end to end (architecture §12.4, §11.1, §11.5, §17): history,
- * session SSE, Action deliveries and cancel, read from streams. Runs on the in-memory streams
+ * session SSE, tool calls and cancel, read from streams. Runs on the in-memory streams
  * (`streams.test.ts`) and on s2-lite (`streams.integration.test.ts`).
  *
  * "Another node" is a second Tenant runtime in this process over the same Tenant schema and
@@ -8,7 +8,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, tool } from "@nylorun/core/define";
+import { Agent } from "@nylorun/core/define";
 import { newTenantId } from "@nylorun/core/compatibility";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../../src/record/index.js";
@@ -30,7 +30,7 @@ import {
   type StreamRecord,
 } from "../../src/streams/types.js";
 import { startTestTenant } from "../support/tenant.js";
-import { accepted, registerEndpoint, startEndpoint } from "../support/endpoint.js";
+import { startToolServer } from "../support/tool-server.js";
 
 export interface StreamsHarness {
   streams: DurableStreams;
@@ -638,7 +638,7 @@ export function tenantStreamsSuite(
       });
     });
 
-    it("delivers an Action committed on one node to the endpoint registered through another", async () => {
+    it("streams a tool call run on one node to an observer on another", async () => {
       const t = await setup();
       const toolCall: ModelProvider = async (effect) => {
         const call = effect.input as { prompt?: { kind?: string }[] };
@@ -652,27 +652,18 @@ export function tenantStreamsSuite(
       };
       const a = await t.node({ modelProvider: toolCall });
       const b = await t.node({ modelProvider: toolCall });
-      // The endpoint answers 202 and calls back through node B.
-      const endpoint = await startEndpoint({ runtime: { url: b.url }, answer: () => accepted });
-      cleanups.push(() => endpoint.close());
+      const service = await startToolServer({ save: () => ({ saved: true }) });
+      cleanups.push(() => service.close());
 
       const agent = Agent({ id: "issue", name: "Issue" })
-        .use({
-          id: "notes",
-          tools: [
-            tool({
-              name: "save",
-              input: z.object({ note: z.string() }),
-              output: z.object({ saved: z.literal(true) }),
-              async run() {
-                return { saved: true as const };
-              },
-            }),
-          ],
-        })
+        .tools(
+          service.tool("save", {
+            input: z.object({ note: z.string() }),
+            output: z.object({ saved: z.literal(true) }),
+          })
+        )
         .build();
       await t.createSession(a, "s1", agent.manifest);
-      await registerEndpoint(b, "issue", endpoint.url);
       const observer = t.observe(b);
       await observer.ready();
       await t.command(a, {
@@ -681,17 +672,14 @@ export function tenantStreamsSuite(
         idempotencyKey: "m1",
         content: "save a note",
       });
-      const delivery = await endpoint.next();
-      expect(delivery.action).toMatchObject({ agentId: "issue", sessionId: "s1" });
-      // The delivery token is good on node B, whichever node delivered.
-      expect((await delivery.heartbeat()).status).toBe(200);
-      const posted = await delivery.result({ kind: "completed", output: { saved: true } });
-      expect(posted.status).toBe(200);
       await observer.until("the completed turn on node B", (f) =>
         f.some((frame) => (frame as { type?: string }).type === "turn.completed")
       );
-      observer.close();
-      expect(endpoint.deliveries).toHaveLength(1);
+      const frames = observer.close();
+      const types = frames.map((frame) => (frame as { type?: string }).type);
+      expect(types).toContain("tool.completed");
+      expect(types.some((type) => type?.startsWith("action."))).toBe(false);
+      expect(service.calls.map((c) => c.input)).toEqual([{ note: "hi" }]);
       const { items } = await t.items(b);
       expect(seqs(items)[0]).toBe(0);
       expect(increasing(seqs(items))).toBe(true);

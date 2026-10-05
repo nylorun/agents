@@ -56,7 +56,7 @@ export interface StartGatesOptions {
   /** How long keyed outcomes are kept, and how many (tests). */
   readonly inflight?: InflightCallsOptions;
   /**
-   * How the gate may call Action endpoints, MCP servers and HTTP tools (`NYLORUN_ENDPOINT_*`).
+   * How the gate may call MCP servers and HTTP tools (`NYLORUN_ENDPOINT_*`).
    * Default: no limits.
    */
   readonly delivery?: OutboundPolicy;
@@ -154,7 +154,6 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     mcp,
     http: gateHttpTools(vaults, options.delivery ?? {}, logger),
     toolCalls,
-    delivery: options.delivery ?? {},
     logger,
     ...(options.keys ? { keys: async () => (await vaults.open()).keys() } : {}),
   });

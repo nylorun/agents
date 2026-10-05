@@ -1,6 +1,6 @@
 /**
- * The Runtime's requests to Action endpoints (`tenant/outbound.ts`): the Host's address policy,
- * no redirects, a bounded answer, and whether a failed request reached the endpoint.
+ * The Runtime's requests to developer URLs (`tenant/outbound.ts`): the Host's address policy,
+ * no redirects, a bounded answer, and whether a failed request reached the URL.
  */
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";

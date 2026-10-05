@@ -57,13 +57,6 @@ import {
   SessionViewSchema,
   StreamClosedFrameSchema,
   AcceptedResponseSchema,
-  ActionResultReceiptSchema,
-  DeleteEndpointResponseSchema,
-  DeliveryHeartbeatResponseSchema,
-  ActionOutcomeSchema,
-  EndpointPingResponseSchema,
-  ListEndpointsResponseSchema,
-  PutEndpointsRequestSchema,
   SandboxToolOutcomeSchema,
   PutSandboxRequestSchema,
   SandboxViewSchema,
@@ -138,18 +131,8 @@ export const PutTenantArtifactsRequest = named(
 export const TenantArtifactsView = named("TenantArtifactsView", TenantArtifactsViewSchema);
 export const ArtifactTree = named("ArtifactTree", ArtifactTreeSchema);
 export const ArtifactDiff = named("ArtifactDiff", ArtifactDiffSchema);
-export const PutEndpointsRequest = named("PutEndpointsRequest", PutEndpointsRequestSchema);
-export const ListEndpointsResponse = named("ListEndpointsResponse", ListEndpointsResponseSchema);
-export const DeleteEndpointResponse = named("DeleteEndpointResponse", DeleteEndpointResponseSchema);
-export const EndpointPingResponse = named("EndpointPingResponse", EndpointPingResponseSchema);
-export const DeliveryHeartbeatResponse = named(
-  "DeliveryHeartbeatResponse",
-  DeliveryHeartbeatResponseSchema,
-);
-export const ActionOutcome = named("ActionOutcome", ActionOutcomeSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
-export const ActionResultReceipt = named("ActionResultReceipt", ActionResultReceiptSchema);
 
 export const ListAgentsResponse = named("ListAgentsResponse", ListAgentsResponseSchema);
 export const ListPublicAgentsResponse = named(
@@ -163,7 +146,7 @@ export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSch
 export const SessionView = named("SessionView", SessionViewSchema);
 export const LiveEvent = named("LiveEvent", LiveEventSchema);
 
-/** `action.delivery_failed` → `ActionDeliveryFailedEvent`. */
+/** `sandbox.state` → `SandboxStateEvent`. */
 export function eventComponentName(type: EventType): string {
   return `${type
     .split(/[._]/)

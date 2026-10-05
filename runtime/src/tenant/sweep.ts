@@ -14,9 +14,6 @@
  *    workspace capability (`harness-api/workspace.ts`: here, or in the harness that serves
  *    workspaces). Idle MCP connections of the in-process harness are closed.
  * 4. **Hooks.** Callbacks registered with `ctx.onSweep`.
- * 5. **Deliveries.** Deliveries to Action endpoints whose deadline passed without an answer are
- *    lost (`delivery.ts` `loseAction`), and pending Actions of agents with an endpoint are sent
- *    again, in case a send was lost between a commit and the execution.
  *
  * Every step runs one transaction per session it changes (a linked agent and its workflow
  * share one, child first), so the sweep follows the lock order in `store/types.ts`. A failing
@@ -28,7 +25,6 @@ import {
   reconcilePendingAgentEffect,
 } from "../core/flow-host.js";
 import type { TenantContext } from "./context.js";
-import { sweepDeliveries } from "./delivery.js";
 
 const BATCH = 100;
 
@@ -38,7 +34,6 @@ export async function sweep(ctx: TenantContext): Promise<void> {
   if (ctx.closing || ctx.closed) return;
   const now = new Date();
   const steps: Step[] = [
-    ["deliveries", () => sweepDeliveries(ctx, now)],
     ["linked", () => reconcileLinkedAgents(ctx)],
     ["orphans", () => wakeOrphanedSessions(ctx, now)],
     [

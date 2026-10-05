@@ -10,7 +10,6 @@
         "runtime-tenants",
         "admin-status",
         "studio-principal",
-        "action-endpoints",
         "artifacts",
         "management-api",
         "tenant-fixture-model",
@@ -18,7 +17,6 @@
         "subject-headers",
         "ag-ui-endpoint",
         "a2a-endpoint",
-        "action-endpoints",
         "sandboxes",
         "sandbox-pods",
         "trusted-issuers",
@@ -268,9 +266,6 @@
               "model": {
                 "type": "boolean"
               },
-              "endpoints": {
-                "type": "boolean"
-              },
               "schema": {
                 "type": "boolean"
               }
@@ -279,7 +274,6 @@
               "store",
               "scheduler",
               "model",
-              "endpoints",
               "schema"
             ],
             "additionalProperties": false
@@ -365,18 +359,10 @@
               "properties": {
                 "agentId": {
                   "type": "string"
-                },
-                "registered": {
-                  "type": "boolean"
-                },
-                "endpoint": {
-                  "type": "boolean"
                 }
               },
               "required": [
-                "agentId",
-                "registered",
-                "endpoint"
+                "agentId"
               ],
               "additionalProperties": false
             }
@@ -392,10 +378,6 @@
                 "type": "integer",
                 "minimum": 0
               },
-              "pendingActions": {
-                "type": "integer",
-                "minimum": 0
-              },
               "uncertainEffects": {
                 "type": "integer",
                 "minimum": 0
@@ -404,7 +386,6 @@
             "required": [
               "sessions",
               "runningSessions",
-              "pendingActions",
               "uncertainEffects"
             ],
             "additionalProperties": false
@@ -5886,7 +5867,7 @@
           "Signing keys"
         ],
         "summary": "Rotate the signing keys",
-        "description": "The standby key signs from now on; the current one still verifies tokens it signed. `force` also ends every outstanding delivery token and capability link.",
+        "description": "The standby key signs from now on; the current one still verifies tokens it signed. `force` also ends every outstanding capability link and run token.",
         "security": [
           {
             "managementKey": []
@@ -6500,7 +6481,7 @@
     },
     {
       "name": "Signing keys",
-      "description": "The keys the Runtime signs delivery tokens and capability links with; their public halves are the Runtime API's JWKS. `admin.signingKeys`."
+      "description": "The keys the Runtime signs capability links and run tokens with; their public halves are the Runtime API's JWKS. `admin.signingKeys`."
     },
     {
       "name": "Settings",

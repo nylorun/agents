@@ -1,18 +1,16 @@
 /**
  * Ownership and the Durable Execution seam on a real Tenant runtime (on Postgres; architecture
- * §10.5–10.6, §11.4, §17): racing advances, takeover, stale owners, duplicate and lost wakes,
- * and lapsed Action deliveries through the Tenant sweep.
+ * §10.5–10.6, §11.4, §17): racing advances, takeover, stale owners, and duplicate and lost
+ * wakes recovered through the Tenant sweep.
  */
 import { afterEach, expect, it } from "vitest";
-import { z } from "zod";
-import { Agent, tool } from "@nylorun/core/define";
+import { Agent } from "@nylorun/core/define";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { MemoryExecution } from "../../src/execution/memory.js";
 import type { DurableExecution, Wake } from "../../src/execution/types.js";
 import { openTestSessionStore } from "../support/store.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import { TenantWorkers, type TenantExecution } from "../../src/tenant/worker.js";
-import { registerEndpoint, startEndpoint } from "../support/endpoint.js";
 import { startTestTenant } from "../support/tenant.js";
 
 const APP = "ownership-app-token-aaaaaaaaaaaa";
@@ -29,20 +27,6 @@ afterEach(async () => {
 });
 
 const plain = Agent({ id: "bot", name: "Bot" }).build();
-const withTool = Agent({ id: "bot", name: "Bot" })
-  .use({
-    id: "notes",
-    tools: [
-      tool({
-        name: "save",
-        input: z.object({ note: z.string() }),
-        async run() {
-          return { saved: true };
-        },
-      }),
-    ],
-  })
-  .build();
 
 /** A model call that waits for `release()`; counts calls. */
 function gatedModel() {
@@ -293,7 +277,7 @@ it("treats duplicate wakes as harmless", async () => {
     { reason: "recover" },
     { reason: "message", dedupeKey: "same" },
     { reason: "message", dedupeKey: "same" },
-    { reason: "action_result" },
+    { reason: "linked" },
   ];
   for (const wake of wakes) await host.execution.wake(tenantId, "s1", wake);
   model.release();
@@ -317,7 +301,6 @@ it("recovers a wake lost between commit and send through the sweep", async () =>
       }
       await inner.wake(tenantId, sessionId, wake);
     },
-    deliver: (...args) => inner.deliver(...args),
     timer: (...args) => inner.timer(...args),
     armSweep: (tenantId) => inner.armSweep(tenantId),
     disarmSweep: (tenantId) => inner.disarmSweep(tenantId),
@@ -339,33 +322,5 @@ it("recovers a wake lost between commit and send through the sweep", async () =>
   } finally {
     await runtime.close();
     await inner.stop();
-  }
-});
-
-it("makes a lapsed 202 tool delivery uncertain through the sweep", async () => {
-  const runtime = await boot({
-    leaseMs: 100,
-    sweepIntervalMs: 20,
-    modelProvider: async () => ({
-      output: [
-        { type: "tool-call", id: "call-1", name: "save", args: { note: "x" } },
-      ],
-    }),
-  });
-  // The endpoint answers 202 and then never heartbeats or posts a result.
-  const endpoint = await startEndpoint({ runtime });
-  try {
-    await registerEndpoint(runtime, "bot", endpoint.url);
-    await openTurn(runtime, withTool.manifest);
-    const delivery = await endpoint.next();
-    expect(delivery.action).toMatchObject({ kind: "tool", toolName: "save" });
-    // Nothing delivers again now: only the sweep can find the delivery's deadline passed.
-    await until(() => view(runtime), (v) => v.status === "uncertain", "uncertain");
-    expect(await types(runtime)).toContain("action.uncertain");
-    expect(endpoint.deliveries).toHaveLength(1);
-    // The lost delivery's token no longer answers for the Action.
-    expect((await delivery.result({ kind: "completed", output: { saved: true } })).status).toBe(409);
-  } finally {
-    await endpoint.close();
   }
 });

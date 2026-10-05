@@ -1,5 +1,4 @@
 import { expect, it } from "vitest";
-import type { Action } from "@nylorun/core/contracts";
 import type { HostEffect } from "@nylorun/harness/run";
 import {
   aggregateWaits,
@@ -8,7 +7,7 @@ import {
   countActiveFlowWork,
   deriveAgentEffectSessionId,
   deriveSessionId,
-  fenceWorkflowActions,
+  cancelQueuedEffects,
   foreignInteractionConflict,
   linkedMessageInput,
   linkedMessageKey,
@@ -60,24 +59,6 @@ async function commitLinkedMessage(
     command: { type: "message", idempotencyKey: linkedMessageKey(request) },
     response: { status: "accepted", turnId: agentTurnId },
   });
-}
-
-function flowAction(
-  overrides: Partial<Action> & Pick<Action, "actionId" | "status" | "kind">
-): Action {
-  return {
-    sessionId: "wf-1",
-    turnId: "turn-1",
-    agentId: "ship",
-    manifestHash: "h",
-    implementationVersion: "dev",
-    input: {},
-    context: {},
-    generation: 0,
-    path: "p",
-    key: "p",
-    ...overrides,
-  } as Action;
 }
 
 it("WF-R22: deriveSessionId is stable for (workflowSessionId, path)", () => {
@@ -154,18 +135,6 @@ it("PAR-R6/A2: cancelSiblingWork with cancelEffectIds cancels pending siblings",
     status: "pending",
     agentSessionId: testsId,
   });
-  await put(
-    "actions",
-    "pending-tool",
-    flowAction({
-      actionId: "pending-tool",
-      status: "pending",
-      kind: "tool",
-      path: "review/tests/lint",
-      key: "review/tests/lint",
-    })
-  );
-  await put("effects", "pending-tool", { status: "pending" });
 
   const result = await store.tx((t) =>
     cancelSiblingWork({
@@ -177,14 +146,10 @@ it("PAR-R6/A2: cancelSiblingWork with cancelEffectIds cancels pending siblings",
   );
   expect(result.agentSessionIds).toContain(testsId);
   expect(result.agentSessionIds).not.toContain(styleId);
-  expect(result.cancelledActions).toContain("pending-tool");
   expect((await get("effects", "e-tests"))?.status).toBe("cancelled");
-  expect((await get<Action>("actions", "pending-tool"))?.status).toBe(
-    "cancelled"
-  );
 });
 
-it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and open actions of the turn", async () => {
+it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and tool nodes in flight of the turn", async () => {
   const { store, put } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -202,15 +167,13 @@ it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and open actions o
     },
     status,
   });
-  // Counted: a pending agent effect, and a tool node effect with a pending action.
+  // Counted: a pending agent effect, and a tool node effect being invoked.
   await put("effects", "agent-1", effect("agent-1", "agent", "pending"));
-  await put("effects", "tool-1", effect("tool-1", "tool", "pending"));
-  await put("actions", "tool-1", flowAction({ actionId: "tool-1", status: "pending", kind: "tool" }));
-  // Not counted: queued, completed, a settled action, another turn.
+  await put("effects", "tool-1", effect("tool-1", "tool", "invoking"));
+  // Not counted: queued, completed, uncertain, another turn.
   await put("effects", "tool-2", effect("tool-2", "tool", "queued"));
   await put("effects", "tool-3", effect("tool-3", "tool", "completed"));
-  await put("effects", "tool-4", effect("tool-4", "tool", "pending"));
-  await put("actions", "tool-4", flowAction({ actionId: "tool-4", status: "completed", kind: "tool" }));
+  await put("effects", "tool-4", effect("tool-4", "tool", "uncertain"));
   await put("effects", "agent-2", effect("agent-2", "agent", "pending", "turn-0"));
 
   expect(await store.tx((t) => countActiveFlowWork(t, "wf-1", "turn-1"))).toBe(2);
@@ -246,7 +209,7 @@ it("WF-L1: wakeForQueuedEffects schedules the workflow after commit when a slot 
   );
 });
 
-it("PAR-R6: cancelSiblingWork cancels pending, uncertains delivering, lists agents", async () => {
+it("PAR-R6: cancelSiblingWork lists the sibling agents to cancel", async () => {
   const { store, put, get } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -266,31 +229,6 @@ it("PAR-R6: cancelSiblingWork cancels pending, uncertains delivering, lists agen
     turnId: "turn-1",
   } satisfies FlowLink);
 
-  await put(
-    "actions",
-    "pending-1",
-    flowAction({
-      actionId: "pending-1",
-      status: "pending",
-      kind: "tool",
-      path: "review/tests",
-      key: "review/tests",
-    })
-  );
-  await put(
-    "actions",
-    "delivering-1",
-    flowAction({
-      actionId: "delivering-1",
-      status: "delivering",
-      kind: "tool",
-      path: "review/tests/x",
-      key: "review/tests",
-    })
-  );
-  await put("effects", "pending-1", { status: "pending" });
-  await put("effects", "delivering-1", { status: "pending" });
-
   const result = await store.tx((t) =>
     cancelSiblingWork({
       t,
@@ -299,16 +237,7 @@ it("PAR-R6: cancelSiblingWork cancels pending, uncertains delivering, lists agen
       siblingPaths: ["review/style", "review/tests"],
     })
   );
-  expect(result.agentSessionIds).toContain(agentId);
-  expect(result.cancelledActions).toContain("pending-1");
-  expect(result.uncertainActions).toContain("delivering-1");
-  expect((await get<Action>("actions", "pending-1"))?.status).toBe(
-    "cancelled"
-  );
-  expect((await get<Action>("actions", "delivering-1"))?.status).toBe(
-    "uncertain"
-  );
-  expect((await get("effects", "delivering-1"))?.status).toBe("uncertain");
+  expect(result.agentSessionIds).toEqual([agentId]);
 });
 
 it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () => {
@@ -330,40 +259,30 @@ it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () =>
     effectId: "e2",
     turnId: "t",
   });
-  await put("actions", "p", flowAction({ actionId: "p", turnId: "t", status: "pending", kind: "tool" }));
-  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "delivering", kind: "tool" }));
-  await put("actions", "o", flowAction({ actionId: "o", turnId: "other", status: "pending", kind: "tool" }));
   expect(pathDepth("a/b/c")).toBe(3);
   const plan = await store.tx((t) =>
     planCancelCascade({ t, workflowSessionId: "wf-1", turnId: "t" })
   );
   expect(plan.agentSessionIds).toEqual([deep, shallow]);
-  expect(plan.pendingActionIds).toEqual(["p"]);
-  expect(plan.deliveringActionIds).toEqual(["c"]);
-
-  const anyTurn = await store.tx((t) =>
-    planCancelCascade({ t, workflowSessionId: "wf-1", turnId: null })
-  );
-  expect(anyTurn.pendingActionIds).toEqual(["o", "p"]);
 });
 
-it("WF-R53: fenceWorkflowActions pending→cancelled, delivering→uncertain", async () => {
+it("WF-R53: cancelQueuedEffects cancels the turn's queued effects only", async () => {
   const { store, put, get } = await testStore();
-  await put("actions", "p", flowAction({ actionId: "p", turnId: "t", status: "pending", kind: "tool" }));
-  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "delivering", kind: "tool" }));
-  await put("effects", "p", { status: "pending", request: { effectId: "p" } });
-  await put("effects", "c", { status: "pending", request: { effectId: "c" } });
+  await put("sessions", "wf-1", { id: "wf-1" });
+  await put("effects", "p", {
+    status: "pending",
+    request: { effectId: "p", sessionId: "wf-1", turnId: "t" },
+  });
   await put("effects", "q", {
     status: "queued",
     request: { effectId: "q", sessionId: "wf-1", turnId: "t" },
   });
-  const fenced = await store.tx((t) =>
-    fenceWorkflowActions({ t, workflowSessionId: "wf-1", turnId: "t" })
+  const cancelled = await store.tx((t) =>
+    cancelQueuedEffects({ t, workflowSessionId: "wf-1", turnId: "t" })
   );
-  expect(fenced.cancelled).toEqual(expect.arrayContaining(["p", "q"]));
-  expect(fenced.uncertain).toContain("c");
+  expect(cancelled).toEqual(["q"]);
   expect((await get("effects", "q"))?.status).toBe("cancelled");
-  expect((await get("effects", "c"))?.status).toBe("uncertain");
+  expect((await get("effects", "p"))?.status).toBe("pending");
 });
 
 it("WF-R51: aggregateWaits lists linked agent interactions with owning session and path", async () => {

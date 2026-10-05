@@ -10,15 +10,11 @@ import {
   JsonRpcTransportFactory,
   type Client,
 } from "@a2a-js/sdk/client";
-import {
-  Agent,
-  createClient,
-  tool,
-} from "@nylorun/agents";
+import { Agent, createClient } from "@nylorun/agents";
 import { createA2aHandler, toNodeListener } from "@nylorun/agents/a2a";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { startTestTenant } from "../support/tenant.js";
-import { serveAgents, type ServedAgents } from "../support/endpoint.js";
+import { startToolServer, type ToolServer } from "../support/tool-server.js";
 
 /**
  * A2A v1 exit gate: partners reach the Tenant's agents through a gateway
@@ -37,10 +33,6 @@ const PARTNERS: Record<string, string | { subject: string; agents: string[] }> =
 type Step = { text?: string; call?: { name: string; args: object } };
 const SCRIPTS: Record<string, { steps: Step[]; closing: (results: string) => string }> = {
   support: { steps: [], closing: () => "Hello from support." },
-  refunds: {
-    steps: [{ text: "Checking.", call: { name: "ask_order", args: {} } }],
-    closing: (results) => `Refund issued for ${/demo-\d+/.exec(results)?.[0] ?? "nothing"}.`,
-  },
   guarded: {
     steps: [{ call: { name: "save", args: { note: "hi" } } }],
     closing: () => "Saved.",
@@ -86,46 +78,20 @@ function scriptedModel(): ModelProvider {
 let release: () => void = () => {};
 let held: Promise<void> = Promise.resolve();
 
-const support = Agent({ id: "support", name: "Support", description: "Answers questions." }).build();
-const refunds = Agent({ id: "refunds", name: "Refunds" })
-  .tools(
-      tool({
-        name: "ask_order",
-        input: z.object({}),
-        async run(_input, ctx) {
-          const order = await ctx.ask("Which order number?");
-          return { order: String(order) };
-        },
-      }),
-  )
-  .build();
-const guarded = Agent({ id: "guarded", name: "Guarded" })
-  .tools(
-      tool({
-        name: "save",
-        input: z.object({ note: z.string() }),
-        approval: () => "Save this note?",
-        async run() {
-          return { saved: true };
-        },
-      }),
-  )
-  .build();
-const slow = Agent({ id: "slow", name: "Slow" })
-  .tools(
-      tool({
-        name: "wait",
-        input: z.object({}),
-        async run() {
-          await held;
-          return "waited";
-        },
-      }),
-  )
-  .build();
+/** The Tenant's agents; their HTTP tools are answered by the app's own service. */
+function agents(service: ToolServer) {
+  const support = Agent({ id: "support", name: "Support", description: "Answers questions." }).build();
+  const guarded = Agent({ id: "guarded", name: "Guarded" })
+    .tools(service.tool("save", { input: z.object({ note: z.string() }), approval: "always" }))
+    .build();
+  const slow = Agent({ id: "slow", name: "Slow" })
+    .tools(service.tool("wait", { input: z.object({}) }))
+    .build();
+  return [support, guarded, slow];
+}
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
-let connection: ServedAgents;
+let service: ToolServer;
 let server: Server;
 let base: string;
 
@@ -140,15 +106,18 @@ beforeAll(async () => {
     key: runtime.applicationKey,
     tenant: runtime.tenantId,
   });
-  connection = serveAgents({
-    agents: [support, refunds, guarded, slow],
-    application: client,
-    implementationVersion: "dev",
+  service = await startToolServer({
+    save: () => ({ saved: true }),
+    wait: async () => {
+      await held;
+      return "waited";
+    },
   });
-  await connection.ready;
+  const built = agents(service);
+  for (const agent of built) await client.saveAgent(agent, { implementationVersion: "dev" });
   const handler = createA2aHandler({
     basePath: "/a2a",
-    agents: [support, refunds, guarded, slow],
+    agents: built,
     client,
     subject: (request) => PARTNERS[request.headers.get("x-partner-key") ?? ""],
     card: {
@@ -174,7 +143,7 @@ afterAll(async () => {
   release();
   server?.closeAllConnections();
   await new Promise((resolve) => server?.close(resolve));
-  await connection?.close();
+  await service?.close();
   await runtime?.close();
 });
 
@@ -289,19 +258,6 @@ describe("the official A2A client", () => {
     const again = taskOf(await client.getTask({ id: task.id, historyLength: 0 } as never));
     expect(again.status.state).toBe(TaskState.TASK_STATE_COMPLETED);
     expect(again.history ?? []).toEqual([]);
-  });
-
-  it("answers the agent's question on the same task", async () => {
-    const client = await sdkClient("refunds");
-    const asked = taskOf(await client.sendMessage(send("Refund my last order")));
-    expect(asked.status.state).toBe(TaskState.TASK_STATE_INPUT_REQUIRED);
-    expect(textOf(asked.status.message?.parts)).toBe("Which order number?");
-    const done = taskOf(
-      await client.sendMessage(send("demo-123", { taskId: asked.id, contextId: asked.contextId }))
-    );
-    expect(done.id).toBe(asked.id);
-    expect(done.status.state).toBe(TaskState.TASK_STATE_COMPLETED);
-    expect(textOf(done.artifacts[0]!.parts)).toBe("Refund issued for demo-123.");
   });
 
   it("returns immediately and lets the caller poll", async () => {
@@ -420,7 +376,7 @@ describe("explicit answers for what v1 does not do", () => {
     const asked = (await rpc("SendMessage", wireMessage("Save it"), { agent: "guarded" })).body
       .result.task;
     expect(asked.status.state).toBe("TASK_STATE_INPUT_REQUIRED");
-    expect(asked.status.message.parts).toEqual([{ text: "Save this note?" }]);
+    expect(asked.status.message.parts).toEqual([{ text: "Approve save?" }]);
     const reply = await rpc("SendMessage", wireMessage("yes", { taskId: asked.id }), {
       agent: "guarded",
     });
@@ -434,7 +390,7 @@ describe("explicit answers for what v1 does not do", () => {
 describe("the gateway and the Runtime route", () => {
   it("answers 401 without a partner, and 404 for an agent the partner may not use", async () => {
     expect((await rpc("GetTask", { id: "x" }, { key: null })).status).toBe(401);
-    expect((await rpc("GetTask", { id: "x" }, { key: "key-limited", agent: "refunds" })).status).toBe(
+    expect((await rpc("GetTask", { id: "x" }, { key: "key-limited", agent: "guarded" })).status).toBe(
       404
     );
     expect((await rpc("GetTask", { id: "x" }, { key: "key-limited" })).body.error.code).toBe(-32001);

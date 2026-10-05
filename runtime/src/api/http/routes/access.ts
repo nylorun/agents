@@ -1,7 +1,7 @@
 /**
- * Signing keys, for the application key only, and the public keys, for any caller that reached
- * the Tenant: the Runtime signs delivery tokens and capability links with them (protocol 7 has
- * no subject tokens, access policy, browser keys or revocations).
+ * Signing keys, for a management key, and the public keys, for any caller that reached the
+ * Tenant: the Runtime signs capability links, run and host tokens with them (protocol 7 has no
+ * subject tokens, access policy, browser keys or revocations).
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
@@ -41,16 +41,16 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
     {
       credentials: ["application", "subject", "management", "token"],
       scopes: "any",
-      // Public keys: an Action endpoint verifies delivery tokens with them and holds no key.
+      // Public keys: a verifier of the Runtime's tokens holds no key.
       anonymous: true,
     },
     {
       method: "get",
       path: "/v1/access/jwks",
       tags: ["Access"],
-      summary: "Get the public keys delivery tokens are signed with",
+      summary: "Get the public keys the Runtime's tokens are signed with",
       description:
-        "A JSON Web Key Set, to verify a delivery token without calling the Runtime. No " +
+        "A JSON Web Key Set, to verify a token the Runtime signed without calling it. No " +
         "credential is needed.",
       responses: { 200: json(Jwks, "The public keys") },
     },
@@ -104,7 +104,7 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
       tags: ["Access"],
       summary: "Rotate the signing keys",
       description:
-        "The standby key signs from now on; the current one still verifies tokens it signed. `force` also ends every outstanding delivery token and capability link.",
+        "The standby key signs from now on; the current one still verifies tokens it signed. `force` also ends every outstanding capability link and run token.",
       request: { body: body(RotateSigningKeysRequest) },
       responses: {
         200: json(SigningKeyList, "The keys after rotation"),
@@ -114,7 +114,7 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
     async (c) => {
       const ctx = c.env.tenant;
       const request = RotateSigningKeysRequestSchema.parse(await readJson(c.req.raw));
-      // The longest any token the Runtime signs lives (delivery tokens, capability links).
+      // The longest any token the Runtime signs lives (capability links, run tokens).
       const keys = await ctx.keys.rotateSigningKeys({
         maxTtlSeconds: TOKEN_TTL_MAX_SECONDS,
         force: request.force === true,

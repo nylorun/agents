@@ -12,7 +12,7 @@ export function configForFactory(options: {
   mode?: TenantConfig["mode"];
   /** Override model; default vault. Fixture/scripted require ephemeral/test mode. */
   model?: TenantConfig["model"];
-  /** How Tenants may call Action endpoints (`StackConfig.delivery`). */
+  /** How Tenants may call MCP servers and HTTP tools (`StackConfig.delivery`). */
   delivery?: TenantConfig["delivery"];
   /** The trusted issuers of the identity file (`NYLORUN_IDENTITY_FILE`). */
   issuers?: TenantConfig["issuers"];

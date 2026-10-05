@@ -38,8 +38,6 @@ it("a Nylorun-Tenant naming another Tenant, or a malformed one, is the opaque 40
     summary: async () => ({
       ready: true,
       runningSessions: 0,
-      inFlightDeliveries: 0,
-      pendingActions: 0,
       uncertainEffects: 0,
     }),
     drain: async () => {},

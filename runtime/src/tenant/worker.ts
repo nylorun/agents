@@ -4,15 +4,14 @@
  *
  * - `TenantWorker` is one open Tenant's handlers: `advance(sessionId, signal)` (§10.5, in
  *   `advance.ts`), `sweep()` (the Tenant sweep, in `sweep.ts`) and, optionally,
- *   `deliver(actionId, signal)` (one Action to its Action endpoint).
+ *   `sandbox(sandboxId, trigger, signal)` (one pod sandbox's reconcile).
  * - `TenantWorkers` is the registry. Its `handlers` are the `WorkerHandlers` an execution is
  *   started with; they dispatch by `tenantId` to the registered `TenantWorker`. A Tenant
  *   registers when it opens and unregisters when it closes. A call for a Tenant that is not
  *   open here asks the optional `resolve` hook (the Host's, which waits for its Tenant to
  *   open, and knows no other); without one,
- *   the advance and the delivery return `done` and the sweep does nothing. Nothing is lost:
- *   the Tenant's sweep re-wakes its orphaned sessions once it is open again, and an Action
- *   that was not delivered stays pending.
+ *   the advance returns `done` and the sweep does nothing. Nothing is lost: the Tenant's
+ *   sweep re-wakes its orphaned sessions once it is open again.
  * - `TenantExecution` pairs an execution with its registry. The Host creates one per process
  *   (`host/execution.ts`) and passes it to its Tenant; a Tenant opened without one
  *   (tests, ephemeral) gets its own in-process `MemoryExecution`.
@@ -55,7 +54,6 @@ import type { AbortReason } from "@nylorun/core/harness-api";
 import { RunAbort } from "@nylorun/harness/api";
 import type {
   AdvanceResult,
-  DeliverResult,
   SandboxResult,
   SandboxTrigger,
   DurableExecution,
@@ -124,8 +122,6 @@ export interface TenantWorker {
   advance(sessionId: string, signal: AbortSignal): Promise<AdvanceResult>;
   /** One pass of the Tenant sweep. */
   sweep(): Promise<void>;
-  /** Delivers one Action to its endpoint. Only infrastructure errors throw. */
-  deliver?(actionId: string, signal: AbortSignal): Promise<DeliverResult>;
   /** Reconciles one pod sandbox (F7.2). Only infrastructure errors throw. */
   sandbox?(sandboxId: string, trigger: SandboxTrigger, signal: AbortSignal): Promise<SandboxResult>;
 }
@@ -191,10 +187,6 @@ export class TenantWorkers {
     },
     sweep: async (tenantId) => {
       await (await this.find(tenantId))?.sweep();
-    },
-    deliver: async (tenantId, actionId, signal) => {
-      const worker = await this.find(tenantId);
-      return worker?.deliver ? worker.deliver(actionId, signal) : DONE;
     },
     sandbox: async (tenantId, sandboxId, trigger, signal) => {
       const worker = await this.find(tenantId);

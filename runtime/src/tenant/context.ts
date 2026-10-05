@@ -5,8 +5,7 @@
  *
  * Business code changes state only inside `ctx.store.tx(async (t) => …)` and follows the
  * seam rules: events through `t.event(...)` (the relay appends them to Durable Streams after
- * commit), deliveries through `t.afterCommit(() => ctx.deliver(actionId))`, and advances through
- * `t.afterCommit(() => ctx.wake(id, { reason, dedupeKey }))`. It never publishes or notifies
+ * commit), and advances through `t.afterCommit(() => ctx.wake(id, { reason, dedupeKey }))`. It never publishes or notifies
  * itself; `runtime.ts` wires the streams with `wireStreams()`. No external I/O runs inside a
  * tx.
  *
@@ -136,20 +135,7 @@ export type AuthScope =
       scopes: ReadonlySet<SubjectScope>;
     }
   /** No credential, on a route that serves public data (`RouteAccess.anonymous`). */
-  | { kind: "anonymous" }
-  /**
-   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
-   * Action, presented back by the Action endpoint on that Action's callbacks only.
-   */
-  | {
-      kind: "delivery";
-      actionId: string;
-      agentId: string;
-      generation: number;
-      expiresAt: number;
-      tokenId: string;
-      keyId: string;
-    };
+  | { kind: "anonymous" };
 
 export interface TenantContext {
   readonly reads?: import("../reads/types.js").ReadStore;
@@ -179,8 +165,8 @@ export interface TenantContext {
   /** Serves vault-backed model calls (blueprint §15): in this process, or the gates service. */
   readonly modelGate: ModelGate;
   /**
-   * Serves remote MCP servers and Action deliveries (blueprint §12, F4.1): in this process, or
-   * the gates service.
+   * Serves remote MCP servers and HTTP tools (blueprint §12, F4.1): in this process, or the
+   * gates service.
    */
   readonly toolGate: ToolGate;
   /**
@@ -219,7 +205,7 @@ export interface TenantContext {
   readonly work: WorkState;
   /** Live delivery over Durable Streams: one `SessionStream` per observed session, and the streams wiring. */
   readonly sessionStreams: SessionStreams;
-  /** The Tenant's signing keys: delivery tokens, capability links, run and host tokens. */
+  /** The Tenant's signing keys: capability links, run and host tokens. */
   readonly signingKeys: SigningKeys;
   /** The Worker id this process writes as session `owner` (§10.6). */
   readonly workerId: string;
@@ -236,11 +222,6 @@ export interface TenantContext {
    * an advance of that turn (a cancel signal names the turn it cancelled).
    */
   abortLocal(sessionId: string, turnId?: string): void;
-  /**
-   * Seam: deliver an Action to its agent's Action endpoint (`DurableExecution.deliver`). Call it
-   * from `t.afterCommit`. Dropped while the Tenant is closing; the sweep re-sends it.
-   */
-  deliver(actionId: string): Promise<void>;
   /**
    * Sandbox pods (F7.2): the sandboxes service and the Runtime image pods copy the engine from.
    * Absent without a cluster (`nylorun sandbox enable`): kind `pod` is `sandbox_unavailable`.

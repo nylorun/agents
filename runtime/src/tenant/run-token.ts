@@ -4,9 +4,9 @@
  * remote MCP calls. The gates take session, turn and agent from it, never from the body, and
  * check on every call that the lease it names is still the session's (`staleRun`).
  *
- * Signed by the keys service with the Tenant's current signing key, like subject and delivery
- * tokens, and told apart from them by `typ` and `aud`. Internal: not in `openapi.json`. A token
- * lives `RUN_TOKEN_TTL_SECONDS`, no longer than a delivery token, so a key rotation never
+ * Signed by the keys service with the Tenant's current signing key, like capability links,
+ * and told apart from them by `typ` and `aud`. Internal: not in `openapi.json`. A token lives
+ * `RUN_TOKEN_TTL_SECONDS`, no longer than `TOKEN_TTL_MAX_SECONDS`, so a key rotation never
  * revokes a live one (`signing-keys.ts`).
  *
  * ```text

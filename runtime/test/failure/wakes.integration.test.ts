@@ -70,7 +70,7 @@ describe.skipIf(!STACK_ENABLED)("§17 wake failures on Postgres, Restate and S2"
       { reason: "message", dedupeKey: "same" },
       { reason: "recover" },
       { reason: "recover" },
-      { reason: "action_result" },
+      { reason: "linked" },
       { reason: "message" },
     ];
     const wakeAll = () =>
@@ -103,7 +103,6 @@ describe.skipIf(!STACK_ENABLED)("§17 wake failures on Postgres, Restate and S2"
           if (wake.reason === "message") lost.push(wake);
           else await inner.wake(tenantId, sessionId, wake);
         },
-        deliver: (...args) => inner.deliver(...args),
         timer: (...args) => inner.timer(...args),
         armSweep: (tenantId) => inner.armSweep(tenantId),
         disarmSweep: (tenantId) => inner.disarmSweep(tenantId),

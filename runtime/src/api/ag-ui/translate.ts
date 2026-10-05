@@ -44,17 +44,11 @@ export interface Step {
 
 const none: Step = { events: [], finished: false };
 
-/** A tool result from any of the three places a call can end. */
+/** A tool result from either of the two places a call can end. */
 export function toolResultOf(
   event: TranscriptEvent
 ): { callId: string; content: string } | undefined {
   switch (event.type) {
-    case "action.completed": {
-      const p = event.payload;
-      if (p.kind !== "tool" || !p.callId || p.agent) return undefined;
-      const content = toolResultText(p.result);
-      return content === undefined ? undefined : { callId: p.callId, content };
-    }
     case "tool.completed": {
       const p = event.payload;
       if (p.agent) return undefined;
@@ -79,8 +73,6 @@ export function toolResultOf(
 }
 
 export class RunTranslator {
-  /** Tool invocation → the model's call id, for interrupts that name the invocation. */
-  private readonly callIds = new Map<string, string>();
   private readonly closed = new Set<string>();
   private sawAssistant: boolean;
 
@@ -99,10 +91,6 @@ export class RunTranslator {
   translate(raw: LiveEvent): Step {
     const event = parseTranscriptEvent(raw);
     if (!event) return none;
-    if (event.type === "action.pending" || event.type === "action.completed") {
-      const { callId, invocationId } = event.payload;
-      if (callId && invocationId) this.callIds.set(invocationId, callId);
-    }
     const result = toolResultOf(event);
     if (result) {
       if (this.closed.has(result.callId)) return none;
@@ -146,7 +134,7 @@ export class RunTranslator {
             kind: string;
             prompt?: unknown;
           };
-          const toolCallId = this.callIds.get(w.invocationId);
+          const toolCallId = w.callId;
           return {
             id: interaction.id,
             reason:
@@ -188,7 +176,6 @@ export class RunTranslator {
         };
       }
       case "effect.uncertain":
-      case "action.uncertain":
         // The Runtime cannot tell whether a side effect happened; the run goes on.
         return {
           events: [

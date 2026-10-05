@@ -1,8 +1,7 @@
 /**
  * F4.1, the Tool Gate: remote MCP servers are opened through the gate (the loop never
- * authorizes one), the gate refuses servers a session does not declare, and
- * deliveries keep their meaning across the hop (`not_sent` before the request reached the gate,
- * the endpoint's answer after it).
+ * authorizes one), the gate refuses servers a session does not declare, and HTTP tool calls
+ * cross it (R2 M3).
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -15,7 +14,6 @@ import { McpPool, type McpServerRef } from "../../src/mcp/pool.js";
 import { createMcpHandler } from "../../src/gates/mcp-handler.js";
 import { httpToolGate } from "../../src/gates/tool-client.js";
 import {
-  DELIVERIES_PATH,
   HTTP_CALLS_PATH,
   MCP_CONNECT_PATH,
   TOOL_CALLS_PATH,
@@ -272,104 +270,6 @@ describe("a session's MCP requests under its run token (F5)", () => {
     held.release();
     await running;
     expect(held.calls()).toBe(1);
-  });
-});
-
-describe("deliveries through the gate", () => {
-  async function gate(): Promise<GatesServer> {
-    const server = await startGates({
-      gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
-      logger: quiet,
-      vaults: { open: async () => ({ tenantId }) as never },
-      drainMs: 0,
-    });
-    cleanup.push(() => server.close());
-    return server;
-  }
-
-  async function endpoint(): Promise<{ url: string; seen: { headers: Record<string, unknown>; body: string }[] }> {
-    const seen: { headers: Record<string, unknown>; body: string }[] = [];
-    const server: Server = createServer((req, res) => {
-      const chunks: Buffer[] = [];
-      req.on("data", (chunk: Buffer) => chunks.push(chunk));
-      req.on("end", () => {
-        seen.push({ headers: req.headers, body: Buffer.concat(chunks).toString() });
-        res.writeHead(200, { "content-type": "application/json", "x-reply": "yes" });
-        res.end(JSON.stringify({ answered: true }));
-      });
-    });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
-    return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/actions`, seen };
-  }
-
-  it("POSTs the signed delivery and returns the endpoint's answer", async () => {
-    const server = await gate();
-    const target = await endpoint();
-    const tools = httpToolGate({ url: server.url, token });
-    const result = await tools.post(
-      {
-        url: target.url,
-        body: JSON.stringify({ type: "ping" }),
-        headers: { "Nylorun-Signature": "signed", "idempotency-key": "a1" },
-        timeoutMs: 5_000,
-      },
-      new AbortController().signal,
-    );
-    expect(result.kind).toBe("response");
-    if (result.kind !== "response") return;
-    expect(result.status).toBe(200);
-    expect(result.headers["x-reply"]).toBe("yes");
-    expect(JSON.parse(result.body.toString())).toEqual({ answered: true });
-    expect(target.seen).toHaveLength(1);
-    expect(target.seen[0]!.headers["nylorun-signature"]).toBe("signed");
-    expect(target.seen[0]!.headers["idempotency-key"]).toBe("a1");
-    expect(target.seen[0]!.body).toBe(JSON.stringify({ type: "ping" }));
-  });
-
-  it("refuses a header that is not part of a delivery", async () => {
-    const server = await gate();
-    const response = await realFetch(new URL(DELIVERIES_PATH, server.url), {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        url: "http://127.0.0.1:9/x",
-        body: "{}",
-        headers: { cookie: "a=b" },
-        timeoutMs: 1_000,
-      }),
-    });
-    expect(response.status).toBe(400);
-  });
-
-  it("applies the gateway's address policy, not the caller's", async () => {
-    const server = await startGates({
-      gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
-      logger: quiet,
-      vaults: { open: async () => ({ tenantId }) as never },
-      delivery: { privateAddresses: "refuse" },
-      drainMs: 0,
-    });
-    cleanup.push(() => server.close());
-    const target = await endpoint();
-    const result = await httpToolGate({ url: server.url, token }).post(
-      { url: target.url, body: "{}", headers: {}, timeoutMs: 5_000 },
-      new AbortController().signal,
-    );
-    expect(result).toMatchObject({ kind: "not_sent", code: "ENDPOINT_ADDRESS_REFUSED" });
-    expect(target.seen).toHaveLength(0);
-  });
-
-  it("is not_sent when the gate is unreachable or refuses the token", async () => {
-    const down = httpToolGate({ url: "http://127.0.0.1:9", token });
-    expect(
-      await down.post({ url: "http://127.0.0.1:9/x", body: "{}", headers: {}, timeoutMs: 1_000 }, new AbortController().signal),
-    ).toMatchObject({ kind: "not_sent", code: "gateway.unreachable" });
-    const server = await gate();
-    const wrong = httpToolGate({ url: server.url, token: "00".repeat(32) });
-    expect(
-      await wrong.post({ url: "http://127.0.0.1:9/x", body: "{}", headers: {}, timeoutMs: 1_000 }, new AbortController().signal),
-    ).toMatchObject({ kind: "not_sent", code: "gateway.refused" });
   });
 });
 

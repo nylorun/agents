@@ -13,9 +13,7 @@ import { agUiRoutes } from "../ag-ui/endpoint.js";
 import { declaredRoute, pathSegments, routeNotFound, type RouteAccess } from "./define.js";
 import { jsonResponse, rejectionOf } from "./respond.js";
 import { accessRoutes } from "./routes/access.js";
-import { endpointRoutes } from "./routes/endpoints.js";
 import { meRoutes } from "./routes/me.js";
-import { actionRoutes } from "./routes/actions.js";
 import { sandboxRoutes } from "./routes/sandboxes.js";
 import { artifactRoutes } from "./routes/artifacts.js";
 import { readRoutes } from "./routes/reads.js";
@@ -63,8 +61,6 @@ function build(): OpenAPIHono<TenantEnv> {
     pathSegments(c.env.incoming);
     await next();
   });
-  actionRoutes(api);
-  endpointRoutes(api);
   sessionRoutes(api);
   fileRoutes(api);
   sandboxRoutes(api);

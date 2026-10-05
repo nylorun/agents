@@ -8,7 +8,7 @@
  *
  * Plain reads and writes use Drizzle's query builder: `.set(patch)` and `and(...)` skip
  * `undefined`, rows come back in the camelCase of `schema.ts`. Statements whose logic is SQL
- * stay `sql` fragments inside it: the endpoint upsert's `CASE` arms, the log-head upsert,
+ * stay `sql` fragments inside it: the log-head upsert,
  * `orphanedSessions`' ordering, `counts()`, advisory locks and array updates.
  *
  * ## Transactions
@@ -28,7 +28,7 @@
  * ends. To stay deadlock-free:
  *
  * 1. A session-scoped transaction locks its session row before writing any
- *    other row of that session (effects, actions, its record rows and log
+ *    other row of that session (effects, its record rows and log
  *    head).
  * 2. A transaction that touches several sessions locks them in ascending id
  *    order, with `lockSessions` (`./locking.ts`), before writing any of them.
@@ -65,7 +65,6 @@ import {
   sql,
   type SQL,
 } from "drizzle-orm";
-import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import type { KeyRole } from "@nylorun/core/compatibility";
 import type { Sql } from "postgres";
 import type {
@@ -81,20 +80,14 @@ import type { RecordReader } from "../../streams/relay/types.js";
 import { appendEvent, appendSandboxEvent } from "../../record/index.js";
 import { OwnershipLostError, PrincipalRoleConflict } from "../ownership.js";
 import type {
-  ActionDoc,
-  ActionKind,
   ArtifactRow,
   ArtifactVersionRow,
-  ActionStatus,
   DefinitionFileRow,
   CommitListener,
   DefinitionDoc,
   DocTable,
   EffectDoc,
   EffectKind,
-  EndpointHealthUpdate,
-  EndpointRegistrationRow,
-  EndpointRow,
   LinkDoc,
   LinkedSession,
   BasinGenerations,
@@ -103,7 +96,6 @@ import type {
   SandboxDoc,
   SandboxResource,
   SandboxPodPatch,
-  SessionActionFilter,
   SessionDoc,
   SessionEffectFilter,
   SessionOwnership,
@@ -134,7 +126,6 @@ import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
 import { createPostgresRecordReader } from "./record.js";
 import { postgresRecordWriter, postgresSandboxRecordWriter } from "./record-writer.js";
 import {
-  actions,
   artifacts,
   artifactVersions,
   artifactContent,
@@ -143,7 +134,6 @@ import {
   commands,
   definitions,
   effects,
-  endpoints,
   links,
   modelBudgets,
   modelUsage,
@@ -190,7 +180,6 @@ const DOCUMENTS: Record<DocTable, DocumentTable> = {
   sessions: sessions as unknown as DocumentTable,
   commands,
   effects: effects as unknown as DocumentTable,
-  actions: actions as unknown as DocumentTable,
   sandboxes,
   links: links as unknown as DocumentTable,
 };
@@ -386,13 +375,6 @@ function podColumns(patch: SandboxPodPatch): Partial<typeof sandboxResources.$in
   return Object.fromEntries(Object.entries(columns).filter(([, value]) => value !== undefined));
 }
 
-/** An endpoint row with its unset (null) columns left out, as `EndpointRow` has them. */
-function endpointRow(row: typeof endpoints.$inferSelect): EndpointRow {
-  return Object.fromEntries(
-    Object.entries(row).filter(([, value]) => value !== null),
-  ) as unknown as EndpointRow;
-}
-
 /** The time column a signing key's new state stamps. */
 const SIGNING_KEY_STAMP: Partial<
   Record<SigningKeyRow["state"], "activatedAt" | "retiredAt" | "revokedAt">
@@ -405,14 +387,10 @@ const SIGNING_KEY_STAMP: Partial<
 /** The audit columns a row has (`ord` only orders them). */
 const { ord: _ord, ...AUDIT } = getTableColumns(vaultAudit);
 
-const SESSION_TABLES = [sessions, commands, effects, actions, links];
+const SESSION_TABLES = [sessions, commands, effects, links];
 
 /** The inserted row's `column` (`ON CONFLICT … DO UPDATE`). */
 const excluded = (column: string): SQL => sql.raw(`excluded.${column}`);
-
-/** Keeps an endpoint's health `column` when its URL stays; a new URL starts with `fresh`. */
-const sameUrl = (column: SQL, fresh: SQL = sql`NULL`): SQL =>
-  sql`CASE WHEN ${endpoints.url} = excluded.url THEN ${column} ELSE ${fresh} END`;
 
 class PostgresTx implements Tx {
   closed = false;
@@ -794,86 +772,6 @@ class PostgresTx implements Tx {
     return rows.map((row) => row.body as SandboxEvent);
   }
 
-  private async actionBodies(where: SQL | undefined): Promise<ActionDoc[]> {
-    const rows = await this.db
-      .select({ body: actions.body })
-      .from(actions)
-      .where(where)
-      .orderBy(actions.id);
-    return rows.map((row) => row.body as ActionDoc);
-  }
-
-  async pendingActions(agentId: string): Promise<ActionDoc[]> {
-    this.check();
-    return this.actionBodies(and(eq(actions.agentId, agentId), eq(actions.status, "pending")));
-  }
-
-  async deliveringCount(agentId: string): Promise<number> {
-    this.check();
-    const [row] = await this.db
-      .select({ n: count() })
-      .from(actions)
-      .where(and(eq(actions.agentId, agentId), eq(actions.status, "delivering")));
-    return row!.n;
-  }
-
-  async pendingActionsWithEndpoint(limit: number): Promise<ActionDoc[]> {
-    this.check();
-    const rows = await this.db
-      .select({ body: actions.body })
-      .from(actions)
-      .innerJoin(endpoints, eq(endpoints.agentId, actions.agentId))
-      .where(eq(actions.status, "pending"))
-      .orderBy(actions.id)
-      .limit(limit);
-    return rows.map((row) => row.body as ActionDoc);
-  }
-
-  async expiredDeliveries(now: Date, limit: number): Promise<ActionDoc[]> {
-    this.check();
-    const deadline = sql`${actions.deadlineAt}::timestamptz`;
-    const rows = await this.db
-      .select({ body: actions.body })
-      .from(actions)
-      .where(
-        and(
-          eq(actions.status, "delivering"),
-          isNotNull(actions.deadlineAt),
-          sql`${deadline} <= ${now.toISOString()}::timestamptz`,
-        ),
-      )
-      .orderBy(deadline, actions.id)
-      .limit(limit);
-    return rows.map((row) => row.body as ActionDoc);
-  }
-
-  async actionsForSession(
-    sessionId: string,
-    filter: SessionActionFilter = {},
-  ): Promise<ActionDoc[]> {
-    this.check();
-    return this.actionBodies(
-      and(
-        eq(actions.sessionId, sessionId),
-        filter.turnId === undefined ? undefined : eq(actions.turnId, filter.turnId),
-        filter.statuses === undefined ? undefined : inArray(actions.status, filter.statuses),
-      ),
-    );
-  }
-
-  async actionsWithStatus(
-    statuses: readonly ActionStatus[],
-    filter: { kinds?: readonly ActionKind[] } = {},
-  ): Promise<ActionDoc[]> {
-    this.check();
-    return this.actionBodies(
-      and(
-        inArray(actions.status, statuses),
-        filter.kinds === undefined ? undefined : inArray(actions.kind, filter.kinds),
-      ),
-    );
-  }
-
   private async effectBodies<T>(where: SQL | undefined): Promise<T[]> {
     const rows = await this.db
       .select({ body: effects.body })
@@ -946,7 +844,6 @@ class PostgresTx implements Tx {
     const [row] = await this.db.execute<{
       sessions: number;
       running: number;
-      actions: number;
       uncertain: number;
       sandboxes: number;
       definitions: number;
@@ -955,15 +852,12 @@ class PostgresTx implements Tx {
         (SELECT count(*) FROM ${sessions})::int AS sessions,
         (SELECT count(*) FROM ${sessions}
           WHERE ${sessions.status} IN ('running', 'runnable'))::int AS running,
-        (SELECT count(*) FROM ${actions}
-          WHERE ${actions.status} IN ('pending', 'delivering'))::int AS actions,
         (SELECT count(*) FROM ${effects} WHERE ${effects.status} = 'uncertain')::int AS uncertain,
         (SELECT count(*) FROM ${sandboxes})::int AS sandboxes,
         (SELECT count(*) FROM ${definitions})::int AS definitions`);
     return {
       sessions: row!.sessions,
       runningSessions: row!.running,
-      pendingActions: row!.actions,
       uncertainEffects: row!.uncertain,
       sandboxes: row!.sandboxes,
       definitions: row!.definitions,
@@ -986,91 +880,6 @@ class PostgresTx implements Tx {
     await this.db.update(tenant).set({
       retiredGenerations: sql`array_remove(${tenant.retiredGenerations}, ${generation}::int)`,
     });
-  }
-
-  // --- Action endpoints -----------------------------------------------------
-
-  async listEndpoints(): Promise<EndpointRow[]> {
-    this.check();
-    const rows = await this.db.select().from(endpoints).orderBy(endpoints.agentId);
-    return rows.map(endpointRow);
-  }
-
-  async getEndpoint(agentId: string): Promise<EndpointRow | undefined> {
-    this.check();
-    const [row] = await this.db.select().from(endpoints).where(eq(endpoints.agentId, agentId));
-    return row && endpointRow(row);
-  }
-
-  async putEndpoint(row: EndpointRegistrationRow): Promise<void> {
-    this.check();
-    // Health belongs to a URL: a new URL starts with none.
-    await this.db
-      .insert(endpoints)
-      .values({
-        agentId: row.agentId,
-        url: row.url,
-        implementationVersion: row.implementationVersion,
-        manifestHash: row.manifestHash ?? null,
-        timeoutMs: row.timeoutMs,
-        maxConcurrent: row.maxConcurrent,
-        principalId: row.principalId ?? null,
-        consecutiveFailures: 0,
-        createdAt: row.updatedAt,
-        updatedAt: row.updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: endpoints.agentId,
-        set: {
-          url: excluded("url"),
-          implementationVersion: excluded("implementation_version"),
-          manifestHash: excluded("manifest_hash"),
-          timeoutMs: excluded("timeout_ms"),
-          maxConcurrent: excluded("max_concurrent"),
-          principalId: excluded("principal_id"),
-          updatedAt: excluded("updated_at"),
-          lastDeliveryAt: sameUrl(sql`${endpoints.lastDeliveryAt}`),
-          lastSuccessAt: sameUrl(sql`${endpoints.lastSuccessAt}`),
-          lastErrorCode: sameUrl(sql`${endpoints.lastErrorCode}`),
-          lastErrorMessage: sameUrl(sql`${endpoints.lastErrorMessage}`),
-          consecutiveFailures: sameUrl(sql`${endpoints.consecutiveFailures}`, sql`0`),
-          servedImplementationVersion: sameUrl(sql`${endpoints.servedImplementationVersion}`),
-          servedManifestHash: sameUrl(sql`${endpoints.servedManifestHash}`),
-        },
-      });
-  }
-
-  async deleteEndpoint(agentId: string): Promise<void> {
-    this.check();
-    await this.db.delete(endpoints).where(eq(endpoints.agentId, agentId));
-  }
-
-  async recordEndpointHealth(
-    agentId: string,
-    update: EndpointHealthUpdate,
-  ): Promise<void> {
-    this.check();
-    const set: PgUpdateSetSource<typeof endpoints> =
-      update.kind === "success"
-        ? {
-            lastDeliveryAt: update.at,
-            lastSuccessAt: update.at,
-            consecutiveFailures: 0,
-            lastErrorCode: null,
-            lastErrorMessage: null,
-          }
-        : update.kind === "failure"
-          ? {
-              lastDeliveryAt: update.at,
-              lastErrorCode: update.code,
-              lastErrorMessage: update.message,
-              consecutiveFailures: sql`${endpoints.consecutiveFailures} + 1`,
-            }
-          : {
-              servedImplementationVersion: update.implementationVersion,
-              servedManifestHash: update.manifestHash ?? null,
-            };
-    await this.db.update(endpoints).set(set).where(eq(endpoints.agentId, agentId));
   }
 
   // --- principals ----------------------------------------------------------
@@ -1670,7 +1479,6 @@ class PostgresTx implements Tx {
       await db.delete(definitions);
       // The files stay, as their bytes do; only what used them goes.
       await db.delete(definitionFileUses);
-      await db.delete(endpoints);
       await db.delete(modelUsage);
       await db.delete(modelBudgets);
       await db.delete(artifacts);

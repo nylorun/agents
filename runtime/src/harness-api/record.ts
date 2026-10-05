@@ -1,9 +1,10 @@
 /**
  * The Record seam of the Harness API: core's journal for the effects of a run. `recordIntent`
  * journals an effect before anything runs it, and either answers it from the journal, hands it
- * to core's own executors (Actions, flow work, delegation, `save_artifact` and the skill tools),
- * or tells the harness to `execute` it (model calls; MCP, HTTP and sandbox tools; a flow's HTTP
- * stages and HTTP verifiers). `recordOutcome`
+ * to core's own executors (flow work, delegation, `save_artifact` and the skill tools), tells
+ * the harness to `execute` it (model calls; MCP, HTTP and sandbox tools; a flow's HTTP stages
+ * and HTTP verifiers), or fails a tool the Runtime cannot run (one that would run the
+ * developer's code, R2 M6). `recordOutcome`
  * records what the harness's call returned. Both run under the advance's lease: every write is
  * epoch-checked (`ownedSession`), and a lost epoch writes nothing.
  *
@@ -18,7 +19,7 @@ import {
   type OutcomeAnswer,
   type RecordedOutcome,
 } from "@nylorun/core/harness-api";
-import type { Action, EventPayload } from "@nylorun/core/contracts";
+import type { EventPayload } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import {
@@ -36,8 +37,6 @@ import { isOwnershipLost } from "../store/ownership.js";
 import { manifestFor, mcpToolOf } from "../mcp/snapshot.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
 import { ownedSession, type Lease, type Session, type TenantContext } from "../tenant/context.js";
-import { actionTarget, pinnedTool } from "../tenant/session.js";
-import { offerAction } from "../tenant/delivery.js";
 import {
   isGateToolEffect,
   linkedOutcome,
@@ -50,7 +49,6 @@ import {
   contextCompacted,
   modelFailed,
   toolCompleted,
-  toolIds,
 } from "../tenant/transcript.js";
 import { abortKind } from "../tenant/worker.js";
 import type { EffectDoc, Tx } from "../store/types.js";
@@ -163,25 +161,32 @@ export async function recordIntent(
       request.kind === "model" ||
       (request.kind === "tool" &&
         (mcpToolOf(s.mcpSnapshot, request) !== undefined ||
-          // HTTP tools (R2 M3) cross the Tool Gate: never an Action.
+          // HTTP tools (R2 M3) cross the Tool Gate.
           isHttpToolCall(s.manifest, request) ||
           sandboxCapabilityOf(agentManifest, request.capabilityId, request.toolName) !== undefined ||
           // `save_artifact` (F8.1) runs beside the sandbox tools, and the skill tools (R2 M4).
           isSaveArtifactCall(agentManifest, request) ||
           isSkillToolCall(agentManifest, request)));
+    if (!executed) {
+      // A tool that would run the developer's code: refused at save (a turn's manifest only
+      // removes tools), so this is a backstop. The model sees the failure; nothing runs.
+      const outcome = { value: unrunnableTool(request) };
+      await t.put("effects", request.effectId, { request, requestHash, status: "completed", outcome });
+      const transcript = toolCompleted(request, outcome.value);
+      if (transcript) await t.event(s.id, request.turnId, "tool.completed", transcript as EventPayload<"tool.completed">);
+      return { status: "completed", outcome };
+    }
     await t.put("effects", request.effectId, {
       request: storedRequest(request),
       requestHash,
-      status: executed ? "invoking" : "pending",
+      status: "invoking",
     });
     // `save_artifact` writes the Tenant's artifacts: core runs it, reading the file through the
     // workspace capability, wherever the sandbox is.
-    if (executed && request.kind === "tool" && isSaveArtifactCall(agentManifest, request)) return "save";
+    if (request.kind === "tool" && isSaveArtifactCall(agentManifest, request)) return "save";
     // The skill tools read the agent's definition files: core serves them.
-    if (executed && isSkillToolCall(agentManifest, request)) return { skill: agentManifest };
-    if (executed) return { status: "execute" };
-    await offerActionFor(scope, t, s, agentManifest, request);
-    return { status: "pending" };
+    if (isSkillToolCall(agentManifest, request)) return { skill: agentManifest };
+    return { status: "execute" };
   });
   if (answer === "save") return runInCore(scope, request, () => callSaveArtifact(scope.ctx, request, scope.signal));
   if (typeof answer === "object" && "skill" in answer)
@@ -213,45 +218,13 @@ async function runInCore(
   return recordOutcome(scope, request.effectId, { value });
 }
 
-/** A tool Action for the agent's endpoint, in the intent's transaction. */
-async function offerActionFor(
-  scope: RecordScope,
-  t: Tx,
-  s: Session,
-  agentManifest: ReturnType<typeof manifestFor> & object,
-  request: HostEffect
-): Promise<void> {
-  const tool = pinnedTool(agentManifest, request.capabilityId, request.toolName);
-  const base = {
-    actionId: request.effectId,
-    sessionId: request.sessionId,
-    turnId: request.turnId,
-    agentId: request.agentId,
-    manifestHash: request.manifestHash,
-    implementationVersion: s.implementationVersion,
-    input: request.input,
-    context: request.context,
-    status: "pending" as const,
-    generation: 0,
-    ...(request.agent ? { agent: request.agent } : {}),
+/** The failed outcome of a tool the Runtime cannot run: it would run the developer's code. */
+function unrunnableTool(request: HostEffect) {
+  return {
+    kind: "failed",
+    code: "tool.unavailable",
+    message: `Tool '${request.toolName ?? ""}' runs your code, and the Runtime runs no code of yours during a session. Make it an http() tool or serve it from a remote MCP server.`,
   };
-  const action: Action = {
-    ...base,
-    kind: "tool",
-    capabilityId: request.capabilityId!,
-    toolName: request.toolName!,
-    ...(tool?.inputSchema ? { inputSchema: tool.inputSchema } : {}),
-    ...(tool?.outputSchema ? { outputSchema: tool.outputSchema } : {}),
-  };
-  await t.put("actions", action.actionId, action);
-  await t.event(s.id, s.activeTurnId, "action.pending", {
-    actionId: action.actionId,
-    kind: action.kind,
-    ...actionTarget(action),
-    ...toolIds(request.context),
-    input: action.input,
-  });
-  await offerAction(t, scope.ctx, action);
 }
 
 /**

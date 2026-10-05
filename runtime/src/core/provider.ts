@@ -35,7 +35,10 @@ export function gatewayModel(options: {
   };
 }
 
-/** Deterministic release fixture; still uses the real engine and remote customer tool. */
+/**
+ * Deterministic release fixture; still uses the real engine. With a `lookup_order` tool it looks
+ * up the demo order through it once; without one it answers in text.
+ */
 export function toolFixtureModel(): ModelProvider {
   return async (effect) => {
     const call = effect.input as import("@nylorun/harness/run").ModelCall;
@@ -61,6 +64,8 @@ export function toolFixtureModel(): ModelProvider {
           },
         ],
       };
+    if (!call.tools.some((tool) => tool.name === "lookup_order"))
+      return { output: [{ type: "text", text: "Hello from the fixture model." }] };
     return {
       output: [
         {

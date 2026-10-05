@@ -233,7 +233,7 @@ export interface StackConfig {
   sandboxes?: SandboxesConfig;
   /**
    * Present when the process runs core or loop and `NYLORUN_GATES_URL` is set: its model calls,
-   * remote MCP calls and Action deliveries cross the gates service. Required for loop in
+   * remote MCP calls and HTTP tool calls cross the gates service. Required for loop in
    * container mode; outside a container (a development Host, tests) the loop may make them in
    * its own process.
    */
@@ -261,8 +261,8 @@ export interface StackConfig {
    */
   publicUrl?: string;
   /**
-   * How the Runtime may call Action endpoints: `NYLORUN_ENDPOINT_LOOPBACK=docker-host` (the local
-   * stack: `localhost` means the machine that runs Docker), `NYLORUN_ENDPOINT_PRIVATE`
+   * How the Runtime may call MCP servers and HTTP tools: `NYLORUN_ENDPOINT_LOOPBACK=docker-host`
+   * (the local stack: `localhost` means the machine that runs Docker), `NYLORUN_ENDPOINT_PRIVATE`
    * (`allow` or `refuse`) and `NYLORUN_ENDPOINT_HTTP` (`allow` or `refuse`).
    */
   delivery?: {
@@ -522,7 +522,7 @@ export function parseStackConfig(
   const listen = servesApi ? parseListen(env) : undefined;
   const gates = services.has("gates") || services.has("keys") ? parseGates(env) : undefined;
   const egress = services.has("egress") ? parseEgress(env) : undefined;
-  // The gates service's clients: the loop's model and tool calls, and core's endpoint pings.
+  // The gates service's clients: the loop's model and tool calls.
   const modelGate = servesApi ? parseModelGate(env) : undefined;
   // The keys service is the gateway's unless NYLORUN_KEYS_URL names another listener.
   const keys = servesApi ? (parseKeysEndpoint(env) ?? modelGate) : undefined;

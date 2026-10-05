@@ -1,6 +1,6 @@
 /**
- * The Tenant's public keys are public (design: Action endpoints §8.2): an Action endpoint that
- * holds no key reads them with `Nylorun-Tenant` alone. A credential that is sent is still
+ * The Tenant's public keys are public: a verifier of the Runtime's tokens that holds no key
+ * reads them with `Nylorun-Tenant` alone. A credential that is sent is still
  * checked, and an application key is still refused from a browser.
  */
 import { mkdtemp, rm } from "node:fs/promises";
@@ -50,6 +50,6 @@ it("still checks a credential that is sent, and refuses an application key from 
 });
 
 it("serves nothing else without a credential", async () => {
-  for (const path of ["/v1/agents", "/v1/tenant/signing-keys", "/v1/endpoints", "/v1/sessions"])
+  for (const path of ["/v1/agents", "/v1/tenant/signing-keys", "/v1/sessions"])
     expect((await get(path)).status, path).toBe(404);
 });

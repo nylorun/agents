@@ -112,7 +112,7 @@ export function modelFailed(request: HostEffect, value: unknown) {
   };
 }
 
-/** `tool.completed` for an MCP or sandbox tool: its output, or the tool error it reported. */
+/** `tool.completed` for a tool the Runtime ran: its output, or the tool error it reported. */
 export function toolCompleted(request: HostEffect, value: unknown) {
   const ids = toolIds(request.context);
   if (!("callId" in ids)) return undefined;

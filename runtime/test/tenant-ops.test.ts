@@ -63,8 +63,6 @@ it("summary() returns counts only with no string fields (A15)", async () => {
   expect(summary).toEqual({
     ready: true,
     runningSessions: 0,
-    inFlightDeliveries: 0,
-    pendingActions: 0,
     uncertainEffects: 0,
     harness: { mode: expect.any(String), connected: 1, workspace: expect.any(Boolean) },
   });
@@ -137,7 +135,7 @@ it("POST /v1/tenant/reset sessions preserves principals and clears sessions (A17
   expect(body.counts.sessions).toBe(0);
   expect(
     body.agents.some(
-      (a) => a.agentId === agentReset.manifest.id && a.registered,
+      (a) => a.agentId === agentReset.manifest.id,
     ),
   ).toBe(true);
   expect(
@@ -251,17 +249,8 @@ it("reset sandboxes renames then clears the sandboxes directory (A17)", async ()
   expect(existsSync(sandboxes)).toBe(true);
 });
 
-it("reset all clears definitions, Action endpoints, user vaults and tenant log (A17)", async () => {
-  const runtime = await startTestTenant({
-    applicationKey: "reset-all-key-16chars",
-    endpoints: [
-      {
-        agentId: agentAll.manifest.id,
-        url: "http://127.0.0.1:9/actions",
-        implementationVersion: "dev",
-      },
-    ],
-  });
+it("reset all clears definitions, user vaults and tenant log (A17)", async () => {
+  const runtime = await startTestTenant({ applicationKey: "reset-all-key-16chars" });
   closers.push(runtime);
 
   await fetch(`${runtime.url}/v1/agents/${agentAll.manifest.id}`, {
@@ -303,15 +292,6 @@ it("reset all clears definitions, Action endpoints, user vaults and tenant log (
   writeFileSync(logPath, '{"level":"info","message":"noise"}\n');
   expect(existsSync(logPath)).toBe(true);
 
-  const endpoints = async () =>
-    (
-      await (
-        await fetch(`${runtime.url}/v1/endpoints`, { headers: runtime.headers() })
-      ).json()
-    ).endpoints as { agentId: string }[];
-  expect((await endpoints()).map((endpoint) => endpoint.agentId)).toEqual([
-    agentAll.manifest.id,
-  ]);
 
   const reset = await fetch(`${runtime.url}/v1/tenant/reset`, {
     method: "POST",
@@ -332,7 +312,6 @@ it("reset all clears definitions, Action endpoints, user vaults and tenant log (
   expect(status.agents).toEqual([]);
   expect(status.counts.sessions).toBe(0);
   expect(status.model.configured).toBe(true);
-  expect(await endpoints()).toEqual([]);
 
   const vaults = await fetch(`${runtime.url}/v1/tenant/vaults?ownerUserId=user-1`, {
     headers: runtime.managementHeaders(),

@@ -1,15 +1,16 @@
 /**
  * Core's side of effects: `resolveNewFlowEffect` journals and dispatches new workflow effects
- * (linked agent sessions and tool nodes); the takeover helpers say which calls their
- * gate recovers. Also vault authorization for MCP servers and HTTP tools. The journal of a run's effects is
- * `harness-api/record.ts`; a harness readies the session's MCP servers itself (`session.mcp`).
+ * (linked agent sessions; a tool node without `http` fails, as it would run the developer's
+ * code); the takeover helpers say which calls their gate recovers. Also vault authorization
+ * for MCP servers and HTTP tools. The journal of a run's effects is `harness-api/record.ts`; a
+ * harness readies the session's MCP servers itself (`session.mcp`).
  *
  * Every journal write runs in a transaction that locks the effect's session first and checks
  * the advance's ownership epoch (`ownedSession`): after another Worker takes over, the next
  * write throws `ownership.lost` and nothing is written. The model, MCP, HTTP, sandbox and vault
  * calls run between transactions, never inside one.
  */
-import type { Action, ActionOutcome, SessionCommand } from "@nylorun/core/contracts";
+import type { EffectOutcome, SessionCommand } from "@nylorun/core/contracts";
 import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
 import type { AgentManifest, JsonValue, SandboxManifest } from "@nylorun/core/define";
 import {
@@ -53,7 +54,6 @@ import {
 import { fail } from "./http.js";
 import { turnManifestOf } from "./session.js";
 import { command } from "./commands.js";
-import { offerAction } from "./delivery.js";
 
 /**
  * The outcome of a flow `agent` effect once the linked turn it started ended, or undefined
@@ -63,7 +63,7 @@ export async function linkedOutcome(
   t: Tx,
   effect: { request: HostEffect; agentSessionId?: string },
   agent: Session | undefined
-): Promise<ActionOutcome | undefined> {
+): Promise<EffectOutcome | undefined> {
   const end = await linkedTurnEnd(t, effect, agent);
   if (!end || !agent) return undefined;
   if (end.status === "completed") return { value: end.output };
@@ -160,43 +160,24 @@ export async function resolveNewFlowEffect(
     }
 
     if (isFlowToolEffect(request)) {
-      await t.put("effects", request.effectId, {
-        request,
-        status: "pending",
-      });
-      const action = {
-        actionId: request.effectId,
-        sessionId: request.sessionId,
-        turnId: request.turnId,
-        agentId: request.agentId,
-        manifestHash: request.manifestHash,
-        implementationVersion: workflow.implementationVersion,
-        input: request.input as any,
-        context: request.context,
-        status: "pending" as const,
-        generation: 0,
-        kind: "tool" as const,
-        path: request.path!,
-        key: request.key!,
-      } satisfies Action;
-      await t.put("actions", action.actionId, action);
+      // A tool stage without `http` would run the developer's code: refused at save, so this
+      // is a backstop (HTTP stages are executed by the harness, `harness-api/record.ts`). The
+      // stage fails; nothing runs.
+      const outcome = {
+        value: {
+          kind: "failed",
+          code: "tool.unavailable",
+          message: `The tool stage '${request.key ?? request.path ?? ""}' runs your code, and the Runtime runs no code of yours during a session`,
+        },
+      };
+      await t.put("effects", request.effectId, { request, status: "completed", outcome });
       await t.event(workflow.id, workflow.activeTurnId, "node.started", {
         path: request.path!,
         kind: "tool",
         key: request.key!,
-        ...(request.iterations !== undefined
-          ? { iterations: request.iterations }
-          : {}),
+        ...(request.iterations !== undefined ? { iterations: request.iterations } : {}),
       });
-      await t.event(workflow.id, workflow.activeTurnId, "action.pending", {
-        actionId: action.actionId,
-        kind: action.kind,
-        path: action.path,
-        key: action.key,
-        input: action.input,
-      });
-      await offerAction(t, ctx, action);
-      return resolved({ status: "pending" });
+      return resolved({ status: "completed", outcome });
     }
     return { kind: "agent", workflow };
   });

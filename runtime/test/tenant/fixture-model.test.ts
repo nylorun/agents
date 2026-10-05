@@ -8,12 +8,13 @@ import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import { TenantStatusSchema } from "@nylorun/core/contracts";
-import { Agent, tool } from "@nylorun/core/define";
+import { Agent } from "@nylorun/core/define";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { MemoryExecution } from "../../src/execution/memory.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
 import { startTestTenant } from "../support/tenant.js";
 import { until } from "../host/execution-support.js";
+import { startToolServer, type ToolServer } from "../support/tool-server.js";
 
 type Started = Awaited<ReturnType<typeof startTestTenant>>;
 
@@ -25,21 +26,16 @@ afterEach(async () => {
   for (const stop of stops.splice(0)) await stop();
 });
 
-const orders = Agent({ id: "orders", name: "Orders" })
-  .use({
-    id: "orders",
-    tools: [
-      tool({
-        name: "lookup_order",
+/** The orders agent, whose `lookup_order` is an HTTP tool of `service`. */
+const ordersAt = (service: ToolServer) =>
+  Agent({ id: "orders", name: "Orders" })
+    .tools(
+      service.tool("lookup_order", {
         input: z.object({ orderId: z.string() }),
         output: z.object({ status: z.string() }),
-        async run() {
-          return { status: "shipped" };
-        },
-      }),
-    ],
-  })
-  .build();
+      })
+    )
+    .build();
 
 async function seed(runtime: Started, body: Record<string, unknown>) {
   const response = await fetch(`${runtime.url}/v1/tenant/config/seed`, {
@@ -51,7 +47,7 @@ async function seed(runtime: Started, body: Record<string, unknown>) {
   return (await response.json()) as { applied: string[]; kept: string[] };
 }
 
-async function turn(runtime: Started) {
+async function turn(runtime: Started, service: ToolServer) {
   const headers = runtime.headers();
   expect(
     (
@@ -60,7 +56,7 @@ async function turn(runtime: Started) {
         headers,
         body: JSON.stringify({
           requestId: "put-orders",
-          manifest: orders.manifest,
+          manifest: ordersAt(service).manifest,
           implementationVersion: "dev",
         }),
       })
@@ -139,20 +135,22 @@ it("uses the fixture model for the seeded Tenant only; another Tenant on the Hos
     kept: ["model.fixture"],
   });
 
-  await turn(fixtureTenant);
-  await turn(otherTenant);
+  const service = await startToolServer({ lookup_order: () => ({ status: "shipped" }) });
+  stops.push(() => service.close());
+  await turn(fixtureTenant, service);
+  await turn(otherTenant, service);
 
-  // The fixture model asks for the demo order through the agent's tool.
-  const pending = await until(
+  // The fixture model asks for the demo order through the agent's HTTP tool, then answers.
+  const done = await until(
     () => items(fixtureTenant),
-    (list) => list.some((item) => item.type === "action.pending"),
-    "the fixture model's tool call"
+    (list) => list.some((item) => item.type === "turn.completed"),
+    "the fixture model's turn"
   );
-  expect(pending.find((item) => item.type === "action.pending")?.payload).toMatchObject({
-    kind: "tool",
+  expect(done.find((item) => item.type === "tool.completed")?.payload).toMatchObject({
     toolName: "lookup_order",
-    input: { orderId: "demo-123" },
+    output: { status: "shipped" },
   });
+  expect(service.calls.map((call) => call.input)).toEqual([{ orderId: "demo-123" }]);
 
   const completed = await until(
     () => items(otherTenant),

@@ -183,13 +183,6 @@ interface Operation {
 function tenantOperations(): Operation[] {
   const vault = `/v1/tenant/vaults/${vaultId}`;
   return [
-    { method: "POST", path: "/v1/actions/act-missing/sandbox/bash", body: INVALID },
-    { method: "POST", path: "/v1/actions/act-missing/heartbeat", body: INVALID },
-    { method: "GET", path: "/v1/endpoints" },
-    { method: "PUT", path: "/v1/endpoints", body: INVALID },
-    { method: "DELETE", path: "/v1/endpoints/ghost" },
-    { method: "POST", path: "/v1/endpoints/ghost/ping" },
-    { method: "POST", path: "/v1/actions/act-missing/result", body: INVALID },
     { method: "POST", path: "/v1/sessions/s1/commands", body: INVALID },
     { method: "GET", path: "/v1/agents" },
     { method: "PUT", path: "/v1/agents/bot", body: INVALID },
@@ -277,6 +270,14 @@ function edgeOperations(): Operation[] {
     { method: "GET", path: "/v1/executors/connect" },
     { method: "GET", path: "/v1/actions" },
     { method: "POST", path: "/v1/actions/act-missing/claim", body: INVALID },
+    // Action endpoints and their delivery callbacks (track R2, protocol 8): gone.
+    { method: "GET", path: "/v1/endpoints" },
+    { method: "PUT", path: "/v1/endpoints", body: INVALID },
+    { method: "DELETE", path: "/v1/endpoints/ghost" },
+    { method: "POST", path: "/v1/endpoints/ghost/ping" },
+    { method: "POST", path: "/v1/actions/act-missing/heartbeat", body: INVALID },
+    { method: "POST", path: "/v1/actions/act-missing/result", body: INVALID },
+    { method: "POST", path: "/v1/actions/act-missing/sandbox/bash", body: INVALID },
     // Subject tokens, the access policy, browser keys and revocations (protocol 7): gone.
     { method: "POST", path: "/v1/tokens", body: INVALID },
     { method: "GET", path: "/v1/access/policy" },

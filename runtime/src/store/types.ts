@@ -14,7 +14,7 @@
  *    error `fn` threw.
  * 2. **Session-scoped writes lock the session row first.** `lockSession` takes
  *    a row lock (`SELECT … FOR UPDATE`) held until the transaction ends. Effect
- *    intent and outcome, Action transitions, checkpoint settlement and event
+ *    intent and outcome, checkpoint settlement and event
  *    writes for one session are serialized through it. Idempotency comparisons
  *    (`canonical(...)`) run inside the same locked transaction. `event` and the
  *    ownership methods take the lock themselves.
@@ -25,7 +25,7 @@
  *    generation, `streams/basin.ts`), and the cursor is
  *    `base64url("<sessionId>:<seq>")` (see `record/cursor.ts`).
  * 4. **No external I/O inside `fn`.** No model, tool, MCP, sandbox, Restate or
- *    S2 call, and no `fetch`, runs inside a transaction. Wakes and deliveries go
+ *    S2 call, and no `fetch`, runs inside a transaction. Wakes go
  *    through `afterCommit`, and events are delivered to commit listeners after
  *    commit (seam rule 1 and 2).
  * 5. **No nested transactions.** Calling `store.tx` from inside `fn` rejects.
@@ -45,9 +45,9 @@
  * ## Typed queries, no scans
  *
  * There is no generic table scan. Every read the Runtime needs is a typed
- * method on `Tx` (`sessionsWithStatus`, `expiredDeliveries`, `pendingActions`,
- * `effectsForTurn`, `linkedSessions`, `counts`, …) that an implementation can
- * back with an index, and principals, endpoints, vaults and Tenant settings
+ * method on `Tx` (`sessionsWithStatus`, `effectsForTurn`, `linkedSessions`,
+ * `counts`, …) that an implementation can back with an index, and principals,
+ * vaults and Tenant settings
  * have their own methods rather than raw SQL outside the store. Session history
  * is not read from the store: every event is written to the record (Postgres
  * `nylorun_streams.session_events`) in its transaction, the stream relay
@@ -57,7 +57,6 @@
 import type { KeyRole } from "@nylorun/core/compatibility";
 import type { RecordReader } from "../streams/relay/types.js";
 import type {
-  Action,
   EventPayload,
   EventType,
   LiveEvent,
@@ -97,7 +96,6 @@ export type DocTable =
   | "sessions"
   | "commands"
   | "effects"
-  | "actions"
   | "sandboxes"
   | "links";
 
@@ -106,7 +104,6 @@ export const DOC_TABLES: readonly DocTable[] = [
   "sessions",
   "commands",
   "effects",
-  "actions",
   "sandboxes",
   "links",
 ];
@@ -132,8 +129,6 @@ export type EffectStatus =
   | "queued"
   | "cancelled";
 
-export type ActionStatus = Action["status"];
-export type ActionKind = Action["kind"];
 export type EffectKind = HostEffect["kind"];
 
 /**
@@ -173,9 +168,6 @@ export interface EffectDoc {
   request: HostEffect;
   status: EffectStatus | (string & {});
 }
-
-/** Actions are stored as the wire `Action`. Indexed: `sessionId`, `turnId`, `agentId`, `status`, `kind`, `deadlineAt`. */
-export type ActionDoc = Action;
 
 /** A workflow → agent session link, keyed by the linked agent session id. Indexed: `workflowSessionId`. */
 export interface LinkDoc {
@@ -283,53 +275,6 @@ export type CommitListener = (commit: Commit) => void;
 // Typed tables
 
 /**
- * An Action endpoint: the URL the Runtime delivers one agent's Actions to, and what recent
- * deliveries and the last ping say about it.
- */
-export interface EndpointRow {
-  agentId: string;
-  url: string;
-  implementationVersion: string;
-  manifestHash?: string;
-  timeoutMs: number;
-  maxConcurrent: number;
-  /** Application principal that registered it, when known. */
-  principalId?: string;
-  lastDeliveryAt?: string;
-  lastSuccessAt?: string;
-  lastErrorCode?: string;
-  lastErrorMessage?: string;
-  consecutiveFailures: number;
-  /** What the endpoint reported serving on the last ping. */
-  servedImplementationVersion?: string;
-  servedManifestHash?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** The registration part of an endpoint, as `putEndpoint` writes it. */
-export type EndpointRegistrationRow = Pick<
-  EndpointRow,
-  | "agentId"
-  | "url"
-  | "implementationVersion"
-  | "manifestHash"
-  | "timeoutMs"
-  | "maxConcurrent"
-  | "principalId"
-  | "updatedAt"
->;
-
-/** One observation about an endpoint (`recordEndpointHealth`). */
-export type EndpointHealthUpdate =
-  /** A delivery was answered. */
-  | { kind: "success"; at: string }
-  /** A delivery failed: not reached, refused, or lost. */
-  | { kind: "failure"; at: string; code: string; message: string }
-  /** A ping was answered with what the endpoint serves. */
-  | { kind: "served"; implementationVersion: string; manifestHash?: string };
-
-/**
  * The rows of the typed tables, inferred from the tables Drizzle defines
  * (`store/postgres/schema.ts`): a principal, a vault and its credentials (secrets sealed in
  * `bytea` columns, never inside a JSON body), the vault's audit and idempotency records, the
@@ -381,19 +326,11 @@ export interface SessionEffectFilter {
   statuses?: readonly (EffectStatus | (string & {}))[];
 }
 
-export interface SessionActionFilter {
-  /** Only this turn. Absent means every turn. */
-  turnId?: string;
-  statuses?: readonly ActionStatus[];
-}
-
 /** Counts used by Tenant status, `summary` and `drain`. */
 export interface StoreCounts {
   sessions: number;
   /** Sessions `running` or `runnable`. */
   runningSessions: number;
-  /** Actions `pending` or `delivering`. */
-  pendingActions: number;
   /** Effects `uncertain`. */
   uncertainEffects: number;
   sandboxes: number;
@@ -611,23 +548,6 @@ export interface Tx {
     options?: { fromSeq?: number; limit?: number },
   ): Promise<SandboxEvent[]>;
 
-  /** One agent's `pending` actions, delivered when its endpoint is registered. */
-  pendingActions(agentId: string): Promise<ActionDoc[]>;
-  /** How many of one agent's actions are `delivering` (Action endpoints). */
-  deliveringCount(agentId: string): Promise<number>;
-  /** `pending` actions of agents that have an Action endpoint, by id. */
-  pendingActionsWithEndpoint(limit: number): Promise<ActionDoc[]>;
-  /** `delivering` actions whose deadline is at or before `now`, earliest first. */
-  expiredDeliveries(now: Date, limit: number): Promise<ActionDoc[]>;
-  actionsForSession(
-    sessionId: string,
-    filter?: SessionActionFilter,
-  ): Promise<ActionDoc[]>;
-  actionsWithStatus(
-    statuses: readonly ActionStatus[],
-    filter?: { kinds?: readonly ActionKind[] },
-  ): Promise<ActionDoc[]>;
-
   /** `invoking` effects of one session; takeover turns them `uncertain`. */
   invokingEffects<T extends EffectDoc = EffectDoc>(
     sessionId: string,
@@ -658,19 +578,6 @@ export interface Tx {
   basinGenerations(): Promise<BasinGenerations>;
   /** Forgets a retired generation once its basin is deleted. */
   forgetRetiredGeneration(generation: number): Promise<void>;
-
-  // --- Action endpoints -----------------------------------------------------
-
-  listEndpoints(): Promise<EndpointRow[]>;
-  getEndpoint(agentId: string): Promise<EndpointRow | undefined>;
-  /**
-   * Inserts or updates by `agentId`, keeping `createdAt`. Health is kept, except that a new
-   * `url` starts with none.
-   */
-  putEndpoint(row: EndpointRegistrationRow): Promise<void>;
-  deleteEndpoint(agentId: string): Promise<void>;
-  /** Records one observation. Nothing happens when the endpoint does not exist. */
-  recordEndpointHealth(agentId: string, update: EndpointHealthUpdate): Promise<void>;
 
   // --- principals ----------------------------------------------------------
 
@@ -858,12 +765,12 @@ export interface Tx {
 
   /**
    * Deletes Tenant state by scope, in this transaction:
-   * - `sessions`: sessions, commands, effects, actions, links, the artifacts of sessions (their blobs are the caller's to delete) and the
+   * - `sessions`: sessions, commands, effects, links, the artifacts of sessions (their blobs are the caller's to delete) and the
    *   Tenant's record rows and log heads. The Tenant moves to the next basin
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;
    * - `sandboxes`: sandbox records, sandbox resources and their lifecycle streams;
-   * - `all`: both, plus definitions (and which definition files they use), Action endpoints,
+   * - `all`: both, plus definitions (and which definition files they use),
    *   user vaults with their credentials,
    *   the model usage ledger, the model budgets and Tenant-wide artifacts. The host vault, principals, signing keys,
    *   settings, audit and vault idempotency rows stay.

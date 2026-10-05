@@ -2,18 +2,18 @@ import { expect, it, describe } from "vitest";
 import { z } from "zod";
 import {
   Agent,
-  tool,
   createClient,
   type AgentsClient,
   type BuiltAgent,
   type BuiltWorkflow,
 } from "@nylorun/agents";
 import { startTestTenant } from "./support/tenant.js";
-import { serveAgents, type ServedAgents } from "./support/endpoint.js";
+import { startToolServer, type ToolServer } from "./support/tool-server.js";
 
 /**
  * G3 / system-design.md §10 — client-only parity suite.
- * The same cases run against one agent and one workflow through the SDK only.
+ * The same cases run against one agent and one workflow through the SDK only. The worker's
+ * tool is an HTTP tool on a test service: the Runtime runs no code of the developer's.
  *
  * Ledger: SD-PAR1 … SD-PAR9 (L9).
  */
@@ -23,9 +23,9 @@ const APP = "workflow-parity-app-token-aaaaaa";
 type Kind = "agent" | "workflow";
 
 type Gates = {
-  /** When true, tool.approval pauses for a human. */
+  /** When true, the model calls the tool that pauses for a human (`approval: "always"`). */
   requireApproval: boolean;
-  /** When true, tool.run blocks until released (cancel / kill / redeploy). */
+  /** When true, the tool's service holds its answer until released (cancel / kill / redeploy). */
   holdRun: boolean;
 };
 
@@ -61,7 +61,7 @@ function createGates(): Gates & {
     waitUntilHeld: async () => {
       for (let i = 0; i < 400 && !held; i++)
         await new Promise((r) => setTimeout(r, 10));
-      if (!held) throw new Error("tool.run was not held");
+      if (!held) throw new Error("the work call was not held");
       await heldPromise;
     },
     /** Internal: reset hold latch for a fresh mid-run. */
@@ -88,45 +88,52 @@ function createGates(): Gates & {
   };
 }
 
-function workTool(gates: ReturnType<typeof createGates>) {
-  return tool({
-    name: "work",
-    description: "Do the parity work.",
-    input: z.object({ note: z.string() }),
-    output: z.object({ done: z.literal(true), note: z.string() }),
-    approval: () => (gates.requireApproval ? "Approve work?" : false),
-    async run({ note }) {
-      await gates._runHold();
-      return { done: true as const, note };
-    },
-  });
+/** The worker's tool service: `work` answers at once, or holds while `gates.holdRun`. */
+async function startWorkService(gates: ReturnType<typeof createGates>) {
+  const work = async ({ note }: { note: string }) => {
+    await (gates as unknown as { _runHold: () => Promise<void> })._runHold();
+    return { done: true as const, note };
+  };
+  return startToolServer({ work, approved_work: work });
 }
 
-function buildWorker(gates: ReturnType<typeof createGates>, id: string) {
+/** `work`, and `approved_work`: the same call behind static approval. */
+function workTools(service: ToolServer) {
+  const input = z.object({ note: z.string() });
+  const output = z.object({ done: z.literal(true), note: z.string() });
+  return [
+    service.tool("work", { description: "Do the parity work.", input, output }),
+    service.tool("approved_work", {
+      description: "Do the parity work, once a human approves.",
+      input,
+      output,
+      approval: "always",
+    }),
+  ];
+}
+
+function buildWorker(service: ToolServer, id: string) {
   return Agent({
     id,
     name: id,
     instructions: "Always call the work tool with the user note, then stop.",
   })
-    .use({
-      id: "parity-tools",
-      tools: [workTool(gates)],
-    })
+    .tools(...workTools(service))
     .build();
 }
 
 function buildDefinition(
   kind: Kind,
-  gates: ReturnType<typeof createGates>
+  service: ToolServer
 ): BuiltAgent | BuiltWorkflow {
-  if (kind === "agent") return buildWorker(gates, "parity");
-  return Agent({ id: "parity" }).pipe(buildWorker(gates, "parity-worker")).build();
+  if (kind === "agent") return buildWorker(service, "parity");
+  return Agent({ id: "parity" }).pipe(buildWorker(service, "parity-worker")).build();
 }
 
 /** Redeploy variant: same id, different hashed document (new manifest hash). */
 function buildRedeployed(
   kind: Kind,
-  gates: ReturnType<typeof createGates>
+  service: ToolServer
 ): BuiltAgent | BuiltWorkflow {
   if (kind === "agent") {
     return Agent({
@@ -134,10 +141,7 @@ function buildRedeployed(
       name: "parity",
       instructions: "REDEPLOYED — still call work, then stop.",
     })
-      .use({
-        id: "parity-tools",
-        tools: [workTool(gates)],
-      })
+      .tools(...workTools(service))
       .build();
   }
   // The flow agent embeds its worker, so the worker's new instructions change its hash.
@@ -148,16 +152,14 @@ function buildRedeployed(
         name: "parity-worker",
         instructions: "REDEPLOYED worker — call work, then stop.",
       })
-        .use({
-          id: "parity-tools",
-          tools: [workTool(gates)],
-        })
+        .tools(...workTools(service))
         .build()
     )
     .build();
 }
 
-function scriptedModel() {
+/** Calls `work`, or `approved_work` while `gates.requireApproval`, then answers "done". */
+function scriptedModel(gates: Gates) {
   let calls = 0;
   return async (effect: {
     input?: { prompt?: { kind?: string }[] };
@@ -173,7 +175,7 @@ function scriptedModel() {
         {
           type: "tool-call" as const,
           id: `call-${calls}`,
-          name: "work",
+          name: gates.requireApproval ? "approved_work" : "work",
           args: { note: "parity-note" },
         },
       ],
@@ -301,20 +303,17 @@ describe.each([["agent"], ["workflow"]] as const)(
         const first = await startTestTenant({
           applicationKey: APP,
           retainRoot: true,
-          modelProvider: scriptedModel(),
+          modelProvider: scriptedModel(gates),
         });
+        const service = await startWorkService(gates);
         const client = createClient({
           url: first.url,
           key: first.applicationKey,
           tenant: first.tenantId,
         });
-        const definition = buildDefinition(kind, gates);
-        let connection: ServedAgents = serveAgents({
-          agents: [definition],
-          application: client,
+        await client.saveAgent(buildDefinition(kind, service), {
           implementationVersion: "parity-v1",
         });
-        await connection.ready;
 
         const listed = await client.listAgents();
         const registered = listed.agents.find(
@@ -458,7 +457,6 @@ describe.each([["agent"], ["workflow"]] as const)(
         const pinnedHashBefore = (await sessionE.inspect())
           .manifestHash as string;
 
-        await connection.close();
         const root = first.root;
         const tenantId = first.tenantId;
         const applicationKey = first.applicationKey;
@@ -469,19 +467,13 @@ describe.each([["agent"], ["workflow"]] as const)(
           retainRoot: true,
           tenantId,
           applicationKey,
-          modelProvider: scriptedModel(),
+          modelProvider: scriptedModel(gates),
         });
         const client2 = createClient({
           url: second.url,
           key: second.applicationKey,
           tenant: second.tenantId,
         });
-        connection = serveAgents({
-          agents: [buildDefinition(kind, gates)],
-          application: client2,
-          implementationVersion: "parity-v1",
-        });
-        await connection.ready;
 
         const sessionE2 = client2.session(`parity-${kind}-e`);
         // Waits survive restart; approve on the owning session.
@@ -508,18 +500,10 @@ describe.each([["agent"], ["workflow"]] as const)(
         const interactionF = interactionIdOf(waitF);
         const ownerF = ownerSessionOf(sessionF, waitF);
 
-        await client2.saveAgent(buildRedeployed(kind, gates), {
+        // The live session's pin must remain pinF.
+        await client2.saveAgent(buildRedeployed(kind, service), {
           implementationVersion: "parity-v2",
         });
-        // Serve the redeployed code on a new endpoint (re-registered) so it is what
-        // Actions are delivered to after this turn; the live session pin must remain pinF.
-        await connection.close();
-        connection = serveAgents({
-          agents: [buildRedeployed(kind, gates)],
-          application: client2,
-          implementationVersion: "parity-v2",
-        });
-        await connection.ready;
 
         const listedAfter = await client2.listAgents();
         const defAfter = listedAfter.agents.find(
@@ -575,7 +559,9 @@ describe.each([["agent"], ["workflow"]] as const)(
           sessionG.input("different", { idempotencyKey: "msg-g" })
         ).rejects.toThrow();
 
-        await connection.close();
+        // Every call reached the service; none ran in the Runtime.
+        expect(service.calls.length).toBeGreaterThan(0);
+        await service.close();
         await second.close();
       },
       120_000

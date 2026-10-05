@@ -1,13 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  Agent,
-  createClient,
-  type BuiltAgent,
-} from "@nylorun/agents";
+import { Agent, createClient } from "@nylorun/agents";
 import type { HostEffect } from "@nylorun/harness/run";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
-import { serveAgents, type ServedAgents } from "./support/endpoint.js";
 
 /**
  * Flow Agents Phase 3, end to end: a ReAct agent delegates to a flow agent. The flow runs
@@ -51,7 +46,7 @@ const research = Agent({ id: "research", description: "Researches a question and
   Agent({ id: "searcher" }).instructions("Search."),
   Agent({ id: "summarizer" }).instructions("Summarize.")
 );
-const lead = Agent({ id: "lead" }).instructions("Delegate research.").subagents(research);
+const lead = Agent({ id: "lead" }).instructions("Delegate research.").subagents(research).build();
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -63,13 +58,7 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
     const tenant = await startTestTenant({ applicationKey: APP, modelProvider: provider });
     cleanups.push(() => tenant.close());
     const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
-    const connection: ServedAgents = serveAgents({
-      agents: [lead as unknown as BuiltAgent],
-      application: client,
-      implementationVersion: "phase-3",
-    });
-    cleanups.push(() => connection.close());
-    await connection.ready;
+    await client.saveAgent(lead, { implementationVersion: "phase-3" });
 
     // The flow is embedded in the parent's manifest, not registered on its own.
     const { agents } = await client.listAgents();
@@ -138,13 +127,7 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
     cleanups.push(() => tenant.close());
     cleanups.push(async () => release());
     const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
-    const connection = serveAgents({
-      agents: [lead as unknown as BuiltAgent],
-      application: client,
-      implementationVersion: "phase-3",
-    });
-    cleanups.push(() => connection.close());
-    await connection.ready;
+    await client.saveAgent(lead, { implementationVersion: "phase-3" });
     const session = await client.createSession({ id: "lead-2", agentId: "lead", ownerUserId: "user-1" });
     await session.input("Research the sky.", { idempotencyKey: "msg-1" });
     await searching;

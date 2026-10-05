@@ -262,7 +262,6 @@ const bearer = (token) => ({ authorization: `Bearer ${token}`, "content-type": "
 const gate = "http://gateway:4100/nylorun/v1";
 const withHarnessToken = [
   ["gateway keys/sign", `${gate}/keys/sign`, { args: [{ typ: "nylorun-run+jwt", claims: {} }] }],
-  ["gateway deliveries", `${gate}/deliveries`, { url: "http://example.com", body: "", headers: {}, timeoutMs: 1000 }],
   ["gateway model-calls", `${gate}/model-calls`, { effectId: "e", invocationId: "i", call: { prompt: [], tools: [] } }],
   ["gateway mcp/connect", `${gate}/mcp/connect`, { server: { sessionId: SESSION_B, capabilityId: "c", serverName: "s" } }],
 ];
@@ -365,16 +364,10 @@ const foreignRecord = await refusal(
 );
 report("a workspace record outside the Tenant's prefix: invalid", foreignRecord === "invalid", `${foreignRecord} (Tenant ${tenantId})`);
 
-// 9. A's run token at the gateway: its own session only, no keys, no deliveries.
+// 9. A's run token at the gateway: its own session only, no keys.
 const runHeaders = bearer(run.token);
 const keys = await http(`${gate}/keys/sign`, { method: "POST", headers: runHeaders, body: { args: [{ typ: "x", claims: {} }] } });
 report("keys/sign refuses a run token", keys.status === 401, keys.status);
-const delivery = await http(`${gate}/deliveries`, {
-  method: "POST",
-  headers: runHeaders,
-  body: { url: "http://example.com", body: "", headers: {}, timeoutMs: 1000 },
-});
-report("deliveries refuse a run token", delivery.status === 401, delivery.status);
 const namingB = await http(`${gate}/model-calls`, {
   method: "POST",
   headers: runHeaders,

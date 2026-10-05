@@ -1,6 +1,6 @@
 /**
  * Remote MCP servers are reached under the Host's address policy (`tenant/outbound.ts`), as
- * Action endpoints are: in the local stack `localhost` means the Docker host, and a Host that
+ * HTTP tools are: in the local stack `localhost` means the Docker host, and a Host that
  * refuses private addresses refuses them for MCP too.
  */
 import { createServer, type IncomingMessage, type Server } from "node:http";

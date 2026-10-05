@@ -55,17 +55,14 @@ export interface TenantConfig {
    * deadline. Default 50 steps or 20 minutes.
    */
   rollover?: { steps?: number; ms?: number };
-  /**
-   * How long a run waits in its lease for a pending Action's outcome (F6.2): the turn goes on
-   * at once when the Action endpoint answers in time, and ends its segment as waiting (resumed
-   * by replay) otherwise. Default 5 minutes; 0 never waits.
-   */
-  actionHoldMs?: number;
   /** Retries and timeouts for model calls (Model Calls §5, §6). Defaults in `piModel`. */
   modelCall?: import("../gates/model-gate.js").ModelCallSettings;
-  /** Action claim lease. Default 30 s. */
-  /** How the Runtime may call Action endpoints (Host settings). Default: http and private addresses allowed. */
+  /**
+   * How the Runtime may call MCP servers and HTTP tools (Host settings). Default: http and
+   * private addresses allowed.
+   */
   delivery?: OutboundPolicy;
+  /** Bounds the default Tenant sweep interval (`sweepIntervalMs`). Default 30 s. */
   leaseMs?: number;
   /** Ownership lease of an advance (§10.6); renewed every third while it runs. Default 30 s. */
   ownerLeaseMs?: number;
@@ -112,9 +109,6 @@ export interface TenantSummary {
   // redacted; counts only
   ready: boolean;
   runningSessions: number;
-  /** Deliveries to Action endpoints in flight on this process. */
-  inFlightDeliveries: number;
-  pendingActions: number;
   uncertainEffects: number;
   /** The Tenant's harnesses (F6.2). */
   harness?: HarnessStatus;

@@ -9,7 +9,6 @@ import { decodeProtectedHeader } from "jose";
 import { newTenantId } from "@nylorun/core/compatibility";
 import {
   ARTIFACT_LINK_TOKEN_TYPE,
-  DELIVERY_TOKEN_TYPE,
   tenantTokenIssuer,
 } from "@nylorun/core/contracts";
 import {
@@ -81,11 +80,9 @@ describe("run tokens", () => {
     expect(await verifyRunToken(runs.store, newTenantId(), await signed())).toMatchObject({ ok: false });
   });
 
-  it("refuses a capability link or delivery token presented as a run token", async () => {
+  it("refuses a capability link presented as a run token", async () => {
     const link = await signed({ aud: "nylorun-artifact", ver: 1 }, ARTIFACT_LINK_TOKEN_TYPE);
-    const delivery = await signed({ aud: "http://endpoint.invalid", gen: 1, bdy: "x" }, DELIVERY_TOKEN_TYPE);
-    for (const token of [link, delivery])
-      expect(await verify(token)).toEqual({ ok: false, reason: "run_token_header" });
+    expect(await verify(link)).toEqual({ ok: false, reason: "run_token_header" });
   });
 
   it("refuses missing or malformed claims and an overlong lifetime", async () => {

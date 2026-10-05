@@ -4,8 +4,8 @@
  * builder's view of them. Column names are the camelCase keys in snake_case (`casing:
  * "snake_case"`, here, in `db.ts` and in `drizzle.config.ts`).
  *
- * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables, Action
- *   endpoints, principals, vaults and credentials, signing keys, settings, the model usage
+ * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables,
+ *   principals, vaults and credentials, signing keys, settings, the model usage
  *   ledger, the model budgets, the Tool Gate's crossings, file artifacts with their versions and
  *   the definition files agent definitions name.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
@@ -171,27 +171,6 @@ export const effects = nylorun.table(
   ],
 );
 
-export const actions = nylorun.table(
-  "actions",
-  {
-    id: textC().primaryKey(),
-    body: jsonText().notNull(),
-    sessionId: field("->>'sessionId'"),
-    turnId: field("->>'turnId'"),
-    agentId: field("->>'agentId'"),
-    status: field("->>'status'"),
-    kind: field("->>'kind'"),
-    /** When the Action being delivered is lost (ISO text). */
-    deadlineAt: field("->>'deadlineAt'"),
-  },
-  (t) => [
-    index("actions_session").on(t.sessionId, t.turnId, t.status),
-    index("actions_agent").on(t.agentId, t.status),
-    index("actions_status").on(t.status, t.kind),
-    index("actions_deadline").on(t.status, t.deadlineAt),
-  ],
-);
-
 export const sandboxes = documents("sandboxes");
 
 export const links = nylorun.table(
@@ -335,7 +314,7 @@ export const tenantSettings = nylorun.table("tenant_settings", {
 });
 
 /**
- * The Tenant's signing keys (delivery tokens, capability links, run and host tokens): the
+ * The Tenant's signing keys (capability links, run and host tokens): the
  * private half sealed, the public JWK not.
  */
 export const signingKeys = nylorun.table(
@@ -366,29 +345,6 @@ export const signingKeys = nylorun.table(
     uniqueIndex("signing_keys_one_previous").on(t.state).where(sql`state = 'previous'`),
   ],
 );
-
-/**
- * Action endpoints: where the Runtime delivers each agent's Actions over HTTP, and the health
- * recent deliveries and the last ping report.
- */
-export const endpoints = nylorun.table("endpoints", {
-  agentId: textC().primaryKey(),
-  url: text().notNull(),
-  implementationVersion: text().notNull(),
-  manifestHash: text(),
-  timeoutMs: integer().notNull(),
-  maxConcurrent: integer().notNull(),
-  principalId: text(),
-  lastDeliveryAt: text(),
-  lastSuccessAt: text(),
-  lastErrorCode: text(),
-  lastErrorMessage: text(),
-  consecutiveFailures: integer().notNull().default(0),
-  servedImplementationVersion: text(),
-  servedManifestHash: text(),
-  createdAt: text().notNull(),
-  updatedAt: text().notNull(),
-});
 
 /**
  * The model usage ledger (P1.3): one row per model call a gate served, written after the call.

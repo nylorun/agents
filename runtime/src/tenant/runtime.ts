@@ -65,7 +65,6 @@ import {
 } from "./scheduler.js";
 import { advance } from "./advance.js";
 import { sweep } from "./sweep.js";
-import { deliverAction } from "./delivery.js";
 import {
   TenantWorkers,
   WORKER_ID,
@@ -112,8 +111,8 @@ export type TenantOpenHooks = {
    */
   modelGate?: ModelGate;
   /**
-   * Serves the Tenant's remote MCP servers and Action deliveries (the gates service's client).
-   * Without one, the Tenant opens them and POSTs deliveries in this process.
+   * Serves the Tenant's remote MCP servers and HTTP tools (the gates service's client).
+   * Without one, the Tenant opens and calls them in this process.
    */
   toolGate?: ToolGate;
   /**
@@ -423,10 +422,6 @@ export class TenantRuntime implements TenantHandle {
           await execution.wake(config.tenantId, sessionId, wake);
         },
         abortLocal: (sessionId, turnId) => abortLocal(ctx, sessionId, "cancel", turnId),
-        deliver: async (actionId) => {
-          if (ctx.closing || ctx.closed) return;
-          await execution.deliver(config.tenantId, actionId);
-        },
         ...(hooks.pods ? { pods: hooks.pods } : {}),
         sandboxSignal: async (sandboxId, signal) => {
           if (ctx.closing || ctx.closed || !execution.sandbox) return;
@@ -471,7 +466,6 @@ export class TenantRuntime implements TenantHandle {
       // sessions a previous process left runnable or running (takeover handles the rest).
       const worker: TenantWorker = {
         advance: (sessionId, signal) => advance(ctx, sessionId, signal),
-        deliver: (actionId, signal) => deliverAction(ctx, actionId, signal),
         sweep: () => sweep(ctx),
         sandbox: (sandboxId, trigger) => reconcileSandbox(ctx, sandboxId, trigger),
       };
@@ -519,11 +513,6 @@ export class TenantRuntime implements TenantHandle {
     return {
       ready: !this.ctx.closing && !this.ctx.closed,
       runningSessions: counts.runningSessions,
-      inFlightDeliveries: [...this.ctx.work.deliveries.values()].reduce(
-        (n, set) => n + set.size,
-        0,
-      ),
-      pendingActions: counts.pendingActions,
       uncertainEffects: counts.uncertainEffects,
       harness: harnessStatusOf(this.ctx),
     };

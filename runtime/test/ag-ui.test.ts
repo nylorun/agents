@@ -4,16 +4,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { HttpAgent, getRunOutcome } from "@ag-ui/client";
 import type { BaseEvent, Message } from "@ag-ui/core";
-import {
-  Agent,
-  createClient,
-  tool,
-} from "@nylorun/agents";
+import { Agent, createClient } from "@nylorun/agents";
 import { createAgUiHandler, toNodeListener } from "@nylorun/agents/ag-ui";
 import type { ModelProvider } from "../src/core/provider.js";
 import { sessionIdFor } from "../src/api/ag-ui/session-id.js";
 import { startTestTenant } from "./support/tenant.js";
-import { serveAgents, type ServedAgents } from "./support/endpoint.js";
+import { startToolServer, type ToolServer } from "./support/tool-server.js";
 
 /**
  * Phase 0 and Phase 1 exit gates: an AG-UI client drives the handler against a Runtime,
@@ -80,55 +76,33 @@ function scriptedModel(): ModelProvider {
 let release: () => void = () => {};
 let held: Promise<void> = Promise.resolve();
 
-const shop = Agent({ id: "shop", name: "Shop" })
-  .use({
-    id: "orders",
-    tools: [
-      tool({
-        name: "lookup",
+/** The agents' HTTP tools, answered by the app's own service. */
+function agents(service: ToolServer) {
+  const shop = Agent({ id: "shop", name: "Shop" })
+    .tools(
+      service.tool("lookup", {
         input: z.object({ orderId: z.string() }),
         output: z.object({ status: z.string() }),
-        async run() {
-          return { status: "shipped" };
-        },
-      }),
-    ],
-  })
-  .build();
-const guarded = Agent({ id: "guarded", name: "Guarded" })
-  .use({
-    id: "notes",
-    tools: [
-      tool({
-        name: "save",
+      })
+    )
+    .build();
+  const guarded = Agent({ id: "guarded", name: "Guarded" })
+    .tools(
+      service.tool("save", {
         input: z.object({ note: z.string() }),
         output: z.object({ saved: z.literal(true) }),
-        approval: () => "Save this note?",
-        async run() {
-          return { saved: true as const };
-        },
-      }),
-    ],
-  })
-  .build();
-const slow = Agent({ id: "slow", name: "Slow" })
-  .use({
-    id: "work",
-    tools: [
-      tool({
-        name: "wait",
-        input: z.object({}),
-        async run() {
-          await held;
-          return "waited";
-        },
-      }),
-    ],
-  })
-  .build();
+        approval: "always",
+      })
+    )
+    .build();
+  const slow = Agent({ id: "slow", name: "Slow" })
+    .tools(service.tool("wait", { input: z.object({}) }))
+    .build();
+  return [shop, guarded, slow];
+}
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
-let connection: ServedAgents;
+let service: ToolServer;
 let server: Server;
 let base: string;
 let runtimeClient: ReturnType<typeof createClient>;
@@ -155,15 +129,19 @@ beforeAll(async () => {
     key: runtime.applicationKey,
     tenant: runtime.tenantId,
   });
-  connection = serveAgents({
-    agents: [shop, guarded, slow],
-    application: client,
-    implementationVersion: "dev",
+  service = await startToolServer({
+    lookup: () => ({ status: "shipped" }),
+    save: () => ({ saved: true }),
+    wait: async () => {
+      await held;
+      return "waited";
+    },
   });
-  await connection.ready;
+  const built = agents(service);
+  for (const agent of built) await client.saveAgent(agent, { implementationVersion: "dev" });
   const handler = createAgUiHandler({
     basePath: "/api/agui",
-    agents: [shop, guarded, slow],
+    agents: built,
     client,
     subject: (request) => request.headers.get("x-user") ?? undefined,
   });
@@ -182,7 +160,7 @@ beforeAll(async () => {
 afterAll(async () => {
   server?.closeAllConnections();
   await new Promise((resolve) => server?.close(resolve));
-  await connection?.close();
+  await service?.close();
   await runtime?.close();
 });
 
@@ -239,7 +217,7 @@ async function* frames(response: Response) {
 }
 
 describe("AG-UI handler against the Runtime", () => {
-  it("streams text between tool calls, endpoint and sandbox results, and reloads the same messages", async () => {
+  it("streams text between tool calls, HTTP tool and sandbox results, and reloads the same messages", async () => {
     const h = agentFor("shop", "ada", "t-shop");
     const events = await say(h, "Where is my order?");
     expect(types(events)).toEqual([
@@ -357,7 +335,7 @@ describe("AG-UI handler against the Runtime", () => {
     };
     expect(interrupt).toMatchObject({
       reason: "tool_approval",
-      message: "Save this note?",
+      message: "Approve save?",
       toolCallId: call.toolCallId,
     });
 
