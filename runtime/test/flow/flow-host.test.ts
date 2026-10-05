@@ -10,6 +10,7 @@ import {
   deriveSessionId,
   fenceWorkflowActions,
   foreignInteractionConflict,
+  linkedMessageInput,
   linkedMessageKey,
   pathDepth,
   planCancelCascade,
@@ -21,7 +22,7 @@ import {
   type FlowLink,
 } from "../../src/core/flow-host.js";
 import { resolveFlowLimits } from "../../src/core/limits.js";
-import type { DocTable } from "../../src/store/types.js";
+import type { DocTable, SessionStore } from "../../src/store/types.js";
 import { createTestSessionStore } from "../support/store.js";
 
 async function testStore() {
@@ -201,15 +202,15 @@ it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and open actions o
     },
     status,
   });
-  // Counted: a pending agent effect, and a fn effect with a pending action.
+  // Counted: a pending agent effect, and a tool node effect with a pending action.
   await put("effects", "agent-1", effect("agent-1", "agent", "pending"));
-  await put("effects", "fn-1", effect("fn-1", "fn", "pending"));
-  await put("actions", "fn-1", flowAction({ actionId: "fn-1", status: "pending", kind: "fn" }));
+  await put("effects", "tool-1", effect("tool-1", "tool", "pending"));
+  await put("actions", "tool-1", flowAction({ actionId: "tool-1", status: "pending", kind: "tool" }));
   // Not counted: queued, completed, a settled action, another turn.
-  await put("effects", "fn-2", effect("fn-2", "fn", "queued"));
-  await put("effects", "fn-3", effect("fn-3", "fn", "completed"));
-  await put("effects", "fn-4", effect("fn-4", "fn", "pending"));
-  await put("actions", "fn-4", flowAction({ actionId: "fn-4", status: "completed", kind: "fn" }));
+  await put("effects", "tool-2", effect("tool-2", "tool", "queued"));
+  await put("effects", "tool-3", effect("tool-3", "tool", "completed"));
+  await put("effects", "tool-4", effect("tool-4", "tool", "pending"));
+  await put("actions", "tool-4", flowAction({ actionId: "tool-4", status: "completed", kind: "tool" }));
   await put("effects", "agent-2", effect("agent-2", "agent", "pending", "turn-0"));
 
   expect(await store.tx((t) => countActiveFlowWork(t, "wf-1", "turn-1"))).toBe(2);
@@ -223,7 +224,7 @@ it("WF-L1: wakeForQueuedEffects schedules the workflow after commit when a slot 
     activeTurnId: "turn-1",
   });
   await put("effects", "q", {
-    request: { effectId: "q", sessionId: "wf-1", turnId: "turn-1", kind: "fn" },
+    request: { effectId: "q", sessionId: "wf-1", turnId: "turn-1", kind: "tool" },
     status: "queued",
   });
   const scheduled: string[] = [];
@@ -329,9 +330,9 @@ it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () =>
     effectId: "e2",
     turnId: "t",
   });
-  await put("actions", "p", flowAction({ actionId: "p", turnId: "t", status: "pending", kind: "fn" }));
-  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "delivering", kind: "fn" }));
-  await put("actions", "o", flowAction({ actionId: "o", turnId: "other", status: "pending", kind: "fn" }));
+  await put("actions", "p", flowAction({ actionId: "p", turnId: "t", status: "pending", kind: "tool" }));
+  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "delivering", kind: "tool" }));
+  await put("actions", "o", flowAction({ actionId: "o", turnId: "other", status: "pending", kind: "tool" }));
   expect(pathDepth("a/b/c")).toBe(3);
   const plan = await store.tx((t) =>
     planCancelCascade({ t, workflowSessionId: "wf-1", turnId: "t" })
@@ -348,8 +349,8 @@ it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () =>
 
 it("WF-R53: fenceWorkflowActions pending→cancelled, delivering→uncertain", async () => {
   const { store, put, get } = await testStore();
-  await put("actions", "p", flowAction({ actionId: "p", turnId: "t", status: "pending", kind: "fn" }));
-  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "delivering", kind: "fn" }));
+  await put("actions", "p", flowAction({ actionId: "p", turnId: "t", status: "pending", kind: "tool" }));
+  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "delivering", kind: "tool" }));
   await put("effects", "p", { status: "pending", request: { effectId: "p" } });
   await put("effects", "c", { status: "pending", request: { effectId: "c" } });
   await put("effects", "q", {
@@ -429,6 +430,67 @@ it("WF-R52 / LOOP-A4: foreignInteractionConflict returns 409 naming owner sessio
     message: `Interaction belongs to session ${agentId}`,
     ownerSessionId: agentId,
   });
+});
+
+it("D12: a stage's message carries the flow's input as the original request", () => {
+  expect(linkedMessageInput({ input: "draft" })).toBe("draft");
+  expect(linkedMessageInput({ input: { x: 1 } })).toEqual({ x: 1 });
+  expect(linkedMessageInput({ input: "draft", flowInput: "Write about tides." })).toBe(
+    "Original request:\nWrite about tides.\n\ndraft"
+  );
+  const composed = linkedMessageInput({
+    input: { task: "t", response: "r", iteration: 1 },
+    flowInput: { topic: "tides" },
+  });
+  expect(composed).toBe(
+    'Original request:\n{\n  "topic": "tides"\n}\n\n{\n  "task": "t",\n  "response": "r",\n  "iteration": 1\n}'
+  );
+  // Deterministic: a replayed effect sends the same message.
+  expect(linkedMessageInput({ input: "draft", flowInput: "w" })).toBe(
+    linkedMessageInput({ input: "draft", flowInput: "w" })
+  );
+});
+
+const eventsOf = async (store: SessionStore, sessionId: string) => {
+  const record = store.record();
+  const head = (await record.heads(undefined, 1000)).find((h) => h.sessionId === sessionId);
+  if (!head) return [];
+  return (await record.readRange(head.tenantId, sessionId, 0, head.head)).map((row) => {
+    const { type, payload } = row.body as { type: string; payload: unknown };
+    return { type, payload };
+  });
+};
+
+it("records a verifier agent's verdict as loop.verified when its turn settles", async () => {
+  const { store, put, get } = await testStore();
+  await put("sessions", "wf-1", { id: "wf-1", status: "waiting", activeTurnId: "turn-1" });
+  const settle = async (path: string, effectId: string, output: unknown, context: object) => {
+    const agentId = deriveSessionId("wf-1", path, effectId);
+    await put("links", agentId, { workflowSessionId: "wf-1", path, effectId, turnId: "turn-1" });
+    const request = { ...agentRequest(effectId, path), context } as HostEffect;
+    await put("effects", effectId, { status: "pending", request });
+    await commitLinkedMessage(put, agentId, request, `turn-${effectId}`);
+    await store.tx((t) =>
+      wakeLinkedWorkflow({
+        t,
+        agentSessionId: agentId,
+        turnId: `turn-${effectId}`,
+        output: output as never,
+        schedule: () => undefined,
+      })
+    );
+  };
+  const judged = { loopPath: "fix", role: "verify-agent" };
+  await settle("judge", "v-1", { pass: false, feedback: "red" }, { ...judged, n: 1 });
+  await settle("judge", "v-2", { pass: true, data: { score: 9 } }, { ...judged, n: 2 });
+  // A body turn and a verifier that returned no verdict record nothing.
+  await settle("fixer", "b-1", { pass: true }, { loopPath: "fix", n: 1 });
+  await settle("judge", "v-3", { score: 1 }, { ...judged, n: 3 });
+  expect((await get("effects", "v-1"))?.status).toBe("completed");
+  expect((await eventsOf(store, "wf-1")).filter((e) => e.type === "loop.verified")).toEqual([
+    { type: "loop.verified", payload: { path: "fix", n: 1, pass: false, feedback: "red" } },
+    { type: "loop.verified", payload: { path: "fix", n: 2, pass: true, data: { score: 9 } } },
+  ]);
 });
 
 it("WF-R54: wakeLinkedWorkflow records agent.cancelled", async () => {

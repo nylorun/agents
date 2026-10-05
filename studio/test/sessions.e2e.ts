@@ -142,7 +142,7 @@ async function fakeRuntime() {
             agentId: FLOW,
             manifest: {
               kind: "workflow",
-              workflowSchemaVersion: 2,
+              workflowSchemaVersion: 3,
               id: FLOW,
               name: "Shipping",
               root: { chain: [{ agent: CHILD_AGENT }] },

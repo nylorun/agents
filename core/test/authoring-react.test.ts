@@ -7,7 +7,6 @@ import {
   hashManifest,
   mcp,
   tool,
-  Loop,
 } from "../src/define.js";
 
 /**
@@ -22,7 +21,6 @@ const GOLDEN = {
   useMcp: "a2438f66e72113e3f9c41af29b4f8d3af4b84ae46c9a5ac94167ffb08290895a",
   subagent: "f31101aa36ce0497ae532ff459cb65c5620900daa2711cca73735d7808986e29",
   empty: "549e1757a7fcd85e5172fb9420b06dcf26d1e44bff03a07e39268872cb16aea8",
-  loopWorkflow: "5ddba0cf4b2845fa3e0c17e4bc37eee5d0a4d46b9b904a396c79b220af6cc768",
 } as const;
 
 const look = tool({
@@ -65,8 +63,6 @@ describe("today's syntax is unchanged", () => {
     ).toBe(GOLDEN.useMcp);
     expect(hash(Agent({ id: "a", instructions: "x", tools: [look, legacySub] }))).toBe(GOLDEN.subagent);
     expect(hash(Agent({ id: "a" }))).toBe(GOLDEN.empty);
-    const loop = Loop({ id: "polish", run: legacySub, verify: () => ({ pass: true }), decide: ({ output }) => ({ output }) });
-    expect(hashManifest(loop.manifest)).toBe(GOLDEN.loopWorkflow);
   });
 });
 
@@ -117,24 +113,17 @@ describe("build diagnostics", () => {
   });
 
   it("flow.no-model for a ReAct method on a flow agent", () => {
-    expect(diagnosticsOf(() => Agent({ id: "f" }).step(sub).instructions("x" as never).build())).toEqual([
+    expect(diagnosticsOf(() => Agent({ id: "f" }).pipe(sub).instructions("x" as never).build())).toEqual([
       "flow.no-model",
     ]);
   });
 
   it("agent.mixed-body for a flow method on a ReAct agent", () => {
-    expect(diagnosticsOf(() => Agent({ id: "a" }).instructions("x").step(sub).build())).toEqual(["agent.mixed-body"]);
+    expect(diagnosticsOf(() => Agent({ id: "a" }).instructions("x").pipe(sub).build())).toEqual(["agent.mixed-body"]);
   });
 
   it("mcp.duplicate-server for the same server twice", () => {
     const server = { gh: { type: "sse" as const, url: "https://x.example/gh" } };
     expect(diagnosticsOf(() => Agent({ id: "a" }).mcp(server).mcp(server).build())).toEqual(["mcp.duplicate-server"]);
-  });
-
-  it("delegation.flow-unsupported for a workflow built with the v1 primitives", () => {
-    const old = Loop({ id: "old", run: sub, verify: () => ({ pass: true }), decide: ({ output }) => ({ output }) });
-    expect(diagnosticsOf(() => Agent({ id: "a" }).subagents(old as never).build())).toEqual([
-      "delegation.flow-unsupported",
-    ]);
   });
 });

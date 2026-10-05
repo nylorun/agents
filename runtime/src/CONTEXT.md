@@ -274,15 +274,15 @@ nginx, Tailscale).
 
 **Action endpoint**: The URL an app registers for one agent (`PUT /v1/endpoints`,
 `endpoints` table, `tenant/endpoints.ts`), served by `createActionHandler` from
-`@nylorun/agents`. The Runtime POSTs each of the agent's Actions (tool, `fn`, `verify`)
-there. The endpoint answers with the outcome, or with `202` for a
+`@nylorun/agents`. The Runtime POSTs each of the agent's Actions (its tools, and a flow
+agent's tool nodes) there. The endpoint answers with the outcome, or with `202` for a
 background tool, which later posts `POST /v1/actions/:id/result`. Health comes from
 recent deliveries and `POST /v1/endpoints/:agentId/ping`.
 _Avoid_: "executor", "webhook" or "callback URL" for it.
 
 **Delivery**: One POST of an Action to its endpoint (`tenant/delivery.ts`, run by the
 execution's `deliver` handler). The Action is `delivering` until its `deadlineAt`; then it
-is lost. A lost tool is `uncertain`; a lost `fn` or `verify` is delivered again.
+is lost: the tool becomes `uncertain`.
 Unreachable endpoints are retried with backoff (`action.delivery_failed`), and a cancel
 aborts the request.
 

@@ -3,7 +3,6 @@ export {
   joinPath,
   nodeKeyOf,
   payloadOf,
-  type AgentManifestLike,
   type EventLike,
   type IterationRecord,
   type NodeLiveState,
@@ -25,7 +24,6 @@ export {
   lookupWorkflowLink,
   clearWorkflowLinks,
 } from "./link-store.ts";
-export { summarizeManifestPatch } from "./manifest-diff.ts";
 export {
   iterationTimelineFromEvents,
   groupIterationsByPath,

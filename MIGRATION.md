@@ -114,6 +114,33 @@ reaches your process. The manifest's `skills.<name>` gains `files`, each path of
   sandbox the model finds it under `/skills/<name>/`.
 - A top-level `functions` key in a manifest is reserved: it is refused for now.
 
+## Flows run no code
+
+Flow agents compile to workflow manifest v3 (`workflowSchemaVersion: 3`) on the `flow-3`
+engine. A flow is data: stage `input` functions, `switch` `on`, loop `verify` functions and
+`decide` are gone, and so are the `fn` and `verify` Actions they were delivered as. A v1 or v2
+workflow manifest is refused with `workflowSchemaVersion 2 is no longer supported: …`, and a
+builder option that names a function is refused with what replaces it. The first stage gets the
+flow's input and every later stage the previous stage's output, so each agent returns what the
+next stage needs through its `.output()` schema. An agent after the first stage also sees the
+flow's input as the original request.
+
+| Before                                                                           | Instead                                                                                                   |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `{ input: ({ input, results, flowInput }) => … }` on a stage                     | The previous agent's output schema returns what the next stage takes                                      |
+| `.switch(cases, { on: ({ input }) => input.kind })`                              | `.switch(cases)`: the previous output is the case name, or has a `route` field                            |
+| `.map(each, { input: ({ input }) => input.tasks })`                              | `.map(each)` over an array output, or an output with an `items` array                                     |
+| `.loop(body, { verify: ({ output }) => verdict })`                               | `.loop(body, { verify: verifierAgent, max })`, the agent's output schema `VerdictSchema`                  |
+| `.loop(body, { verify, decide })`                                                | `.loop(body, { verify, max })`: a fail retries with the feedback until `max`; `max` is required           |
+| `.step(x)`, `.step(x, { id })`                                                   | `.pipe(x)`, `.pipe(x.withId(id))`; `.pipe(a, b, c)` adds three stages (`.step` warns, `NYLORUN_DEP_STEP`) |
+| `Chain`, `Switch`, `Parallel`, `Map`, `Loop`, `withInstructions`, `withoutTools` | A flow agent: `Agent({ id }).pipe(…)`, `.switch()`, `.parallel()`, `.map()`, `.loop()`                    |
+| `Agent.from(flow, { nodes: { "route:on": fn, … } })`                             | `Agent.from(flow, { nodes: { open_pr: tool } })`: only tool nodes take code                               |
+
+A verifier agent gets `{ task, response, iteration }` and must return `{ pass, feedback? }`, with
+feedback when `pass` is false; anything else fails the loop with `loop.verify-failed`. Each
+verdict is recorded as a `loop.verified` event; `loop.decided` is gone. Tool nodes still run on
+your Action endpoint.
+
 # Runtime and Management APIs (protocol 8)
 
 Every Tenant now serves two APIs on its one URL, split by route and by key. The **Runtime API**

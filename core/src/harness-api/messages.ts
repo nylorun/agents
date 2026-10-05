@@ -47,7 +47,7 @@ export interface EffectIntent {
   readonly turnId: string;
   readonly agentId: string;
   readonly manifestHash: string;
-  readonly kind: "model" | "tool" | "delegation" | "agent" | "fn" | "verify";
+  readonly kind: "model" | "tool" | "delegation" | "agent";
   readonly agent?: AgentRef;
   readonly capabilityId?: string;
   readonly toolName?: string;

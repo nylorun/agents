@@ -57,7 +57,6 @@ const LABELS: Readonly<Record<string, string>> = {
   "loop.iteration": "Loop iteration",
   "loop.waiting": "Loop waiting",
   "loop.verified": "Loop verified",
-  "loop.decided": "Loop decided",
   "mcp.discovered": "MCP servers",
 };
 
@@ -169,12 +168,7 @@ export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string
     case "loop.verified":
       return `${text(payload.path, "loop")} #${String(payload.n ?? "?")}: ${
         payload.pass === true ? "pass" : "fail"
-      }`;
-    case "loop.decided":
-      return `${text(payload.path, "loop")} #${String(payload.n ?? "?")} → ${text(
-        payload.next,
-        "?",
-      )}${payload.patched === true ? " (patched)" : ""}`;
+      }${typeof payload.feedback === "string" ? ` — ${payload.feedback}` : ""}`;
     case "mcp.discovered": {
       const servers = Array.isArray(payload.servers) ? payload.servers.map(record) : [];
       if (servers.length === 0) return "No MCP servers.";

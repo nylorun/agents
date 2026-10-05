@@ -1,8 +1,10 @@
-import { Agent, tool } from "@nylorun/agents/define";
+import { Agent } from "@nylorun/agents/define";
 import { z } from "zod";
 
 /**
- * Map: the same step once per item of a list, concurrently.
+ * Map: the same stage once per item of a list, concurrently. A map runs over the previous
+ * output's `items` (or over the output itself when it is an array); its output is the list
+ * of results, in order.
  * Design: docs/design/agent/flow-agents.md
  */
 const planner = Agent({
@@ -10,8 +12,8 @@ const planner = Agent({
   name: "Section planner",
   description: "Plans sections for a digest.",
 })
-  .instructions("Plan section titles for the topic. Return { sections: string[] }.")
-  .output(z.object({ sections: z.array(z.string()) }));
+  .instructions("Plan section titles for the topic. Return { items: string[] }.")
+  .output(z.object({ items: z.array(z.string()) }));
 
 const sectionWriter = Agent({
   id: "section-writer",
@@ -19,21 +21,19 @@ const sectionWriter = Agent({
   description: "Writes one section from a title.",
 }).instructions("Write one short section for the given title.");
 
-const merge = tool({
-  name: "merge",
-  description: "Joins section texts into one digest.",
-  input: z.object({ parts: z.array(z.string()) }),
-  output: z.object({ digest: z.string() }),
-  async run({ parts }) {
-    return { digest: parts.join("\n\n") };
-  },
-});
+const editor = Agent({
+  id: "editor",
+  name: "Editor",
+  description: "Joins sections into one digest.",
+})
+  .instructions("Join the sections you are given into one digest, in order.")
+  .output(z.object({ digest: z.string() }));
 
 export const digest = Agent({
   id: "digest",
   name: "Digest",
   description: "Plans sections, writes each one, and joins them into a digest.",
 })
-  .step(planner)
-  .map(sectionWriter, { id: "write", input: ({ input }) => input.sections })
-  .step(merge, { input: ({ input }) => ({ parts: input }) });
+  .pipe(planner)
+  .map(sectionWriter, { id: "write" })
+  .pipe(editor);

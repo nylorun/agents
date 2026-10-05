@@ -53,7 +53,7 @@ describe("deprecation warnings", () => {
       .mcp({ gh: { type: "sse", url: "https://x.example/gh" } })
       .output(z.string())
       .build();
-    Agent({ id: "f" }).step(helper).build();
+    Agent({ id: "f" }).pipe(helper).build();
     expect(codes).toEqual([]);
   });
 

@@ -68,9 +68,7 @@ function TreeBranch({
       <span className="truncate font-medium">{node.label}</span>
       <span className="truncate font-mono text-[10px] text-muted-foreground">
         {node.kind}
-        {node.layout !== "leaf" && node.layout !== "slot"
-          ? ` · ${node.layout}`
-          : ""}
+        {node.layout !== "leaf" ? ` · ${node.layout}` : ""}
       </span>
       <NodeBadge node={node} live={live} />
       {live?.agentSessionId ? (

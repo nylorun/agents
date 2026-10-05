@@ -1,9 +1,9 @@
-import type { JsonValue, WorkflowManifest } from "@nylorun/core/define";
+import type { WorkflowManifest } from "@nylorun/core/define";
 import type { DurableHost, HostEffect } from "../run/durable.js";
 import { HostSuspension } from "../loop/host-suspension.js";
 import type { FlowCheckpoint } from "./checkpoint.js";
 import { resolveOperatorLimits, type FlowOperatorLimits } from "./limits.js";
-import { flowEffectId, iterationsOf, nodeKeyOf } from "./paths.js";
+import { flowEffectId, nodeKeyOf } from "./paths.js";
 import {
   failedValueOf,
   FlowNodeError,
@@ -13,7 +13,7 @@ import {
   type FlowInteraction,
 } from "./types.js";
 
-export type FlowEffectKind = "agent" | "tool" | "fn" | "verify";
+export type FlowEffectKind = "agent" | "tool";
 
 export type FlowContext = {
   readonly manifest: WorkflowManifest;
@@ -26,27 +26,21 @@ export type FlowContext = {
   /** Interactions tool nodes wait on, by interaction id. */
   readonly interactions: Map<string, FlowInteraction>;
   readonly inFlight: Set<Promise<unknown>>;
-  /** Nearest enclosing Chain `results`, outermost first. */
-  readonly resultsStack: Array<Record<string, JsonValue>>;
-  /** Enclosing Loop iteration numbers, outermost first. */
-  iterations: number[];
   /** Effect ids the engine wants cancelled after fail-fast. */
   readonly cancelEffectIds: Set<string>;
   effect(
     kind: FlowEffectKind,
     input: unknown,
-    identity: { path: string; key: string; iterations?: string; role?: string },
+    identity: { path: string; key: string; iterations: string; role?: string },
     context?: Record<string, unknown>,
   ): Promise<unknown>;
   /** The id `effect` gives an effect of `kind` at `identity`. */
   effectIdOf(
     kind: FlowEffectKind,
-    identity: { path: string; iterations?: string; role?: string },
+    identity: { path: string; iterations: string; role?: string },
   ): string;
   /** Records an interaction a tool node waits on; throw what it returns. */
   pause(interaction: FlowInteraction): FlowPause;
-  nearestResults(): Record<string, JsonValue>;
-  iterationsString(): string;
 };
 
 export function createFlowContext(options: {
@@ -60,7 +54,6 @@ export function createFlowContext(options: {
   const interactions = new Map<string, FlowInteraction>();
   const inFlight = new Set<Promise<unknown>>();
   const cancelEffectIds = new Set<string>();
-  const resultsStack: Array<Record<string, JsonValue>> = [];
   const ctx: FlowContext = {
     manifest: options.manifest,
     checkpoint: options.checkpoint,
@@ -70,22 +63,14 @@ export function createFlowContext(options: {
     pending,
     interactions,
     inFlight,
-    resultsStack,
-    iterations: [],
     cancelEffectIds,
-    nearestResults() {
-      return resultsStack.length === 0 ? {} : resultsStack[resultsStack.length - 1]!;
-    },
-    iterationsString() {
-      return iterationsOf(ctx.iterations);
-    },
     effectIdOf(kind, identity) {
       return flowEffectId({
         turnId: options.checkpoint.turnId,
         segment: options.checkpoint.segment,
         path: identity.path,
         kind,
-        iterations: identity.iterations ?? ctx.iterationsString(),
+        iterations: identity.iterations,
         ...(identity.role === undefined ? {} : { role: identity.role }),
       });
     },
@@ -96,9 +81,9 @@ export function createFlowContext(options: {
     async effect(kind, input, identity, context = {}) {
       if (options.signal?.aborted)
         throw new FlowNodeError({ code: "cancelled", message: "cancelled" });
-      const iterations = identity.iterations ?? ctx.iterationsString();
+      const { iterations } = identity;
       const key = identity.key || nodeKeyOf(identity.path);
-      const effectId = ctx.effectIdOf(kind, { ...identity, iterations });
+      const effectId = ctx.effectIdOf(kind, identity);
       if (cancelEffectIds.has(effectId))
         throw new FlowNodeError({
           code: "cancelled",
@@ -178,6 +163,6 @@ export function failureOf(error: unknown, fallbackPath?: string): FlowFailure {
     };
   }
   if (error instanceof Error && error.message)
-    return { code: "fn.failed", message: error.message, path: fallbackPath };
-  return { code: "fn.failed", message: String(error), path: fallbackPath };
+    return { code: "flow.failed", message: error.message, path: fallbackPath };
+  return { code: "flow.failed", message: String(error), path: fallbackPath };
 }

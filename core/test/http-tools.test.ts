@@ -132,6 +132,6 @@ describe("http()", () => {
 
   it("is not a flow stage", () => {
     const refund = http({ name: "refund", input: z.object({}), url: "https://example.com/x" });
-    expect(() => Agent({ id: "refunds" }).step(refund as never).build()).toThrow(/HTTP tool/);
+    expect(() => Agent({ id: "refunds" }).pipe(refund as never).build()).toThrow(/HTTP tool/);
   });
 });

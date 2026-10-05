@@ -411,9 +411,9 @@ export async function command(
 /**
  * Completes a delivered Action with `outcome`, in the caller's transaction, which
  * holds the lock of the Action's session `s`: the Action and its effect, the
- * `action.completed` event (and `loop.verified` or `loop.decided`), the wake that resumes the
- * turn, and queued workflow effects. The Action deliverer and the background-result callback
- * both record outcomes here. It sets `s.status`; the caller writes `s`.
+ * `action.completed` event, the wake that resumes the turn, and queued workflow effects. The
+ * Action deliverer and the background-result callback both record outcomes here. It sets
+ * `s.status`; the caller writes `s`.
  */
 export async function recordActionOutcome(
   t: Tx,
@@ -449,40 +449,6 @@ export async function recordActionOutcome(
     ...(action.kind === "tool" ? toolIds(action.context) : {}),
     result: outcome.value,
   });
-  if (action.kind === "verify") {
-    const verdict = outcome.value as {
-      pass?: boolean;
-      feedback?: string;
-      data?: unknown;
-      kind?: string;
-    };
-    if (verdict?.kind !== "failed") {
-      await t.event(s.id, s.activeTurnId, "loop.verified", {
-        path: String(action.context?.loopPath ?? action.path ?? ""),
-        n: Number(action.context?.n ?? 1),
-        pass: Boolean(verdict?.pass),
-        ...(verdict?.feedback !== undefined
-          ? { feedback: verdict.feedback }
-          : {}),
-        ...(verdict?.data !== undefined ? { data: verdict.data } : {}),
-      });
-    }
-  } else if (action.kind === "fn" && action.context?.role === "decide") {
-    const decision = outcome.value as {
-      input?: unknown;
-      output?: unknown;
-      agent?: unknown;
-    };
-    await t.event(s.id, s.activeTurnId, "loop.decided", {
-      path: String(action.context?.loopPath ?? action.path ?? ""),
-      n: Number(action.context?.n ?? 1),
-      next:
-        "output" in decision && !("input" in decision)
-          ? "output"
-          : "input",
-      patched: Boolean(decision.agent),
-    });
-  }
   const receipt = {
     status: "accepted",
     turnId: s.activeTurnId,

@@ -248,31 +248,3 @@ describe("SessionClient.observe follow (WF-EV8 / WF-C6)", () => {
     expect(seen).toContain("wf:node.completed");
   });
 });
-
-describe("AgentsClient.saveAgent workflow (WF-R3 / WF-C6)", () => {
-  it("saves referenced agents before the workflow", async () => {
-    const { Loop, Agent } = await import("@nylorun/core/define");
-    const order: string[] = [];
-    const writer = Agent({ id: "writer", instructions: "Write." }).build();
-    const workflow = Loop({
-      id: "polish",
-      run: writer,
-      verify: () => ({ pass: true }),
-      decide: () => ({ output: "done" }),
-    });
-    const client = new AgentsClient({
-      url: URL,
-      key: KEY,
-      fetch: async (url, init) => {
-        if (String(url).endsWith("/health")) return healthOk();
-        if (init?.method === "PUT") {
-          order.push(decodeURIComponent(String(url).split("/").pop()!));
-          return Response.json({ ok: true });
-        }
-        throw new Error(`unexpected ${url}`);
-      },
-    });
-    await client.saveAgent(workflow, { implementationVersion: "test" });
-    expect(order).toEqual(["writer", "polish"]);
-  });
-});

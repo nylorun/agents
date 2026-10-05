@@ -2,7 +2,8 @@ import { Agent } from "@nylorun/agents/define";
 import { z } from "zod";
 
 /**
- * Switch: pick one case by a key your code computes from the input.
+ * Switch: run one case, picked by the previous output. The triager returns `{ route }`, the
+ * name of a case; any other route goes to `default`.
  * Design: docs/design/agent/flow-agents.md
  */
 const triager = Agent({
@@ -10,10 +11,10 @@ const triager = Agent({
   name: "Triager",
   description: "Classifies a support ticket.",
 })
-  .instructions("Classify the ticket. Return kind and a short summary.")
+  .instructions("Classify the ticket. Return its route and a short summary.")
   .output(
     z.object({
-      kind: z.enum(["bug", "billing", "other"]),
+      route: z.enum(["bug", "billing", "other"]),
       summary: z.string(),
     }),
   );
@@ -41,8 +42,5 @@ export const support = Agent({
   name: "Support",
   description: "Triages a ticket and routes it to the agent for its kind.",
 })
-  .step(triager)
-  .switch(
-    { bug: bugAgent, billing: billingAgent, default: generalAgent },
-    { on: ({ input }) => input.kind, id: "route" },
-  );
+  .pipe(triager)
+  .switch({ bug: bugAgent, billing: billingAgent, default: generalAgent }, { id: "route" });

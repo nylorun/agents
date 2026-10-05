@@ -41,7 +41,7 @@ it("gives the flow's agents the sandbox the flow session was opened with", { tim
   cleanups.push(() => tenant.close());
   const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
   const desk = Agent({ id: "desk" })
-    .step(Agent({ id: "drafter" }).instructions("Write a draft to draft.txt."))
+    .pipe(Agent({ id: "drafter" }).instructions("Write a draft to draft.txt."))
     .build();
   const connection: ServedAgents = serveAgents({
     agents: [desk],

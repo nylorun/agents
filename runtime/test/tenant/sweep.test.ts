@@ -69,7 +69,7 @@ function effect(id: string, sessionId: string, turnId: string, status: string) {
   };
 }
 
-function action(fields: Partial<Action> & Pick<Action, "actionId" | "kind">): Action {
+function action(fields: Partial<Action> & Pick<Action, "actionId">): Action {
   return {
     sessionId: "s1",
     turnId: "t1",
@@ -81,9 +81,9 @@ function action(fields: Partial<Action> & Pick<Action, "actionId" | "kind">): Ac
     status: "delivering",
     generation: 1,
     deadlineAt: new Date(Date.now() - 1000).toISOString(),
-    ...(fields.kind === "tool"
-      ? { capabilityId: "notes", toolName: "save" }
-      : { path: "p", key: "p" }),
+    kind: "tool",
+    capabilityId: "notes",
+    toolName: "save",
     ...fields,
   } as Action;
 }
@@ -220,39 +220,29 @@ describe("on the Postgres store", () => {
     expect(await eventsOf(store, "s1")).toEqual([]);
   });
 
-  it("loses lapsed deliveries by kind and leaves live ones alone", async () => {
+  it("loses lapsed deliveries and leaves live ones alone", async () => {
     const store = await makeStore();
     const { ctx, delivered } = contextOf(store);
     const future = new Date(Date.now() + 60_000).toISOString();
     await store.tx(async (t) => {
       await t.put("sessions", "s1", session("s1", { status: "waiting", activeTurnId: "t1" }));
-      await t.put("actions", "tool-1", action({ actionId: "tool-1", kind: "tool" }));
+      await t.put("actions", "tool-1", action({ actionId: "tool-1" }));
       await t.put("effects", "tool-1", effect("tool-1", "s1", "t1", "pending"));
-      await t.put("actions", "fn-1", action({ actionId: "fn-1", kind: "fn" }));
-      await t.put("actions", "verify-1", action({ actionId: "verify-1", kind: "verify" }));
-      await t.put(
-        "actions",
-        "live-1",
-        action({ actionId: "live-1", kind: "tool", deadlineAt: future })
-      );
+      await t.put("actions", "live-1", action({ actionId: "live-1", deadlineAt: future }));
     });
-    expect(await sweepDeliveries(ctx)).toBe(3);
+    expect(await sweepDeliveries(ctx)).toBe(1);
     const after = await store.tx(async (t) => ({
       session: await t.get("sessions", "s1"),
       tool: await t.get<Action>("actions", "tool-1"),
       toolEffect: await t.get("effects", "tool-1"),
-      fn: await t.get<Action>("actions", "fn-1"),
-      verify: await t.get<Action>("actions", "verify-1"),
       live: await t.get<Action>("actions", "live-1"),
     }));
-    // A lost tool delivery is uncertain; an fn or verify goes back to pending and is sent again.
+    // A lost tool delivery is uncertain: it may have run.
     expect(after.tool?.status).toBe("uncertain");
     expect(after.toolEffect.status).toBe("uncertain");
     expect(after.session.status).toBe("uncertain");
-    expect(after.fn).toMatchObject({ status: "pending", deadlineAt: null });
-    expect(after.verify).toMatchObject({ status: "pending", deadlineAt: null });
     expect(after.live?.status).toBe("delivering");
-    expect(delivered.sort()).toEqual(["fn-1", "verify-1"]);
+    expect(delivered).toEqual([]);
     expect(await eventsOf(store, "s1")).toEqual(["action.uncertain"]);
     expect(await sweepDeliveries(ctx)).toBe(0);
   });
@@ -270,11 +260,11 @@ describe("on the Postgres store", () => {
         maxConcurrent: 16,
         updatedAt: new Date().toISOString(),
       });
-      await t.put("actions", "v1", action({ actionId: "v1", kind: "verify", status: "pending", deadlineAt: null }));
+      await t.put("actions", "v1", action({ actionId: "v1", status: "pending", deadlineAt: null }));
       await t.put(
         "actions",
         "other-1",
-        action({ actionId: "other-1", kind: "tool", agentId: "other", status: "pending", deadlineAt: null })
+        action({ actionId: "other-1", agentId: "other", status: "pending", deadlineAt: null })
       );
     });
     expect(await sweepDeliveries(ctx)).toBe(0);

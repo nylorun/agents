@@ -14,9 +14,9 @@
  *
  * Nothing sent (connection refused, unknown host, a refused address), `429`, `503` and a
  * version mismatch (`409`) are retried with backoff, whatever the kind. A delivery that may have
- * reached the endpoint but got no answer is lost: a tool becomes `uncertain`, a hook, `fn` or
- * `verify` is delivered again. So is a delivery whose deadline passes with no answer, which is
- * how a Worker that died mid-delivery is recovered (the sweep, `expireDeliveries`).
+ * reached the endpoint but got no answer is lost: the tool becomes `uncertain`. So is a delivery
+ * whose deadline passes with no answer, which is how a Worker that died mid-delivery is
+ * recovered (the sweep, `expireDeliveries`).
  */
 import {
   OUTCOME_HEADER,
@@ -92,7 +92,7 @@ export async function deliverAction(
       // In flight elsewhere, or answered with 202: its deadline settles it. Past the deadline
       // (a Worker died mid-delivery), it is lost now.
       if (Date.parse(action.deadlineAt ?? "") > Date.now()) return { kind: "none" };
-      await loseAction(t, ctx, s, action, { redeliver: "after-commit" });
+      await loseAction(t, s, action);
       return { kind: "none" };
     }
     if (
@@ -223,10 +223,8 @@ export function interpret(action: Action, result: OutboundResult): Settlement {
       ? { kind: "outcome", outcome: parsed.data }
       : rejected("endpoint.invalid-answer", "The endpoint's answer is not an Action outcome");
   }
-  // A plain answer: a tool's output, or what an `fn` or `verify` returned.
-  if (action.kind === "tool")
-    return { kind: "outcome", outcome: { value: { kind: "completed", output: value } } };
-  return { kind: "outcome", outcome: { value } };
+  // A plain answer: the tool's output.
+  return { kind: "outcome", outcome: { value: { kind: "completed", output: value } } };
 }
 
 function rejected(code: string, message: string): Settlement {
@@ -307,11 +305,8 @@ async function settle(
           code: settlement.code,
           message: settlement.message,
         });
-        const again = await loseAction(t, ctx, s, action, { redeliver: "retry" });
-        if (!again) return DONE;
-        const retryAfterMs = await backoff(t, endpoint.agentId);
-        await notice(t, ctx, s, action, settlement, retryAfterMs);
-        return { status: "retry", retryAfterMs };
+        await loseAction(t, s, action);
+        return DONE;
       }
     }
   });
@@ -346,25 +341,10 @@ async function notice(
 }
 
 /**
- * A delivery that may have reached the endpoint got no answer. A tool becomes `uncertain`, with
- * its effect and its session. A `fn` or `verify` is pure or repeat-safe and goes back to `pending`: delivered again right away
- * (`after-commit`) or by the caller's retry (`retry`). Returns true when it will be delivered again.
+ * A delivery that may have reached the endpoint got no answer: the tool becomes `uncertain`,
+ * with its effect and its session.
  */
-export async function loseAction(
-  t: Tx,
-  ctx: Pick<TenantContext, "deliver">,
-  s: Session,
-  action: Action,
-  options: { redeliver: "after-commit" | "retry" },
-): Promise<boolean> {
-  if (action.kind === "fn" || action.kind === "verify") {
-    action.status = "pending";
-    action.deadlineAt = null;
-    await t.put("actions", action.actionId, action);
-    if (options.redeliver === "after-commit")
-      t.afterCommit(() => void ctx.deliver(action.actionId));
-    return options.redeliver === "retry";
-  }
+export async function loseAction(t: Tx, s: Session, action: Action): Promise<void> {
   action.status = "uncertain";
   action.deadlineAt = null;
   await t.put("actions", action.actionId, action);
@@ -381,7 +361,6 @@ export async function loseAction(
       ...(action.agent ? { agent: action.agent } : {}),
     });
   }
-  return false;
 }
 
 /**
@@ -402,7 +381,7 @@ export async function sweepDeliveries(ctx: TenantContext, now = new Date()): Pro
         Date.parse(action.deadlineAt ?? "") > now.getTime()
       )
         return false;
-      await loseAction(t, ctx, s, action, { redeliver: "after-commit" });
+      await loseAction(t, s, action);
       return true;
     });
     if (changed) settled += 1;

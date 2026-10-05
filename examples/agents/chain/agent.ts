@@ -2,7 +2,9 @@ import { Agent, tool } from "@nylorun/agents/define";
 import { z } from "zod";
 
 /**
- * A sequence: steps in order. Each step's output is the next step's input.
+ * A sequence: stages in order. Each stage gets the previous stage's output, so each agent's
+ * output schema is what the next stage takes: the analyst returns the `{ summary }` that
+ * `publish` needs.
  * Design: docs/design/agent/flow-agents.md
  */
 const researcher = Agent({
@@ -18,7 +20,7 @@ const analyst = Agent({
   name: "Analyst",
   description: "Summarizes research findings.",
 })
-  .instructions("Turn findings into a one-paragraph summary.")
+  .instructions("Turn the findings into a one-paragraph summary.")
   .output(z.object({ summary: z.string() }));
 
 const publish = tool({
@@ -36,8 +38,4 @@ export const report = Agent({
   name: "Report",
   description: "Researches a topic, summarizes the findings and records the summary.",
 })
-  .step(researcher)
-  .step(analyst, {
-    input: ({ results }) => `Summarize these findings:\n${results.researcher.findings}`,
-  })
-  .step(publish, { input: ({ input }) => ({ summary: input.summary }) });
+  .pipe(researcher, analyst, publish);

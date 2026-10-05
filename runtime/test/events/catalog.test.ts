@@ -74,8 +74,8 @@ describe("event catalog coverage", () => {
       store.tx((t) => t.event("s1", null, "made.up" as never, {} as never)),
     ).rejects.toBeInstanceOf(InvalidEventError);
     await expect(
-      store.tx((t) => t.event("s1", null, "loop.decided", { path: "p" } as never)),
-    ).rejects.toThrow(/loop\.decided/);
+      store.tx((t) => t.event("s1", null, "loop.verified", { path: "p" } as never)),
+    ).rejects.toThrow(/loop\.verified/);
     const event = await store.tx((t) => t.event("s1", null, "turn.completed", { output: 1 }));
     expect(event).toMatchObject({ schema: "nylorun.event/2", seq: 0, source: { kind: "loop" } });
   });

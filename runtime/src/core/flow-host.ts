@@ -14,6 +14,8 @@
  * - `deriveAgentEffectSessionId(workflowSessionId, path, request): string`
  * - `isWorkflowManifest(manifest): manifest is WorkflowManifest`
  * - `isFlowToolEffect(request): boolean`, `isFlowEffect(request): boolean`
+ * - `linkedMessageInput(body): JsonValue`
+ * - `settleAgentEffect({ t, effect, outcome }): Promise<void>`
  * - `pathDepth(path): number`
  * - `countActiveFlowWork(t, workflowSessionId, turnId): Promise<number>`
  * - `commandKey(sessionId, idempotencyKey): string`
@@ -46,7 +48,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Action, ActionOutcome } from "@nylorun/core/contracts";
-import type { JsonValue, WorkflowManifest } from "@nylorun/core/define";
+import { isVerdict, type JsonValue, type WorkflowManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import type { Wake } from "../execution/types.js";
 import type { EffectDoc, Tx } from "../store/types.js";
@@ -125,12 +127,49 @@ export function isFlowToolEffect(request: HostEffect): boolean {
 }
 
 export function isFlowEffect(request: HostEffect): boolean {
-  return (
-    request.kind === "agent" ||
-    request.kind === "fn" ||
-    request.kind === "verify" ||
-    isFlowToolEffect(request)
-  );
+  return request.kind === "agent" || isFlowToolEffect(request);
+}
+
+/** Pretty JSON for a message, or a string as it is. */
+function text(value: JsonValue): string {
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+/**
+ * What a flow `agent` effect sends its linked session (D12): the stage's input, and, when the
+ * engine sent the flow's own input beside it, that input first as the original request. Pure,
+ * so a replayed effect sends the same message.
+ */
+export function linkedMessageInput(body: {
+  readonly input: JsonValue;
+  readonly flowInput?: JsonValue;
+}): JsonValue {
+  if (body.flowInput === undefined) return body.input;
+  return `Original request:\n${text(body.flowInput)}\n\n${text(body.input)}`;
+}
+
+/**
+ * Settle a flow `agent` effect with its linked turn's outcome, in the caller's transaction,
+ * which holds the workflow session's lock. A verifier agent's verdict is recorded as
+ * `loop.verified`; an outcome that is not a verdict fails the Loop in the engine instead.
+ */
+export async function settleAgentEffect(input: {
+  readonly t: Tx;
+  readonly effect: FlowEffect;
+  readonly outcome: ActionOutcome;
+}): Promise<void> {
+  const { t, effect, outcome } = input;
+  await t.put("effects", effect.request.effectId, { ...effect, status: "completed", outcome });
+  const { request } = effect;
+  if (request.context?.role !== "verify-agent" || !isVerdict(outcome.value)) return;
+  const verdict = outcome.value;
+  await t.event(request.sessionId, request.turnId, "loop.verified", {
+    path: String(request.context.loopPath ?? request.path ?? ""),
+    n: Number(request.context.n ?? 1),
+    pass: verdict.pass,
+    ...(verdict.pass ? {} : { feedback: verdict.feedback }),
+    ...(verdict.data !== undefined ? { data: verdict.data } : {}),
+  });
 }
 
 export type FlowLink = {
@@ -237,12 +276,7 @@ export async function countActiveFlowWork(
       n += 1;
       continue;
     }
-    if (
-      (effect.request?.kind === "fn" ||
-        effect.request?.kind === "verify" ||
-        isFlowToolEffect(effect.request)) &&
-      openActions.has(effect.request.effectId)
-    )
+    if (isFlowToolEffect(effect.request) && openActions.has(effect.request.effectId))
       n += 1;
   }
   return n;
@@ -352,11 +386,7 @@ export async function wakeLinkedWorkflow(input: {
       }
     : { value: input.output ?? null };
 
-  await t.put("effects", link.effectId, {
-    ...effect,
-    status: "completed",
-    outcome,
-  });
+  await settleAgentEffect({ t, effect, outcome });
 
   workflow.status = "runnable";
   await t.put("sessions", workflow.id, workflow);

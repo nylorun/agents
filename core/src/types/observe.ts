@@ -86,13 +86,6 @@ export type WorkflowLiveEventPayload =
       readonly feedback?: string;
       readonly data?: JsonValue;
       readonly verifierSessionId?: string;
-    }
-  | {
-      readonly type: "loop.decided";
-      readonly path: string;
-      readonly n: number;
-      readonly next: "input" | "output";
-      readonly patched: boolean;
     };
 
 export type ObserveToolSnapshot = ToolDescriptor;

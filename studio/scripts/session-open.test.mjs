@@ -14,7 +14,7 @@ const shipping = {
   kind: "workflow",
   manifest: {
     kind: "workflow",
-    workflowSchemaVersion: 2,
+    workflowSchemaVersion: 3,
     id: "shipping",
     root: { chain: [{ agent: "logistics-planner" }, { agent: "customs" }] },
     agents: {
@@ -25,7 +25,7 @@ const shipping = {
       },
       customs: {
         kind: "workflow",
-        workflowSchemaVersion: 2,
+        workflowSchemaVersion: 3,
         id: "customs",
         root: { agent: "declarer" },
         agents: { declarer: { id: "declarer", capabilities: [] } },
