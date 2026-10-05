@@ -12,10 +12,10 @@ import {
   json,
   temporaryHome,
   testDeps,
+  readyResponse,
   type FakeKeys,
 } from "./support.js";
 
-const TENANT_ID = "tn_01TESTSTACK000000000000001";
 const MCP_URL = "https://mcp.example.com/mcp";
 const AUTHORIZE = "https://auth.example.com/authorize?client_id=client-1&state=s";
 
@@ -51,8 +51,7 @@ async function running(fake: Fake) {
   let polls = 0;
   const fetch = fakeFetch((url, init) => {
     if (url.endsWith("/health")) return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
-    if (url.endsWith("/v1/admin/status"))
-      return json({ tenant: { id: TENANT_ID, name: "home-root", state: "open", envelope: null } });
+    if (url.endsWith("/ready")) return readyResponse();
     if (url.endsWith("/_studio/login-tokens")) return json({ token: "t" }, 201);
     const path = new URL(url).pathname;
     const method = init?.method ?? "GET";

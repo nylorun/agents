@@ -49,7 +49,6 @@ beforeAll(async () => {
     tenantId: TENANT,
     applicationKey: APPLICATION_KEY,
     adminKey: ADMIN_KEY,
-    operatorListener: true,
     model: { kind: "fixture" },
     logger: createHostLogger((line) => lines.push(line)),
   });
@@ -104,10 +103,8 @@ it("logs each request's outcome as recorded", async () => {
   await fetch(`${rt.url}/v1/ag-ui/agents/bot/threads/t1/messages`, {
     headers: { ...app, "nylorun-subject": "app:ann", "nylorun-scopes": "sessions:own" },
   });
+  // The Admin API is gone (protocol 8): the admin key is an unknown key there, as anywhere.
   await fetch(`${rt.url}/v1/admin/status`, {
-    headers: { "nylorun-protocol": "4", authorization: `Bearer ${ADMIN_KEY}` },
-  });
-  await fetch(`${rt.adminUrl}/v1/admin/status`, {
     headers: { "nylorun-protocol": "4", authorization: `Bearer ${ADMIN_KEY}` },
   });
   const stream = new AbortController();

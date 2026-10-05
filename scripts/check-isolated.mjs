@@ -65,10 +65,8 @@ try {
       import { join } from 'node:path';
       import { openTenantRuntime } from '@nylorun/runtime';
       import openapi from '@nylorun/runtime/openapi.json' with { type: 'json' };
-      import adminOpenapi from '@nylorun/runtime/admin-openapi.json' with { type: 'json' };
       assert.equal(typeof openTenantRuntime, 'function');
       assert.equal(openapi.openapi, '3.2.0');
-      assert.equal(adminOpenapi.openapi, '3.2.0');
       // Named components: the contracts' schemas reached zod-to-openapi as one Zod.
       assert.ok(openapi.components.schemas.SessionView);
       const hostRoot = join(process.cwd(), 'host-root');

@@ -1,16 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   HOST_PROTOCOL,
   PROTOCOL_FEATURES,
   PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
 import { createAdmin } from "../src/index.js";
-import { ADMIN_KEY, healthBody, sampleStatus, startStubServer } from "./helpers.js";
-
-afterEach(() => {
-  delete process.env.NYLORUN_ADMIN_URL;
-  delete process.env.NYLORUN_ADMIN_KEY;
-});
+import { MANAGEMENT_KEY, healthBody, sampleTenantStatus, startStubServer } from "./helpers.js";
 
 describe("B3 /health compatibility cache", () => {
   it("checks /health once, caches it, and sends Authorization and Nylorun-Protocol", async () => {
@@ -23,12 +18,12 @@ describe("B3 /health compatibility cache", () => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify(sampleStatus()));
+      response.end(JSON.stringify(sampleTenantStatus()));
     });
     try {
-      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await admin.status();
-      await admin.status();
+      const admin = createAdmin({ url: server.url, key: MANAGEMENT_KEY });
+      await admin.tenant.status();
+      await admin.tenant.status();
       expect(health).toBe(1);
       expect(server.recorded.filter((r) => r.url === "/health")).toHaveLength(
         1,
@@ -38,9 +33,37 @@ describe("B3 /health compatibility cache", () => {
       );
       expect(authenticated.length).toBeGreaterThanOrEqual(2);
       for (const call of authenticated) {
-        expect(call.headers.authorization).toBe(`Bearer ${ADMIN_KEY}`);
+        expect(call.headers.authorization).toBe(`Bearer ${MANAGEMENT_KEY}`);
         expect(call.headers["nylorun-protocol"]).toBe(String(PROTOCOL_VERSION));
       }
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("requires the management-api feature", async () => {
+    const server = await startStubServer((request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify(
+          request.url === "/health"
+            ? healthBody({
+                protocol: {
+                  ...HOST_PROTOCOL,
+                  features: PROTOCOL_FEATURES.filter((feature) => feature !== "management-api"),
+                },
+              })
+            : sampleTenantStatus(),
+        ),
+      );
+    });
+    try {
+      const admin = createAdmin({ url: server.url, key: MANAGEMENT_KEY });
+      await expect(admin.keys.list()).rejects.toMatchObject({
+        code: "incompatible_host",
+        message: expect.stringContaining("management-api"),
+      });
+      expect(server.recorded.map((r) => r.url)).toEqual(["/health"]);
     } finally {
       await server.close();
     }
@@ -60,11 +83,11 @@ describe("B3 /health compatibility cache", () => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify(sampleStatus()));
+      response.end(JSON.stringify(sampleTenantStatus()));
     });
     try {
-      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await expect(admin.status()).rejects.toMatchObject({
+      const admin = createAdmin({ url: server.url, key: MANAGEMENT_KEY });
+      await expect(admin.tenant.status()).rejects.toMatchObject({
         code: "incompatible_host",
       });
       expect(server.recorded.map((r) => r.url)).toEqual(["/health"]);
@@ -109,11 +132,11 @@ describe("B3 /health compatibility cache", () => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify(sampleStatus()));
+      response.end(JSON.stringify(sampleTenantStatus()));
     });
     try {
-      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await expect(admin.status()).rejects.toMatchObject({
+      const admin = createAdmin({ url: server.url, key: MANAGEMENT_KEY });
+      await expect(admin.tenant.status()).rejects.toMatchObject({
         code: "incompatible_host",
       });
       expect(health).toBe(2);
@@ -147,11 +170,11 @@ describe("B3 /health compatibility cache", () => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify(sampleStatus()));
+      response.end(JSON.stringify(sampleTenantStatus()));
     });
     try {
-      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await expect(admin.status()).resolves.toEqual(sampleStatus());
+      const admin = createAdmin({ url: server.url, key: MANAGEMENT_KEY });
+      await expect(admin.tenant.status()).resolves.toEqual(sampleTenantStatus());
       expect(health).toBe(2);
       expect(requests).toBe(2);
     } finally {

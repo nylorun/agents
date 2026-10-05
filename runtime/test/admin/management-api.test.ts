@@ -9,7 +9,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AdminError, createManagementClient } from "@nylorun/admin";
+import { AdminError, createAdmin, createManagementClient } from "@nylorun/admin";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { runOperate } from "../../src/host/operate.js";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
@@ -81,11 +81,27 @@ describe("application keys through the Management API", () => {
     expect(await refusal(host.admin.keys.delete("ops"))).toMatchObject({ status: 400 });
     expect(await refusal(host.admin.keys.put("studio"))).toMatchObject({ status: 400 });
     expect(await refusal(host.admin.keys.put("bootstrap"))).toMatchObject({ status: 400 });
+    expect(await refusal(host.admin.keys.put("Not_A_Key"))).toEqual({ code: "invalid_request", status: 400 });
+    expect(JSON.stringify(keys)).not.toContain(rotated.key);
     expect(await host.status(host.managementKey, "GET", "/v1/tenant")).toBe(200);
 
     expect(await host.admin.keys.delete("backend")).toBe(true);
     expect(await host.admin.keys.delete("backend")).toBe(false);
     expect(await host.status(rotated.key, "GET", "/v1/agents")).toBe(404);
+  });
+});
+
+describe("createAdmin", () => {
+  it("checks /health, then reaches the Management API with a management key", async () => {
+    const host = await startHost();
+    const admin = createAdmin({ url: host.url, key: host.managementKey });
+    expect(admin.source).toBe("options");
+    expect((await admin.tenant.status()).tenant.id).toBe(host.tenantId);
+    expect((await admin.keys.list()).map((key) => key.id)).toContain("ops");
+    // An application key is the Runtime's to refuse, with the API it belongs to.
+    await expect(
+      createAdmin({ url: host.url, key: host.applicationKey }).tenant.status(),
+    ).rejects.toMatchObject({ code: "key_role_mismatch", status: 403 });
   });
 });
 

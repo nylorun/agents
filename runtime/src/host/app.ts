@@ -1,17 +1,17 @@
 /**
  * The Host's request pipeline as a Hono app, in the order clients depend on: the request log
- * around everything, then Origin and `OPTIONS`, Content-Type, `/health`, `/ready`, the Admin
- * API, and Tenant routes, which go to the Host's one Tenant once the request's headers and
- * protocol check out. Nothing in a request selects the Tenant (protocol 5); a protocol 4
- * client's `Nylorun-Tenant` naming another Tenant gets the opaque 404, so a client pointed at
- * the wrong installation fails loudly.
+ * around everything, then Origin and `OPTIONS`, Content-Type, `/health`, `/ready`, and Tenant
+ * routes, which go to the Host's one Tenant once the request's headers and protocol check out
+ * (`/v1/admin/*` too, since the Admin API is gone). Nothing in a request selects the Tenant
+ * (protocol 5); a protocol 4 client's `Nylorun-Tenant` naming another Tenant gets the opaque
+ * 404, so a client pointed at the wrong installation fails loudly.
  *
  * Browsers (protocol 7): the Runtime sends no CORS headers; the operator's proxy answers
- * preflights and adds them. A request with `Origin` reaches the Tenant routes of the public
- * listener, where only a trusted issuer's token is accepted from a browser (`tenant/auth.ts`).
- * The Admin API, `/health`, `/ready` and the operator listener refuse `Origin`. An `OPTIONS`
- * request (a preflight that passed the proxy, or none) is `204` with `Allow` and no CORS
- * header, so a browser that reaches the Runtime directly fails its preflight.
+ * preflights and adds them. A request with `Origin` reaches the Tenant routes, where only a
+ * trusted issuer's token is accepted from a browser (`tenant/auth.ts`). `/health` and `/ready`
+ * refuse `Origin`. An `OPTIONS` request (a preflight that passed the proxy, or none) is `204`
+ * with `Allow` and no CORS header, so a browser that reaches the Runtime directly fails its
+ * preflight.
  *
  * The `Host` header is checked before this, in the Node listener (`create-host.ts`):
  * `@hono/node-server` builds the request URL from it, and refuses a malformed one itself.
@@ -32,23 +32,19 @@ import { RUNTIME_VERSION } from "../version.js";
 import { findTenantRoute } from "../api/http/app.js";
 import { tenantDocument } from "../api/openapi.js";
 import {
-  adminKeyMatches,
   headerValue,
   isJsonContentType,
   jsonResponse,
   opaqueNotFoundResponse,
   protocolRejectedResponse,
-  readBearer,
   pathnameIsLogged,
   redactRoutePath,
   rejectedResponse,
   requestHasBody,
 } from "./http.js";
-import type { ListenerRole } from "./create-host.js";
 
-export type HostBindings = NodeBindings & { readonly role: ListenerRole };
 export type HostEnv = {
-  Bindings: HostBindings;
+  Bindings: NodeBindings;
   Variables: {
     /** The Tenant a request reached, for the request log. */
     tenantId?: string;
@@ -61,15 +57,12 @@ export interface HostAppOptions {
   module: TenantModule;
   logger: Logger;
   hostId: string;
-  adminKey: string;
   coreVersion: string;
   pid: number;
   readiness?: () => Promise<{ ok: boolean; checks: Record<string, boolean> }>;
-  /** Every listener is listening. */
+  /** The listener is listening. */
   listening(): boolean;
   closing(): boolean;
-  /** The Admin API (`admin-api.ts`), for a request whose admin key checked out. */
-  admin(request: Request, node: NodeBindings): Promise<Response>;
 }
 
 export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
@@ -94,13 +87,11 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
   });
 
   app.use(async (c, next) => {
-    const { incoming, role } = c.env;
+    const { incoming } = c.env;
     if (headerValue(incoming, "origin") !== undefined) {
-      const route = pathnameOf(incoming).split("/").filter(Boolean);
-      // Only Tenant routes of the public listener; the Tenant then accepts only a trusted
-      // issuer's token from a browser. The operator listener never serves browsers.
-      const tenantRoute = route[0] === "v1" && route[1] !== "admin";
-      if (role === "operator" || !tenantRoute)
+      // Only Tenant routes; the Tenant then accepts only a trusted issuer's token from a
+      // browser.
+      if (pathnameOf(incoming).split("/").filter(Boolean)[0] !== "v1")
         return rejectedResponse(
           403,
           "origin_rejected",
@@ -130,7 +121,7 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
   });
 
   app.all("*", async (c) => {
-    const { incoming, outgoing, role } = c.env;
+    const { incoming, outgoing } = c.env;
     const url = new URL(incoming.url ?? "/", "http://runtime.local");
     const pathname = url.pathname;
 
@@ -154,27 +145,18 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
       const tenant = module.ready;
       const infra = await options.readiness?.();
       const ready = listener && tenant && !options.closing() && (infra?.ok ?? true);
+      const harness = module.harnessStatus();
       return jsonResponse(ready ? 200 : 503, {
         status: ready ? "ready" : "not_ready",
         service: "nylorun-runtime",
         checks: { listener, tenant, ...infra?.checks },
+        ...(harness ? { harness: { mode: harness.mode, connected: harness.connected } } : {}),
       });
     }
 
     // This API's own description: public, as the npm package that ships it.
     if (pathname === "/openapi.json" && incoming.method === "GET")
       return jsonResponse(200, tenantDocument(), { "cache-control": "no-cache" });
-
-    const segments = pathname.split("/").filter(Boolean);
-    if (segments[0] === "v1" && segments[1] === "admin") {
-      // A public listener has no admin routes: the same 404 as a wrong admin key.
-      if (role === "public") return opaqueNotFoundResponse();
-      if (!protocolAccepted(headerValue(incoming, PROTOCOL_HEADER)))
-        return protocolRejectedResponse();
-      const token = readBearer(headerValue(incoming, "authorization"));
-      if (!adminKeyMatches(token, options.adminKey)) return opaqueNotFoundResponse();
-      return await options.admin(c.req.raw, { incoming, outgoing });
-    }
 
     // Tenant routes: protocol → the Tenant → selection → the Tenant's routes.
     const tenantHeader = headerValue(incoming, TENANT_HEADER);
@@ -247,7 +229,7 @@ function tenantRouteOf(incoming: IncomingMessage) {
       return undefined;
     }
   }
-  if (segments[0] !== "v1" || segments[1] === "admin") return undefined;
+  if (segments[0] !== "v1") return undefined;
   return findTenantRoute(incoming.method ?? "GET", segments);
 }
 

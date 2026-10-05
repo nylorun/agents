@@ -25,7 +25,6 @@ it("answers normally in a process whose Request and Response @hono/node-server r
   const rt = await startEphemeralRuntime({
     database: testPool(),
     hostRoot: root,
-    operatorListener: true,
     model: { kind: "fixture" },
   });
   try {
@@ -51,11 +50,9 @@ it("answers normally in a process whose Request and Response @hono/node-server r
     expect(head.status).toBe(404);
 
     expect((await fetch(`${rt.url}/health`)).status).toBe(200);
-    const admin = await fetch(`${rt.adminUrl}/v1/admin/status`, {
-      headers: { "nylorun-protocol": "4", authorization: `Bearer ${rt.adminKey}` },
-    });
-    expect(admin.status).toBe(200);
-    expect(await admin.json()).toMatchObject({ service: "nylorun-runtime" });
+    const ready = await fetch(`${rt.url}/ready`);
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toMatchObject({ service: "nylorun-runtime", status: "ready" });
 
     await fetch(`${rt.url}/v1/sessions/s1`, {
       method: "PUT",

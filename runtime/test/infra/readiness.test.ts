@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { AdminStatusSchema, ReadyResponseSchema } from "@nylorun/core/contracts";
+import { ReadyResponseSchema } from "@nylorun/core/contracts";
 import { createReadiness, type Probe } from "../../src/infra/readiness.js";
-import { adminHeaders, getJson, startTestHost } from "../host/support.js";
+import { getJson, startTestHost } from "../host/support.js";
 
 const ok: Probe = async () => {};
 const down: Probe = async () => {
@@ -101,23 +101,5 @@ describe("host /ready with readiness", () => {
     expect((await getJson(`${url}/ready`)).status).toBe(503);
     s2 = ok;
     expect((await getJson(`${url}/ready`)).status).toBe(200);
-  });
-});
-
-describe("host publicUrl", () => {
-  it("reports the public URL in /v1/admin/status instead of the bound address", async () => {
-    const { url } = await startTestHost({ publicUrl: "http://localhost:8787" });
-    const { status, body } = await getJson(`${url}/v1/admin/status`, {
-      headers: adminHeaders(),
-    });
-    expect(status).toBe(200);
-    expect(AdminStatusSchema.parse(body).host?.url).toBe("http://localhost:8787");
-    expect(url).not.toBe("http://localhost:8787");
-  });
-
-  it("reports the bound address without one", async () => {
-    const { url } = await startTestHost();
-    const { body } = await getJson(`${url}/v1/admin/status`, { headers: adminHeaders() });
-    expect(AdminStatusSchema.parse(body).host?.url).toBe(url);
   });
 });

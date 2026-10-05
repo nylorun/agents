@@ -45,6 +45,47 @@ export function fakePorts(busy: number[] = []): PortProbe & { picks: number } {
   return probe;
 }
 
+/** The Tenant id the fakes report. */
+export const TEST_TENANT_ID = "tn_01TESTSTACK000000000000001";
+
+/** A Tenant as `nylorun-operate status --json` reports it. */
+export interface FakeTenant {
+  id: string | null;
+  name: string | null;
+  state: "open" | "unavailable";
+  cause?: string;
+  message?: string;
+}
+
+/** The open Tenant `TEST_TENANT_ID` of Compose project `project` (named after it). */
+export const openTenantOf = (project: string): FakeTenant => ({
+  id: TEST_TENANT_ID,
+  name: project.replace(/^nylorun-/, ""),
+  state: "open",
+});
+
+/** `nylorun-operate status --json`'s answer: exit 0 when the Tenant is open, 2 when not. */
+export function operateStatusResult(tenant: FakeTenant): DockerResult {
+  return {
+    code: tenant.state === "open" ? 0 : 2,
+    stdout: `${JSON.stringify({ version: "0.10.0-beta", protocol: { min: 7, max: 8, features: [] }, tenant })}\n`,
+    stderr: "",
+  };
+}
+
+/** `GET /ready`: 200 while the Tenant is open (`checks.tenant`), else 503 with the same shape. */
+export function readyResponse(tenant = true, harness = { mode: "remote", connected: 1 }): Response {
+  return json(
+    {
+      status: tenant ? "ready" : "not_ready",
+      service: "nylorun-runtime",
+      checks: { listener: true, tenant },
+      harness,
+    },
+    tenant ? 200 : 503,
+  );
+}
+
 export interface FakeDocker extends DockerRunner {
   calls: string[][];
   streamed: string[][];
@@ -67,6 +108,8 @@ export function fakeDocker(options: {
       calls.push([...args]);
       const answer = options.respond?.(args);
       if (answer) return answer;
+      if (args.includes("nylorun-operate") && args.includes("status"))
+        return operateStatusResult(openTenantOf(args[args.indexOf("--project-name") + 1]!));
       if (args[0] === "version") return { code: 0, stdout: "29.0.0\n", stderr: "" };
       if (args[0] === "compose" && args[1] === "version")
         return { code: 0, stdout: "2.40.0\n", stderr: "" };
@@ -139,14 +182,20 @@ export type FakeKeys = Map<string, { key: string; role: string; createdAt: strin
 /**
  * A `respond` for `fakeDocker` that answers `docker compose … exec -T runtime nylorun-operate
  * keys … --json` as nylorun-operate does, from the keys of the Compose project (`keysOf`);
- * `studio` is refused (exit 1). Other runs are left to the caller.
+ * `studio` is refused (exit 1). `status --json` answers `tenantOf` the project. Other runs are
+ * left to the caller.
  */
-export function fakeOperate(keysOf: (project: string) => FakeKeys) {
+export function fakeOperate(
+  keysOf: (project: string) => FakeKeys,
+  tenantOf: (project: string) => FakeTenant = openTenantOf,
+) {
   return (args: readonly string[]): DockerResult | undefined => {
     const at = args.indexOf("nylorun-operate");
     if (at < 0) return undefined;
-    const keys = keysOf(args[args.indexOf("--project-name") + 1]!);
+    const project = args[args.indexOf("--project-name") + 1]!;
+    const keys = keysOf(project);
     const [group, verb, id, flag, role] = args.slice(at + 1);
+    if (group === "status") return operateStatusResult(tenantOf(project));
     const ok = (body: unknown) => ({ code: 0, stdout: `${JSON.stringify(body)}\n`, stderr: "" });
     if (group === "keys" && verb === "list")
       return ok({ keys: [...keys].map(([key, { role, createdAt }]) => ({ id: key, role, createdAt })) });

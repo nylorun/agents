@@ -1,11 +1,7 @@
 /**
- * The Runtime's OpenAPI 3.2 documents, generated from the routes as declared for serving:
- *
- * - the Tenant API (`tenantDocument`): every Tenant route, with `/health`, `/ready` and
- *   `/openapi.json`. Served at `GET /openapi.json`, packed as `@nylorun/runtime/openapi.json`
- *   and attached to each release.
- * - the Admin API (`adminDocument`): served at `GET /v1/admin/openapi.json` behind the admin
- *   key, packed as `@nylorun/runtime/admin-openapi.json`.
+ * The Runtime's OpenAPI 3.2 document (`tenantDocument`), generated from the routes as declared
+ * for serving: every Tenant route, with `/health`, `/ready` and `/openapi.json`. Served at
+ * `GET /openapi.json`, packed as `@nylorun/runtime/openapi.json` and attached to each release.
  *
  * Event streams are `text/event-stream` with an `itemSchema` (OpenAPI 3.2). Nothing here reads
  * the environment: the same Runtime makes the same document.
@@ -17,7 +13,6 @@ import {
 } from "@asteasolutions/zod-to-openapi";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import { HealthResponseSchema, ReadyResponseSchema } from "@nylorun/core/contracts";
-import { createAdminApi } from "../host/admin-api.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { tenantApi } from "./http/app.js";
 
@@ -58,7 +53,8 @@ function hostRoutes(): OpenAPIRegistry {
     path: "/ready",
     tags: ["Host"],
     summary: "Check the Runtime is ready",
-    description: "The listeners, the Tenant (open), Postgres, Restate and S2.",
+    description:
+      "The listener, the Tenant (open), Postgres, Restate and S2, and the open Tenant's harnesses.",
     responses: {
       200: {
         description: "Ready",
@@ -82,7 +78,7 @@ function tenantSchemes(registry: OpenAPIRegistry): void {
     "securitySchemes",
     "applicationKey",
     bearer(
-      "An application key of the Tenant: an operator key (`PUT /v1/admin/keys/{id}`), or Studio's key, derived from the admin key. With `Nylorun-Subject` and `Nylorun-Scopes`, it acts for that person, narrowed to those scopes. Never accepted from a browser (`Origin`).",
+      "An application key of the Tenant (`PUT /v1/tenant/keys/{keyId}`), or Studio's key, derived from the admin key. With `Nylorun-Subject` and `Nylorun-Scopes`, it acts for that person, narrowed to those scopes. Never accepted from a browser (`Origin`).",
     ),
   );
   registry.registerComponent(
@@ -111,7 +107,6 @@ function tenantSchemes(registry: OpenAPIRegistry): void {
 }
 
 let tenant: OpenApiDocument | undefined;
-let admin: OpenApiDocument | undefined;
 
 /** The Tenant API's document. */
 export function tenantDocument(): OpenApiDocument {
@@ -139,37 +134,4 @@ export function tenantDocument(): OpenApiDocument {
     ],
   });
   return tenant;
-}
-
-/** The Admin API's document. */
-export function adminDocument(): OpenApiDocument {
-  if (admin) return admin;
-  // Only the routes' declarations are read: nothing is served from this app.
-  const api = createAdminApi({
-    status: () => Promise.reject(new Error("Not served")),
-    shutdown: () => {},
-  });
-  api.openAPIRegistry.registerComponent(
-    "securitySchemes",
-    "adminKey",
-    bearer("The Host's admin key (`host-credentials.json`). Never a Tenant bearer."),
-  );
-  admin = new OpenApiGeneratorV32(api.openAPIRegistry.definitions).generateDocument({
-    openapi: "3.2.0",
-    info: {
-      title: "Nylorun Runtime: Admin API",
-      version: RUNTIME_VERSION,
-      description:
-        "The Host's status, its Tenant's state, shutdown and the Tenant's operator keys, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
-      "x-nylorun-protocol": PROTOCOL,
-    },
-    servers: [
-      {
-        url: "{origin}",
-        description: "The operator listener: a local Tenant's, or where yours runs",
-        variables: { origin: { default: "http://localhost:8788" } },
-      },
-    ],
-  });
-  return admin;
 }

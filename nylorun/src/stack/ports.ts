@@ -2,8 +2,6 @@ import { createServer } from "node:net";
 
 export const DEFAULT_PORTS = {
   runtime: 8787,
-  /** The Runtime's operator listener (Admin API). */
-  admin: 8788,
   studio: 4161,
   restate: 9070,
 } as const;

@@ -68,7 +68,7 @@ export async function doctorStack(options: {
     (!report.tenant.runtime.healthy ||
       !report.tenant.gateway.healthy ||
       (report.tenant.harness.mode === "remote" && !report.tenant.harness.healthy) ||
-      report.tenant.tenant?.cause !== undefined);
+      (report.tenant.tenant !== undefined && report.tenant.tenant.state !== "open"));
   const failed =
     !nodeOk || !checks.docker.ok || checks.compose?.ok === false || broken;
   if (options.json) {
@@ -130,7 +130,7 @@ export async function doctorStack(options: {
           "tenant id",
           local.tenant.state === "open"
             ? `✓ ${local.tenant.id ?? "?"} open`
-            : `✗ ${local.tenant.id ?? "?"} unavailable${local.tenant.cause ? `: ${local.tenant.cause.code}: ${local.tenant.cause.repair}` : " (opening)"}`,
+            : `✗ ${local.tenant.id ?? "?"} unavailable${local.tenant.cause || local.tenant.message ? `: ${[local.tenant.cause, local.tenant.message].filter(Boolean).join(": ")}` : " (opening)"}`,
         ]);
       rows.push(["studio", `${local.studio.url ?? "?"} · ${local.studio.state}`]);
     }

@@ -38,7 +38,7 @@ type Received = {
   body: Record<string, unknown>;
 };
 
-/** A Runtime that answers the Tenant API routes `nylo` calls, and the Admin API status. */
+/** A Runtime that answers the Runtime and Management API routes `nylo` calls. */
 async function runtime(options: { tenantOpen?: boolean } = {}) {
   const requests: Received[] = [];
   const server = createServer(async (request, response) => {
@@ -46,22 +46,6 @@ async function runtime(options: { tenantOpen?: boolean } = {}) {
     response.setHeader("content-type", "application/json");
     if (url === "/health") return void response.end(JSON.stringify({ status: "ok", hostId: HOST_ID, protocol }));
     requests.push({ method: request.method ?? "GET", url, headers: request.headers, body: await body(request) });
-    if (url === "/v1/admin/status")
-      return void response.end(
-        JSON.stringify({
-          service: "nylorun-runtime",
-          version: "0.10.0-beta",
-          protocol,
-          tenant: {
-            id: TENANT_ID,
-            name: "demo",
-            state: "unavailable",
-            envelope: null,
-            cause: { code: "kek-missing", message: "The KEK file is missing.", repair: "Restore tenant/kek." },
-          },
-          aggregate: { runningSessions: 0, inFlightDeliveries: 0, pendingActions: 0, uncertainEffects: 0 },
-        }),
-      );
     if (url === "/v1/tenant" && request.method === "GET") {
       if (options.tenantOpen === false) {
         response.statusCode = 503;
@@ -122,8 +106,6 @@ function nylo(args: string[], cwd: string, env: Record<string, string> = {}) {
       NYLORUN_RUNTIME_URL: "",
       NYLORUN_SERVER_KEY: "",
       NYLORUN_MANAGEMENT_KEY: "",
-      NYLORUN_ADMIN_URL: "",
-      NYLORUN_ADMIN_KEY: "",
       NYLORUN_TENANT: "",
       NYLORUN_HOME: "",
       ...env,
@@ -155,17 +137,16 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
     expect(JSON.parse(json.stdout)).not.toHaveProperty("stack");
   });
 
-  it("status of a Tenant that is not open shows the Host's cause", async () => {
+  it("status of a Tenant that is not open says to run nylorun status", async () => {
     const host = await runtime({ tenantOpen: false });
     const root = await linkedProject(host.url);
-    const result = await nylo(["status"], root, {
-      NYLORUN_ADMIN_URL: host.url,
-      NYLORUN_ADMIN_KEY: "admin-key",
-    });
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain(`demo  ${TENANT_ID}  unavailable`);
-    expect(result.stdout).toContain("reason   kek-missing: The KEK file is missing.");
-    expect(result.stdout).toContain("repair   Restore tenant/kek.");
+    const result = await nylo(["status"], root);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      `GET /v1/tenant failed (503). Run "npx nylorun status" to see the Tenant's state and why it is not open.`,
+    );
+    // Only the Management API: no Admin API fallback.
+    expect(host.requests.map((r) => r.url)).toEqual(["/v1/tenant"]);
   });
 
   it("reset drains and resets the Tenant; --all asks first", async () => {
@@ -254,7 +235,7 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
     const root = await linkedProject(host.url);
     for (const args of [["status"], ["reset", "--yes"], ["endpoints"], ["endpoints", "ping", "support"]])
       expect((await nylo(args, root)).code).toBe(0);
-    const requests = host.requests.filter((r) => !r.url.startsWith("/v1/admin/"));
+    const requests = host.requests;
     expect(requests.map((r) => `${r.url} ${r.headers.authorization}`)).toEqual([
       `/v1/tenant Bearer ${MANAGEMENT_KEY}`,
       `/v1/tenant/reset Bearer ${MANAGEMENT_KEY}`,

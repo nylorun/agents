@@ -608,45 +608,19 @@ describe("sandbox pods (F7.2)", () => {
 });
 
 describe("NYLORUN_ADMIN_LISTEN_*", () => {
-  const base = {
-    NYLORUN_LISTEN_HOST: "0.0.0.0",
-    NYLORUN_LISTEN_PORT: "4000",
-    NYLORUN_ALLOWED_HOSTS: "runtime:4000",
-  };
-
-  it("is one listener when unset", () => {
-    expect(parseStackConfig(base, CORE).operator).toBeUndefined();
-  });
-
-  it("adds the operator listener with its own Host allowlist", () => {
+  it("is not read: the operator listener is gone (protocol 8)", () => {
     const config = parseStackConfig(
       {
-        ...base,
-        NYLORUN_ADMIN_LISTEN_PORT: "4001",
-        NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4001,localhost:8788",
+        NYLORUN_LISTEN_HOST: "0.0.0.0",
+        NYLORUN_LISTEN_PORT: "4000",
+        NYLORUN_ALLOWED_HOSTS: "runtime:4000",
+        NYLORUN_ADMIN_LISTEN_PORT: "4000",
+        NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4000",
       },
       CORE
     );
-    expect(config.operator).toEqual({
-      host: "0.0.0.0",
-      port: 4001,
-      allowedHosts: ["runtime:4001", "localhost:8788", "localhost:4001", "127.0.0.1:4001", "[::1]:4001"],
-    });
-  });
-
-  it("requires an allowlist off loopback, a port with the other variables, and a port of its own", () => {
-    expect(() => parseStackConfig({ ...base, NYLORUN_ADMIN_LISTEN_PORT: "4001" }, CORE)).toThrow(
-      /NYLORUN_ADMIN_ALLOWED_HOSTS is required/
-    );
-    expect(() =>
-      parseStackConfig({ ...base, NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4001" }, CORE)
-    ).toThrow(/NYLORUN_ADMIN_LISTEN_PORT is required/);
-    expect(() =>
-      parseStackConfig(
-        { ...base, NYLORUN_ADMIN_LISTEN_PORT: "4000", NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4000" },
-        CORE
-      )
-    ).toThrow(/must differ/);
+    expect(config).not.toHaveProperty("operator");
+    expect(config.listen?.port).toBe(4000);
   });
 });
 

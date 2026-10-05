@@ -3,7 +3,7 @@
  *
  * | Services | Serves | `execution.start` |
  * | --- | --- | --- |
- * | `core` | Tenant API, Admin API, SSE | **never**: wakes, timers and sweep arming go through Restate's ingress, which needs no Worker endpoint |
+ * | `core` | Runtime and Management APIs, SSE | **never**: wakes, timers and sweep arming go through Restate's ingress, which needs no Worker endpoint |
  * | `loop` | the Restate endpoint (`NylorunSession.advance`, `NylorunTenant.sweep`, timers) | yes |
  * | `core,loop` | both (the local stack's `runtime` container) | yes |
  *

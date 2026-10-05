@@ -5,13 +5,9 @@ import {
   type ServerResponse,
 } from "node:http";
 import { getRequestListener, RequestError } from "@hono/node-server";
-import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
-import { AdminStatusSchema } from "@nylorun/core/contracts";
 import type { Logger, TenantModule } from "../tenant/types.js";
-import { adminDocument } from "../api/openapi.js";
-import { createAdminApi } from "./admin-api.js";
-import { createHostApp, type HostBindings } from "./app.js";
-import type { HostConfigFile, HostCredentialsFile } from "./config.js";
+import { createHostApp } from "./app.js";
+import type { HostConfigFile } from "./config.js";
 import type { ContainerListen } from "./stack-config.js";
 import {
   bindListener as bind,
@@ -25,17 +21,15 @@ import {
   rejectedResponse,
   sendRejected,
 } from "./http.js";
-import { RUNTIME_VERSION } from "../version.js";
 
 export interface CreateHostOptions {
   hostRoot: string;
   module: TenantModule;
   config: HostConfigFile;
-  credentials: HostCredentialsFile;
   logger: Logger;
   /** Diagnostic package version of `@nylorun/core` for `/health`. */
   coreVersion: string;
-  /** Process id reported by `/health` and admin host status. Defaults to `process.pid`. */
+  /** Process id reported by `/health`. Defaults to `process.pid`. */
   pid?: number;
   /**
    * Container mode: bind this address and port instead of host.json's, and
@@ -44,19 +38,6 @@ export interface CreateHostOptions {
    */
   listen?: ContainerListen;
   /**
-   * The client-facing URL `/v1/admin/status` reports as `host.url`
-   * (`NYLORUN_PUBLIC_URL`). Defaults to the bound address, which in container
-   * mode is `http://0.0.0.0:4000`.
-   */
-  publicUrl?: string;
-  /**
-   * The operator listener: the Admin API (and the Tenant API, never to browsers) on
-   * its own address, kept off the network that reaches the Tenant API. When set, the main
-   * listener is public and answers admin routes with the opaque 404. Absent: one listener
-   * serves everything, as before.
-   */
-  operator?: OperatorListen;
-  /**
    * Infrastructure readiness (`infra/readiness.ts`). `/ready` adds its checks
    * and answers 503 while it reports not ok. Default: the listener and the
    * Tenant only.
@@ -64,7 +45,7 @@ export interface CreateHostOptions {
   readiness?: () => Promise<{ ok: boolean; checks: Record<string, boolean> }>;
   /**
    * Shutdown steps around closing the Tenant. `close()` runs them whatever asked for it
-   * (SIGTERM in `host/main.ts`, `POST /v1/admin/host/shutdown`): the listener stops, then
+   * (SIGTERM in `host/main.ts`): the listener stops, then
    * `beforeTenants` (stop the Worker so no advance starts on the closing Tenant), the Tenant
    * closes, then `afterTenants` (end the infrastructure clients). A failing step is logged
    * and shutdown goes on.
@@ -75,42 +56,16 @@ export interface CreateHostOptions {
   };
 }
 
-/** Where the operator listener binds, and the `Host` values it accepts. */
-export interface OperatorListen {
-  host: string;
-  port: number;
-  /** Exact `Host` values (lowercase `name:port`); absent means the loopback forms of the port. */
-  allowedHosts?: readonly string[];
-}
-
-/**
- * What a listener serves. `combined`: everything (one port). `public`: the Tenant API, to
- * servers and to browsers with a trusted issuer's token; admin routes are the opaque 404. `operator`: the Admin API and
- * the Tenant API, never to browsers.
- */
-export type ListenerRole = "combined" | "public" | "operator";
-
 export interface HostServer {
   listen(): Promise<void>;
   close(): Promise<void>;
   /** Settles once `close()` has finished, whatever called it. */
   readonly closed: Promise<void>;
   readonly url: string;
-  /** Where the Admin API answers: the operator listener, or `url` when there is one listener. */
-  readonly adminUrl: string;
 }
 
-export { adminKeyMatches } from "./http.js";
-
 export function createHost(options: CreateHostOptions): HostServer {
-  const {
-    hostRoot,
-    module,
-    config,
-    credentials,
-    logger,
-    coreVersion,
-  } = options;
+  const { module, config, logger, coreVersion } = options;
   const pid = options.pid ?? process.pid;
   const containerListen = options.listen;
   const bindHost = containerListen?.host ?? config.host;
@@ -118,62 +73,24 @@ export function createHost(options: CreateHostOptions): HostServer {
   let server: Server | undefined;
   let url = "";
   let listenPort = bindPort;
-  const operator = options.operator;
-  let operatorServer: Server | undefined;
-  let operatorPort = operator?.port ?? 0;
-  let adminUrl = "";
-  const mainRole: ListenerRole = operator ? "public" : "combined";
   let closing = false;
   let closePromise: Promise<void> | undefined;
-
-  const adminStatusBody = async () => {
-    const aggregate = await module.summarize();
-    return AdminStatusSchema.parse({
-      service: "nylorun-runtime",
-      version: RUNTIME_VERSION,
-      protocol: {
-        min: HOST_PROTOCOL.min,
-        max: HOST_PROTOCOL.max,
-        features: [...HOST_PROTOCOL.features],
-      },
-      tenant: module.tenant(),
-      aggregate,
-      host: {
-        hostId: config.hostId,
-        url: options.publicUrl ?? url,
-        pid,
-      },
-    });
-  };
-
-  const adminApi = createAdminApi({
-    status: adminStatusBody,
-    shutdown: () => void close(),
-    document: adminDocument,
-    operatorKeys: async () => {
-      const resolved = await module.resolve();
-      return resolved.kind === "open" ? resolved.handle.operatorKeys?.() : undefined;
-    },
-  });
 
   const app = createHostApp({
     module,
     logger,
     hostId: config.hostId,
-    adminKey: credentials.adminKey,
     coreVersion,
     pid,
     ...(options.readiness ? { readiness: options.readiness } : {}),
-    listening: () =>
-      Boolean(server?.listening) && (!operator || Boolean(operatorServer?.listening)),
+    listening: () => Boolean(server?.listening),
     closing: () => closing,
-    admin: async (request, node) => await adminApi.fetch(request, node),
   });
 
-  /** Where a listener's requests go once their `Host` header checks out. */
-  const pipeline = (role: ListenerRole) =>
+  /** Where requests go once their `Host` header checks out. */
+  const pipeline = () =>
     getRequestListener(
-      async (request, node) => alreadySent(await app.fetch(request, { ...node, role } as HostBindings)),
+      async (request, node) => alreadySent(await app.fetch(request, node)),
       {
         // The Runtime runs inside other processes (`startEphemeralRuntime`): leave their
         // `Request` and `Response` alone.
@@ -190,32 +107,25 @@ export function createHost(options: CreateHostOptions): HostServer {
       },
     );
 
-  /** The `Host` values a listener accepts. */
-  const hostAllowed = (role: ListenerRole, hostHeader: string | undefined) =>
-    role === "operator"
-      ? isAllowedRequestHost(hostHeader, {
-          port: operatorPort,
-          host: operator!.host,
-          allowNonLoopback: false,
-          ...(operator!.allowedHosts ? { allowedHosts: operator!.allowedHosts } : {}),
-        })
-      : isAllowedRequestHost(hostHeader, {
-          port: listenPort,
-          host: config.host,
-          allowNonLoopback: config.allowNonLoopback,
-          ...(containerListen ? { allowedHosts: containerListen.allowedHosts } : {}),
-        });
+  /** The `Host` values the listener accepts. */
+  const hostAllowed = (hostHeader: string | undefined) =>
+    isAllowedRequestHost(hostHeader, {
+      port: listenPort,
+      host: config.host,
+      allowNonLoopback: config.allowNonLoopback,
+      ...(containerListen ? { allowedHosts: containerListen.allowedHosts } : {}),
+    });
 
   /** Responses not yet finished; shutdown ends the streams among them. */
   const inFlight = new Set<ServerResponse>();
-  const serve = (role: ListenerRole) => {
-    const next = pipeline(role);
+  const serve = () => {
+    const next = pipeline();
     return (req: IncomingMessage, res: ServerResponse) => {
       const started = Date.now();
       inFlight.add(res);
       res.once("close", () => inFlight.delete(res));
       // D§11: `Host` first, before anything reads the request.
-      if (hostAllowed(role, headerValue(req, "host"))) return void next(req, res);
+      if (hostAllowed(headerValue(req, "host"))) return void next(req, res);
       sendRejected(
         res,
         421,
@@ -252,42 +162,15 @@ export function createHost(options: CreateHostOptions): HostServer {
         EXIT_NON_LOOPBACK,
       );
     }
-    if (operator && !containerListen && !isLoopbackHost(operator.host))
-      throw new HostListenError(
-        `Refusing to bind the operator listener on non-loopback host ${operator.host}`,
-        EXIT_NON_LOOPBACK,
-      );
-    server = createServer(serve(mainRole));
+    server = createServer(serve());
     await bindListener(server, bindPort, bindHost);
     const address = server.address();
     listenPort =
       typeof address === "object" && address ? address.port : bindPort;
     url = `http://${bindHost}:${listenPort}`;
-    adminUrl = url;
-    if (operator) {
-      operatorServer = createServer(serve("operator"));
-      await bindListener(operatorServer, operator.port, operator.host).catch(async (error) => {
-        // Leave nothing half-open: the main listener closes too.
-        await new Promise<void>((resolve) => server!.close(() => resolve()));
-        server = undefined;
-        throw error;
-      });
-      const operatorAddress = operatorServer.address();
-      operatorPort =
-        typeof operatorAddress === "object" && operatorAddress
-          ? operatorAddress.port
-          : operator.port;
-      adminUrl = `http://${operator.host}:${operatorPort}`;
-    }
-    // The Tenant opens once the listener is bound: `/ready` and `/v1/admin/status` answer
-    // while it opens, and say why when it cannot.
+    // The Tenant opens once the listener is bound: `/ready` answers while it opens.
     await module.start();
-    logger.info("host_listening", {
-      hostId: config.hostId,
-      url,
-      ...(operator ? { adminUrl } : {}),
-      pid,
-    });
+    logger.info("host_listening", { hostId: config.hostId, url, pid });
   }
 
   const step = async (name: string, run: (() => Promise<void>) | undefined) => {
@@ -311,9 +194,7 @@ export function createHost(options: CreateHostOptions): HostServer {
     closePromise = (async () => {
       closing = true;
       logger.info("host_shutdown", { hostId: config.hostId });
-      const listeners = [server, operatorServer].filter(
-        (listening): listening is Server => listening !== undefined,
-      );
+      const listeners = server ? [server] : [];
       const stopped = Promise.all(
         listeners.map(
           (listening) =>
@@ -351,7 +232,6 @@ export function createHost(options: CreateHostOptions): HostServer {
         await stopped;
       }
       server = undefined;
-      operatorServer = undefined;
       await step("beforeTenants", options.shutdown?.beforeTenants);
       await step("tenants", () => module.close());
       await step("afterTenants", options.shutdown?.afterTenants);
@@ -365,9 +245,6 @@ export function createHost(options: CreateHostOptions): HostServer {
     closed,
     get url() {
       return url;
-    },
-    get adminUrl() {
-      return adminUrl;
     },
   };
 }

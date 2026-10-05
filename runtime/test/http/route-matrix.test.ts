@@ -316,7 +316,6 @@ beforeAll(async () => {
     applicationKey: APPLICATION_KEY,
     managementKey: MANAGEMENT_KEY,
     adminKey: ADMIN_KEY,
-    operatorListener: true,
     issuers: issuer.configs,
     model: { kind: "fixture" },
   });
@@ -377,7 +376,7 @@ describe("route matrix", { timeout: 60_000 }, () => {
     );
   });
 
-  it("answers the Host and Admin operations on each listener, as recorded", async () => {
+  it("answers the Host operations, and the Admin API's old paths as unknown routes, as recorded", async () => {
     const admin = (key: string) => ({ "nylorun-protocol": "5", authorization: `Bearer ${key}` });
     const callers: Record<string, Record<string, string>> = {
       none: {},
@@ -385,13 +384,14 @@ describe("route matrix", { timeout: 60_000 }, () => {
       "wrong-admin": admin("matrix-wrong-admin-key-000000000000"),
       admin: admin(ADMIN_KEY),
       application: callerHeaders("application"),
+      management: callerHeaders("management"),
       "admin-with-origin": { ...admin(ADMIN_KEY), origin: ORIGIN },
     };
     const operations: Operation[] = [
       { method: "GET", path: "/health" },
       { method: "POST", path: "/health" },
       { method: "GET", path: "/ready" },
-      // The Admin Tenant routes of protocol 4: gone.
+      // The Admin API is gone (protocol 8), its Tenant routes of protocol 4 before it.
       { method: "GET", path: "/v1/admin/tenants" },
       { method: "POST", path: "/v1/admin/tenants", body: INVALID },
       { method: "GET", path: `/v1/admin/tenants/${TENANT}` },
@@ -406,7 +406,6 @@ describe("route matrix", { timeout: 60_000 }, () => {
       { method: "GET", path: "/v1//admin/tenants" },
       { method: "HEAD", path: "/v1/admin/status" },
       { method: "PUT", path: "/v1/admin/status" },
-      // Operator keys (F9 I1): only refusals and misses, so nothing changes.
       { method: "GET", path: "/v1/admin/keys" },
       { method: "PUT", path: "/v1/admin/keys/studio" },
       { method: "PUT", path: "/v1/admin/keys/Not_A_Key" },
@@ -415,23 +414,19 @@ describe("route matrix", { timeout: 60_000 }, () => {
       { method: "POST", path: "/v1/admin/keys" },
     ];
     const matrix: Record<string, Record<string, Observed>> = {};
-    for (const [listener, base] of [
-      ["public", rt.url],
-      ["operator", rt.adminUrl],
-    ] as const)
-      for (const operation of operations) {
-        const row: Record<string, Observed> = {};
-        for (const [name, headers] of Object.entries(callers)) {
-          const observed = await observe(`${base}${operation.path}`, {
-            method: operation.method,
-            headers,
-            body: operation.body,
-          });
-          // `/health` and `/ready` answer with live values; their status is what matters.
-          row[name] = operation.path.startsWith("/v1/") ? observed : { status: observed.status };
-        }
-        matrix[stable(`${listener} ${operation.method} ${operation.path}`)] = stable(row);
+    for (const operation of operations) {
+      const row: Record<string, Observed> = {};
+      for (const [name, headers] of Object.entries(callers)) {
+        const observed = await observe(`${rt.url}${operation.path}`, {
+          method: operation.method,
+          headers,
+          body: operation.body,
+        });
+        // `/health` and `/ready` answer with live values; their status is what matters.
+        row[name] = operation.path.startsWith("/v1/") ? observed : { status: observed.status };
       }
+      matrix[stable(`${operation.method} ${operation.path}`)] = stable(row);
+    }
     await expect(`${JSON.stringify(matrix, null, 2)}\n`).toMatchFileSnapshot(
       "./__fixtures__/host-matrix.json",
     );

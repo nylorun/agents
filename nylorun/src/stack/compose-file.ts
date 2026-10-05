@@ -234,11 +234,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       # Host headers the Runtime accepts: its name on the Compose network, and the
       # published port as clients on this machine address it.
       NYLORUN_ALLOWED_HOSTS: runtime:4000,localhost:\${NYLORUN_PORT},127.0.0.1:\${NYLORUN_PORT}
-      NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT} # reported by /v1/admin/status
-      # The Admin API on its own listener, published on loopback only. Port 4000 serves the
-      # Runtime and Management APIs, to Studio too.
-      NYLORUN_ADMIN_LISTEN_PORT: "4001"
-      NYLORUN_ADMIN_ALLOWED_HOSTS: runtime:4001,localhost:\${NYLORUN_ADMIN_PORT},127.0.0.1:\${NYLORUN_ADMIN_PORT}
+      NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
       NYLORUN_RESTATE_INGRESS_URL: http://restate:8080
       NYLORUN_RESTATE_ADMIN_URL: http://restate:9070
@@ -278,9 +274,8 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:\${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro
     networks: [default, store, harness]
     ports:
-      - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, SSE, browsers
-      - "127.0.0.1:\${NYLORUN_ADMIN_PORT:?run nylorun start}:4001" # Admin API (operators only)${sandboxes ? SANDBOXES_RUNTIME_PORT : ""}
-    healthcheck: # liveness: a Tenant that cannot open is reported by nylorun start from the Admin status, not by a 300 s wait
+      - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Runtime and Management APIs, SSE, browsers${sandboxes ? SANDBOXES_RUNTIME_PORT : ""}
+    healthcheck: # liveness: a Tenant that cannot open is reported by nylorun start (/ready, nylorun-operate status), not by a 300 s wait
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
       timeout: 5s

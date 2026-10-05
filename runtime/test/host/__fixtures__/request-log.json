@@ -69,12 +69,7 @@
     "method": "GET",
     "path": "/v1/admin/status",
     "status": 404,
-    "durationMs": "number"
-  },
-  {
-    "method": "GET",
-    "path": "/v1/admin/status",
-    "status": 200,
+    "tenantId": "<tenant>",
     "durationMs": "number"
   },
   {

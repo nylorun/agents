@@ -1,6 +1,6 @@
 /**
- * Operator keys (F9 I1, Host feature `operator-keys`): the Tenant's application keys, managed
- * by name through the Admin API. A key is a principal (F9-D11): its id is the key's name
+ * The Tenant's keys by name (F9 I1), managed through the Management API (`/v1/tenant/keys`,
+ * application keys only) and `nylorun-operate keys`. A key is a principal (F9-D11): its id is the key's name
  * (`APPLICATION_KEY_ID_PATTERN`), the key is 64 hex characters (`mintBearerToken`), and the
  * Tenant keeps only its SHA-256. Putting a key creates the principal or rotates its key;
  * deleting it removes the row. Either way the old key stops authenticating on its next request,

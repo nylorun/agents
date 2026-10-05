@@ -15,9 +15,10 @@
  * `--actions-url` is where the remote Runtime reaches this machine's Action
  * endpoint (a tunnel such as ngrok or Cloudflare Tunnel to `--actions-port`).
  *
- * R1  the proxy serves /health over TLS, answers the Admin API with 403 and
- *     passes Origin through, so the Runtime still refuses browsers; requests
- *     name no Tenant (protocol 5: the Host serves one)
+ * R1  the proxy serves /health over TLS, nothing answers /v1/admin/* (the Runtime
+ *     has no Admin API: 404, or 403 from a proxy that still blocks the prefix) and
+ *     the proxy passes Origin through, so the Runtime still refuses browsers;
+ *     requests name no Tenant (protocol 5: the Host serves one)
  * R2  a chat with an approval through the AG-UI handler: the connection is
  *     dropped mid-run, reattach sends the rest, and the approved tool is
  *     delivered to this machine's Action endpoint
@@ -143,10 +144,11 @@ async function r1() {
   const body = await health.json();
   for (const feature of ["transcript-events", "subject-headers"])
     assert.ok(body.protocol?.features?.includes(feature), `the Runtime advertises ${feature}`);
-  // `/v1/admin/tenants` is gone from the Runtime (404 there); the proxy still blocks the prefix.
+  // The Runtime has no Admin API (404); a proxy configured for an older Runtime may still
+  // block the prefix (403).
   for (const path of ["/v1/admin/status", "/v1/admin/tenants"]) {
     const admin = await fetch(`${url}${path}`, { signal: AbortSignal.timeout(15_000) });
-    assert.equal(admin.status, 403, `the proxy blocks ${path} (got ${admin.status})`);
+    assert.ok([403, 404].includes(admin.status), `nothing answers ${path} (got ${admin.status})`);
   }
   const browser = await fetch(`${url}/v1/agents`, {
     headers: runtimeHeaders({ origin: "https://evil.example" }),

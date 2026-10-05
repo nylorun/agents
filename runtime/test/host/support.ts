@@ -11,7 +11,7 @@ import {
   newTenantId,
 } from "@nylorun/core/compatibility";
 import type {
-  HostAggregate,
+  HarnessStatus,
   HostTenant,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
@@ -94,7 +94,8 @@ export interface FakeTenant {
   state: "open" | "unavailable";
   cause?: TenantCause;
   handle?: TenantHandle;
-  summary?: TenantSummary;
+  /** The open Tenant's harnesses, for `/ready`. */
+  harness?: HarnessStatus;
 }
 
 /** A Tenant module serving one fake Tenant (open by default). */
@@ -172,14 +173,8 @@ export function createFakeModule(options?: {
         ...(fake.cause ? { cause: fake.cause } : {}),
       };
     },
-    async summarize(): Promise<HostAggregate> {
-      const s = fake.summary ?? (fake.state === "open" ? await fake.handle?.summary() : undefined);
-      return {
-        runningSessions: s?.runningSessions ?? 0,
-        inFlightDeliveries: s?.inFlightDeliveries ?? 0,
-        pendingActions: s?.pendingActions ?? 0,
-        uncertainEffects: s?.uncertainEffects ?? 0,
-      };
+    harnessStatus() {
+      return fake.state === "open" ? fake.harness : undefined;
     },
     async close() {
       closed = true;
@@ -233,14 +228,12 @@ export async function startTestHost(
     hostRoot: root,
     module,
     config,
-    credentials,
     logger,
     coreVersion: "0.4.0-beta",
     ...overrides,
     // re-apply after spread so explicit module/config win
     module,
     config,
-    credentials,
     logger,
   });
   await host.listen();

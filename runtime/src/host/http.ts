@@ -206,7 +206,7 @@ export function redactRoutePath(pathname: string): string {
   return pathname;
 }
 
-/** Constant-time comparison of SHA-256 digests of the presented and stored admin keys. */
+/** Constant-time comparison of SHA-256 digests of a presented and a stored secret. */
 export function adminKeyMatches(presented: string | undefined, adminKey: string): boolean {
   if (presented === undefined) return false;
   const a = createHash("sha256").update(presented, "utf8").digest();
@@ -219,14 +219,6 @@ export function headerValue(incoming: IncomingMessage, name: string): string | u
   const raw = incoming.headers[name.toLowerCase()];
   if (Array.isArray(raw)) return raw[0];
   return raw;
-}
-
-export function readBearer(
-  authorization: string | undefined,
-): string | undefined {
-  if (!authorization) return undefined;
-  const match = /^Bearer\s+(\S+)/i.exec(authorization.trim());
-  return match?.[1];
 }
 
 /** A JSON request body, capped at `limit` bytes (413); `undefined` when there is none. */

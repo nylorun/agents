@@ -1,8 +1,8 @@
 /**
  * Why the Host's Tenant could not be opened (tenancy.md §5). A cause is about the Tenant's
  * own data or files (its database is newer than this Runtime, its vault key is missing, the
- * database has an old layout): the Host fails readiness, names the cause in
- * `/v1/admin/status` and the logs, and answers Tenant requests with the opaque 404 until it is
+ * database has an old layout): the Host fails readiness, names the cause in the logs (and
+ * `nylorun-operate status` reads it from the database), and answers Tenant requests with the opaque 404 until it is
  * repaired and the Host restarted. A failure outside the Tenant (Postgres unreachable) is not
  * a cause: it is `TenantUnavailableError`, and the next request tries again.
  */
@@ -14,7 +14,7 @@ export type { TenantCause };
 export class TenantOpenError extends Error {
   readonly code: TenantCause["code"];
   readonly repair: string;
-  /** The Tenant, when it was read before opening failed (`/v1/admin/status` names it). */
+  /** The Tenant, when it was read before opening failed. */
   envelope?: TenantEnvelope;
 
   constructor(fields: TenantCause) {

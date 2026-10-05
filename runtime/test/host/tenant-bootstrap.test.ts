@@ -2,7 +2,8 @@
  * A Host and its Tenant (tenancy.md §4–§5, plan P9): the Host creates its Tenant in its
  * database on first start and serves it again after a restart; the Studio key the admin key
  * derives reaches it without naming it, and no other key is derived (protocol 7); a database it may not open leaves it not ready,
- * with the cause in `/v1/admin/status`, and every Tenant request gets the opaque 404.
+ * with the cause in the Tenant module's state (`nylorun-operate status` reads it from the database;
+ * `operate-status.test.ts`), and every Tenant request gets the opaque 404.
  */
 import { createHmac, randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -16,7 +17,6 @@ import {
   TENANT_HEADER,
   newTenantId,
 } from "@nylorun/core/compatibility";
-import { AdminStatusSchema } from "@nylorun/core/contracts";
 import { hashToken } from "../../src/core/bearer.js";
 import { createHost } from "../../src/host/create-host.js";
 import { createHostLogger } from "../../src/host/logger.js";
@@ -65,7 +65,6 @@ async function startHost(
     hostRoot,
     module,
     config: { hostId: `host_${newTenantId().slice(3)}`, host: "127.0.0.1", port: 0 },
-    credentials: { adminKey },
     logger,
     coreVersion: "test",
   });
@@ -79,15 +78,14 @@ async function startHost(
     await rm(hostRoot, { recursive: true, force: true });
   };
   closers.push(close);
-  const admin = { authorization: `Bearer ${adminKey}`, [PROTOCOL_HEADER]: String(PROTOCOL_VERSION) };
   return {
     url: host.url,
     adminKey,
     lines,
     close,
+    /** The Host's Tenant: open, or why not. */
     async status() {
-      const response = await fetch(`${host.url}/v1/admin/status`, { headers: admin });
-      return AdminStatusSchema.parse(await response.json());
+      return { tenant: module.tenant() };
     },
     async tenant(key: string, extra: Record<string, string> = {}) {
       return fetch(`${host.url}/v1/tenant`, {

@@ -53,7 +53,6 @@ it("C10: binding outside loopback without allowNonLoopback fails", async () => {
     hostRoot: root,
     module: createFakeModule(),
     config,
-    credentials: { adminKey: ADMIN_KEY },
     logger: createHostLogger(() => {}),
     coreVersion: "0.4.0-beta",
   });
@@ -81,7 +80,6 @@ it("C10: allowNonLoopback permits non-loopback bind", async () => {
     hostRoot: root,
     module: createFakeModule(),
     config,
-    credentials: { adminKey: ADMIN_KEY },
     logger: createHostLogger(() => {}),
     coreVersion: "0.4.0-beta",
   });
