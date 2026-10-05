@@ -367,130 +367,41 @@ function OpenTenant({ tenant }: { tenant: StudioTenantInfo }) {
   );
 }
 
-/** A command with a copy button. */
-function CommandLine({ command }: { command: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
-      <code className="flex-1 overflow-x-auto font-mono text-sm">{command}</code>
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        onClick={() =>
-          void navigator.clipboard.writeText(command).then(
-            () => setCopied(true),
-            () => setCopied(false),
-          )
-        }
-      >
-        {copied ? "Copied" : "Copy"}
-      </Button>
-    </div>
-  );
-}
-
-type ModelState =
-  | { kind: "loading" }
-  | { kind: "unknown" }
-  | { kind: "unset" }
-  | { kind: "set"; label: string };
-
-function useTenantModel(tenantId: string): ModelState {
-  const [state, setState] = useState<ModelState>({ kind: "loading" });
-  useEffect(() => {
-    let cancelled = false;
-    void tenantRuntime(tenantId)("/v1/tenant/model")
-      .then(async (response) => {
-        if (!response.ok) throw new Error(String(response.status));
-        const body = (await response.json()) as {
-          configured?: boolean;
-          provider?: string;
-          model?: string;
-        };
-        if (cancelled) return;
-        setState(
-          body.configured
-            ? { kind: "set", label: `${body.provider ?? "?"} · ${body.model ?? "?"}` }
-            : { kind: "unset" },
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setState({ kind: "unknown" });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tenantId]);
-  return state;
-}
-
-/**
- * Shown while a Tenant has no agents: the steps from an empty Tenant to an
- * agent in Studio. The Workspace polls, so the first agent replaces it.
- */
-function ConnectYourCode({ tenant }: { tenant: StudioTenantInfo }) {
-  const navigate = useNavigate();
-  const model = useTenantModel(tenant.id);
+/** Tenant overview while waiting for the first registered agent. */
+function TenantOverview({ tenant }: { tenant: StudioTenantInfo }) {
   return (
     <section className="mx-auto w-full max-w-3xl flex-1 space-y-6 overflow-auto p-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Connect your code</h1>
-        <p className="mt-2 text-muted-foreground">
-          {tenant.name} has no agents yet. Agents appear here when your code
-          registers them.
+      <h1 className="text-2xl font-semibold">Runtime tenant</h1>
+      <dl className="space-y-4 rounded-lg border p-5">
+        <div>
+          <dt className="text-sm text-muted-foreground">Name</dt>
+          <dd className="mt-1 font-medium">{tenant.name}</dd>
+        </div>
+        <div>
+          <dt className="text-sm text-muted-foreground">Tenant ID</dt>
+          <dd className="mt-1 break-all font-mono text-sm">{tenant.id}</dd>
+        </div>
+        <div>
+          <dt className="text-sm text-muted-foreground">Runtime</dt>
+          <dd className="mt-1 text-sm">Connected</dd>
+        </div>
+      </dl>
+      <div className="space-y-2 rounded-lg bg-muted p-4 text-sm text-muted-foreground">
+        <p>No agents registered yet.</p>
+        <p>
+          Use the Runtime through the SDK, CLI, or your own client. Agents and
+          sessions appear here as you use them. See the{" "}
+          <a
+            className="text-primary underline underline-offset-4"
+            href="https://docs.nylorun.com"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            documentation
+          </a>{" "}
+          to get started.
         </p>
       </div>
-      <ol className="space-y-6">
-        <li className="space-y-2">
-          <h2 className="font-medium">1. Choose a model provider</h2>
-          {model.kind === "set" ? (
-            <p className="text-sm text-muted-foreground">
-              Using {model.label}.{" "}
-              <button
-                type="button"
-                className="text-primary underline"
-                onClick={() => void navigate("/settings")}
-              >
-                Change it
-              </button>
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {model.kind === "unset"
-                ? "This Tenant has no model provider yet. "
-                : "Agents call the Tenant's model provider. "}
-              <button
-                type="button"
-                className="text-primary underline"
-                onClick={() => void navigate("/settings")}
-              >
-                Open Model Settings
-              </button>
-            </p>
-          )}
-        </li>
-        <li className="space-y-2">
-          <h2 className="font-medium">2. Start your project's Tenant</h2>
-          <p className="text-sm text-muted-foreground">
-            In your project's directory, run:
-          </p>
-          <CommandLine command="npx nylorun start" />
-          <p className="text-sm text-muted-foreground">
-            It creates the project's Tenant and links the
-            project to it. No project yet? Create one with{" "}
-            <code className={code}>npm create @nylorun/agent@beta my-agent</code>,
-            then run the command above inside it.
-          </p>
-        </li>
-        <li className="space-y-2">
-          <h2 className="font-medium">3. Start it</h2>
-          <CommandLine command="npm run dev" />
-        </li>
-      </ol>
-      <p role="status" className="text-sm text-muted-foreground">
-        Waiting for an agent to register…
-      </p>
     </section>
   );
 }
@@ -612,7 +523,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
           ) : location.pathname === "/vault" ? (
             <VaultModule tenantId={tenant.id} />
           ) : waiting ? (
-            <ConnectYourCode tenant={tenant} />
+            <TenantOverview tenant={tenant} />
           ) : agent && sessionId ? (
             <SessionWorkspace
               key={sessionId}
