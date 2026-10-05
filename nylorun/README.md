@@ -34,8 +34,8 @@ npx nylorun doctor                 # Node 24+, Docker, Compose v2, and the Tenan
 ## Commands
 
 ```sh
-nylorun up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]
-                                   # create (first run) and start the Tenant; link the project; print the URLs; open Studio signed in
+nylorun up|start [--tenant <name>] [--no-link] [--no-studio] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]
+                                   # create (first run) and start the Tenant; link the project; print the URLs
                                    # --restate-ui (or NYLORUN_RESTATE_UI=1): publish Restate's UI on loopback for this start
 nylorun down|stop [--tenant <name> | --all]   # stop the containers (--all: every Tenant's); keep volumes
 nylorun status [--tenant <name>] [--json]   # the Tenant, its Host root and id, services, endpoints, Runtime health
@@ -223,14 +223,15 @@ start --restate-ui` (or `NYLORUN_RESTATE_UI=1`) publishes them for that start on
 
 `start`, `status`, `ls` and `nylorun studio` give Studio as
 `http://localhost:<port>` (`studio.url` in `status --json`). Studio has no
-password: in a terminal (not in CI, and not with `--no-open`), `start` asks the
-Studio container for a single-use login token with the admin key (`POST
-/_studio/login-tokens`) and opens `http://localhost:<port>/login?token=…` on the
-Tenant's page in the browser. That sets a session cookie for 30 days, which
-survives Studio restarts, so the printed URL keeps working in that browser. The
-token itself is never printed unless no browser starts. Otherwise `start` says
-to run `nylorun studio`, which signs a browser in the same way; `nylorun studio
---no-open` prints the login URL (it works once, for two minutes) instead.
+password, and `start` opens no browser: it prints the URLs and says to run
+`nylorun studio` to sign a browser in (`--no-open` is accepted and ignored).
+`nylorun studio` asks the Studio container for a single-use login token with the
+admin key (`POST /_studio/login-tokens`) and opens
+`http://localhost:<port>/login?token=…` on the Tenant's page in the browser.
+That sets a session cookie for 30 days, which survives Studio restarts, so the
+printed URL keeps working in that browser. The token itself is never printed
+unless no browser starts; `nylorun studio --no-open` prints the login URL (it
+works once, for two minutes) instead.
 
 Browsers share cookies across the ports of one host, so each Tenant's Studio
 sets its own session cookie, `nylorun_studio_<name>`
