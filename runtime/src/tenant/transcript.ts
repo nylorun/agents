@@ -6,7 +6,7 @@
 import type { HostEffect } from "@nylorun/harness/run";
 import { isModelFailureOutcome } from "@nylorun/core/define";
 
-/** The model's tool call id and the harness invocation, for tool effects and tool actions. */
+/** The model's tool call id and the harness invocation, for tool effects. */
 export function toolIds(
   context: unknown
 ): { callId: string; invocationId: string } | Record<string, never> {

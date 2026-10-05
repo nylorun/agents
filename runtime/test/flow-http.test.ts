@@ -4,7 +4,7 @@
  * process, or the gates service with `NYLORUN_TEST_MODEL_GATE=http`,
  * `gates/tool-gate-flow-http.test.ts`): the identity headers with the flow agent's id, the flow
  * effect id as `Idempotency-Key` and the vault credential. A failed request fails the stage; a
- * verifier's verdict is recorded as `loop.verified`. No Action endpoint is involved.
+ * verifier's verdict is recorded as `loop.verified`.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -80,7 +80,7 @@ const fixer = Agent({ id: "fixer" }).instructions("Fix it.");
 const stage = (name: string, path: string, extra: { credential?: string } = {}) =>
   http({ name, input: Order, output: z.object({ refundId: z.string() }), url: `${target.url}${path}`, ...extra });
 
-/** Saves `workflow` (no Action endpoint), runs one turn, and returns its events. */
+/** Saves `workflow`, runs one turn, and returns its events. */
 async function run(workflow: BuiltWorkflow, options: { vaultIds?: string[] } = {}) {
   const put = await fetch(`${runtime.url}/v1/agents/${workflow.id}`, {
     method: "PUT",
