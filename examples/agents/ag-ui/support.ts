@@ -1,25 +1,15 @@
-import { Agent, tool } from "@nylorun/agents";
-import { z } from "zod";
-
-/** The order lookup from the release assistant, asking the person before it runs. */
-const lookupOrder = tool({
-  name: "lookup_order",
-  description: "Look up a sample order by ID. Try demo-123.",
-  input: z.object({ orderId: z.string() }),
-  output: z.object({ orderId: z.string(), status: z.string() }),
-  approval: ({ orderId }) => `Look up order ${orderId}?`,
-  async run({ orderId }) {
-    return { orderId, status: orderId === "demo-123" ? "shipped" : "not found" };
-  },
-});
+import { Agent } from "@nylorun/agents";
+import { lookupOrder } from "../shared/orders.js";
 
 /**
- * The agent the AG-UI example (`src/ag-ui/`) serves to a web app's users. Not in the release
- * registry: the AG-UI server serves its own Action endpoint for it.
+ * The agent the AG-UI example (`src/ag-ui/`) puts in front of a web app's users: the release
+ * assistant's order lookup, asking the person before each call. Its `lookup_order` is an HTTP
+ * tool the app serves itself at `<url>/lookup_order`. Not in the release registry: the AG-UI
+ * app saves it with the URL it listens at.
  */
-export const support = Agent({
-  id: "support",
-  name: "Support desk",
-  instructions: "Help with orders. Always use lookup_order for order questions. Remember conversation context.",
-  tools: [lookupOrder],
-}).build();
+export function supportAgent(url: string) {
+  return Agent({ id: "support", name: "Support desk" })
+    .instructions("Help with orders. Always use lookup_order for order questions. Remember conversation context.")
+    .tools(lookupOrder({ url, approval: "always" }))
+    .build();
+}

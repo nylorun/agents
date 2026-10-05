@@ -1,8 +1,10 @@
 # Harness examples
 
-The default registry exports two agents from `agents/release/`: an SDK order-lookup assistant and a data analyst with a sandbox. The Runtime delivers tool calls to the examples app's Action endpoint (`createActionHandler` in `src/main.ts`); Studio uses the session HTTP/SSE API.
+The default registry exports two agents from `agents/release/`: an order-lookup assistant and a data analyst with a sandbox. `src/main.ts` saves them to the Runtime (`client.saveAgent`), which runs them; Studio uses the session HTTP/SSE API.
 
-The ten older demonstrations remain as source references under `agents/`, outside the release registry. Their descriptions below are historical and do not establish support in the new host.
+The Runtime runs no code of this project during a session. The assistant's `lookup_order` is an HTTP tool (`http()` in [`agents/shared/orders.ts`](./agents/shared/orders.ts)): the Runtime POSTs the tool's input to the examples' tools service, [`src/tools/server.ts`](./src/tools/server.ts), and gives the model its JSON answer. The service also answers the [tools catalog](./agents/shared/tools/catalog) (`calculate`, `convert`, `now`). It listens on `TOOLS_PORT` (default 3001); the agents call it at `TOOLS_URL` (default `http://localhost:3001`, which a local Tenant's Runtime reaches on this machine).
+
+The ten older demonstrations remain as source references under `agents/`, outside the release registry. Their descriptions below are historical and do not establish support in the new host. Tool Use, Subagents, Instructions, Skills and the flow agents (`chain`, `switch`, `parallel`, `map`, `loop`, `ship-feature`) declare nothing the Runtime refuses. Guardrails, Interactions, Local MCP, Code Mode, Coding Agent and Interior Design run code of their own (tools with `run`/`execute`, or middleware) and run only in the local engine (`@nylorun/harness/run`), as their tests do: the Runtime refuses to save them.
 
 ## Install and configure
 
@@ -13,7 +15,7 @@ npm run setup
 npm run dev
 ```
 
-Root development rebuilds local packages and the Runtime and Studio images, runs them as the examples' own local Tenant (Docker Compose; Runtime on port 8787, Studio on port 4161 by default) with `nylorun start` in this directory, which creates the Tenant, links this directory to it, and on that first link seeds the model provider from `.env` into the Tenant's vault; then it runs these examples with their own `npm run dev`. Outside root development, run `npx nylorun start` here, then `npm run dev`. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens a fresh Studio login on the examples Tenant; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the Tenant is running.
+Root development rebuilds local packages and the Runtime and Studio images, runs them as the examples' own local Tenant (Docker Compose; Runtime on port 8787, Studio on port 4161 by default) with `nylorun start` in this directory, which creates the Tenant, links this directory to it, and on that first link seeds the model provider from `.env` into the Tenant's vault; then it starts the tools service and runs these examples with their own `npm run dev`, which saves the agents again on every edit. Outside root development, run `npx nylorun start` here, then `npx tsx src/tools/server.ts` (the tools service) and `npm run dev`. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens a fresh Studio login on the examples Tenant; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the Tenant is running.
 
 `MODEL_PROVIDER`, `MODEL`, and `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_BASE_URL` for a custom endpoint) seed the vault once when they are already set. They are not the call-time store. An existing `.env/` directory must be migrated by hand (back it up, create a `.env` file with those variables, and move OAuth credentials to `.nylorun/auth.json`); local state is never moved automatically.
 
@@ -40,20 +42,21 @@ The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed
 [`src/ag-ui/`](./src/ag-ui/) is a web backend that puts the
 [support agent](./agents/ag-ui/support.ts) in front of its signed-in users. The
 browser speaks [AG-UI](https://docs.ag-ui.com) to the backend; the backend signs
-people in, hosts the handler and serves the Action endpoint the Runtime delivers
-the agent's tool calls to. The whole integration is [`app.ts`](./src/ag-ui/app.ts):
+people in, hosts the handler and answers the agent's `lookup_order`, an HTTP tool
+(`approval: "always"`) the Runtime calls at the backend's URL. The whole
+integration is [`app.ts`](./src/ag-ui/app.ts):
 
 ```ts
-const actions = createActionHandler({ agents: [support] }); // the tools run here
+const tools = toolsService([lookupOrderCode]); // POST /lookup_order: the tool's code runs here
 const agui = createAgUiHandler({
   basePath: "/api/agui",
-  agents: [support], // nothing else is reachable
+  agents: ["support"], // nothing else is reachable
   subject: (request) => userFromCookie(request)?.id, // your sign-in; undefined → 401
 });
 const fetch = (request: Request) =>
-  new URL(request.url).pathname === "/nylorun/actions" ? actions.fetch(request) : agui.fetch(request);
+  new URL(request.url).pathname === "/lookup_order" ? tools(request) : agui.fetch(request);
 createServer(toNodeListener({ fetch })).listen(3000);
-await actions.register({ url: "http://localhost:3000/nylorun/actions" });
+await client.saveAgent(supportAgent("http://localhost:3000")); // the tool's URL is this app's
 ```
 
 Run it with the examples Tenant from `npm run dev` running:
@@ -82,7 +85,8 @@ app.all("/api/agui/*", (c) => agui.fetch(c.req.raw));
 ```
 
 Both handlers hold no state between requests, so they run on a serverless
-platform too; register the deployed Action endpoint URL once from a deploy step.
+platform too; save the agent with the deployed URL once from a deploy step
+(`NYLORUN_APP_URL` for `npm run ag-ui`).
 
 ## Pages that call the Runtime directly
 
@@ -209,8 +213,8 @@ process so it uses the updated executable. Codex uses its host configuration and
 Start with [Instructions](./agents/instructions/agent.ts), then [Tool Use](./agents/tool-use/agent.ts).
 Capability modules stay small:
 
-- [tools](./agents/shared/tools/index.ts) is one `.use(await tools())` call: every `*.ts` module in [agents/shared/tools/catalog](./agents/shared/tools/catalog) is offered as a model tool.
-- [code-mode](./agents/code-mode/capability.ts) is one `.use(await codeMode())` call: the same catalog becomes a generated TypeScript SDK, and only `run_code` is offered to the model.
+- [tools](./agents/shared/tools/index.ts) is one `.use(await tools())` call: every `*.ts` module in [agents/shared/tools/catalog](./agents/shared/tools/catalog) is offered as an `http()` tool, whose code the [tools service](./agents/shared/tools/service.ts) runs.
+- [code-mode](./agents/code-mode/capability.ts) is one `.use(await codeMode())` call: the same catalog becomes a generated TypeScript SDK, and only `run_code` is offered to the model. It runs the catalog's code in process, so only the local engine runs it.
 - [notes](./agents/interactions/notes.ts) uses an ordinary JSONL service.
 - [ask-user](./agents/interactions/ask-user.ts) pauses for a human reply.
 - [review](./agents/interactions/approval.ts) requires approval before a write candidate is accepted.
@@ -233,9 +237,9 @@ Tools follow the same catalog shape. Export a `tools` array from a module in [ag
 .use(await tools())
 ```
 
-Drop another `*.ts` file in that folder to add a tool without changing agent code. Code Mode
-loads the same catalog and hides those native schemas; the model writes a program against
-`await tools.name(args)` instead.
+Drop another `*.ts` file in that folder to add a tool without changing agent code: the tools
+service serves it at `/<tool name>` once restarted. Code Mode loads the same catalog and hides
+those native schemas; the model writes a program against `await tools.name(args)` instead.
 
 For the underlying agent and capability model, read the concise [Harness README](../harness/README.md).
 For the browser-side protocol, read the [Studio README](../studio/README.md).

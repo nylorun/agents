@@ -11,8 +11,8 @@
 //
 // - egress-gate: a run token, a host token, another sandbox's egress token, a stale host epoch
 //   (before and after the current one), another Tenant's, an expired one → 407;
-// - the gates: the keys service and deliveries with a run, host or egress token, model calls with
-//   a host or egress token → 401;
+// - the gates: the keys service with a run, host or egress token, model calls with a host or
+//   egress token → 401;
 // - the Harness API listener: the pod's join token replayed from another pod (the probe's UID),
 //   a wrong join token, renewal with an egress, run or stale-epoch host token → 401; the Runtime
 //   and Management APIs' routes with a host or run token → never answered.
@@ -71,8 +71,6 @@ try {
         body: JSON.stringify({ args: [{ typ: RUN_TOKEN_TYP, claims: {} }] }),
       });
       assert.equal(keys, 401, `the keys service refuses a ${label} token`);
-      const deliveries = await http(host, ports.gates, "POST", "/nylorun/v1/deliveries", { ...bearer(token), body: "{}" });
-      assert.equal(deliveries, 401, `deliveries refuse a ${label} token`);
     }
     for (const [label, token] of [["host", hostToken], ["egress", egress]])
       assert.equal(

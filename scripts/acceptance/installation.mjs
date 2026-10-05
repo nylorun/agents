@@ -25,7 +25,8 @@
  *     start (host.json from a newer CLI) leaves the Tenant running
  * I7  the Tenant keeps running after the installing Project deletes node_modules
  * I8  two Projects linked to one Tenant (`nylorun start` with NYLORUN_TENANT)
- *     develop at once; stopping one keeps the Tenant and the other
+ *     develop at once, each saving its agent; stopping one keeps the Tenant, its
+ *     agent and the other Project's loop
  * I9  Project link rules: a moved checkout keeps its link; clones and worktrees
  *     do not inherit it; `nylorun start` links a worktree to the same Tenant
  */
@@ -292,20 +293,6 @@ async function i1(url, stack, adminKey) {
   const crossed = await request(url, "/v1/tenant", { key });
   assert.equal(crossed.status, 403, "an application key does not reach the Management API");
   assert.equal((await crossed.json()).code, "key_role_mismatch");
-  // Registration does not call the URL, so it need not answer.
-  await request(url, "/v1/endpoints", {
-    method: "PUT",
-    key,
-    body: {
-      endpoints: [
-        { agentId: "installation-agent", url: "http://localhost:9/installation", implementationVersion: "dev" },
-      ],
-    },
-  }).then(ok);
-  assert.deepEqual(
-    (await runtimeGet(url, key, "/v1/endpoints")).endpoints.map((e) => e.url),
-    ["http://localhost:9/installation"],
-  );
   // The Host creates its Tenant itself, and there is no Admin API: no request accepts the
   // admin key, and no operator port is published.
   for (const [method, path] of [
@@ -453,26 +440,28 @@ async function i6(url, stack) {
 }
 
 // ── I8: two Projects linked to one Tenant run `npm run dev` at once ──
+/** A Project's agent registry: one agent, `id`, named `name`. */
+const writeAgents = (project, id, name) =>
+  writeFile(
+    join(project, "agents/index.ts"),
+    `import { Agent } from "@nylorun/agents";\nexport const agents = [Agent({ id: "${id}", name: "${name}" }).build()];\n`,
+  );
+
 async function i8(url, stack, packed, temporary) {
   const makeProject = async (name) => {
     const project = join(temporary, `project-${name}`);
     await mkdir(join(project, "agents"), { recursive: true });
     await mkdir(join(project, "src"), { recursive: true });
-    // The Projects share the one Tenant, so each serves its own agent id.
-    await writeFile(
-      join(project, "agents/index.ts"),
-      `import { Agent } from "@nylorun/agents";\nexport const agents = [Agent({ id: "${name}", name: "${name}" })];\n`,
-    );
+    // The Projects share the one Tenant, so each saves its own agent id.
+    await writeAgents(project, name, name);
+    // As the starter's: save each agent, then nothing runs (tsx watch saves again on an edit).
     await writeFile(
       join(project, "src/main.ts"),
       [
-        'import { createServer } from "node:http";',
-        'import { createActionHandler } from "@nylorun/agents";',
+        'import { createClient } from "@nylorun/agents";',
         'import { agents } from "../agents/index.ts";',
-        "const actions = createActionHandler({ agents });",
-        "const server = createServer(actions.node);",
-        "await new Promise((resolve) => server.listen(0, resolve));",
-        "await actions.register({ url: `http://localhost:${server.address().port}/nylorun/actions` });",
+        "const client = await createClient();",
+        "for (const agent of agents) await client.saveAgent(agent);",
         "",
       ].join("\n"),
     );
@@ -507,21 +496,25 @@ async function i8(url, stack, packed, temporary) {
       keys.add(credentials.applicationKey);
     }
     assert.equal(keys.size, 1, "concurrent starts share the one project key");
-    // The Runtime (in Docker) reaches each Project's Action endpoint on this machine.
-    const connected = async (agentId) =>
-      (await request(url, `/v1/endpoints/${agentId}/ping`, { method: "POST", key })).status === 200;
+    // Each Project's `npm run dev` saves its agent on the one Tenant.
+    const saved = async () =>
+      new Map((await runtimeGet(url, key, "/v1/agents")).agents.map((a) => [a.manifest.id, a.manifest.name]));
     for (const name of names)
-      await eventually(() => connected(name), { message: `the Action endpoint of ${name}` });
+      await eventually(async () => (await saved()).has(name), { message: `the agent of ${name}` });
 
     await devs[0].stop();
     assert.equal((await fetch(`${url}/ready`)).status, 200, "the Tenant keeps running");
-    await eventually(async () => !(await connected(names[0])), { message: "the stopped Project's endpoint to stop answering" });
-    assert.equal(await connected(names[1]), true, "the other Project's endpoint still answers");
+    assert.ok((await saved()).has(names[0]), "the stopped Project's agent stays saved");
+    // The other Project still develops: an edit saves its agent again.
+    await writeAgents(projects[1], names[1], `${names[1]} edited`);
+    await eventually(async () => (await saved()).get(names[1]) === `${names[1]} edited`, {
+      message: "the other Project to save its edited agent",
+    });
     await devs[1].stop();
   } finally {
     await group.close();
   }
-  pass("I8", "two Projects linked to one Tenant develop at once; stopping one leaves the Tenant and the other");
+  pass("I8", "two Projects linked to one Tenant develop at once; stopping one leaves the Tenant, its agent and the other");
 }
 
 // ── I4: restart restores sessions; a too-new schema leaves the Tenant unavailable ──

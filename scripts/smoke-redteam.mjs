@@ -15,7 +15,7 @@
 //    Every check must be refused: the stores and Restate, other secrets and keys, mounts
 //    outside /harness, the harness token anywhere but the Harness API, runs and sessions this
 //    connection does not hold, a workspace record outside the Tenant's prefix, A's run token
-//    for B, keys or deliveries, and A's token once A is cancelled.
+//    for B or keys, and A's token once A is cancelled.
 // 3. The suite's `lease` takes A's next turn (sent when it says it is leasing); A is cancelled
 //    once it says it holds the run.
 // 4. The harness service starts again, and A runs another turn.

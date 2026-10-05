@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent, model, type CapabilityItems, type ToolDefinition } from "@nylorun/core/define";
 import { afterEach, describe, expect, it } from "vitest";
-import { tools } from "../agents/shared/tools/index.js";
+import { catalog, tools } from "../agents/shared/tools/index.js";
+import { toolsService } from "../agents/shared/tools/service.js";
+import { lookupOrderCode } from "../agents/shared/orders.js";
 import { invokeTool } from "./support.js";
 
 const adapter = model(async () => ({
@@ -24,20 +26,16 @@ function items<T>(value: CapabilityItems<T> | undefined): readonly T[] {
   return "items" in value ? value.items : value;
 }
 
-function catalogTool(
-  name: string,
-  declaration: Awaited<ReturnType<typeof tools>>
-): ToolDefinition {
-  const found = items(declaration.tools).find((tool) => tool.name === name);
+async function catalogTool(name: string): Promise<ToolDefinition> {
+  const found = (await catalog()).find((tool) => tool.name === name);
   if (!found) throw new Error(`Missing tool ${name}`);
   return found;
 }
 
 describe("tools()", () => {
   it("loads calculate from the tools catalog", async () => {
-    const declaration = await tools();
     await expect(
-      invokeTool(catalogTool("calculate", declaration), {
+      invokeTool(await catalogTool("calculate"), {
         expression: "19 * 7",
       })
     ).resolves.toEqual({
@@ -47,8 +45,7 @@ describe("tools()", () => {
   });
 
   it("converts compatible units and rejects incompatible ones", async () => {
-    const declaration = await tools();
-    const convert = catalogTool("convert", declaration);
+    const convert = await catalogTool("convert");
     await expect(
       invokeTool(convert, { value: 25, from: "celsius", to: "fahrenheit" })
     ).resolves.toEqual({
@@ -65,8 +62,7 @@ describe("tools()", () => {
   });
 
   it("returns UTC iso and unixMs from now", async () => {
-    const declaration = await tools();
-    const result = await invokeTool(catalogTool("now", declaration), {});
+    const result = await invokeTool(await catalogTool("now"), {});
     expect(result).toMatchObject({
       kind: "completed",
       output: {
@@ -80,6 +76,29 @@ describe("tools()", () => {
     const root = await mkdtemp(join(tmpdir(), "tools-test-"));
     temps.push(root);
     await expect(tools({ directory: root })).resolves.toEqual({ id: "tools" });
+  });
+
+  it("serves the catalog and lookup_order to the Runtime as JSON over POST", async () => {
+    const service = toolsService([lookupOrderCode, ...(await catalog())]);
+    const call = (name: string, input: unknown) =>
+      service(
+        new Request(`http://localhost/${name}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        })
+      );
+    const calculated = await call("calculate", { expression: "19 * 7" });
+    expect(calculated.status).toBe(200);
+    await expect(calculated.json()).resolves.toEqual({ expression: "19 * 7", value: 133 });
+    await expect((await call("lookup_order", { orderId: "demo-123" })).json()).resolves.toEqual({
+      orderId: "demo-123",
+      status: "shipped",
+    });
+    const refused = await call("convert", { value: 1, from: "celsius", to: "meter" });
+    expect(refused.status).toBe(422);
+    await expect(refused.text()).resolves.toBe("Cannot convert celsius to meter.");
+    expect((await call("missing", {})).status).toBe(404);
   });
 
   it("builds the tool-use agent with one tools middleware", async () => {
@@ -101,6 +120,12 @@ describe("tools()", () => {
       "calculate",
       "convert",
       "now",
+    ]);
+    // HTTP tools: the Runtime calls the tools service; no code of the examples runs in it.
+    expect(offered.map((tool) => (tool as { http?: { url: string } }).http?.url).sort()).toEqual([
+      "http://localhost:3001/calculate",
+      "http://localhost:3001/convert",
+      "http://localhost:3001/now",
     ]);
   });
 });
