@@ -271,7 +271,7 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Agents & workflows</SidebarGroupLabel>
+          <SidebarGroupLabel>Agents</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {connection.agents.map((agent) => (
@@ -287,7 +287,7 @@ export function AppSidebar({
               connection.agents.length === 0 ? (
                 <SidebarMenuItem>
                   <span className="block px-2 py-1 text-sm text-muted-foreground">
-                    No agents exposed
+                    None
                   </span>
                 </SidebarMenuItem>
               ) : null}
