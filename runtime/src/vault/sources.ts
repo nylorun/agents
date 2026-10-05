@@ -1,10 +1,11 @@
 /**
- * Where a session's MCP credential comes from (F9 C1): the session's attached vaults first,
- * then the operator's credential resolver, an HTTP service on the operator's own network that
- * holds people's own credentials (OSS never stores them, F9-D7).
+ * Where a session's MCP or HTTP tool credential comes from (F9 C1): the session's attached
+ * vaults first, then the operator's credential resolver, an HTTP service on the operator's own
+ * network that holds people's own credentials (OSS never stores them, F9-D7).
  *
- * Both authorize sites call this: the gateway (`gates/tenant-vaults.ts`, remote MCP servers in
- * the gates service) and the Tenant (`tenant/effects.ts`, the in-process MCP pool).
+ * Both authorize sites call this: the gateway (`gates/tenant-vaults.ts`, remote MCP servers and
+ * HTTP tools in the gates service) and the Tenant (`tenant/effects.ts`, the in-process MCP pool
+ * and Tool Gate).
  *
  * ## The resolver contract
  *
@@ -21,6 +22,9 @@
  * 404                                         → unauthenticated (the call goes without one)
  * anything else, a bad body, or no answer in 5 s → refused: credential_unavailable
  * ```
+ *
+ * An HTTP tool's request (R2 M3) names its `credential` instead of a server:
+ * `"target": { "kind": "http", "credential": "billing", "agent"?: "support", "url": "https://…" }`.
  *
  * `owner` and `turn` come from the session row, never from the harness. Because authorize runs
  * on every MCP HTTP request, answers (200 and 404) are cached per (owner, url): until
@@ -47,9 +51,15 @@ export interface CredentialSession {
   readonly credentialSelections?: readonly CredentialSelection[];
 }
 
-/** One MCP request: the declared server's URL, its name and the agent that declares it. */
+/**
+ * One MCP request: the declared server's URL, its name and the agent that declares it. Or, with
+ * `kind: "http"`, an HTTP tool's request: its URL and its `credential` name as `serverName`.
+ */
 export interface McpCredentialRequest {
+  /** Default `mcp`. */
+  readonly kind?: "mcp" | "http";
   readonly url: string;
+  /** The server's name, or the HTTP tool's `credential`: what a credential selection names. */
   readonly serverName?: string;
   /** The agent used as a tool that declares the server; absent for the session's root agent. */
   readonly agentId?: string;
@@ -179,12 +189,20 @@ export class CredentialSources {
       owner: session.ownerUserId,
       session: session.id,
       turn: session.activeTurnId ?? null,
-      target: {
-        kind: "mcp",
-        ...(request.serverName ? { server: request.serverName } : {}),
-        ...(request.agentId ? { agent: request.agentId } : {}),
-        url,
-      },
+      target:
+        request.kind === "http"
+          ? {
+              kind: "http",
+              ...(request.serverName ? { credential: request.serverName } : {}),
+              ...(request.agentId ? { agent: request.agentId } : {}),
+              url,
+            }
+          : {
+              kind: "mcp",
+              ...(request.serverName ? { server: request.serverName } : {}),
+              ...(request.agentId ? { agent: request.agentId } : {}),
+              url,
+            },
     };
     try {
       const response = await this.fetchImpl(resolver.url, {

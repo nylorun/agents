@@ -1,7 +1,7 @@
 /**
  * The gates service's HTTP routes (blueprint §15, P1.1): the Model Gate's IR endpoint, the Tool
- * Gate's remote MCP and delivery routes (F4.1), the keys service (F4.2), and the health and
- * readiness probes. Internal, so they are not in the published OpenAPI documents. The wire
+ * Gate's remote MCP and delivery routes (F4.1) and HTTP tool route (R2 M3), the keys service
+ * (F4.2), and the health and readiness probes. Internal, so they are not in the published OpenAPI documents. The wire
  * formats are `gates/contract.ts` and `gates/tool-contract.ts`.
  *
  * Two credentials (F5, gate trust):
@@ -9,7 +9,7 @@
  * | Route | Accepts | Scope from |
  * | --- | --- | --- |
  * | `POST /nylorun/v1/model-calls`, its cancel | run token | the token |
- * | `POST /nylorun/v1/tool-calls`, its cancel; `mcp/connect`, `mcp/list`, `mcp/close` | run token, or core's | the token; the body only for core's |
+ * | `POST /nylorun/v1/tool-calls`, its cancel; `mcp/connect`, `mcp/list`, `mcp/close`; `http-calls` | run token, or core's | the token; the body only for core's |
  * | `POST /nylorun/v1/keys/:operation` | core's | — |
  * | `POST /nylorun/v1/deliveries` | core's | — |
  *
@@ -36,6 +36,7 @@ import { InflightConflict, InflightStale, type InflightCalls } from "../../gates
 import type { ModelGateOutcome } from "../../gates/model-gate.js";
 import type { McpHandler } from "../../gates/mcp-handler.js";
 import type { ToolCalls } from "../../gates/tool-calls.js";
+import type { HttpOutcome, HttpToolCall } from "../../gates/http-tool.js";
 import type { Keys } from "../../keys/keys.js";
 import type { McpServerRef } from "../../mcp/pool.js";
 import { mountKeysRoutes } from "./keys.js";
@@ -44,6 +45,8 @@ import {
   DELIVERIES_PATH,
   DELIVERY_HEADERS,
   DeliveryBodySchema,
+  HTTP_CALLS_PATH,
+  HttpCallBodySchema,
   MAX_TOOL_BODY_BYTES,
   MCP_CLOSE_PATH,
   MCP_CONNECT_PATH,
@@ -82,7 +85,11 @@ export interface GatesAppOptions {
   readonly maxBodyBytes?: number;
   /** Remote MCP servers (F4.1). Without it the MCP routes answer 404. */
   readonly mcp?: McpHandler;
-  /** Keyed MCP calls, which outlive their client and run once (F4.1 G3). Needs `mcp`. */
+  /** HTTP tool calls (R2 M3). Without it the HTTP calls route answers 404. */
+  readonly http?: {
+    call(tenantId: string | undefined, call: HttpToolCall, signal: AbortSignal): Promise<HttpOutcome>;
+  };
+  /** Keyed MCP and HTTP tool calls, which outlive their client and run once (F4.1 G3). */
   readonly toolCalls?: ToolCalls;
   /** The keys service's operations (F4.2). Without it the keys route answers 404. */
   readonly keys?: () => Promise<Keys>;
@@ -201,29 +208,38 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
   }
 
   /**
-   * The MCP server a request names, in its session: a run token's session (a body naming
-   * another is refused), or, under core's credential, the body's.
+   * The MCP server or HTTP tool a request names, in its session: a run token's session (a body
+   * naming another is refused), or, under core's credential, the body's.
    */
-  function serverOf(
+  function sessionOf<T extends { sessionId?: string | undefined }>(
     c: Context<GateEnv>,
-    server: Omit<McpServerRef, "sessionId"> & { sessionId?: string | undefined },
-  ): { ok: true; server: McpServerRef } | { ok: false; response: Response } {
+    ref: T,
+    field: string,
+  ): { ok: true; ref: T & { sessionId: string } } | { ok: false; response: Response } {
     const claims = c.get("run");
     if (claims) {
-      if (server.sessionId !== undefined && server.sessionId !== claims.sessionId)
+      if (ref.sessionId !== undefined && ref.sessionId !== claims.sessionId)
         return {
           ok: false,
           response: c.json(gateError("gate_forbidden", "The run token is for another session"), 403),
         };
-      return { ok: true, server: { ...server, sessionId: claims.sessionId } as McpServerRef };
+      return { ok: true, ref: { ...ref, sessionId: claims.sessionId } };
     }
-    if (server.sessionId === undefined)
+    if (ref.sessionId === undefined)
       return {
         ok: false,
-        response: c.json(invalid("server.sessionId is required with core's credential"), 400),
+        response: c.json(invalid(`${field}.sessionId is required with core's credential`), 400),
       };
-    return { ok: true, server: server as McpServerRef };
+    return { ok: true, ref: ref as T & { sessionId: string } };
   }
+
+  const serverOf = (
+    c: Context<GateEnv>,
+    server: Omit<McpServerRef, "sessionId"> & { sessionId?: string | undefined },
+  ): { ok: true; server: McpServerRef } | { ok: false; response: Response } => {
+    const scoped = sessionOf(c, server, "server");
+    return scoped.ok ? { ok: true, server: scoped.ref } : scoped;
+  };
 
   /** The run a keyed call belongs to, for the in-flight map (G4). */
   const ownerOf = (c: Context<GateEnv>) => {
@@ -246,6 +262,7 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
     });
 
   const mcp = options.mcp;
+  const toolCalls = options.toolCalls;
   if (mcp) {
     const scoped = run({ live: true, orCore: true });
     app.post(MCP_CONNECT_PATH, scoped, toolBodies, async (c) => {
@@ -271,14 +288,6 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
       await mcp.close(server.server);
       return c.body(null, 204);
     });
-    const toolCalls = options.toolCalls;
-    app.post(`${TOOL_CALLS_PATH}/:key/cancel`, run({ live: false, orCore: true }), (c) => {
-      if (tenantOf(c) === false) return badTenant(c);
-      const owner = ownerOf(c);
-      if (toolCalls && !toolCalls.cancel(c.req.param("key"), owner?.sessionId))
-        return c.json(gateError("gate_forbidden", "The call is another session's"), 403);
-      return c.body(null, 204);
-    });
     app.post(TOOL_CALLS_PATH, scoped, toolBodies, async (c) => {
       const request = await read(c, ToolCallBodySchema);
       if (!request.ok) return request.response;
@@ -297,7 +306,7 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
                   request.tenantId,
                   key,
                   createHash("sha256").update(canonical(body)).digest("hex"),
-                  body,
+                  (own) => mcp.call(request.tenantId, body, own),
                   ownerOf(c),
                 ),
                 signal,
@@ -313,6 +322,56 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
       }
     });
   }
+
+  const http = options.http;
+  if (http) {
+    app.post(HTTP_CALLS_PATH, run({ live: true, orCore: true }), toolBodies, async (c) => {
+      const request = await read(c, HttpCallBodySchema);
+      if (!request.ok) return request.response;
+      const tool = sessionOf(c, request.body.tool, "tool");
+      if (!tool.ok) return tool.response;
+      // A run token's turn is the call's: it names the request's `Nylorun-Turn-Id`.
+      const call: HttpToolCall = {
+        ...request.body,
+        tool: tool.ref,
+        turnId: c.get("run")?.turnId ?? request.body.turnId,
+      };
+      const signal = c.req.raw.signal;
+      const key = c.req.header("idempotency-key");
+      try {
+        // Keyed: runs once under its own signal and outlives this request, as an MCP call.
+        const answer =
+          key && toolCalls
+            ? await untilAborted(
+                toolCalls.run(
+                  request.tenantId,
+                  key,
+                  createHash("sha256").update(canonical(call)).digest("hex"),
+                  async (own) => ({ ok: true, result: await http.call(request.tenantId, call, own) }),
+                  ownerOf(c),
+                ),
+                signal,
+              )
+            : { ok: true as const, result: await http.call(request.tenantId, call, signal) };
+        if (signal.aborted) return new Response(null, { status: 499 });
+        return c.json(answer);
+      } catch (error) {
+        const refused = refusedJoin(c, error);
+        if (refused) return refused;
+        if (signal.aborted) return new Response(null, { status: 499 });
+        throw error;
+      }
+    });
+  }
+
+  if (mcp || http)
+    app.post(`${TOOL_CALLS_PATH}/:key/cancel`, run({ live: false, orCore: true }), (c) => {
+      if (tenantOf(c) === false) return badTenant(c);
+      const owner = ownerOf(c);
+      if (toolCalls && !toolCalls.cancel(c.req.param("key"), owner?.sessionId))
+        return c.json(gateError("gate_forbidden", "The call is another session's"), 403);
+      return c.body(null, 204);
+    });
 
   const policy = options.delivery;
   if (policy) {

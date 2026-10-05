@@ -1,5 +1,6 @@
 import type { CapabilityDeclaration } from "../types/middleware.js";
 import type { McpServerManifest } from "../types/manifest.js";
+import { APPROVAL_MODES } from "./http-tool.js";
 
 type WithOptionalName<T> = T extends { readonly name: string }
   ? Omit<T, "name"> & { readonly name?: string }
@@ -101,6 +102,7 @@ function freezeServer(server: McpServerManifest): McpServerManifest {
     ...(server.headers === undefined
       ? {}
       : { headers: Object.freeze({ ...server.headers }) }),
+    ...(server.approval === undefined ? {} : { approval: server.approval }),
   });
 }
 
@@ -108,7 +110,11 @@ function isMcpServer(value: unknown): value is McpServerManifest {
   if (!isRecord(value) || typeof value.name !== "string" || !value.name)
     return false;
   if (value.type === "streamable-http" || value.type === "sse")
-    return typeof value.url === "string" && value.url.length > 0;
+    return (
+      typeof value.url === "string" &&
+      value.url.length > 0 &&
+      (value.approval === undefined || (APPROVAL_MODES as readonly unknown[]).includes(value.approval))
+    );
   return false;
 }
 

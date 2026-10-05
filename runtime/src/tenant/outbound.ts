@@ -1,6 +1,6 @@
 /**
- * The Runtime's requests to Action endpoints (design: Action endpoints §8.3): one POST, no
- * redirects, a bounded answer, and the Host's address policy checked on the address actually
+ * The Runtime's requests to Action endpoints (design: Action endpoints §8.3) and HTTP tools
+ * (`gates/http-tool.ts`): one request, no redirects, a bounded answer, and the Host's address policy checked on the address actually
  * connected to, so a DNS answer cannot steer a delivery somewhere the Host forbids.
  *
  * The result says whether anything reached the endpoint. A request that failed before its body
@@ -109,12 +109,20 @@ function guardedLookup(policy: OutboundPolicy) {
     });
 }
 
-/** POSTs `body` to `url` under `policy`. Never throws; `signal` aborts the request. */
+/**
+ * POSTs (or, with `method`, PUTs or PATCHes) the JSON `body` to `url` under `policy`. Never
+ * throws; `signal` aborts the request.
+ */
 export async function post(
   target: string,
   body: string,
   headers: Record<string, string>,
-  options: { policy: OutboundPolicy; signal: AbortSignal; maxResponseBytes?: number },
+  options: {
+    policy: OutboundPolicy;
+    signal: AbortSignal;
+    maxResponseBytes?: number;
+    method?: "POST" | "PUT" | "PATCH";
+  },
 ): Promise<OutboundResult> {
   const { policy, signal } = options;
   const limit = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
@@ -141,7 +149,7 @@ export async function post(
     const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(
       url,
       {
-        method: "POST",
+        method: options.method ?? "POST",
         headers: {
           ...headers,
           host: originalHost,

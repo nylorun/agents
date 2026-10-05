@@ -2,9 +2,9 @@
  * The Record seam of the Harness API: core's journal for the effects of a run. `recordIntent`
  * journals an effect before anything runs it, and either answers it from the journal, hands it
  * to core's own executors (Actions, flow work, delegation, `save_artifact` and the skill tools),
- * or tells the harness to `execute` it. `recordOutcome` records what the harness's call
- * returned. Both run under the advance's lease: every write is epoch-checked (`ownedSession`),
- * and a lost epoch writes nothing.
+ * or tells the harness to `execute` it (model calls; MCP, HTTP and sandbox tools). `recordOutcome`
+ * records what the harness's call returned. Both run under the advance's lease: every write is
+ * epoch-checked (`ownedSession`), and a lost epoch writes nothing.
  *
  * Rows store the request's hash (`requestHash`) and, for a model call, the request without its
  * prompt: drift is a hash compare. Rows written before carry their full request, hashed on read.
@@ -27,14 +27,15 @@ import { callSaveArtifact } from "../tenant/artifact-tool.js";
 import { callSkillTool, isSkillToolCall } from "../tenant/skill-tool.js";
 import { isOwnershipLost } from "../store/ownership.js";
 import { manifestFor, mcpToolOf } from "../mcp/snapshot.js";
+import { isHttpToolCall } from "../gates/http-tool.js";
 import { ownedSession, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import { actionTarget, pinnedTool } from "../tenant/session.js";
 import { offerAction } from "../tenant/delivery.js";
 import {
-  isRemoteMcpEffect,
+  isGateToolEffect,
   linkedOutcome,
-  recoversMcpCalls,
   recoversModelCalls,
+  recoversToolCalls,
   resolveNewFlowEffect,
 } from "../tenant/effects.js";
 import {
@@ -103,10 +104,11 @@ export async function recordIntent(
         throw new HarnessApiError("effect_drift", "Effect identity request drift");
       if (existing.status === "completed") return { status: "completed", outcome: existing.outcome! };
       // A call its previous owner left running at the gate: re-send it, same key and request,
-      // to join it or collect its outcome (P1.2 for model calls, F4.1 for remote MCP calls).
+      // to join it or collect its outcome (P1.2 for model calls, F4.1 for remote MCP and HTTP
+      // tool calls).
       if (existing.status === "invoking" && request.kind === "model" && recoversModelCalls(ctx))
         return { status: "execute", rejoin: true };
-      if (existing.status === "invoking" && recoversMcpCalls(ctx) && isRemoteMcpEffect(s, existing.request))
+      if (existing.status === "invoking" && recoversToolCalls(ctx) && isGateToolEffect(s, existing.request))
         return { status: "execute", rejoin: true };
       if (request.kind === "agent" && existing.status === "pending" && existing.agentSessionId) {
         const agent = await t.get<Session>("sessions", existing.agentSessionId);
@@ -150,6 +152,8 @@ export async function recordIntent(
       request.kind === "model" ||
       (request.kind === "tool" &&
         (mcpToolOf(s.mcpSnapshot, request) !== undefined ||
+          // HTTP tools (R2 M3) cross the Tool Gate: never an Action.
+          isHttpToolCall(s.manifest, request) ||
           sandboxCapabilityOf(agentManifest, request.capabilityId, request.toolName) !== undefined ||
           // `save_artifact` (F8.1) runs beside the sandbox tools, and the skill tools (R2 M4).
           isSaveArtifactCall(agentManifest, request) ||

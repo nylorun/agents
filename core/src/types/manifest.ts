@@ -4,6 +4,31 @@ import type { WorkflowManifestV2 } from "./workflow.js";
 /** Published manifest schema version (no top-level model — Runtime-owned). */
 export type ManifestSchemaVersion = 5;
 
+/** Whether each call waits for a person's approval (`approve` on the session). Default `never`. */
+export type ApprovalMode = "never" | "always";
+
+/** The methods an HTTP tool may use: each sends the tool input as a JSON body. */
+export type HttpToolMethod = "POST" | "PUT" | "PATCH";
+
+/**
+ * A tool the Runtime runs as one HTTP request through its Tool Gate: the input as a JSON body,
+ * the answer as the output. A sibling of `agent`; `fn` and `command` are reserved for later kinds.
+ */
+export interface HttpToolTarget {
+  /** Absolute `http` or `https` URL. */
+  readonly url: string;
+  /** Default `POST`. */
+  readonly method?: HttpToolMethod;
+  /**
+   * Adds a vault credential to each request, as for a remote MCP server: a credential in the
+   * session's vaults bound to `url`, chosen by the session's credential selection with this
+   * name (`credentialSelections[].serverName`) when several are; else the operator's resolver.
+   */
+  readonly credential?: string;
+  /** How long the service may take to answer. Default 60000, at most 300000. */
+  readonly timeoutMs?: number;
+}
+
 export interface ToolManifest {
   readonly name: string;
   readonly description?: string;
@@ -15,6 +40,10 @@ export interface ToolManifest {
    * agent (workflow manifest v2) runs in its own linked session on the Runtime.
    */
   readonly agent?: AgentManifest | WorkflowManifestV2;
+  /** Present when the Runtime runs this tool as an HTTP request. Never with `agent`. */
+  readonly http?: HttpToolTarget;
+  /** Each call of an HTTP tool waits for approval. */
+  readonly approval?: ApprovalMode;
 }
 
 export interface SkillManifest {
@@ -35,12 +64,16 @@ export type McpServerManifest =
       readonly type: "streamable-http";
       readonly url: string;
       readonly headers?: Readonly<Record<string, string>>;
+      /** Each call of every tool of the server waits for approval. */
+      readonly approval?: ApprovalMode;
     }
   | {
       readonly name: string;
       readonly type: "sse";
       readonly url: string;
       readonly headers?: Readonly<Record<string, string>>;
+      /** Each call of every tool of the server waits for approval. */
+      readonly approval?: ApprovalMode;
     };
 
 /** Network egress preset for a sandbox. Private ranges and metadata endpoints are always blocked. */

@@ -1,6 +1,6 @@
 /**
- * Keyed remote MCP calls in the gates service (F4.1 G3). A call sent with an `Idempotency-Key`
- * (the loop's effect id) runs once:
+ * Keyed tool calls in the gates service (F4.1 G3): remote MCP calls and HTTP tool calls (R2 M3).
+ * A call sent with an `Idempotency-Key` (the loop's effect id) runs once:
  *
  * - While it runs, and for 30 minutes after, a re-send joins it or gets its answer from memory
  *   (`inflight.ts`), as model calls do (P1.2). So a runtime that dies or shuts down mid-call
@@ -13,7 +13,6 @@
  * A cancel aborts the call and leaves its row without an answer. Settled rows are deleted a day
  * later (`prune`).
  */
-import type { McpServerRef } from "../mcp/pool.js";
 import type { Logger } from "../tenant/types.js";
 import {
   createInflightCalls,
@@ -21,33 +20,26 @@ import {
   type InflightCallsOptions,
   type InflightOwner,
 } from "./inflight.js";
-import type { McpHandler } from "./mcp-handler.js";
 import type { TenantVaults } from "./tenant-vaults.js";
 import type { McpAnswer } from "./tool-contract.js";
 
 /** How long a settled crossing is kept. */
 export const TOOL_CROSSING_TTL_MS = 24 * 60 * 60_000;
 
+/** A tool call's answer: an MCP `CallToolResult`, or an HTTP tool's outcome. */
 export type ToolCallAnswer = McpAnswer<Record<string, unknown>>;
-
-export interface ToolCallRequest {
-  readonly server: McpServerRef;
-  readonly effectId: string;
-  readonly name: string;
-  readonly arguments: Record<string, unknown>;
-}
 
 export interface ToolCalls {
   /**
-   * Runs, joins or answers the call under `key`. Rejects with `InflightConflict` when a
-   * different request already ran under it, and as `InflightCalls.run` does for `owner`, the
-   * run that sends it (F5).
+   * Runs `call` under `key`, joins the call running under it, or answers it from its crossing.
+   * Rejects with `InflightConflict` when a different request (`hash`) already ran under it, and
+   * as `InflightCalls.run` does for `owner`, the run that sends it (F5).
    */
   run(
     tenantId: string | undefined,
     key: string,
     hash: string,
-    request: ToolCallRequest,
+    call: (signal: AbortSignal) => Promise<ToolCallAnswer>,
     owner?: InflightOwner,
   ): Promise<ToolCallAnswer>;
   /**
@@ -63,7 +55,6 @@ export interface ToolCalls {
 
 export interface ToolCallsOptions {
   readonly vaults: TenantVaults;
-  readonly mcp: McpHandler;
   readonly logger: Logger;
   readonly inflight?: InflightCallsOptions;
   readonly now?: () => number;
@@ -74,18 +65,18 @@ const LOST: ToolCallAnswer = {
   error: {
     uncertain: true,
     message:
-      "The gateway stopped while this MCP call ran; the call may have reached the server, so it is not run again",
+      "The gateway stopped while this tool call ran; the call may have reached its server, so it is not run again",
   },
 };
 
 export function createToolCalls(options: ToolCallsOptions): ToolCalls {
-  const { vaults, mcp, logger } = options;
+  const { vaults, logger } = options;
   const now = options.now ?? Date.now;
   const inflight = createInflightCalls<ToolCallAnswer>(options.inflight);
   const iso = () => new Date(now()).toISOString();
 
   return {
-    async run(tenantId, key, hash, request, owner) {
+    async run(tenantId, key, hash, call, owner) {
       if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(LOST), owner);
       const vault = await vaults.open(tenantId);
       const store = vault.store;
@@ -103,7 +94,7 @@ export function createToolCalls(options: ToolCallsOptions): ToolCalls {
         );
         // Another gateway process wrote it between the read and now: never run it twice.
         if (!started) return LOST;
-        const answer = await mcp.call(tenantId, request, signal);
+        const answer = await call(signal);
         // A cancel or a shutdown: the call may have reached the server; the row stays open.
         if (signal.aborted) throw signal.reason ?? new Error("aborted");
         await store

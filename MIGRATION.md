@@ -54,6 +54,46 @@ Also gone with stdio: `pluginRoots` in `PUT /v1/agents/:id` (the strict schema n
 the local stack's `plugins/` mount and the harness's `plugin-data/`, `home/` and `tmp/` mounts. A
 plugin's skills work as before.
 
+## HTTP tools replace code tools
+
+A code tool (`tool({ run })`) runs in your process today, delivered
+to your Action endpoint; a later release of this series removes Action endpoints and
+`createActionHandler`, and with them code tools. Move each one to an **HTTP tool** now: the
+Runtime makes one request to your service per call, through its Tool Gate. Code tools keep
+working until then.
+
+```ts
+// Before: a code tool, run by your Action endpoint
+const refundOrder = tool({
+  name: "refund_order",
+  input: z.object({ orderId: z.string(), amount: z.number() }),
+  approval: () => true,
+  run: async (input) => billing.refund(input),
+});
+
+// After: an HTTP tool; your service serves POST /refunds
+const refundOrder = http({
+  name: "refund_order",
+  input: z.object({ orderId: z.string(), amount: z.number() }),
+  url: "https://billing.example.com/refunds",
+  credential: "billing", // a vault credential bound to the URL, instead of a secret in your code
+  approval: "always",
+});
+```
+
+Your service receives the model's input as the JSON body, with `Nylorun-Session-Id`,
+`Nylorun-Turn-Id`, `Nylorun-Agent-Id` and an `Idempotency-Key` that stays the same when the
+call is re-sent; it answers JSON (checked against `output`) or text, and any other status is a
+tool error the model sees. What does not carry over:
+
+- `approval` is static (`"never"` or `"always"`), not a function of the input.
+- `ctx.state`, `ctx.ask`, `ctx.approve`, `ctx.sleep`, `ctx.waitFor`, `ctx.step` and progress
+  events have no HTTP form; keep that logic in your service or in the agent's instructions.
+- An HTTP tool is not a flow stage yet; flow stages move to declarative targets in a later step.
+- The methods are `POST` (default), `PUT` and `PATCH`; the input is always the body.
+
+See [agents/README.md](./agents/README.md#http-tools).
+
 ## Skills are files the Runtime serves
 
 A skill is now every file of its folder, uploaded once and served by the Runtime: no skill call

@@ -98,6 +98,10 @@ export const SCOPES_HEADER = "Nylorun-Scopes";
 export const SIGNATURE_HEADER = "Nylorun-Signature";
 /** Set to `1` on an Action endpoint's response whose body is a tagged `ActionOutcome`. */
 export const OUTCOME_HEADER = "Nylorun-Outcome";
+/** The session, turn and agent of a call the Runtime makes to an HTTP tool's URL. */
+export const SESSION_ID_HEADER = "Nylorun-Session-Id";
+export const TURN_ID_HEADER = "Nylorun-Turn-Id";
+export const AGENT_ID_HEADER = "Nylorun-Agent-Id";
 
 export const ERROR_CODES = [
   "not_found",

@@ -105,7 +105,7 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
       !flow && (cp as DurableCheckpoint).state
         ? { ...cp, state: withTranscript((cp as DurableCheckpoint).state, []) }
         : cp,
-    ...(flow ? {} : { sessionTools: sessionToolsOf(current.mcpSnapshot) ?? [] }),
+    ...(flow ? {} : { sessionTools: sessionToolsOf(current.mcpSnapshot, current.manifest) ?? [] }),
     outcomes: segment.outcomes,
     transcript: { cursor: segment.cursor },
     options: {

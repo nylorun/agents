@@ -6558,6 +6558,48 @@
                               },
                               "agent": {
                                 "$ref": "#/components/schemas/ToolAgentManifest"
+                              },
+                              "http": {
+                                "type": "object",
+                                "properties": {
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "POST",
+                                      "PUT",
+                                      "PATCH"
+                                    ]
+                                  },
+                                  "credential": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "timeoutMs": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 300000
+                                  }
+                                },
+                                "required": [
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "approval": {
+                                "type": "string",
+                                "enum": [
+                                  "never",
+                                  "always"
+                                ]
+                              },
+                              "fn": {
+                                "description": "Reserved for a later kind of tool; refused for now."
+                              },
+                              "command": {
+                                "description": "Reserved for a later kind of tool; refused for now."
                               }
                             },
                             "required": [
@@ -6593,6 +6635,13 @@
                                     "additionalProperties": {
                                       "type": "string"
                                     }
+                                  },
+                                  "approval": {
+                                    "type": "string",
+                                    "enum": [
+                                      "never",
+                                      "always"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -6624,6 +6673,13 @@
                                     "additionalProperties": {
                                       "type": "string"
                                     }
+                                  },
+                                  "approval": {
+                                    "type": "string",
+                                    "enum": [
+                                      "never",
+                                      "always"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -6849,6 +6905,48 @@
                               },
                               "agent": {
                                 "$ref": "#/components/schemas/ToolAgentManifest"
+                              },
+                              "http": {
+                                "type": "object",
+                                "properties": {
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "POST",
+                                      "PUT",
+                                      "PATCH"
+                                    ]
+                                  },
+                                  "credential": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "timeoutMs": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 300000
+                                  }
+                                },
+                                "required": [
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "approval": {
+                                "type": "string",
+                                "enum": [
+                                  "never",
+                                  "always"
+                                ]
+                              },
+                              "fn": {
+                                "description": "Reserved for a later kind of tool; refused for now."
+                              },
+                              "command": {
+                                "description": "Reserved for a later kind of tool; refused for now."
                               }
                             },
                             "required": [
@@ -6884,6 +6982,13 @@
                                     "additionalProperties": {
                                       "type": "string"
                                     }
+                                  },
+                                  "approval": {
+                                    "type": "string",
+                                    "enum": [
+                                      "never",
+                                      "always"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -6915,6 +7020,13 @@
                                     "additionalProperties": {
                                       "type": "string"
                                     }
+                                  },
+                                  "approval": {
+                                    "type": "string",
+                                    "enum": [
+                                      "never",
+                                      "always"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -7139,6 +7251,48 @@
                               },
                               "agent": {
                                 "$ref": "#/components/schemas/ToolAgentManifest"
+                              },
+                              "http": {
+                                "type": "object",
+                                "properties": {
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "POST",
+                                      "PUT",
+                                      "PATCH"
+                                    ]
+                                  },
+                                  "credential": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "timeoutMs": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 300000
+                                  }
+                                },
+                                "required": [
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "approval": {
+                                "type": "string",
+                                "enum": [
+                                  "never",
+                                  "always"
+                                ]
+                              },
+                              "fn": {
+                                "description": "Reserved for a later kind of tool; refused for now."
+                              },
+                              "command": {
+                                "description": "Reserved for a later kind of tool; refused for now."
                               }
                             },
                             "required": [
@@ -7174,6 +7328,13 @@
                                     "additionalProperties": {
                                       "type": "string"
                                     }
+                                  },
+                                  "approval": {
+                                    "type": "string",
+                                    "enum": [
+                                      "never",
+                                      "always"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -7205,6 +7366,13 @@
                                     "additionalProperties": {
                                       "type": "string"
                                     }
+                                  },
+                                  "approval": {
+                                    "type": "string",
+                                    "enum": [
+                                      "never",
+                                      "always"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -7564,6 +7732,48 @@
                           },
                           "agent": {
                             "$ref": "#/components/schemas/ToolAgentManifest"
+                          },
+                          "http": {
+                            "type": "object",
+                            "properties": {
+                              "url": {
+                                "type": "string"
+                              },
+                              "method": {
+                                "type": "string",
+                                "enum": [
+                                  "POST",
+                                  "PUT",
+                                  "PATCH"
+                                ]
+                              },
+                              "credential": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "timeoutMs": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 300000
+                              }
+                            },
+                            "required": [
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "approval": {
+                            "type": "string",
+                            "enum": [
+                              "never",
+                              "always"
+                            ]
+                          },
+                          "fn": {
+                            "description": "Reserved for a later kind of tool; refused for now."
+                          },
+                          "command": {
+                            "description": "Reserved for a later kind of tool; refused for now."
                           }
                         },
                         "required": [
@@ -7599,6 +7809,13 @@
                                 "additionalProperties": {
                                   "type": "string"
                                 }
+                              },
+                              "approval": {
+                                "type": "string",
+                                "enum": [
+                                  "never",
+                                  "always"
+                                ]
                               }
                             },
                             "required": [
@@ -7630,6 +7847,13 @@
                                 "additionalProperties": {
                                   "type": "string"
                                 }
+                              },
+                              "approval": {
+                                "type": "string",
+                                "enum": [
+                                  "never",
+                                  "always"
+                                ]
                               }
                             },
                             "required": [
@@ -7921,6 +8145,48 @@
                                 },
                                 "agent": {
                                   "$ref": "#/components/schemas/ToolAgentManifest"
+                                },
+                                "http": {
+                                  "type": "object",
+                                  "properties": {
+                                    "url": {
+                                      "type": "string"
+                                    },
+                                    "method": {
+                                      "type": "string",
+                                      "enum": [
+                                        "POST",
+                                        "PUT",
+                                        "PATCH"
+                                      ]
+                                    },
+                                    "credential": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "timeoutMs": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 300000
+                                    }
+                                  },
+                                  "required": [
+                                    "url"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "approval": {
+                                  "type": "string",
+                                  "enum": [
+                                    "never",
+                                    "always"
+                                  ]
+                                },
+                                "fn": {
+                                  "description": "Reserved for a later kind of tool; refused for now."
+                                },
+                                "command": {
+                                  "description": "Reserved for a later kind of tool; refused for now."
                                 }
                               },
                               "required": [
@@ -7956,6 +8222,13 @@
                                       "additionalProperties": {
                                         "type": "string"
                                       }
+                                    },
+                                    "approval": {
+                                      "type": "string",
+                                      "enum": [
+                                        "never",
+                                        "always"
+                                      ]
                                     }
                                   },
                                   "required": [
@@ -7987,6 +8260,13 @@
                                       "additionalProperties": {
                                         "type": "string"
                                       }
+                                    },
+                                    "approval": {
+                                      "type": "string",
+                                      "enum": [
+                                        "never",
+                                        "always"
+                                      ]
                                     }
                                   },
                                   "required": [
@@ -8926,6 +9206,48 @@
                               },
                               "agent": {
                                 "$ref": "#/components/schemas/ToolAgentManifest"
+                              },
+                              "http": {
+                                "type": "object",
+                                "properties": {
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "POST",
+                                      "PUT",
+                                      "PATCH"
+                                    ]
+                                  },
+                                  "credential": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "timeoutMs": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 300000
+                                  }
+                                },
+                                "required": [
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "approval": {
+                                "type": "string",
+                                "enum": [
+                                  "never",
+                                  "always"
+                                ]
+                              },
+                              "fn": {
+                                "description": "Reserved for a later kind of tool; refused for now."
+                              },
+                              "command": {
+                                "description": "Reserved for a later kind of tool; refused for now."
                               }
                             },
                             "required": [
@@ -8961,6 +9283,13 @@
                                     "additionalProperties": {
                                       "type": "string"
                                     }
+                                  },
+                                  "approval": {
+                                    "type": "string",
+                                    "enum": [
+                                      "never",
+                                      "always"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -8992,6 +9321,13 @@
                                     "additionalProperties": {
                                       "type": "string"
                                     }
+                                  },
+                                  "approval": {
+                                    "type": "string",
+                                    "enum": [
+                                      "never",
+                                      "always"
+                                    ]
                                   }
                                 },
                                 "required": [

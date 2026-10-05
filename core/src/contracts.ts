@@ -13,6 +13,12 @@ import {
 import { REMOVED_CAPABILITY_FIELDS, manifestVersionIssue } from "./definition/removed.js";
 import { DELEGATE_INPUT_SCHEMA } from "./definition/delegate.js";
 import { stdioMcpRefusal } from "./definition/mcp.js";
+import {
+  APPROVAL_MODES,
+  HTTP_TOOL_MAX_TIMEOUT_MS,
+  HTTP_TOOL_METHODS,
+  httpUrlIssue,
+} from "./definition/http-tool.js";
 import { canonical } from "./utils/canonical.js";
 import { DEFINITION_FILE_MAX_BYTES, skillFilesIssue } from "./utils/definition-files.js";
 export type { AgentManifest } from "./types/manifest.js";
@@ -52,6 +58,7 @@ const mcpServerSchema = z.discriminatedUnion(
         type: z.literal("streamable-http"),
         url: z.string().min(1),
         headers: z.record(z.string(), z.string()).optional(),
+        approval: z.enum(APPROVAL_MODES).optional(),
       })
       .strict(),
     z
@@ -60,6 +67,7 @@ const mcpServerSchema = z.discriminatedUnion(
         type: z.literal("sse"),
         url: z.string().min(1),
         headers: z.record(z.string(), z.string()).optional(),
+        approval: z.enum(APPROVAL_MODES).optional(),
       })
       .strict(),
   ],
@@ -118,6 +126,23 @@ const sandboxManifestSchema = z
       .optional(),
   })
   .strict();
+const httpToolTargetSchema = z
+  .object({
+    url: z.string().superRefine((url, ctx) => {
+      const issue = httpUrlIssue(url);
+      if (issue) ctx.addIssue({ code: "custom", message: issue });
+    }),
+    method: z.enum(HTTP_TOOL_METHODS).optional(),
+    credential: z.string().min(1).optional(),
+    timeoutMs: z.number().int().positive().max(HTTP_TOOL_MAX_TIMEOUT_MS).optional(),
+  })
+  .strict();
+/** Names kept for later kinds of tool, beside `agent` and `http`. */
+const reservedToolKind = z
+  .unknown()
+  .refine((value) => value === undefined, { message: "Functions are not available yet" })
+  .optional()
+  .meta({ description: "Reserved for a later kind of tool; refused for now." });
 const toolManifestSchema = z
   .object({
     name: z.string().min(1),
@@ -128,8 +153,25 @@ const toolManifestSchema = z
       .lazy(() => z.union([workflowV2ManifestSchema, AgentManifestSchema]))
       .meta({ id: "ToolAgentManifest" })
       .optional(),
+    http: httpToolTargetSchema.optional(),
+    approval: z.enum(APPROVAL_MODES).optional(),
+    fn: reservedToolKind,
+    command: reservedToolKind,
   })
-  .strict();
+  .strict()
+  .superRefine((tool, ctx) => {
+    if (tool.agent !== undefined && tool.http !== undefined)
+      ctx.addIssue({
+        code: "custom",
+        message: `Tool '${tool.name}' is an agent or an HTTP request, not both`,
+      });
+    if (tool.approval !== undefined && tool.http === undefined)
+      ctx.addIssue({
+        code: "custom",
+        path: ["approval"],
+        message: `Tool '${tool.name}' takes approval only as an HTTP tool`,
+      });
+  });
 /** A capability naming a field manifest v5 removed is refused with what replaces it. */
 const removedFieldError = (issue: { code?: string; keys?: readonly string[] }) => {
   if (issue.code !== "unrecognized_keys") return undefined;
