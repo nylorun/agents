@@ -215,7 +215,7 @@ describe("sessions attached to a sandbox", { timeout: 60_000 }, () => {
       requestId: "reset-sessions",
       scope: "sessions",
       activeWork: "cancel",
-    });
+    }, runtime.managementKey);
     expect(reset.status, JSON.stringify(reset.body)).toBe(200);
     expect((await call("GET", "/v1/sessions/share-a")).status).toBe(404);
     expect((await call("GET", path("shared/ws"))).body.sessions).toEqual([]);
@@ -351,7 +351,12 @@ describe("sandboxes:write", { timeout: 60_000 }, () => {
 describe("the Tenant limit", { timeout: 60_000 }, () => {
   it("refuses a sandbox past the Tenant's limit, and finds existing ones still", async () => {
     const count = (await call("GET", "/v1/sandboxes")).body.sandboxes.length as number;
-    const saved = await call("PUT", "/v1/tenant/sandbox", { limits: { sandboxes: count + 1 } });
+    const saved = await call(
+      "PUT",
+      "/v1/tenant/sandbox",
+      { limits: { sandboxes: count + 1 } },
+      runtime.managementKey,
+    );
     expect(saved.status, JSON.stringify(saved.body)).toBe(200);
     expect(saved.body.config.limits.sandboxes).toBe(count + 1);
     expect((await call("PUT", path("limit/one"), {})).status).toBe(200);
@@ -362,6 +367,6 @@ describe("the Tenant limit", { timeout: 60_000 }, () => {
       details: { limit: "sandboxes", max: count + 1 },
     });
     expect((await call("PUT", path("limit/one"), {})).status).toBe(200);
-    await call("PUT", "/v1/tenant/sandbox", {});
+    await call("PUT", "/v1/tenant/sandbox", {}, runtime.managementKey);
   });
 });

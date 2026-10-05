@@ -85,7 +85,7 @@ describe("createA2aHandler", () => {
           "A2A-Version": "1.0",
           "A2A-Extensions": "https://example.com/ext/v1",
           "Nylorun-Subject": "a2a:someone-else",
-          "Nylorun-Scopes": "tenant:settings",
+          "Nylorun-Scopes": "agents:write",
           "Nylorun-Tenant": "tn_other",
           authorization: "Bearer partner-secret",
         },

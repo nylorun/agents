@@ -10,9 +10,15 @@ const ADA_TOKEN = "ada-vault-plaintext-token-7f3c9a2e";
 const BAO_TOKEN = "bao-vault-plaintext-token-91ab44c0";
 const URL = "https://mcp.example.com/github";
 const APP = "server-token-value-aaaaaaaa";
+const MANAGEMENT = "management-token-value-aaaaaaaa";
 
 const server = {
   authorization: `Bearer ${APP}`,
+  "content-type": "application/json",
+};
+/** The Management API's key (protocol 8): vaults and the Tenant's settings. */
+const management = {
+  authorization: `Bearer ${MANAGEMENT}`,
   "content-type": "application/json",
 };
 /** The application acting for another person: vault and Tenant routes refuse it. */
@@ -33,6 +39,7 @@ type BootOpts = {
 async function boot(options: BootOpts = {}) {
   const runtime = await startTestTenant({
     applicationKey: APP,
+    managementKey: MANAGEMENT,
     vaultKek: options.vaultKek === undefined ? KEK : options.vaultKek,
     ...(options.vaultFetch === undefined ? {} : { vaultFetch: options.vaultFetch }),
     ...(options.hostRoot ? { hostRoot: options.hostRoot } : {}),
@@ -62,9 +69,9 @@ it("stores bearer credentials without returning or persisting the plaintext", as
   const runtime = await boot();
   try {
     const created = await json(
-      await fetch(`${runtime.url}/v1/vaults`, {
+      await fetch(`${runtime.url}/v1/tenant/vaults`, {
         method: "POST",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "vault-1",
           idempotencyKey: "vault-ada",
@@ -76,9 +83,9 @@ it("stores bearer credentials without returning or persisting the plaintext", as
     expect(created.status).toBe(200);
     const vaultId = (created.body as { id: string }).id;
     const credential = await json(
-      await fetch(`${runtime.url}/v1/vaults/${vaultId}/credentials`, {
+      await fetch(`${runtime.url}/v1/tenant/vaults/${vaultId}/credentials`, {
         method: "POST",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "cred-1",
           idempotencyKey: "cred-ada",
@@ -91,8 +98,8 @@ it("stores bearer credentials without returning or persisting the plaintext", as
     expect(JSON.stringify(credential.body)).not.toContain(ADA_TOKEN);
     const read = await json(
       await fetch(
-        `${runtime.url}/v1/vaults/${vaultId}/credentials/${(credential.body as { id: string }).id}`,
-        { headers: server },
+        `${runtime.url}/v1/tenant/vaults/${vaultId}/credentials/${(credential.body as { id: string }).id}`,
+        { headers: management },
       ),
     );
     expect(read.status).toBe(200);
@@ -103,9 +110,9 @@ it("stores bearer credentials without returning or persisting the plaintext", as
       vaultId,
     });
     const replay = await json(
-      await fetch(`${runtime.url}/v1/vaults`, {
+      await fetch(`${runtime.url}/v1/tenant/vaults`, {
         method: "POST",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "vault-1b",
           idempotencyKey: "vault-ada",
@@ -116,9 +123,9 @@ it("stores bearer credentials without returning or persisting the plaintext", as
     );
     expect(replay.body).toMatchObject({ id: vaultId });
     const conflict = await json(
-      await fetch(`${runtime.url}/v1/vaults`, {
+      await fetch(`${runtime.url}/v1/tenant/vaults`, {
         method: "POST",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "vault-1c",
           idempotencyKey: "vault-ada",
@@ -129,7 +136,7 @@ it("stores bearer credentials without returning or persisting the plaintext", as
     );
     expect(conflict.status).toBe(409);
     const rejected = await json(
-      await fetch(`${runtime.url}/v1/vaults`, {
+      await fetch(`${runtime.url}/v1/tenant/vaults`, {
         method: "POST",
         headers: actingForBao,
         body: JSON.stringify({
@@ -187,9 +194,9 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   try {
     vaultId = (
       (await json(
-        await fetch(`${runtime.url}/v1/vaults`, {
+        await fetch(`${runtime.url}/v1/tenant/vaults`, {
           method: "POST",
-          headers: server,
+          headers: management,
           body: JSON.stringify({
             requestId: "v",
             idempotencyKey: "v",
@@ -201,9 +208,9 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
     ).id;
     credentialId = (
       (await json(
-        await fetch(`${runtime.url}/v1/vaults/${vaultId}/credentials`, {
+        await fetch(`${runtime.url}/v1/tenant/vaults/${vaultId}/credentials`, {
           method: "POST",
-          headers: server,
+          headers: management,
           body: JSON.stringify({
             requestId: "c",
             idempotencyKey: "c",
@@ -285,9 +292,9 @@ it("attaches only the session user's vaults and selects among matching urls", as
     const adaVault = await createBearer(runtime, "ada", "ada-vault", ADA_TOKEN);
     const baoVault = await createBearer(runtime, "bao", "bao-vault", BAO_TOKEN);
     const second = await json(
-      await fetch(`${runtime.url}/v1/vaults/${adaVault.vaultId}/credentials`, {
+      await fetch(`${runtime.url}/v1/tenant/vaults/${adaVault.vaultId}/credentials`, {
         method: "POST",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "ada-2",
           idempotencyKey: "ada-2",
@@ -417,9 +424,9 @@ it("refreshes an oauth grant only at its token endpoint and does not return the 
       ).ok,
     ).toBe(true);
     const vault = await json(
-      await fetch(`${runtime.url}/v1/vaults`, {
+      await fetch(`${runtime.url}/v1/tenant/vaults`, {
         method: "POST",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "v",
           idempotencyKey: "v",
@@ -430,9 +437,9 @@ it("refreshes an oauth grant only at its token endpoint and does not return the 
     );
     const vaultId = (vault.body as { id: string }).id;
     const credential = await json(
-      await fetch(`${runtime.url}/v1/vaults/${vaultId}/credentials`, {
+      await fetch(`${runtime.url}/v1/tenant/vaults/${vaultId}/credentials`, {
         method: "POST",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "c",
           idempotencyKey: "c",
@@ -478,8 +485,8 @@ it("refreshes an oauth grant only at its token endpoint and does not return the 
     expect(calls[0]?.body).toContain("grant_type=refresh_token");
     const read = await json(
       await fetch(
-        `${runtime.url}/v1/vaults/${vaultId}/credentials/${credentialId}`,
-        { headers: server },
+        `${runtime.url}/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`,
+        { headers: management },
       ),
     );
     expect(JSON.stringify(read.body)).not.toContain("oauth-access-token-new-88aa");
@@ -509,7 +516,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
       ).ok,
     ).toBe(true);
     expect(
-      (await json(await fetch(`${runtime.url}/v1/tenant/model`, { headers: server })))
+      (await json(await fetch(`${runtime.url}/v1/tenant/model`, { headers: management })))
         .body,
     ).toEqual({ configured: false });
     expect(
@@ -528,7 +535,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
     const saved = await json(
       await fetch(`${runtime.url}/v1/tenant/model`, {
         method: "PUT",
-        headers: server,
+        headers: management,
         body: JSON.stringify(body),
       }),
     );
@@ -544,7 +551,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
     const replay = await json(
       await fetch(`${runtime.url}/v1/tenant/model`, {
         method: "PUT",
-        headers: server,
+        headers: management,
         body: JSON.stringify({ ...body, requestId: "host-2" }),
       }),
     );
@@ -552,26 +559,26 @@ it("keeps the host model credential out of user vaults and responses", async () 
     const conflict = await json(
       await fetch(`${runtime.url}/v1/tenant/model`, {
         method: "PUT",
-        headers: server,
+        headers: management,
         body: JSON.stringify({ ...body, model: "other" }),
       }),
     );
     expect(conflict.status).toBe(409);
     const catalog = await json(
-      await fetch(`${runtime.url}/v1/tenant/models`, { headers: server }),
+      await fetch(`${runtime.url}/v1/tenant/models`, { headers: management }),
     );
     expect(JSON.stringify(catalog.body)).not.toContain(secret);
     expect(
       (
         await json(
-          await fetch(`${runtime.url}/v1/vaults?ownerUserId=host`, {
-            headers: server,
+          await fetch(`${runtime.url}/v1/tenant/vaults?ownerUserId=host`, {
+            headers: management,
           }),
         )
       ).body,
     ).toEqual({ vaults: [] });
     const listed = await json(
-      await fetch(`${runtime.url}/v1/tenant/providers`, { headers: server }),
+      await fetch(`${runtime.url}/v1/tenant/providers`, { headers: management }),
     );
     expect(listed.status).toBe(200);
     expect(listed.body).toMatchObject({
@@ -589,7 +596,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
     const second = await json(
       await fetch(`${runtime.url}/v1/tenant/model`, {
         method: "PUT",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "host-3",
           idempotencyKey: "host-model-second",
@@ -607,7 +614,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
       model: "other-fixture",
     });
     const afterSecond = await json(
-      await fetch(`${runtime.url}/v1/tenant/providers`, { headers: server }),
+      await fetch(`${runtime.url}/v1/tenant/providers`, { headers: management }),
     );
     expect(afterSecond.body).toMatchObject({
       providers: [
@@ -621,7 +628,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
     const openai = await json(
       await fetch(`${runtime.url}/v1/tenant/model`, {
         method: "PUT",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "host-4",
           idempotencyKey: "host-model-openai",
@@ -641,7 +648,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
       provider: "openai",
     });
     const both = await json(
-      await fetch(`${runtime.url}/v1/tenant/providers`, { headers: server }),
+      await fetch(`${runtime.url}/v1/tenant/providers`, { headers: management }),
     );
     expect(
       (both.body as { providers: { id: string; active: boolean }[] }).providers
@@ -656,7 +663,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
     const selected = await json(
       await fetch(`${runtime.url}/v1/tenant/model/selection`, {
         method: "PUT",
-        headers: server,
+        headers: management,
         body: JSON.stringify({
           requestId: "host-5",
           idempotencyKey: "host-model-select-custom",
@@ -709,9 +716,9 @@ async function createBearer(
   token: string,
 ) {
   const vault = await json(
-    await fetch(`${runtime.url}/v1/vaults`, {
+    await fetch(`${runtime.url}/v1/tenant/vaults`, {
       method: "POST",
-      headers: server,
+      headers: management,
       body: JSON.stringify({
         requestId: `${key}-vault`,
         idempotencyKey: `${key}-vault`,
@@ -722,9 +729,9 @@ async function createBearer(
   );
   const vaultId = (vault.body as { id: string }).id;
   const credential = await json(
-    await fetch(`${runtime.url}/v1/vaults/${vaultId}/credentials`, {
+    await fetch(`${runtime.url}/v1/tenant/vaults/${vaultId}/credentials`, {
       method: "POST",
-      headers: server,
+      headers: management,
       body: JSON.stringify({
         requestId: `${key}-cred`,
         idempotencyKey: `${key}-cred`,

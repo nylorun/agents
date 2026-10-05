@@ -77,10 +77,7 @@ const LINK: RouteAccess = {
   unversioned: true,
 };
 /** The Tenant's artifact limits: a Management API route (`/v1/tenant/artifacts`). */
-const SETTINGS: RouteAccess = {
-  credentials: ["application", "subject", "management"],
-  scopes: ["tenant:settings"],
-};
+const SETTINGS: RouteAccess = { credentials: ["management"], scopes: "never" };
 
 const json = (schema: z.ZodType, description: string) => ({
   description,

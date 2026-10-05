@@ -2325,15 +2325,15 @@ export const SUBJECT_SCOPES = [
   "agents:read",
   "agents:write",
   "sessions:own",
-  "tenant:settings",
   "sandboxes:write",
 ] as const;
 export type SubjectScope = (typeof SUBJECT_SCOPES)[number];
 /**
- * Scopes protocol 7 retired: `Nylorun-Scopes` may still name them (protocol 6 clients do), and
- * they grant nothing.
+ * Retired scopes: `Nylorun-Scopes` may still name them (older clients do), and they grant
+ * nothing. `vaults:own` left in protocol 7; `tenant:settings` in protocol 8, when the Tenant's
+ * settings moved to the Management API, which no subject reaches.
  */
-const RETIRED_SUBJECT_SCOPES: readonly string[] = ["vaults:own"];
+const RETIRED_SUBJECT_SCOPES: readonly string[] = ["vaults:own", "tenant:settings"];
 
 /** 1–200 visible ASCII characters; spaces only inside. */
 const SUBJECT_PATTERN = /^[\x21-\x7e](?:[\x20-\x7e]{0,198}[\x21-\x7e])?$/;
@@ -2391,8 +2391,7 @@ export function parseSubjectHeaders(
 // --- token callers (Host feature `trusted-issuers`) ------------------------------------------
 
 /**
- * Scopes a token caller (a trusted issuer's token) may carry: never `agents:write` or
- * `tenant:settings`.
+ * Scopes a token caller (a trusted issuer's token) may carry: never `agents:write`.
  */
 export const TOKEN_SCOPES = [
   "agents:read",

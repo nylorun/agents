@@ -40,8 +40,6 @@ import { jsonResponse } from "../respond.js";
 
 /** The Management API's vault routes (`/v1/tenant/vaults`): a management key. */
 const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
-/** The vault routes at `/v1/vaults`: an application key acting for no one, until protocol 8. */
-const APPLICATION: RouteAccess = { credentials: ["application"], scopes: "never" };
 /**
  * The OAuth callback: a browser sent back by the authorization server, with no credential and no
  * protocol header. The `state` it carries is the grant.
@@ -67,10 +65,7 @@ const body = (schema: z.ZodType) => ({
 const vaultId = z.object({ vaultId: z.string() });
 const credentialId = vaultId.extend({ credentialId: z.string() });
 
-/**
- * The vault routes under `base`: `/v1/tenant/vaults`, the Management API's, or `/v1/vaults`,
- * which application keys reach until protocol 8.
- */
+/** The vault routes under `base` (`/v1/tenant/vaults`). */
 function vaultRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: RouteAccess): void {
   tenantRoute(
     api,
@@ -298,7 +293,6 @@ function vaultRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: RouteA
 
 export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
   vaultRoutesAt(api, "/v1/tenant/vaults", MANAGEMENT);
-  vaultRoutesAt(api, "/v1/vaults", APPLICATION);
 
   tenantRoute(
     api,

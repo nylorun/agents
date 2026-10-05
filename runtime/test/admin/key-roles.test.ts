@@ -2,7 +2,7 @@
  * Key roles (protocol 8, A1): a management key, issued only with `nylorun-operate` on the
  * Tenant's machine or from `NYLORUN_MANAGEMENT_KEY_FILE`, reaches the Management API
  * (`/v1/tenant/*`) and `/v1/me` as itself, and nothing else. Studio's key holds role `studio`.
- * Until the cut, application keys still reach `/v1/tenant/*`.
+ * Since the cut (protocol 8), application keys no longer reach `/v1/tenant/*`.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -138,9 +138,19 @@ describe("nylorun-operate keys", () => {
 });
 
 describe("application keys and Studio's key", () => {
-  it("application keys still reach /v1/tenant/* until the cut, and Studio's key has role studio", async () => {
+  it("application keys no longer reach /v1/tenant/* (protocol 8), and Studio's key has role studio", async () => {
     const host = await startHost();
-    expect((await host.call(host.applicationKey, "GET", "/v1/tenant")).status).toBe(200);
+    expect(await host.call(host.applicationKey, "GET", "/v1/tenant")).toMatchObject({
+      status: 403,
+      body: { code: "key_role_mismatch" },
+    });
+    // Nor when acting for a subject.
+    expect(
+      await host.call(host.applicationKey, "GET", "/v1/tenant", {
+        "nylorun-subject": "u:priya",
+        "nylorun-scopes": "tenant:settings",
+      }),
+    ).toMatchObject({ status: 403, body: { code: "key_role_mismatch" } });
     expect(await host.call(host.applicationKey, "GET", "/v1/me")).toMatchObject({
       status: 200,
       body: { via: `application:${host.principalId}` },

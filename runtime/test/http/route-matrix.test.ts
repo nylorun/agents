@@ -21,10 +21,14 @@ import { testPool } from "../support/store.js";
 
 const TENANT = `tn_${"0".repeat(22)}mtrx`;
 const APPLICATION_KEY = "matrix-application-key-0000000000";
+const MANAGEMENT_KEY = "matrix-management-key-00000000000";
 const ADMIN_KEY = "matrix-admin-key-00000000000000000";
 const ORIGIN = "https://app.example.com";
 const SUBJECT = "app:ann";
-/** Protocol 6 clients still send the retired `vaults:own`; it grants nothing. */
+/**
+ * Older clients still send the retired `vaults:own` (protocol 6) and `tenant:settings`
+ * (protocol 7); they grant nothing.
+ */
 const ALL_SCOPES = "agents:read agents:write sessions:own vaults:own tenant:settings";
 /** A body every schema rejects, so a write that gets past authorization changes nothing. */
 const INVALID = [] as const;
@@ -46,7 +50,9 @@ type Caller =
   | "subject"
   | "subject-read"
   | "token"
-  | "token-browser";
+  | "token-browser"
+  | "management"
+  | "management-subject";
 const CALLERS: readonly Caller[] = [
   "none",
   "wrong",
@@ -56,6 +62,8 @@ const CALLERS: readonly Caller[] = [
   "subject-read",
   "token",
   "token-browser",
+  "management",
+  "management-subject",
 ];
 
 function callerHeaders(caller: Caller): Record<string, string> {
@@ -90,6 +98,16 @@ function callerHeaders(caller: Caller): Record<string, string> {
     case "token-browser":
       // The same token from a browser page: no toggle, no browser key (protocol 7).
       return { ...bearer(issuerToken), origin: ORIGIN };
+    case "management":
+      // The Management API's key (protocol 8): `/v1/tenant/*` and `/v1/me` only.
+      return bearer(MANAGEMENT_KEY);
+    case "management-subject":
+      // A management key acts as itself, never for a subject.
+      return {
+        ...bearer(MANAGEMENT_KEY),
+        "nylorun-subject": SUBJECT,
+        "nylorun-scopes": ALL_SCOPES,
+      };
   }
 }
 
@@ -161,7 +179,7 @@ interface Operation {
 
 /** Every Tenant operation, with ids that exist (`s1`, `bot`, the vault) or never will. */
 function tenantOperations(): Operation[] {
-  const vault = `/v1/vaults/${vaultId}`;
+  const vault = `/v1/tenant/vaults/${vaultId}`;
   return [
     { method: "POST", path: "/v1/actions/act-missing/sandbox/bash", body: INVALID },
     { method: "POST", path: "/v1/actions/act-missing/heartbeat", body: INVALID },
@@ -216,10 +234,10 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/tenant/model" },
     { method: "PUT", path: "/v1/tenant/model", body: INVALID },
     { method: "PUT", path: "/v1/tenant/model/selection", body: INVALID },
-    { method: "POST", path: "/v1/vaults", body: INVALID },
-    { method: "GET", path: `/v1/vaults?ownerUserId=${SUBJECT}` },
+    { method: "POST", path: "/v1/tenant/vaults", body: INVALID },
+    { method: "GET", path: `/v1/tenant/vaults?ownerUserId=${SUBJECT}` },
     { method: "GET", path: vault },
-    { method: "DELETE", path: "/v1/vaults/vlt-missing" },
+    { method: "DELETE", path: "/v1/tenant/vaults/vlt-missing" },
     { method: "POST", path: `${vault}/credentials`, body: INVALID },
     { method: "GET", path: `${vault}/credentials` },
     { method: "GET", path: `${vault}/credentials/crd-missing` },
@@ -230,9 +248,9 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/oauth/callback?state=matrix-state&code=matrix-code" },
     { method: "GET", path: "/v1/access/jwks" },
     { method: "GET", path: "/v1/me" },
-    { method: "GET", path: "/v1/access/signing-keys" },
-    { method: "POST", path: "/v1/access/signing-keys/rotate", body: INVALID },
-    { method: "POST", path: "/v1/access/signing-keys/kid-missing/revoke", body: INVALID },
+    { method: "GET", path: "/v1/tenant/signing-keys" },
+    { method: "POST", path: "/v1/tenant/signing-keys/rotate", body: INVALID },
+    { method: "POST", path: "/v1/tenant/signing-keys/kid-missing/revoke", body: INVALID },
     { method: "POST", path: "/v1/ag-ui/agents/bot", body: INVALID },
     { method: "GET", path: "/v1/ag-ui/agents/bot/threads/t1/messages" },
     { method: "GET", path: "/v1/ag-ui/agents/bot/threads/t1/events" },
@@ -263,6 +281,14 @@ function edgeOperations(): Operation[] {
     { method: "PUT", path: "/v1/access/publishable-keys/pk-missing", body: INVALID },
     { method: "DELETE", path: "/v1/access/publishable-keys/pk-missing" },
     { method: "POST", path: "/v1/access/revocations", body: INVALID },
+    // Vaults and signing keys outside the Management API (protocol 8): gone.
+    { method: "POST", path: "/v1/vaults", body: INVALID },
+    { method: "GET", path: `/v1/vaults?ownerUserId=${SUBJECT}` },
+    { method: "GET", path: "/v1/vaults/vlt-missing" },
+    { method: "DELETE", path: "/v1/vaults/vlt-missing" },
+    { method: "POST", path: "/v1/vaults/vlt-missing/oauth/start", body: INVALID },
+    { method: "GET", path: "/v1/access/signing-keys" },
+    { method: "POST", path: "/v1/access/signing-keys/rotate", body: INVALID },
     { method: "GET", path: "/v1/sessions/missing/unknown" },
     { method: "GET", path: "/v1/sessions/" },
     { method: "GET", path: "/v1//sessions" },
@@ -288,15 +314,17 @@ beforeAll(async () => {
     hostRoot: root,
     tenantId: TENANT,
     applicationKey: APPLICATION_KEY,
+    managementKey: MANAGEMENT_KEY,
     adminKey: ADMIN_KEY,
     operatorListener: true,
     issuers: issuer.configs,
     model: { kind: "fixture" },
   });
   const app = async (method: string, path: string, body: unknown) => {
+    const caller = path.startsWith("/v1/tenant") ? "management" : "application";
     const response = await fetch(`${rt.url}${path}`, {
       method,
-      headers: { ...callerHeaders("application"), "content-type": "application/json" },
+      headers: { ...callerHeaders(caller), "content-type": "application/json" },
       body: JSON.stringify(body),
     });
     const parsed = (await response.json()) as Record<string, unknown>;
@@ -311,7 +339,7 @@ beforeAll(async () => {
   issuerToken = await issuer.sign(SUBJECT, "sessions:own agents:read", { ttlSeconds: 900 });
   await app("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: SUBJECT });
   vaultId = String(
-    (await app("POST", "/v1/vaults", {
+    (await app("POST", "/v1/tenant/vaults", {
       requestId: "vault",
       idempotencyKey: "vault",
       name: "v",

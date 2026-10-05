@@ -76,7 +76,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
       modelCall: { retryBaseDelayMs: 1 },
     });
     closers.push(() => runtime.close());
-    const headers = { ...runtime.headers(), "content-type": "application/json" };
+    const headers = { ...runtime.managementHeaders(), "content-type": "application/json" };
     const put = async (path: string, body: unknown) => {
       const response = await realFetch(`${runtime.url}${path}`, { method: "PUT", headers, body: JSON.stringify(body) });
       expect(response.status, await response.clone().text()).toBe(200);
@@ -132,7 +132,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     expect(provider.calls()).toBe(5);
     expect(runs).toBe(5);
     const usage = (await (
-      await realFetch(`${runtime.url}/v1/tenant/usage?scope=agent&id=looper`, { headers: runtime.headers() })
+      await realFetch(`${runtime.url}/v1/tenant/usage?scope=agent&id=looper`, { headers: runtime.managementHeaders() })
     ).json()) as { tokens: number; calls: number };
     expect(usage).toMatchObject({ calls: 5, tokens: 5 * PER_CALL });
     expect(usage.tokens - 500).toBeLessThan(PER_CALL);

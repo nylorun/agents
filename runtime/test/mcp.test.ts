@@ -145,11 +145,16 @@ async function boot(_directory: string, model?: ModelProvider) {
   });
 }
 
-async function createBearer(runtime: { url: string }, ownerUserId: string, url: string, token: string) {
+async function createBearer(
+  runtime: { url: string; managementHeaders(): Record<string, string> },
+  ownerUserId: string,
+  url: string,
+  token: string,
+) {
   const vault = await (
-    await fetch(`${runtime.url}/v1/vaults`, {
+    await fetch(`${runtime.url}/v1/tenant/vaults`, {
       method: "POST",
-      headers: serverHeaders,
+      headers: runtime.managementHeaders(),
       body: JSON.stringify({
         requestId: `vault-${ownerUserId}-${url}`,
         idempotencyKey: `vault-${ownerUserId}-${url}`,
@@ -159,9 +164,9 @@ async function createBearer(runtime: { url: string }, ownerUserId: string, url: 
     })
   ).json();
   const credential = await (
-    await fetch(`${runtime.url}/v1/vaults/${vault.id}/credentials`, {
+    await fetch(`${runtime.url}/v1/tenant/vaults/${vault.id}/credentials`, {
       method: "POST",
-      headers: serverHeaders,
+      headers: runtime.managementHeaders(),
       body: JSON.stringify({
         requestId: `cred-${token}`,
         idempotencyKey: `cred-${token}`,

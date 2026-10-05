@@ -1,7 +1,7 @@
 /**
  * F9 C1: installation vaults (`scope: "installation"`, any session may attach one; only
- * application keys see them) and the operator's credential resolver, end to end over the
- * Tenant API and a remote MCP server. With `NYLORUN_TEST_MODEL_GATE=http` the gateway
+ * management keys see them, protocol 8) and the operator's credential resolver, end to end over
+ * the Tenant API and a remote MCP server. With `NYLORUN_TEST_MODEL_GATE=http` the gateway
  * authorizes the MCP calls, as in the local stack; otherwise the Tenant does, in process.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -21,7 +21,11 @@ const KEK = Buffer.alloc(32, 7).toString("base64");
 const SHARED_TOKEN = "installation-shared-token-1f2e3d4c";
 const RESOLVER_TOKEN = "resolver-bearer-0a1b2c3d";
 
+const MANAGEMENT = "installation-vaults-management-key-aa";
+
 const server = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
+/** The Management API's key (protocol 8): the vault routes take it alone. */
+const management = { authorization: `Bearer ${MANAGEMENT}`, "content-type": "application/json" };
 const actingFor = (subject: string) => ({
   ...server,
   "nylorun-subject": subject,
@@ -42,7 +46,7 @@ async function call(
 ): Promise<{ status: number; body: any }> {
   const response = await fetch(`${runtime.url}${path}`, {
     method,
-    headers: options.headers ?? server,
+    headers: options.headers ?? (path.startsWith("/v1/tenant") ? management : server),
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
   });
   const text = await response.text();
@@ -59,16 +63,16 @@ async function call(
 function vaultRoutes(vaultId: string, credentialId: string): [string, string, unknown?][] {
   const write = { requestId: "x", idempotencyKey: "x" };
   return [
-    ["POST", "/v1/vaults", { ...write, name: "Mine", scope: "installation" }],
-    ["POST", "/v1/vaults", { ...write, name: "Mine", ownerUserId: "cleo" }],
-    ["GET", "/v1/vaults"],
-    ["GET", `/v1/vaults/${vaultId}`],
-    ["DELETE", `/v1/vaults/${vaultId}`],
-    ["POST", `/v1/vaults/${vaultId}/credentials`, { ...write, name: "c", auth: { type: "bearer", url: "https://x.test/", token: "t" } }],
-    ["GET", `/v1/vaults/${vaultId}/credentials`],
-    ["GET", `/v1/vaults/${vaultId}/credentials/${credentialId}`],
-    ["POST", `/v1/vaults/${vaultId}/credentials/${credentialId}`, { ...write, auth: { type: "bearer", token: "t2" } }],
-    ["DELETE", `/v1/vaults/${vaultId}/credentials/${credentialId}`],
+    ["POST", "/v1/tenant/vaults", { ...write, name: "Mine", scope: "installation" }],
+    ["POST", "/v1/tenant/vaults", { ...write, name: "Mine", ownerUserId: "cleo" }],
+    ["GET", "/v1/tenant/vaults"],
+    ["GET", `/v1/tenant/vaults/${vaultId}`],
+    ["DELETE", `/v1/tenant/vaults/${vaultId}`],
+    ["POST", `/v1/tenant/vaults/${vaultId}/credentials`, { ...write, name: "c", auth: { type: "bearer", url: "https://x.test/", token: "t" } }],
+    ["GET", `/v1/tenant/vaults/${vaultId}/credentials`],
+    ["GET", `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`],
+    ["POST", `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`, { ...write, auth: { type: "bearer", token: "t2" } }],
+    ["DELETE", `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`],
   ];
 }
 
@@ -147,6 +151,7 @@ async function boot(
 ) {
   const runtime = await startTestTenant({
     applicationKey: APP,
+    managementKey: MANAGEMENT,
     vaultKek: KEK,
     modelProvider: model,
     ...(options.resolver ? { resolver: options.resolver } : {}),
@@ -166,7 +171,7 @@ async function boot(
 }
 
 async function installationVault(runtime: Started, name = "Shared", key = name) {
-  const created = await call(runtime, "POST", "/v1/vaults", {
+  const created = await call(runtime, "POST", "/v1/tenant/vaults", {
     body: { requestId: `vault-${key}`, idempotencyKey: `vault-${key}`, name, scope: "installation" },
   });
   expect(created.status, JSON.stringify(created.body)).toBe(200);
@@ -174,7 +179,7 @@ async function installationVault(runtime: Started, name = "Shared", key = name) 
 }
 
 async function bearer(runtime: Started, vaultId: string, url: string, token: string) {
-  const created = await call(runtime, "POST", `/v1/vaults/${vaultId}/credentials`, {
+  const created = await call(runtime, "POST", `/v1/tenant/vaults/${vaultId}/credentials`, {
     body: { requestId: `cred-${token}`, idempotencyKey: `cred-${token}`, name: "Shared token", auth: { type: "bearer", url, token } },
   });
   expect(created.status, JSON.stringify(created.body)).toBe(200);
@@ -199,55 +204,65 @@ async function runTurn(runtime: Started, sessionId: string, owner: string, body:
 }
 
 describe("installation vaults over the Tenant API", () => {
-  it("lets an application key create, list, read and change them", async () => {
+  it("lets a management key create, list, read and change them", async () => {
     const runtime = await boot();
     const vault = await installationVault(runtime);
     expect(vault).toMatchObject({ name: "Shared", ownerUserId: "installation" });
-    const personal = await call(runtime, "POST", "/v1/vaults", {
+    const personal = await call(runtime, "POST", "/v1/tenant/vaults", {
       body: { requestId: "ada", idempotencyKey: "ada", name: "Ada's", ownerUserId: "ada" },
     });
     expect(personal.status).toBe(200);
 
     // A person's vaults, then the installation's; without an owner, only the installation's.
-    const listed = await call(runtime, "GET", "/v1/vaults?ownerUserId=ada");
+    const listed = await call(runtime, "GET", "/v1/tenant/vaults?ownerUserId=ada");
     expect(listed.body.vaults.map((item: { id: string }) => item.id)).toEqual([personal.body.id, vault.id]);
-    const shared = await call(runtime, "GET", "/v1/vaults");
+    const shared = await call(runtime, "GET", "/v1/tenant/vaults");
     expect(shared.body.vaults.map((item: { id: string }) => item.id)).toEqual([vault.id]);
 
-    expect((await call(runtime, "GET", `/v1/vaults/${vault.id}`)).body).toMatchObject({ id: vault.id });
+    expect((await call(runtime, "GET", `/v1/tenant/vaults/${vault.id}`)).body).toMatchObject({ id: vault.id });
     const credential = await bearer(runtime, vault.id, "https://mcp.example.com/a", SHARED_TOKEN);
-    const credentials = await call(runtime, "GET", `/v1/vaults/${vault.id}/credentials`);
+    const credentials = await call(runtime, "GET", `/v1/tenant/vaults/${vault.id}/credentials`);
     expect(credentials.body.credentials.map((item: { id: string }) => item.id)).toEqual([credential.id]);
     expect(JSON.stringify(credentials.body)).not.toContain(SHARED_TOKEN);
-    const rotated = await call(runtime, "POST", `/v1/vaults/${vault.id}/credentials/${credential.id}`, {
+    const rotated = await call(runtime, "POST", `/v1/tenant/vaults/${vault.id}/credentials/${credential.id}`, {
       body: { requestId: "rot", idempotencyKey: "rot", auth: { type: "bearer", token: `${SHARED_TOKEN}-2` } },
     });
     expect(rotated.status).toBe(200);
-    expect((await call(runtime, "DELETE", `/v1/vaults/${vault.id}/credentials/${credential.id}`)).status).toBe(200);
-    expect((await call(runtime, "DELETE", `/v1/vaults/${vault.id}`)).status).toBe(200);
-    expect((await call(runtime, "GET", `/v1/vaults/${vault.id}`)).status).toBe(404);
+    expect((await call(runtime, "DELETE", `/v1/tenant/vaults/${vault.id}/credentials/${credential.id}`)).status).toBe(200);
+    expect((await call(runtime, "DELETE", `/v1/tenant/vaults/${vault.id}`)).status).toBe(200);
+    expect((await call(runtime, "GET", `/v1/tenant/vaults/${vault.id}`)).status).toBe(404);
 
     // A user vault still needs its owner, which may not be the reserved `installation`.
     for (const body of [{ name: "x" }, { name: "x", ownerUserId: "installation" }])
       expect(
-        (await call(runtime, "POST", "/v1/vaults", { body: { requestId: "bad", idempotencyKey: "bad", ...body } })).status,
+        (await call(runtime, "POST", "/v1/tenant/vaults", { body: { requestId: "bad", idempotencyKey: "bad", ...body } })).status,
       ).toBe(400);
   });
 
-  it("refuses every vault route to a request acting for a subject (protocol 7)", async () => {
+  it("refuses every vault route to an application key and to a request acting for a subject (protocol 8)", async () => {
     const runtime = await boot();
     const vault = await installationVault(runtime);
     const credential = await bearer(runtime, vault.id, "https://mcp.example.com/a", SHARED_TOKEN);
-    for (const headers of [actingFor("bao"), { ...actingFor("bao"), "nylorun-scopes": "vaults:own" }])
+    const managementActing = {
+      ...management,
+      "nylorun-subject": "bao",
+      "nylorun-scopes": "sessions:own",
+    };
+    for (const [headers, code] of [
+      [server, "key_role_mismatch"],
+      [actingFor("bao"), "key_role_mismatch"],
+      [{ ...actingFor("bao"), "nylorun-scopes": "vaults:own" }, "key_role_mismatch"],
+      [managementActing, "subject_invalid"],
+    ] as const)
       for (const [method, path, body] of vaultRoutes(vault.id, credential.id)) {
         const reply = await call(runtime, method, path, { headers, ...(body ? { body } : {}) });
         expect(reply.status, `${method} ${path}`).toBe(403);
-        expect(reply.body.code).toBe("scope_required");
+        expect(reply.body.code).toBe(code);
       }
-    expect((await call(runtime, "GET", `/v1/vaults/${vault.id}`)).status).toBe(200);
+    expect((await call(runtime, "GET", `/v1/tenant/vaults/${vault.id}`)).status).toBe(200);
   });
 
-  it("refuses every vault route to a trusted issuer's token (protocol 7)", async () => {
+  it("refuses every vault route to a trusted issuer's token (protocol 8)", async () => {
     const issuer = await testIssuer();
     const runtime = await boot({ issuers: createTrustedIssuers(issuer.configs) });
     const vault = await installationVault(runtime);
@@ -277,10 +292,10 @@ describe("installation vaults over the Tenant API", () => {
     });
     expect(saved.status).toBe(200);
     await installationVault(runtime);
-    const listed = await call(runtime, "GET", "/v1/vaults?ownerUserId=host");
+    const listed = await call(runtime, "GET", "/v1/tenant/vaults?ownerUserId=host");
     expect(listed.body.vaults.map((item: { ownerUserId: string }) => item.ownerUserId)).toEqual(["installation"]);
-    expect((await call(runtime, "GET", "/v1/vaults/host")).status).toBe(404);
-    expect((await call(runtime, "GET", "/v1/vaults/host/credentials")).status).toBe(404);
+    expect((await call(runtime, "GET", "/v1/tenant/vaults/host")).status).toBe(404);
+    expect((await call(runtime, "GET", "/v1/tenant/vaults/host/credentials")).status).toBe(404);
     const attached = await call(runtime, "PUT", "/v1/sessions/s-host", {
       body: { requestId: "s-host", agentId: "bot", ownerUserId: "ada", vaultIds: ["host"] },
     });

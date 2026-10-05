@@ -9,13 +9,19 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "admin-status",
   "studio-principal",
   "action-endpoints",
   "artifacts",
+  /**
+   * Protocol 8: the Management API (`/v1/tenant/*`) takes management keys only, and the
+   * Runtime API application keys only (`key_role_mismatch`); vaults and signing keys are under
+   * `/v1/tenant`.
+   */
+  "management-api",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -75,7 +81,7 @@ export interface ProtocolRange {
  */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 4,
-  max: 7,
+  max: 8,
   features: ["runtime-tenants", ...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;

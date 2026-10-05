@@ -43,7 +43,11 @@ const coreModel: ModelProvider = async () => ({ output: [{ type: "text", text: "
 async function call(method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> {
   const response = await fetch(`${runtime.url}${path}`, {
     method,
-    headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
+    headers: {
+      // The Tenant's settings are the Management API's (protocol 8).
+      authorization: `Bearer ${path.startsWith("/v1/tenant") ? runtime.managementKey : APP}`,
+      "content-type": "application/json",
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();

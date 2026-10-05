@@ -20,10 +20,10 @@ it("seals signing keys and quarantines the Tenant without its KEK", async () => 
   const { root, tenantId } = runtime;
   try {
     const headers = {
-      authorization: `Bearer ${APP}`,
+      authorization: `Bearer ${runtime.managementKey}`,
       "content-type": "application/json",
     };
-    const keys = await fetch(`${runtime.url}/v1/access/signing-keys`, { headers });
+    const keys = await fetch(`${runtime.url}/v1/tenant/signing-keys`, { headers });
     expect(keys.status).toBe(200);
     const body = (await keys.json()) as { keys: { state: string; publicKey: object }[] };
     expect(body.keys.map((k) => k.state).sort()).toEqual(["current", "standby"]);
@@ -54,9 +54,12 @@ it("seals signing keys and quarantines the Tenant without its KEK", async () => 
       // which alone holds the key, refuses to sign or rotate with the sealed keys.
       const runtime = await keyless();
       try {
-        const rotate = await fetch(`${runtime.url}/v1/access/signing-keys/rotate`, {
+        const rotate = await fetch(`${runtime.url}/v1/tenant/signing-keys/rotate`, {
           method: "POST",
-          headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
+          headers: {
+            authorization: `Bearer ${runtime.managementKey}`,
+            "content-type": "application/json",
+          },
           body: JSON.stringify({ requestId: "rotate", force: true }),
         });
         expect(rotate.status).toBe(500);
@@ -74,10 +77,10 @@ it("seals signing keys and quarantines the Tenant without its KEK", async () => 
 it("creates one current key when the first uses race", async () => {
   const runtime = await startTestTenant({ applicationKey: APP, vaultKek: KEK });
   try {
-    const headers = { authorization: `Bearer ${APP}` };
+    const headers = { authorization: `Bearer ${runtime.managementKey}` };
     const responses = await Promise.all(
       Array.from({ length: 8 }, () =>
-        fetch(`${runtime.url}/v1/access/signing-keys`, { headers })
+        fetch(`${runtime.url}/v1/tenant/signing-keys`, { headers })
       )
     );
     expect(responses.map((r) => r.status)).toEqual(Array(8).fill(200));

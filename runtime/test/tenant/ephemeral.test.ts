@@ -153,15 +153,18 @@ it("creates its Tenant once, as a Host does, and serves it again on the same dat
   closers.push(runtime);
   // The database's Tenant, not a new one; this run's application key is added to it.
   expect(runtime.tenantId).toBe(tenantId);
-  const status = (key: string) =>
-    fetch(`${runtime.url}/v1/tenant`, {
+  const get = (path: string, key: string) =>
+    fetch(`${runtime.url}${path}`, {
       headers: { authorization: `Bearer ${key}`, [PROTOCOL_HEADER]: String(PROTOCOL_VERSION) },
     });
-  const own = await status(runtime.applicationKey);
+  const own = await get("/v1/tenant", runtime.managementKey);
   expect(own.status).toBe(200);
   expect(await own.json()).toMatchObject({ tenant: { id: tenantId, name: "first" } });
-  // The first run's application key is still the Tenant's.
-  expect((await status(first.applicationKey)).status).toBe(200);
+  expect((await get("/v1/me", runtime.applicationKey)).status).toBe(200);
+  // The first run's application key is still the Tenant's; its management key (`bootstrap`)
+  // was replaced by this run's.
+  expect((await get("/v1/me", first.applicationKey)).status).toBe(200);
+  expect((await get("/v1/tenant", first.managementKey)).status).toBe(404);
   // No Admin Tenant routes.
   const admin = await fetch(`${runtime.url}/v1/admin/tenants`, {
     headers: {

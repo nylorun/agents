@@ -116,7 +116,7 @@ it("runs built-in sandbox tools in the Runtime without delivering an Action", as
   });
   let closeEndpoint = async () => {};
   try {
-    const host = await (await fetch(`${runtime.url}/v1/tenant/sandbox`, { headers: serverHeaders })).json();
+    const host = await (await fetch(`${runtime.url}/v1/tenant/sandbox`, { headers: runtime.managementHeaders() })).json();
     expect(host).toMatchObject({ backend: "virtual", isolation: "process", defaultImage: "python:3.13-slim" });
     await register(runtime, agent().manifest);
     // The agent has an Action endpoint, but the sandbox tools never reach it.

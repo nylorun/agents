@@ -1,6 +1,6 @@
 /**
  * Owner enforcement: two subjects on one Tenant never reach each other's sessions, nor attach
- * each other's vaults (vault routes take no subject, protocol 7).
+ * each other's vaults (vaults are the Management API's, which takes no subject, protocol 8).
  * Another owner's resource answers exactly what a missing one does, so a subject cannot learn
  * which ids exist. Requests without `Nylorun-Subject` keep today's answers.
  */
@@ -124,22 +124,31 @@ it("answers PUT on another owner's session id with 404, not 409", async () => {
   expect(mismatch.status).toBe(409);
 });
 
-it("refuses vault routes to a subject, its own vaults included (protocol 7)", async () => {
+it("refuses vault routes to a subject, its own vaults included (protocol 8)", async () => {
   const { vaultId, credentialId } = adaVault;
   for (const [method, path] of [
-    ["GET", "/v1/vaults"],
-    ["GET", `/v1/vaults/${vaultId}`],
-    ["GET", `/v1/vaults/${vaultId}/credentials`],
-    ["GET", `/v1/vaults/${vaultId}/credentials/${credentialId}`],
-    ["DELETE", `/v1/vaults/${vaultId}`],
+    ["GET", "/v1/tenant/vaults"],
+    ["GET", `/v1/tenant/vaults/${vaultId}`],
+    ["GET", `/v1/tenant/vaults/${vaultId}/credentials`],
+    ["GET", `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`],
+    ["DELETE", `/v1/tenant/vaults/${vaultId}`],
   ] as const)
     for (const as of [ada, bao]) {
+      // The Management API takes no application key, acting for a subject or not.
       const reply = await tenant.call(method, path, { as });
       expect(reply.status, `${method} ${path}`).toBe(403);
-      expect(reply.body.code).toBe("scope_required");
+      expect(reply.body.code).toBe("key_role_mismatch");
+      // Nor a management key acting for one.
+      const managed = await tenant.call(method, path, { as, key: tenant.runtime.managementKey });
+      expect(managed.status, `${method} ${path}`).toBe(403);
+      expect(managed.body.code).toBe("subject_invalid");
     }
   expect(
-    (await tenant.call("GET", `/v1/vaults?ownerUserId=${ada.subject}`)).body.vaults
+    (
+      await tenant.call("GET", `/v1/tenant/vaults?ownerUserId=${ada.subject}`, {
+        key: tenant.runtime.managementKey,
+      })
+    ).body.vaults
   ).toHaveLength(1);
 });
 

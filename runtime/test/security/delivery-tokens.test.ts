@@ -159,7 +159,7 @@ describe("as a bearer", () => {
       ["GET", "/v1/sessions"],
       ["GET", "/v1/endpoints"],
       ["POST", "/v1/sessions/s1/commands"],
-      ["GET", "/v1/vaults"],
+      ["GET", "/v1/tenant/vaults"],
       ["GET", "/v1/tenant"],
     ]) {
       const response = await call(runtime.url, method!, path!, token);

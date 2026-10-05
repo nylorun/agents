@@ -57,9 +57,9 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
         })
       ).status,
     ).toBe(200);
-    const vault = await getJson(`${url}/v1/vaults`, {
+    const vault = await getJson(`${url}/v1/tenant/vaults`, {
       method: "POST",
-      headers: tenant.headers(),
+      headers: tenant.managementHeaders(),
       body: JSON.stringify({
         requestId: randomUUID(),
         idempotencyKey: `vault-${tenant.id}`,
@@ -87,6 +87,14 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
       init: {
         path: "/v1/agents",
         headers: tenantHeaders(b.applicationKey),
+      },
+      expectOpaque: true,
+    },
+    {
+      label: "B management key → opaque",
+      init: {
+        path: "/v1/tenant",
+        headers: tenantHeaders(b.managementKey),
       },
       expectOpaque: true,
     },
@@ -125,8 +133,8 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
     {
       label: "A auth + B vault id",
       init: {
-        path: `/v1/vaults/${vaultB}`,
-        headers: a.headers(),
+        path: `/v1/tenant/vaults/${vaultB}`,
+        headers: a.managementHeaders(),
       },
       expectAScoped: true,
     },
@@ -134,7 +142,7 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
       label: "A auth + B tenant status path is still A",
       init: {
         path: "/v1/tenant",
-        headers: a.headers(),
+        headers: a.managementHeaders(),
       },
       expectAScoped: true,
     },
@@ -142,7 +150,7 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
       label: "A auth + B model route",
       init: {
         path: "/v1/tenant/model",
-        headers: a.headers(),
+        headers: a.managementHeaders(),
       },
       expectAScoped: true,
     },
@@ -150,7 +158,7 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
       label: "A auth + B sandbox route",
       init: {
         path: "/v1/tenant/sandbox",
-        headers: a.headers(),
+        headers: a.managementHeaders(),
       },
       expectAScoped: true,
     },
@@ -209,8 +217,8 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
     headers: a.headers(),
   });
   expect(ownSession.status).toBe(200);
-  const ownVault = await getJson(`${host.url}/v1/vaults/${vaultA}`, {
-    headers: a.headers(),
+  const ownVault = await getJson(`${host.url}/v1/tenant/vaults/${vaultA}`, {
+    headers: a.managementHeaders(),
   });
   expect(ownVault.status).toBe(200);
 

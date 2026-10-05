@@ -21,7 +21,10 @@ import { startTestTenant } from "./support/tenant.js";
 const APP = "mcp-oauth-app-key-aaaaaaaaaaaaaaaa";
 const KEK = Buffer.alloc(32, 9).toString("base64");
 const HTTP_GATE = process.env.NYLORUN_TEST_MODEL_GATE === "http";
+const MANAGEMENT = "mcp-oauth-management-key-aaaaaaaaa";
 const server = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
+/** The Management API's key (protocol 8): the vault routes take it alone. */
+const management = { authorization: `Bearer ${MANAGEMENT}`, "content-type": "application/json" };
 
 type Started = Awaited<ReturnType<typeof startTestTenant>>;
 const open: (() => Promise<void>)[] = [];
@@ -37,7 +40,7 @@ async function call(
 ): Promise<{ status: number; body: any }> {
   const response = await fetch(`${runtime.url}${path}`, {
     method,
-    headers: options.headers ?? server,
+    headers: options.headers ?? (path.startsWith("/v1/tenant") ? management : server),
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
   });
   const text = await response.text();
@@ -220,6 +223,7 @@ async function boot(options: { mcpUrl?: string; delivery?: OutboundPolicy } = {}
   const forbidden = forbiddenFetch();
   const runtime = await startTestTenant({
     applicationKey: APP,
+    managementKey: MANAGEMENT,
     vaultKek: KEK,
     modelProvider: model,
     ...(options.delivery ? { delivery: options.delivery } : {}),
@@ -241,7 +245,7 @@ async function boot(options: { mcpUrl?: string; delivery?: OutboundPolicy } = {}
 }
 
 async function installationVault(runtime: Started, name = "mcp") {
-  const created = await call(runtime, "POST", "/v1/vaults", {
+  const created = await call(runtime, "POST", "/v1/tenant/vaults", {
     body: { requestId: `vault-${name}`, idempotencyKey: `vault-${name}`, name, scope: "installation" },
   });
   expect(created.status, JSON.stringify(created.body)).toBe(200);
@@ -249,7 +253,7 @@ async function installationVault(runtime: Started, name = "mcp") {
 }
 
 async function start(runtime: Started, vaultId: string, body: Record<string, unknown>) {
-  return call(runtime, "POST", `/v1/vaults/${vaultId}/oauth/start`, { body });
+  return call(runtime, "POST", `/v1/tenant/vaults/${vaultId}/oauth/start`, { body });
 }
 
 /** The browser: opens the authorize URL and follows the redirect back to the callback. */
@@ -303,7 +307,7 @@ describe("MCP OAuth connect", () => {
     expect(signed.html).toContain("Connected. You can close this tab.");
     expect(as.grants).toEqual(["authorization_code"]);
 
-    const listed = await call(runtime, "GET", `/v1/vaults/${vaultId}/credentials`);
+    const listed = await call(runtime, "GET", `/v1/tenant/vaults/${vaultId}/credentials`);
     expect(listed.body.credentials).toEqual([
       expect.objectContaining({ name: "remote", type: "oauth", binding: { url: as.mcpUrl }, expiresAt: expect.any(String) }),
     ]);
@@ -317,7 +321,7 @@ describe("MCP OAuth connect", () => {
 
     // The access token expires at the server and in the vault: the next use refreshes it.
     as.live.delete(firstToken.replace(/^Bearer /, ""));
-    const expired = await call(runtime, "POST", `/v1/vaults/${vaultId}/credentials/${credentialId}`, {
+    const expired = await call(runtime, "POST", `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`, {
       body: {
         requestId: "expire",
         idempotencyKey: "expire",
@@ -365,7 +369,7 @@ describe("MCP OAuth connect", () => {
       expect(started.status, JSON.stringify(started.body)).toBe(200);
       expect(new URL(started.body.authorizeUrl).searchParams.get("client_id")).toBe("operator-client");
       expect((await signIn(started.body.authorizeUrl)).status, `attempt ${attempt}`).toBe(200);
-      const listed = await call(runtime, "GET", `/v1/vaults/${vaultId}/credentials`);
+      const listed = await call(runtime, "GET", `/v1/tenant/vaults/${vaultId}/credentials`);
       expect(listed.body.credentials).toHaveLength(1);
       ids.push(listed.body.credentials[0].id);
     }
@@ -416,7 +420,7 @@ describe("MCP OAuth connect", () => {
     const reused = await fetch(`${runtime.url}/v1/oauth/callback?state=${encodeURIComponent(state)}&code=x`);
     expect(reused.status).toBe(400);
     expect(await reused.text()).toContain("unknown, already used or expired");
-    expect((await call(runtime, "GET", `/v1/vaults/${vaultId}/credentials`)).body.credentials).toEqual([]);
+    expect((await call(runtime, "GET", `/v1/tenant/vaults/${vaultId}/credentials`)).body.credentials).toEqual([]);
   });
 
   it("calls no private address when the Host refuses them", async () => {
@@ -432,22 +436,27 @@ describe("MCP OAuth connect", () => {
     expect(forbidden.calls).toEqual([]);
   });
 
-  it("starts only for an application key, into an installation vault", async () => {
+  it("starts only for a management key, into an installation vault", async () => {
     const as = await oauthServer();
     const { runtime } = await boot();
     const vaultId = await installationVault(runtime);
-    const personal = await call(runtime, "POST", "/v1/vaults", {
+    const personal = await call(runtime, "POST", "/v1/tenant/vaults", {
       body: { requestId: "ada", idempotencyKey: "ada", name: "Ada's", ownerUserId: "ada" },
     });
     const body = { url: as.mcpUrl, server: "remote" };
     expect((await start(runtime, personal.body.id, body)).status).toBe(400);
     expect((await start(runtime, "host", body)).status).toBe(404);
     expect((await start(runtime, "missing", body)).status).toBe(404);
-    const acting = await call(runtime, "POST", `/v1/vaults/${vaultId}/oauth/start`, {
+    const acting = await call(runtime, "POST", `/v1/tenant/vaults/${vaultId}/oauth/start`, {
       headers: { ...server, "nylorun-subject": "ada", "nylorun-scopes": "vaults:own" },
       body,
     });
-    expect(acting.status).toBe(403);
+    expect(acting).toMatchObject({ status: 403, body: { code: "key_role_mismatch" } });
+    const application = await call(runtime, "POST", `/v1/tenant/vaults/${vaultId}/oauth/start`, {
+      headers: server,
+      body,
+    });
+    expect(application).toMatchObject({ status: 403, body: { code: "key_role_mismatch" } });
     expect((await start(runtime, vaultId, { url: as.mcpUrl })).status).toBe(400);
     expect(as.requests).toEqual([]);
   });

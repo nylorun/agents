@@ -73,7 +73,10 @@ async function tenant(options: { leaseMs?: number; sandbox?: boolean } = {}) {
   };
   await call("PUT", "/v1/agents/issue", { requestId: "put", manifest: agent.manifest, implementationVersion: "dev" });
   if (options.sandbox)
-    expect((await call("PUT", "/v1/tenant/sandbox", { requestId: "sandbox", default: "virtual" })).status).toBe(200);
+    expect(
+      (await call("PUT", "/v1/tenant/sandbox", { requestId: "sandbox", default: "virtual" }, runtime.managementKey))
+        .status,
+    ).toBe(200);
   const endpoint = await acceptingEndpoint();
   await call("PUT", "/v1/endpoints", { endpoints: [{ agentId: "issue", url: endpoint.url, implementationVersion: "dev" }] });
   await call("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "issue", ownerUserId: "user" });

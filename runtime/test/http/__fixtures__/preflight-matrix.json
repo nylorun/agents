@@ -203,43 +203,43 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/vaults": {
+  "POST /v1/tenant/vaults": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/vaults?ownerUserId=app:ann": {
+  "GET /v1/tenant/vaults?ownerUserId=app:ann": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/vaults/<vault>": {
+  "GET /v1/tenant/vaults/<vault>": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "DELETE /v1/vaults/vlt-missing": {
+  "DELETE /v1/tenant/vaults/vlt-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/vaults/<vault>/credentials": {
+  "POST /v1/tenant/vaults/<vault>/credentials": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/vaults/<vault>/credentials": {
+  "GET /v1/tenant/vaults/<vault>/credentials": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/vaults/<vault>/credentials/crd-missing": {
+  "GET /v1/tenant/vaults/<vault>/credentials/crd-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/vaults/<vault>/credentials/crd-missing": {
+  "POST /v1/tenant/vaults/<vault>/credentials/crd-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "DELETE /v1/vaults/<vault>/credentials/crd-missing": {
+  "DELETE /v1/tenant/vaults/<vault>/credentials/crd-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/vaults/<vault>/oauth/start": {
+  "POST /v1/tenant/vaults/<vault>/oauth/start": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
@@ -255,15 +255,15 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/access/signing-keys": {
+  "GET /v1/tenant/signing-keys": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/access/signing-keys/rotate": {
+  "POST /v1/tenant/signing-keys/rotate": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/access/signing-keys/kid-missing/revoke": {
+  "POST /v1/tenant/signing-keys/kid-missing/revoke": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },

@@ -43,7 +43,7 @@ it("G8: Host log omits Tenant records, bearer, API keys, and KEK material", asyn
   });
   await getJson(`${host.url}/v1/tenant/config/seed`, {
     method: "PUT",
-    headers: a.headers(),
+    headers: a.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
       model: {
@@ -78,6 +78,7 @@ it("G8: Host log omits Tenant records, bearer, API keys, and KEK material", asyn
     expect(hostJoined).not.toContain(line);
   }
   expect(hostJoined).not.toContain(bearer);
+  expect(hostJoined).not.toContain(a.managementKey);
   expect(hostJoined).not.toContain(HOSTILE_MODEL_KEY);
   expect(hostJoined).not.toContain(kek);
   expect(hostJoined).not.toContain("sess-log");

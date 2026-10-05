@@ -106,14 +106,16 @@ export async function createSession(
 }
 
 /**
- * A vault owned by `as.subject`, with one bearer credential, created with the application key
- * acting for no one: vault routes take no subject (protocol 7).
+ * A vault owned by `as.subject`, with one bearer credential, created with the management key:
+ * vaults are the Management API's (protocol 8).
  */
 export async function createVault(
   tenant: SubjectTenant,
   as: As
 ): Promise<{ vaultId: string; credentialId: string }> {
-  const vault = await tenant.call("POST", "/v1/vaults", {
+  const key = tenant.runtime.managementKey;
+  const vault = await tenant.call("POST", "/v1/tenant/vaults", {
+    key,
     body: {
       requestId: `vault-${as.subject}`,
       idempotencyKey: `vault-${as.subject}`,
@@ -125,8 +127,9 @@ export async function createVault(
     throw new Error(`creating a vault failed: ${vault.status} ${vault.text}`);
   const credential = await tenant.call(
     "POST",
-    `/v1/vaults/${vault.body.id}/credentials`,
+    `/v1/tenant/vaults/${vault.body.id}/credentials`,
     {
+      key,
       body: {
         requestId: `cred-${as.subject}`,
         idempotencyKey: `cred-${as.subject}`,

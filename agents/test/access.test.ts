@@ -36,18 +36,28 @@ function fake(
 }
 
 describe("client.access", () => {
-  it("lists and rotates signing keys and reads the public keys", async () => {
+  it("reads the public keys", async () => {
     const { client, sent } = fake(undefined, () => Response.json({ keys: [] }));
-    expect(await client.access.signingKeys.list()).toEqual([]);
-    expect(await client.access.signingKeys.rotate({ force: true })).toEqual([]);
     expect(await client.access.jwks()).toEqual({ keys: [] });
-    expect(sent.map((r) => `${r.method} ${r.path}`)).toEqual([
-      "GET /v1/access/signing-keys",
-      "POST /v1/access/signing-keys/rotate",
-      "GET /v1/access/jwks",
-    ]);
-    expect(sent[1]!.body.force).toBe(true);
+    expect(sent.map((r) => `${r.method} ${r.path}`)).toEqual(["GET /v1/access/jwks"]);
     expect(sent.every((r) => r.auth === `Bearer ${KEY}`)).toBe(true);
+  });
+
+  it("no longer manages signing keys or vaults: the Management API does (protocol 8)", () => {
+    const { client } = fake();
+    expect("signingKeys" in client.access).toBe(false);
+    for (const name of [
+      "createVault",
+      "listVaults",
+      "getVault",
+      "deleteVault",
+      "createCredential",
+      "listCredentials",
+      "getCredential",
+      "rotateCredential",
+      "deleteCredential",
+    ])
+      expect(name in client, name).toBe(false);
   });
 
   it("no longer mints subject tokens or manages policies and browser keys (protocol 7)", () => {
