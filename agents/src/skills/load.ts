@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   readdirSync,
@@ -5,11 +6,23 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { SkillRecord } from "@nylorun/core/define";
+import {
+  DEFINITION_FILE_MAX_BYTES,
+  SKILL_ENTRY,
+  SKILL_FILES_MAX,
+  skillFilePathIssue,
+  type SkillFileSource,
+} from "@nylorun/core/define";
 import matter from "gray-matter";
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** Version control and operating system files, never part of a skill. */
+const SKIPPED_DIRECTORIES = new Set([".git", ".hg", ".svn", "node_modules"]);
+const SKIPPED_FILES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
+/** Environment files hold secrets: never uploaded (`.env`, `.env.local`, …). */
+const isEnvFile = (name: string) => name === ".env" || name.startsWith(".env.");
 
 export interface SkillDiagnostic {
   readonly severity: "info" | "warning";
@@ -34,6 +47,16 @@ export class SkillsError extends Error {
   }
 }
 
+/** One skill read from its folder: what the manifest names, and where each file's bytes are. */
+export interface LoadedSkill {
+  readonly name: string;
+  readonly description: string;
+  /** Every file of the folder by its `/`-separated path, as `sha256:<hex>`. */
+  readonly files: Readonly<Record<string, string>>;
+  /** Each file's bytes, by `sha256:<hex>`, for the client to upload. */
+  readonly sources: Readonly<Record<string, SkillFileSource>>;
+}
+
 /** Resolve a skills catalog directory; throws when missing or not a directory. */
 export function resolveSkillsRoot(directory: string): string {
   const resolved = resolve(directory);
@@ -53,20 +76,22 @@ export function resolveSkillsRoot(directory: string): string {
 
 /**
  * Load Agent Skills (agentskills.io) from a catalog directory.
- * Each immediate subdirectory with a valid SKILL.md becomes one skill.
+ * Each immediate subdirectory with a valid SKILL.md becomes one skill, with every file of its
+ * folder (text or binary) hashed. Throws `SkillsError` for a skill the Runtime cannot hold: a
+ * file over 10 MiB, more than 500 files, or a path a manifest cannot name.
  */
 export function loadSkillsFromDirectory(
   directory: string,
   diagnostics: SkillDiagnostic[],
   options: { readonly boundary?: string; readonly codePrefix?: string } = {}
-): Readonly<Record<string, SkillRecord>> {
+): Readonly<Record<string, LoadedSkill>> {
   const root = resolveSkillsRoot(directory);
   const boundary = options.boundary ?? root;
   const prefix = options.codePrefix ?? "skills";
-  const skills: Record<string, SkillRecord> = {};
+  const skills: Record<string, LoadedSkill> = {};
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    if (entry.name === "node_modules" || entry.name === ".git") continue;
+    if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
     const skillDir = join(root, entry.name);
     const directoryReal = realInside(boundary, skillDir);
     if (!directoryReal) {
@@ -78,7 +103,7 @@ export function loadSkillsFromDirectory(
       });
       continue;
     }
-    const skillFile = join(directoryReal, "SKILL.md");
+    const skillFile = join(directoryReal, SKILL_ENTRY);
     if (!existsSync(skillFile)) continue;
     const skillReal = realInside(boundary, skillFile);
     if (!skillReal || !statSync(skillReal).isFile()) {
@@ -109,12 +134,10 @@ export function loadSkillsFromDirectory(
       });
       continue;
     }
-    const resources = readResources(boundary, directoryReal, diagnostics, prefix);
     skills[parsed.name] = {
       name: parsed.name,
       description: parsed.description,
-      instructions: parsed.instructions,
-      ...(Object.keys(resources).length === 0 ? {} : { resources }),
+      ...readFiles(parsed.name, boundary, directoryReal, diagnostics, prefix),
     };
   }
   return skills;
@@ -146,45 +169,72 @@ function asTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function readResources(
+/** Every file of the skill's folder, hashed, and where to read each one's bytes. */
+function readFiles(
+  name: string,
   boundary: string,
   directory: string,
   diagnostics: SkillDiagnostic[],
   prefix: string
-): Record<string, string> {
-  const resources: Record<string, string> = {};
-  const walk = (current: string, depth: number) => {
-    if (depth > 6) return;
+): Pick<LoadedSkill, "files" | "sources"> {
+  const files: Record<string, string> = {};
+  const sources: Record<string, SkillFileSource> = {};
+  const visited = new Set<string>();
+  // `at` is the folder's path in the skill: symbolic links inside the package are followed.
+  const walk = (current: string, at: string) => {
+    if (visited.has(current)) return;
+    visited.add(current);
     for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
       const full = join(current, entry.name);
-      if (entry.isDirectory()) {
-        const real = realInside(boundary, full);
-        if (!real) continue;
-        walk(real, depth + 1);
-        continue;
-      }
-      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-      if (depth === 0 && entry.name === "SKILL.md") continue;
       const real = realInside(boundary, full);
-      if (!real || !statSync(real).isFile()) {
+      if (!real) {
         diagnostics.push({
           severity: "warning",
           code: `${prefix}.resource-denied`,
-          message: `Denied resource outside the package: ${entry.name}`,
+          message: `Denied a file of skill '${name}' outside the package: ${entry.name}`,
           path: full,
         });
         continue;
       }
-      const bytes = readFileSync(real);
-      if (bytes.includes(0)) continue;
-      const rel = relative(directory, real).split(sep).join("/");
-      if (!rel || rel.startsWith("..")) continue;
-      resources[rel] = bytes.toString("utf8");
+      const stats = statSync(real);
+      const path = at === "" ? entry.name : `${at}/${entry.name}`;
+      if (stats.isDirectory()) {
+        if (!SKIPPED_DIRECTORIES.has(entry.name)) walk(real, path);
+        continue;
+      }
+      if (!stats.isFile() || SKIPPED_FILES.has(entry.name) || isEnvFile(entry.name)) continue;
+      const issue = skillFilePathIssue(path);
+      if (issue)
+        throw new SkillsError(
+          `${prefix}.invalid-path`,
+          `Skill '${name}' has a file whose path ${issue}: ${path}`
+        );
+      if (stats.size > DEFINITION_FILE_MAX_BYTES)
+        throw new SkillsError(
+          `${prefix}.file-too-large`,
+          `Skill '${name}' file ${path} is ${stats.size} bytes; a skill file may be at most ${DEFINITION_FILE_MAX_BYTES} (10 MiB)`
+        );
+      const hash = `sha256:${createHash("sha256").update(readFileSync(real)).digest("hex")}`;
+      files[path] = hash;
+      sources[hash] = {
+        size: stats.size,
+        read: async () => new Uint8Array(await readFile(real)),
+      };
+      if (Object.keys(files).length > SKILL_FILES_MAX)
+        throw new SkillsError(
+          `${prefix}.too-many-files`,
+          `Skill '${name}' has more than ${SKILL_FILES_MAX} files; a skill may have at most ${SKILL_FILES_MAX}`
+        );
     }
   };
-  walk(directory, 0);
-  return resources;
+  walk(directory, "");
+  return { files: sorted(files), sources };
+}
+
+function sorted(files: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  );
 }
 
 function realInside(root: string, candidate: string): string | undefined {

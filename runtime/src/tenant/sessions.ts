@@ -5,6 +5,7 @@
  */
 import {
   DefinitionDocumentSchema,
+  definitionFilesOf,
   type PutAgentRequest,
   type PutSessionRequest,
 } from "@nylorun/core/contracts";
@@ -31,6 +32,7 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
+import { missingDefinitionFiles } from "./definition-files.js";
 
 /** A session's creation identity: everything but the request id and vault attachments. */
 const sessionIdentity = (value: any): string => {
@@ -105,7 +107,18 @@ export async function putDefinition(
     ...body,
     manifestHash: hashManifest(body.manifest as any),
   };
-  await ctx.store.tx((t) => t.put("definitions", agentId, definition));
+  const files = [...definitionFilesOf(body.manifest)];
+  await ctx.store.tx(async (t) => {
+    const missing = await missingDefinitionFiles(t, body.manifest);
+    if (missing.length > 0)
+      fail(
+        400,
+        `The definition names ${missing.length} file(s) the Runtime does not hold; upload each with PUT /v1/files/<sha256> first: ${missing.join(", ")}`,
+        { code: "definition_files_missing", details: { missing } }
+      );
+    await t.put("definitions", agentId, definition);
+    await t.insertDefinitionFileUses(agentId, definition.manifestHash, files);
+  });
   return {
     agentId,
     manifestHash: definition.manifestHash,

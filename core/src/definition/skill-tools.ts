@@ -1,14 +1,56 @@
 import { z } from "zod";
-import type { SkillRecord } from "../types/middleware.js";
-import type { JsonObject } from "../types/shared.js";
+import type { CapabilityManifest, SkillManifest } from "../types/manifest.js";
 import type { ToolDefinition } from "../types/tool.js";
+import { SKILL_ENTRY } from "../utils/definition-files.js";
 import { tool } from "./helpers.js";
+import { ToolError } from "./tool-error.js";
+
+export const LOAD_SKILL_TOOL = "load_skill";
+export const READ_SKILL_RESOURCE_TOOL = "read_skill_resource";
+export const SKILL_TOOL_NAMES: ReadonlySet<string> = new Set([
+  LOAD_SKILL_TOOL,
+  READ_SKILL_RESOURCE_TOOL,
+]);
 
 const USAGE =
   "Load the full instructions for a named skill. Call this before following a skill.";
 
+/**
+ * Whether `toolName` is a skill tool the Runtime serves: `load_skill` or `read_skill_resource`
+ * declared by a capability that has skills (the first one, where the build attaches them). A
+ * tool of that name elsewhere is the author's own.
+ */
+export function isSkillTool(
+  capability: CapabilityManifest | undefined,
+  toolName: string | undefined
+): boolean {
+  return (
+    capability !== undefined &&
+    toolName !== undefined &&
+    SKILL_TOOL_NAMES.has(toolName) &&
+    Object.keys(capability.skills ?? {}).length > 0 &&
+    capability.tools?.some((item) => item.name === toolName) === true
+  );
+}
+
+/**
+ * Stub implementation for the developer process. The Runtime serves the skill tools from the
+ * skill files uploaded with the agent; reaching this means the agent ran without a Runtime.
+ */
+async function runtimeOnly(): Promise<never> {
+  throw new ToolError(
+    "skills.runtime-only",
+    "Skills are served by the Nylorun Runtime from the files uploaded with the agent. Connect the agent to a Runtime to use them."
+  );
+}
+
+/**
+ * `load_skill` for every skill of an agent, and `read_skill_resource` when a skill has files
+ * besides `SKILL.md`. Their names and input schemas are part of the hashed manifest; the Runtime
+ * runs them.
+ */
 export function createSkillTools(
-  skills: ReadonlyMap<string, SkillRecord>
+  skills: ReadonlyMap<string, SkillManifest>
 ): readonly ToolDefinition[] {
   const names = [...skills.keys()].sort();
   const nameSchema =
@@ -17,51 +59,28 @@ export function createSkillTools(
       : z.enum(names as [string, ...string[]]);
   const definitions: ToolDefinition[] = [
     tool({
-      name: "load_skill",
+      name: LOAD_SKILL_TOOL,
       description: USAGE,
       inputSchema: z.object({ name: nameSchema }),
       effects: "read",
-      async execute(args): Promise<JsonObject> {
-        const name = (args as { name: string }).name;
-        const skill = skills.get(name);
-        if (!skill) return { unknown: name, available: names };
-        const loaded: JsonObject = {
-          name: skill.name,
-          content: skill.instructions,
-        };
-        const resources = Object.keys(skill.resources ?? {}).sort();
-        if (resources.length === 0) return loaded;
-        return { ...loaded, resources };
-      },
+      execute: runtimeOnly,
     }),
   ];
-  const hasResources = [...skills.values()].some(
-    (skill) => skill.resources !== undefined && Object.keys(skill.resources).length > 0
+  const hasResources = [...skills.values()].some((skill) =>
+    Object.keys(skill.files).some((path) => path !== SKILL_ENTRY)
   );
-  if (hasResources) {
+  if (hasResources)
     definitions.push(
       tool({
-        name: "read_skill_resource",
+        name: READ_SKILL_RESOURCE_TOOL,
         description: "Read one text resource from a skill after load_skill.",
         inputSchema: z.object({
           name: nameSchema,
           path: z.string().min(1),
         }),
         effects: "read",
-        async execute(args) {
-          const { name, path } = args as { name: string; path: string };
-          const skill = skills.get(name);
-          const content = skill?.resources?.[path];
-          if (!skill || content === undefined)
-            return {
-              kind: "failed" as const,
-              code: "skill.unknown_resource",
-              message: `Skill '${name}' has no resource '${path}'.`,
-            };
-          return { kind: "completed" as const, output: { name, path, content } };
-        },
+        execute: runtimeOnly,
       })
     );
-  }
   return definitions;
 }

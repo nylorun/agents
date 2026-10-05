@@ -215,7 +215,7 @@ Capability modules stay small:
 - [ask-user](./agents/interactions/ask-user.ts) pauses for a human reply.
 - [review](./agents/interactions/approval.ts) requires approval before a write candidate is accepted.
 - [guardrails](./agents/guardrails/capability.ts) maps OpenAI-style input, output, tool-input, and tool-output checks onto middleware timing.
-- [skills](./agents/skills/capability.ts) is one `.use(await skills())` call: a SKILL.md catalog plus `load_skill`.
+- [skills](./agents/skills/agent.ts) is one `.skills(folder)` call: a SKILL.md catalog the Runtime serves with `load_skill`.
 - [codex](./agents/coding-agent/capability.ts) wraps a host runtime. For an isolated machine, open the session with a sandbox, as for [analyst](./agents/release/analyst.ts).
 - [subagents](./agents/subagents/agent.ts) puts three example agents in `tools`; each runs with a fresh context and returns only its answer.
 

@@ -43,7 +43,13 @@ const concierge = {
     {
       id: "store-skills",
       type: "agent",
-      skills: { refund: { name: "refund", description: "How to refund." } },
+      skills: {
+        refund: {
+          name: "refund",
+          description: "How to refund.",
+          files: { "scripts/refund.py": `sha256:${"b".repeat(64)}`, "SKILL.md": `sha256:${"a".repeat(64)}` },
+        },
+      },
       tools: [{ name: "load_skill", inputSchema: objectSchema({ name: { type: "string" } }) }],
     },
     { id: "mcp", type: "agent", mcpServers: { inventory: { type: "streamable-http", url: "https://x" } } },
@@ -60,7 +66,9 @@ test("capabilities keep their instructions, type, skills and MCP servers", () =>
   );
   assert.deepEqual(view.capabilities[0].instructions, ["Keep answers short.", "Use tools."]);
   assert.deepEqual(view.capabilities[4].instructions, ["Plugin skills."]);
-  assert.deepEqual(view.capabilities[2].skills, [{ name: "refund", description: "How to refund." }]);
+  assert.deepEqual(view.capabilities[2].skills, [
+    { name: "refund", description: "How to refund.", files: ["SKILL.md", "scripts/refund.py"] },
+  ]);
   assert.deepEqual(view.capabilities[3].mcpServers, ["inventory"]);
 });
 

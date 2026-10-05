@@ -8,6 +8,7 @@ import type {
   BuiltWorkflow,
   JsonValue,
   SandboxToolName,
+  SkillFileSource,
   WorkflowManifest,
 } from "@nylorun/core/define";
 import {
@@ -40,6 +41,7 @@ import { SessionsReadClient } from "./reads.js";
 import { AccessClient } from "./access.js";
 import { SandboxesClient } from "./sandboxes.js";
 import { ArtifactsClient } from "./artifacts.js";
+import { FilesClient } from "./files.js";
 import { Transport, id, segment, type Destination } from "./http.js";
 import { observeSSE } from "./sse.js";
 
@@ -113,6 +115,13 @@ function pluginRootsOf(agent: AgentSource): Record<string, string> | undefined {
   for (const { key, item } of declarationsOf(agent))
     if (item.pluginRoot) roots[key] = item.pluginRoot;
   return Object.keys(roots).length === 0 ? undefined : roots;
+}
+
+/** The bytes of every skill file the agent's definition names, by `sha256:<hex>`. */
+function skillFilesOf(agent: AgentSource, into = new Map<string, SkillFileSource>()) {
+  for (const { item } of declarationsOf(agent))
+    for (const [sha256, source] of Object.entries(item.skillFiles ?? {})) into.set(sha256, source);
+  return into;
 }
 
 /** Closures stay on the live binding. The published manifest cannot name them. */
@@ -196,6 +205,10 @@ export class AgentsClient {
   get artifacts(): ArtifactsClient {
     return new ArtifactsClient(this.transport);
   }
+  /** Definition files: the skill files a definition names, by content hash. */
+  get files(): FilesClient {
+    return new FilesClient(this.transport);
+  }
   /** The Runtime's protocol features, including optional ones such as `transcript-events`. */
   hostFeatures(options: { signal?: AbortSignal } = {}): Promise<readonly string[]> {
     return this.transport.hostFeatures(options.signal);
@@ -221,19 +234,26 @@ export class AgentsClient {
       options.signal
     );
   }
+  /**
+   * Registers the agent's definition (`PUT /v1/agents/{id}`), first uploading the skill files
+   * it names that the Runtime does not hold.
+   */
   async saveAgent(
     agent: AgentSource | BuiltWorkflow,
     options: { implementationVersion: string; requestId?: string }
   ) {
     if (isBuiltWorkflow(agent) && agent.manifest.workflowSchemaVersion === 2) {
-      // A v2 workflow embeds its agents: one document, carrying their plugin roots.
+      // A v2 workflow embeds its agents: one document, carrying their plugin roots and files.
       const pluginRoots: Record<string, string> = {};
+      const files = new Map<string, SkillFileSource>();
       for (const binding of Object.values(agent.getBinding().agents)) {
         const leaf = { id: binding.manifest.id, manifest: binding.manifest, getBinding: () => binding };
         assertNoMiddlewareClosures(leaf);
         for (const [key, root] of Object.entries(pluginRootsOf(leaf) ?? {}))
           pluginRoots[`${leaf.id}/${key}`] = root;
+        skillFilesOf(leaf, files);
       }
+      await this.files.ensure(files);
       return this.transport.json(`/v1/agents/${segment(agent.id)}`, "PUT", {
         requestId: options.requestId ?? id(),
         manifest: agent.manifest,
@@ -260,6 +280,7 @@ export class AgentsClient {
     }
     assertNoMiddlewareClosures(agent);
     const pluginRoots = pluginRootsOf(agent);
+    await this.files.ensure(skillFilesOf(agent));
     return this.transport.json(`/v1/agents/${segment(agent.id)}`, "PUT", {
       requestId: options.requestId ?? id(),
       manifest: agent.manifest,

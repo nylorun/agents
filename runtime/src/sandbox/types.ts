@@ -71,8 +71,8 @@ export interface SandboxHandle {
    * directory. Stops after `maxEntries + 1` files (`truncated`). For the turn-end export (F8.2).
    */
   listFiles?(dir: string, maxEntries: number): Promise<SandboxListing | undefined>;
-  /** Parent directories must already exist. */
-  writeFile(path: string, content: string): Promise<void>;
+  /** Text is written as UTF-8, bytes as they are. Parent directories must already exist. */
+  writeFile(path: string, content: string | Uint8Array): Promise<void>;
   /** Release compute; files persist. */
   stop(): Promise<void>;
 }

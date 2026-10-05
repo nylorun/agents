@@ -101,6 +101,7 @@ import { hostAuthority, type HostAuthority } from "../sandbox/join.js";
 import { reconcileSandbox } from "../sandbox/pods/reconcile.js";
 import type { TenantPods } from "./context.js";
 import { sandboxWorkspaceReader } from "../artifacts/workspace.js";
+import { readDefinitionFile } from "./definition-files.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -309,6 +310,11 @@ export class TenantRuntime implements TenantHandle {
               defaultSandboxBackends({ root: paths.sandboxes }),
             preference,
             ephemeral,
+            definitionFile: async (sha256) => {
+              const bytes = await readDefinitionFile(blobs, sha256);
+              if (!bytes) throw new Error(`The Object store has no bytes for ${sha256}`);
+              return bytes;
+            },
             emit: async (sessionId, turnId, type, payload) => {
               if (ctx.closed) return;
               try {

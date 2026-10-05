@@ -66,10 +66,10 @@ export function compileDeclaration<State>(
       Object.keys(declaration.skills).length === 0
         ? {}
         : { skills: declaration.skills }),
-      ...(declaration.skillRecords === undefined ||
-      Object.keys(declaration.skillRecords).length === 0
+      ...(declaration.skillFiles === undefined ||
+      Object.keys(declaration.skillFiles).length === 0
         ? {}
-        : { skillRecords: declaration.skillRecords }),
+        : { skillFiles: declaration.skillFiles }),
       ...(declaration.mcpServers === undefined ||
       Object.keys(declaration.mcpServers).length === 0
         ? {}

@@ -39,6 +39,14 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
+  "PUT /v1/files/sha256:0000000000000000000000000000000000000000000000000000000000000000": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "HEAD /v1/files/sha256:0000000000000000000000000000000000000000000000000000000000000000": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
   "GET /v1/sessions": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"

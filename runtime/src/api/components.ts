@@ -74,6 +74,7 @@ import {
   ArtifactVersionViewSchema,
   ListArtifactsResponseSchema,
   UploadArtifactResponseSchema,
+  DefinitionFileViewSchema,
   DeleteArtifactResponseSchema,
   CreateArtifactLinkRequestSchema,
   ArtifactLinkSchema,
@@ -123,6 +124,7 @@ export const ArtifactVersionView = named("ArtifactVersionView", ArtifactVersionV
 export const ArtifactView = named("ArtifactView", ArtifactViewSchema);
 export const ListArtifactsResponse = named("ListArtifactsResponse", ListArtifactsResponseSchema);
 export const UploadArtifactResponse = named("UploadArtifactResponse", UploadArtifactResponseSchema);
+export const DefinitionFileView = named("DefinitionFileView", DefinitionFileViewSchema);
 export const DeleteArtifactResponse = named("DeleteArtifactResponse", DeleteArtifactResponseSchema);
 export const CreateArtifactLinkRequest = named(
   "CreateArtifactLinkRequest",

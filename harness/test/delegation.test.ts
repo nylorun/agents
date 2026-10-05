@@ -197,7 +197,7 @@ describe("agents used as tools, in process", () => {
     expect(started).toBe(2);
   });
 
-  it("lets a child load its own skills", async () => {
+  it("advertises a child's own skills, which only the Runtime serves", async () => {
     const researcher = Agent({
       id: "researcher",
       description: "Investigates with a skill.",
@@ -205,12 +205,11 @@ describe("agents used as tools, in process", () => {
     })
       .use({
         id: "skills",
-        skills: { triage: { name: "triage", description: "Triage an issue." } },
-        skillRecords: {
+        skills: {
           triage: {
             name: "triage",
             description: "Triage an issue.",
-            instructions: "Label P0 when the order is lost.",
+            files: { "SKILL.md": `sha256:${"a".repeat(64)}` },
           },
         },
       })
@@ -252,7 +251,7 @@ describe("agents used as tools, in process", () => {
     if (result.status !== "completed") return;
     expect(result.output).toBe("completed:skill used");
     expect(seen[0]!.tools).toContain("load_skill");
-    expect(JSON.stringify(seen[1]!.loaded)).toContain("Label P0 when the order is lost.");
+    expect(JSON.stringify(seen[1]!.loaded)).toContain("Skills are served by the Nylorun Runtime");
   });
 
   it.each(["ask", "approve", "sleep", "waitFor"] as const)(

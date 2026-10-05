@@ -4,7 +4,7 @@ import type { AgentManifest, RuntimeManifest } from "../types/manifest.js";
 import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import type { ToolSchemaSource } from "../types/tool.js";
 import type { StepMiddleware } from "../types/middleware.js";
-import type { SkillRecord } from "../types/middleware.js";
+import type { SkillManifest } from "../types/manifest.js";
 import { bindAgent } from "./bind-agent.js";
 import { createManifest } from "./manifest.js";
 import { createSkillTools } from "./skill-tools.js";
@@ -109,9 +109,9 @@ export function assembleAgent(
             : { mcpServers: item.mcpServers }),
           ...(item.sandbox === undefined ? {} : { sandbox: item.sandbox }),
           ...(item.skills === undefined ? {} : { skills: item.skills }),
-          ...(item.skillRecords === undefined
+          ...(item.skillFiles === undefined
             ? {}
-            : { skillRecords: item.skillRecords }),
+            : { skillFiles: item.skillFiles }),
           ...(item.sessionTools === undefined
             ? {}
             : { sessionTools: item.sessionTools }),
@@ -228,30 +228,20 @@ function sandboxDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnostic[
     );
 }
 
-const SKILL_TOOL_NAMES = new Set(["load_skill", "read_skill_resource"]);
-
+/**
+ * Gives the first capability with skills `load_skill` (and `read_skill_resource`) for every skill
+ * of the agent. A tool of that name it already has is kept: an agent rebuilt from its manifest
+ * brings the hosted ones the Runtime serves.
+ */
 function attachSkillTools(items: readonly BoundMiddleware[]): {
   readonly items: BoundMiddleware[];
   readonly diagnostics: readonly BuildDiagnostic[];
 } {
-  const skills = new Map<string, SkillRecord>();
+  const skills = new Map<string, SkillManifest>();
   const diagnostics: BuildDiagnostic[] = [];
-  const seen = new Set<string>();
   let ownerId: string | undefined;
-  for (const item of items) {
+  for (const item of items)
     for (const [key, skill] of Object.entries(item.skills ?? {})) {
-      if (key !== skill.name || seen.has(skill.name)) {
-        diagnostics.push(
-          diagnostic(
-            "skill.duplicate-name",
-            `Duplicate skill '${skill.name}' on capability '${item.id}'`
-          )
-        );
-        continue;
-      }
-      seen.add(skill.name);
-    }
-    for (const [key, skill] of Object.entries(item.skillRecords ?? {})) {
       if (key !== skill.name || skills.has(skill.name)) {
         diagnostics.push(
           diagnostic(
@@ -264,16 +254,15 @@ function attachSkillTools(items: readonly BoundMiddleware[]): {
       skills.set(skill.name, skill);
       ownerId ??= item.id;
     }
-  }
   if (diagnostics.length > 0 || ownerId === undefined)
     return { items: [...items], diagnostics };
   const skillTools = createSkillTools(skills);
   const next = items.map((item) => {
     if (item.id !== ownerId) return item;
-    const tools = [
-      ...(item.tools ?? []).filter((entry) => !SKILL_TOOL_NAMES.has(entry.name)),
-      ...skillTools,
-    ];
+    const declared = new Set((item.tools ?? []).map((entry) => entry.name));
+    const added = skillTools.filter((entry) => !declared.has(entry.name));
+    if (added.length === 0) return item;
+    const tools = [...(item.tools ?? []), ...added];
     const advertised = [...tools, ...(item.sessionTools ?? [])];
     const handle: StepMiddleware = async (request, next) =>
       item.handle(request, async () => {

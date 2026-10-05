@@ -148,6 +148,11 @@ export const ERROR_CODES = [
   "oauth_state_invalid",
   /** The authorization server (or its discovery) failed or refused an MCP OAuth connect step. */
   "oauth_failed",
+  /**
+   * A definition names definition files the Runtime does not hold (track R2 M4): upload each
+   * with `PUT /v1/files/sha256:<hex>` first. `details.missing` lists their hashes.
+   */
+  "definition_files_missing",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

@@ -711,6 +711,126 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
+  "PUT /v1/files/sha256:0000000000000000000000000000000000000000000000000000000000000000": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "The body's SHA-256 is sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945, not sha256:0000000000000000000000000000000000000000000000000000000000000000: upload a file at its own hash",
+      "details": {
+        "expected": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "actual": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "HEAD /v1/files/sha256:0000000000000000000000000000000000000000000000000000000000000000": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json"
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json"
+    }
+  },
   "GET /v1/sessions": {
     "none": {
       "status": 404,
@@ -7008,6 +7128,68 @@
     "management-subject": {
       "status": 403,
       "contentType": "application/json"
+    }
+  },
+  "GET /v1/files/sha256:0000000000000000000000000000000000000000000000000000000000000000": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "OPTIONS /v1/agents": {

@@ -20,6 +20,12 @@ export interface ToolManifest {
 export interface SkillManifest {
   readonly name: string;
   readonly description: string;
+  /**
+   * Every file of the skill's folder, by its path in the folder (`/`-separated, e.g.
+   * `SKILL.md`, `scripts/run.py`, `assets/logo.png`), as `sha256:<hex>`: the definition files
+   * the Runtime holds and serves. `SKILL.md` is required.
+   */
+  readonly files: Readonly<Record<string, string>>;
 }
 
 export type McpServerManifest =

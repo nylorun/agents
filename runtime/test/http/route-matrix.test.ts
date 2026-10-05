@@ -32,6 +32,8 @@ const SUBJECT = "app:ann";
 const ALL_SCOPES = "agents:read agents:write sessions:own vaults:own tenant:settings";
 /** A body every schema rejects, so a write that gets past authorization changes nothing. */
 const INVALID = [] as const;
+/** A definition file that is never stored. */
+const MISSING_FILE = `sha256:${"0".repeat(64)}`;
 /** An artifact id that never exists. */
 const MISSING_ARTIFACT = `af_${"0".repeat(26)}`;
 
@@ -191,6 +193,9 @@ function tenantOperations(): Operation[] {
     { method: "POST", path: "/v1/sessions/s1/commands", body: INVALID },
     { method: "GET", path: "/v1/agents" },
     { method: "PUT", path: "/v1/agents/bot", body: INVALID },
+    // Definition files (R2 M4): the body does not hash to the name, so nothing is stored.
+    { method: "PUT", path: `/v1/files/${MISSING_FILE}`, body: INVALID },
+    { method: "HEAD", path: `/v1/files/${MISSING_FILE}` },
     { method: "GET", path: "/v1/sessions" },
     { method: "PUT", path: "/v1/sessions/s2", body: INVALID },
     { method: "GET", path: "/v1/sessions/s1" },
@@ -302,6 +307,7 @@ function edgeOperations(): Operation[] {
     { method: "HEAD", path: "/v1/agents" },
     { method: "HEAD", path: "/v1/sessions/s1" },
     { method: "HEAD", path: "/v1/sessions/s1/events" },
+    { method: "GET", path: `/v1/files/${MISSING_FILE}` },
     { method: "OPTIONS", path: "/v1/agents" },
   ];
 }

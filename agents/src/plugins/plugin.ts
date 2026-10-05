@@ -1,5 +1,6 @@
 import type { CapabilityDeclaration } from "@nylorun/core/define";
 import { formatSkillCatalog, SKILLS_USAGE } from "../skills/catalog.js";
+import { skillsDeclaration } from "../skills/skills.js";
 import {
   loadPlugin,
   type LoadedPlugin,
@@ -46,19 +47,13 @@ export function capabilityFromPlugin(loaded: LoadedPlugin): PluginCapability {
             }))
           ),
         ];
-  const skills = Object.fromEntries(
-    names.map((skill) => [
-      skill.name,
-      { name: skill.name, description: skill.description },
-    ])
-  );
   return {
     id: loaded.name,
     type: "agent-plugin",
     pluginRoot: loaded.root,
     ...(loaded.description === undefined ? {} : { description: loaded.description }),
     ...(instructions === undefined ? {} : { instructions }),
-    ...(names.length === 0 ? {} : { skills, skillRecords: loaded.skills }),
+    ...(names.length === 0 ? {} : skillsDeclaration(names)),
     ...(Object.keys(loaded.mcpServers).length === 0
       ? {}
       : { mcpServers: loaded.mcpServers }),

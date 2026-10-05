@@ -6,7 +6,8 @@
  *
  * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables, Action
  *   endpoints, principals, vaults and credentials, signing keys, settings, the model usage
- *   ledger, the model budgets, the Tool Gate's crossings and file artifacts with their versions.
+ *   ledger, the model budgets, the Tool Gate's crossings, file artifacts with their versions and
+ *   the definition files agent definitions name.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -600,6 +601,39 @@ export const artifactContent = nylorun.table(
   ],
 );
 
+/**
+ * The definition files the Tenant holds (track R2 M4): files a definition names by the SHA-256
+ * of their bytes (a skill's folder), uploaded with `PUT /v1/files/sha256:<hex>`. The bytes are
+ * in the Object store at `definitions/sha256/<hex>`; a row counts them only once they are
+ * stored. `sha256` is `sha256:<hex>`.
+ */
+export const definitionFiles = nylorun.table("definition_files", {
+  sha256: textC().primaryKey(),
+  /** What the file is part of: `skill` for now. */
+  kind: text().notNull(),
+  size: bigint({ mode: "number" }).notNull(),
+  contentType: text(),
+  createdAt: textC().notNull(),
+});
+
+/**
+ * Which definition version names which definition file: one row per agent id, manifest hash
+ * and file, written when the definition is stored. A later sweep deletes the files no
+ * definition uses.
+ */
+export const definitionFileUses = nylorun.table(
+  "definition_file_uses",
+  {
+    agentId: textC().notNull(),
+    manifestHash: textC().notNull(),
+    sha256: textC().notNull(),
+  },
+  (t) => [
+    primaryKey({ name: "definition_file_uses_pkey", columns: [t.agentId, t.manifestHash, t.sha256] }),
+    index("definition_file_uses_sha256").on(t.sha256),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // nylorun_streams: the record
 
@@ -666,6 +700,7 @@ export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
 export type SandboxResourceRow = typeof sandboxResources.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;
+export type DefinitionFileRow = typeof definitionFiles.$inferSelect;
 
 export type ModelUsageWrite = Omit<
   ModelUsageRow,

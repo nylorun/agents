@@ -67,7 +67,11 @@ it("keeps legacy timestamps and quality unknown while making old ledger rows exp
   const options = { sql: db.sql, create: { tenantId, name: "legacy", principals: () => [] } };
   const old = await openTenantDatabase({
     ...options,
-    migrations: shippedMigrations().slice(0, -1),
+    // The database as it was before the session reads migration.
+    migrations: shippedMigrations().slice(
+      0,
+      shippedMigrations().findIndex((migration) => migration.tag === "0012_session_reads"),
+    ),
   });
   await old.store.close();
   await db.sql`insert into nylorun.sessions (id,body) values ('legacy', '{"agentId":"bot","ownerUserId":"ann","status":"idle"}')`;

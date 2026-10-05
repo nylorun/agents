@@ -96,6 +96,7 @@
               "oauth_client_required",
               "oauth_state_invalid",
               "oauth_failed",
+              "definition_files_missing",
               "internal_error"
             ]
           },

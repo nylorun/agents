@@ -57,7 +57,7 @@ it("reports unknown manifest fields and ignores a non-object extensions value", 
     "---\nname: triage\ndescription: Triage an issue.\n---\nRead the issue.\n"
   );
   const loaded = loadPlugin(directory);
-  expect(loaded.skills.triage?.instructions).toContain("Read the issue.");
+  expect(Object.keys(loaded.skills.triage?.files ?? {})).toEqual(["SKILL.md"]);
   expect(loaded.diagnostics.map((item) => item.code)).toEqual(
     expect.arrayContaining(["plugin.unknown-field", "plugin.extensions-ignored"])
   );
@@ -105,7 +105,7 @@ it("treats missing component locations as valid and isolates a wrong filesystem 
   expect(loaded.diagnostics.some((item) => item.code === "plugin.skills-invalid")).toBe(true);
 });
 
-it("skips an invalid skill and keeps its sibling and MCP servers", () => {
+it("skips an invalid skill and keeps its sibling and MCP servers", async () => {
   const directory = root();
   write(directory, "plugin.json", manifest("docs"));
   write(directory, "skills/broken/SKILL.md", "no frontmatter");
@@ -135,7 +135,9 @@ it("skips an invalid skill and keeps its sibling and MCP servers", () => {
   );
   const loaded = loadPlugin(directory);
   expect(Object.keys(loaded.skills)).toEqual(["triage"]);
-  expect(loaded.skills.triage?.resources?.["references/labels.md"]).toBe("# Labels\n");
+  expect(Object.keys(loaded.skills.triage?.files ?? {})).toEqual(["SKILL.md", "references/labels.md"]);
+  const labels = loaded.skills.triage!.files["references/labels.md"]!;
+  expect(new TextDecoder().decode(await loaded.skills.triage!.sources[labels]!.read())).toBe("# Labels\n");
   expect(Object.keys(loaded.mcpServers).sort()).toEqual(["github", "local"]);
   expect(loaded.diagnostics.some((item) => item.message.includes("broken"))).toBe(true);
   expect(loaded.diagnostics.some((item) => item.message.includes("bad"))).toBe(true);
@@ -270,6 +272,10 @@ it("composes skills and MCP into one agent without putting the skill body in the
   expect(documentation?.skills?.triage).toEqual({
     name: "triage",
     description: "Triage an issue. Use when labeling.",
+    files: {
+      "SKILL.md": expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      "references/labels.md": expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    },
   });
   expect(agent.getBinding().declarations.find((item) => item.id === "repository-tools")?.pluginRoot).toBe(
     realpathSync(tools),
@@ -277,26 +283,18 @@ it("composes skills and MCP into one agent without putting the skill body in the
   expect(JSON.stringify(agent.manifest)).not.toContain(realpathSync(tools));
   expect(JSON.stringify(agent.manifest)).not.toContain("Body stays stored.");
   expect(JSON.stringify(agent.manifest)).not.toContain("# Labels");
-  const load = agent.getBinding().tools.find((item) => item.name === "load_skill");
-  const read = agent.getBinding().tools.find((item) => item.name === "read_skill_resource");
-  expect(load).toBeDefined();
-  const loaded = await load!.execute({ name: "triage" }, {} as never);
-  expect(loaded).toMatchObject({
-    name: "triage",
-    content: expect.stringContaining("Body stays stored."),
-    resources: ["references/labels.md"],
-  });
-  const resource = await read!.execute(
-    { name: "triage", path: "references/labels.md" },
-    {} as never
+  // The Runtime serves the skill tools; the declaration carries the files' bytes to upload.
+  expect(documentation?.tools?.map((item) => item.name)).toEqual(["load_skill", "read_skill_resource"]);
+  const declaration = agent.getBinding().declarations.find((item) => item.id === "documentation");
+  expect(Object.keys(declaration?.skillFiles ?? {}).sort()).toEqual(
+    Object.values(documentation!.skills!.triage!.files).sort()
   );
-  expect(resource).toMatchObject({
-    kind: "completed",
-    output: { content: "# Labels\n" },
-  });
+  await expect(
+    agent.getBinding().tools.find((item) => item.name === "load_skill")!.execute({ name: "triage" }, {} as never)
+  ).rejects.toThrow("Skills are served by the Nylorun Runtime");
 });
 
-it("advertises one load_skill for every plugin skill", async () => {
+it("advertises one load_skill for every plugin skill", () => {
   const first = root();
   const second = root();
   write(first, "plugin.json", manifest("first-plugin"));
@@ -307,10 +305,9 @@ it("advertises one load_skill for every plugin skill", async () => {
     .use(plugin(first))
     .use(plugin(second))
     .build();
-  const loads = agent.getBinding().tools.filter((item) => item.name === "load_skill");
+  const loads = agent.manifest.capabilities.flatMap((item) => item.tools ?? []).filter((item) => item.name === "load_skill");
   expect(loads).toHaveLength(1);
-  const summary = await loads[0]!.execute({ name: "summary" }, {} as never);
-  expect(summary).toMatchObject({ content: expect.stringContaining("Second.") });
+  expect(loads[0]!.inputSchema).toMatchObject({ properties: { name: { enum: ["summary", "triage"] } } });
 });
 
 it("rejects duplicate skill names across plugins", () => {

@@ -6,8 +6,8 @@ import {
   statSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { McpServerManifest, SkillRecord } from "@nylorun/core/define";
-import { loadSkillsFromDirectory } from "../skills/load.js";
+import type { McpServerManifest } from "@nylorun/core/define";
+import { loadSkillsFromDirectory, type LoadedSkill } from "../skills/load.js";
 import { expandPluginPlaceholders } from "./launch.js";
 
 export const PLUGIN_SCHEMA =
@@ -57,7 +57,7 @@ export interface LoadedPlugin {
   readonly root: string;
   readonly name: string;
   readonly description?: string;
-  readonly skills: Readonly<Record<string, SkillRecord>>;
+  readonly skills: Readonly<Record<string, LoadedSkill>>;
   readonly mcpServers: Readonly<Record<string, McpServerManifest>>;
   readonly diagnostics: readonly PluginDiagnostic[];
 }
@@ -164,7 +164,7 @@ function validateMetadata(manifest: Record<string, unknown>, diagnostics: Plugin
 function loadSkills(
   root: string,
   diagnostics: PluginDiagnostic[]
-): Readonly<Record<string, SkillRecord>> {
+): Readonly<Record<string, LoadedSkill>> {
   const location = join(root, "skills");
   if (!existsSync(location)) return {};
   const real = realInside(root, location);

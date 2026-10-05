@@ -2,7 +2,8 @@
  * Gives a session the sandbox chosen when it was opened. An agent session's pinned manifest is
  * its definition plus the `nylorun.sandbox` capability (the six built-in tools, the sandbox
  * instructions and the resolved spec) and the `nylorun.artifacts` capability (`save_artifact`),
- * also added to each agent it uses as a tool, so the tree shares one spec. The definition in the
+ * also added to each agent it uses as a tool, so the tree shares one spec. The sandbox's
+ * instructions name the agent's skills' folders (`/skills/<name>/`). The definition in the
  * registry never changes.
  */
 import { AgentManifestSchema } from "@nylorun/core/contracts";
@@ -29,6 +30,11 @@ function isAgentManifest(value: unknown): value is AgentManifest {
   );
 }
 
+/** The names of the agent's own skills. */
+function skillNamesOf(manifest: AgentManifest): string[] {
+  return manifest.capabilities.flatMap((capability) => Object.keys(capability.skills ?? {})).sort();
+}
+
 function addCapability(manifest: AgentManifest, spec: SandboxManifest): AgentManifest {
   const capabilities = manifest.capabilities.map((capability) =>
     capability.tools === undefined
@@ -46,8 +52,13 @@ function addCapability(manifest: AgentManifest, spec: SandboxManifest): AgentMan
   );
   return {
     ...manifest,
-    // With a sandbox comes `save_artifact`, so files the agent makes reach the user (F8.1).
-    capabilities: [...capabilities, sandboxCapabilityManifest(spec), artifactsCapabilityManifest()],
+    // With a sandbox comes `save_artifact`, so files the agent makes reach the user (F8.1). The
+    // sandbox's instructions name where the agent's skills are (R2 M4).
+    capabilities: [
+      ...capabilities,
+      sandboxCapabilityManifest(spec, { skills: skillNamesOf(manifest) }),
+      artifactsCapabilityManifest(),
+    ],
   };
 }
 

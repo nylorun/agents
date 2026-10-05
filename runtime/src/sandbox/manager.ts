@@ -11,6 +11,10 @@
  * past their timeout and marks records of compute this process no longer holds as stopped
  * (after a restart); `reconcile` removes workspaces whose owner is gone. `sweep` does both, the
  * reconcile once per process, as the Tenant sweep does in core's process.
+ *
+ * A session's skills (track R2 M4) are mounted on its workspace, read-only under
+ * `/skills/<name>/`, before the first call that opens it (`skills.ts`); their bytes come
+ * through the `definitionFile` port.
  */
 import type { EventPayload } from "@nylorun/core/contracts";
 import {
@@ -42,6 +46,7 @@ import {
   type SandboxSelection,
   type SandboxSelectionReport,
 } from "./select.js";
+import { mountSkill, sandboxSkillsOf, skillSignature } from "./skills.js";
 import {
   resolveSandboxPath,
   runSandboxTool,
@@ -95,6 +100,8 @@ interface Live {
   /** When the last tool call ended (ms since the epoch). */
   lastUsedAt: number;
   tail: Promise<unknown>;
+  /** The skills mounted on the open handle, by name: what each holds (`skillSignature`). */
+  skills: Map<string, string>;
 }
 
 export interface SandboxSweepOptions {
@@ -116,6 +123,12 @@ export interface SandboxManagerOptions {
   readonly preference: string | undefined;
   /** Delete sandboxes on close (the Runtime's store does not outlive the process). */
   readonly ephemeral: boolean;
+  /**
+   * A definition file's bytes by `sha256:<hex>`, for the skills a session's workspace mounts:
+   * the Tenant's Object store in core's process, core's answer in a harness (for the run that
+   * made the call, `session.claim`). Without it no skills are mounted.
+   */
+  readonly definitionFile?: (sha256: string, session: SandboxSessionRef) => Promise<Uint8Array>;
   /** Writes a session event (in core, in its own transaction; in a harness, as a claim). */
   readonly emit: <T extends SandboxEventType>(
     sessionId: string,
@@ -350,6 +363,8 @@ export class SandboxManager {
             };
           }
         }
+        const unmounted = await this.mountSkills(live, live.handle, session, signal);
+        if (unmounted) return unmounted;
         return await use(live.handle, live);
       } finally {
         live.active -= 1;
@@ -398,6 +413,7 @@ export class SandboxManager {
         active: 0,
         lastUsedAt: Date.now(),
         tail: Promise.resolve(),
+        skills: new Map(),
       };
       this.live.set(key, live);
     }
@@ -452,6 +468,8 @@ export class SandboxManager {
         };
       }
     }
+    const unmounted = await this.mountSkills(live, live.handle, session, signal);
+    if (unmounted) return unmounted;
     const started = Date.now();
     let report: SandboxToolReport = {};
     try {
@@ -491,6 +509,38 @@ export class SandboxManager {
     }
   }
 
+  /**
+   * Mounts the session's skills the workspace does not hold as they are: on a handle just opened
+   * all of them, later only those another session brought or changed. A failed outcome when
+   * one cannot be mounted; nothing is marked mounted then, so the next call tries again.
+   */
+  private async mountSkills(
+    live: Live,
+    handle: SandboxHandle,
+    session: SandboxSessionRef,
+    signal: AbortSignal
+  ): Promise<Extract<SandboxToolOutcome, { kind: "failed" }> | undefined> {
+    const read = this.options.definitionFile;
+    if (!read) return undefined;
+    for (const [name, files] of sandboxSkillsOf(session.manifest)) {
+      const signature = skillSignature(files);
+      if (live.skills.get(name) === signature) continue;
+      try {
+        await mountSkill(handle, name, files, (sha256) => read(sha256, session), signal);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        live.skills.delete(name);
+        return {
+          kind: "failed",
+          code: "sandbox.skills_unavailable",
+          message: `The files of skill '${name}' could not be put in the sandbox: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+      live.skills.set(name, signature);
+    }
+    return undefined;
+  }
+
   private async open(live: Live, session: SandboxSessionRef, spec: SandboxSpec): Promise<SandboxHandle> {
     const existing = await this.options.records.get(spec.key);
     const payload = {
@@ -508,6 +558,8 @@ export class SandboxManager {
       { record: creating, ...claimOf(session) }
     );
     const handle = await live.backend.open(spec);
+    // A handle opened afresh holds no skills this manager knows of.
+    live.skills.clear();
     const running = await this.record(spec.key, live, session.id, spec.image, "running", existing);
     await this.options.emit(
       session.id,

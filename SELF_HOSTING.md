@@ -433,8 +433,8 @@ Back up two things together, and keep them apart from each other:
   cannot be read; with it and the database, anyone can read them. Store its copy apart from the
   database dumps.
 
-Back up the Object store's volume (file artifacts) with Postgres, and the Host root's
-`host-credentials.json` (the admin key), `identity.yaml` and `docker/.env`. Your identity
+Back up the Object store's volume (file artifacts and skill files) with Postgres, and the Host
+root's `host-credentials.json` (the admin key), `identity.yaml` and `docker/.env`. Your identity
 provider and secret store keep the people and their credentials; back those up on their own
 terms.
 

@@ -2,7 +2,7 @@
  * Harness API v1 (blueprint D37–D42): the messages between core and a harness. A run is a
  * lease on one session's segment; core records, the harness runs the engine. Who executes what:
  * the harness runs model, MCP and sandbox calls; core runs Actions, flow work, linked
- * sessions, delegation journaling, settle and takeover.
+ * sessions, delegation journaling, `save_artifact`, the skill tools, settle and takeover.
  */
 import type { ActionOutcome } from "../contracts.js";
 import type { AgentRef } from "../types/tool.js";
@@ -211,6 +211,14 @@ export interface HarnessRequests {
   "session.mcp": {
     params: { runId: string; snapshot?: unknown; diagnostics: unknown[] };
     result: { snapshot: unknown; sessionTools: unknown[] };
+  };
+  /**
+   * A definition file's bytes, base64 (track R2 M4): one the run's definition names, for the
+   * skills its sandbox mounts.
+   */
+  "definition.file": {
+    params: { runId: string; sha256: string };
+    result: { base64: string };
   };
   "turn.completed": { params: TurnOutput; result: { cursor?: number } };
   "turn.paused": { params: TurnOutput; result: { cursor?: number } };
