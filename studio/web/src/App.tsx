@@ -79,13 +79,16 @@ export type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
 
 function asStudioDefinition(raw: {
   manifest: Record<string, unknown> & { id: string; name?: string };
+  manifestHash?: string;
 }): StudioDefinition {
   const manifest = raw.manifest;
+  const hash = raw.manifestHash === undefined ? {} : { manifestHash: raw.manifestHash };
   if (manifest.kind === "workflow") {
     return {
       id: String(manifest.id),
       name: String(manifest.name ?? manifest.id),
       kind: "workflow",
+      ...hash,
       manifest: manifest as WorkflowManifest,
     };
   }
@@ -99,8 +102,17 @@ function asStudioDefinition(raw: {
   return {
     id: String(manifest.id),
     name: String(manifest.name ?? manifest.id),
-    manifest: { capabilities },
+    ...hash,
+    manifest: {
+      ...(typeof manifest.description === "string" ? { description: manifest.description } : {}),
+      capabilities,
+    },
   };
+}
+
+function hashOf(definition: object): string | undefined {
+  const hash = (definition as { manifestHash?: unknown }).manifestHash;
+  return typeof hash === "string" ? hash : undefined;
 }
 
 function studioClient(tenantId: string) {
@@ -535,6 +547,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
               id: string;
               name?: string;
             },
+            // The Runtime sends it (ListAgentsResponse); the SDK's listAgents type omits it.
+            manifestHash: hashOf(a),
           }),
         ),
         sessionsByAgent: grouped,
@@ -1132,7 +1146,7 @@ function SessionWorkspace({
             value="manifest"
             className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
           >
-            <AgentManifestPanel agent={agent} />
+            <AgentManifestPanel agent={agent} tenantId={tenantId} sessionId={sessionId} />
           </TabsPrimitive.Content>
         </TabsPrimitive.Root>
       </ResizablePanel>

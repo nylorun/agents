@@ -1,0 +1,129 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  hookMethod,
+  isOutdated,
+  manifestView,
+  schemaFields,
+  schemaType,
+} from "../web/src/manifest/model.ts";
+
+const objectSchema = (properties, required = Object.keys(properties)) => ({
+  type: "object",
+  properties,
+  required,
+  additionalProperties: false,
+});
+
+const concierge = {
+  id: "concierge",
+  description: "Customer service concierge.",
+  capabilities: [
+    {
+      id: "agent",
+      type: "agent",
+      instructions: ["Keep answers short.", "Use tools."],
+      hooks: [
+        { at: "after", scope: "turn" },
+        { at: "before", scope: "turn" },
+        { at: "after", scope: "step" },
+      ],
+      tools: [
+        {
+          name: "lookup_order",
+          description: "Look up an order.",
+          inputSchema: objectSchema({ orderId: { type: "string" } }),
+          outputSchema: objectSchema({ status: { enum: ["shipped", "delivered"] } }),
+        },
+        { name: "researcher", inputSchema: objectSchema({ task: { type: "string" } }), agent: { id: "researcher" } },
+        {
+          name: "fact-check",
+          inputSchema: objectSchema({ task: { type: "string" } }),
+          agent: { kind: "workflow", id: "fact-check" },
+        },
+      ],
+    },
+    { id: "billing", type: "agent", description: "Invoices.", hooks: [{ at: "after", scope: "step" }], tools: [] },
+    {
+      id: "store-skills",
+      type: "agent",
+      skills: { refund: { name: "refund", description: "How to refund." } },
+      tools: [{ name: "load_skill", inputSchema: objectSchema({ name: { type: "string" } }) }],
+    },
+    { id: "mcp", type: "agent", mcpServers: { inventory: { type: "streamable-http", url: "https://x" } } },
+    { id: "shipping", type: "agent-plugin", instructions: "Plugin skills.", skills: {} },
+  ],
+};
+
+test("hook points use the SDK method names", () => {
+  assert.equal(hookMethod({ at: "before", scope: "turn" }), "beforeTurn");
+  assert.equal(hookMethod({ at: "before", scope: "step" }), "beforeModel");
+  assert.equal(hookMethod({ at: "after", scope: "step" }), "afterModel");
+  assert.equal(hookMethod({ at: "after", scope: "turn" }), "afterTurn");
+});
+
+test("capabilities keep their instructions, type, skills and MCP servers", () => {
+  const view = manifestView(concierge);
+  assert.equal(view.description, "Customer service concierge.");
+  assert.deepEqual(
+    view.capabilities.map((c) => [c.id, c.type]),
+    [["agent", "agent"], ["billing", "agent"], ["store-skills", "agent"], ["mcp", "agent"], ["shipping", "agent-plugin"]],
+  );
+  assert.deepEqual(view.capabilities[0].instructions, ["Keep answers short.", "Use tools."]);
+  assert.deepEqual(view.capabilities[4].instructions, ["Plugin skills."]);
+  assert.deepEqual(view.capabilities[2].skills, [{ name: "refund", description: "How to refund." }]);
+  assert.deepEqual(view.capabilities[3].mcpServers, ["inventory"]);
+});
+
+test("tools are sorted by where they run", () => {
+  const [agent, , skills] = manifestView(concierge).capabilities;
+  assert.deepEqual(
+    agent.tools.map((t) => [t.name, t.kind]),
+    [["lookup_order", "endpoint"], ["researcher", "subagent"], ["fact-check", "flow-subagent"]],
+  );
+  assert.deepEqual(skills.tools.map((t) => t.kind), ["built-in"]);
+});
+
+test("a load_skill tool outside a skills capability is the author's own", () => {
+  const view = manifestView({
+    capabilities: [{ id: "agent", tools: [{ name: "load_skill", inputSchema: objectSchema({}) }] }],
+  });
+  assert.equal(view.capabilities[0].tools[0].kind, "endpoint");
+});
+
+test("schemas become compact fields", () => {
+  const [agent] = manifestView(concierge).capabilities;
+  assert.deepEqual(agent.tools[0].input, [{ name: "orderId", type: "string", required: true }]);
+  assert.deepEqual(agent.tools[0].output, [{ name: "status", type: '"shipped" | "delivered"', required: true }]);
+  assert.equal(agent.tools[1].output, undefined);
+  assert.deepEqual(
+    schemaFields(objectSchema({ ids: { type: "array", items: { type: "integer" } }, note: { type: "string" } }, ["ids"])),
+    [
+      { name: "ids", type: "integer[]", required: true },
+      { name: "note", type: "string", required: false },
+    ],
+  );
+  assert.deepEqual(schemaFields({ type: "string" }), [{ name: "", type: "string", required: true }]);
+  assert.equal(schemaType({ anyOf: [{ type: "string" }, { type: "null" }] }), "string | null");
+});
+
+test("hook points list every capability on them in engine order", () => {
+  assert.deepEqual(manifestView(concierge).hookPoints, [
+    { method: "beforeTurn", frequency: "once per turn", capabilityIds: ["agent"] },
+    { method: "afterModel", frequency: "every model call", capabilityIds: ["agent", "billing"] },
+    { method: "afterTurn", frequency: "once per turn", capabilityIds: ["agent"] },
+  ]);
+});
+
+test("a session is outdated only when a different manifest is registered", () => {
+  const pinned = { kind: "pinned", manifest: {}, manifestHash: "aaa" };
+  assert.equal(isOutdated({ ...pinned, registeredHash: "bbb" }), true);
+  assert.equal(isOutdated({ ...pinned, registeredHash: "aaa" }), false);
+  assert.equal(isOutdated(pinned), false);
+  assert.equal(isOutdated({ kind: "registered-only", registeredHash: "bbb" }), false);
+});
+
+test("malformed manifests render as empty", () => {
+  assert.deepEqual(manifestView(undefined), { capabilities: [], hookPoints: [] });
+  assert.deepEqual(manifestView({ capabilities: "nope" }).capabilities, []);
+});

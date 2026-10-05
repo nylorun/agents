@@ -189,3 +189,37 @@ test("proxy creates Studio's Connections as installation vaults", async () => {
     },
   );
 });
+
+test("proxy forwards a session's pinned manifest read and nothing else under the session", async () => {
+  const seen: string[] = [];
+  await withUpstream(
+    (req, res) => {
+      seen.push(`${req.method} ${req.url}`);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    },
+    async (upstreamUrl) => {
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, {
+          origin: "http://127.0.0.1:4161",
+          runtimeUrl: upstreamUrl,
+          serverKey: "server-secret",
+        });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      const base = `http://127.0.0.1:${address.port}/_studio/runtime`;
+      try {
+        assert.equal((await fetch(`${base}/v1/sessions/s1/manifest`)).status, 200);
+        assert.equal((await fetch(`${base}/v1/sessions/s1/usage`)).status, 404);
+        assert.equal((await fetch(`${base}/v1/sessions/s1/manifest`, { method: "DELETE" })).status, 404);
+        assert.deepEqual(seen, ["GET /v1/sessions/s1/manifest"]);
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});
