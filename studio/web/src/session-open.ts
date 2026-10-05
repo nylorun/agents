@@ -29,13 +29,16 @@ export function sessionHref(sessionId: string): string {
 /** A definition from a manifest the Runtime lists or a workflow embeds. */
 export function asStudioDefinition(raw: {
   manifest: Record<string, unknown> & { id: string; name?: string };
+  manifestHash?: string;
 }): StudioDefinition {
   const manifest = raw.manifest;
+  const hash = raw.manifestHash === undefined ? {} : { manifestHash: raw.manifestHash };
   if (manifest.kind === "workflow") {
     return {
       id: String(manifest.id),
       name: String(manifest.name ?? manifest.id),
       kind: "workflow",
+      ...hash,
       manifest: manifest as unknown as WorkflowManifest,
     };
   }
@@ -49,7 +52,12 @@ export function asStudioDefinition(raw: {
   return {
     id: String(manifest.id),
     name: String(manifest.name ?? manifest.id),
-    manifest: { capabilities },
+    ...hash,
+    rawManifest: manifest,
+    manifest: {
+      ...(typeof manifest.description === "string" ? { description: manifest.description } : {}),
+      capabilities,
+    },
   };
 }
 

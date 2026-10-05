@@ -82,6 +82,11 @@ import {
 
 export type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
 
+function hashOf(definition: object): string | undefined {
+  const hash = (definition as { manifestHash?: unknown }).manifestHash;
+  return typeof hash === "string" ? hash : undefined;
+}
+
 function studioClient(tenantId: string) {
   return createTenantClient(tenantId);
 }
@@ -514,6 +519,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
               id: string;
               name?: string;
             },
+            // The Runtime sends it (ListAgentsResponse); the SDK's listAgents type omits it.
+            manifestHash: hashOf(a),
           }),
         ),
         sessionsByAgent: grouped,
@@ -1205,7 +1212,7 @@ function SessionView({
             value="manifest"
             className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
           >
-            <AgentManifestPanel agent={agent} />
+            <AgentManifestPanel agent={agent} tenantId={tenantId} sessionId={sessionId} />
           </TabsPrimitive.Content>
         </TabsPrimitive.Root>
       </ResizablePanel>
