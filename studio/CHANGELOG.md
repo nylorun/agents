@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.21.0-beta
+
+### Minor Changes
+
+- 3b3bdc6: **The clients use management keys (Runtime and Management APIs, step A3).** The protocol stays at 7; every client keeps working against a protocol 7 Runtime's routes.
+
+  - `nylorun`: `nylorun start` keeps an application key (`project`) and a management key (`project-management`) for a Project, in `<Host root>/project-credentials.json` and the Project's `.nylorun/credentials.json` (still format 1, with new `managementKey` and `managementPrincipalId` fields). A credentials file holding only an application key gains a management key at the next start. Commands outside a project keep `cli` and `cli-management`. Keys are issued through `nylorun-operate` in the runtime container instead of the Admin API, and `nylorun key put <id> --management` puts a management key. Seeding the Tenant and `nylorun mcp connect` use the management key (`/v1/tenant/vaults`). Studio reaches the Runtime's public listener.
+  - `@nylorun/cli`: `status`, `reset`, `configure`, `doctor` and `access signing-keys` use the Management API through `@nylorun/admin` with the Project's management key, or `NYLORUN_MANAGEMENT_KEY`.
+  - `@nylorun/studio`: local Studio needs no login. A request on the published loopback address (`localhost` or `127.0.0.1` at Studio's port) acts as signed in; hosts behind a sign-in proxy and embedding keep their login, and state-changing requests still need Studio's own `Origin`. Studio learns its Tenant from `GET /v1/tenant` with its key instead of the Admin API, and its Connections page manages vaults through `@nylorun/admin/client` at `/v1/tenant/vaults`.
+  - **Breaking (`@nylorun/admin`, `@nylorun/runtime`): Studio's key is derived from the admin key alone.** `deriveStudioToken(adminKey)` takes no Tenant id (HMAC-SHA256 over `nylorun/studio/v2`). The Host registers the new key's hash at its next start, replacing the old one; an app that embeds Studio and derives its key must update.
+  - `@nylorun/core`: `ProjectCredentialsFileSchema` gains optional `managementKey` and `managementPrincipalId`.
+
+- b270017: **Agent Manifest tab.** The tab now explains an agent at a glance. A header names the agent, its kind and its manifest version, with the description below. Overview cards count its tools, subagents, skills, hooks and MCP servers and say whether the session has a sandbox. A turn lifecycle strip places each hook point (`beforeTurn`, `beforeModel`, the model call, `afterModel`, `afterTurn`) with the capabilities registered on it. Capabilities are an accordion, in the order they apply, each showing its type (plugins are marked), description, instructions (long text folds after four lines), tools, skills and MCP servers. Tools are grouped by where they run (your Action endpoint, subagents with flow subagents marked, the skill tools the engine adds, and the session's sandbox) and each shows its input and output fields from its schemas in a small code block, one TypeScript-like member per line (`orderId: string`, `note?: string`). An icon switch (layout or JSON, named in its tooltip) shows the manifest exactly as the Runtime returned it, with a Copy button that selects the text when the clipboard is refused. The tab shows the manifest the session is pinned to, read from the Runtime's `GET /v1/sessions/{id}/manifest` when the Host offers `session-reads`, and says when a newer manifest is registered; on a Runtime without session reads it shows the registered manifest and says it cannot confirm the session's version. The Studio proxy now forwards that one read.
+
+### Patch Changes
+
+- b28bdd7: **Local MCP servers work on a local Tenant, and a server that does not connect shows.** Additive; the protocol stays at 7.
+
+  - `@nylorun/runtime`: remote MCP servers (`streamable-http`, `sse`) are reached under the Host's address policy, as Action endpoints are (`NYLORUN_ENDPOINT_*`, `tenant/outbound.ts`). In the local Docker stack `localhost`, `127.0.0.1` and `[::1]` now mean the machine that runs Docker (`host.docker.internal`), so `.mcp({ x: { type: "streamable-http", url: "http://localhost:3002/x" } })` connects where it used to fail with `fetch failed`. With `NYLORUN_ENDPOINT_PRIVATE=refuse` a server on a private address is refused; with `NYLORUN_ENDPOINT_HTTP=refuse` an `http` server is refused. Redirects are still not followed. A connection failure now names its cause (`connect ECONNREFUSED …`) instead of `fetch failed`. This applies in the gateway, a harness process and an in-process Tenant. `guardedFetch` takes `stream: true`: the answer streams, unbounded, with no timeout but the caller's signal.
+  - `@nylorun/core`: new session event `mcp.discovered`, recorded once on the session's first turn with the MCP snapshot: one entry per declared server with `outcome` (`connected`, `refused`, `failed`), `message` and the number of `tools` it added (`McpDiscoveredPayloadSchema`, `McpServerOutcomeSchema`). A server that does not connect adds no tools for the session's life; this is where that shows in the event log, beside `mcpDiagnostics`.
+  - `@nylorun/agents`: `.plugin()` and `plugin()` emit a process warning (`NylorunPluginWarning`, the diagnostic's code) for each part of the package they skip, so building or registering the agent says when a plugin's MCP server was dropped. The `plugin.mcp-server-skipped` message now says why: for example, plain `http` is accepted only for `localhost`, `127.0.0.1` or `[::1]`.
+  - `@nylorun/studio`: the event list labels `mcp.discovered` and summarizes each server's outcome.
+
+- 6b7b8b5: **Studio opens every session it lists.** Opening a session no longer sends `PUT /v1/sessions/:id`: Studio reads the session, so one an application created with another `ownerUserId`, a `sandbox` or `info` shows its history instead of `Runtime HTTP 409 … different creation parameters`. Only **New session** (the agent page and the sidebar) creates a session, as before for `local-developer`; any other unknown session id shows "Session not found" and is not created. A flow's child session opens from the Workflow tree through `/sessions/:id`, also when its agent is embedded in the flow and not registered: Studio shows the agent from the flow's manifest, or by its id, instead of the home page.
+- 5d60e4c: Show tenant details and a documentation link when no agents are registered. The welcome screen explains that developers can use the SDK, CLI or any Runtime API client instead of requiring a generated project.
+
+  Group Overview, Models and Credentials under Tenant settings. Manage installation vaults explicitly without legacy owner filters, show credential expiry and rotation metadata, and explain SDK session attachment and CLI OAuth connections. Existing settings and vault links redirect to their new sections.
+
+- Pin agents to the tested release.
+- Updated dependencies [3b3bdc6]
+- Updated dependencies [a6108f4]
+- Updated dependencies [b28bdd7]
+- Updated dependencies [7f763c3]
+- Updated dependencies [98b0d37]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.15.0-beta
+  - @nylorun/admin@0.11.0-beta
+
 ## 0.20.0-beta
 
 ### Minor Changes
