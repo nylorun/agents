@@ -129,6 +129,8 @@ it("finishes a turn whose Worker shut down mid HTTP call at the gate, with one r
 });
 
 it("marks an HTTP call its dead owner made in process uncertain, and never sends it again", async () => {
+  // In process even when the suite runs the gates over HTTP (the integration job).
+  vi.stubEnv("NYLORUN_TEST_MODEL_GATE", "");
   const service = await heldService();
   const runtime = await boot(service.url);
   const stale = workerOf(runtime).advance("s1", new AbortController().signal);
