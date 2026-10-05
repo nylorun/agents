@@ -8,6 +8,7 @@ import { runSwitch } from "./switch.js";
 import { runParallel } from "./parallel.js";
 import { runMap } from "./map.js";
 import { readAgentTurn, runLoopNode } from "./loop.js";
+import { runToolEffect } from "./tool.js";
 import { FlowNodeError } from "./types.js";
 
 /** Path part / id for a node among its siblings. */
@@ -125,14 +126,14 @@ async function runTool(
   path: string,
   input: JsonValue,
 ): Promise<JsonValue> {
-  const value = await ctx.effect("tool", input, { path, key: nodeKeyOf(path) }, { toolName: name });
-  return toolNodeOutput(value as JsonValue, path);
+  const value = await runToolEffect(ctx, name, input, { path, key: nodeKeyOf(path) });
+  return toolNodeOutput(value, path);
 }
 
 /**
  * The Action endpoint settles a tool node like any tool: `{ kind: "completed", output }` or
  * `{ kind: "denied", reason }`. The flow passes on the output only. Failed values are
- * already raised by `ctx.effect`.
+ * already raised by `ctx.effect`; interactions are waited on by `runToolEffect`.
  */
 function toolNodeOutput(value: JsonValue, path: string): JsonValue {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;

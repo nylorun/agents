@@ -1,5 +1,25 @@
-import type { JsonValue } from "@nylorun/core/define";
+import type { JsonObject, JsonValue } from "@nylorun/core/define";
+import { HostSuspension } from "../loop/host-suspension.js";
 import type { FlowCheckpoint } from "./checkpoint.js";
+
+/**
+ * An interaction the flow itself waits on: a tool node that asked (`ctx.approve`, `ctx.ask`).
+ * The tool's resume token stays in its journaled outcome, never here.
+ */
+export type FlowInteraction = {
+  /** The effect of the tool run that asked. */
+  readonly invocationId: string;
+  /** The tool node's path. */
+  readonly path: string;
+  readonly toolName: string;
+  readonly interaction: {
+    readonly id: string;
+    readonly kind: "approval" | "response";
+    readonly prompt: string;
+    readonly metadata?: JsonObject;
+  };
+  readonly status: "interaction";
+};
 
 export type FlowRunResult =
   | { readonly status: "completed"; readonly output: JsonValue }
@@ -8,7 +28,7 @@ export type FlowRunResult =
       readonly error: { readonly code: string; readonly message: string; readonly path?: string };
     }
   | { readonly status: "cancelled" }
-  | { readonly status: "paused"; readonly pending: unknown };
+  | { readonly status: "paused"; readonly pending: readonly FlowInteraction[] };
 
 export type FlowDurableResult =
   | {
@@ -40,6 +60,17 @@ export class FlowNodeError extends Error {
   constructor(readonly failure: FlowFailure) {
     super(failure.message);
     this.name = "FlowNodeError";
+  }
+}
+
+/**
+ * A tool node waits on an interaction. Unwinds like a suspension (siblings keep running), and
+ * the flow pauses once nothing else is pending.
+ */
+export class FlowPause extends HostSuspension {
+  constructor(readonly interaction: FlowInteraction) {
+    super(interaction.invocationId, "pending");
+    this.name = "FlowPause";
   }
 }
 
