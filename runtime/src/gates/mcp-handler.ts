@@ -16,6 +16,7 @@ import {
   type McpToolPage,
 } from "../mcp/connect.js";
 import { findServer, type McpServerRef } from "../mcp/pool.js";
+import type { OutboundPolicy } from "../tenant/outbound.js";
 import type { Logger } from "../tenant/types.js";
 import type { McpAnswer, McpGateError } from "./tool-contract.js";
 import { GateRefusal, type TenantVault, type TenantVaults } from "./tenant-vaults.js";
@@ -31,6 +32,8 @@ export interface McpHandlerOptions {
   readonly now?: () => number;
   /** Tests replace how a server is opened. */
   readonly open?: typeof openMcpServer;
+  /** How the gate reaches remote servers (`NYLORUN_ENDPOINT_*`). Default: no limits. */
+  readonly delivery?: OutboundPolicy;
 }
 
 export interface McpHandler {
@@ -108,6 +111,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
               ...(server.agentId === undefined ? {} : { agentId: server.agentId }),
             }),
           pluginData: "",
+          policy: options.delivery ?? {},
         });
         const entry: Live = { connection, lastUsedAt: now(), active: 0 };
         live.set(key, entry);
