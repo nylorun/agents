@@ -11,6 +11,7 @@ import type { RuntimeModelCall } from "../contracts.js";
 import type { ModelProvider } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
 import type { ToolGate } from "../gates/tool-gate.js";
+import { httpToolRefOf } from "../gates/http-tool.js";
 import { classifyThrown } from "../model/classify.js";
 import { findServer, type McpPool } from "../mcp/pool.js";
 import { manifestFor, mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
@@ -141,9 +142,9 @@ export async function callMcpTool(
 }
 
 /**
- * Calls an HTTP tool through the Tool Gate (R2 M3), keyed by the effect id. The agent that
- * declares it is the effect's agent used as a tool, or the root. Its outcome is the effect's
- * value; a throw leaves the effect `uncertain`.
+ * Calls an HTTP tool through the Tool Gate (R2 M3), keyed by the effect id: an agent's (the
+ * effect's agent used as a tool, or the root), or a flow's HTTP stage or HTTP verifier. Its
+ * outcome is the effect's value; a throw leaves the effect `uncertain`.
  */
 export async function callHttpTool(
   gate: Pick<ToolGate, "callHttp">,
@@ -152,17 +153,7 @@ export async function callHttpTool(
 ): Promise<unknown> {
   if (!gate.callHttp) throw new Error("This Runtime has no Tool Gate for HTTP tools");
   return gate.callHttp(
-    {
-      tool: {
-        sessionId: request.sessionId,
-        ...(request.agent ? { agentId: request.agent.id } : {}),
-        capabilityId: request.capabilityId!,
-        toolName: request.toolName!,
-      },
-      effectId: request.effectId,
-      turnId: request.turnId,
-      input: request.input,
-    },
+    { tool: httpToolRefOf(request), effectId: request.effectId, turnId: request.turnId, input: request.input },
     signal
   );
 }

@@ -48,6 +48,7 @@ export type {
   LoopOptions,
   StageOptions,
   CapabilityIdentity,
+  HttpTarget,
 } from "@nylorun/core/define";
 export type {
   AgentOptions,

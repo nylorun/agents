@@ -24,8 +24,9 @@
  * `{ok: false, error: {uncertain: true}}` and is never run again.
  *
  * HTTP tools (R2 M3). `POST /nylorun/v1/http-calls` `{tool, effectId, turnId, input}`: one call
- * of an HTTP tool. The loop names the tool (`{sessionId?, agentId?, capabilityId, toolName}`);
- * the gate finds its URL, method and credential in the session's pinned manifest
+ * of an HTTP tool. The loop names the tool (`{sessionId?, agentId?, capabilityId, toolName}`), or a
+ * flow's HTTP stage or HTTP verifier by its stage key (`{sessionId?, stage}`); the gate finds its
+ * URL, method and credential in the session's pinned manifest
  * (`gates/http-tool.ts`). A run token's turn is the call's; `turnId` counts only under core's
  * credential. Keyed like a tool call, and cancelled by the same route. It answers
  * `200 {ok: true, result}` with the tool outcome (a failed request is a failed outcome the
@@ -83,13 +84,20 @@ export const ToolCallBodySchema = z.object({
 export type ToolCallBody = z.infer<typeof ToolCallBodySchema>;
 
 export const HttpCallBodySchema = z.object({
-  tool: z.object({
-    /** Required with core's credential; a run token names the session itself. */
-    sessionId: z.string().min(1).optional(),
-    agentId: z.string().min(1).optional(),
-    capabilityId: z.string().min(1),
-    toolName: z.string().min(1),
-  }),
+  tool: z.union([
+    z.object({
+      /** Required with core's credential; a run token names the session itself. */
+      sessionId: z.string().min(1).optional(),
+      agentId: z.string().min(1).optional(),
+      capabilityId: z.string().min(1),
+      toolName: z.string().min(1),
+    }),
+    z.object({
+      sessionId: z.string().min(1).optional(),
+      /** A flow's HTTP stage or HTTP verifier. */
+      stage: z.string().min(1),
+    }),
+  ]),
   effectId: z.string().min(1),
   turnId: z.string().min(1),
   input: z.unknown(),

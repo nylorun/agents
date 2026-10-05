@@ -171,7 +171,7 @@ describe("function options are refused with what replaces them", () => {
     expect(
       refusal(() => Agent({ id: "d" }).loop(fixer, { verify: () => ({ pass: true }), max: 2 } as never))
     ).toBe(
-      "configuration.invalid: .loop() no longer takes a verify function: use a verifier agent (an HTTP verifier is coming) (see MIGRATION.md)."
+      "configuration.invalid: .loop() no longer takes a verify function: use a verifier agent or an HTTP verifier, http({ url }) (see MIGRATION.md)."
     );
   });
 

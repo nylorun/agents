@@ -30,7 +30,9 @@ export {
   HTTP_TOOL_METHODS,
   http,
   httpToolOf,
+  isHttpTarget,
   withHttpTarget,
+  type HttpTarget,
   type HttpTool,
   type HttpToolOptions,
 } from "./definition/http-tool.js";
@@ -51,6 +53,7 @@ export {
   ROOT_POSITION,
   childPosition,
   embeddedAgent,
+  flowHttpTarget,
   forEachFlowNode,
   indexSuffix,
   isLeafNode,
@@ -68,6 +71,8 @@ export type {
   LoopOptions,
   StageOptions,
   FlowNodeVisit,
+  FlowVisitNode,
+  FlowHttpTarget,
   FlowImplementations,
 } from "./definition/flow/index.js";
 export type { McpCapability, McpOptions, McpServerSpec } from "./definition/mcp.js";
@@ -232,6 +237,8 @@ export { isVariantOf } from "./definition/variant.js";
 export type {
   Verdict,
   WorkflowBinding,
+  WorkflowHttpVerify,
+  WorkflowLoopVerify,
   WorkflowManifest,
   WorkflowNode,
 } from "./types/workflow.js";

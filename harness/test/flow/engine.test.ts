@@ -4,6 +4,7 @@ import {
   Agent,
   embeddedAgent,
   flow,
+  http,
   tool,
   VerdictSchema,
   type JsonValue,
@@ -46,6 +47,8 @@ async function run(
   options: {
     limits?: { maxMapItems?: number; maxLoopIterations?: number };
     pending?: (effect: HostEffect) => boolean;
+    /** Answers the HTTP stages and verifiers, as the host's Tool Gate would. */
+    http?: (effect: HostEffect) => unknown;
   } = {},
 ) {
   const built = workflow as Built;
@@ -67,6 +70,8 @@ async function run(
         const leaf = embeddedAgent(built.manifest, body.flow ?? [], body.agentId);
         if (!leaf || "kind" in leaf) throw new Error(`No embedded agent '${body.agentId}'`);
         value = agents({ ...body, effect });
+      } else if (!nodes[effect.key] && options.http) {
+        value = options.http(effect);
       } else {
         const impl = nodes[effect.key];
         if (!impl) throw new Error(`No tool binding for key '${effect.key}'`);
@@ -550,6 +555,178 @@ describe("loop", () => {
     );
     expect(failure(run1)).toMatchObject({ code: "loop.too-many-iterations", path: "fix" });
     expect(agentPaths(run1.seen).filter((path) => path === "coder")).toHaveLength(3);
+  });
+});
+
+describe("HTTP stages", () => {
+  const Order = z.object({ orderId: z.string() });
+  const refund = http({
+    name: "refund",
+    input: Order,
+    output: z.object({ refundId: z.string() }),
+    url: "https://billing.example.com/refunds",
+  });
+  const orders = agent("orders").output(Order);
+  const lister = agent("lister").output(z.object({ items: z.array(Order) }));
+  const answer = (effect: HostEffect) => ({
+    kind: "completed",
+    output: { refundId: `r-${(effect.input as { orderId: string }).orderId}` },
+  });
+
+  it("runs as a tool effect with the previous output, and gives the next stage its output", async () => {
+    const f = Agent({ id: "f" }).pipe(orders, refund, agent("notifier"));
+    const run1 = await run(
+      f,
+      "refund A-1",
+      ({ agentId }) => (agentId === "orders" ? { orderId: "A-1" } : `${agentId} out`),
+      { http: answer },
+    );
+    expect(output(run1)).toBe("notifier out");
+    const call = run1.seen.find((e) => e.kind === "tool")!;
+    expect(call).toMatchObject({ path: "refund", key: "refund", input: { orderId: "A-1" } });
+    expect(call.context).toEqual({ toolName: "refund" });
+    expect(agentInputs(run1.seen, "notifier")).toEqual([{ refundId: "r-A-1" }]);
+  });
+
+  it("runs per Map item and as a switch case", async () => {
+    const mapped = await run(
+      Agent({ id: "f" }).pipe(lister).map(refund),
+      "go",
+      () => ({ items: [{ orderId: "a" }, { orderId: "b" }] }),
+      { http: answer },
+    );
+    expect(output(mapped)).toEqual([{ refundId: "r-a" }, { refundId: "r-b" }]);
+    expect(mapped.seen.filter((e) => e.kind === "tool").map((e) => e.path)).toEqual([
+      "refund[0]",
+      "refund[1]",
+    ]);
+
+    // The chosen case gets the whole output, `route` included.
+    const Routed = z.object({ route: z.string(), orderId: z.string() });
+    const routedRefund = http({
+      name: "refund",
+      input: Routed,
+      url: "https://billing.example.com/refunds",
+    });
+    const routed = await run(
+      Agent({ id: "f" }).pipe(agent("router").output(Routed)).switch({ refund: routedRefund }),
+      "go",
+      () => ({ route: "refund", orderId: "c" }),
+      { http: answer },
+    );
+    expect(output(routed)).toEqual({ refundId: "r-c" });
+  });
+
+  it("fails the stage with the request's failure", async () => {
+    const f = Agent({ id: "f" }).pipe(orders, refund);
+    const run1 = await run(f, "x", () => ({ orderId: "A-1" }), {
+      http: () => ({
+        kind: "failed",
+        code: "http.status",
+        message: "The service answered HTTP 422: no",
+      }),
+    });
+    expect(failure(run1)).toEqual({
+      code: "http.status",
+      message: "The service answered HTTP 422: no",
+      path: "refund",
+    });
+  });
+
+  it("fails tool.invalid-input before any request when the input does not match its schema", async () => {
+    const f = Agent({ id: "f" }).pipe(agent("loose").output(z.object({ id: z.number() })), refund);
+    const run1 = await run(f, "x", () => ({ id: 7 }), { http: answer });
+    expect(failure(run1)).toMatchObject({ code: "tool.invalid-input", path: "refund" });
+    expect(failure(run1)!.message).toMatch(
+      /^HTTP stage 'refund' got \{"id":7\}, which does not match its input schema/,
+    );
+    expect(run1.seen.some((e) => e.kind === "tool")).toBe(false);
+  });
+
+  it("as a Loop body is retried with the Loop's input, not the feedback", async () => {
+    let checks = 0;
+    const f = Agent({ id: "f" })
+      .pipe(orders)
+      .loop(refund, { verify: http({ url: "https://checks.example.com/v" }), max: 3, id: "poll" });
+    const run1 = await run(f, "x", () => ({ orderId: "A-1" }), {
+      http: (effect) =>
+        effect.path === "refund"
+          ? answer(effect)
+          : {
+              kind: "completed",
+              output: (checks += 1) >= 2 ? { pass: true } : { pass: false, feedback: "not yet" },
+            },
+    });
+    expect(output(run1)).toEqual({ refundId: "r-A-1" });
+    const calls = run1.seen.filter((e) => e.path === "refund");
+    expect(calls.map((e) => e.input)).toEqual([{ orderId: "A-1" }, { orderId: "A-1" }]);
+    // Each attempt is its own effect, so its own run-once key.
+    expect(new Set(calls.map((e) => e.effectId)).size).toBe(2);
+  });
+});
+
+describe("an HTTP verifier", () => {
+  const checker = http({ url: "https://checks.example.com/verify" });
+
+  it("gets { input, output, iteration } and retries the body with its feedback", async () => {
+    let n = 0;
+    const f = Agent({ id: "f" }).loop(agent("coder"), { verify: checker, max: 3, id: "fix" });
+    const run1 = await run(f, "x", () => `try ${(n += 1)}`, {
+      http: (effect) => ({
+        kind: "completed",
+        output:
+          (effect.input as { iteration: number }).iteration >= 2
+            ? { pass: true }
+            : { pass: false, feedback: "again" },
+      }),
+    });
+    expect(output(run1)).toBe("try 2");
+    expect(agentInputs(run1.seen, "coder")).toEqual(["x", "again"]);
+    const verifies = run1.seen.filter((e) => e.kind === "tool");
+    expect(verifies.map((e) => [e.path, e.key, e.iterations, e.input])).toEqual([
+      ["@0.verify", "@0.verify", "1", { input: "x", output: "try 1", iteration: 1 }],
+      ["@0.verify", "@0.verify", "2", { input: "x", output: "try 2", iteration: 2 }],
+    ]);
+    expect(verifies[0]!.context).toEqual({ loopPath: "fix", n: 1, role: "verify-http" });
+    expect(new Set(verifies.map((e) => e.effectId)).size).toBe(2);
+  });
+
+  it("fails loop.verify-failed for an answer that is not a verdict, or a failed request", async () => {
+    const f = Agent({ id: "f" }).loop(agent("coder"), { verify: checker, max: 2, id: "fix" });
+    const odd = await run(f, "x", () => "code", {
+      http: () => ({ kind: "completed", output: { ok: true } }),
+    });
+    expect(failure(odd)).toMatchObject({ code: "loop.verify-failed", path: "fix" });
+    expect(failure(odd)!.message).toContain(
+      "The verifier must return { pass: boolean, feedback?: string }",
+    );
+    const down = await run(f, "x", () => "code", {
+      http: () => ({
+        kind: "failed",
+        code: "http.timeout",
+        message: "The service did not answer within 200 ms",
+      }),
+    });
+    expect(failure(down)).toEqual({
+      code: "loop.verify-failed",
+      message: "The service did not answer within 200 ms",
+      path: "fix",
+    });
+  });
+
+  it("is keyed under its Map item and nested flow agent", async () => {
+    const inner = Agent({ id: "inner" }).loop(agent("coder"), { verify: checker, max: 1 });
+    const f = Agent({ id: "f" })
+      .pipe(agent("lister").output(z.array(z.string())))
+      .map(inner);
+    const run1 = await run(f, "x", ({ agentId }) => (agentId === "lister" ? ["a", "b"] : "code"), {
+      http: () => ({ kind: "completed", output: { pass: true } }),
+    });
+    expect(output(run1)).toEqual(["code", "code"]);
+    expect(run1.seen.filter((e) => e.kind === "tool").map((e) => [e.path, e.key])).toEqual([
+      ["inner/@0.verify[0]", "inner/@0.verify"],
+      ["inner/@0.verify[1]", "inner/@0.verify"],
+    ]);
   });
 });
 

@@ -8402,6 +8402,35 @@
                   "outputSchema": {
                     "type": "object",
                     "additionalProperties": {}
+                  },
+                  "http": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      },
+                      "method": {
+                        "type": "string",
+                        "enum": [
+                          "POST",
+                          "PUT",
+                          "PATCH"
+                        ]
+                      },
+                      "credential": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "timeoutMs": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 300000
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -8524,25 +8553,7 @@
                     "$ref": "#/components/schemas/WorkflowNode"
                   },
                   "verify": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "properties": {
-                          "agent": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "id": {
-                            "type": "string",
-                            "minLength": 1
-                          }
-                        },
-                        "required": [
-                          "agent"
-                        ],
-                        "additionalProperties": false
-                      }
-                    ]
+                    "$ref": "#/components/schemas/WorkflowLoopVerify"
                   },
                   "max": {
                     "type": "integer",
@@ -8567,6 +8578,55 @@
             "additionalProperties": false
           }
         ]
+      },
+      "WorkflowLoopVerify": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "minLength": 1
+          },
+          "http": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "POST",
+                  "PUT",
+                  "PATCH"
+                ]
+              },
+              "credential": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 300000
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "fn": {
+            "description": "Reserved for a later kind of verifier; refused for now."
+          },
+          "command": {
+            "description": "Reserved for a later kind of verifier; refused for now."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
       },
       "JsonValue": {
         "anyOf": [

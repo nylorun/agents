@@ -2,6 +2,8 @@
  * HTTP tools (R2 M3): a tool the manifest describes as one HTTP request, which the Runtime makes
  * itself through its Tool Gate. No developer code runs for it: the tool value carries its target
  * (`http`) and static approval into the manifest, and its `execute` only says where it runs.
+ * An HTTP tool is also a flow stage. `http({ url })` without a name and an input is a bare
+ * target, a Loop's HTTP verifier: its manifest form is itself, `{ http: { url, … } }`.
  */
 import type { ApprovalMode, HttpToolMethod, HttpToolTarget, ToolManifest } from "../types/manifest.js";
 import type { JsonObject } from "../types/shared.js";
@@ -15,6 +17,7 @@ type AnyTool = ToolDefinition<any, any, any>;
 
 /** Survives duplicate installed copies of core, like the delegate brand. */
 const HTTP = Symbol.for("@nylorun/core/http-tool");
+const TARGET = Symbol.for("@nylorun/core/http-target");
 
 export const HTTP_TOOL_METHODS = ["POST", "PUT", "PATCH"] as const satisfies readonly HttpToolMethod[];
 export const APPROVAL_MODES = ["never", "always"] as const satisfies readonly ApprovalMode[];
@@ -43,22 +46,31 @@ export interface HttpToolOptions<
   readonly approval?: ApprovalMode;
 }
 
+/** A bare HTTP target: a Loop's HTTP verifier, `.loop(body, { verify: http({ url }), max })`. */
+export interface HttpTarget {
+  readonly http: HttpToolTarget;
+}
+
 /**
  * A tool the Runtime runs as an HTTP request: it sends the input as JSON to `url` and gives
- * the model the answer. Use it in `.tools(...)` like any tool; it has no implementation.
+ * the model the answer. Use it in `.tools(...)` like any tool, or as a flow stage; it has no
+ * implementation.
  */
 export function http<
   InputSchema extends ToolInputSchema | JsonObject,
   OutputSchema extends ToolOutputSchema | JsonObject | undefined = undefined,
->(options: HttpToolOptions<InputSchema, OutputSchema>): AnyTool {
-  const { name, description, input, output, approval, url, method, credential, timeoutMs } = options;
-  const target: HttpToolTarget = {
-    url,
-    ...(method === undefined ? {} : { method }),
-    ...(credential === undefined ? {} : { credential }),
-    ...(timeoutMs === undefined ? {} : { timeoutMs }),
-  };
-  const issue = httpTargetIssue(target) ?? approvalIssue(approval);
+>(options: HttpToolOptions<InputSchema, OutputSchema>): AnyTool;
+/**
+ * A Loop's HTTP verifier: the Runtime POSTs `{ input, output, iteration }` to `url` and reads
+ * the answer as a verdict, `{ pass: boolean, feedback?: string }`.
+ */
+export function http(target: HttpToolTarget): HttpTarget;
+export function http(options: HttpToolOptions<any, any> | HttpToolTarget): AnyTool | HttpTarget {
+  if (!("name" in options) && !("input" in options)) return httpTarget(options);
+  const { name, description, input, output, approval } = options as HttpToolOptions<any, any>;
+  const target = targetOf(options);
+  const issue =
+    (input === undefined ? "input is required" : undefined) ?? httpTargetIssue(target) ?? approvalIssue(approval);
   if (issue) throw new HarnessError("tool.invalid", `HTTP tool '${name}': ${issue}`);
   return prepareTool(
     withHttpTarget(
@@ -71,6 +83,36 @@ export function http<
       { http: target, ...(approval === undefined ? {} : { approval }) },
     ),
   );
+}
+
+function targetOf({ url, method, credential, timeoutMs }: HttpToolTarget): HttpToolTarget {
+  return {
+    url,
+    ...(method === undefined ? {} : { method }),
+    ...(credential === undefined ? {} : { credential }),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  };
+}
+
+function httpTarget(options: HttpToolTarget): HttpTarget {
+  const fields = ["url", "method", "credential", "timeoutMs"];
+  const unknown = Object.keys(options).filter((key) => !fields.includes(key));
+  if (unknown.length > 0)
+    throw new HarnessError(
+      "configuration.invalid",
+      `HTTP verifier: unknown option${unknown.length === 1 ? "" : "s"} ${unknown.join(", ")}; an HTTP tool needs a name and an input`,
+    );
+  const target = targetOf(options);
+  const issue = httpTargetIssue(target);
+  if (issue) throw new HarnessError("configuration.invalid", `HTTP verifier: ${issue}`);
+  const value = { http: Object.freeze(target) };
+  Object.defineProperty(value, TARGET, { value: true, enumerable: false });
+  return Object.freeze(value);
+}
+
+/** True for a bare HTTP target made by `http({ url })`. */
+export function isHttpTarget(value: unknown): value is HttpTarget {
+  return !!value && typeof value === "object" && (value as Record<symbol, unknown>)[TARGET] === true;
 }
 
 /** Rebuilds an HTTP tool from its manifest entry. */

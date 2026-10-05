@@ -5,10 +5,17 @@ import {
   leafPart,
   nodeKeyOf,
   stageKey,
+  type WorkflowHttpTarget,
+  type WorkflowHttpVerify,
   type WorkflowManifest,
   type WorkflowNode,
   type WorkflowTreeNode,
 } from "./types.ts";
+
+/** What a tree row shows of a request: its method and URL. */
+function request(http: WorkflowHttpTarget): string {
+  return `${http.method ?? "POST"} ${http.url}`;
+}
 
 function leaf(
   path: string,
@@ -32,7 +39,8 @@ function leaf(
  * their session paths (the paths `node.agent` and tool `action.*` events carry); control
  * stages at their stage keys (`route`, `@1`), which Loop events carry. A nested flow agent
  * is drawn inline under its own id. A chain is a row, a switch a fork, a parallel lanes, a map
- * one lane, and a loop its body and verifier agent, with its max.
+ * one lane, and a loop its body and verifier (an agent, or an HTTP verifier), with its max. An
+ * HTTP stage or verifier shows its method and URL.
  */
 export function treeFromManifest(manifest: WorkflowManifest): WorkflowTreeNode {
   return walk(manifest, manifest.root, ROOT_POSITION, "");
@@ -40,12 +48,13 @@ export function treeFromManifest(manifest: WorkflowManifest): WorkflowTreeNode {
 
 function walk(
   flow: WorkflowManifest,
-  node: WorkflowNode,
+  node: WorkflowNode | WorkflowHttpVerify,
   position: string,
   prefix: string,
 ): WorkflowTreeNode {
   const key = stageKey(node, position, prefix);
   const part = leafPart(node);
+  if ("http" in node) return leaf(key, "http", "verify", { detail: request(node.http) });
   if ("agent" in node) {
     const embedded = flow.agents[node.agent] as
       | (WorkflowManifest & { readonly kind?: string })
@@ -62,7 +71,10 @@ function walk(
       };
     return leaf(key, "agent", part!, { agentId: node.agent });
   }
-  if ("tool" in node) return leaf(key, "tool", part!);
+  if ("tool" in node)
+    return node.tool.http
+      ? leaf(key, "http", part!, { detail: request(node.tool.http) })
+      : leaf(key, "tool", part!);
   const label = node.id ?? position;
   const wrap = (kind: "case" | "branch", name: string, child: WorkflowNode) => {
     const at = childPosition(position, name);

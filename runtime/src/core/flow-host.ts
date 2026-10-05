@@ -16,6 +16,7 @@
  * - `isFlowToolEffect(request): boolean`, `isFlowEffect(request): boolean`
  * - `linkedMessageInput(body): JsonValue`
  * - `settleAgentEffect({ t, effect, outcome }): Promise<void>`
+ * - `recordVerdict(t, request, value): Promise<void>`
  * - `pathDepth(path): number`
  * - `countActiveFlowWork(t, workflowSessionId, turnId): Promise<number>`
  * - `commandKey(sessionId, idempotencyKey): string`
@@ -160,9 +161,23 @@ export async function settleAgentEffect(input: {
 }): Promise<void> {
   const { t, effect, outcome } = input;
   await t.put("effects", effect.request.effectId, { ...effect, status: "completed", outcome });
-  const { request } = effect;
-  if (request.context?.role !== "verify-agent" || !isVerdict(outcome.value)) return;
-  const verdict = outcome.value;
+  if (effect.request.context?.role === "verify-agent") await recordVerdict(t, effect.request, outcome.value);
+}
+
+/**
+ * Record a Loop verifier's verdict as `loop.verified`: a verifier agent's output, or an HTTP
+ * verifier's answer (`role: "verify-http"`, a completed HTTP outcome). Anything that is not a
+ * verdict records nothing; the engine fails the Loop on it.
+ */
+export async function recordVerdict(t: Tx, request: HostEffect, value: unknown): Promise<void> {
+  const answer = value as { kind?: unknown; output?: unknown } | null;
+  const verdict =
+    request.context?.role !== "verify-http"
+      ? value
+      : answer?.kind === "completed"
+      ? answer.output
+      : undefined;
+  if (!isVerdict(verdict)) return;
   await t.event(request.sessionId, request.turnId, "loop.verified", {
     path: String(request.context.loopPath ?? request.path ?? ""),
     n: Number(request.context.n ?? 1),
