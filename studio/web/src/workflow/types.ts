@@ -3,14 +3,20 @@
 /** Workflow manifest v3 (flow agents): `id` on any node, embedded agents, no functions. */
 export type WorkflowNodeOptions = { readonly id?: string };
 export type WorkflowAgentNode = WorkflowNodeOptions & { readonly agent: string };
+/** A request the Runtime makes: an HTTP stage's or an HTTP verifier's. */
+export type WorkflowHttpTarget = { readonly url: string; readonly method?: string };
 export type WorkflowToolNode = WorkflowNodeOptions & {
   readonly tool: {
     readonly name: string;
     readonly description?: string;
     readonly inputSchema?: unknown;
     readonly outputSchema?: unknown;
+    /** An HTTP stage. */
+    readonly http?: WorkflowHttpTarget;
   };
 };
+/** A Loop's HTTP verifier. */
+export type WorkflowHttpVerify = { readonly http: WorkflowHttpTarget };
 export type WorkflowNode =
   | WorkflowAgentNode
   | WorkflowToolNode
@@ -26,7 +32,7 @@ export type WorkflowNode =
   | (WorkflowNodeOptions & {
       readonly loop: {
         readonly run: WorkflowNode;
-        readonly verify: WorkflowAgentNode;
+        readonly verify: WorkflowAgentNode | WorkflowHttpVerify;
         readonly max: number;
       };
     });
@@ -48,6 +54,7 @@ export type TreeLayout = "row" | "fork" | "lanes" | "map" | "loop" | "leaf";
 export type TreeNodeKind =
   | "agent"
   | "tool"
+  | "http"
   | "chain"
   | "switch"
   | "parallel"
@@ -66,6 +73,8 @@ export type WorkflowTreeNode = {
   readonly label: string;
   /** Agent definition id when kind is agent. */
   readonly agentId?: string;
+  /** An HTTP stage's or verifier's request: `POST https://…`. */
+  readonly detail?: string;
   readonly children: readonly WorkflowTreeNode[];
 };
 
@@ -141,15 +150,15 @@ export function childPosition(parent: string, segment: string | number): string 
 }
 
 /** A leaf's path part: its `id`, else the agent id or tool name. */
-export function leafPart(node: WorkflowNode): string | undefined {
+export function leafPart(node: WorkflowNode | WorkflowHttpVerify): string | undefined {
   if ("agent" in node) return node.id ?? node.agent;
   if ("tool" in node) return node.id ?? node.tool.name;
   return undefined;
 }
 
 /** A node's stage key: a leaf's path part, a control node's `id`, or its position. */
-export function stageKey(node: WorkflowNode, position: string, prefix = ""): string {
-  const own = leafPart(node) ?? node.id ?? position;
+export function stageKey(node: WorkflowNode | WorkflowHttpVerify, position: string, prefix = ""): string {
+  const own = leafPart(node) ?? ("id" in node ? node.id : undefined) ?? position;
   return prefix ? `${prefix}/${own}` : own;
 }
 

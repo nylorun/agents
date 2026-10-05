@@ -91,8 +91,18 @@ workflow id.
 **Iteration vector**: Enclosing Loop iteration numbers, outermost first. Not part
 of the path.
 
-**Verdict**: A verifier agent's output: `{ pass: true }` or `{ pass: false, feedback }`,
-each with optional `data`. Anything else fails the Loop (`loop.verify-failed`).
+**Verdict**: A verifier's output, an agent's or an HTTP verifier's answer: `{ pass: true }` or
+`{ pass: false, feedback }`, each with optional `data`. Anything else fails the Loop
+(`loop.verify-failed`).
+
+**HTTP stage**: A tool node with `http`, built from an `http()` tool: one request the host
+makes through its Tool Gate. The engine checks the input against the tool's input schema
+(`tool.invalid-input`) before the `tool` effect; a failed outcome fails the stage. A Loop body
+that starts with one is retried with the Loop's input, since it takes an object, not feedback.
+
+**HTTP verifier**: A Loop's `verify: { http }`, from `http({ url })`: a `tool` effect at the
+verify position's stage key (`@0.verify`) with input `{ input, output, iteration }` and
+`context.role: "verify-http"`, whose answer must be a verdict.
 
 **Flow interaction**: A tool node that asks (`ctx.approve`, `ctx.ask`) pauses the flow on its
 own session once nothing else is pending. The answer goes into the checkpoint (`resumes`, same

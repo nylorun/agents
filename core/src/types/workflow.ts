@@ -1,7 +1,7 @@
 import type { AgentBinding } from "../definition/binding.js";
 import type { BoundToolDefinition } from "../definition/bound.js";
 import type { JsonObject, JsonValue } from "./shared.js";
-import type { AgentManifest, SandboxManifest } from "./manifest.js";
+import type { AgentManifest, HttpToolTarget, SandboxManifest } from "./manifest.js";
 
 /** Loop verify outcome: pass, or fail with required feedback. */
 export type Verdict =
@@ -24,13 +24,17 @@ export interface WorkflowAgentNode extends WorkflowNodeOptions {
   readonly agent: string;
 }
 
-/** Tool leaf: name and schemas only; the implementation is served by the Action endpoint. */
+/**
+ * Tool leaf: name and schemas. With `http` it is an HTTP stage, one request the Runtime makes
+ * through its Tool Gate as for an agent's HTTP tool; without, the Action endpoint serves it.
+ */
 export interface WorkflowToolNode extends WorkflowNodeOptions {
   readonly tool: {
     readonly name: string;
     readonly description?: string;
     readonly inputSchema?: JsonObject;
     readonly outputSchema?: JsonObject;
+    readonly http?: HttpToolTarget;
   };
 }
 
@@ -59,8 +63,16 @@ export interface WorkflowMapNode extends WorkflowNodeOptions {
   readonly map: { readonly each: WorkflowNode };
 }
 
-/** What judges a Loop attempt: a verifier agent. */
-export type WorkflowLoopVerify = WorkflowAgentNode;
+/**
+ * An HTTP verifier: the Runtime POSTs `{ input, output, iteration }` to it through its Tool Gate
+ * and reads a verdict from the answer. Its stage key is its position (`@0.verify`).
+ */
+export interface WorkflowHttpVerify {
+  readonly http: HttpToolTarget;
+}
+
+/** What judges a Loop attempt: a verifier agent, or an HTTP verifier. */
+export type WorkflowLoopVerify = WorkflowAgentNode | WorkflowHttpVerify;
 
 /**
  * Runs `run`, judges it with `verify`, then stops on a pass or retries with the verdict's

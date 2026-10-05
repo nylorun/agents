@@ -86,7 +86,7 @@ it is sent. `approval: "always"` pauses the turn for `session.approve()`; a
 denied call never runs and the model sees the denial. A remote MCP server takes
 `approval: "always"` too, for every one of its tools:
 `.mcp({ shop: { type: "streamable-http", url, approval: "always" } })`.
-An HTTP tool belongs in an agent's `.tools(...)`, not a flow stage, and runs
+An HTTP tool is also a flow stage (see [Flow agents](#flow-agents)), and runs
 only on the Runtime (a local `run()` reports `http.runtime-only`).
 
 ## Connection resolution
@@ -309,7 +309,7 @@ export const agents = [shipFeature];
 | **`.switch({ ...cases, default? })`** | Run the case the previous output names: a string, or its `route` field |
 | **`.parallel(branches)`** | Fixed named branches at once, same input; output is an object |
 | **`.map(each)`** | Run `each` once per item of the previous output: an array, or its `items`; output is an array |
-| **`.loop(body, { verify, max })`** | Run `body`, ask the `verify` agent, run again with its feedback until it passes, at most `max` times |
+| **`.loop(body, { verify, max })`** | Run `body`, ask `verify` (an agent, or `http({ url })`), run again with its feedback until it passes, at most `max` times |
 
 Every stage takes `{ id }` to name it (`.loop` takes it beside `verify` and `max`).
 `flow()` builds a sequence with no id for a case, branch, map item or loop body that
@@ -320,13 +320,58 @@ sees the flow's input, as the original request, before its own input. Types flow
 each stage's `.output()` schema to the flow agent's output. `.step(x, { id })` is a
 deprecated alias for `.pipe(x.withId(id))`.
 
+An [HTTP tool](#http-tools) is a stage too: in `.pipe()`, a case, a Map item or a Loop
+body. Its input is the previous output, which must match the tool's `input` (an
+object); a mismatch the build can see, such as an agent with no `.output()` before it,
+is refused (`flow.input-mismatch`), and any other fails the stage when it runs
+(`tool.invalid-input`). The Runtime makes the request as for an agent's HTTP tool, with
+`Nylorun-Agent-Id` set to the flow agent's id and `credential` taken from the flow
+session's vaults; its answer is the next stage's input. A failure status, a timeout or
+an answer that does not match `output` fails the stage with its code (`http.status`,
+`http.timeout`, `tool.invalid-output`, …). A Loop body that starts with an HTTP stage
+is retried with the Loop's input, not the feedback. `approval: "always"` is not
+supported on a flow stage yet (`flow.approval-unsupported`).
+
+A Loop may be judged by your service instead of an agent: `http({ url, method?,
+credential?, timeoutMs? })`, with no name or input, is an HTTP verifier. The Runtime
+sends `{ input, output, iteration }` (the Loop's input, the attempt's output, its
+number) and reads a verdict, `{ pass, feedback? }`, from the answer; anything else, or a
+failed request, fails the Loop (`loop.verify-failed`). Its verdicts are recorded as
+`loop.verified`, as an agent's are.
+
+```ts
+import { Agent, http } from "@nylorun/agents";
+import { z } from "zod";
+
+const order = Agent({ id: "order" })
+  .instructions("Name the order to refund as { orderId }.")
+  .output(z.object({ orderId: z.string() }));
+
+const refund = http({
+  name: "refund",
+  input: z.object({ orderId: z.string() }),
+  output: z.object({ refundId: z.string() }),
+  url: "https://billing.example.com/refunds",
+  credential: "billing",
+});
+
+const fixer = Agent({ id: "fixer" }).instructions("Fix the failing test.");
+
+export const refunds = Agent({ id: "refunds" }).pipe(order, refund);
+export const fixTests = Agent({ id: "fix-tests" }).loop(fixer, {
+  verify: http({ url: "https://ci.example.com/verify", credential: "ci" }),
+  max: 3,
+});
+```
+
 Agents inside a flow keep their own sessions, linked from the flow's session and
 named by the agent: its id (or `.withId("…")`), with `[i]` for each Map item and a
 nested flow agent's id in front of its own agents'. Control stages add nothing, so
 wrapping a step in `.loop()` or moving it between cases keeps its session. An agent
 may appear once per flow; use it again under a new id with `writer.withId("final-writer")`
-(`flow.duplicate-leaf`). Tool nodes are served by the Action endpoint under stage keys:
-the tool's name or `id`, under a nested flow agent's id.
+(`flow.duplicate-leaf`). Code tool nodes are served by the Action endpoint under stage
+keys: the tool's name or `id`, under a nested flow agent's id. HTTP stages and
+verifiers need no endpoint.
 
 The agents in a flow share one sandbox: open the flow's session with it,
 `createSession({ …, sandbox: { … } })`, and every agent and tool step in the flow

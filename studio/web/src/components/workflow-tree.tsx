@@ -69,6 +69,7 @@ function TreeBranch({
       <span className="truncate font-mono text-[10px] text-muted-foreground">
         {node.kind}
         {node.layout !== "leaf" ? ` · ${node.layout}` : ""}
+        {node.detail ? ` · ${node.detail}` : ""}
       </span>
       <NodeBadge node={node} live={live} />
       {live?.agentSessionId ? (

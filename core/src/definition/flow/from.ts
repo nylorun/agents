@@ -74,7 +74,7 @@ export function flowFrom(json: unknown, implementations: FlowImplementations = {
   return built;
 }
 
-/** Every tool node's stage key, and every embedded ReAct agent. */
+/** Every tool node's stage key but an HTTP stage's (the Runtime runs it), and every embedded ReAct agent. */
 function collect(
   flow: WorkflowManifest,
   prefix: string,
@@ -84,7 +84,7 @@ function collect(
   forEachFlowNode(
     flow.root,
     ({ node, key }) => {
-      if ("tool" in node) needs.push(key);
+      if ("tool" in node && !node.tool.http) needs.push(key);
       if ("agent" in node) {
         const target = flow.agents[node.agent]!;
         if (isWorkflowManifest(target as WorkflowManifest))

@@ -145,11 +145,20 @@ export function loopStage(body: unknown, options?: Options): FlowStage {
   checkOptions(".loop()", options, ["verify", "max", "id"]);
   requireChild(".loop()", body);
   if (options?.verify === undefined)
-    throw new HarnessError("configuration.invalid", ".loop() requires { verify }: a verifier agent");
+    throw new HarnessError(
+      "configuration.invalid",
+      ".loop() requires { verify }: a verifier agent, or an HTTP verifier http({ url })"
+    );
   if (typeof options.verify === "function")
     throw new HarnessError(
       "configuration.invalid",
-      ".loop() no longer takes a verify function: use a verifier agent (an HTTP verifier is coming) (see MIGRATION.md)."
+      ".loop() no longer takes a verify function: use a verifier agent or an HTTP verifier, http({ url }) (see MIGRATION.md)."
+    );
+  const verify = options.verify as Record<string, unknown>;
+  if (verify && typeof verify === "object" && ("fn" in verify || "command" in verify))
+    throw new HarnessError(
+      "configuration.invalid",
+      ".loop() verify: Functions are not available yet. Use a verifier agent or an HTTP verifier, http({ url })."
     );
   return Object.freeze({
     kind: "loop" as const,

@@ -2,7 +2,8 @@
  * The Record seam of the Harness API: core's journal for the effects of a run. `recordIntent`
  * journals an effect before anything runs it, and either answers it from the journal, hands it
  * to core's own executors (Actions, flow work, delegation, `save_artifact` and the skill tools),
- * or tells the harness to `execute` it (model calls; MCP, HTTP and sandbox tools). `recordOutcome`
+ * or tells the harness to `execute` it (model calls; MCP, HTTP and sandbox tools; a flow's HTTP
+ * stages and HTTP verifiers). `recordOutcome`
  * records what the harness's call returned. Both run under the advance's lease: every write is
  * epoch-checked (`ownedSession`), and a lost epoch writes nothing.
  *
@@ -20,7 +21,13 @@ import {
 import type { Action, EventPayload } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
-import { isFlowEffect, isFlowToolEffect, settleAgentEffect, type FlowEffect } from "../core/flow-host.js";
+import {
+  isFlowEffect,
+  isFlowToolEffect,
+  recordVerdict,
+  settleAgentEffect,
+  type FlowEffect,
+} from "../core/flow-host.js";
 import { sandboxCapabilityOf } from "../sandbox/capability.js";
 import { isSaveArtifactCall } from "../harness/calls.js";
 import { callSaveArtifact } from "../tenant/artifact-tool.js";
@@ -122,9 +129,21 @@ export async function recordIntent(
         status: existing.status === "uncertain" || existing.status === "invoking" ? "uncertain" : "pending",
       };
     }
-    if (request.kind === "agent" || isFlowToolEffect(request)) return "flow";
+    // A flow's HTTP stages and HTTP verifiers cross the Tool Gate like an agent's HTTP tool.
+    const flowHttp = isFlowToolEffect(request) && isHttpToolCall(s.manifest, request);
+    if (request.kind === "agent" || (isFlowToolEffect(request) && !flowHttp)) return "flow";
     if (request.kind !== "model" && effectRequestHash(request) !== requestHash)
       throw new HarnessApiError("invalid", "The request hash does not match the request");
+    if (flowHttp) {
+      await t.put("effects", request.effectId, { request, requestHash, status: "invoking" });
+      await t.event(s.id, s.activeTurnId, "node.started", {
+        path: request.path!,
+        kind: "http",
+        key: request.key!,
+        ...(request.iterations !== undefined ? { iterations: request.iterations } : {}),
+      });
+      return { status: "execute" };
+    }
     if (request.kind === "delegation") {
       // Lifecycle points of an agent used as a tool: journaled once, so replays never re-emit.
       const outcome = { value: null };
@@ -282,6 +301,7 @@ export async function recordOutcome(
         : model
         ? assistantMessage(request, value)
         : toolCompleted(request, value);
+    if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
     if (failed) await t.event(s.id, request.turnId, "model.failed", failed);
     if (compacted) await t.event(s.id, request.turnId, "context.compacted", compacted);
     if (transcript && model)

@@ -7,15 +7,21 @@
  *   any nested flow agents. Control stages and `flow()` add nothing, so wrapping a step
  *   in a Loop or moving it out of a Switch keeps its session.
  * - A **stage key** names a node: a leaf's id, a control stage's `id`, or else its
- *   position from the flow root (`@1.default.1`). A tool node's code is bound under its key.
+ *   position from the flow root (`@1.default.1`). A tool node's code is bound under its key, and
+ *   the Runtime finds an HTTP stage or an HTTP verifier by it.
  */
 import type {
   WorkflowAgentNode,
+  WorkflowHttpVerify,
   WorkflowManifest,
   WorkflowNode,
   WorkflowToolNode,
 } from "../../types/workflow.js";
-import type { AgentManifest } from "../../types/manifest.js";
+import type { AgentManifest, HttpToolTarget } from "../../types/manifest.js";
+import type { JsonObject } from "../../types/shared.js";
+
+/** A node the walk visits: a stage, or a Loop's HTTP verifier. */
+export type FlowVisitNode = WorkflowNode | WorkflowHttpVerify;
 
 /** Position of a flow's root node. */
 export const ROOT_POSITION = "@";
@@ -34,7 +40,7 @@ export function isLeafNode(
 }
 
 /** A leaf's path part: its `id`, else the agent id or tool name. Undefined for control nodes. */
-export function leafPart(node: WorkflowNode): string | undefined {
+export function leafPart(node: FlowVisitNode): string | undefined {
   if ("agent" in node) return node.id ?? node.agent;
   if ("tool" in node) return node.id ?? node.tool.name;
   return undefined;
@@ -49,8 +55,8 @@ export function childPosition(parent: string, segment: string | number): string 
  * A node's stage key: a leaf's path part, a control node's `id`, or its position.
  * `prefix` is the key of the nested flow agent the node runs in, if any.
  */
-export function stageKey(node: WorkflowNode, position: string, prefix = ""): string {
-  const own = leafPart(node) ?? node.id ?? position;
+export function stageKey(node: FlowVisitNode, position: string, prefix = ""): string {
+  const own = leafPart(node) ?? ("id" in node ? node.id : undefined) ?? position;
   return prefix ? `${prefix}/${own}` : own;
 }
 
@@ -71,7 +77,7 @@ export function stripIndices(path: string): string {
 }
 
 export interface FlowNodeVisit {
-  readonly node: WorkflowNode;
+  readonly node: FlowVisitNode;
   readonly position: string;
   /** Stage key, including the nested flow agent prefix. */
   readonly key: string;
@@ -92,7 +98,7 @@ export function forEachFlowNode(
 ): void {
   const prefix = options.prefix ?? "";
   const walk = (
-    node: WorkflowNode,
+    node: FlowVisitNode,
     position: string,
     role: FlowNodeVisit["role"],
     inMap: boolean
@@ -117,6 +123,45 @@ export function forEachFlowNode(
     }
   };
   walk(root, ROOT_POSITION, "root", false);
+}
+
+/** What the Runtime needs of an HTTP stage or an HTTP verifier. */
+export interface FlowHttpTarget {
+  readonly http: HttpToolTarget;
+  /** An HTTP stage's output schema; a verifier's answer is checked as a verdict instead. */
+  readonly outputSchema?: JsonObject;
+  /** True for a Loop's HTTP verifier. */
+  readonly verify: boolean;
+}
+
+/**
+ * The HTTP stage or HTTP verifier of `manifest` at stage key `key`, looking through nested
+ * flow agents (`outer/inner`), or undefined.
+ */
+export function flowHttpTarget(manifest: WorkflowManifest, key: string): FlowHttpTarget | undefined {
+  let found: FlowHttpTarget | undefined;
+  const search = (flow: WorkflowManifest, prefix: string): void =>
+    forEachFlowNode(
+      flow.root,
+      ({ node, key: at, role }) => {
+        if (found) return;
+        if (at === key && "http" in node) found = { http: node.http, verify: role === "verify" };
+        else if (at === key && "tool" in node && node.tool.http)
+          found = {
+            http: node.tool.http,
+            ...(node.tool.outputSchema === undefined ? {} : { outputSchema: node.tool.outputSchema }),
+            verify: false,
+          };
+        else if ("agent" in node && key.startsWith(`${at}/`)) {
+          const nested = flow.agents[node.agent];
+          if (isWorkflowManifest(nested as WorkflowManifest | undefined))
+            search(nested as WorkflowManifest, at);
+        }
+      },
+      { prefix }
+    );
+  search(manifest, "");
+  return found;
 }
 
 /**

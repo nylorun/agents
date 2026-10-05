@@ -33,9 +33,12 @@ export type CasesOut<Cases> = { [K in keyof Cases]: FlowOut<Cases[K]> }[keyof Ca
 
 export type BranchesOut<Branches> = { readonly [K in keyof Branches]: FlowOut<Branches[K]> };
 
-/** `.loop()` options: a verifier agent judges each attempt, at most `max` times. */
+/** `.loop()` options: a verifier judges each attempt, at most `max` times. */
 export interface LoopOptions {
-  /** The verifier agent. It gets `{ task, response, iteration }` and returns a verdict. */
+  /**
+   * A verifier agent, which gets `{ task, response, iteration }`, or an HTTP verifier,
+   * `http({ url })`, which gets `{ input, output, iteration }` as JSON. Either returns a verdict.
+   */
   readonly verify: object;
   readonly max: number;
   readonly id?: string;

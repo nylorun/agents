@@ -4,7 +4,7 @@
  * Run via: tsc -p test/workflow/types/tsconfig.json
  */
 import { z } from "zod";
-import { Agent, flow, tool, VerdictSchema, type BuiltWorkflow } from "../../../src/define.js";
+import { Agent, flow, http, tool, VerdictSchema, type BuiltWorkflow, type HttpTarget } from "../../../src/define.js";
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
   ? true
@@ -76,3 +76,10 @@ Agent({ id: "long" })
   .pipe(triage, planner, triage, planner, triage)
   .pipe(planner).pipe(triage).pipe(planner).pipe(triage).pipe(planner)
   .pipe(triage).pipe(planner).pipe(triage).pipe(planner).pipe(triage);
+
+// An HTTP tool is a stage; http({ url }) is an HTTP verifier.
+const refund = http({ name: "refund", input: z.object({ title: z.string() }), url: "https://example.com/refunds" });
+const checker = http({ url: "https://example.com/verify", credential: "ci" });
+type _checker = Assert<Equals<typeof checker, HttpTarget>>;
+Agent({ id: "refunds" }).pipe(Agent({ id: "titled" }).output(z.object({ title: z.string() })), refund).build();
+Agent({ id: "checked" }).loop(fixer, { verify: checker, max: 2 }).build();

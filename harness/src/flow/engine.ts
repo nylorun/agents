@@ -8,8 +8,13 @@
  *   `route` field. The chosen case gets the whole output.
  * - A Map runs over the previous output when it is an array, or over its `items` array.
  * - A Parallel gives every branch the same input; its output is keyed by branch.
- * - A Loop runs its body, asks its verifier agent for a verdict, and stops on a pass or
- *   retries with the feedback, up to `max` attempts. The body keeps its session.
+ * - A Loop runs its body, asks its verifier for a verdict, and stops on a pass or retries with
+ *   the feedback, up to `max` attempts. The body keeps its session. A verifier agent gets
+ *   `{ task, response, iteration }`; an HTTP verifier `{ input, output, iteration }`. A body
+ *   that starts with an HTTP stage, which takes an object, is retried with the Loop's input.
+ * - An HTTP stage (a tool node with `http`) checks its input against its input schema, then
+ *   runs as a `tool` effect the host makes through its Tool Gate. A failed request fails the
+ *   stage with its code (`http.status`, `http.timeout`, `tool.invalid-output`, …).
  * - Agent and tool sessions are named by leaf paths: the leaf's id, `[i]` per Map item,
  *   under nested flow agents' ids. Control stages add nothing.
  * - Leaf agents come from the manifest's embedded `agents`; nested flow agents run inline
@@ -27,9 +32,11 @@ import {
   isWorkflowManifest,
   leafPart,
   leafPath,
+  schemaFromJSON,
   stageKey,
   type JsonValue,
   type Verdict,
+  type WorkflowLoopVerify,
   type WorkflowManifest,
   type WorkflowNode,
 } from "@nylorun/core/define";
@@ -122,7 +129,7 @@ export async function runFlowDurable(options: {
 }
 
 /** Where a node's effects are recorded: a leaf's path, or its stage key plus Map indices. */
-function siteOf(scope: Scope, node: WorkflowNode, key: string): string {
+function siteOf(scope: Scope, node: WorkflowNode | WorkflowLoopVerify, key: string): string {
   const part = leafPart(node);
   return part === undefined
     ? `${key}${indexSuffix(scope.indices)}`
@@ -140,7 +147,7 @@ async function runNode(
   const key = stageKey(node, position, scope.keyPrefix);
   const site = siteOf(scope, node, key);
   if ("agent" in node) return runAgent(ctx, scope, node, key, site, input, context);
-  if ("tool" in node) return runTool(ctx, scope, node.tool.name, key, site, input);
+  if ("tool" in node) return runTool(ctx, scope, node.tool, key, site, input);
   if ("chain" in node) return runChain(ctx, scope, node.chain, position, input);
   if ("switch" in node) return runSwitch(ctx, scope, node.switch, site, position, input);
   if ("parallel" in node) return runParallel(ctx, scope, node.parallel, site, position, input);
@@ -200,16 +207,30 @@ async function runAgent(
 async function runTool(
   ctx: FlowContext,
   scope: Scope,
-  name: string,
+  tool: Extract<WorkflowNode, { tool: unknown }>["tool"],
   key: string,
   site: string,
   input: JsonValue,
 ): Promise<JsonValue> {
-  const value = await runToolEffect(ctx, name, input, {
+  if (tool.http && tool.inputSchema) {
+    const checked = schemaFromJSON(tool.inputSchema).validate(input);
+    if (!checked.ok)
+      throw new FlowNodeError({
+        code: "tool.invalid-input",
+        message: `HTTP stage '${tool.name}' got ${describe(input)}, which does not match its input schema: ${checked.issues.map((issue) => issue.message).join("; ")}`,
+        path: site,
+      });
+  }
+  const value = await runToolEffect(ctx, tool.name, input, {
     path: site,
     key,
     iterations: iterationsOf(scope.iterations),
   });
+  return completedOutput(value, site);
+}
+
+/** The output of a settled tool outcome: `{ kind: "completed", output }`, or the value itself. */
+function completedOutput(value: JsonValue, site: string): JsonValue {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const outcome = value as Readonly<Record<string, JsonValue>>;
   if (outcome.kind === "completed" && "output" in outcome) return outcome.output ?? null;
@@ -409,15 +430,24 @@ async function runLoop(
         message: `Loop stopped after ${loop.max} attempt${loop.max === 1 ? "" : "s"}: ${verdict.feedback}`,
         path: site,
       });
-    current = verdict.feedback;
+    current = startsWithHttpStage(loop.run) ? input : verdict.feedback;
   }
 }
 
-/** A verifier agent judges `{ task, response, iteration }`; its output must be a verdict. */
+/** True when `node`'s first stage is an HTTP stage: it takes an object, never feedback text. */
+function startsWithHttpStage(node: WorkflowNode): boolean {
+  if ("chain" in node) return node.chain.length > 0 && startsWithHttpStage(node.chain[0]!);
+  return "tool" in node && node.tool.http !== undefined;
+}
+
+/**
+ * A verifier agent judges `{ task, response, iteration }`, an HTTP verifier
+ * `{ input, output, iteration }`; the output must be a verdict.
+ */
 async function runVerify(
   ctx: FlowContext,
   scope: Scope,
-  verify: Extract<WorkflowNode, { loop: unknown }>["loop"]["verify"],
+  verify: WorkflowLoopVerify,
   site: string,
   position: string,
   args: {
@@ -427,16 +457,28 @@ async function runVerify(
     readonly context: AgentContext;
   },
 ): Promise<Verdict> {
+  const at = childPosition(position, "verify");
   let value: JsonValue;
   try {
-    value = await runNode(
-      ctx,
-      scope,
-      verify,
-      childPosition(position, "verify"),
-      { task: args.task, response: args.response, iteration: args.iteration },
-      { ...args.context, role: "verify-agent" },
-    );
+    if ("http" in verify) {
+      const key = stageKey(verify, at, scope.keyPrefix);
+      const path = siteOf(scope, verify, key);
+      const raw = (await ctx.effect(
+        "tool",
+        { input: args.task, output: args.response, iteration: args.iteration },
+        { path, key, iterations: iterationsOf(scope.iterations) },
+        { ...args.context, role: "verify-http" },
+      )) as JsonValue;
+      value = completedOutput(raw, path);
+    } else
+      value = await runNode(
+        ctx,
+        scope,
+        verify,
+        at,
+        { task: args.task, response: args.response, iteration: args.iteration },
+        { ...args.context, role: "verify-agent" },
+      );
   } catch (error) {
     if (error instanceof HostSuspension) throw error;
     const failure = failureOf(error, site);

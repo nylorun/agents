@@ -2,16 +2,17 @@
  * Compile a flow agent's stages to workflow manifest v3.
  *
  * Each stage becomes one node with an optional `id`; leaf agents are embedded in
- * `agents`; tool nodes are bound under their stage keys. Paths and keys follow
- * `./paths.ts`.
+ * `agents`; tool nodes are bound under their stage keys, except HTTP stages, which carry
+ * their `http` target and bind nothing. Paths and keys follow `./paths.ts`.
  */
 import type { JsonObject, BuildDiagnostic } from "../../types/shared.js";
 import type { ToolSchemaSource } from "../../types/tool.js";
 import type { AgentManifest } from "../../types/manifest.js";
 import type { BuiltAgent } from "../../types/agent.js";
-import { httpToolOf } from "../http-tool.js";
+import { httpToolOf, isHttpTarget } from "../http-tool.js";
 import type {
   WorkflowBinding,
+  WorkflowLoopVerify,
   WorkflowManifest,
   WorkflowNode,
   WorkflowNodeImplementation,
@@ -31,7 +32,7 @@ import {
   toolManifestNode,
 } from "../workflow/runnable.js";
 import { isFlowBuilder, isNamedChild, type FlowStage } from "./spec.js";
-import { forEachFlowNode, leafPart } from "./paths.js";
+import { forEachFlowNode, isWorkflowManifest, leafPart } from "./paths.js";
 
 export interface CompileFlowOptions {
   readonly id: string;
@@ -76,6 +77,7 @@ export function compileAgentFlow(options: CompileFlowOptions): BuiltWorkflow {
     diagnostics: [],
   };
   const root: WorkflowNode = { chain: stages.map((stage) => compileStage(stage, build)) };
+  checkHttpInputs(root, build, options.inputSchema && jsonSchemaOf(options.inputSchema));
   const nodes = bindNodes(root, build);
   if (build.diagnostics.length) fail(build.diagnostics);
 
@@ -161,21 +163,29 @@ function compileLoop(stage: Extract<FlowStage, { kind: "loop" }>, build: Build):
     );
   // The body first, so agents are embedded in the order they run.
   const run = childNode(stage.body, build);
-  const verify = childNode(stage.verify, build);
-  if (!("agent" in verify))
-    build.diagnostics.push(
-      diagnostic(
-        "loop.invalid-verify",
-        `Loop '${label}' verify must be a verifier agent, not a tool or flow()`
-      )
-    );
   return {
     loop: {
       run,
-      verify: verify as Extract<WorkflowNode, { agent: string }>,
+      verify: verifyNode(stage.verify, label, build),
       max: Number.isInteger(stage.max) && (stage.max as number) > 0 ? (stage.max as number) : 1,
     },
   };
+}
+
+/** A Loop's verifier: a verifier agent, or an HTTP verifier (`http({ url })`). */
+function verifyNode(verify: unknown, label: string, build: Build): WorkflowLoopVerify {
+  if (isHttpTarget(verify)) return { http: { ...verify.http } };
+  const node = isToolDefinition(verify) && httpToolOf(verify) ? undefined : childNode(verify, build);
+  if (node && "agent" in node) return node;
+  build.diagnostics.push(
+    diagnostic(
+      "loop.invalid-verify",
+      node
+        ? `Loop '${label}' verify must be a verifier agent or an HTTP verifier, http({ url }), not a tool or flow()`
+        : `Loop '${label}' verify takes an HTTP verifier, http({ url }) with no name or input, not an HTTP tool`
+    )
+  );
+  return { agent: "" };
 }
 
 /** A stage child: an agent, tool, nested flow agent, `flow()` or `.withId()` child. */
@@ -190,20 +200,32 @@ function childNode(child: unknown, build: Build): WorkflowNode {
     if (stages.length === 1) return compileStage(stages[0]!, build);
     return { chain: stages.map((stage) => compileStage(stage, build)) };
   }
-  if (isToolDefinition(child) && httpToolOf(child)) {
+  if (isToolDefinition(child)) {
+    const tool = bindToolNode(child);
+    const node = toolManifestNode(tool);
+    const target = httpToolOf(child);
+    if (!target) {
+      attach(build, node, { tool });
+      return node;
+    }
+    if (target.approval === "always")
+      build.diagnostics.push(
+        diagnostic(
+          "flow.approval-unsupported",
+          `HTTP stage '${tool.name}': approval on a flow stage is not supported yet`
+        )
+      );
+    // The Runtime runs it through its Tool Gate: nothing is bound.
+    return { tool: { ...node.tool, http: { ...target.http } } };
+  }
+  if (isHttpTarget(child)) {
     build.diagnostics.push(
       diagnostic(
         "workflow.invalid-runnable",
-        "An HTTP tool runs in an agent's tools, not as a flow stage"
+        "http({ url }) without a name and an input is a Loop verifier; an HTTP stage needs http({ name, input, url })"
       )
     );
     return { chain: [] };
-  }
-  if (isToolDefinition(child)) {
-    const tool = bindToolNode(child);
-    const node: WorkflowNode = toolManifestNode(tool);
-    attach(build, node, { tool });
-    return node;
   }
   if (child && typeof child === "object") {
     const built = builtOf(child);
@@ -300,7 +322,7 @@ function bindNodes(root: WorkflowNode, build: Build): Record<string, WorkflowNod
           )
         );
       leaves.add(part);
-    } else if (node.id !== undefined) {
+    } else if ("id" in node && node.id !== undefined) {
       if (ids.has(node.id) || leaves.has(node.id))
         build.diagnostics.push(
           diagnostic(
@@ -317,6 +339,72 @@ function bindNodes(root: WorkflowNode, build: Build): Record<string, WorkflowNod
       for (const [inner, impl] of Object.entries(code.nested.nodes)) nodes[`${key}/${inner}`] = impl;
   });
   return nodes;
+}
+
+const TYPE_NAMES: Readonly<Record<string, string>> = {
+  string: "text",
+  array: "a list",
+  object: "an object",
+  number: "a number",
+  integer: "a number",
+  boolean: "a boolean",
+  null: "null",
+};
+
+/**
+ * Refuse an HTTP stage whose input is known at build time to be of the wrong JSON type: the
+ * stage before it returns text (an agent with no output schema), a list (a Map), or a schema of
+ * another type, or the flow's input schema does. Anything else is checked when the stage runs.
+ */
+function checkHttpInputs(root: WorkflowNode, build: Build, flowInput: JsonObject | undefined): void {
+  const check = (node: WorkflowNode, before: { type?: string; what: string; hint?: string }) => {
+    const first = firstStage(node);
+    if (!("tool" in first) || !first.tool.http) return;
+    const wanted = first.tool.inputSchema?.type;
+    if (typeof wanted !== "string" || before.type === undefined || before.type === wanted) return;
+    const takes = TYPE_NAMES[wanted] ?? wanted;
+    const returns = TYPE_NAMES[before.type] ?? before.type;
+    build.diagnostics.push(
+      diagnostic(
+        "flow.input-mismatch",
+        `HTTP stage '${first.tool.name}' takes ${takes} (its input schema), but ${before.what} returns ${returns}${before.hint ?? ""}`
+      )
+    );
+  };
+  if ("chain" in root && root.chain.length > 0) {
+    const type = flowInput?.type;
+    if (typeof type === "string") check(root.chain[0]!, { type, what: "the flow's input schema" });
+  }
+  forEachFlowNode(root, ({ node }) => {
+    if (!("chain" in node)) return;
+    node.chain.forEach((step, index) => {
+      if (index > 0) check(step, outputOf(node.chain[index - 1]!, build));
+    });
+  });
+}
+
+/** The stage that gets a node's input. */
+function firstStage(node: WorkflowNode): WorkflowNode {
+  return "chain" in node && node.chain.length > 0 ? firstStage(node.chain[0]!) : node;
+}
+
+/** What is known at build time of a node's output: its JSON type, if any. */
+function outputOf(node: WorkflowNode, build: Build): { type?: string; what: string; hint?: string } {
+  if ("chain" in node && node.chain.length > 0) return outputOf(node.chain.at(-1)!, build);
+  if ("map" in node) return { type: "array", what: "the Map before it" };
+  if ("parallel" in node) return { type: "object", what: "the Parallel before it" };
+  const typeOf = (schema: JsonObject | undefined) =>
+    typeof schema?.type === "string" ? { type: schema.type } : {};
+  if ("tool" in node) return { ...typeOf(node.tool.outputSchema), what: `tool '${node.tool.name}'` };
+  if ("agent" in node) {
+    const agent = build.agents[node.agent];
+    const what = `agent '${node.agent}'`;
+    if (!agent) return { what };
+    if (agent.outputSchema || isWorkflowManifest(agent as WorkflowManifest))
+      return { ...typeOf(agent.outputSchema), what };
+    return { type: "string", what, hint: `: give '${node.agent}' an .output() schema` };
+  }
+  return { what: "the stage before it" };
 }
 
 function jsonSchemaOf(source: ToolSchemaSource): JsonObject {

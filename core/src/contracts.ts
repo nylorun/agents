@@ -141,12 +141,15 @@ const httpToolTargetSchema = z
     timeoutMs: z.number().int().positive().max(HTTP_TOOL_MAX_TIMEOUT_MS).optional(),
   })
   .strict();
+/** A name kept for a later kind of `what` (tool, verifier), refused for now. */
+const reservedKind = (what: string) =>
+  z
+    .unknown()
+    .refine((value) => value === undefined, { message: "Functions are not available yet" })
+    .optional()
+    .meta({ description: `Reserved for a later kind of ${what}; refused for now.` });
 /** Names kept for later kinds of tool, beside `agent` and `http`. */
-const reservedToolKind = z
-  .unknown()
-  .refine((value) => value === undefined, { message: "Functions are not available yet" })
-  .optional()
-  .meta({ description: "Reserved for a later kind of tool; refused for now." });
+const reservedToolKind = reservedKind("tool");
 const toolManifestSchema = z
   .object({
     name: z.string().min(1),
@@ -336,8 +339,30 @@ const workflowNodeOptions = { id: z.string().min(1).optional() };
 const workflowAgentNodeSchema = z
   .object({ agent: z.string().min(1), ...workflowNodeOptions })
   .strict();
-/** What judges a Loop attempt: a verifier agent. */
-const workflowLoopVerifySchema = z.union([workflowAgentNodeSchema]);
+/**
+ * What judges a Loop attempt: a verifier agent (`{ agent, id? }`) or an HTTP verifier
+ * (`{ http }`). `fn` and `command` are reserved for later kinds of verifier.
+ */
+const workflowLoopVerifySchema = z
+  .object({
+    agent: z.string().min(1).optional(),
+    http: httpToolTargetSchema.optional(),
+    fn: reservedKind("verifier"),
+    command: reservedKind("verifier"),
+    ...workflowNodeOptions,
+  })
+  .strict()
+  .superRefine((verify, ctx) => {
+    if (verify.fn !== undefined || verify.command !== undefined) return;
+    if ((verify.agent === undefined) === (verify.http === undefined))
+      ctx.addIssue({
+        code: "custom",
+        message: "A Loop's verify is a verifier agent ({ agent }) or an HTTP verifier ({ http }): exactly one",
+      });
+    else if (verify.http !== undefined && verify.id !== undefined)
+      ctx.addIssue({ code: "custom", path: ["id"], message: "An HTTP verifier takes no id" });
+  })
+  .meta({ id: "WorkflowLoopVerify" });
 const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
   z.union([
     workflowAgentNodeSchema,
@@ -349,6 +374,8 @@ const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
             description: z.string().optional(),
             inputSchema: jsonObject.optional(),
             outputSchema: jsonObject.optional(),
+            /** An HTTP stage: the Runtime makes the request, as for an agent's HTTP tool. */
+            http: httpToolTargetSchema.optional(),
           })
           .strict(),
         ...workflowNodeOptions,
@@ -448,7 +475,7 @@ function referencedAgents(node: WorkflowNode): string[] {
     else if ("map" in child) visit(child.map.each);
     else if ("loop" in child) {
       visit(child.loop.run);
-      visit(child.loop.verify);
+      if ("agent" in child.loop.verify) visit(child.loop.verify);
     }
   };
   visit(node);

@@ -8,6 +8,7 @@ export {
   ROOT_POSITION,
   childPosition,
   embeddedAgent,
+  flowHttpTarget,
   forEachFlowNode,
   indexSuffix,
   isLeafNode,
@@ -16,7 +17,9 @@ export {
   leafPath,
   stageKey,
   stripIndices,
+  type FlowHttpTarget,
   type FlowNodeVisit,
+  type FlowVisitNode,
 } from "./paths.js";
 export type * from "./types.js";
 

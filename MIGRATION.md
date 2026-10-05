@@ -89,7 +89,9 @@ tool error the model sees. What does not carry over:
 - `approval` is static (`"never"` or `"always"`), not a function of the input.
 - `ctx.state`, `ctx.ask`, `ctx.approve`, `ctx.sleep`, `ctx.waitFor`, `ctx.step` and progress
   events have no HTTP form; keep that logic in your service or in the agent's instructions.
-- An HTTP tool is not a flow stage yet; flow stages move to declarative targets in a later step.
+- A code tool used as a flow stage becomes an HTTP stage the same way: put the `http()` tool in
+  `.pipe()` (see [Flows run no code](#flows-run-no-code)). Its input is the previous stage's
+  output, and `approval` is not supported on a flow stage yet.
 - The methods are `POST` (default), `PUT` and `PATCH`; the input is always the body.
 
 See [agents/README.md](./agents/README.md#http-tools).
@@ -131,6 +133,7 @@ flow's input as the original request.
 | `.switch(cases, { on: ({ input }) => input.kind })`                              | `.switch(cases)`: the previous output is the case name, or has a `route` field                            |
 | `.map(each, { input: ({ input }) => input.tasks })`                              | `.map(each)` over an array output, or an output with an `items` array                                     |
 | `.loop(body, { verify: ({ output }) => verdict })`                               | `.loop(body, { verify: verifierAgent, max })`, the agent's output schema `VerdictSchema`                  |
+| `.loop(body, { verify: ({ output }) => check(output) })`, `check` in your service | `.loop(body, { verify: http({ url }), max })`: your service answers the verdict                           |
 | `.loop(body, { verify, decide })`                                                | `.loop(body, { verify, max })`: a fail retries with the feedback until `max`; `max` is required           |
 | `.step(x)`, `.step(x, { id })`                                                   | `.pipe(x)`, `.pipe(x.withId(id))`; `.pipe(a, b, c)` adds three stages (`.step` warns, `NYLORUN_DEP_STEP`) |
 | `Chain`, `Switch`, `Parallel`, `Map`, `Loop`, `withInstructions`, `withoutTools` | A flow agent: `Agent({ id }).pipe(…)`, `.switch()`, `.parallel()`, `.map()`, `.loop()`                    |
@@ -138,8 +141,26 @@ flow's input as the original request.
 
 A verifier agent gets `{ task, response, iteration }` and must return `{ pass, feedback? }`, with
 feedback when `pass` is false; anything else fails the loop with `loop.verify-failed`. Each
-verdict is recorded as a `loop.verified` event; `loop.decided` is gone. Tool nodes still run on
-your Action endpoint.
+verdict is recorded as a `loop.verified` event; `loop.decided` is gone.
+
+A verify function that checked the output with your own code moves to your service as an
+**HTTP verifier**: `http({ url, method?, credential?, timeoutMs? })`, with no name or input.
+The Runtime makes one request per attempt through its Tool Gate, as for an HTTP tool (the
+identity headers, an `Idempotency-Key` per attempt, the vault credential), with the body
+`{ input, output, iteration }`: the Loop's input, the attempt's output and its number. Your
+service answers `{ pass: true }` or `{ pass: false, feedback }`; any other answer, a failure
+status or a timeout fails the loop with `loop.verify-failed`.
+
+```ts
+// Before: a verify function run by your Action endpoint
+.loop(fixer, { verify: async ({ output }) => ((await ci.run(output)).ok ? { pass: true } : { pass: false, feedback: "tests fail" }), max: 3 })
+
+// After: your service serves POST /verify and answers the verdict
+.loop(fixer, { verify: http({ url: "https://ci.example.com/verify", credential: "ci" }), max: 3 })
+```
+
+Code tool nodes still run on your Action endpoint; an `http()` tool is a stage your Action
+endpoint never sees. `fn` and `command` verify targets are reserved and refused for now.
 
 # Runtime and Management APIs (protocol 8)
 

@@ -8,6 +8,10 @@
  * (JSON, or text when the answer is not JSON and no output schema asks for JSON), and every other
  * answer, a timeout or a refused address as a failed outcome the model sees. `runHttpTool` adds
  * what a tool call needs: the declaration, the vault credential and the identity headers.
+ *
+ * A flow's HTTP stages and HTTP verifiers (R2) are called the same way: the ref names the flow
+ * session and the stage key, and the gate finds the target in the pinned workflow manifest. The
+ * `Nylorun-Agent-Id` is the flow agent's.
  */
 import {
   AGENT_ID_HEADER,
@@ -17,11 +21,14 @@ import {
 import {
   HTTP_TOOL_DEFAULT_TIMEOUT_MS,
   delegateManifest,
+  flowHttpTarget,
+  isWorkflowManifest,
   schemaFromJSON,
   type AgentManifest,
   type HttpToolTarget,
   type JsonObject,
   type ToolManifest,
+  type WorkflowManifest,
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { MAX_RESPONSE_BYTES, post, type OutboundPolicy } from "../tenant/outbound.js";
@@ -38,14 +45,24 @@ export type HttpOutcome =
   | { readonly kind: "completed"; readonly output: unknown }
   | { readonly kind: "failed"; readonly code: string; readonly message: string };
 
-/** One declared HTTP tool of a session: what the gate finds it by in the pinned manifest. */
-export interface HttpToolRef {
-  readonly sessionId: string;
-  /** The agent used as a tool that declares it; absent for the session's root agent. */
-  readonly agentId?: string;
-  readonly capabilityId: string;
-  readonly toolName: string;
-}
+/**
+ * One declared HTTP tool of a session: what the gate finds it by in the pinned manifest. An
+ * agent's HTTP tool is named by its capability and tool; a flow's HTTP stage or HTTP verifier
+ * by its stage key.
+ */
+export type HttpToolRef =
+  | {
+      readonly sessionId: string;
+      /** The agent used as a tool that declares it; absent for the session's root agent. */
+      readonly agentId?: string;
+      readonly capabilityId: string;
+      readonly toolName: string;
+    }
+  | {
+      readonly sessionId: string;
+      /** The stage key of a flow's HTTP stage or HTTP verifier. */
+      readonly stage: string;
+    };
 
 /** One call of an HTTP tool. `effectId` is its run-once key, sent as `Idempotency-Key`. */
 export interface HttpToolCall {
@@ -77,12 +94,32 @@ export function declaredHttpTool(
   return tool?.http ? (tool as ToolManifest & { http: HttpToolTarget }) : undefined;
 }
 
-/** True when `request` calls an HTTP tool the session's `manifest` declares. */
+/** The HTTP stage or HTTP verifier at stage key `stage` of a flow session's `manifest`. */
+export function declaredFlowHttp(manifest: unknown, stage: string | undefined) {
+  return stage !== undefined && isWorkflowManifest(manifest as WorkflowManifest | undefined)
+    ? flowHttpTarget(manifest as WorkflowManifest, stage)
+    : undefined;
+}
+
+/**
+ * True when `request` calls an HTTP tool the session's `manifest` declares, or runs one of a
+ * flow's HTTP stages or HTTP verifiers (a flow `tool` effect, named by its stage key).
+ */
 export function isHttpToolCall(manifest: unknown, request: HostEffect): boolean {
-  return (
-    request.kind === "tool" &&
-    declaredHttpTool(manifest, request.agent?.id, request.capabilityId, request.toolName) !== undefined
-  );
+  if (request.kind !== "tool") return false;
+  if (request.capabilityId === undefined) return declaredFlowHttp(manifest, request.key) !== undefined;
+  return declaredHttpTool(manifest, request.agent?.id, request.capabilityId, request.toolName) !== undefined;
+}
+
+/** The ref a `tool` effect calls the Tool Gate with: its agent's HTTP tool, or its flow stage. */
+export function httpToolRefOf(request: HostEffect): HttpToolRef {
+  if (request.capabilityId === undefined) return { sessionId: request.sessionId, stage: request.key! };
+  return {
+    sessionId: request.sessionId,
+    ...(request.agent ? { agentId: request.agent.id } : {}),
+    capabilityId: request.capabilityId,
+    toolName: request.toolName!,
+  };
 }
 
 /**
@@ -170,9 +207,13 @@ export async function runHttpTool(
   }
   options.logger?.info("http_tool_call", {
     session: tool.sessionId,
-    capability: tool.capabilityId,
-    tool: tool.toolName,
-    ...(tool.agentId === undefined ? {} : { agent: tool.agentId }),
+    ...("stage" in tool
+      ? { stage: tool.stage }
+      : {
+          capability: tool.capabilityId,
+          tool: tool.toolName,
+          ...(tool.agentId === undefined ? {} : { agent: tool.agentId }),
+        }),
     effect: call.effectId,
     ms: Date.now() - started,
     outcome: outcome.kind === "completed" ? "ok" : outcome.code,
@@ -182,8 +223,18 @@ export async function runHttpTool(
   async function run(): Promise<HttpOutcome> {
     const session = await tenant.session(tool.sessionId);
     if (!session) return failed("http.undeclared", `Session ${tool.sessionId} not found`);
-    const declared = declaredHttpTool(session.manifest, tool.agentId, tool.capabilityId, tool.toolName);
-    if (!declared) return failed("http.undeclared", `'${tool.toolName}' is not an HTTP tool of the session`);
+    const agentId = "stage" in tool ? undefined : tool.agentId;
+    const declared =
+      "stage" in tool
+        ? declaredFlowHttp(session.manifest, tool.stage)
+        : declaredHttpTool(session.manifest, agentId, tool.capabilityId, tool.toolName);
+    if (!declared)
+      return failed(
+        "http.undeclared",
+        "stage" in tool
+          ? `'${tool.stage}' is not an HTTP stage of the flow`
+          : `'${tool.toolName}' is not an HTTP tool of the session`,
+      );
     const { http } = declared;
     let credential: Record<string, string> = {};
     if (http.credential !== undefined) {
@@ -191,7 +242,7 @@ export async function runHttpTool(
         kind: "http",
         url: http.url,
         serverName: http.credential,
-        ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
+        ...(agentId === undefined ? {} : { agentId }),
       });
       if (authorized.status === "refused")
         return failed("http.credential", `The credential '${http.credential}' was refused: ${authorized.reason}`);
@@ -207,7 +258,7 @@ export async function runHttpTool(
         ...credential,
         [SESSION_ID_HEADER]: tool.sessionId,
         [TURN_ID_HEADER]: call.turnId,
-        [AGENT_ID_HEADER]: tool.agentId ?? (session.manifest as AgentManifest).id,
+        [AGENT_ID_HEADER]: agentId ?? (session.manifest as AgentManifest).id,
         "idempotency-key": call.effectId,
       },
       policy: options.policy,

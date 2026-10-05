@@ -129,3 +129,36 @@ test("Map item drill-down expands indexed lanes", () => {
   assert.equal(items[0]?.kind, "item");
   assert.equal(items[1]?.children[0]?.path, "implement[1]/coder");
 });
+
+test("an HTTP stage and an HTTP verifier show their method and URL", () => {
+  const tree = treeFromManifest({
+    kind: "workflow",
+    workflowSchemaVersion: 3,
+    id: "refunds",
+    root: {
+      chain: [
+        { agent: "orders" },
+        { tool: { name: "refund", http: { url: "https://billing.example.com/refunds", method: "PUT" } } },
+        {
+          loop: {
+            run: { agent: "fixer" },
+            verify: { http: { url: "https://checks.example.com/verify" } },
+            max: 3,
+          },
+        },
+      ],
+    },
+    agents: { orders: { id: "orders" }, fixer: { id: "fixer" } },
+  });
+  const [, refund, loop] = tree.children;
+  assert.deepEqual(
+    { path: refund?.path, kind: refund?.kind, detail: refund?.detail },
+    { path: "refund", kind: "http", detail: "PUT https://billing.example.com/refunds" },
+  );
+  const [body, verify] = loop.children;
+  assert.equal(body?.path, "fixer");
+  assert.deepEqual(
+    { path: verify?.path, kind: verify?.kind, label: verify?.label, detail: verify?.detail },
+    { path: "@2.verify", kind: "http", label: "verify", detail: "POST https://checks.example.com/verify" },
+  );
+});
