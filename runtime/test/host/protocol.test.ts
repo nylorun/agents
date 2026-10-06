@@ -60,18 +60,18 @@ it("C3: the Admin API's old paths require the protocol first, as any route does"
   expect(bad.status).toBe(426);
 });
 
-it("P13: the Host serves protocol 4 to 8 clients", async () => {
+it("P13: the Host serves protocol 4 to 9 clients", async () => {
   const { url } = await startTestHost({ module: createFakeModule() });
-  for (const version of ["4", "5", "6", "7", "8"]) {
+  for (const version of ["4", "5", "6", "7", "8", "9"]) {
     const { status } = await getJson(`${url}/v1/agents`, {
       headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: version },
     });
     expect(status, `protocol ${version}`).toBe(200);
   }
-  const nine = await getJson(`${url}/v1/agents`, {
-    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "9" },
+  const ten = await getJson(`${url}/v1/agents`, {
+    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "10" },
   });
-  expect(nine.status).toBe(426);
+  expect(ten.status).toBe(426);
   // Only a capability link is served without the header (protocol 6), and the OAuth callback.
   const { [PROTOCOL_HEADER]: _protocol, ...unversioned } = tenantHeaders();
   const link = await getJson(`${url}/v1/artifact-links/not-a-token`, { headers: unversioned });

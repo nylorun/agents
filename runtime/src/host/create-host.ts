@@ -5,6 +5,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { getRequestListener, RequestError } from "@hono/node-server";
+import type { ResourceServerConfig } from "../tenant/resource-server.js";
 import type { Logger, TenantModule } from "../tenant/types.js";
 import { createHostApp } from "./app.js";
 import type { HostConfigFile } from "./config.js";
@@ -43,6 +44,11 @@ export interface CreateHostOptions {
    * Tenant only.
    */
   readiness?: () => Promise<{ ok: boolean; checks: Record<string, boolean> }>;
+  /**
+   * The public URL and trusted issuers behind `/.well-known/oauth-protected-resource` and the
+   * challenge a request without credential or protocol gets (protocol 9). Absent: no metadata.
+   */
+  resourceServer?: ResourceServerConfig;
   /**
    * Shutdown steps around closing the Tenant. `close()` runs them whatever asked for it
    * (SIGTERM in `host/main.ts`): the listener stops, then
@@ -83,6 +89,7 @@ export function createHost(options: CreateHostOptions): HostServer {
     coreVersion,
     pid,
     ...(options.readiness ? { readiness: options.readiness } : {}),
+    ...(options.resourceServer ? { resourceServer: options.resourceServer } : {}),
     listening: () => Boolean(server?.listening),
     closing: () => closing,
   });

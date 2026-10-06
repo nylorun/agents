@@ -135,7 +135,7 @@ it("registers the Studio principal; its key reaches the Tenant without naming it
   const derived = createHmac("sha256", host.adminKey)
     .update(Buffer.from(`nylorun/principal/v1\u0000project\u0000${id}`, "utf8"))
     .digest("hex");
-  expect((await host.tenant(derived)).status).toBe(404);
+  expect((await host.tenant(derived)).status).toBe(401);
 });
 
 it("keeps a principal an earlier Runtime registered as an ordinary key", async () => {

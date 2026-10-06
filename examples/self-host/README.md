@@ -30,7 +30,7 @@ so the runtime fetches Keycloak's keys at `http://keycloak:8080`, the gateway re
 
 ## Run it
 
-Needs Docker with Compose v2, Node.js 24, `curl`, and a `nylorun` release that speaks protocol 8.
+Needs Docker with Compose v2, Node.js 24, `curl`, and a `nylorun` release that speaks protocol 9.
 Run the commands from this directory. `--no-link` keeps the Tenant from linking a project here.
 
 ```sh

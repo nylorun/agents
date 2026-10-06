@@ -16,5 +16,3 @@ issuers:
     allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
     # Sandboxes whose id starts with the token's org_id (a hardcoded claim here: acme/*).
     sandboxes: ["{org_id}/*"]
-    # Keycloak's access tokens live 5 minutes in this realm.
-    maxLifetime: 15m

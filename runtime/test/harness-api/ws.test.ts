@@ -82,7 +82,7 @@ it("accepts only the harness credential, on its path, with its header and an all
   // The Tenant API knows nothing of the harness credential.
   for (const path of ["/v1/sessions", "/v1/tenant"])
     expect((await fetch(`${runtime.url}${path}`, { headers: { authorization: good.authorization } })).status).toBe(
-      404
+      401
     );
 
   // Without an open Tenant the listener answers 503.

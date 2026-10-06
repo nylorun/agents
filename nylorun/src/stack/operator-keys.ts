@@ -67,7 +67,8 @@ export async function deleteOperatorKey(endpoint: OperateEndpoint, id: string): 
 
 /**
  * Whether `key` reaches the Tenant at `runtimeUrl`: one authenticated read (`GET /v1/me`, which
- * every key reaches). An unknown key is the opaque 404; another answer is an error.
+ * every key reaches). An unknown key is `401 credential_invalid` (protocol 9; the opaque 404
+ * before), a key of no use here `403`; another answer is an error.
  */
 export async function keyAuthenticates(
   fetch: FetchLike,

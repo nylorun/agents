@@ -16,6 +16,7 @@ import {
 } from "@asteasolutions/zod-to-openapi";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import { HealthResponseSchema, ReadyResponseSchema } from "@nylorun/core/contracts";
+import { z } from "zod";
 import { RUNTIME_VERSION } from "../version.js";
 import { tenantApi } from "./http/app.js";
 
@@ -34,9 +35,22 @@ const bearer = (description: string, bearerFormat?: string) => ({
   description,
 });
 
+/** RFC 9728 protected resource metadata, as `tenant/resource-server.ts` builds it. */
+const ProtectedResourceMetadataSchema = z
+  .object({
+    resource: z.string().meta({ description: "The Runtime API: `NYLORUN_PUBLIC_URL`, else the origin the request reached" }),
+    authorization_servers: z
+      .array(z.string())
+      .meta({ description: "The identity file's issuers, in its order: a client usually signs in at the first" }),
+    scopes_supported: z.array(z.string()).meta({ description: "The scopes the issuers' tokens may carry, `studio` aside" }),
+    bearer_methods_supported: z.array(z.literal("header")),
+    resource_name: z.string(),
+  })
+  .meta({ id: "ProtectedResourceMetadata" });
+
 /**
- * `/health`, `/ready` and the documents: what every listener answers without a key. The
- * `/openapi.json` alias is served but left out of the documents.
+ * `/health`, `/ready`, the documents and the OAuth metadata: what every listener answers
+ * without a key. The `/openapi.json` alias is served but left out of the documents.
  */
 function hostRoutes(): OpenAPIRegistry {
   const registry = new OpenAPIRegistry();
@@ -67,6 +81,21 @@ function hostRoutes(): OpenAPIRegistry {
         content: { "application/json": { schema: ReadyResponseSchema.meta({ id: "Ready" }) } },
       },
       503: { description: "Not ready: `checks` says what is not" },
+    },
+  });
+  route({
+    method: "get",
+    path: "/.well-known/oauth-protected-resource",
+    tags: ["Host"],
+    summary: "Get the protected resource metadata",
+    description:
+      "OAuth 2.0 Protected Resource Metadata (RFC 9728): the identity providers whose access tokens the Runtime API accepts (the identity file's trusted issuers) and their scopes. Nylorun is never the authorization server: a client signs in at one of `authorization_servers` and presents its token as `Authorization: Bearer`. A `401` from the Runtime API names this document in `WWW-Authenticate` (`resource_metadata`). Needs no key or `Nylorun-Protocol`, and accepts an `Origin`.",
+    responses: {
+      200: {
+        description: "The metadata",
+        content: { "application/json": { schema: ProtectedResourceMetadataSchema } },
+      },
+      404: { description: "The Runtime trusts no identity provider (no identity file)" },
     },
   });
   route({
@@ -215,11 +244,12 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Service",
     group: "Service",
     description:
-      "Check a Runtime is up and speaks your protocol, ask who your credential is, and read the public keys of the tokens it signs. `/health`, `/ready`, the JWKS and the documents need no key.",
+      "Check a Runtime is up and speaks your protocol, ask who your credential is, find the identity providers it takes tokens from, and read the public keys of the tokens it signs. `/health`, `/ready`, the protected resource metadata, the JWKS and the documents need no key.",
     operations: [
       "GET /health",
       "GET /ready",
       "GET /v1/me",
+      "GET /.well-known/oauth-protected-resource",
       "GET /v1/access/jwks",
       "GET /openapi/runtime.json",
     ],

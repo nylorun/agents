@@ -27,7 +27,7 @@
   {
     "method": "GET",
     "path": "/v1/agents",
-    "status": 404,
+    "status": 401,
     "tenantId": "<tenant>",
     "durationMs": "number"
   },
@@ -68,7 +68,7 @@
   {
     "method": "GET",
     "path": "/v1/admin/status",
-    "status": 404,
+    "status": 401,
     "tenantId": "<tenant>",
     "durationMs": "number"
   },

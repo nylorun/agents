@@ -29,7 +29,7 @@ Optional integration variables are loaded from `.env`. Interior Design uses `OPE
 eval "$(npx @nylorun/cli env)"
 # The Management API takes the project's management key, which `nylorun start` wrote beside its application key.
 NYLORUN_MANAGEMENT_KEY=$(node -p 'require("./.nylorun/credentials.json").managementKey')
-curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/sandbox" -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 8" -H "content-type: application/json" -d '{"default":"virtual"}'
+curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/sandbox" -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 9" -H "content-type: application/json" -d '{"default":"virtual"}'
 ```
 
 The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`. The Runtime runs those tools itself in an emulated shell; it is not a VM boundary. `npx nylo doctor sandbox` reports its backend and the Tenant's sandbox configuration. Try in Studio:

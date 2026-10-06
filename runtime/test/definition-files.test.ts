@@ -15,7 +15,7 @@ import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "definition-files-application-key-aaaa";
-const auth = { authorization: `Bearer ${APP}`, "nylorun-protocol": "8" };
+const auth = { authorization: `Bearer ${APP}`, "nylorun-protocol": "9" };
 const json = { ...auth, "content-type": "application/json" };
 
 const closers: (() => Promise<void>)[] = [];
@@ -142,7 +142,7 @@ describe("PUT and HEAD /v1/files/{file}", () => {
   it("takes an application key only", async () => {
     const runtime = await boot();
     const file = sha256(LABELS);
-    const management = { authorization: `Bearer ${runtime.managementKey}`, "nylorun-protocol": "8" };
+    const management = { authorization: `Bearer ${runtime.managementKey}`, "nylorun-protocol": "9" };
     const managed = await put(runtime, file, LABELS, management);
     expect(managed.status).toBe(403);
     expect(await managed.json()).toMatchObject({ code: "key_role_mismatch" });

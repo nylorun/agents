@@ -131,7 +131,6 @@ issuers:
     allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
     agents: [bot]
     sandboxes: ["{org}/*", "shared"]
-    maxLifetime: 15m
   - name: fixed
     issuer: ${STATIC_ISS}
     audience: api
@@ -145,7 +144,6 @@ ${edPem
     subject: "s:{email}"
     scopes: { fixed: [sessions:own] }
     allowedScopes: [sessions:own]
-    maxLifetime: 5m
 `;
   root = await mkdtemp(join(tmpdir(), "nylorun-issuers-"));
   runtime = await startEphemeralRuntime({
@@ -172,8 +170,8 @@ afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
-/** The opaque 404 an unknown credential gets: every refused issuer token must look the same. */
-async function opaque(): Promise<unknown> {
+/** The 401 an unknown credential gets: every refused issuer token must look the same. */
+async function invalid(): Promise<unknown> {
   return (await call("GET", "/v1/me", "not-a-key-at-all")).body;
 }
 
@@ -221,12 +219,12 @@ describe("verification", () => {
     expect(reply.body.scopes).toEqual(["sessions:own"]);
   });
 
-  it("refuses a wrong audience, a wrong issuer key and a too long lifetime with the opaque 404", async () => {
-    const expected = await opaque();
+  it("refuses a wrong audience and a wrong issuer key with 401 credential_invalid", async () => {
+    const expected = await invalid();
+    expect(expected).toMatchObject({ code: "credential_invalid" });
     const now = Math.floor(Date.now() / 1000);
     for (const bad of [
       await token(rsa, {}, { aud: "someone-else" }),
-      await token(rsa, {}, { iat: now, exp: now + 16 * 60 }),
       // The static issuer's claims, signed by a key of the JWKS issuer.
       await token(rsa, { email: "pat@acme.dev" }, { iss: STATIC_ISS, aud: "api" }),
       // No subject claim to render.
@@ -235,9 +233,15 @@ describe("verification", () => {
       await token(rsa, {}, { iat: now + 300, exp: now + 600 }),
     ]) {
       const reply = await call("GET", "/v1/me", bad);
-      expect(reply.status).toBe(404);
+      expect(reply.status).toBe(401);
       expect(reply.body).toEqual(expected);
     }
+  });
+
+  it("leaves a token's lifetime to its issuer (protocol 9)", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const day = await token(rsa, {}, { iat: now, exp: now + 24 * 60 * 60 });
+    expect((await call("GET", "/v1/me", day)).status).toBe(200);
   });
 
   it("answers an expired token 401 token_expired", async () => {
@@ -247,10 +251,10 @@ describe("verification", () => {
     expect(reply.body.code).toBe("token_expired");
   });
 
-  it("leaves a token of an unknown issuer to the existing checks: the opaque 404", async () => {
+  it("leaves a token of an unknown issuer to the existing checks: 401 credential_invalid", async () => {
     const reply = await call("GET", "/v1/me", await token(rsa, {}, { iss: "https://elsewhere.test" }));
-    expect(reply.status).toBe(404);
-    expect(reply.body).toEqual(await opaque());
+    expect(reply.status).toBe(401);
+    expect(reply.body).toEqual(await invalid());
   });
 
   it("refuses an unknown kid, fetching the JWKS at most once a minute for it", async () => {
@@ -258,7 +262,7 @@ describe("verification", () => {
     const before = jwks.fetches;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const reply = await call("GET", "/v1/me", await token(stranger));
-      expect(reply.status).toBe(404);
+      expect(reply.status).toBe(401);
     }
     expect(jwks.fetches - before).toBeLessThanOrEqual(1);
   });
@@ -267,9 +271,9 @@ describe("verification", () => {
     const big = await token(rsa, { padding: "x".repeat(6 * 1024) });
     expect(Buffer.byteLength(big)).toBeGreaterThan(6 * 1024);
     expect((await call("GET", "/v1/me", big)).status).toBe(200);
-    // Node's 16 KiB header limit (431) may answer before the 16 KiB token cap (the opaque 404).
+    // Node's 16 KiB header limit (431) may answer before the 16 KiB token cap (401).
     const huge = await token(rsa, { padding: "x".repeat(17 * 1024) });
-    expect([404, 431]).toContain((await call("GET", "/v1/me", huge)).status);
+    expect([401, 431]).toContain((await call("GET", "/v1/me", huge)).status);
   });
 
   it("is refused with subject headers", async () => {
@@ -375,7 +379,7 @@ describe("GET /v1/me", () => {
 
   it("refuses a JWT no issuer of the identity file signed: subject tokens are gone (protocol 7)", async () => {
     const reply = await call("GET", "/v1/me", await token(stranger, {}, { iss: "urn:nylorun:tenant:tn_x" }));
-    expect(reply.status).toBe(404);
+    expect(reply.status).toBe(401);
     expect((await app("POST", "/v1/tokens", { requestId: "mint", subject: "app:dan", role: "user" })).status).toBe(404);
   });
 });

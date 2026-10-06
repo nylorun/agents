@@ -12,10 +12,10 @@
  *
  * I1  one Tenant per installation: nylorun-operate status, /ready and nylorun status
  *     report exactly one, open; Runtime and Management API requests without
- *     Nylorun-Tenant work, each with its own key; there is no Admin API (/v1/admin/*
- *     is 404, even with the admin key) and no operator port
+ *     Nylorun-Tenant work, each with its own key; there is no Admin API (the admin key
+ *     is no credential: /v1/admin/* is 401 with it) and no operator port
  * I2  protocol 4 compatibility: Nylorun-Tenant naming the Host's Tenant works,
- *     naming another Tenant is the opaque 404
+ *     naming another Tenant is the opaque 404; an unknown key is 401 (protocol 9)
  * I3  a request outside the protocol range fails with 426 before any mutation
  * I4  a Tenant restart (stop, start) restores sessions and agents; a database whose schema is
  *     newer than the Runtime leaves the Tenant unavailable (schema-too-new), which
@@ -306,7 +306,9 @@ async function i1(url, stack, adminKey) {
       headers: { authorization: `Bearer ${adminKey}`, [PROTOCOL_HEADER]: PROTOCOL },
       ...(method === "POST" ? { body: { name: "should-not-create", idempotencyKey: randomUUID() } } : {}),
     });
-    assert.equal(routes.status, 404, `${method} ${path} with the admin key`);
+    // The admin key is no credential (401, protocol 9), so no one learns whether the path exists.
+    assert.equal(routes.status, 401, `${method} ${path} with the admin key`);
+    assert.equal((await routes.json()).code, "credential_invalid");
   }
   const stackEnv = await readFile(join(stack.home, "docker", ".env"), "utf8");
   assert.doesNotMatch(stackEnv, /NYLORUN_ADMIN_PORT/, "no operator port is published");
@@ -322,11 +324,16 @@ async function i2(url, stack) {
   assert.equal(await status(url, "/v1/agents", key, v4(id)), 200);
   const other = await request(url, "/v1/agents", { key, headers: v4(OTHER_TENANT) });
   assert.equal(other.status, 404, "a protocol 4 client naming another Tenant");
-  // Opaque: the same answer as an unknown key.
-  const opaque = await request(url, "/v1/agents", { key: "0".repeat(64) });
-  assert.equal(opaque.status, 404);
-  assert.deepEqual(await other.json(), await opaque.json(), "the miss names nothing");
-  pass("I2", "Nylorun-Tenant naming the Host's Tenant works; naming another is the opaque 404");
+  assert.deepEqual(
+    await other.json(),
+    { status: "rejected", code: "not_found", message: "Not found" },
+    "the miss names nothing",
+  );
+  // An unknown key is told apart since protocol 9: a 401 challenge.
+  const unknown = await request(url, "/v1/agents", { key: "0".repeat(64) });
+  assert.equal(unknown.status, 401);
+  assert.match(unknown.headers.get("www-authenticate") ?? "", /^Bearer error="invalid_token"/);
+  pass("I2", "Nylorun-Tenant naming the Host's Tenant works; naming another is the opaque 404; an unknown key is 401");
 }
 
 // ── I3: protocol range ──

@@ -23,7 +23,7 @@ RESOLVER_URL=${RESOLVER_URL:-http://localhost:8090}
 RESOLVER_TOKEN=${NYLORUN_RESOLVER_TOKEN:-selfhost-example-resolver-token}
 BAO_ADDR=${BAO_ADDR:-http://localhost:8200}
 BAO_TOKEN=${BAO_TOKEN:-selfhost-example-root-token}
-PROTOCOL=8
+PROTOCOL=9
 RUN="$(date +%s)-$$"
 
 work=$(mktemp -d)

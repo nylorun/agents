@@ -68,7 +68,7 @@ export const openTenantOf = (project: string): FakeTenant => ({
 export function operateStatusResult(tenant: FakeTenant): DockerResult {
   return {
     code: tenant.state === "open" ? 0 : 2,
-    stdout: `${JSON.stringify({ version: "0.10.0-beta", protocol: { min: 7, max: 8, features: [] }, tenant })}\n`,
+    stdout: `${JSON.stringify({ version: "0.10.0-beta", protocol: { min: 7, max: 9, features: [] }, tenant })}\n`,
     stderr: "",
   };
 }

@@ -1,3 +1,69 @@
+# The Runtime API as an OAuth resource server (protocol 9)
+
+The Runtime API now behaves as an OAuth 2.1 resource server for your identity provider's
+tokens. Nylorun is still never the authorization server: it signs no one in and mints no
+person's token. This release changes how refused credentials are answered, publishes where
+tokens come from, and simplifies the identity file. Clients and SDKs of this release send
+`Nylorun-Protocol: 9`; the Runtime still serves protocol 4 to 8 clients, but answers them the
+new way too.
+
+## A refused credential is `401`, not the opaque `404`
+
+| Request | Before | Now |
+| --- | --- | --- |
+| No `Authorization` header | `404 not_found` | `401 credential_required`, `WWW-Authenticate: Bearer resource_metadata="…"` |
+| A key the Tenant does not know (rotated, deleted, another Tenant's, the admin key) | `404 not_found` | `401 credential_invalid`, `WWW-Authenticate: Bearer error="invalid_token", …` |
+| A token no trusted issuer signed, or one that fails a check | `404 not_found` | `401 credential_invalid` |
+| An expired token | `401 token_expired` | The same, with `error_description` and `resource_metadata` in the challenge |
+| A token without the route's scope | `403 scope_required` | The same, with `WWW-Authenticate: Bearer error="insufficient_scope", scope="…"` |
+| A request with neither `Nylorun-Protocol` nor `Authorization` on an API route | `426` | `401 credential_required` |
+
+The reason a credential was refused stays in the runtime's log (`credential rejected`). A
+Tenant id that is not this installation's, a Tenant that could not be opened and a capability
+link the Runtime did not sign are still the opaque `404`. On the Management API the challenge
+is a bare `Bearer`: it takes management keys only.
+
+What to change:
+
+- Code that treated a `404` as "bad key" should look for `401` and the codes
+  `credential_required` and `credential_invalid` (both in `ERROR_CODES`). In `@nylorun/agents`
+  they are a `RuntimeError` with `status` 401 and the code in `body.code`; in `@nylorun/admin`
+  an `AdminError` with that `code`.
+- A browser app that refreshes its token on `401` can now rely on it for every refused token,
+  not only an expired one.
+- If your reverse proxy rewrites `401` or strips `WWW-Authenticate`, stop: clients need both.
+  Expose `WWW-Authenticate` in your CORS answer (DEPLOYMENT.md already lists it).
+
+## Protected resource metadata
+
+With an identity file, `GET /.well-known/oauth-protected-resource` (RFC 9728) answers the
+resource (`NYLORUN_PUBLIC_URL`, else the request's origin), the trusted issuers in the file's
+order, and their scopes. It needs no key or `Nylorun-Protocol`. Forward it at your reverse
+proxy beside `/health`, `/ready` and `/v1/*`, and set `NYLORUN_PUBLIC_URL` so `resource` is
+the URL your clients use. Without an identity file it is a `404`.
+
+## The identity file
+
+- `maxLifetime` is removed. How long a token lives is your identity provider's setting; the
+  Runtime checks `exp` only, and no longer requires `iat` (one in the future is still refused).
+  A file that still has `maxLifetime` boots: the key is ignored and logged.
+- Any key the file does not define is ignored with a warning (`identity_file_key_ignored` in
+  the runtime's log) instead of stopping the boot. Check the log after editing the file: a
+  misspelled optional field such as `agent:` is ignored, not refused.
+- `subject`, `scopes` and `allowedScopes` are optional:
+
+  | Field | Default |
+  | --- | --- |
+  | `subject` | `"{sub}"` |
+  | `scopes` | `{ claim: scope }`, OAuth's standard claim |
+  | `allowedScopes` | `[agents:read, sessions:own, sandboxes:write]`; list `studio` to grant it |
+
+  A file that sets them keeps working unchanged. If you leave `subject` out, note that the
+  default is the bare `sub`: a file that used `u:{sub}` must keep it, or every person's
+  sessions get a new owner.
+- Set `audience` to the Runtime's public URL where your provider allows it: that is the
+  RFC 8707 `resource` an OAuth client asks for.
+
 # Manifest-only agents (protocol 8, manifest v5)
 
 The Runtime now runs an agent from its manifest alone: during a session it never calls your

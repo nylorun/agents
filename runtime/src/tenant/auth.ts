@@ -1,9 +1,10 @@
 /**
  * Tenant request authentication and authorization: a bearer token resolves to an application
- * principal or a trusted issuer's token; anything else is the opaque 404
- * (D5). An application principal may act for a subject (`Nylorun-Subject`, `Nylorun-Scopes`);
- * an issuer token names its subject itself. `requireScopes` limits them to the routes their
- * scopes allow, decided from the route alone.
+ * principal or a trusted issuer's token. Anything else is `401` with a `Bearer` challenge
+ * (protocol 9, `resource-server.ts`): `credential_required` without one, `credential_invalid`
+ * for one the Tenant refuses, its reason only logged. An application principal may act for a
+ * subject (`Nylorun-Subject`, `Nylorun-Scopes`); an issuer token names its subject itself.
+ * `requireScopes` limits them to the routes their scopes allow, decided from the route alone.
  *
  * Browsers: a request with `Origin` may carry an issuer token (CORS is the operator's proxy's),
  * never an application key, which is a server secret.
@@ -13,12 +14,13 @@ import {
   SCOPES_HEADER,
   SUBJECT_HEADER,
 } from "@nylorun/core/compatibility";
-import { parseSubjectHeaders, type SubjectScope } from "@nylorun/core/contracts";
+import { parseSubjectHeaders, TOKEN_SCOPES, type SubjectScope } from "@nylorun/core/contracts";
 import { hashToken } from "../core/bearer.js";
 import type { AuthScope, SessionAccess, TenantContext } from "./context.js";
-import { fail, failOpaque } from "./http.js";
+import { fail } from "./http.js";
 import { verifyIssuerToken } from "./issuers.js";
 import { looksLikeToken } from "./jwt.js";
+import { bearerChallenge, failCredential, protectedResourceMetadataUrl } from "./resource-server.js";
 
 const SUBJECT_INVALID = { code: "subject_invalid" } as const;
 
@@ -44,24 +46,40 @@ export interface KeyAccess {
 /** Every route that does not say otherwise is a Runtime API route. */
 export const RUNTIME_KEYS: KeyAccess = { application: true, management: false };
 
+/** The bearer of an `Authorization` header: the scheme is case-insensitive (RFC 9110 §11.1). */
+const BEARER = /^bearer +(\S+) *$/i;
+
+/**
+ * The `resource_metadata` a route's challenges point at: a Runtime API route's, when the Runtime
+ * trusts issuers. The Management API is no OAuth resource.
+ */
+export function challengeMetadata(
+  ctx: TenantContext,
+  request: IncomingMessage,
+  keys: KeyAccess,
+): string | undefined {
+  return keys.application ? protectedResourceMetadataUrl(ctx.config, request) : undefined;
+}
+
 export async function authenticate(
   ctx: TenantContext,
   request: IncomingMessage,
   keys: KeyAccess = RUNTIME_KEYS,
 ): Promise<AuthScope> {
-  const header = request.headers.authorization;
-  const token = header?.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!token || !header?.startsWith("Bearer ")) {
+  const metadata = challengeMetadata(ctx, request, keys);
+  const token = BEARER.exec(request.headers.authorization ?? "")?.[1];
+  // No credential, or another scheme: the client may not know it needs one (no error code).
+  if (!token) {
     ctx.config.logger.warn("credential rejected", {
       reason: "missing_bearer",
     });
-    return failOpaque();
+    return failCredential("required", metadata);
   }
   // A trusted issuer's token (Host feature `trusted-issuers`), from a server or a browser: its
   // unverified `iss` names an issuer of the identity file, and only that issuer verifies it.
   const issuer = ctx.config.issuers?.claimed(token);
   if (issuer) {
-    const scope = await verifyIssuerToken(ctx, issuer, token);
+    const scope = await verifyIssuerToken(ctx, issuer, token, metadata);
     if (
       singleHeader(request, SUBJECT_HEADER) !== undefined ||
       singleHeader(request, SCOPES_HEADER) !== undefined
@@ -72,7 +90,7 @@ export async function authenticate(
   // Any other JWT: no issuer of this Host signed it (subject tokens are gone, protocol 7).
   if (looksLikeToken(token)) {
     ctx.config.logger.warn("credential rejected", { reason: "token_unknown_issuer" });
-    return failOpaque();
+    return failCredential("invalid", metadata);
   }
   // Application keys never come from a browser or a shipped app: refused before they are even
   // looked up.
@@ -86,9 +104,9 @@ export async function authenticate(
     ctx.config.logger.warn("credential rejected", {
       reason: "unknown_token",
     });
-    return failOpaque();
+    return failCredential("invalid", metadata);
   }
-  // Read only after authentication, so an unknown caller sees the opaque 404 either way.
+  // Read only after authentication, so an unknown caller learns nothing of them.
   const subject = singleHeader(request, SUBJECT_HEADER);
   const scopes = singleHeader(request, SCOPES_HEADER);
   // A management key acts as itself on the Management API; Studio's key does too on a route
@@ -132,9 +150,16 @@ export type SubjectAccess = readonly SubjectScope[] | "never" | "any";
 
 /**
  * A subject or a token caller reaches a route only with one of the scopes it declares:
- * `403 scope_required`, decided from the route alone before anything is read.
+ * `403 scope_required`, decided from the route alone before anything is read. A token caller
+ * also gets the OAuth challenge (`error="insufficient_scope"` and the scopes that would do), so
+ * its client can ask its identity provider for them; a route no scope reaches has none.
  */
-export function requireScopes(scope: AuthScope, access: SubjectAccess): void {
+export function requireScopes(
+  scope: AuthScope,
+  access: SubjectAccess,
+  /** The route's `resource_metadata` (`challengeMetadata`), for a token caller's challenge. */
+  resourceMetadata?: string,
+): void {
   if (scope.kind !== "subject" && scope.kind !== "token") return;
   if (access === "any") return;
   if (access === "never")
@@ -143,11 +168,27 @@ export function requireScopes(scope: AuthScope, access: SubjectAccess): void {
       details: { scopes: [] },
     });
   const held = scope.scopes as ReadonlySet<string>;
-  if (!(access as readonly SubjectScope[]).some((name) => held.has(name)))
-    fail(403, `Scope ${(access as readonly string[]).join(" or ")} required`, {
-      code: "scope_required",
-      details: { scopes: access },
-    });
+  if (!(access as readonly SubjectScope[]).some((name) => held.has(name))) {
+    // Any one of the route's scopes reaches it, but OAuth's list is of scopes held together:
+    // the challenge names the first a token can carry, or none when no token reaches the route.
+    const askable = (access as readonly string[]).find((name) =>
+      (TOKEN_SCOPES as readonly string[]).includes(name),
+    );
+    fail(
+      403,
+      `Scope ${(access as readonly string[]).join(" or ")} required`,
+      { code: "scope_required", details: { scopes: access } },
+      scope.kind === "token" && askable
+        ? {
+            "www-authenticate": bearerChallenge({
+              error: "insufficient_scope",
+              scope: askable,
+              resourceMetadata,
+            }),
+          }
+        : {},
+    );
+  }
 }
 
 export function accessOf(scope: AuthScope): SessionAccess | undefined {

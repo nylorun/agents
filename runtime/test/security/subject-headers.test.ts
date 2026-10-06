@@ -79,14 +79,14 @@ it("rejects a subject header sent twice", async () => {
   expect(status).toBe(400);
 });
 
-it("answers an unknown credential with the same opaque 404, with or without the headers", async () => {
+it("answers an unknown credential with the same 401, with or without the headers", async () => {
   const plain = await tenant.call("GET", "/v1/sessions", { key: "not-a-key" });
   const withHeaders = await tenant.call("GET", "/v1/sessions", {
     key: "not-a-key",
     as: { subject: "app:42", scopes: "not-a-scope" },
   });
-  expect(plain.status).toBe(404);
-  expect(withHeaders.status).toBe(404);
+  expect(plain.status).toBe(401);
+  expect(withHeaders.status).toBe(401);
   expect(withHeaders.text).toBe(plain.text);
 });
 

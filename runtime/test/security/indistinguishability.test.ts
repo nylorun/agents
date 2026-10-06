@@ -1,6 +1,6 @@
 /**
- * G6 — Indistinguishability of another Tenant named / a Tenant not opened /
- * credential-rejected.
+ * G6 — Indistinguishability of another Tenant named and a Tenant not opened. A rejected
+ * credential is told apart since protocol 9: `401` with a `Bearer` challenge (OAuth 2.1 §5.3).
  */
 import { expect, it } from "vitest";
 import { OPAQUE_NOT_FOUND } from "../../src/host/http.js";
@@ -48,7 +48,7 @@ it("G6: another Tenant named and a Tenant that could not open are byte-identical
   );
 });
 
-it("G6: credential-rejected matches another Tenant named in status and body (D5)", async () => {
+it("G6: credential-rejected is a 401 challenge, unlike another Tenant named (protocol 9)", async () => {
   const host = await startSecurityHost({ tenantName: "alpha" });
   const other = await startSecurityHost({ tenantName: "beta" });
   const a = host.tenant;
@@ -60,17 +60,16 @@ it("G6: credential-rejected matches another Tenant named in status and body (D5)
   const rejected = await getRaw(`${host.url}/v1/agents`, {
     headers: tenantHeaders(b.applicationKey),
   });
-  expect(JSON.parse(unknown.body)).toEqual(OPAQUE_NOT_FOUND);
-  expect(JSON.parse(rejected.body)).toEqual(OPAQUE_NOT_FOUND);
   expect(unknown.status).toBe(404);
-  expect(rejected.status).toBe(404);
-  expect(unknown.body).toBe(rejected.body);
-  expect(unknown.headers.get("content-type")).toBe(
-    rejected.headers.get("content-type"),
-  );
-  // The Host and the Tenant answer through the same helper (`api/http/respond.ts`): every
-  // header, framing included, is the same.
-  expect(comparableHeaders(unknown.headers)).toEqual(comparableHeaders(rejected.headers));
+  expect(JSON.parse(unknown.body)).toEqual(OPAQUE_NOT_FOUND);
+  expect(unknown.headers.get("www-authenticate")).toBeNull();
+  expect(rejected.status).toBe(401);
+  expect(JSON.parse(rejected.body)).toEqual({
+    status: "rejected",
+    code: "credential_invalid",
+    message: "The credential is not valid here",
+  });
+  expect(rejected.headers.get("www-authenticate")).toBe('Bearer error="invalid_token"');
 
   const ok = await hostGetJson(`${host.url}/v1/agents`, {
     headers: a.headers(),

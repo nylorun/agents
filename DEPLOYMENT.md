@@ -127,23 +127,30 @@ to mint (optional feature `trusted-issuers`). List the issuers in
 issuers:
   - name: keycloak
     issuer: https://sso.acme.dev/realms/eng      # the tokens' iss, exactly
-    audience: nylorun                            # the aud they must carry
+    audience: https://agents.acme.dev            # the aud they must carry: the Runtime's public URL
     jwks: https://sso.acme.dev/realms/eng/protocol/openid-connect/certs  # or keys: [<PEM>, …]
+    # Optional, with their defaults: {sub}, { claim: scope }, every scope but studio.
     subject: "u:{sub}"                           # the owner of the person's sessions; scalar claims only
     scopes: { claim: nylorun_scopes }            # or { fixed: [sessions:own, agents:read] }
     allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
-    agents: [support]                            # optional; absent reaches every agent
-    sandboxes: ["{org_id}/*"]                    # optional grant templates; absent reaches none
-    maxLifetime: 15m                             # the longest exp - iat accepted
+    agents: [support]                            # absent reaches every agent
+    sandboxes: ["{org_id}/*"]                    # grant templates; absent reaches none
 ```
 
-- Tokens must be RS256, ES256 or EdDSA, at most 16 KiB, with `exp` and `iat`.
+- Tokens must be RS256, ES256 or EdDSA, at most 16 KiB, with `exp`; how long they live is
+  the identity provider's setting.
   Their scopes are the claim's, limited to `allowedScopes` (`agents:read`,
   `sessions:own`, `sandboxes:write`, and `studio`, an operator scope for
   Studio). A sandbox grant whose
   claim is missing, or is not one id segment, reaches nothing.
 - A malformed file stops the runtime, naming the issuer and the field; a
-  subject template must reference a claim, or everyone would be one person.
+  subject template must reference a claim, or everyone would be one person. A
+  key the file does not define (such as `maxLifetime`, removed in protocol 9)
+  is ignored and logged as `identity_file_key_ignored`.
+- The Runtime publishes the issuers as OAuth protected resource metadata at
+  `/.well-known/oauth-protected-resource` (RFC 9728), in the file's order, and
+  every `401` points there. Set `NYLORUN_PUBLIC_URL` so its `resource` is the
+  URL clients use.
 - The runtime fetches only the configured JWKS URLs, without following
   redirects, and caches the keys. While a JWKS is unreachable, cached keys keep
   working and a token with a new `kid` gets `401 issuer_unavailable`; an
@@ -206,7 +213,7 @@ way in. Nothing in the Runtime changes.
 | Listen with TLS; forward to `127.0.0.1:<port>` (the port `nylorun start` prints) | A key travels on every request |
 | Rewrite `Host` to `localhost:<port>` | The Runtime answers `421` to any other `Host` |
 | Forward to the Runtime port only (`NYLORUN_PORT`); never Studio or Restate | Studio is for operators, behind its own sign-in proxy; Restate's UI has no authentication |
-| Forward only `/health`, `/ready` and `/v1/*` | Nothing else is the Runtime API or the Management API |
+| Forward only `/health`, `/ready`, `/.well-known/oauth-protected-resource` and `/v1/*` | Nothing else is the Runtime API or the Management API; the well-known document tells OAuth clients where to sign in |
 | Optional: answer `/v1/tenant/*` with `403` unless the request comes from your operator networks | Defense in depth for the Management API, on top of the key role. Leave `/v1/oauth/callback` open: browsers come back to it |
 | Pass every other header through: `Authorization`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime refuses keys sent with an `Origin` |
 | Answer CORS yourself, for your app's origins only, when browsers call the Runtime: preflights (`OPTIONS`) and `Access-Control-Allow-Origin`; allow `Authorization`, `Content-Type`, `Nylorun-Protocol` and `Last-Event-ID`, and expose `Retry-After` and `WWW-Authenticate` | The Runtime sends no CORS headers (protocol 7); browsers present a trusted issuer's token |

@@ -132,8 +132,8 @@ flags and env vars that selected a database path.
 `management` (the Management API) or `studio` (both; only the Studio principal). Each
 route's credentials say which roles reach it (`RouteAccess`, `api/http/define.ts`;
 `tenant/auth.ts` maps the role); a valid key of the wrong role
-is `403 key_role_mismatch`, naming the API it belongs to, and an unknown key is still the
-opaque `404`. A rotated key keeps its role; putting an id that holds the other role is
+is `403 key_role_mismatch`, naming the API it belongs to, and an unknown key is `401
+credential_invalid` (protocol 9). A rotated key keeps its role; putting an id that holds the other role is
 refused.
 
 **Application key** (or **application principal**): A key with role `application`,
@@ -217,9 +217,11 @@ A trusted issuer's token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:o
 **Trusted issuer**: An identity provider whose JWTs the Runtime API accepts as
 bearers (feature `trusted-issuers`, F9 I2), declared in the **identity file**
 (`NYLORUN_IDENTITY_FILE`, YAML, `tenant/identity-file.ts`, read once at boot; a
-malformed file stops the boot). A bearer is its token when the unverified `iss`
+malformed file stops the boot; a key it does not define is logged and ignored). Entries
+default `subject` to `{sub}`, `scopes` to `{ claim: scope }` and `allowedScopes` to the
+token scopes. A bearer is its token when the unverified `iss`
 names it (`tenant/issuers.ts`): RS256, ES256 or
-EdDSA, at most 16 KiB, `aud` matching, `exp − iat` within `maxLifetime`, a key
+EdDSA, at most 16 KiB, `aud` matching, `exp` present (its lifetime is the issuer's), a key
 from its static `keys` or its JWKS (configured URL only, cached by `kid`, one
 refetch a minute for an unknown `kid`; unreachable → `401 issuer_unavailable`
 for new kids). It becomes the `token` AuthScope with `issuer: <name>`: the subject
@@ -230,9 +232,24 @@ ends it (an expired one is `401 token_expired`, and a stream it opened ends with
 `event: nylorun.closed`). It may not set session `info` or send `message.manifest`,
 and sees only `{ agentId, name, description }` of the agents it may use. Accepted from
 browsers with no toggle; the Runtime sends no CORS headers (the operator's proxy
-does). Any other JWT is the opaque `404`. `GET /v1/me` reports it as
+does). Any other JWT is `401 credential_invalid`. `GET /v1/me` reports it as
 `via: issuer:<name>`.
 _Avoid_: "SSO login" (the Runtime signs no one in), "external token".
+
+**Resource server**: The Runtime API's OAuth 2.1 role (protocol 9, Host feature
+`resource-server`, `tenant/resource-server.ts`): it accepts the trusted issuers' access
+tokens and is never the authorization server. `GET /.well-known/oauth-protected-resource`
+(RFC 9728, no key or protocol) names the resource (`NYLORUN_PUBLIC_URL`, else the request's
+origin), the issuers in the identity file's order and their scopes; without issuers it is a
+`404`. Credential failures are **challenges**: `401 credential_required` (no credential, no
+error code), `401 credential_invalid` (`error="invalid_token"`, the reason only logged),
+`token_expired` and `issuer_unavailable`, each with `WWW-Authenticate: Bearer` naming the
+metadata (`resource_metadata`); a token without a route's scope gets `403 scope_required` with
+`error="insufficient_scope"` and the first scope a token can carry. The Management API takes
+management keys only and is no OAuth resource: its challenge is a bare `Bearer`. A request with
+neither `Nylorun-Protocol` nor `Authorization` gets the route's `401` before the `426`, so a
+generic OAuth client learns where to sign in.
+_Avoid_: "authorization server" for Nylorun, "OAuth login".
 
 **Signing key**: A Tenant's ES256 key pair for the tokens the Runtime signs itself
 (capability links, run and host tokens; `signing_keys`,
@@ -363,12 +380,15 @@ workspace before the first call that opens it (`sandbox/skills.ts`), with bytes 
 store, or in a harness from core (`definition.file`, for the run that made the call).
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 8`; the Host serves 4 to 8; required features
-`studio-principal`, `artifacts` and `management-api`. The Host still
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 9`; the Host serves 4 to 9; required features
+`studio-principal`, `artifacts`, `management-api` and `resource-server`. The Host still
 advertises `runtime-tenants` for protocol 4 clients and `admin-status` for protocol 5 to 7
 clients, which require it, though the Admin API is gone; optional Host features
 `tenant-fixture-model`, `transcript-events`, `subject-headers`, `ag-ui-endpoint`,
 `a2a-endpoint`, `sandboxes`, `sandbox-pods` and `trusted-issuers`).
+Protocol 9 made the Runtime API an OAuth 2.1 resource server: credential failures are `401`
+challenges instead of the opaque `404`, the protected resource metadata is served, and the
+identity file lost `maxLifetime`.
 Protocol 8 split the Runtime API from the Management API by key role, moved vaults and
 signing keys under `/v1/tenant`, retired `tenant:settings`, and removed the Admin API, the
 operator listener and the feature `operator-keys`; with track R2 it also removed Action
@@ -377,7 +397,7 @@ endpoints (`/v1/endpoints`, `/v1/actions/*`, delivery tokens and the feature
 `404`, with no alias. Protocol 7 removed subject tokens, the access policy, revocations,
 browser keys, the Runtime's CORS and derived principals; their routes answer `404`.
 Independent of package semver. Incompatible clients receive `426` before
-authentication. A client that uses an optional feature checks `/health` first.
+authentication, unless they send no credential either. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
 
 **Studio principal**: Principal `studio` (role `studio`) that the Host registers when it
