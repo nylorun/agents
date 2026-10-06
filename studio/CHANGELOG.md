@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.1-beta
+
+### Patch Changes
+
+- Pin agents to the tested release.
+- Updated dependencies [cb29dea]
+  - @nylorun/agents@0.16.1-beta
+
 ## 0.22.0-beta
 
 ### Minor Changes
