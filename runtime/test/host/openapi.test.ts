@@ -49,10 +49,10 @@ it("documents every operation in one document, with who may call it; /v1/me in b
   const management = operations(managementDocument());
   expect(new Set(runtime).size).toBe(runtime.length);
   expect(new Set(management).size).toBe(management.length);
-  // Every Tenant route the app declares, and /health, /ready and the two documents (not the
-  // /openapi.json alias); /v1/me is the one operation in both.
+  // Every Tenant route the app declares, and /health, /ready, the protected resource metadata
+  // and the two documents (not the /openapi.json alias); /v1/me is the one operation in both.
   const routes = tenantApi().openAPIRegistry.definitions.filter((d) => d.type === "route");
-  expect(new Set([...runtime, ...management]).size).toBe(routes.length + 4);
+  expect(new Set([...runtime, ...management]).size).toBe(routes.length + 5);
   expect(runtime.filter((operation) => management.includes(operation))).toEqual(["GET /v1/me"]);
   // The Management API is /v1/tenant/*, the OAuth callback, /v1/me and its document.
   for (const operation of management)

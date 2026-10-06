@@ -1,6 +1,7 @@
 /**
  * The identity file (Host feature `trusted-issuers`): what parses, and how a malformed file is
- * refused, naming the issuer and the field, before the Host boots.
+ * refused, naming the issuer and the field, before the Host boots. Keys it does not define are
+ * ignored with a warning, so an older file (with `maxLifetime`, gone in protocol 9) still boots.
  */
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -15,7 +16,6 @@ const BASE = {
   subject: '"u:{sub}"',
   scopes: "{ claim: nylorun_scopes }",
   allowedScopes: "[agents:read, sessions:own, sandboxes:write, studio]",
-  maxLifetime: "15m",
 };
 
 function file(overrides: Record<string, string | undefined> = {}, extra = ""): string {
@@ -65,8 +65,33 @@ describe("parseIdentityFile", () => {
       allowedScopes: ["agents:read", "sessions:own", "sandboxes:write", "studio"],
       agents: ["support"],
       sandboxes: ["{org_id}/*"],
-      maxLifetimeSeconds: 900,
     });
+  });
+
+  it("defaults the subject, the scope claim and the allowed scopes", () => {
+    const [issuer] = parseIdentityFile(
+      file({ subject: undefined, scopes: undefined, allowedScopes: undefined }),
+    );
+    expect(issuer).toMatchObject({
+      subject: "{sub}",
+      scopes: { claim: "scope" },
+      allowedScopes: ["agents:read", "sessions:own", "sandboxes:write"],
+    });
+  });
+
+  it("ignores keys it does not define, with a warning naming each", () => {
+    const warnings: string[] = [];
+    const [issuer] = parseIdentityFile(file({ maxLifetime: "15m", typo: "1" }, "extra: true\n"), "identity.yaml", {
+      warn: (message) => warnings.push(message),
+    });
+    expect(issuer).not.toHaveProperty("maxLifetime");
+    expect(issuer).not.toHaveProperty("typo");
+    expect(warnings).toEqual([
+      "identity.yaml: the file: ignored `extra`, which the identity file does not define",
+      "identity.yaml: issuer keycloak: ignored `maxLifetime`, `typo`, which the identity file does not define",
+    ]);
+    // Without a listener, the file still parses.
+    expect(parseIdentityFile(file({ maxLifetime: "soon" }))).toHaveLength(1);
   });
 
   it("reads static keys of each accepted kind", () => {
@@ -108,14 +133,11 @@ describe("parseIdentityFile", () => {
       [{ keys: keysBlock([pem("ed25519")]) }, "jwks or keys"],
       [{ keys: keysBlock([pem("rsa", { modulusLength: 1024 })]), jwks: undefined }, "keys[0]"],
       [{ keys: keysBlock([pem("ec", { namedCurve: "P-384" })]), jwks: undefined }, "keys[0]"],
-      [{ maxLifetime: "2d" }, "maxLifetime"],
-      [{ maxLifetime: "soon" }, "maxLifetime"],
       [{ subject: '"u:{sub"' }, "subject"],
       [{ sandboxes: '["{org}/../x"]' }, "sandboxes"],
       [{ sandboxes: `[${Array.from({ length: 17 }, (_, i) => `"s${i}"`).join(", ")}]` }, "sandboxes"],
       [{ issuer: "urn:nylorun:tenant:tn_x" }, "issuer"],
       [{ audience: undefined }, "audience"],
-      [{ typo: "1" }, "typo"],
     ];
     for (const [overrides, field] of cases) {
       const message = refusal(file(overrides));

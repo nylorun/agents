@@ -1,6 +1,11 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 9: the Runtime API is an OAuth 2.1 resource server (RFC 6750, RFC 9728). A missing
+ * or unknown credential is `401 credential_required` or `credential_invalid` with a
+ * `WWW-Authenticate: Bearer` challenge instead of the opaque 404, a token missing a scope gets
+ * `error="insufficient_scope"`, and `GET /.well-known/oauth-protected-resource` names the trusted
+ * issuers. Identity files lose `maxLifetime`: the issuer sets its tokens' lifetimes.
  * Protocol 8: the Runtime and Management APIs (`key_role_mismatch`), and manifest-only agents
  * (track R2): manifest v5 and workflow manifest v3, no hooks or flow functions, remote MCP
  * only, and no Action endpoints (`/v1/endpoints` and `/v1/actions/*` answer 404, delivery
@@ -14,7 +19,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -25,6 +30,12 @@ export const PROTOCOL_FEATURES = [
    * `/v1/tenant`.
    */
   "management-api",
+  /**
+   * Protocol 9: credential failures are `401` with a `WWW-Authenticate: Bearer` challenge
+   * (`credential_required`, `credential_invalid`), and the Runtime serves its protected resource
+   * metadata at `/.well-known/oauth-protected-resource` when it has trusted issuers.
+   */
+  "resource-server",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -73,12 +84,12 @@ export interface ProtocolRange {
  * What this Host serves. `runtime-tenants` (protocol 4 clients require it) and `admin-status`
  * (protocol 5 to 7 clients require it) are still advertised for the compatibility window, so
  * those clients keep reaching the Runtime API; protocol 8 clients require neither. The Admin
- * API itself is gone (protocol 8): `/v1/admin/*` is the opaque 404. `artifacts` (protocol 6 and
+ * API itself is gone (protocol 8): `/v1/admin/*` is no route. `artifacts` (protocol 6 and
  * 7, required by their clients): file artifacts, capability links and message `parts`.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 4,
-  max: 8,
+  max: 9,
   features: ["runtime-tenants", "admin-status", ...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
@@ -100,6 +111,14 @@ export const AGENT_ID_HEADER = "Nylorun-Agent-Id";
 
 export const ERROR_CODES = [
   "not_found",
+  /** No credential on a route that needs one (protocol 9): `401` with a `Bearer` challenge. */
+  "credential_required",
+  /**
+   * A key the Tenant does not know, or a token no trusted issuer signed or that fails its checks
+   * (protocol 9): `401` with `WWW-Authenticate: Bearer error="invalid_token"`. The reason is
+   * logged, never sent.
+   */
+  "credential_invalid",
   "protocol_unsupported",
   "host_rejected",
   "origin_rejected",

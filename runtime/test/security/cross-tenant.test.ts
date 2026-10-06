@@ -80,31 +80,33 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
     label: string;
     init: RequestInit & { path: string };
     expectOpaque?: boolean;
+    /** A credential this Host's Tenant does not know: `401 credential_invalid` (protocol 9). */
+    expectRejected?: boolean;
     expectAScoped?: boolean;
   }> = [
     {
-      label: "B token → opaque",
+      label: "B token → 401",
       init: {
         path: "/v1/agents",
         headers: tenantHeaders(b.applicationKey),
       },
-      expectOpaque: true,
+      expectRejected: true,
     },
     {
-      label: "B management key → opaque",
+      label: "B management key → 401",
       init: {
         path: "/v1/tenant",
         headers: tenantHeaders(b.managementKey),
       },
-      expectOpaque: true,
+      expectRejected: true,
     },
     {
-      label: "A header + B token → opaque",
+      label: "A header + B token → 401",
       init: {
         path: "/v1/agents",
         headers: tenantHeaders(b.applicationKey, a.id),
       },
-      expectOpaque: true,
+      expectRejected: true,
     },
     {
       label: "B header + A token → opaque (names the other Tenant)",
@@ -183,6 +185,12 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
       expect(result.body, route.label).toEqual(OPAQUE_NOT_FOUND);
       continue;
     }
+    if (route.expectRejected) {
+      expect(result.status, route.label).toBe(401);
+      expect(result.body, route.label).toMatchObject({ code: "credential_invalid" });
+      expect(result.raw, route.label).not.toContain(b.id);
+      continue;
+    }
     // A-scoped: either success that only reflects A, or a non-leak 404/403/400.
     expect([200, 400, 403, 404], route.label).toContain(result.status);
     if (result.status === 200) {
@@ -222,6 +230,6 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
   const crossed = await getJson(`${other.url}/v1/sessions/sess-b`, {
     headers: a.headers(),
   });
-  expect(crossed.status).toBe(404);
-  expect(crossed.body).toEqual(OPAQUE_NOT_FOUND);
+  expect(crossed.status).toBe(401);
+  expect(crossed.body).toMatchObject({ code: "credential_invalid" });
 });

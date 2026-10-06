@@ -5,13 +5,14 @@
     "version": "0.0.0",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 8,
+      "max": 9,
       "features": [
         "runtime-tenants",
         "admin-status",
         "studio-principal",
         "artifacts",
         "management-api",
+        "resource-server",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -70,6 +71,8 @@
             "type": "string",
             "enum": [
               "not_found",
+              "credential_required",
+              "credential_invalid",
               "protocol_unsupported",
               "host_rejected",
               "origin_rejected",
@@ -2961,10 +2964,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -2990,6 +2993,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -3001,7 +3014,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3053,10 +3066,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3092,6 +3105,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -3103,7 +3126,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3155,10 +3178,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3194,6 +3217,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -3205,7 +3238,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3266,10 +3299,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -3316,7 +3349,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3336,7 +3369,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3401,10 +3434,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3430,6 +3463,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -3441,7 +3484,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3503,10 +3546,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3525,6 +3568,16 @@
           "400": {
             "description": "Not a key name, a reserved name, or a management key's name"
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -3536,7 +3589,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3596,10 +3649,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3618,6 +3671,16 @@
           "400": {
             "description": "Not a key name, a reserved name, or a management key's name"
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -3629,7 +3692,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3680,10 +3743,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3709,6 +3772,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -3720,7 +3793,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3771,10 +3844,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3800,6 +3873,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -3811,7 +3894,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3862,10 +3945,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3891,6 +3974,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -3902,7 +3995,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3951,10 +4044,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3990,6 +4083,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4001,7 +4104,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4052,10 +4155,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4091,6 +4194,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4102,7 +4215,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4191,10 +4304,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4220,6 +4333,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4231,7 +4354,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4301,10 +4424,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4330,6 +4453,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4341,7 +4474,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4392,10 +4525,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4421,6 +4554,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4432,7 +4575,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4482,10 +4625,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4521,6 +4664,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4532,7 +4685,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4584,10 +4737,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4623,6 +4776,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4634,7 +4797,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4697,10 +4860,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4726,6 +4889,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4737,7 +4910,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4796,10 +4969,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4825,6 +4998,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4836,7 +5019,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4893,10 +5076,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4922,6 +5105,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -4933,7 +5126,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4993,10 +5186,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5032,6 +5225,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -5043,7 +5246,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5100,10 +5303,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5129,6 +5332,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -5140,7 +5353,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5207,10 +5420,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5236,6 +5449,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -5247,7 +5470,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5312,10 +5535,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5351,6 +5574,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -5362,7 +5595,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5430,10 +5663,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5459,6 +5692,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -5470,7 +5713,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5530,10 +5773,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5569,6 +5812,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -5580,7 +5833,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5665,10 +5918,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": false,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -5715,7 +5968,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5725,7 +5978,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5735,7 +5988,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5789,10 +6042,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5818,6 +6071,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -5829,7 +6092,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5881,10 +6144,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5920,6 +6183,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -5931,7 +6204,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5993,10 +6266,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6032,6 +6305,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -6043,7 +6326,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6097,10 +6380,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6126,6 +6409,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -6137,7 +6430,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6187,10 +6480,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6226,6 +6519,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -6237,7 +6540,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6288,10 +6591,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6317,6 +6620,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -6328,7 +6641,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6378,10 +6691,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6417,6 +6730,16 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
@@ -6428,7 +6751,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {

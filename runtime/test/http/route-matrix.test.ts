@@ -150,8 +150,10 @@ async function observe(
   if (contentType) observed.contentType = contentType;
   const allowOrigin = response.headers.get("access-control-allow-origin");
   if (allowOrigin) observed.allowOrigin = allowOrigin;
+  // The challenge names the Runtime's own URL, whose port differs every run.
   const wwwAuthenticate = response.headers.get("www-authenticate");
-  if (wwwAuthenticate) observed.wwwAuthenticate = wwwAuthenticate;
+  if (wwwAuthenticate)
+    observed.wwwAuthenticate = wwwAuthenticate.replace(new URL(url).origin, "<runtime>");
   const retryAfter = response.headers.get("retry-after");
   if (retryAfter) observed.retryAfter = retryAfter;
   if (contentType?.startsWith("text/event-stream")) {

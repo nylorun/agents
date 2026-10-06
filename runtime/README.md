@@ -154,15 +154,19 @@ presents a trusted issuer's token; keys (application and management)
 are refused from browsers before they are looked up. The Runtime sends no CORS headers, and answers
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
 ([DEPLOYMENT.md](../DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
-unsupported protocol → `426` before authentication (the Host serves protocols 4 to 8;
-protocol 8 gives keys roles, moves vaults and signing keys under `/v1/tenant` and removes
+unsupported protocol → `426` before authentication, unless the request sends neither
+`Nylorun-Protocol` nor `Authorization` (the Host serves protocols 4 to 9; protocol 9 makes the
+Runtime API an OAuth 2.1 resource server: a missing or rejected credential is `401
+credential_required` or `credential_invalid` with a `WWW-Authenticate: Bearer` challenge, a
+token without a route's scope gets `error="insufficient_scope"`, and
+`/.well-known/oauth-protected-resource` lists the trusted issuers (RFC 9728); protocol 8 gives keys roles, moves vaults and signing keys under `/v1/tenant` and removes
 the Admin API, and those old paths answer `404` with no alias; protocol 7 removes subject tokens, the access policy, revocations, browser keys and
 derived principals, whose routes answer `404`; protocol 6 adds file and folder artifacts and message `parts`; at each turn's end the
 Runtime exports `/workspace/outputs` of the session's sandbox as a version of its
 `outputs` folder, read at `/v1/artifacts/{id}/versions/{n|latest}/tree`, `/files/{path}`,
 `/diff?from=` and `/zip`). Protocol 5 and later clients name no Tenant. A protocol 4 client's `Nylorun-Tenant` naming
-another Tenant (or malformed), a Tenant that
-could not be opened and rejected credentials → opaque `404` with identical body. A path or method no route serves is `404 Route not found`
+another Tenant (or malformed) and a Tenant that
+could not be opened → opaque `404` with identical body. A path or method no route serves is `404 Route not found`
 once the caller is known.
 
 ## API reference (OpenAPI)

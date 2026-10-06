@@ -38,7 +38,7 @@ it("serves the JWKS with only the Tenant header", async () => {
 });
 
 it("still checks a credential that is sent, and refuses an application key from a browser", async () => {
-  expect((await get("/v1/access/jwks", { authorization: "Bearer not-a-real-key-000000000000" })).status).toBe(404);
+  expect((await get("/v1/access/jwks", { authorization: "Bearer not-a-real-key-000000000000" })).status).toBe(401);
   // A browser with no credential reads public keys too (protocol 7); CORS is the proxy's.
   const browser = await get("/v1/access/jwks", { origin: "https://app.example" });
   expect(browser.status).toBe(200);
@@ -51,5 +51,5 @@ it("still checks a credential that is sent, and refuses an application key from 
 
 it("serves nothing else without a credential", async () => {
   for (const path of ["/v1/agents", "/v1/tenant/signing-keys", "/v1/sessions"])
-    expect((await get(path)).status, path).toBe(404);
+    expect((await get(path)).status, path).toBe(401);
 });

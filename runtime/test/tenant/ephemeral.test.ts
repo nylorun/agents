@@ -163,13 +163,13 @@ it("creates its Tenant once, as a Host does, and serves it again on the same dat
   // The first run's application key is still the Tenant's; its management key (`bootstrap`)
   // was replaced by this run's.
   expect((await get("/v1/me", first.applicationKey)).status).toBe(200);
-  expect((await get("/v1/tenant", first.managementKey)).status).toBe(404);
-  // No Admin Tenant routes.
+  expect((await get("/v1/tenant", first.managementKey)).status).toBe(401);
+  // No Admin Tenant routes, and the admin key is no request's credential.
   const admin = await fetch(`${runtime.url}/v1/admin/tenants`, {
     headers: {
       authorization: `Bearer ${runtime.adminKey}`,
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
     },
   });
-  expect(admin.status).toBe(404);
+  expect(admin.status).toBe(401);
 });

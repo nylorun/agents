@@ -70,11 +70,12 @@ async function startHost() {
 }
 
 it("A5: the Admin API is gone: /v1/admin/* answers as any unknown route does, with any key", async () => {
+  // A known key learns there is no such route (404); the admin key is no credential (401).
   const runtime = await startHost();
   const { url, adminKey, managementKey, applicationKey } = runtime;
   for (const key of [adminKey, managementKey, applicationKey]) {
     const unknown = await getJson(`${url}/v1/no-such-route`, { headers: keyHeaders(key) });
-    expect(unknown.status).toBe(404);
+    expect(unknown.status).toBe(key === adminKey ? 401 : 404);
     expect(ERROR_CODES).toContain(RejectedResponseSchema.parse(unknown.body).code);
     for (const [method, path] of [
       ["GET", "/v1/admin/status"],
@@ -115,6 +116,6 @@ it("the Studio key the admin key derives reaches the Tenant; nothing else derive
   // Other admin keys and the admin key itself reach nothing; the admin client derives no
   // Tenant key (protocol 7).
   expect("deriveTenantKey" in admin).toBe(false);
-  expect((await agents(deriveStudioToken("f".repeat(64)))).status).toBe(404);
-  expect((await agents(adminKey)).status).toBe(404);
+  expect((await agents(deriveStudioToken("f".repeat(64)))).status).toBe(401);
+  expect((await agents(adminKey)).status).toBe(401);
 });

@@ -49,6 +49,7 @@ import {
   EXIT_NON_LOOPBACK,
 } from "./http.js";
 import { createHostLogger } from "./logger.js";
+import type { Logger } from "../tenant/types.js";
 import {
   describeEndpoints,
   describeServices,
@@ -84,9 +85,10 @@ function loadJson<T>(path: string): T {
 /**
  * The trusted issuers of the identity file (`NYLORUN_IDENTITY_FILE`, Host feature
  * `trusted-issuers`). A missing or malformed file stops the boot, naming the issuer and field;
- * an issuer's JWKS is fetched only when a token needs it, so one that is down does not.
+ * a key the file does not define is logged and ignored. An issuer's JWKS is fetched only when a
+ * token needs it, so one that is down does not stop the boot.
  */
-function loadIssuers(path: string): TrustedIssuers {
+function loadIssuers(path: string, logger: Logger): TrustedIssuers {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
@@ -95,7 +97,11 @@ function loadIssuers(path: string): TrustedIssuers {
       `NYLORUN_IDENTITY_FILE names ${path}, which cannot be read: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  return createTrustedIssuers(parseIdentityFile(text, path));
+  return createTrustedIssuers(
+    parseIdentityFile(text, path, {
+      warn: (message) => logger.warn("identity_file_key_ignored", { message }),
+    }),
+  );
 }
 
 /** The bootstrap management key: 64 hex characters, surrounding whitespace ignored. */
@@ -261,8 +267,8 @@ export async function main(): Promise<void> {
   const config = loadJson<HostConfigFile>(paths.config);
   const credentials = loadJson<HostCredentialsFile>(paths.credentials);
   const identityFile = stack.tenant?.identityFile;
-  const issuers = identityFile ? loadIssuers(identityFile) : undefined;
   const logger = createHostLogger();
+  const issuers = identityFile ? loadIssuers(identityFile, logger) : undefined;
   if (issuers)
     logger.info("trusted_issuers", {
       file: identityFile,
@@ -402,6 +408,10 @@ export async function main(): Promise<void> {
     coreVersion: coreVersion(),
     ...(stack.listen ? { listen: stack.listen } : {}),
     ...(infra.readiness ? { readiness: infra.readiness } : {}),
+    resourceServer: {
+      ...(issuers ? { issuers } : {}),
+      ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
+    },
     // SIGTERM closes the Host this way: stop the Worker and the relay, close the Tenant, then end the infrastructure clients.
     shutdown: {
       beforeTenants: async () => {

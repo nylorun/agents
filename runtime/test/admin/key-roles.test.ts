@@ -113,7 +113,7 @@ describe("nylorun-operate keys", () => {
 
     const rotated = await host.operate("keys", "put", "solo", "--role", "management", "--json");
     expect(JSON.parse(rotated.out[0]!)).toMatchObject({ id: "solo", role: "management", rotated: true });
-    expect((await host.call(first, "GET", "/v1/tenant")).status).toBe(404);
+    expect((await host.call(first, "GET", "/v1/tenant")).status).toBe(401);
 
     expect((await host.operate("keys", "rm", "solo")).code).toBe(0);
     expect((await host.operate("keys", "rm", "studio")).code).toBe(EXIT_REFUSED);
@@ -124,7 +124,7 @@ describe("nylorun-operate keys", () => {
     const removed = await host.operate("keys", "rm", "bootstrap", "--json");
     expect(removed.code).toBe(0);
     expect(JSON.parse(removed.out[0]!)).toEqual({ id: "bootstrap", deleted: true });
-    expect((await host.call(host.managementKey, "GET", "/v1/tenant")).status).toBe(404);
+    expect((await host.call(host.managementKey, "GET", "/v1/tenant")).status).toBe(401);
   });
 
   it("refuses bad usage, and a database without a Tenant", async () => {

@@ -15,7 +15,12 @@ import type { Context, Handler, MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import type { SubjectScope } from "@nylorun/core/contracts";
-import { authenticate, requireScopes, type KeyAccess } from "../../tenant/auth.js";
+import {
+  authenticate,
+  challengeMetadata,
+  requireScopes,
+  type KeyAccess,
+} from "../../tenant/auth.js";
 import type { AuthScope } from "../../tenant/context.js";
 import { fail } from "../../tenant/http.js";
 import { ProtocolRejected, Rejected } from "../components.js";
@@ -33,7 +38,8 @@ export interface RouteAccess {
   /** The subject scopes that reach the route: any one of them, none (`never`), or all (`any`). */
   readonly scopes: readonly SubjectScope[] | "never" | "any";
   /**
-   * Public data: a request with no credential at all (no `Authorization`) is served too. A credential that is sent is still checked, so a wrong one stays the opaque 404.
+   * Public data: a request with no credential at all (no `Authorization`) is served too. A
+   * credential that is sent is still checked, so a wrong one is `401 credential_invalid`.
    */
   readonly anonymous?: boolean;
   /**
@@ -87,7 +93,7 @@ export async function authenticateCaller(
   return await authenticate(tenant, incoming, keys);
 }
 
-/** No route: authenticated first, so an unknown credential stays the opaque 404. */
+/** No route: authenticated first, so only a known credential learns there is no such route. */
 export async function routeNotFound(c: Context<TenantEnv>): Promise<Response> {
   // Any known key, of either API, learns only that there is no such route.
   await authenticateCaller(c, false, { application: true, management: true });
@@ -132,8 +138,9 @@ export function declaredRoute(
 
 function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
   return async (c, next) => {
-    const scope = await authenticateCaller(c, access.anonymous === true, keyAccess(access));
-    requireScopes(scope, access.scopes);
+    const keys = keyAccess(access);
+    const scope = await authenticateCaller(c, access.anonymous === true, keys);
+    requireScopes(scope, access.scopes, challengeMetadata(c.env.tenant, c.env.incoming, keys));
     c.set("scope", scope);
     await next();
   };
@@ -173,19 +180,17 @@ export function tenantRoute(
     request: { ...route.request, headers },
     responses: {
       400: rejected("Invalid headers, path, body or cursor"),
-      ...(takes("token")
-        ? {
-            401: rejected(
-              "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
-            ),
-          }
-        : {}),
+      401: rejected(
+        takes("token")
+          ? "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)"
+          : "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+      ),
       403: rejected(
         takes("management")
           ? "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject"
-          : "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+          : "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
       ),
-      404: rejected("Not found, or a credential the Tenant does not know (`not_found`)"),
+      404: rejected("Not found (`not_found`)"),
       426: { description: "`Nylorun-Protocol` missing or unsupported", content: { "application/json": { schema: ProtocolRejected } } },
       503: rejected("The Tenant's storage or streams are unavailable"),
       ...route.responses,

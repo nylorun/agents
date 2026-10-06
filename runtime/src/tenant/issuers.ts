@@ -11,20 +11,22 @@
  *   a `kid` it has not seen, and refreshed in the background once the cache is 10 minutes old.
  *   When the JWKS cannot be fetched, cached keys keep working and a new `kid` is
  *   `401 issuer_unavailable`;
- * - `iss` and `aud` as configured, `exp` and `iat` present, `exp - iat` at most `maxLifetime`,
- *   with the 30 s clock tolerance of every Runtime token;
+ * - `iss` and `aud` as configured, and `exp` present, with the 30 s clock tolerance of every
+ *   Runtime token. How long a token lives is the issuer's to decide (protocol 9 dropped
+ *   `maxLifetime`); an `iat` in the future is still refused;
  * - a subject the template renders from scalar claims, valid and not reserved.
  *
  * The result is the `token` AuthScope (F9-D12) with `issuer`: only its expiry ends it. An
- * expired token is `401 token_expired`; every other refusal is the opaque 404, its reason
- * logged.
+ * expired token is `401 token_expired`; every other refusal is `401 credential_invalid`
+ * (`resource-server.ts`), its reason logged.
  */
 import { createHash, createPublicKey } from "node:crypto";
 import { decodeJwt, decodeProtectedHeader, errors, jwtVerify, type JWTPayload } from "jose";
 import { isSubject, type IssuerScope } from "@nylorun/core/contracts";
 import type { AuthScope, TenantContext } from "./context.js";
-import { failOpaque, HttpError } from "./http.js";
+import { HttpError } from "./http.js";
 import { CLOCK_TOLERANCE_SECONDS, looksLikeToken } from "./jwt.js";
+import { bearerChallenge, failCredential } from "./resource-server.js";
 import {
   ISSUER_ALGORITHMS,
   issuerKey,
@@ -66,7 +68,7 @@ export type IssuerVerdict =
 /** One configured issuer, with its keys. */
 export interface TrustedIssuer {
   readonly config: TrustedIssuerConfig;
-  /** Checks `raw`'s header and signature, `iss`, `aud`, `exp`, `iat` and its lifetime. */
+  /** Checks `raw`'s header and signature, `iss`, `aud`, `exp` and `iat`. */
   verify(raw: string): Promise<IssuerVerdict>;
 }
 
@@ -211,13 +213,12 @@ function trustedIssuer(config: TrustedIssuerConfig, options: Required<TrustedIss
             issuer: config.issuer,
             audience: config.audience,
             clockTolerance: CLOCK_TOLERANCE_SECONDS,
-            requiredClaims: ["iat", "exp"],
+            requiredClaims: ["exp"],
             currentDate: new Date(options.now()),
           });
           const now = Math.floor(options.now() / 1000);
-          if (payload.iat! > now + CLOCK_TOLERANCE_SECONDS) return refuse("invalid", "issuer_token_future");
-          if (payload.exp! - payload.iat! > config.maxLifetimeSeconds)
-            return refuse("invalid", "issuer_token_lifetime");
+          if (payload.iat !== undefined && payload.iat > now + CLOCK_TOLERANCE_SECONDS)
+            return refuse("invalid", "issuer_token_future");
           return { ok: true, payload, ...(kid !== undefined ? { kid } : {}) };
         } catch (error) {
           // Signature checks come first: an expiry is only reported for a token the issuer signed.
@@ -286,17 +287,19 @@ export type IssuerTokenScope = Extract<AuthScope, { kind: "token" }>;
 /**
  * Verifies a bearer that `issuer` claims (`TrustedIssuers.claimed`). Returns the request's
  * scope; answers `401 token_expired` for an expired token, `401 issuer_unavailable` for a key
- * the Runtime cannot fetch now, and the opaque 404 for everything else.
+ * the Runtime cannot fetch now, and `401 credential_invalid` for everything else. Each carries
+ * a `Bearer` challenge naming `resourceMetadata`, the route's protected resource metadata.
  */
 export async function verifyIssuerToken(
   ctx: TenantContext,
   issuer: TrustedIssuer,
   raw: string,
+  resourceMetadata?: string,
 ): Promise<IssuerTokenScope> {
   const { config } = issuer;
   const rejected = (reason: string): never => {
     ctx.config.logger.warn("credential rejected", { reason, issuer: config.name });
-    return failOpaque();
+    return failCredential("invalid", resourceMetadata);
   };
   const verdict = await issuer.verify(raw);
   if (!verdict.ok) {
@@ -306,14 +309,24 @@ export async function verifyIssuerToken(
         401,
         "The token has expired",
         { code: "token_expired" },
-        { "www-authenticate": 'Bearer error="invalid_token"' },
+        {
+          "www-authenticate": bearerChallenge({
+            error: "invalid_token",
+            description: "The access token expired",
+            resourceMetadata,
+          }),
+        },
       );
     }
     if (verdict.refused === "unavailable") {
       ctx.config.logger.warn("issuer token refused", { reason: verdict.reason, issuer: config.name });
-      throw new HttpError(401, `The keys of issuer ${config.name} cannot be fetched now; try again later`, {
-        code: "issuer_unavailable",
-      });
+      // The token may be fine: no error code, so a client retries rather than signs in again.
+      throw new HttpError(
+        401,
+        `The keys of issuer ${config.name} cannot be fetched now; try again later`,
+        { code: "issuer_unavailable" },
+        { "www-authenticate": bearerChallenge({ resourceMetadata }) },
+      );
     }
     return rejected(verdict.reason);
   }

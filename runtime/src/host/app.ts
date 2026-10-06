@@ -13,6 +13,11 @@
  * with `Allow` and no CORS header, so a browser that reaches the Runtime directly fails its
  * preflight.
  *
+ * OAuth (protocol 9, `tenant/resource-server.ts`): `/.well-known/oauth-protected-resource` is
+ * public, served before the protocol check and to browsers too. A request to a Tenant route
+ * that sends neither a credential nor `Nylorun-Protocol` (a generic OAuth client) gets the
+ * route's `401` challenge rather than the `426`, so it learns where to sign in.
+ *
  * The `Host` header is checked before this, in the Node listener (`create-host.ts`):
  * `@hono/node-server` builds the request URL from it, and refuses a malformed one itself.
  * For the same reason paths here come from the Node request, never from the URL's host part.
@@ -30,6 +35,14 @@ import {
 import type { Logger, NodeBindings, TenantModule } from "../tenant/types.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { findTenantRoute } from "../api/http/app.js";
+import { keyAccess } from "../api/http/define.js";
+import {
+  bearerChallenge,
+  PROTECTED_RESOURCE_PATH,
+  protectedResourceMetadata,
+  protectedResourceMetadataUrl,
+  type ResourceServerConfig,
+} from "../tenant/resource-server.js";
 import { managementDocument, runtimeDocument } from "../api/openapi.js";
 import {
   headerValue,
@@ -60,6 +73,8 @@ export interface HostAppOptions {
   coreVersion: string;
   pid: number;
   readiness?: () => Promise<{ ok: boolean; checks: Record<string, boolean> }>;
+  /** The public URL and trusted issuers the OAuth metadata and challenges name. */
+  resourceServer?: ResourceServerConfig;
   /** The listener is listening. */
   listening(): boolean;
   closing(): boolean;
@@ -67,6 +82,7 @@ export interface HostAppOptions {
 
 export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
   const { module, logger } = options;
+  const resourceServer = options.resourceServer ?? {};
   const app = new Hono<HostEnv>();
 
   app.use(async (c, next) => {
@@ -89,9 +105,12 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
   app.use(async (c, next) => {
     const { incoming } = c.env;
     if (headerValue(incoming, "origin") !== undefined) {
-      // Only Tenant routes; the Tenant then accepts only a trusted issuer's token from a
-      // browser.
-      if (pathnameOf(incoming).split("/").filter(Boolean)[0] !== "v1")
+      // Only Tenant routes, where the Tenant then accepts only a trusted issuer's token from a
+      // browser, and the public OAuth metadata a browser client reads before it signs in.
+      if (
+        pathnameOf(incoming).split("/").filter(Boolean)[0] !== "v1" &&
+        !isProtectedResourcePath(pathnameOf(incoming))
+      )
         return rejectedResponse(
           403,
           "origin_rejected",
@@ -160,16 +179,45 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
     if (pathname === "/openapi/management.json" && incoming.method === "GET")
       return jsonResponse(200, managementDocument(), { "cache-control": "no-cache" });
 
+    // RFC 9728: where the Runtime API's tokens come from. None without trusted issuers.
+    if (isProtectedResourcePath(pathname) && incoming.method === "GET") {
+      const metadata = protectedResourceMetadata(resourceServer, incoming);
+      return metadata
+        ? jsonResponse(200, metadata, { "cache-control": "no-cache" })
+        : rejectedResponse(404, "not_found", "This Runtime trusts no identity provider");
+    }
+
     // Tenant routes: protocol → the Tenant → selection → the Tenant's routes.
     const tenantHeader = headerValue(incoming, TENANT_HEADER);
     const named =
       tenantHeader === undefined || tenantHeader.trim() === "" ? undefined : tenantHeader.trim();
 
     const protocol = headerValue(incoming, PROTOCOL_HEADER);
+    // A generic OAuth client sends neither header: answer it the challenge, not the 426.
+    const route = tenantRouteOf(incoming);
+    if (
+      protocol === undefined &&
+      headerValue(incoming, "authorization") === undefined &&
+      route !== undefined &&
+      route.anonymous !== true
+    ) {
+      const metadata = keyAccess(route).application
+        ? protectedResourceMetadataUrl(resourceServer, incoming)
+        : undefined;
+      return jsonResponse(
+        401,
+        {
+          status: "rejected",
+          code: "credential_required",
+          message: "A bearer credential is required",
+        },
+        { "www-authenticate": bearerChallenge({ resourceMetadata: metadata }) },
+      );
+    }
     // A capability link is opened without the header; when one is sent, it is checked.
     if (
       !protocolAccepted(protocol) &&
-      !(protocol === undefined && tenantRouteOf(incoming)?.unversioned === true)
+      !(protocol === undefined && route?.unversioned === true)
     )
       return protocolRejectedResponse();
 
@@ -220,6 +268,10 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
 
 /** The methods the Runtime serves, for an `OPTIONS` answer's `Allow`. */
 const ALLOWED_METHODS = "GET, POST, PUT, DELETE, OPTIONS";
+
+function isProtectedResourcePath(pathname: string): boolean {
+  return pathname === PROTECTED_RESOURCE_PATH || pathname.startsWith(`${PROTECTED_RESOURCE_PATH}/`);
+}
 
 /** The Tenant route a request names, if any; a malformed path names none. */
 function tenantRouteOf(incoming: IncomingMessage) {

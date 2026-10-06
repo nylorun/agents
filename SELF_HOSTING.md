@@ -66,7 +66,7 @@ sessions, sandboxes and artifacts) for apps and people, and the **Management API
 application key sent with one (`403 origin_rejected`).
 
 **Browsers and apps** present the token your identity provider gave the person, with
-`Nylorun-Protocol: 8`. The Runtime verifies it against the identity file and takes the subject,
+`Nylorun-Protocol: 9`. The Runtime verifies it against the identity file and takes the subject,
 scopes, agents and sandbox grants from it. Nylorun mints no token and ships no browser client:
 use your provider's SDK to sign in, and put the Runtime behind a reverse proxy that answers
 [CORS](#cors-at-your-proxy). An issuer's token cannot act for anyone else: with
@@ -149,35 +149,49 @@ The identity file lists the identity providers whose JWTs the Runtime accepts (H
 reads the path in `NYLORUN_IDENTITY_FILE`. The file is read once at boot. After adding it, run
 `nylorun start` again; after editing it, restart the runtime (`nylorun stop`, then
 `nylorun start`). A malformed file stops the runtime, naming the issuer and the field; an
-unreachable JWKS never does.
+unreachable JWKS never does. A key the file does not define is ignored, and the runtime logs
+`identity_file_key_ignored` naming it: an older file's `maxLifetime` (removed in protocol 9),
+or a typo. Check that log after an edit, since a misspelled optional field such as `agent:`
+is ignored rather than refused.
+
+Nylorun is never the authorization server: your identity provider signs people in and sets
+how long their tokens live. Most installations list one provider:
 
 ```yaml
 issuers:
   - name: keycloak
     issuer: https://sso.acme.dev/realms/eng
-    audience: nylorun
+    audience: https://agents.acme.dev
+    jwks: https://sso.acme.dev/realms/eng/protocol/openid-connect/certs
+```
+
+With every field:
+
+```yaml
+issuers:
+  - name: keycloak
+    issuer: https://sso.acme.dev/realms/eng
+    audience: https://agents.acme.dev
     jwks: https://sso.acme.dev/realms/eng/protocol/openid-connect/certs
     subject: "u:{sub}"
     scopes: { claim: nylorun_scopes }
     allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
     agents: [support]
     sandboxes: ["{org_id}/*"]
-    maxLifetime: 15m
 ```
 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `name` | yes | Matches `^[a-z][a-z0-9-]{0,31}$`, unique in the file. Tokens report `via: issuer:<name>` |
 | `issuer` | yes | The tokens' `iss`, exactly; unique in the file. A bearer whose `iss` names it is verified by this issuer only |
-| `audience` | yes | A value the tokens' `aud` must hold |
+| `audience` | yes | A value the tokens' `aud` must hold. Use the Runtime's public URL (`NYLORUN_PUBLIC_URL`) where your provider lets you: that is the RFC 8707 `resource` an OAuth client asks for. Some providers fix it to an id instead (Entra ID puts the API app's client id there) |
 | `jwks` | one of `jwks`, `keys` | An `http(s)` URL without credentials. Fetched only there, without following redirects, within 5 s; keys are cached by `kid`, a token with an unknown `kid` refetches at most once a minute, and the cache refreshes in the background after 10 minutes |
 | `keys` | one of `jwks`, `keys` | 1 to 16 PEM public keys: RSA of at least 2048 bits (RS256), P-256 (ES256) or Ed25519 (EdDSA) |
-| `subject` | yes | The person, rendered from scalar claims (strings or numbers): `u:{sub}`, `{org_id}:{sub}`. It must reference a claim, may use braces only around claim names, and must render to 1–200 visible ASCII characters other than `host` and `installation`. A token missing the claim is refused |
-| `scopes` | yes | Where the token's scopes come from: `{ claim: <name> }` (an array, or a space-separated string) or `{ fixed: [<scope>, …] }` (within `allowedScopes`) |
-| `allowedScopes` | yes | The scopes this issuer may grant: any of `agents:read`, `sessions:own`, `sandboxes:write` and `studio`. Others in the claim are dropped |
+| `subject` | no, `{sub}` | The person, rendered from scalar claims (strings or numbers): `{sub}`, `u:{sub}`, `{oid}`, `{org_id}:{sub}`. It must reference a claim, may use braces only around claim names, and must render to 1–200 visible ASCII characters other than `host` and `installation`. A token missing the claim is refused. Use a stable id claim, never `email` or a username. An app server acting for the same people with `Nylorun-Subject` sends the same subject |
+| `scopes` | no, `{ claim: scope }` | Where the token's scopes come from: `{ claim: <name> }` (an array, or a space-separated string) or `{ fixed: [<scope>, …] }` (within `allowedScopes`). The default is OAuth's `scope` claim; Entra ID and Okta use `scp` |
+| `allowedScopes` | no, all but `studio` | The scopes this issuer may grant: any of `agents:read`, `sessions:own`, `sandboxes:write` and `studio`. Others in the claim are dropped. The default is the first three: list `studio` explicitly to let this provider sign people in to Studio |
 | `agents` | no | The agent ids its tokens reach; absent reaches every agent |
 | `sandboxes` | no | Up to 16 sandbox grant templates, each rendering to a sandbox id or a prefix ending in `/*`. A claim used here must be one id segment (`acme`, not `acme/x`), or that grant reaches nothing. Absent reaches no sandbox |
-| `maxLifetime` | yes | The longest `exp - iat` accepted, from `1s` to `24h` (`15m`, `1h`) |
 
 | Scope | Allows |
 | --- | --- |
@@ -188,17 +202,57 @@ issuers:
 
 Tokens are checked like this:
 
-- RS256, ES256 or EdDSA only, at most 16 KiB, with `exp` and `iat`, and a 30 s clock
-  tolerance. A header naming its own key (`jku`, `jwk`, `x5u`, `x5c`) or `crit` is refused.
-- An expired token is `401` with `code: "token_expired"`. While a JWKS cannot be fetched,
-  cached keys keep working and a token with a new `kid` is `401 issuer_unavailable`. Every
-  other refusal is the opaque `404`; `nylorun logs runtime` shows the reason
-  (`credential rejected`).
+- RS256, ES256 or EdDSA only, at most 16 KiB, with `exp`, and a 30 s clock tolerance. An
+  `iat` in the future is refused. How long a token lives is your provider's setting. A
+  header naming its own key (`jku`, `jwk`, `x5u`, `x5c`) or `crit` is refused.
+- Refusals follow OAuth 2.1 (§5.3), each with a `WWW-Authenticate: Bearer` challenge:
+
+  | Answer | When | Challenge |
+  | --- | --- | --- |
+  | `401 credential_required` | No `Authorization` header | `Bearer resource_metadata="…"` |
+  | `401 credential_invalid` | A key the Tenant does not know, or a token that fails a check | `Bearer error="invalid_token", resource_metadata="…"` |
+  | `401 token_expired` | Past `exp` | `Bearer error="invalid_token", error_description="The access token expired", …` |
+  | `401 issuer_unavailable` | A new `kid` while the JWKS cannot be fetched; cached keys keep working | `Bearer resource_metadata="…"` |
+  | `403 scope_required` | The token lacks the route's scope | `Bearer error="insufficient_scope", scope="sessions:own", …` |
+
+  `nylorun logs runtime` shows why a credential was refused (`credential rejected`); the
+  client is never told. The Management API answers a missing or unknown key with the same
+  `401` codes and a bare `Bearer` challenge: it takes management keys only and is no OAuth
+  resource.
 - Only its expiry ends a token, and an event stream opened with it ends then too
   (`token_expired`). Keep tokens short-lived and revoke people at your identity provider.
 
 To check a file, call `GET /v1/me` with a real token: it shows the subject, scopes, agents and
 sandbox grants the token renders to.
+
+### Discovery
+
+With an identity file, the Runtime publishes its OAuth 2.0 protected resource metadata
+(RFC 9728) at `GET /.well-known/oauth-protected-resource`, with no key, `Nylorun-Protocol` or
+`Origin` rule:
+
+```json
+{
+  "resource": "https://agents.acme.dev",
+  "authorization_servers": ["https://sso.acme.dev/realms/eng"],
+  "scopes_supported": ["agents:read", "sessions:own", "sandboxes:write"],
+  "bearer_methods_supported": ["header"],
+  "resource_name": "Nylorun Runtime API"
+}
+```
+
+`resource` is `NYLORUN_PUBLIC_URL`, or the origin the request reached when it is unset, so set
+it behind a proxy. Every `401` from the Runtime API points at this document, and a request
+that sends neither a credential nor `Nylorun-Protocol` (a generic OAuth or MCP client) gets
+that `401` rather than `426`. A client reads `authorization_servers`, signs the person in at
+one of them, and calls again with the token. Without an identity file the document is a `404`
+and challenges carry no `resource_metadata`.
+
+`authorization_servers` keeps the identity file's order, and clients usually take the first:
+list the provider generic clients should use first. A second provider is for a different
+group of people (staff signing in to Studio through company sign-in, customers through Clerk or
+Auth0) or for a migration. Give its `subject` a prefix of its own (`staff:{oid}`), or two
+providers can name the same person.
 
 ### Keycloak
 
@@ -208,8 +262,8 @@ In the realm (the example's is
 1. Create realm roles named after the scopes (`agents:read`, `sessions:own`, `studio`) and
    give them to people.
 2. On your client (or a client scope it uses), add two mappers: an **Audience** mapper that
-   adds `nylorun` to the access token, and a **User Realm Role** mapper, multivalued, with the
-   claim name `nylorun_scopes`.
+   adds the Runtime's audience (`nylorun` here) to the access token, and a **User Realm Role**
+   mapper, multivalued, with the claim name `nylorun_scopes`.
 3. For sandbox grants, map an attribute (or a hardcoded value) to a claim such as `org_id`.
 
 Then:
@@ -224,7 +278,6 @@ issuers:
     scopes: { claim: nylorun_scopes }            # the realm roles; roles that are not scopes are dropped
     allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
     sandboxes: ["{org_id}/*"]
-    maxLifetime: 15m                             # Keycloak's access tokens live 5 minutes by default
 ```
 
 Set Keycloak's hostname (`KC_HOSTNAME`) so the `iss` is the same however Keycloak is reached,

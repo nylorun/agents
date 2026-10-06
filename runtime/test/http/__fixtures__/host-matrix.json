@@ -75,13 +75,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -96,22 +97,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -139,13 +143,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -160,22 +165,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -203,13 +211,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -224,22 +233,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -267,13 +279,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -288,22 +301,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -331,13 +347,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -352,22 +369,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -395,13 +415,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -416,22 +437,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -459,13 +483,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -480,22 +505,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -523,13 +551,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -544,22 +573,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -587,13 +619,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -608,22 +641,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -651,13 +687,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -672,22 +709,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -715,13 +755,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -736,22 +777,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -779,13 +823,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -800,22 +845,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -842,16 +890,19 @@
       "contentType": "application/json"
     },
     "protocol-only": {
-      "status": 404,
-      "contentType": "application/json"
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\""
     },
     "wrong-admin": {
-      "status": 404,
-      "contentType": "application/json"
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\""
     },
     "admin": {
-      "status": 404,
-      "contentType": "application/json"
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\""
     },
     "application": {
       "status": 404,
@@ -873,13 +924,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -894,22 +946,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -937,13 +992,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -958,22 +1014,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -1001,13 +1060,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1022,22 +1082,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -1065,13 +1128,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1086,22 +1150,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -1129,13 +1196,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1150,22 +1218,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -1193,13 +1264,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1214,22 +1286,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,
@@ -1257,13 +1332,14 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 8,
+        "max": 9,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "artifacts",
           "management-api",
+          "resource-server",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1278,22 +1354,25 @@
       }
     },
     "protocol-only": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
     },
     "wrong-admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "admin": {
-      "status": 404,
+      "status": 401,
       "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
     },
     "application": {
       "status": 404,

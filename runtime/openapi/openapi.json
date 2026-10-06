@@ -5,13 +5,14 @@
     "version": "0.0.0",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 8,
+      "max": 9,
       "features": [
         "runtime-tenants",
         "admin-status",
         "studio-principal",
         "artifacts",
         "management-api",
+        "resource-server",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -6224,6 +6225,48 @@
           "checks"
         ]
       },
+      "ProtectedResourceMetadata": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "type": "string",
+            "description": "The Runtime API: `NYLORUN_PUBLIC_URL`, else the origin the request reached"
+          },
+          "authorization_servers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The identity file's issuers, in its order: a client usually signs in at the first"
+          },
+          "scopes_supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The scopes the issuers' tokens may carry, `studio` aside"
+          },
+          "bearer_methods_supported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "header"
+              ]
+            }
+          },
+          "resource_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource",
+          "authorization_servers",
+          "scopes_supported",
+          "bearer_methods_supported",
+          "resource_name"
+        ]
+      },
       "AcceptedResponse": {
         "type": "object",
         "properties": {
@@ -6269,6 +6312,8 @@
             "type": "string",
             "enum": [
               "not_found",
+              "credential_required",
+              "credential_invalid",
               "protocol_unsupported",
               "host_rejected",
               "origin_rejected",
@@ -16603,10 +16648,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16662,8 +16707,18 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16673,7 +16728,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16733,10 +16788,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16790,7 +16845,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16800,7 +16855,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16810,7 +16865,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16872,10 +16927,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -16923,8 +16978,18 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16934,7 +16999,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16997,10 +17062,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -17019,8 +17084,18 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17030,7 +17105,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17097,10 +17172,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17157,7 +17232,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17167,7 +17242,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17177,7 +17252,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17244,10 +17319,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17294,7 +17369,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17304,7 +17379,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17314,7 +17389,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17434,10 +17509,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17491,7 +17566,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17501,7 +17576,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17511,7 +17586,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17578,10 +17653,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17638,7 +17713,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17648,7 +17723,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17658,7 +17733,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17738,10 +17813,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17876,7 +17951,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17886,7 +17961,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17896,7 +17971,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17992,10 +18067,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18049,7 +18124,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18059,7 +18134,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18069,7 +18144,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18132,10 +18207,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18181,8 +18256,18 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18192,7 +18277,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18259,10 +18344,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -18288,8 +18373,18 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18299,7 +18394,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18385,10 +18480,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -18414,8 +18509,18 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18425,7 +18530,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18501,10 +18606,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -18543,8 +18648,18 @@
               }
             }
           },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18554,7 +18669,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18623,10 +18738,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18683,7 +18798,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18693,7 +18808,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18703,7 +18818,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18795,10 +18910,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18848,7 +18963,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18858,7 +18973,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18868,7 +18983,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18941,10 +19056,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18994,7 +19109,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19004,7 +19119,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19014,7 +19129,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19087,10 +19202,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19130,7 +19245,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19140,7 +19255,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19150,7 +19265,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19221,10 +19336,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19271,7 +19386,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19281,7 +19396,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19291,7 +19406,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19371,10 +19486,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19431,7 +19546,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19441,7 +19556,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19451,7 +19566,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19520,10 +19635,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19580,7 +19695,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19590,7 +19705,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19600,7 +19715,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19671,10 +19786,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19721,7 +19836,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19731,7 +19846,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19741,7 +19856,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19808,10 +19923,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19858,7 +19973,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19868,7 +19983,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19878,7 +19993,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19979,10 +20094,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20036,7 +20151,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20046,7 +20161,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20056,7 +20171,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20136,10 +20251,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20186,7 +20301,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20196,7 +20311,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20206,7 +20321,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20275,10 +20390,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20318,7 +20433,7 @@
             "description": "The sandbox is virtual"
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20328,7 +20443,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20338,7 +20453,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20410,10 +20525,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20453,7 +20568,7 @@
             "description": "The sandbox is virtual"
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20463,7 +20578,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20473,7 +20588,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20575,10 +20690,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20637,7 +20752,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20647,7 +20762,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20657,7 +20772,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20727,10 +20842,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20777,7 +20892,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20787,7 +20902,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20797,7 +20912,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20864,10 +20979,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20914,7 +21029,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20924,7 +21039,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20934,7 +21049,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20999,10 +21114,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21049,7 +21164,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21059,7 +21174,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21069,7 +21184,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21136,10 +21251,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21198,7 +21313,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21208,7 +21323,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21218,7 +21333,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21298,10 +21413,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21412,7 +21527,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21422,7 +21537,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21432,7 +21547,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21512,10 +21627,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21562,7 +21677,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21572,7 +21687,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21582,7 +21697,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21669,10 +21784,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21783,7 +21898,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21793,7 +21908,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21803,7 +21918,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21893,10 +22008,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21943,7 +22058,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21953,7 +22068,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21963,7 +22078,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22040,10 +22155,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22091,7 +22206,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22101,7 +22216,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22111,7 +22226,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22178,10 +22293,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22238,7 +22353,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22248,7 +22363,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22258,7 +22373,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22324,10 +22439,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": false,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22438,7 +22553,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22448,7 +22563,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22458,7 +22573,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22567,10 +22682,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22617,7 +22732,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22637,7 +22752,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22665,6 +22780,30 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/.well-known/oauth-protected-resource": {
+      "get": {
+        "tags": [
+          "Service"
+        ],
+        "summary": "Get the protected resource metadata",
+        "description": "OAuth 2.0 Protected Resource Metadata (RFC 9728): the identity providers whose access tokens the Runtime API accepts (the identity file's trusted issuers) and their scopes. Nylorun is never the authorization server: a client signs in at one of `authorization_servers` and presents its token as `Authorization: Bearer`. A `401` from the Runtime API names this document in `WWW-Authenticate` (`resource_metadata`). Needs no key or `Nylorun-Protocol`, and accepts an `Origin`.",
+        "responses": {
+          "200": {
+            "description": "The metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtectedResourceMetadata"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The Runtime trusts no identity provider (no identity file)"
           }
         }
       }
@@ -22699,10 +22838,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `8`"
+              "description": "The protocol version, `9`"
             },
             "required": true,
-            "description": "The protocol version, `8`",
+            "description": "The protocol version, `9`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22749,7 +22888,7 @@
             }
           },
           "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22769,7 +22908,7 @@
             }
           },
           "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "description": "Not found (`not_found`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22848,7 +22987,7 @@
     },
     {
       "name": "Service",
-      "description": "Check a Runtime is up and speaks your protocol, ask who your credential is, and read the public keys of the tokens it signs. `/health`, `/ready`, the JWKS and the documents need no key."
+      "description": "Check a Runtime is up and speaks your protocol, ask who your credential is, find the identity providers it takes tokens from, and read the public keys of the tokens it signs. `/health`, `/ready`, the protected resource metadata, the JWKS and the documents need no key."
     }
   ],
   "x-tagGroups": [

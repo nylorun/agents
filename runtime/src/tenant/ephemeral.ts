@@ -233,6 +233,7 @@ export async function startEphemeralRuntime(
       config: hostConfig,
       logger,
       coreVersion: coreVersion(),
+      ...(issuers ? { resourceServer: { issuers } } : {}),
     });
     // Opens the Tenant: creates it in the database first when it holds none.
     await host.listen();

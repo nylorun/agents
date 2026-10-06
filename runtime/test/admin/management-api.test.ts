@@ -65,7 +65,7 @@ describe("application keys through the Management API", () => {
 
     const rotated = await host.admin.keys.put("backend");
     expect(rotated.rotated).toBe(true);
-    expect(await host.status(put.key, "GET", "/v1/agents")).toBe(404);
+    expect(await host.status(put.key, "GET", "/v1/agents")).toBe(401);
 
     const keys = await host.admin.keys.list();
     expect(keys.map(({ id, role }) => ({ id, role }))).toEqual(
@@ -87,7 +87,7 @@ describe("application keys through the Management API", () => {
 
     expect(await host.admin.keys.delete("backend")).toBe(true);
     expect(await host.admin.keys.delete("backend")).toBe(false);
-    expect(await host.status(rotated.key, "GET", "/v1/agents")).toBe(404);
+    expect(await host.status(rotated.key, "GET", "/v1/agents")).toBe(401);
   });
 });
 

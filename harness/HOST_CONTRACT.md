@@ -13,12 +13,17 @@ installation, and nothing in a request selects it (protocol 5). Every Tenant
 route requires `Nylorun-Protocol` (client protocol integer). Missing or
 unsupported protocol → `426` with
 `{ status: "rejected", code: "protocol_unsupported", protocol }` before
-authentication. For one release the Host also serves protocol 4 clients, which
-send `Nylorun-Tenant`: a header naming the Host's Tenant is accepted, one naming
-another Tenant (or a malformed one) is the opaque `404`. A Tenant id in the query string or body is ignored. A Tenant
-that could not be opened, an unknown Tenant and a rejected credential share the
-opaque `404` body. The Admin API is gone (protocol 8): `/v1/admin/*` answers
-`404`, and the admin key is no request's credential. Vocabulary:
+authentication, except that a request with neither `Nylorun-Protocol` nor
+`Authorization` gets the route's `401` challenge (protocol 9). For one release
+the Host also serves protocol 4 clients, which send `Nylorun-Tenant`: a header
+naming the Host's Tenant is accepted, one naming another Tenant (or a malformed
+one) is the opaque `404`. A Tenant id in the query string or body is ignored. A
+Tenant that could not be opened and an unknown Tenant share the opaque `404`
+body. A missing or rejected credential is `401` (`credential_required`,
+`credential_invalid`) with `WWW-Authenticate: Bearer` (protocol 9); on the
+Runtime API the challenge names `/.well-known/oauth-protected-resource` when
+the Host has trusted issuers. The Admin API is gone (protocol 8): `/v1/admin/*`
+is no route, and the admin key is no request's credential. Vocabulary:
 [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 Unauthenticated `GET /health` returns status, `service: "nylorun-runtime"`,
