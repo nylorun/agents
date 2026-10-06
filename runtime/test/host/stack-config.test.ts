@@ -93,7 +93,7 @@ describe("parseServices", () => {
   it("rejects unknown, later, empty and repeated services", () => {
     expect(() => parseServices(["--service", "db"])).toThrow(/Unknown service db/);
     expect(() => parseServices(["--service", "all"])).toThrow(/use --service core,loop/);
-    expect(() => parseServices(["--service", "sandboxd"])).toThrow(/not in this release/);
+    expect(() => parseServices(["--service", "sandboxes"])).toThrow(/not in this release/);
     expect(() => parseServices(["--service", "core,,loop"])).toThrow(/empty entry/);
     expect(() => parseServices(["--service", "core,core"])).toThrow(/twice/);
   });

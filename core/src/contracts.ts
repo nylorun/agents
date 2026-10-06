@@ -1158,7 +1158,7 @@ export const EventSourceKindSchema = z.enum([
   "model-gate",
   "tool-gate",
   "egress-gate",
-  "sandboxd",
+  "sandboxes",
   "edge",
   "init",
   "controller",

@@ -79,7 +79,7 @@ export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
 
 /** Services of the blueprint this release doesn't have yet. */
 const LATER_SERVICES: readonly string[] = [
-  "sandboxd",
+  "sandboxes",
 ];
 
 /** The deprecated `--role` values, and the services each stands for. */
