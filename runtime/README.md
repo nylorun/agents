@@ -136,7 +136,7 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 | Route | Auth | Notes |
 | --- | --- | --- |
 | `GET /health` | none | `service: "nylorun-runtime"`, `hostId`, protocol `{min,max,features}`, pid |
-| `GET /ready` | none | Listener up, the Tenant open, and Postgres, Restate and S2 answer (`checks`); `harness: { mode, connected }` while the Tenant is open |
+| `GET /ready` | none | Listener up, the Tenant open, and Postgres and Restate answer (`checks`). S2 is not checked: its health is in `GET /v1/tenant` (`streams.reachable`); `harness: { mode, connected }` while the Tenant is open |
 | `GET /openapi/runtime.json` | none | The Runtime API's OpenAPI 3.2 document (below); alias `GET /openapi.json`. Refuses an `Origin` |
 | `GET /openapi/management.json` | none | The Management API's OpenAPI 3.2 document. Refuses an `Origin` |
 | `/v1/*` Runtime API routes (all but `/v1/tenant/*`) | application key or trusted issuer's token | Require `Nylorun-Protocol`; nothing names the Tenant. A management key is `403 key_role_mismatch`, except on `/v1/me` and the public `GET /v1/access/jwks` |

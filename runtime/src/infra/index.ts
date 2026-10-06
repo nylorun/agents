@@ -1,7 +1,8 @@
 /**
  * The Host's infrastructure clients, built from the stack configuration: the
  * Postgres pool, Durable Session Execution and Durable Streams, each only when
- * its endpoints are configured, plus the readiness that covers them.
+ * its endpoints are configured, plus the readiness that covers Postgres and
+ * Restate (not S2: `readiness.ts`).
  *
  * Building a client connects to nothing: the pool connects on first query,
  * Restate and S2 on first call. Nothing here starts a Worker (see
@@ -56,7 +57,6 @@ export function createInfra(
   const probes = infraProbes({
     ...(database ? { database } : {}),
     ...(execution ? { execution } : {}),
-    ...(streams ? { streams } : {}),
   });
   const readiness =
     Object.keys(probes).length > 0

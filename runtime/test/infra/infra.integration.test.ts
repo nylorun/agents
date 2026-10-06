@@ -48,12 +48,12 @@ describe.skipIf(!STACK_ENABLED)("infra factories on the test stack", () => {
     }
   });
 
-  it("reports every check ready through createInfra", async () => {
+  it("reports every check ready through createInfra, S2 not among them", async () => {
     const infra = createInfra(stackConfig());
     try {
       expect(await infra.readiness!()).toEqual({
         ok: true,
-        checks: { postgres: true, restate: true, s2: true },
+        checks: { postgres: true, restate: true },
         errors: {},
       });
     } finally {
@@ -61,16 +61,17 @@ describe.skipIf(!STACK_ENABLED)("infra factories on the test stack", () => {
     }
   });
 
-  it("reports the one dependency that is unreachable", async () => {
+  it("stays ready with S2 unreachable (D48)", async () => {
     const port = await freePort();
     const infra = createInfra(
       stackConfig({ NYLORUN_S2_ENDPOINT: `http://127.0.0.1:${port}` }),
     );
     try {
-      const report = await infra.readiness!();
-      expect(report.ok).toBe(false);
-      expect(report.checks).toEqual({ postgres: true, restate: true, s2: false });
-      expect(report.errors.s2).toBeTruthy();
+      expect(await infra.readiness!()).toEqual({
+        ok: true,
+        checks: { postgres: true, restate: true },
+        errors: {},
+      });
     } finally {
       await infra.close();
     }

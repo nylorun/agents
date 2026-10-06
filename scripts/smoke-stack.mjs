@@ -250,7 +250,8 @@ console.log(JSON.stringify(found));
     assert.equal(ready.status, 200, JSON.stringify(readyBody));
     assert.deepEqual(
       { postgres: readyBody.checks.postgres, restate: readyBody.checks.restate, s2: readyBody.checks.s2 },
-      { postgres: true, restate: true, s2: true },
+      { postgres: true, restate: true, s2: undefined },
+      "/ready checks Postgres and Restate, never S2 (D48)",
     );
 
     // Restate loaded the key whose public half the Runtime was given.

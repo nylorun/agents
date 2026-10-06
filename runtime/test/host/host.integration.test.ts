@@ -122,7 +122,7 @@ async function waitForUrl(host: { url: string }) {
 }
 
 describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
-  it("/ready is 503 until the Tenant is open, then 200 with every infrastructure check", async () => {
+  it("/ready is 503 until the Tenant is open, then 200 with every infrastructure check but S2", async () => {
     let open!: () => void;
     const gate = new Promise<void>((resolve) => (open = resolve));
     const { host, listening } = await startHost({ gate });
@@ -131,26 +131,29 @@ describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
     expect(before.status).toBe(503);
     expect(before.body).toMatchObject({
       status: "not_ready",
-      checks: { listener: true, tenant: false, postgres: true, restate: true, s2: true },
+      checks: { listener: true, tenant: false, postgres: true, restate: true },
     });
+    expect(before.body.checks).not.toHaveProperty("s2");
     open();
     await listening;
     const after = await getJson(`${url}/ready`);
     expect(after.status).toBe(200);
     expect(after.body).toMatchObject({
       status: "ready",
-      checks: { listener: true, tenant: true, postgres: true, restate: true, s2: true },
+      checks: { listener: true, tenant: true, postgres: true, restate: true },
     });
+    expect(after.body.checks).not.toHaveProperty("s2");
   });
 
-  it("/ready is 503 naming the check while a dependency is unreachable", async () => {
+  it("/ready stays 200 while S2 is unreachable: S2 only serves API listeners (D48)", async () => {
     const { host, listening } = await startHost({
       overrides: { NYLORUN_S2_ENDPOINT: `http://127.0.0.1:${await freePort()}` },
     });
     await listening;
     const ready = await getJson(`${host.url}/ready`);
-    expect(ready.status).toBe(503);
-    expect(ready.body).toMatchObject({ checks: { postgres: true, s2: false } });
+    expect(ready.status).toBe(200);
+    expect(ready.body).toMatchObject({ checks: { tenant: true, postgres: true, restate: true } });
+    expect(ready.body.checks).not.toHaveProperty("s2");
   });
 
   it("creates its Tenant in its database and serves it, and shutdown ends the infrastructure", async () => {

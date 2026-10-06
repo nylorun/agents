@@ -11,7 +11,7 @@ import { PINNED_IMAGES } from "./images.js";
  * secrets, UID/GID, the Host root, the images) comes from `docker/.env`.
  *
  * The Tenant's state is its Postgres database, executed through Restate, with its
- * history in s2-lite; the Runtime's /ready checks all three. Postgres initialises the
+ * history in s2-lite; the Runtime's /ready checks Postgres and Restate. Postgres initialises the
  * database with C collation (`--locale=C`) and runs with `wal_level=logical`: the stream
  * relay feeds s2-lite from the record over logical replication (Durable Streams), and
  * `max_slot_wal_keep_size` caps the WAL a stuck relay can hold. The Runtime creates the
@@ -141,8 +141,8 @@ ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
     volumes:
       - s2-lite:/home/nonroot
     networks: [store]
-    # The s2 image has no shell or HTTP client, so it has no health check;
-    # the Runtime's /ready covers it.
+    # The s2 image has no shell or HTTP client, so it has no health check.
+    # Its reachability is in the Tenant's status (GET /v1/tenant, streams.reachable).
     restart: unless-stopped
 
   rustfs: # the Object store (D35); not published, only the runtime and the gateway hold its credential
