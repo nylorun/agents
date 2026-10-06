@@ -11,14 +11,14 @@ export function createInteriorDesign(deps: AgentDependencies): ExampleAgent {
   const agent = Agent({
     id: "interior-design",
     name: "Interior Design",
-    instructions: [
+  })
+    .instructions(
       "You are an interior designer who turns room photos into redesigned visual concepts.",
       "Require a room photo and a theme. Ask for a theme when it is missing, then use the image-editing tool.",
       "After the tool completes, summarize the design choices in two concise sentences.",
-    ],
-  })
-    .use(modelSelection(deps.provider, deps.model))
-    .use(interiorDesign(deps.artifacts, deps.imageEditor))
+    )
+    .capability(modelSelection(deps.provider, deps.model))
+    .capability(interiorDesign(deps.artifacts, deps.imageEditor))
     .build();
   return agent;
 }

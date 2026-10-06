@@ -14,14 +14,14 @@ function policyAgent(adapter: ReturnType<typeof model>) {
   const agent = Agent({
     id: "guardrails",
     name: "Guardrails",
-    instructions: "Be concise.",
   })
-    .use(publish)
-    .use(lookup)
-    .use("input", inputGuardrail)
-    .use("output", outputGuardrail)
-    .use("tool-input", toolInputGuardrail)
-    .use("tool-output", toolOutputGuardrail)
+    .instructions("Be concise.")
+    .capability(publish)
+    .capability(lookup)
+    .capability({ id: "input", middleware: inputGuardrail })
+    .capability({ id: "output", middleware: outputGuardrail })
+    .capability({ id: "tool-input", middleware: toolInputGuardrail })
+    .capability({ id: "tool-output", middleware: toolOutputGuardrail })
     .build();
   // Test-only execution helper; production definitions remain execution-free.
   return Object.assign(agent, { run: (options: RunOptions) => run({ binding: bindingFromAgent(agent), ...options, onModelCall: adapter }) });

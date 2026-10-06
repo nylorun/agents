@@ -26,6 +26,8 @@ export function notes(notes: JsonlNotes) {
         name: "write_note",
         description: "Write a local JSONL note after the user approves.",
         inputSchema: z.object({ text: z.string().min(1).max(2_000) }),
+        // Services and tools do not self-authorize writes: each call waits for a person.
+        approval: ({ text }) => `Approve write_note?\n\n${JSON.stringify({ text })}`,
         async execute({ text }, context) {
           if (context.resume?.approved === false) {
             return {

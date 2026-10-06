@@ -214,11 +214,10 @@ Start with [Instructions](./agents/instructions/agent.ts), then [Tool Use](./age
 Capability modules stay small:
 
 - [tools](./agents/shared/tools/index.ts) is one `.capability(await tools())` call: every `*.ts` module in [agents/shared/tools/catalog](./agents/shared/tools/catalog) is offered as an `http()` tool, whose code the [tools service](./agents/shared/tools/service.ts) runs.
-- [code-mode](./agents/code-mode/capability.ts) is one `.use(await codeMode())` call: the same catalog becomes a generated TypeScript SDK, and only `run_code` is offered to the model. It runs the catalog's code in process, so only the local engine runs it.
-- [notes](./agents/interactions/notes.ts) uses an ordinary JSONL service.
+- [code-mode](./agents/code-mode/capability.ts) is one `.capability(await codeMode())` call: the same catalog becomes a generated TypeScript SDK, and only `run_code` is offered to the model. It runs the catalog's code in process, so only the local engine runs it.
 - [ask-user](./agents/interactions/ask-user.ts) pauses for a human reply.
-- [review](./agents/interactions/approval.ts) requires approval before a write candidate is accepted.
-- [guardrails](./agents/guardrails/capability.ts) maps OpenAI-style input, output, tool-input, and tool-output checks onto middleware timing.
+- [notes](./agents/interactions/notes.ts) uses an ordinary JSONL service; `write_note` has an `approval`, so each write waits for a person.
+- [guardrails](./agents/guardrails/capability.ts) maps OpenAI-style input, output, tool-input, and tool-output checks onto middleware timing; middleware runs in the local engine only.
 - [skills](./agents/skills/agent.ts) is one `.skills(folder)` call: a SKILL.md catalog the Runtime serves with `load_skill`.
 - [codex](./agents/coding-agent/capability.ts) wraps a host runtime. For an isolated machine, open the session with a sandbox, as for [analyst](./agents/release/analyst.ts).
 - [subagents](./agents/subagents/agent.ts) puts three example agents in `.subagents()`; each runs with a fresh context and returns only its answer.
