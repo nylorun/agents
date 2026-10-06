@@ -16573,341 +16573,6 @@
     "parameters": {}
   },
   "paths": {
-    "/health": {
-      "get": {
-        "tags": [
-          "Runtime"
-        ],
-        "summary": "Check the Runtime",
-        "description": "The protocol range and features a client checks first. Refuses an `Origin`.",
-        "responses": {
-          "200": {
-            "description": "The Runtime is up",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Health"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/ready": {
-      "get": {
-        "tags": [
-          "Runtime"
-        ],
-        "summary": "Check the Runtime is ready",
-        "description": "The listener, the Tenant (open), Postgres, Restate and S2, and the open Tenant's harnesses.",
-        "responses": {
-          "200": {
-            "description": "Ready",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Ready"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Not ready: `checks` says what is not"
-          }
-        }
-      }
-    },
-    "/v1/me": {
-      "get": {
-        "tags": [
-          "Runtime"
-        ],
-        "summary": "Get who the caller is",
-        "description": "The subject, scopes, agents and sandbox grants of the credential that sends it: an application key (alone or acting for a subject), a management key (`via: management:<principalId>`, no scopes, no agents), or a trusted issuer's token (`via: issuer:<name>`).",
-        "security": [
-          {
-            "applicationKey": []
-          },
-          {
-            "managementKey": []
-          },
-          {
-            "issuerToken": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "management",
-          "token"
-        ],
-        "x-nylorun-scopes": "any",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The caller",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/access/jwks": {
-      "get": {
-        "tags": [
-          "Runtime"
-        ],
-        "summary": "Get the public keys the Runtime's tokens are signed with",
-        "description": "A JSON Web Key Set, to verify a token the Runtime signed without calling it. No credential is needed.",
-        "security": [
-          {
-            "applicationKey": []
-          },
-          {
-            "managementKey": []
-          },
-          {
-            "issuerToken": []
-          },
-          {}
-        ],
-        "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "management",
-          "token"
-        ],
-        "x-nylorun-scopes": "any",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The public keys",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Jwks"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/openapi/runtime.json": {
-      "get": {
-        "tags": [
-          "Runtime"
-        ],
-        "summary": "Get the Runtime API's document",
-        "description": "This document. `/openapi.json` is the same.",
-        "responses": {
-          "200": {
-            "description": "The Runtime API's OpenAPI document"
-          }
-        }
-      }
-    },
-    "/openapi.json": {
-      "get": {
-        "tags": [
-          "Runtime"
-        ],
-        "summary": "Get the Runtime API's document (alias)",
-        "responses": {
-          "200": {
-            "description": "The Runtime API's OpenAPI document"
-          }
-        }
-      }
-    },
     "/v1/agents/{agentId}": {
       "put": {
         "tags": [
@@ -22827,14 +22492,332 @@
           }
         }
       }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Service"
+        ],
+        "summary": "Check the Runtime",
+        "description": "The protocol range and features a client checks first. Refuses an `Origin`.",
+        "responses": {
+          "200": {
+            "description": "The Runtime is up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": [
+          "Service"
+        ],
+        "summary": "Check the Runtime is ready",
+        "description": "The listener, the Tenant (open), Postgres, Restate and S2, and the open Tenant's harnesses.",
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ready"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not ready: `checks` says what is not"
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "tags": [
+          "Service"
+        ],
+        "summary": "Get who the caller is",
+        "description": "The subject, scopes, agents and sandbox grants of the credential that sends it: an application key (alone or acting for a subject), a management key (`via: management:<principalId>`, no scopes, no agents), or a trusted issuer's token (`via: issuer:<name>`).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "managementKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "management",
+          "token"
+        ],
+        "x-nylorun-scopes": "any",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `8`"
+            },
+            "required": true,
+            "description": "The protocol version, `8`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/access/jwks": {
+      "get": {
+        "tags": [
+          "Service"
+        ],
+        "summary": "Get the public keys the Runtime's tokens are signed with",
+        "description": "A JSON Web Key Set, to verify a token the Runtime signed without calling it. No credential is needed.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "managementKey": []
+          },
+          {
+            "issuerToken": []
+          },
+          {}
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "management",
+          "token"
+        ],
+        "x-nylorun-scopes": "any",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `8`"
+            },
+            "required": true,
+            "description": "The protocol version, `8`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The public keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Jwks"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi/runtime.json": {
+      "get": {
+        "tags": [
+          "Service"
+        ],
+        "summary": "Get the Runtime API's document",
+        "description": "This document. `/openapi.json` is the same.",
+        "responses": {
+          "200": {
+            "description": "The Runtime API's OpenAPI document"
+          }
+        }
+      }
     }
   },
   "webhooks": {},
   "tags": [
-    {
-      "name": "Runtime",
-      "description": "Check a Runtime is up and speaks your protocol, ask who your credential is, and read the public keys of the tokens it signs. `/health`, `/ready`, the JWKS and the documents need no key."
-    },
     {
       "name": "Agents",
       "description": "The agents a Tenant can run: put a definition, list what is there. In `@nylorun/agents`."
@@ -22862,15 +22845,13 @@
     {
       "name": "Artifacts",
       "description": "Files and folders agents and people produce, versioned, with short-lived capability links to share them. In `@nylorun/agents`."
+    },
+    {
+      "name": "Service",
+      "description": "Check a Runtime is up and speaks your protocol, ask who your credential is, and read the public keys of the tokens it signs. `/health`, `/ready`, the JWKS and the documents need no key."
     }
   ],
   "x-tagGroups": [
-    {
-      "name": "Get started",
-      "tags": [
-        "Runtime"
-      ]
-    },
     {
       "name": "Agents",
       "tags": [
@@ -22887,10 +22868,21 @@
       ]
     },
     {
-      "name": "Sandboxes & artifacts",
+      "name": "Sandboxes",
       "tags": [
-        "Sandboxes",
+        "Sandboxes"
+      ]
+    },
+    {
+      "name": "Artifacts",
+      "tags": [
         "Artifacts"
+      ]
+    },
+    {
+      "name": "Service",
+      "tags": [
+        "Service"
       ]
     }
   ]

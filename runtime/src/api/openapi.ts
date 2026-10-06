@@ -34,7 +34,10 @@ const bearer = (description: string, bearerFormat?: string) => ({
   description,
 });
 
-/** `/health`, `/ready` and `/openapi.json`: what every listener answers without a key. */
+/**
+ * `/health`, `/ready` and the documents: what every listener answers without a key. The
+ * `/openapi.json` alias is served but left out of the documents.
+ */
 function hostRoutes(): OpenAPIRegistry {
   const registry = new OpenAPIRegistry();
   const route = (config: RouteConfig) => registry.registerPath(config);
@@ -72,13 +75,6 @@ function hostRoutes(): OpenAPIRegistry {
     tags: ["Host"],
     summary: "Get the Runtime API's document",
     description: "This document. `/openapi.json` is the same.",
-    responses: { 200: { description: "The Runtime API's OpenAPI document" } },
-  });
-  route({
-    method: "get",
-    path: "/openapi.json",
-    tags: ["Host"],
-    summary: "Get the Runtime API's document (alias)",
     responses: { 200: { description: "The Runtime API's OpenAPI document" } },
   });
   route({
@@ -131,20 +127,6 @@ interface Tag {
 
 const RUNTIME_TAGS: readonly Tag[] = [
   {
-    name: "Runtime",
-    group: "Get started",
-    description:
-      "Check a Runtime is up and speaks your protocol, ask who your credential is, and read the public keys of the tokens it signs. `/health`, `/ready`, the JWKS and the documents need no key.",
-    operations: [
-      "GET /health",
-      "GET /ready",
-      "GET /v1/me",
-      "GET /v1/access/jwks",
-      "GET /openapi/runtime.json",
-      "GET /openapi.json",
-    ],
-  },
-  {
     name: "Agents",
     group: "Agents",
     description: "The agents a Tenant can run: put a definition, list what is there. In `@nylorun/agents`.",
@@ -196,7 +178,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
   },
   {
     name: "Sandboxes",
-    group: "Sandboxes & artifacts",
+    group: "Sandboxes",
     description:
       "Isolated machines an agent works in: create or find one, watch its lifecycle, stop, reset or delete it. In `@nylorun/agents`.",
     operations: [
@@ -211,7 +193,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
   },
   {
     name: "Artifacts",
-    group: "Sandboxes & artifacts",
+    group: "Artifacts",
     description:
       "Files and folders agents and people produce, versioned, with short-lived capability links to share them. In `@nylorun/agents`.",
     operations: [
@@ -227,6 +209,19 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "POST /v1/artifacts/{artifactId}/links",
       "GET /v1/artifact-links/{token}",
       "DELETE /v1/artifacts/{artifactId}",
+    ],
+  },
+  {
+    name: "Service",
+    group: "Service",
+    description:
+      "Check a Runtime is up and speaks your protocol, ask who your credential is, and read the public keys of the tokens it signs. `/health`, `/ready`, the JWKS and the documents need no key.",
+    operations: [
+      "GET /health",
+      "GET /ready",
+      "GET /v1/me",
+      "GET /v1/access/jwks",
+      "GET /openapi/runtime.json",
     ],
   },
 ];

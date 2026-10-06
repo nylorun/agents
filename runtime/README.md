@@ -184,8 +184,9 @@ https://cdn.jsdelivr.net/npm/@nylorun/runtime@<version>/dist/management-openapi.
 ```
 
 Each document has described tags, in the order a developer uses them. The Runtime API's are
-grouped (`x-tagGroups`): Get started (Runtime), Agents (Agents, Definition files),
-Sessions (Sessions API, AG-UI, A2A) and Sandboxes & artifacts. The Management API's are
+grouped (`x-tagGroups`): Agents (Agents, Definition files), Sessions (Sessions API, AG-UI,
+A2A), Sandboxes, Artifacts and Service (health, readiness, `/v1/me`, the JWKS and the
+document; the `/openapi.json` alias is served but not listed). The Management API's are
 Tenant, Application keys, Models, Vaults, Signing keys and Settings. Each operation's
 `security` says which credentials it takes (application key and trusted issuer's token in
 the Runtime API; management key in the Management API), and its
