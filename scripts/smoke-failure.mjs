@@ -146,6 +146,21 @@ async function request(runtimeUrl, tenant, path, { method = "GET", body } = {}) 
 
 const types = (history) => history.items.map((item) => item.type);
 const count = (history, type) => types(history).filter((t) => t === type).length;
+/**
+ * The history once it holds `n` events of `type`. `/items` reads the session's stream, which
+ * the relay feeds from the record after commit (Durable Streams §7, §9.4), so it can trail the
+ * session view, most after a restart. The relay keeps a session's order: what the record holds
+ * before that event is in the history too.
+ */
+const historyWith = (read, type, n = 1) =>
+  eventually(
+    async () => {
+      const history = await read();
+      if (count(history, type) >= n) return history;
+      throw new Error(types(history).join(", "));
+    },
+    { timeout: 30_000, message: `${n} ${type} in the history` },
+  );
 
 try {
   const started = Date.now();
@@ -235,7 +250,7 @@ try {
         interval: 1000,
         message: "the turn to complete after takeover",
       });
-      const recovered = await history();
+      const recovered = await historyWith(history, "turn.completed");
       assert.equal(count(recovered, "effect.uncertain"), 0, types(recovered).join(", "));
       assert.equal(count(recovered, "turn.completed"), 1);
       assert.equal(count(recovered, "message.assistant"), 1);
@@ -273,7 +288,7 @@ try {
         interval: 1000,
         message: "the turn to complete after a graceful restart",
       });
-      const restarted = await history();
+      const restarted = await historyWith(history, "turn.completed", 2);
       assert.equal(count(restarted, "effect.uncertain"), 0, types(restarted).join(", "));
       assert.equal(count(restarted, "turn.completed"), 2);
       assert.deepEqual(await stub(), { calls: 2, held: 0, aborted: 0 }, "one call per turn");
@@ -305,7 +320,7 @@ try {
         interval: 1000,
         message: "the turn to complete after the harness came back",
       });
-      const afterHarness = await history();
+      const afterHarness = await historyWith(history, "turn.completed", 3);
       assert.equal(count(afterHarness, "effect.uncertain"), 0, types(afterHarness).join(", "));
       assert.equal(count(afterHarness, "turn.completed"), 3);
       await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -345,7 +360,10 @@ try {
       );
       assert.equal(bashed.status, "uncertain", JSON.stringify(bashed));
       assert.equal(bashed.uncertainEffects.length, 1, JSON.stringify(bashed.uncertainEffects));
-      const bashHistory = await runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s3/items");
+      const bashHistory = await historyWith(
+        () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s3/items"),
+        "effect.uncertain",
+      );
       assert.equal(count(bashHistory, "effect.uncertain"), 1, types(bashHistory).join(", "));
       assert.equal(count(bashHistory, "tool.completed"), 0, "bash never completed");
       console.log(`[failure] harness killed mid bash: the effect is uncertain (${elapsed()})`);
@@ -370,8 +388,12 @@ try {
           },
           { timeout: 120_000, interval: 500, message: "the turn to settle" },
         );
+      // s1's turns fail in cases 7, 8 and 11 only: each waits for its own `turn.failed`.
+      let failed = 0;
       const lastFailure = async () =>
-        (await history()).items.filter((item) => item.type === "turn.failed").at(-1)?.payload;
+        (await historyWith(history, "turn.failed", ++failed)).items
+          .filter((item) => item.type === "turn.failed")
+          .at(-1)?.payload;
       const gatewayHealthy = () =>
         eventually(
           async () =>
@@ -549,7 +571,7 @@ try {
       await ready();
       await fetch(`http://${mcpPublished}/release`, { method: "POST" });
       assert.equal((await toolSettled()).status, "completed");
-      const toolRecovered = await toolHistory();
+      const toolRecovered = await historyWith(toolHistory, "turn.completed");
       assert.equal(count(toolRecovered, "effect.uncertain"), 0, types(toolRecovered).join(", "));
       assert.equal(count(toolRecovered, "tool.completed"), 1);
       await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -578,7 +600,7 @@ try {
       await stack.compose(["start", "runtime"]);
       await ready();
       assert.equal((await toolSettled()).status, "uncertain");
-      assert.ok(count(await toolHistory(), "effect.uncertain") >= 1, "the lost call is uncertain");
+      await historyWith(toolHistory, "effect.uncertain");
       await fetch(`http://${mcpPublished}/release`, { method: "POST" });
       await new Promise((resolve) => setTimeout(resolve, 3000));
       assert.equal((await mcpStub()).calls, 2, "the lost call was never run again");
