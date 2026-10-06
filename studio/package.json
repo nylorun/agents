@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/studio",
-  "version": "0.22.0-beta",
+  "version": "0.22.1-beta",
   "private": true,
   "description": "The Nylorun Studio server: the dashboard and trusted Runtime proxy that ghcr.io/nylorun/studio runs. Private; ships only as that image.",
   "type": "module",
@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@nylorun/admin": "0.11.1-beta",
-    "@nylorun/agents": "0.16.0-beta"
+    "@nylorun/agents": "0.16.1-beta"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
