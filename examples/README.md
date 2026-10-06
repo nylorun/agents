@@ -1,8 +1,8 @@
 # Harness examples
 
-The default registry exports two agents from `agents/release/`: an order-lookup assistant and a data analyst with a sandbox. `src/main.ts` saves them to the Runtime (`client.saveAgent`), which runs them; Studio uses the session HTTP/SSE API.
+The default registry exports three agents from `agents/release/`: an order-lookup assistant, a data analyst with a sandbox, and the [Repo brief](#repo-brief-every-piece-in-one-flow), which puts every piece the Runtime runs from a manifest into one flow agent. `src/main.ts` saves them to the Runtime (`client.saveAgent`), which runs them; Studio uses the session HTTP/SSE API.
 
-The Runtime runs no code of this project during a session. The assistant's `lookup_order` is an HTTP tool (`http()` in [`agents/shared/orders.ts`](./agents/shared/orders.ts)): the Runtime POSTs the tool's input to the examples' tools service, [`src/tools/server.ts`](./src/tools/server.ts), and gives the model its JSON answer. The service also answers the [tools catalog](./agents/shared/tools/catalog) (`calculate`, `convert`, `now`). It listens on `TOOLS_PORT` (default 3001); the agents call it at `TOOLS_URL` (default `http://localhost:3001`, which a local Tenant's Runtime reaches on this machine).
+The Runtime runs no code of this project during a session. The assistant's `lookup_order` is an HTTP tool (`http()` in [`agents/shared/orders.ts`](./agents/shared/orders.ts)): the Runtime POSTs the tool's input to the examples' tools service, [`src/tools/server.ts`](./src/tools/server.ts), and gives the model its JSON answer. The service also answers the Repo brief's `publish_brief` and the [tools catalog](./agents/shared/tools/catalog) (`calculate`, `convert`, `now`). It listens on `TOOLS_PORT` (default 3001); the agents call it at `TOOLS_URL` (default `http://localhost:3001`, which a local Tenant's Runtime reaches on this machine).
 
 The ten older demonstrations remain as source references under `agents/`, outside the release registry. Their descriptions below are historical and do not establish support in the new host. Tool Use, Subagents, Instructions, Skills, Remote MCP and the flow agents (`chain`, `switch`, `parallel`, `map`, `loop`, `ship-feature`) declare nothing the Runtime refuses. Guardrails, Interactions, Code Mode, Coding Agent and Interior Design run code of their own (tools with `run`/`execute`, or middleware) and run only in the local engine (`@nylorun/harness/run`), as their tests do: the Runtime refuses to save them.
 
@@ -36,6 +36,23 @@ The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed
 
 - `Create sales.csv with three regions and numbers, then total them with awk.`
 - `Download https://example.com with curl.` The request is blocked: a sandbox reaches only the hosts it asks for (`network.allow`), within the Tenant's ceiling.
+
+## Repo brief: every piece in one flow
+
+[`agents/repo-brief/agent.ts`](./agents/repo-brief/agent.ts) is one flow agent that uses everything the Runtime runs from a manifest, and calls no code of this project during a session:
+
+```
+triage → switch ┬ repo:    map(researcher) → parallel(overview, risks) → loop(writer, editor) → publish_brief
+                └ default: decline
+```
+
+- The **switch** reads the triager's `route`: a request that names a public GitHub repository as owner/repo goes to the research flow, anything else to `decline`.
+- The **map** runs the researcher once per question in the triager's `items`. Each researcher asks DeepWiki's **remote MCP** server, as the [Remote MCP](./agents/mcp/agent.ts) example does.
+- The **parallel** stage summarizes the answers and lists risks at the same time.
+- The **loop** runs the writer until the editor passes the brief, at most twice. The writer follows the `repo-brief` **skill** ([`skills/repo-brief`](./agents/repo-brief/skills/repo-brief/SKILL.md)): it writes `/workspace/brief.md` and runs the skill's `scripts/check.sh` in the session's sandbox, and it dates the brief with the `now` **HTTP tool**.
+- The last stage, `publish_brief`, is an **HTTP tool used as a flow stage**: the Runtime POSTs the brief to the tools service ([`publish.ts`](./agents/repo-brief/publish.ts)), which stands in for your CMS, and its answer is the flow's output.
+
+The writer's shell needs a sandbox, chosen when the session opens, as for the [data analyst](#data-analyst-sandbox): open the session with `sandbox: {}`, or set the Tenant's default. Then try `Brief me on modelcontextprotocol/typescript-sdk.` in Studio. [`test/repo-brief.test.ts`](./test/repo-brief.test.ts) runs the same turn against an in-process Runtime, with a stub model, a fake DeepWiki and the tools service.
 
 ## An agent in your web app (AG-UI)
 
@@ -117,7 +134,7 @@ Rules for a web backend:
 
 ## Tests
 
-`npm test` runs the examples' tests. The AG-UI test starts an
+`npm test` runs the examples' tests. The AG-UI and Repo brief tests start an
 in-process Runtime (`startEphemeralRuntime`) whose Tenant lives in a database of its own
 on the runtime test stack's Postgres ([`test/database.ts`](./test/database.ts)). Start that
 stack first, from the repository root (it needs Docker; the runtime's `npm test` starts it
@@ -142,6 +159,7 @@ The creator owns the shell files listed in `.scaffold-manifest.json`, including 
 | **Guardrails**      | `Publish the password is hunter2.`                                                              | The publish call is denied. The four policy surfaces are listed after this table.                                                                                   |
 | **Interactions**    | `Ask me what to name the note, then save it.`                                                   | Studio asks a question, then asks for approval before `write_note`.                                                                                                 |
 | **Remote MCP**      | `What does the README of modelcontextprotocol/typescript-sdk say about transports?`             | The Runtime connects to DeepWiki's public MCP server by URL and calls its tools; no process of yours serves them.                                                  |
+| **Repo brief**      | `Brief me on modelcontextprotocol/typescript-sdk.` (with a sandbox)                             | The flow tree shows triage, the repo case, one researcher per question, both reviews, the writer and editor, and `publish_brief`; the writer's `bash` call prints `ok`. |
 | **Code Mode**       | `Calculate 100 / 4, convert that many celsius to fahrenheit, and include the current UTC time.` | One `run_code` call. The program uses `await tools.*` and returns one object (25 °C → 77 °F plus `iso`).                                                            |
 | **Subagents**       | `Ask the tool-use specialist to calculate 19 * 7.`                                              | A `tool-use` call runs that agent with a fresh context; the parent reports its answer. Studio shows the delegation and the child's own tool calls. The other agents are `instructions` (format-only) and `skills` (SKILL.md). |
 | **Coding Agent**    | `Add a goodbye function next to hello and show the file.`                                       | After Codex preflight and approval, `codex exec` runs in a temporary workspace.                                                                                     |
