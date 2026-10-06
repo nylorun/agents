@@ -165,18 +165,35 @@ try {
       return last;
     };
     const items = async (session) => (await api("GET", `/v1/sessions/${session}/items`)).body.items;
-    const lastAnswer = async (session) =>
-      JSON.stringify((await items(session)).filter((item) => item.type === "message.assistant").at(-1)?.payload ?? {});
-    /** A turn that completes, with exactly `calls` upstream model calls. */
+    const completed = async (session) => (await items(session)).filter((item) => item.type === "turn.completed").length;
+    /**
+     * The history once it holds `n` `turn.completed`. `/items` reads the session's stream, which
+     * the relay feeds from the record after commit (Durable Streams §7, §9.4), so it can trail the
+     * session view, most after a restart. The relay keeps a session's order: what the record holds
+     * before that event is in the history too.
+     */
+    const historyWith = (session, n) =>
+      eventually(
+        async () => {
+          const history = await items(session);
+          const types = history.map((item) => item.type);
+          if (types.filter((type) => type === "turn.completed").length >= n) return history;
+          throw new Error(types.join(", "));
+        },
+        { timeout: 30_000, message: `${n} turn.completed in ${session}'s history` },
+      );
+    /** A turn that completes, with exactly `calls` upstream model calls; its last answer. */
     const turn = async (session, { calls = 2 } = {}) => {
       const before = (await stub()).calls;
+      const turns = await completed(session);
       const sent = await message(session);
       assert.equal(sent.status, 200, JSON.stringify(sent.body));
       const done = await settled(session);
       assert.equal(done.status, "completed", JSON.stringify(done));
       await sleep(2000);
       assert.equal((await stub()).calls - before, calls, "one upstream call per model effect");
-      return lastAnswer(session);
+      const history = await historyWith(session, turns + 1);
+      return JSON.stringify(history.filter((item) => item.type === "message.assistant").at(-1)?.payload ?? {});
     };
     const open = (session, sandboxId) =>
       api("PUT", `/v1/sessions/${session}`, {
@@ -261,6 +278,7 @@ try {
       step("kill -9 the runtime mid model call");
       await fetch(`${stubUrl}/hold`, { method: "POST" });
       let before = (await stub()).calls;
+      const turns = await completed("s1");
       assert.equal((await message("s1")).status, 200);
       await until("a model call held", async () => (await stub()).held === 1);
       await stack.compose(["kill", "-s", "KILL", "runtime"]);
@@ -271,7 +289,8 @@ try {
       assert.equal(done.status, "completed", JSON.stringify(done));
       await sleep(3000);
       assert.equal((await stub()).calls - before, 2, "one upstream call per model effect after kill -9");
-      assert.ok(!(await items("s1")).some((item) => item.type === "effect.uncertain"), "nothing uncertain");
+      const recovered = await historyWith("s1", turns + 1);
+      assert.ok(!recovered.some((item) => item.type === "effect.uncertain"), "nothing uncertain");
 
       step("force-delete the pod mid model call");
       await fetch(`${stubUrl}/hold`, { method: "POST" });

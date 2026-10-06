@@ -50,6 +50,23 @@ async function walk(dir) {
 }
 
 /**
+ * The history once it holds `n` events of `type`. `/items` reads the session's stream, which
+ * the relay feeds from the record after commit (Durable Streams §7, §9.4), so it can trail the
+ * session view. The relay keeps a session's order: what the record holds before that event is
+ * in the history too.
+ */
+const historyWith = (read, type, n = 1) =>
+  eventually(
+    async () => {
+      const history = await read();
+      const types = history.items.map((item) => item.type);
+      if (types.filter((t) => t === type).length >= n) return history;
+      throw new Error(types.join(", "));
+    },
+    { timeout: 30_000, message: `${n} ${type} in the history` },
+  );
+
+/**
  * The harness container (F6.2): status reports it remote and connected; it holds the harness
  * token and nothing else; Restate's UI is not published. An agent with a sandbox runs its
  * tools in the harness: the runtime container runs only its own process.
@@ -120,7 +137,12 @@ async function harnessChecks(stack, images, status) {
     };
     const bashed = await turn(1, 'call bash {"command":"echo from-the-harness > proof.txt && cat proof.txt"}');
     assert.equal(bashed.status, "completed", JSON.stringify(bashed));
-    const results = (await runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/plugged/items")).items
+    // The turn's `turn.completed`, which follows its `tool.completed` in the history.
+    const history = await historyWith(
+      () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/plugged/items"),
+      "turn.completed",
+    );
+    const results = history.items
       .filter((item) => item.type === "tool.completed")
       .map((item) => JSON.stringify(item.payload));
     assert.ok(results.some((r) => r.includes("from-the-harness")), `bash ran: ${results}`);
