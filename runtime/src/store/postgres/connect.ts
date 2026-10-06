@@ -73,9 +73,9 @@ export async function assertLogicalReplication(sql: Sql): Promise<void> {
     );
 }
 
-/** Separate, bounded pool for read projections; inherits the Tenant connection credentials. */
-export function createPostgresReadClient(source: PostgresClient): PostgresClient {
-  const options: postgres.Options<{}> = {
+/** Where `source` connects, as whom: for clients that share its database and credentials. */
+function connectionOf(source: PostgresClient): postgres.Options<{}> {
+  return {
     host:
       source.options.host.length === 1
         ? source.options.host[0]
@@ -88,6 +88,13 @@ export function createPostgresReadClient(source: PostgresClient): PostgresClient
     pass: source.options.pass ?? "",
     ssl: source.options.ssl,
     path: source.options.path,
+  };
+}
+
+/** Separate, bounded pool for read projections; inherits the Tenant connection credentials. */
+export function createPostgresReadClient(source: PostgresClient): PostgresClient {
+  const options: postgres.Options<{}> = {
+    ...connectionOf(source),
     max: 4,
     idle_timeout: 30,
     connect_timeout: 2,
@@ -102,4 +109,33 @@ export function createPostgresReadClient(source: PostgresClient): PostgresClient
   };
   const pool = postgres(options);
   return pool;
+}
+
+/**
+ * One connection of its own for `LISTEN` (the control bus, `control.ts`), with `source`'s
+ * database and credentials. It never idles out. `onClose` runs when the connection ends for
+ * any reason; the caller listens again, which connects again. A `LISTEN` needs a session of
+ * its own: behind a pooler in transaction mode it would not hear a thing.
+ */
+export function createPostgresListenClient(
+  source: PostgresClient,
+  handlers: { onNotify: (channel: string, payload: string) => void; onClose: () => void },
+): PostgresClient {
+  const options: postgres.Options<{}> & {
+    // postgres.js calls it for every NotificationResponse (what its own `listen` builds on);
+    // its types leave it out.
+    onnotify: (channel: string, payload: string) => void;
+  } = {
+    ...connectionOf(source),
+    max: 1,
+    idle_timeout: 0,
+    max_lifetime: null,
+    connect_timeout: 10,
+    fetch_types: false,
+    onnotice() {},
+    onnotify: handlers.onNotify,
+    onclose: () => handlers.onClose(),
+    connection: { application_name: "nylorun-control" },
+  };
+  return postgres(options);
 }

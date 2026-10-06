@@ -10,7 +10,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
-import { CONTROL_STREAM } from "../../src/streams/types.js";
 import { stackEndpoints } from "../stack/endpoints.js";
 import { openTestSessionStore, testTenantPool } from "../support/store.js";
 import {
@@ -197,7 +196,7 @@ describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S
     expect(model.calls).toBe(1);
   });
 
-  it("§17.9 cancel delivered to another Worker: the API node's cancel aborts the model call on the Worker through the control stream", async () => {
+  it("§17.9 cancel delivered to another Worker: the API node's cancel aborts the model call on the Worker through the control bus", async () => {
     const t = failureTenant();
     const model = controlledModel({ honorAbort: true });
     t.onDispose(() => model.release());
@@ -229,26 +228,18 @@ describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S
     expect(worker.execution.results).toEqual([{ status: "done" }]);
     expect(api.execution.results).toEqual([]);
 
-    const control: unknown[] = [];
-    for await (const record of apiNode.streams.read(t.tenantId, CONTROL_STREAM, 0, {
-      follow: false,
-    }))
-      control.push(record.body);
-    expect(control).toContainEqual({
-      type: "session.cancel",
-      sessionId: "s1",
-      turnId: expect.any(String),
-    });
+    // The signal went over Postgres: S2 holds session streams only.
+    expect(await apiNode.streams.listStreams(t.tenantId, "tenant/")).toEqual([]);
     expect(await completeHistory(workerNode)).toEqual(history);
   });
 
-  it("§17.12 cancel while S2 is down: the cancel commits, nothing of the cancelled turn is written after it, and the stream matches once S2 returns", async () => {
+  it("§17.12 cancel while S2 is down: the cancel reaches the Worker over the Postgres control bus, nothing of the cancelled turn is written after it, and the stream matches once S2 returns", async () => {
     const t = failureTenant();
-    // Both nodes reach s2-lite through a proxy the test takes down, so the cancel signal on
-    // tenant/control cannot reach the Worker: only the Postgres fence stops the turn.
+    // Both nodes reach s2-lite through a proxy the test takes down. Cancel never needed S2
+    // (D48): its signal goes over Postgres and aborts the Worker's model call all the same.
     const proxy = await tcpProxy(Number(new URL(stackEndpoints().s2.endpoint).port));
     t.atEnd(() => proxy.close());
-    const model = controlledModel(); // ignores its signal: the call outlives the cancel
+    const model = controlledModel({ honorAbort: true });
     t.onDispose(() => model.release());
     const worker = t.worker({ offset: 12, prefix: "cancel_s2" });
     await worker.host.start();
@@ -278,9 +269,10 @@ describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S
     expect(countOf(cancelled, "turn.cancelled")).toBe(1);
     const turnId = cancelled.find((e) => e.type === "turn.cancelled")!.turnId;
 
-    // The Worker's model call answers after the cancel; its advance must not record it.
-    model.release();
+    // S2 is still down, and the Worker's call is aborted: the signal came over Postgres.
+    await until(async () => model.aborted, (n) => n === 1, "the model call aborted", 15_000);
     await until(async () => worker.execution.results, (r) => r.length > 0, "the advance to end", 20_000);
+    model.release();
     const after = await recordOf(apiNode);
     expect(after.slice(0, cancelled.length)).toEqual(cancelled);
     expect(after.slice(cancelled.length).filter((e) => e.turnId === turnId)).toEqual([]);

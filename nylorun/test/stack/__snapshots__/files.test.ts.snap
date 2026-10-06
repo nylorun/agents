@@ -114,8 +114,8 @@ services:
     volumes:
       - s2-lite:/home/nonroot
     networks: [store]
-    # The s2 image has no shell or HTTP client, so it has no health check;
-    # the Runtime's /ready covers it.
+    # The s2 image has no shell or HTTP client, so it has no health check.
+    # Its reachability is in the Tenant's status (GET /v1/tenant, streams.reachable).
     restart: unless-stopped
 
   rustfs: # the Object store (D35); not published, only the runtime and the gateway hold its credential

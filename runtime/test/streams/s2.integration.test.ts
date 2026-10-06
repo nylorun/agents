@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createS2Streams } from "../../src/adapters/streams/s2.js";
 import { tenantBasinName } from "../../src/streams/basin.js";
-import { CONTROL_STREAM, sessionStream } from "../../src/streams/types.js";
+import { sessionStream } from "../../src/streams/types.js";
 import { streamsContract } from "../contracts/streams.contract.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
 
@@ -134,10 +134,9 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
       await expect(other.append(otherTenant, stream, [1])).rejects.toThrow("closed");
     });
 
-    it("keeps session streams forever and trims the control stream by age", async () => {
+    it("keeps session streams forever", async () => {
       const tenantId = await tenant();
       await streams.append(tenantId, sessionStream("kept-i1"), [1]);
-      await streams.append(tenantId, CONTROL_STREAM, [{ type: "session.cancel", sessionId: "s" }]);
       // Stream configs as s2-lite reports them (REST: GET /v1/streams/{stream}).
       const config = async (stream: string) => {
         const response = await fetch(
@@ -148,7 +147,6 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
         return ((await response.json()) as { retention_policy: unknown }).retention_policy;
       };
       expect(await config(sessionStream("kept-i1"))).toEqual({ infinite: {} });
-      expect(await config(CONTROL_STREAM)).toEqual({ age: 86_400 });
     });
   });
 });

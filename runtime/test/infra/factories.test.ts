@@ -158,7 +158,7 @@ describe("createInfra", () => {
     await infra.close();
   });
 
-  it("builds each configured client and checks exactly those", async () => {
+  it("builds each configured client and checks each but S2 (D48)", async () => {
     const infra = createInfra({
       services: new Set(["core"] as const),
       endpoints: {
@@ -169,9 +169,20 @@ describe("createInfra", () => {
     });
     expect(infra.database).toBeUndefined();
     expect(infra.execution).toBeInstanceOf(RestateExecution);
+    expect(infra.streams).toBeDefined();
     const report = await infra.readiness!();
     expect(report.ok).toBe(false);
-    expect(report.checks).toEqual({ restate: false, s2: false });
+    expect(report.checks).toEqual({ restate: false });
+    await infra.close();
+  });
+
+  it("builds S2 streams with no readiness: S2 never decides /ready", async () => {
+    const infra = createInfra({
+      services: new Set(["core"] as const),
+      endpoints: { s2Endpoint: "http://127.0.0.1:1" },
+    });
+    expect(infra.streams).toBeDefined();
+    expect(infra.readiness).toBeUndefined();
     await infra.close();
   });
 

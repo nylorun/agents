@@ -1,24 +1,24 @@
 /**
  * Aggregate readiness of the Host's infrastructure (architecture §13, §14.3):
- * the Runtime's `/ready` covers Postgres, Restate and S2. s2-lite's image has
- * no health check of its own, so this is the only place its health shows.
+ * the Runtime's `/ready` covers Postgres and Restate. S2 is left out (D48): it only
+ * serves API listeners (history, SSE, AG-UI, A2A), so an outage degrades those reads
+ * and never makes the Runtime unready. Its health shows in the Tenant's status
+ * (`GET /v1/tenant`, `streams.reachable`).
  *
  * Every probe runs on each call, in parallel, bounded by one timeout. A probe
  * that throws or outlives the timeout marks its check `false`. Only check
  * names and booleans are reported; the errors stay in the report for logs.
  */
 import type { DurableExecution } from "../execution/types.js";
-import type { DurableStreams } from "../streams/types.js";
 import { probeDatabase, type PostgresClient } from "./database.js";
 import { probeExecution } from "./execution.js";
-import { probeStreams } from "./streams.js";
 
 /** Resolves when the dependency answers; rejects otherwise. Must honour `signal`. */
 export type Probe = (signal: AbortSignal) => Promise<void>;
 
 export interface ReadinessReport {
   ok: boolean;
-  /** One entry per configured dependency, e.g. `{ postgres, restate, s2 }`. */
+  /** One entry per configured dependency, e.g. `{ postgres, restate }`. */
   checks: Record<string, boolean>;
   /** Why each failing check failed. Not for unauthenticated responses. */
   errors: Record<string, string>;
@@ -49,17 +49,15 @@ export function createReadiness(
   };
 }
 
-/** The standard checks for whichever infrastructure the Host was built with. */
+/** The standard checks for whichever infrastructure the Host was built with. Never S2 (D48). */
 export function infraProbes(infra: {
   database?: PostgresClient;
   execution?: DurableExecution;
-  streams?: DurableStreams;
 }): Record<string, Probe> {
   const probes: Record<string, Probe> = {};
-  const { database, execution, streams } = infra;
+  const { database, execution } = infra;
   if (database) probes.postgres = (signal) => probeDatabase(database, signal);
   if (execution) probes.restate = (signal) => probeExecution(execution, signal);
-  if (streams) probes.s2 = (signal) => probeStreams(streams, signal);
   return probes;
 }
 

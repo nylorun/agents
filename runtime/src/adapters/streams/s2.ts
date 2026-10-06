@@ -8,10 +8,9 @@
  * - One basin per Tenant basin generation, named by `tenantBasinName` (`streams/basin.ts`):
  *   `<basinPrefix>tn-<ulid>` for a Tenant id `tn_<ulid>`, `…-<g base36>` for generation g.
  * - The basin is created with `createStreamOnAppend` and `createStreamOnRead`, so
- *   `sessions/<id>` and `tenant/control` come into existence on first use. Its
- *   default stream config sets infinite retention, which session streams
- *   keep; the control stream is created with a one-day
- *   age-based retention instead (signals are latency hints, not history).
+ *   `sessions/<id>` come into existence on first use. Its default stream config
+ *   sets infinite retention, which session streams keep. There are no other
+ *   streams: signals between processes go over Postgres (D48).
  * - Bodies are JSON text in string records. Record timestamps are S2 arrival
  *   times.
  * - Appends use `appendRetryPolicy: "noSideEffects"`: the SDK retries only
@@ -27,7 +26,7 @@
  *   explicit `{ infinite: {} }` retention to keep session history; this adapter
  *   sets it as the basin default, and s2-lite honours it (a new stream reports
  *   `infinite`). A `streamConfig` sent with an append that creates the stream
- *   is honoured too (used for the control stream). `deleteOnEmpty`
+ *   is honoured too. `deleteOnEmpty`
  *   defaults to disabled (`minAgeSecs: 0`).
  * - **Stream deletion** is immediate for our purposes: right after `DELETE`,
  *   `checkTail` and reads return 404 `stream_not_found` (new read sessions
@@ -68,7 +67,6 @@ import {
 } from "@s2-dev/streamstore";
 import { parseBasin, tenantBasinName, validateBasinPrefix } from "../../streams/basin.js";
 import {
-  CONTROL_STREAM,
   type AppendOptions,
   type AppendResult,
   type DurableStreams,
@@ -93,8 +91,6 @@ export interface S2StreamsOptions {
   basinDeletionWaitMs?: number;
 }
 
-/** Retention of the control signal stream. */
-const SIGNAL_RETENTION_SECS = 24 * 60 * 60;
 /** Records per unary read while reading history. */
 const HISTORY_PAGE = 1000;
 const RETRY_MIN_MS = 100;
@@ -141,9 +137,6 @@ class S2Streams implements DurableStreams {
       }),
       {
         ...(options.matchSeq !== undefined ? { matchSeqNum: options.matchSeq } : {}),
-        ...(stream === CONTROL_STREAM
-          ? { streamConfig: { retentionPolicy: { ageSecs: SIGNAL_RETENTION_SECS } } }
-          : {}),
       },
     );
     const handle = this.handle(tenantId, stream);

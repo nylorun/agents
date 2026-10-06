@@ -39,7 +39,7 @@ function abortWith(controller: AbortController, kind: AdvanceAbortKind): void {
 
 /**
  * Abort the advance of `id` if it runs on this process.
- * Cancel calls it after committing `cancelled`, and so does the control stream for cancels made
+ * Cancel calls it after committing `cancelled`, and so does the control bus for cancels made
  * elsewhere. With `turnId`, an advance of another turn keeps running: the signal came late.
  */
 export function abortLocal(

@@ -344,7 +344,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     await next.host.armAll([before.tenantId]);
   });
 
-  it("cancels a long model call on the Worker from another node through the control stream", async () => {
+  it("cancels a long model call on the Worker from another node through the control bus", async () => {
     const streams = new MemoryStreams();
     finally_.push(() => streams.close());
     const model = controlledModel({ honorAbort: true });

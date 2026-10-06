@@ -374,6 +374,47 @@ export interface SessionStore {
   record(): RecordReader;
   /** Reachability and schema check for Tenant status and `/ready`. Never throws. */
   health(): Promise<StoreHealth>;
+  /**
+   * Follows the control bus (D21): calls `onSignal` once for each signal committed after the
+   * returned promise resolves, on every process that follows. Delivery is by notification,
+   * backed by a poll of recent signals (every `pollMs`, and each time the listener connects
+   * again) that catches the notifications a dropped connection missed. `onSignal` must not
+   * throw; what it throws goes to `onError`, as do listener failures.
+   */
+  followSignals(
+    onSignal: (signal: ControlSignal) => void,
+    options?: FollowSignalsOptions,
+  ): Promise<SignalFollower>;
+  close(): Promise<void>;
+}
+
+/**
+ * A signal on the control bus (D21, D48): one process tells the others with the Tenant open.
+ * Signals are not events: they are never recorded in a session's log or streamed, and a
+ * lost one costs latency, never correctness. They never go through S2.
+ */
+export type ControlSignal =
+  | {
+      /** The process running the session's advance aborts it. */
+      type: "session.cancel";
+      sessionId: string;
+      /** The cancelled turn: an advance of another turn keeps running. Absent: any advance. */
+      turnId?: string;
+    }
+  | {
+      /** The Tenant's sessions were reset and it moved to basin generation `generation`. */
+      type: "sessions.reset";
+      generation: number;
+    };
+
+export interface FollowSignalsOptions {
+  /** How often recent signals are read back. Default 5 s. */
+  pollMs?: number;
+  onError?: (error: unknown) => void;
+}
+
+export interface SignalFollower {
+  /** Stops following and ends the listener's connection. */
   close(): Promise<void>;
 }
 
@@ -572,6 +613,16 @@ export interface Tx {
   ): Promise<LinkedSession<S>[]>;
 
   counts(): Promise<StoreCounts>;
+
+  // --- control bus (D21) ---------------------------------------------------
+
+  /**
+   * Puts `signal` on the control bus: a row, and a notification Postgres sends every
+   * following process when this transaction commits (and never on rollback).
+   */
+  signal(signal: ControlSignal): Promise<void>;
+  /** Deletes signals written before `before`. Returns how many. */
+  pruneSignals(before: Date): Promise<number>;
 
   // --- basin generations (Durable Streams §8.1) ----------------------------
 

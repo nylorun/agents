@@ -84,6 +84,9 @@ import type {
   ArtifactVersionRow,
   DefinitionFileRow,
   CommitListener,
+  ControlSignal,
+  FollowSignalsOptions,
+  SignalFollower,
   DefinitionDoc,
   DocTable,
   EffectDoc,
@@ -121,6 +124,7 @@ import type {
   VaultRow,
   OAuthPendingRow,
 } from "../types.js";
+import { followControlSignals, pruneSignals, writeSignal } from "./control.js";
 import { database, driverError, type Database, type Transaction } from "./db.js";
 import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
 import { createPostgresRecordReader } from "./record.js";
@@ -290,6 +294,14 @@ class PostgresSessionStore implements SessionStore {
     } catch {
       return { ok: false, schemaVersion: 0, expectedSchemaVersion };
     }
+  }
+
+  followSignals(
+    onSignal: (signal: ControlSignal) => void,
+    options?: FollowSignalsOptions,
+  ): Promise<SignalFollower> {
+    if (this.closed) throw new Error("SessionStore is closed");
+    return followControlSignals(this.sql, this.db, onSignal, options);
   }
 
   /** Rejects new transactions and waits for running ones. Does not end the pool. */
@@ -862,6 +874,18 @@ class PostgresTx implements Tx {
       sandboxes: row!.sandboxes,
       definitions: row!.definitions,
     };
+  }
+
+  // --- control bus (D21) ---------------------------------------------------
+
+  async signal(signal: ControlSignal): Promise<void> {
+    this.check();
+    await writeSignal(this.db, signal);
+  }
+
+  async pruneSignals(before: Date): Promise<number> {
+    this.check();
+    return pruneSignals(this.db, before);
   }
 
   // --- basin generations --------------------------------------------------

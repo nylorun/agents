@@ -83,8 +83,8 @@ Tenant Runtime, which it opens at start (`host/create-host.ts`: the listener and
 `Host` check; `host/app.ts`: the rest of the pipeline, a Hono app). It has one listener
 (protocol 8). A protocol 4 `Nylorun-Tenant` naming another Tenant gets the opaque `404`.
 Only `host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtime"`,
-`hostId` and protocol range; `/ready` reports the Tenant, Postgres, Restate and S2
-(`infra/readiness.ts`), and `harness: { mode, connected }` while the Tenant is open. It
+`hostId` and protocol range; `/ready` reports the Tenant, Postgres and Restate, never S2
+(`infra/readiness.ts`, D48), and `harness: { mode, connected }` while the Tenant is open. It
 stops on SIGTERM. The Tenant's data is its Postgres database; the Host keeps its
 key and logs under `tenant/` in its Host root (`NYLORUN_HOME`, or a
 local Tenant's `~/.nylorun/tenants/<name>/`). `nylorun start` writes `host.json` and
@@ -445,7 +445,8 @@ One line each; the module named is where the term lives in code.
 - **Session Store**: The Tenant's durable state in the fixed schemas of its own Postgres database, behind the async `SessionStore`/`Tx` seam (`store/types.ts`, `store/postgres/`). Drizzle defines its tables (`store/postgres/schema.ts`), generates its migrations (`store/postgres/drizzle/`) and runs its queries; only `store/postgres/` imports Drizzle or the driver.
 - **Migration**: One step of the Tenant database's schema: a SQL file drizzle-kit generated from `schema.ts`, or custom SQL for what it does not model (the schemas, `doc()`, the relay's publication). The Host applies the missing ones at startup under an advisory lock and records them in `nylorun.__drizzle_migrations`; a database holding one this Runtime does not ship is `schema-too-new`. The schema version is the number applied (`store/postgres/migrate.ts`).
 - **Durable Session Execution**: Delivers wakes, runs at most one advance per session, and arms the Tenant sweep; Restate (`execution/types.ts`, `adapters/execution/restate.ts`).
-- **Durable Streams**: One ordered, resumable stream per session plus `tenant/control`; S2 (`streams/types.ts`, `adapters/streams/s2.ts`).
+- **Durable Streams**: One ordered, resumable stream per session; S2 (`streams/types.ts`, `adapters/streams/s2.ts`). It serves API listeners only (history, SSE, AG-UI, A2A); nothing inside the Runtime signals through it or waits on it (D48).
+- **Control bus**: Signals between the processes with the Tenant open, on Postgres (blueprint D21, D48): `session.cancel` (abort the cancelled turn's advance) and `sessions.reset` (move session streams to the new basin generation). A signal is a `nylorun.control_signals` row written in the transaction that commits what it announces (`Tx.signal`), notified with `pg_notify` on `nylorun_control` at commit. Each process follows it (`SessionStore.followSignals`, `tenant/control.ts`) on a `LISTEN` connection of its own, reading recent rows back on every notification, every 5 s and after reconnecting; the sweep prunes rows older than an hour (`store/postgres/control.ts`). Not events: never in a session's log or on S2.
 - **Object store**: Where the Tenant's file bytes live, behind the `BlobStore` seam (`blob/types.ts`): the `s3` adapter over the plain S3 API (`blob/s3.ts`; RustFS in the local stack, `NYLORUN_OBJECT_STORE_*`), or the `fs` adapter under `TenantPaths.blobs` without one (`blob/fs.ts`). Tenant code reaches it as `ctx.blobs`; model-gate builds its own from the same configuration to read the files a prompt names. Postgres stays the record: a blob counts only once a committed row names its key (a file artifact's version).
 - **SessionStreams**: A process's readers of Durable Streams for one open Tenant (`ctx.sessionStreams`): one `SessionStream` per observed session, and the streams wiring (`tenant/session-streams.ts`).
 - **SessionStream**: The shared read of one observed session's stream in this process, followed by that session's SSE and in-process clients, each from its own next sequence (`tenant/session-streams.ts`).

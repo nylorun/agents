@@ -54,8 +54,8 @@ function replaceDirectory(dir: string): void {
 /**
  * Reset Tenant durable state for `scope` (A17).
  * Caller must have already drained (`activeWork`). Deletes store state in one
- * transaction (`Tx.reset`), then does the filesystem rename+delete for sandboxes /
- * log as needed. The host vault (model credentials), principals and settings stay.
+ * transaction (`Tx.reset`), which also signals a sessions reset to every process on the
+ * control bus, then does the filesystem rename+delete for sandboxes / log as needed. The host vault (model credentials), principals and settings stay.
  */
 export async function resetTenant(
   ctx: ResetTenantContext,
@@ -78,6 +78,12 @@ export async function resetTenant(
     // Folders' content-addressed files: those no remaining folder names (F8.2).
     const content = clearSessions ? await t.artifactContentShas(scoped) : [];
     await t.reset(scope);
+    // Every process moves its session streams to the new basin generation (control.ts).
+    if (clearSessions)
+      await t.signal({
+        type: "sessions.reset",
+        generation: (await t.basinGenerations()).current,
+      });
     const kept = await t.referencedArtifactContent(content);
     for (const sha of content) if (!kept.has(sha)) keys.push(contentKey(sha));
     return keys;

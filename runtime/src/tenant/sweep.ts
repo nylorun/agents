@@ -13,7 +13,9 @@
  *    stopped, and sandboxes whose session or sandbox resource is gone are removed, by the
  *    workspace capability (`harness-api/workspace.ts`: here, or in the harness that serves
  *    workspaces). Idle MCP connections of the in-process harness are closed.
- * 4. **Hooks.** Callbacks registered with `ctx.onSweep`.
+ * 4. **Control signals.** Signals on the control bus older than `SIGNAL_RETENTION_MS` are
+ *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
+ * 5. **Hooks.** Callbacks registered with `ctx.onSweep`.
  *
  * Every step runs one transaction per session it changes (a linked agent and its workflow
  * share one, child first), so the sweep follows the lock order in `store/types.ts`. A failing
@@ -27,6 +29,8 @@ import {
 import type { TenantContext } from "./context.js";
 
 const BATCH = 100;
+/** How long a control signal is kept after it was written. */
+const SIGNAL_RETENTION_MS = 60 * 60 * 1000;
 
 type Step = [name: string, run: () => Promise<unknown>];
 
@@ -50,6 +54,11 @@ export async function sweep(ctx: TenantContext): Promise<void> {
     ["pods", () => reconcileStalePods(ctx, now)],
     // A harness elsewhere closes its own idle MCP connections.
     ["mcp", async () => ctx.mcp?.sweep()],
+    [
+      "signals",
+      () =>
+        ctx.store.tx((t) => t.pruneSignals(new Date(now.getTime() - SIGNAL_RETENTION_MS))),
+    ],
     ...[...ctx.sweepHooks].map((hook): Step => ["hook", hook]),
   ];
   let failure: { error: unknown } | undefined;

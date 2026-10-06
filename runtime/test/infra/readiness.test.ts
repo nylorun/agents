@@ -68,7 +68,7 @@ describe("createReadiness", () => {
 
 describe("host /ready with readiness", () => {
   it("answers 503 with every check when one infrastructure check fails", async () => {
-    const readiness = createReadiness({ postgres: ok, restate: ok, s2: down });
+    const readiness = createReadiness({ postgres: ok, restate: down });
     const { url } = await startTestHost({ readiness });
     const response = await getJson(`${url}/ready`);
     expect(response.status).toBe(503);
@@ -76,30 +76,30 @@ describe("host /ready with readiness", () => {
     expect(response.body).toEqual({
       status: "not_ready",
       service: "nylorun-runtime",
-      checks: { listener: true, tenant: true, postgres: true, restate: true, s2: false },
+      checks: { listener: true, tenant: true, postgres: true, restate: false },
     });
     // Errors are for logs, not for an unauthenticated route.
     expect(JSON.stringify(response.body)).not.toContain("ECONNREFUSED");
   });
 
   it("answers 200 when every check passes", async () => {
-    const readiness = createReadiness({ postgres: ok, restate: ok, s2: ok });
+    const readiness = createReadiness({ postgres: ok, restate: ok });
     const { url } = await startTestHost({ readiness });
     const response = await getJson(`${url}/ready`);
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
       status: "ready",
       service: "nylorun-runtime",
-      checks: { listener: true, tenant: true, postgres: true, restate: true, s2: true },
+      checks: { listener: true, tenant: true, postgres: true, restate: true },
     });
   });
 
   it("follows the dependency when it recovers", async () => {
-    let s2: Probe = down;
-    const readiness = createReadiness({ s2: (signal) => s2(signal) });
+    let restate: Probe = down;
+    const readiness = createReadiness({ restate: (signal) => restate(signal) });
     const { url } = await startTestHost({ readiness });
     expect((await getJson(`${url}/ready`)).status).toBe(503);
-    s2 = ok;
+    restate = ok;
     expect((await getJson(`${url}/ready`)).status).toBe(200);
   });
 });

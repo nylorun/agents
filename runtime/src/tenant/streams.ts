@@ -8,34 +8,30 @@
  *   otherwise (tests, a Host without S2) this module runs a relay of the Tenant's own commits,
  *   which reconciles the record with the streams when it starts.
  * - **Basin generations.** The Tenant's session streams live in its current basin generation
- *   (`streams/basin.ts`). A reset moves it to the next one (`tenantReset`): the old basin gets
- *   a `sessions.reset` signal, every process moves its readers, and the old basin is deleted
- *   after a grace period (again when the Tenant opens, until it is gone).
+ *   (`streams/basin.ts`). A reset moves it to the next one: its transaction puts a
+ *   `sessions.reset` signal on the control bus (`control.ts`), every process moves its readers
+ *   (`tenantReset` here, `checkSessionStreams` elsewhere), and the old basin is deleted after a
+ *   grace period (again when the Tenant opens, until it is gone).
  * - **Basin.** The current basin is created when the Tenant opens. A missing basin (S2 down
  *   then, or deleted since) is repaired on first use: a failed `ensureTenant` retries in the background with backoff,
  *   and `streamsStatus` reports the basin's state.
  * - **Readers.** History and session SSE read the session's stream
- *   (`tenant/session-streams.ts`). This module runs one `tenant/control` reader per Tenant per
- *   process, on the current basin, which calls `ctx.abortLocal` for each `session.cancel`
- *   and checks the session streams for each `sessions.reset`.
+ *   (`tenant/session-streams.ts`). Those are the only readers: S2 serves API listeners, and
+ *   nothing internal reads or writes it (D48). Signals between processes go over the control
+ *   bus on Postgres (`control.ts`).
  *
  * The caller passes the streams: the Host's S2 streams, or `MemoryStreams` for tests and a
  * local development Host (not durable).
  */
 import type { Commit, SessionStore } from "../store/types.js";
 import { basinOf } from "../streams/basin.js";
-import { signalCancel, signalSessionsReset } from "../streams/control.js";
 import {
   createStreamRelay,
   type StreamRelay,
   type StreamRelayStatus,
 } from "../streams/relay/core.js";
 import type { ChangeHandlers, ChangeSource } from "../streams/relay/types.js";
-import {
-  CONTROL_STREAM,
-  type ControlSignal,
-  type DurableStreams,
-} from "../streams/types.js";
+import type { DurableStreams } from "../streams/types.js";
 import type { TenantContext } from "./context.js";
 import {
   checkSessionStreams,
@@ -75,7 +71,7 @@ export interface StreamsWiring {
   readonly relay: StreamRelay | undefined;
   /** The current basin's state (`streamsStatus`). */
   basin(): BasinStatus;
-  /** Moves this process's readers and control reader to basin generation `generation`. */
+  /** Moves this process's readers to basin generation `generation`. */
   moveTo(generation: number): void;
   /** Deletes the basins of retired generations after the grace period. */
   retire(generations: readonly number[]): void;
@@ -99,9 +95,9 @@ const messageOf = (error: unknown) =>
 
 /**
  * Wires the Tenant to Durable Streams: reads its basin generation, checks the basin, starts
- * the Tenant's relay (unless the Host relays), the control reader and the retired basins'
- * deletion, and records the handles on `ctx.sessionStreams.wiring`. Call it once, after
- * `ctx` is built and before the Tenant serves requests.
+ * the Tenant's relay (unless the Host relays) and the retired basins' deletion, and records
+ * the handles on `ctx.sessionStreams.wiring`. Call it once, after `ctx` is built and before
+ * the Tenant serves requests.
  */
 export async function wireStreams(
   ctx: TenantContext,
@@ -145,29 +141,6 @@ export async function wireStreams(
       });
   relay?.start();
 
-  // One control reader, on the current basin; moving to a new generation restarts it there.
-  let control = new AbortController();
-  const startControl = () =>
-    follow(
-      streams,
-      currentBasin(ctx),
-      CONTROL_STREAM,
-      AbortSignal.any([stop.signal, control.signal]),
-      (body) => {
-        const signal = body as Partial<ControlSignal> | null;
-        if (signal?.type === "session.cancel" && typeof signal.sessionId === "string")
-          ctx.abortLocal(
-            signal.sessionId,
-            typeof signal.turnId === "string" ? signal.turnId : undefined
-          );
-        else if (signal?.type === "sessions.reset")
-          void checkSessionStreams(ctx).catch(report("session stream check failed"));
-      },
-      report("control stream read failed; retrying")
-    );
-  // Signals appended from here on reach this process.
-  await startControl();
-
   // Streams whose session was reset end on the `sessions.reset` signal; this catches lost ones.
   const feedCheck = setInterval(
     () => void checkSessionStreams(ctx).catch(report("session stream check failed")),
@@ -185,9 +158,6 @@ export async function wireStreams(
       if (stop.signal.aborted || generation === ctx.sessionStreams.generation) return;
       ctx.sessionStreams.generation = generation;
       basin.repair();
-      control.abort();
-      control = new AbortController();
-      void startControl();
     },
     retire(retired) {
       for (const generation of retired) {
@@ -260,42 +230,15 @@ function commitSource(store: SessionStore, tenantId: string): ChangeSource {
 }
 
 /**
- * Appends `session.cancel` for `sessionId` and its cancelled turn to `tenant/control`, so the
- * process running that turn's advance aborts it. Call it from `t.afterCommit` after a cancel
- * commits. A lost signal costs latency only (the advance checks the Session Store before every
- * effect), so failures are logged, never thrown.
- */
-export function signalSessionCancel(
-  ctx: TenantContext,
-  sessionId: string,
-  turnId: string | null
-): void {
-  const streams = ctx.sessionStreams.wiring?.streams;
-  if (!streams) return;
-  void signalCancel(streams, currentBasin(ctx), sessionId, turnId ?? undefined).catch(
-    (error: unknown) =>
-      ctx.config.logger.warn("cancel signal failed", {
-        sessionId,
-        message: messageOf(error),
-      })
-  );
-}
-
-/**
- * After a reset deleted the Tenant's sessions and moved it to a new basin generation: tells
- * every process with the Tenant open (`sessions.reset` on the old basin's control stream),
- * moves this process's readers, and deletes the old basin after the grace period. Failures
- * are logged; the periodic check and the next open finish the job.
+ * After a reset deleted the Tenant's sessions and moved it to a new basin generation: moves
+ * this process's readers at once and deletes the old basin after the grace period. The other
+ * processes move on the reset's `sessions.reset` signal (`control.ts`); the periodic check
+ * and the next open finish the job.
  */
 export async function tenantReset(ctx: TenantContext): Promise<void> {
   const wiring = ctx.sessionStreams.wiring;
   if (!wiring) return;
-  const previous = currentBasin(ctx);
   const generations = await ctx.store.tx((t) => t.basinGenerations());
-  await signalSessionsReset(wiring.streams, previous, generations.current).catch(
-    (error: unknown) =>
-      ctx.config.logger.warn("sessions.reset signal failed", { message: messageOf(error) })
-  );
   wiring.moveTo(generations.current);
   wiring.retire(generations.retired);
 }
@@ -433,54 +376,4 @@ function basinKeeper(
     },
     status: () => ({ ready, failures, lastError }),
   };
-}
-
-/**
- * Follows a signal stream from its tail at start, calling `onRecord` for each record, until
- * `signal` aborts. Failed reads retry with backoff; a read that ends by itself (the basin was
- * deleted) starts again from the new tail. Resolves once the first tail is known (or failed).
- */
-function follow(
-  streams: DurableStreams,
-  basin: string,
-  stream: string,
-  signal: AbortSignal,
-  onRecord: (body: unknown) => void,
-  onError: (error: unknown) => void
-): Promise<void> {
-  let started!: () => void;
-  const ready = new Promise<void>((resolve) => (started = resolve));
-  void (async () => {
-    let from: number | undefined;
-    let delay = RETRY_MIN_MS;
-    while (!signal.aborted) {
-      try {
-        try {
-          from ??= await streams.tail(basin, stream);
-        } finally {
-          started();
-        }
-        for await (const record of streams.read(basin, stream, from, {
-          signal,
-        })) {
-          from = record.seq + 1;
-          delay = RETRY_MIN_MS;
-          try {
-            onRecord(record.body);
-          } catch (error) {
-            onError(error);
-          }
-        }
-        if (signal.aborted) return;
-        from = undefined;
-      } catch (error) {
-        if (signal.aborted) return;
-        onError(error);
-      }
-      await sleep(delay, signal);
-      delay = Math.min(delay * 2, RETRY_MAX_MS);
-    }
-    started();
-  })();
-  return ready;
 }

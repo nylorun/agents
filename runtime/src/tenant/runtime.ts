@@ -5,7 +5,8 @@
  * summary, drain, close) by delegating to the Tenant modules.
  *
  * Seams wired here: `wireStreams()` connects the store's commits to Durable Streams (the
- * relay, and the history, SSE, work and control readers); `wake` goes to the
+ * relay, and the history and SSE readers); `wireControl()` follows the control bus on
+ * Postgres (cancels and resets from other processes); `wake` goes to the
  * `DurableExecution`, whose handlers (`worker.ts`) call `advance` and `sweep`; `abortLocal`
  * aborts an advance running on this process.
  *
@@ -36,6 +37,7 @@ import { defaultSandboxBackends } from "../sandbox/select.js";
 import { MemoryExecution } from "../execution/memory.js";
 import { openError } from "./cause.js";
 import { MemoryStreams } from "../streams/memory.js";
+import { closeControl, wireControl } from "./control.js";
 import type { DurableStreams } from "../streams/types.js";
 import type {
   NodeBindings,
@@ -227,6 +229,7 @@ export class TenantRuntime implements TenantHandle {
 
     const store: SessionStore = hooks.store;
     let wired: StreamsWiring | undefined;
+    let control: TenantContext["control"];
     let detach: (() => Promise<void>) | undefined;
     let harness: InProcessHarness | undefined;
     try {
@@ -461,6 +464,8 @@ export class TenantRuntime implements TenantHandle {
         ...(hooks.hostRelay ? { hostRelay: true } : {}),
         ...(hooks.retireGraceMs !== undefined ? { retireGraceMs: hooks.retireGraceMs } : {}),
       });
+      await wireControl(ctx);
+      control = ctx.control;
 
       // Register the handlers, then arm the sweep: its first pass runs at once and re-wakes
       // sessions a previous process left runnable or running (takeover handles the rest).
@@ -489,6 +494,7 @@ export class TenantRuntime implements TenantHandle {
       await detach?.().catch(() => undefined);
       await harness?.stop().catch(() => undefined);
       await wired?.close().catch(() => undefined);
+      await control?.close().catch(() => undefined);
       await hooks.reads?.close().catch(() => undefined);
       await store.close().catch(() => undefined);
       throw error;
@@ -524,7 +530,7 @@ export class TenantRuntime implements TenantHandle {
 
   /**
    * Aborts the advance of `sessionId` if it runs on this process. Cancel calls it after
-   * committing `cancelled`; the control stream calls it for cancels made elsewhere.
+   * committing `cancelled`; the control bus calls it for cancels made elsewhere.
    */
   abortLocal(sessionId: string): void {
     this.ctx.abortLocal(sessionId);
@@ -583,6 +589,7 @@ export class TenantRuntime implements TenantHandle {
           return closeStreams(ctx);
         },
       ],
+      ["control", () => closeControl(ctx)],
       ["reads", () => ctx.reads?.close()],
       ["store", () => ctx.store.close()],
     ];

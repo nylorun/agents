@@ -6,8 +6,8 @@
  *
  * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables,
  *   principals, vaults and credentials, signing keys, settings, the model usage
- *   ledger, the model budgets, the Tool Gate's crossings, file artifacts with their versions and
- *   the definition files agent definitions name.
+ *   ledger, the model budgets, the Tool Gate's crossings, file artifacts with their versions,
+ *   the definition files agent definitions name and the control bus's signals.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -587,6 +587,31 @@ export const definitionFileUses = nylorun.table(
   (t) => [
     primaryKey({ name: "definition_file_uses_pkey", columns: [t.agentId, t.manifestHash, t.sha256] }),
     index("definition_file_uses_sha256").on(t.sha256),
+  ],
+);
+
+/**
+ * The control bus (D21, D48): signals between the processes that have the Tenant open,
+ * written in the transaction that commits what they announce and notified on
+ * `nylorun_control` at commit (`control.ts`). A row outlives its notification so a process
+ * whose listener was down catches up; the Tenant sweep deletes old ones. `created_at` is the
+ * insert's own clock (`clock_timestamp()`), not its transaction's start.
+ */
+export const controlSignals = nylorun.table(
+  "control_signals",
+  {
+    id: bigint({ mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    kind: text().notNull(),
+    sessionId: textC(),
+    turnId: textC(),
+    generation: integer(),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    index("control_signals_created_at").on(t.createdAt),
+    check("control_signals_kind_check", sql`${t.kind} IN ('session.cancel', 'sessions.reset')`),
   ],
 );
 
