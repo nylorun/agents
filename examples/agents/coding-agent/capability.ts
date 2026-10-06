@@ -31,6 +31,7 @@ export function codexTools(workspaces: Map<string, CodexWorkspace>) {
               "Plain-language instructions describing the requested edit and verification in the temporary workspace.",
             ),
         }),
+        approval: ({ task }) => `Approve codex_exec?\n\n${JSON.stringify({ task })}`,
         async execute({ task }, context) {
           if (context.resume?.approved === false) {
             return {

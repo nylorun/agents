@@ -7,7 +7,7 @@ import {
   type ExampleAgent,
 } from "../shared/types.js";
 
-/** In-process tool loop with no policy or human approval. */
+/** A tool loop over the catalog's HTTP tools, with no policy or human approval. */
 export async function createToolUse(
   deps: AgentDependencies,
 ): Promise<ExampleAgent> {
@@ -15,10 +15,10 @@ export async function createToolUse(
     id: "tool-use",
     name: "Tool Use",
     description: "Calculates, reports the current time, and converts units with tools. Returns the result.",
-    instructions: exampleInstructions,
   })
-    .use(modelSelection(deps.provider, deps.model))
-    .use(await tools())
+    .instructions(exampleInstructions)
+    .capability(modelSelection(deps.provider, deps.model))
+    .capability(await tools())
     .build();
   return agent;
 }

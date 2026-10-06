@@ -101,13 +101,13 @@ describe("tools()", () => {
     expect((await call("missing", {})).status).toBe(404);
   });
 
-  it("builds the tool-use agent with one tools middleware", async () => {
+  it("builds the tool-use agent with one tools capability", async () => {
     const agent = Agent({
       id: "tool-use",
       name: "Tool Use",
-      instructions: "Be concise.",
     })
-      .use(await tools())
+      .instructions("Be concise.")
+      .capability(await tools())
       .build();
     expect(agent.manifest.capabilities.map((item) => item.id)).toEqual([
       "agent",

@@ -3,7 +3,6 @@
   "dependencies": {
     "@nylorun/harness": "file:../harness",
     "@nylorun/runtime": "file:../runtime",
-    "@modelcontextprotocol/sdk": "^1.0.0",
     "zod-from-json-schema": "^0.5.6",
     "@nylorun/agents": "file:../agents",
     "@nylorun/core": "file:../core"

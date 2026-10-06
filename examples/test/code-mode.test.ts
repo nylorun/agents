@@ -156,9 +156,9 @@ describe("codeMode()", () => {
     const agent = Agent({
       id: "code-mode",
       name: "Code Mode",
-      instructions: "Be concise.",
     })
-      .use(await codeMode())
+      .instructions("Be concise.")
+      .capability(await codeMode())
       .build();
     expect(agent.manifest.capabilities.map((item) => item.id)).toEqual([
       "agent",

@@ -14,10 +14,10 @@ export async function createCodeMode(
   const agent = Agent({
     id: "code-mode",
     name: "Code Mode",
-    instructions: exampleInstructions,
   })
-    .use(modelSelection(deps.provider, deps.model))
-    .use(await codeMode())
+    .instructions(exampleInstructions)
+    .capability(modelSelection(deps.provider, deps.model))
+    .capability(await codeMode())
     .build();
   return agent;
 }

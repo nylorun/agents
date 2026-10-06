@@ -22,16 +22,17 @@ export async function createGuardrails(
   const agent = Agent({
     id: "guardrails",
     name: "Guardrails",
-    instructions: exampleInstructions,
   })
-    .use(modelSelection(deps.provider, deps.model))
-    .use(await tools())
-    .use(publish)
-    .use(lookup)
-    .use("input", inputGuardrail)
-    .use("output", outputGuardrail)
-    .use("tool-input", toolInputGuardrail)
-    .use("tool-output", toolOutputGuardrail)
+    .instructions(exampleInstructions)
+    .capability(modelSelection(deps.provider, deps.model))
+    .capability(await tools())
+    .capability(publish)
+    .capability(lookup)
+    // Guardrails are middleware: they run in the local engine only, not on the Runtime.
+    .capability({ id: "input", middleware: inputGuardrail })
+    .capability({ id: "output", middleware: outputGuardrail })
+    .capability({ id: "tool-input", middleware: toolInputGuardrail })
+    .capability({ id: "tool-output", middleware: toolOutputGuardrail })
     .build();
   return agent;
 }

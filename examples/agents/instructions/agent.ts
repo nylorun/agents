@@ -5,19 +5,18 @@ import {
   type ExampleAgent,
 } from "../shared/types.js";
 
-/** Constructor instructions only: no tools, skills, or policy. */
+/** Instructions only: no tools, skills, or policy. */
 export function createInstructions(deps: AgentDependencies): ExampleAgent {
-  const agent = Agent({
+  return Agent({
     id: "instructions",
     name: "Instructions",
     description: "Answers in exactly three short sentences of plain prose, from instructions alone. Has no tools.",
-    instructions: [
+  })
+    .instructions(
       "You have no tools. Answer in exactly three short sentences.",
       "Do not use lists, headings, or code fences.",
       "If asked to use a tool or browse the web, say that this agent only answers from its instructions.",
-    ],
-  })
-    .use(modelSelection(deps.provider, deps.model))
+    )
+    .capability(modelSelection(deps.provider, deps.model))
     .build();
-  return agent;
 }
