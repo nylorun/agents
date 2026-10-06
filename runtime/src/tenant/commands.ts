@@ -10,9 +10,10 @@
  * (every accepted one writes a new checkpoint segment), except that a workflow's `approve` and
  * `respond` name `<type>:<turnId>:<interactionId>`: a flow resumes in the same segment.
  *
- * Cancel commits `cancelled` first; the engine host sees it before its next effect and before
- * settlement on any Worker. It then aborts an advance running on this process
- * (`ctx.abortLocal`); reaching an advance on another process is the control stream's job.
+ * Cancel commits `cancelled` first, with a `session.cancel` signal on the control bus in the
+ * same transaction; the engine host sees it before its next effect and before settlement on
+ * any Worker. It then aborts an advance running on this process (`ctx.abortLocal`); every
+ * other process aborts its own on the signal (`control.ts`).
  */
 import { randomUUID } from "node:crypto";
 import type { LiveEvent, SessionCommand } from "@nylorun/core/contracts";
@@ -44,7 +45,6 @@ import { fail } from "./http.js";
 import { accessOf } from "./auth.js";
 import { checkSandboxTurn } from "./sandboxes.js";
 import { rebaseSessionState, turnManifestOf, variantStore } from "./session.js";
-import { signalSessionCancel } from "./streams.js";
 import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
 
@@ -116,8 +116,12 @@ export async function command(
         reason: command.reason,
       });
       await slimModelEffects(t, id, cancelledTurnId);
-      // The process running the advance aborts it on `session.cancel` (tenant/control).
-      t.afterCommit(() => signalSessionCancel(ctx, id, cancelledTurnId));
+      // The process running the advance aborts it on this signal (control.ts), sent at commit.
+      await t.signal({
+        type: "session.cancel",
+        sessionId: id,
+        ...(cancelledTurnId !== null ? { turnId: cancelledTurnId } : {}),
+      });
       s.activeTurnId = null;
       if (cancelledTurnId !== null) s.lastTurnId = cancelledTurnId;
       // The next turn starts from the state preceding the cancelled turn, never its paused plan.

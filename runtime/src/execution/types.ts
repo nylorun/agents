@@ -99,7 +99,7 @@ export interface SandboxResult {
 export interface WorkerHandlers {
   /**
    * Advances one session (§10.5). `signal` aborts when the Worker stops or the
-   * session is cancelled through the control stream. Throw only on
+   * session is cancelled through the control bus. Throw only on
    * infrastructure errors.
    */
   advance(

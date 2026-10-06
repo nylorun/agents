@@ -205,6 +205,8 @@ export interface TenantContext {
   readonly work: WorkState;
   /** Live delivery over Durable Streams: one `SessionStream` per observed session, and the streams wiring. */
   readonly sessionStreams: SessionStreams;
+  /** This process's follower of the control bus (`control.ts`), once wired. */
+  control?: { close(): Promise<void> };
   /** The Tenant's signing keys: capability links, run and host tokens. */
   readonly signingKeys: SigningKeys;
   /** The Worker id this process writes as session `owner` (§10.6). */

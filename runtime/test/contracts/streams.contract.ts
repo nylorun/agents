@@ -6,11 +6,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import {
-  CONTROL_STREAM,
   sessionStream,
   type DurableStreams,
   type StreamRecord,
 } from "../../src/streams/types.js";
+
+/** A stream outside `sessions/`: the contract holds for any name. */
+const OTHER_STREAM = "tenant/other";
 
 export interface StreamsHarness {
   streams: DurableStreams;
@@ -68,7 +70,6 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
 
     it("names streams", () => {
       expect(sessionStream("abc")).toBe("sessions/abc");
-      expect(CONTROL_STREAM).toBe("tenant/control");
     });
 
     it("numbers records from 0 and reports the tail", async () => {
@@ -171,14 +172,14 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
       const controller = new AbortController();
       const seen: number[][] = [[], []];
       const readers = seen.map(async (into) => {
-        for await (const record of streams.read<{ type: string }>(tenantId, CONTROL_STREAM, 0, {
+        for await (const record of streams.read<{ type: string }>(tenantId, OTHER_STREAM, 0, {
           signal: controller.signal,
         }))
           into.push(record.seq);
       });
       await sleep(50);
-      await streams.append(tenantId, CONTROL_STREAM, [{ type: "sessions.reset" }]);
-      await streams.append(tenantId, CONTROL_STREAM, [{ type: "sessions.reset" }]);
+      await streams.append(tenantId, OTHER_STREAM, [{ type: "sample" }]);
+      await streams.append(tenantId, OTHER_STREAM, [{ type: "sample" }]);
       await withTimeout(
         (async () => {
           while (seen.some((s) => s.length < 2)) await sleep(10);
@@ -196,14 +197,14 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
       const { streams, tenantId } = await fresh();
       const controller = new AbortController();
       const reading = collect(
-        streams.read(tenantId, CONTROL_STREAM, 0, { signal: controller.signal }),
+        streams.read(tenantId, OTHER_STREAM, 0, { signal: controller.signal }),
         (records) => records.length === 1,
       );
       await sleep(50);
-      await streams.append(tenantId, CONTROL_STREAM, [{ type: "session.cancel", sessionId: "s1" }]);
+      await streams.append(tenantId, OTHER_STREAM, [{ type: "sample", n: 1 }]);
       const records = await withTimeout(reading);
       controller.abort();
-      expect(records.map((r) => r.body)).toEqual([{ type: "session.cancel", sessionId: "s1" }]);
+      expect(records.map((r) => r.body)).toEqual([{ type: "sample", n: 1 }]);
     });
 
     it("keeps Tenants and streams apart", async () => {
@@ -222,8 +223,8 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
 
     it("rejects an empty append and an append for a Tenant without a basin", async () => {
       const { streams, tenantId } = await fresh();
-      await expect(streams.append(tenantId, CONTROL_STREAM, [])).rejects.toThrow();
-      await expect(streams.append(newTenantId(), CONTROL_STREAM, [1])).rejects.toThrow();
+      await expect(streams.append(tenantId, OTHER_STREAM, [])).rejects.toThrow();
+      await expect(streams.append(newTenantId(), OTHER_STREAM, [1])).rejects.toThrow();
     });
 
     it("lists a Tenant's streams by prefix, without deleted ones", async () => {
@@ -232,8 +233,8 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
       await streams.append(tenantId, sessionStream("s2-b"), [1]);
       await streams.append(tenantId, sessionStream("s1-a"), [1]);
       await streams.append(tenantId, sessionStream("s10-c"), [1]);
-      await streams.append(tenantId, CONTROL_STREAM, [{ type: "sessions.reset" }]);
-      expect(await streams.listStreams(tenantId, "tenant/")).toEqual(["tenant/control"]);
+      await streams.append(tenantId, OTHER_STREAM, [{ type: "sample" }]);
+      expect(await streams.listStreams(tenantId, "tenant/")).toEqual([OTHER_STREAM]);
       expect(await streams.listStreams(tenantId, "sessions/")).toEqual([
         "sessions/s1-a",
         "sessions/s10-c",

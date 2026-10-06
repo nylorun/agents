@@ -312,6 +312,13 @@ On a managed Postgres, turn on its logical replication option (for example
 `rds.logical_replication` on RDS). With S2 down, commits continue and the slot keeps their
 WAL; the relay catches up in order when S2 returns.
 
+Postgres also carries the Runtime's control bus: a cancel or a sessions reset reaches every
+Runtime process through `LISTEN`/`NOTIFY` on the channel `nylorun_control`, never through
+S2. Each process holds one connection of its own for it (`application_name`
+`nylorun-control`). Connect the Runtime to Postgres directly or through a pooler in session
+mode: a pooler in transaction mode (PgBouncer's default) does not deliver notifications, and
+a cancel then reaches another process only through the 5-second poll.
+
 ## The Object store
 
 A local Tenant keeps file bytes in an **Object store**: RustFS, one node on one

@@ -21,7 +21,6 @@ import { basinOf } from "../../src/streams/basin.js";
 import type { TenantHandle } from "../../src/tenant/types.js";
 import type { ModelProvider } from "../../src/core/provider.js";
 import {
-  CONTROL_STREAM,
   sessionStream,
   type AppendOptions,
   type AppendResult,
@@ -392,19 +391,6 @@ export function tenantStreamsSuite(
         return out;
       }
 
-      /** Follows a basin's control stream from its start (records survive its deletion here). */
-      function observeControl(basin: string) {
-        const stop = new AbortController();
-        const seen: unknown[] = [];
-        void (async () => {
-          for await (const record of harness.streams.read(basin, CONTROL_STREAM, 0, {
-            signal: stop.signal,
-          }))
-            seen.push(record.body);
-        })().catch(() => {});
-        return { records: seen, stop: () => stop.abort() };
-      }
-
       return {
         probe,
         tenantId,
@@ -421,7 +407,6 @@ export function tenantStreamsSuite(
         sessionStreams,
         reset,
         records,
-        observeControl,
         streams: harness.streams,
       };
     }
@@ -871,30 +856,28 @@ export function tenantStreamsSuite(
       expect(contextOf(a.handle).sessionStreams.wiring!.basin().ready).toBe(true);
     });
 
-    it("moves to a new basin on reset and deletes the old one", async () => {
+    it("moves every node to a new basin on reset, over the control bus", async () => {
       const t = await setup();
-      // A reset signals the old basin, moves to a new one, and deletes the old one.
+      // The reset's transaction signals `sessions.reset` on Postgres: the node that reset moves
+      // at once, the other on the signal, long before its periodic check (30 s).
       const a = await t.node();
+      const b = await t.node();
       await t.createSession(a);
       await t.commitConcurrently(a, 1);
-      const signal = { type: "session.cancel", sessionId: "gone" };
-      await t.streams.append(t.tenantId, CONTROL_STREAM, [signal]);
-      const old = t.observeControl(t.tenantId);
       await t.reset(a);
-      await eventually("the sessions.reset signal on the old basin", () =>
-        old.records.some((r) => (r as { type?: string }).type === "sessions.reset") || undefined
-      );
-      expect(old.records).toContainEqual({ type: "sessions.reset", generation: 1 });
-      old.stop();
-      // Signals now go to the new basin.
       const ctx = contextOf(a.handle);
       expect(currentBasin(ctx)).toBe(basinOf(t.tenantId, 1));
+      await eventually("node B on the new basin", () =>
+        currentBasin(contextOf(b.handle)) === basinOf(t.tenantId, 1) || undefined
+      );
+      // Nothing was written to S2 but session streams: the old basin has no control stream.
+      expect(await t.streams.listStreams(t.tenantId, "tenant/")).toEqual([]);
       await t.command(a, { type: "cancel", requestId: "c1", idempotencyKey: "c1" }).catch(
         () => undefined
       );
     });
 
-    it("delivers a cancel to the node running the advance through the control stream", async () => {
+    it("delivers a cancel to the node running the advance through the control bus", async () => {
       const t = await setup();
       let started!: () => void;
       const modelStarted = new Promise<void>((resolve) => (started = resolve));
@@ -932,11 +915,7 @@ export function tenantStreamsSuite(
           setTimeout(() => reject(new Error("the advance on node A was not aborted")), 15_000)
         ),
       ]);
-      expect(await t.records(CONTROL_STREAM)).toContainEqual({
-        type: "session.cancel",
-        sessionId: "s1",
-        turnId: expect.any(String),
-      });
+      expect(await t.streams.listStreams(currentBasin(contextOf(a.handle)), "tenant/")).toEqual([]);
     });
   });
 }

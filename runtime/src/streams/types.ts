@@ -7,7 +7,10 @@
  * | Stream | Contents | Written by | Read by |
  * | --- | --- | --- | --- |
  * | `sessions/<sessionId>` | every event of the session, in sequence | the stream relay, from the record | history and session SSE |
- * | `tenant/control` | `session.cancel`, `sessions.reset` and `action.resolved` signals | API nodes | every process with the Tenant open |
+ *
+ * S2 serves API listeners only (history, SSE, AG-UI, A2A): nothing inside the Runtime signals
+ * through it or waits on it (D48). Signals between processes go over the control bus on
+ * Postgres (`store/postgres/control.ts`).
  *
  * **Basin generations.** A session id is unique within its Tenant's basin generation. A
  * Tenant reset, the only path that frees ids, moves the Tenant to the next generation, so
@@ -119,49 +122,20 @@ export interface DurableStreams {
   listStreams(tenantId: string, prefix: string): Promise<string[]>;
   close(): Promise<void>;
   /**
-   * Resolves when the backing service answers, rejects otherwise (readiness,
-   * `infra/streams.ts`). Absent for in-process implementations, which are
+   * Resolves when the backing service answers, rejects otherwise (the Tenant's status,
+   * `streamsStatus` in `tenant/streams.ts`; never readiness, D48). Absent for in-process implementations, which are
    * always reachable.
    */
   probe?(signal: AbortSignal): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
-// Stream names and signal records
+// Stream names
 
 export const SESSION_STREAM_PREFIX = "sessions/";
-/** `session.cancel` and `sessions.reset` signals for every process with the Tenant open. */
-export const CONTROL_STREAM = "tenant/control";
-
 /** The stream of a session: `sessions/<sessionId>`. */
 export function sessionStream(sessionId: string): string {
   if (!sessionId) throw new Error("sessionId is required");
   return `${SESSION_STREAM_PREFIX}${sessionId}`;
 }
 
-/**
- * Signals are not events: they are appended directly, never recorded, and a
- * lost signal costs latency, not correctness.
- */
-/** Ends the advance of `sessionId` on the process running it. */
-export interface SessionCancelSignal {
-  type: "session.cancel";
-  sessionId: string;
-  /**
-   * The cancelled turn. Only an advance of this turn stops, so a signal delivered late (an
-   * append retried after S2 returns) never stops a later turn. Absent: any advance stops.
-   */
-  turnId?: string;
-}
-
-/**
- * The Tenant was reset and moved to basin generation `generation`. Appended to the old
- * generation's `tenant/control`: each process switches its readers to the new basin and
- * ends the streams of sessions the reset deleted.
- */
-export interface SessionsResetSignal {
-  type: "sessions.reset";
-  generation?: number;
-}
-
-export type ControlSignal = SessionCancelSignal | SessionsResetSignal;

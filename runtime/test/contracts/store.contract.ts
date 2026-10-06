@@ -19,6 +19,8 @@ import {
 import {
   DOC_TABLES,
   type Commit,
+  type ControlSignal,
+  type SignalFollower,
   type ModelUsageWrite,
   type SessionStore,
   type SessionStoreOptions,
@@ -1122,6 +1124,90 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx((t) => t.put("sessions", "s1", session("s1")));
         const event = await store.tx((t) => t.event("s1", null, "turn.completed", { tag: "x", output: {} }));
         expect(decodeCursor("s1", event.cursor)).toBe(0);
+      });
+    });
+
+    describe("control bus", () => {
+      /** Follows `store`'s signals into an array; closed after the test with the store. */
+      async function follow(store: SessionStore, pollMs?: number) {
+        const seen: ControlSignal[] = [];
+        const follower = await store.followSignals((signal) => seen.push(signal), {
+          ...(pollMs !== undefined ? { pollMs } : {}),
+          onError: (error) => errors.push(error),
+        });
+        followers.push(follower);
+        return seen;
+      }
+      const followers: SignalFollower[] = [];
+      afterEach(async () => {
+        for (const follower of followers.splice(0)) await follower.close();
+      });
+
+      async function until<T>(read: () => T | undefined, what: string): Promise<T> {
+        for (let i = 0; i < 200; i += 1) {
+          const value = read();
+          if (value !== undefined) return value;
+          await sleep(25);
+        }
+        throw new Error(`timed out waiting for ${what}`);
+      }
+
+      it("delivers a committed signal to a follower, as written", async () => {
+        const store = await fresh();
+        const seen = await follow(store);
+        await store.tx((t) => t.signal({ type: "session.cancel", sessionId: "s1", turnId: "t1" }));
+        await store.tx((t) => t.signal({ type: "session.cancel", sessionId: "s2" }));
+        await store.tx((t) => t.signal({ type: "sessions.reset", generation: 3 }));
+        await until(() => (seen.length === 3 ? true : undefined), "three signals");
+        expect(seen).toEqual([
+          { type: "session.cancel", sessionId: "s1", turnId: "t1" },
+          { type: "session.cancel", sessionId: "s2" },
+          { type: "sessions.reset", generation: 3 },
+        ]);
+        expect(errors).toEqual([]);
+      });
+
+      it("delivers nothing a rolled-back transaction signalled", async () => {
+        const store = await fresh();
+        const seen = await follow(store, 50);
+        await expect(
+          store.tx(async (t) => {
+            await t.signal({ type: "session.cancel", sessionId: "gone" });
+            throw new Error("rolled back");
+          }),
+        ).rejects.toThrow("rolled back");
+        await store.tx((t) => t.signal({ type: "session.cancel", sessionId: "kept" }));
+        await until(() => (seen.length > 0 ? true : undefined), "the committed signal");
+        await sleep(200);
+        expect(seen).toEqual([{ type: "session.cancel", sessionId: "kept" }]);
+      });
+
+      it("delivers each signal once to each follower, though the read-back sees it again", async () => {
+        const store = await fresh();
+        const a = await follow(store, 20);
+        const b = await follow(store, 20);
+        await store.tx((t) => t.signal({ type: "session.cancel", sessionId: "s1" }));
+        await until(() => (a.length && b.length ? true : undefined), "both followers");
+        await sleep(200);
+        expect(a).toEqual([{ type: "session.cancel", sessionId: "s1" }]);
+        expect(b).toEqual(a);
+      });
+
+      it("delivers no signal written before it started", async () => {
+        const store = await fresh();
+        await store.tx((t) => t.signal({ type: "session.cancel", sessionId: "before" }));
+        const seen = await follow(store, 20);
+        await store.tx((t) => t.signal({ type: "session.cancel", sessionId: "after" }));
+        await until(() => (seen.length > 0 ? true : undefined), "the later signal");
+        await sleep(200);
+        expect(seen).toEqual([{ type: "session.cancel", sessionId: "after" }]);
+      });
+
+      it("prunes signals written before a time", async () => {
+        const store = await fresh();
+        await store.tx((t) => t.signal({ type: "sessions.reset", generation: 1 }));
+        expect(await store.tx((t) => t.pruneSignals(new Date(Date.now() - 60_000)))).toBe(0);
+        expect(await store.tx((t) => t.pruneSignals(new Date(Date.now() + 60_000)))).toBe(1);
       });
     });
 
