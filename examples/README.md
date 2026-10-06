@@ -4,7 +4,7 @@ The default registry exports two agents from `agents/release/`: an order-lookup 
 
 The Runtime runs no code of this project during a session. The assistant's `lookup_order` is an HTTP tool (`http()` in [`agents/shared/orders.ts`](./agents/shared/orders.ts)): the Runtime POSTs the tool's input to the examples' tools service, [`src/tools/server.ts`](./src/tools/server.ts), and gives the model its JSON answer. The service also answers the [tools catalog](./agents/shared/tools/catalog) (`calculate`, `convert`, `now`). It listens on `TOOLS_PORT` (default 3001); the agents call it at `TOOLS_URL` (default `http://localhost:3001`, which a local Tenant's Runtime reaches on this machine).
 
-The ten older demonstrations remain as source references under `agents/`, outside the release registry. Their descriptions below are historical and do not establish support in the new host. Tool Use, Subagents, Instructions, Skills and the flow agents (`chain`, `switch`, `parallel`, `map`, `loop`, `ship-feature`) declare nothing the Runtime refuses. Guardrails, Interactions, Local MCP, Code Mode, Coding Agent and Interior Design run code of their own (tools with `run`/`execute`, or middleware) and run only in the local engine (`@nylorun/harness/run`), as their tests do: the Runtime refuses to save them.
+The ten older demonstrations remain as source references under `agents/`, outside the release registry. Their descriptions below are historical and do not establish support in the new host. Tool Use, Subagents, Instructions, Skills, Remote MCP and the flow agents (`chain`, `switch`, `parallel`, `map`, `loop`, `ship-feature`) declare nothing the Runtime refuses. Guardrails, Interactions, Code Mode, Coding Agent and Interior Design run code of their own (tools with `run`/`execute`, or middleware) and run only in the local engine (`@nylorun/harness/run`), as their tests do: the Runtime refuses to save them.
 
 ## Install and configure
 
@@ -141,7 +141,7 @@ The creator owns the shell files listed in `.scaffold-manifest.json`, including 
 | **Tool Use**        | `Calculate 100 / 4, then convert that many celsius to fahrenheit.`                              | `calculate` returns 25, then `convert` returns 77, with no approval prompt.                                                                                         |
 | **Guardrails**      | `Publish the password is hunter2.`                                                              | The publish call is denied. The four policy surfaces are listed after this table.                                                                                   |
 | **Interactions**    | `Ask me what to name the note, then save it.`                                                   | Studio asks a question, then asks for approval before `write_note`.                                                                                                 |
-| **Local MCP**       | `Use the MCP tool to add 12 and 30.`                                                            | The bundled stdio MCP server is discovered, called, and closed cleanly when the server stops.                                                                       |
+| **Remote MCP**      | `What does the README of modelcontextprotocol/typescript-sdk say about transports?`             | The Runtime connects to DeepWiki's public MCP server by URL and calls its tools; no process of yours serves them.                                                  |
 | **Code Mode**       | `Calculate 100 / 4, convert that many celsius to fahrenheit, and include the current UTC time.` | One `run_code` call. The program uses `await tools.*` and returns one object (25 °C → 77 °F plus `iso`).                                                            |
 | **Subagents**       | `Ask the tool-use specialist to calculate 19 * 7.`                                              | A `tool-use` call runs that agent with a fresh context; the parent reports its answer. Studio shows the delegation and the child's own tool calls. The other agents are `instructions` (format-only) and `skills` (SKILL.md). |
 | **Coding Agent**    | `Add a goodbye function next to hello and show the file.`                                       | After Codex preflight and approval, `codex exec` runs in a temporary workspace.                                                                                     |
@@ -213,7 +213,7 @@ process so it uses the updated executable. Codex uses its host configuration and
 Start with [Instructions](./agents/instructions/agent.ts), then [Tool Use](./agents/tool-use/agent.ts).
 Capability modules stay small:
 
-- [tools](./agents/shared/tools/index.ts) is one `.use(await tools())` call: every `*.ts` module in [agents/shared/tools/catalog](./agents/shared/tools/catalog) is offered as an `http()` tool, whose code the [tools service](./agents/shared/tools/service.ts) runs.
+- [tools](./agents/shared/tools/index.ts) is one `.capability(await tools())` call: every `*.ts` module in [agents/shared/tools/catalog](./agents/shared/tools/catalog) is offered as an `http()` tool, whose code the [tools service](./agents/shared/tools/service.ts) runs.
 - [code-mode](./agents/code-mode/capability.ts) is one `.use(await codeMode())` call: the same catalog becomes a generated TypeScript SDK, and only `run_code` is offered to the model. It runs the catalog's code in process, so only the local engine runs it.
 - [notes](./agents/interactions/notes.ts) uses an ordinary JSONL service.
 - [ask-user](./agents/interactions/ask-user.ts) pauses for a human reply.
@@ -221,20 +221,21 @@ Capability modules stay small:
 - [guardrails](./agents/guardrails/capability.ts) maps OpenAI-style input, output, tool-input, and tool-output checks onto middleware timing.
 - [skills](./agents/skills/agent.ts) is one `.skills(folder)` call: a SKILL.md catalog the Runtime serves with `load_skill`.
 - [codex](./agents/coding-agent/capability.ts) wraps a host runtime. For an isolated machine, open the session with a sandbox, as for [analyst](./agents/release/analyst.ts).
-- [subagents](./agents/subagents/agent.ts) puts three example agents in `tools`; each runs with a fresh context and returns only its answer.
+- [subagents](./agents/subagents/agent.ts) puts three example agents in `.subagents()`; each runs with a fresh context and returns only its answer.
+- [mcp](./agents/mcp/agent.ts) is one `.mcp({ deepwiki: { type: "streamable-http", url } })` call: a remote MCP server the Runtime reaches by URL.
 
-Add or remove skills on an agent with one capability. Author `name/SKILL.md` (frontmatter `name` + `description`) under [agents/skills/catalog](./agents/skills/catalog), then:
+Add or remove skills on an agent with one call. Author `name/SKILL.md` (frontmatter `name` + `description`) under [agents/skills/catalog](./agents/skills/catalog), then:
 
 ```ts
-.use(await skills())
+.skills(SKILLS_CATALOG)
 ```
 
-Delete that `.use` line to drop the capability. Drop another `SKILL.md` folder in the same catalog to add a skill without changing agent code. Pass `{ directory }` to load a different root.
+Delete that line to drop the skills. Drop another `SKILL.md` folder in the same catalog to add a skill without changing agent code. Pass another folder to load a different catalog.
 
 Tools follow the same catalog shape. Export a `tools` array from a module in [agents/shared/tools/catalog](./agents/shared/tools/catalog), then:
 
 ```ts
-.use(await tools())
+.capability(await tools())
 ```
 
 Drop another `*.ts` file in that folder to add a tool without changing agent code: the tools

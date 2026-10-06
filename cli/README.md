@@ -28,13 +28,14 @@ credentials (below), or `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY` when the
 Project has no link. An installation serves one Tenant, so nothing selects it.
 `status`, `reset`, `access`, `configure` and `doctor` use the Management API
 with the Project's management key, or `NYLORUN_MANAGEMENT_KEY` (with
-`NYLORUN_RUNTIME_URL` when there is no link); `endpoints` uses the Runtime API
-with the application key.
+`NYLORUN_RUNTIME_URL` when there is no link); `env` prints the Runtime URL and
+the application key, for the Runtime API.
 
 Local Tenant commands (`up`, `down`, `start`, `stop`, `logs`, `studio`) exit 2
 naming `npx nylorun <command>`. `nylo tenant …` exits 2: `npx nylorun start`
-creates the project's Tenant and the link, and `nylo status|reset|endpoints`
-replace `nylo tenant status|reset|endpoints`. `nylorun dev` was removed: run
+creates the project's Tenant and the link, and `nylo status|reset` replace
+`nylo tenant status|reset`. `nylo endpoints` was removed with Action endpoints
+and exits 2. `nylorun dev` was removed: run
 `npx nylorun start` once, then the project's own `npm run dev`
 (`tsx watch src/main.ts`).
 

@@ -22,9 +22,9 @@ export async function createSkills(
     id: "skills",
     name: "Skills",
     description: "Loads a SKILL.md procedure, such as a code review or a structured summary, and follows it.",
-    instructions: exampleInstructions,
   })
-    .use(modelSelection(deps.provider, deps.model))
+    .instructions(exampleInstructions)
+    .capability(modelSelection(deps.provider, deps.model))
     .skills(SKILLS_CATALOG, { id: "skills" })
     .build();
 }

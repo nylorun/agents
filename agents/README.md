@@ -127,7 +127,7 @@ eval "$(npx @nylorun/cli env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
-Every request sets `Nylorun-Protocol` (6) and no `Nylorun-Tenant`: the Runtime
+Every request sets `Nylorun-Protocol` (8) and no `Nylorun-Tenant`: the Runtime
 serves one Tenant. Before the first authenticated
 request, `Transport` fetches `/health` once, checks protocol compatibility, and
 throws `IncompatibleRuntimeError` / `incompatible_host` when the Host range or
@@ -218,11 +218,11 @@ const support = Agent({ id: "support" })
   .subagents(researcher);
 ```
 
-The tool is named after the agent's `id` and takes `{ task: string }`; the agent's `description` (required) is what the parent's model reads to decide when to delegate. The child starts with a fresh context: it sees its own instructions and the task, nothing of the parent's conversation, and only its final text (or `outputSchema` result) comes back. It keeps its own tools, skills and MCP servers, saved with the parent, shares the session's sandbox, and starts with empty `ctx.state`. Tools can read `ctx.agent` (`{ id, path, delegationId }`). Several delegation calls in one model response run in parallel. An empty answer, a failure (with the child's last text marked as evidence) or a cancelled child reaches the parent's model as a failed tool result, never as success. The Runtime emits `delegation.started` and `delegation.completed`; `session.history({ agent })` filters by `delegationId` (one child invocation) or by path such as `support/researcher` (every concurrent child that shares that path).
+The tool is named after the agent's `id` and takes `{ task: string }`; the agent's `description` (required) is what the parent's model reads to decide when to delegate. The child starts with a fresh context: it sees its own instructions and the task, nothing of the parent's conversation, and only its final text (or `outputSchema` result) comes back. It keeps its own tools, skills and MCP servers, saved with the parent, and shares the session's sandbox. Several delegation calls in one model response run in parallel. An empty answer, a failure (with the child's last text marked as evidence) or a cancelled child reaches the parent's model as a failed tool result, never as success. The Runtime emits `delegation.started` and `delegation.completed`; `session.history({ agent })` filters by `delegationId` (one child invocation) or by path such as `support/researcher` (every concurrent child that shares that path).
 
 A flow agent can be a subagent too: `.subagents(researchFlow)` with a `description` like any other. Its manifest is inlined in the parent's, so it is saved with the parent. When the model calls it, the flow runs on the Runtime in its own linked session (a fresh one per call, linked from the parent's with a `node.agent` event at `support/<flow id>`), its agents in theirs, and the flow's output comes back as the tool result; a failed flow is a failed tool result. Cancelling the parent cancels the flow. Flow agents as subagents run on the Runtime only, not in a local `run()`. An approval asked for inside the flow waits on the flow's own session.
 
-Delegate when the parent should keep the answer. When a specialist should own the rest of the conversation, send the next message with a turn manifest that has the specialist's instructions instead. This version is one level deep and non-interactive: a delegated agent cannot use agents as tools, its tools cannot declare `approval` (keep those on the parent), and `ctx.ask`, `ctx.approve`, `ctx.sleep` or `ctx.waitFor` inside it fail with `delegation.interaction-unsupported`. Delegation is not an approval boundary; approvals live on tools.
+Delegate when the parent should keep the answer. When a specialist should own the rest of the conversation, send the next message with a turn manifest that has the specialist's instructions instead. This version is one level deep and non-interactive: a delegated agent cannot use agents as tools, and its tools cannot declare `approval` (keep those on the parent). In the local engine (`@nylorun/harness/run`), a delegated agent's `tool({ run })` tools start with empty `ctx.state`, can read `ctx.agent` (`{ id, path, delegationId }`), and fail with `delegation.interaction-unsupported` on `ctx.ask`, `ctx.approve`, `ctx.sleep` or `ctx.waitFor`. Delegation is not an approval boundary; approvals live on tools.
 
 ## Flow agents
 
@@ -239,7 +239,7 @@ gets the previous stage's output. So each agent returns, through its `.output()`
 what the next stage needs.
 
 ```ts
-import { Agent, VerdictSchema, tool } from "@nylorun/agents";
+import { Agent, VerdictSchema, http } from "@nylorun/agents";
 import { z } from "zod";
 
 const planner = Agent({ id: "planner" })
@@ -258,13 +258,13 @@ const prWriter = Agent({ id: "pr-writer" })
   .instructions("Return the summaries you are given as { summaries }.")
   .output(z.object({ summaries: z.array(z.string()) }));
 
-const openPr = tool({
-  name: "open-pr",
+// Your service serves POST /pull-requests and answers { url }.
+const openPr = http({
+  name: "open_pr",
   input: z.object({ summaries: z.array(z.string()) }),
-  async run({ summaries }, ctx) {
-    if (!(await ctx.approve("Open the PR?"))) throw new Error("Rejected");
-    return { opened: true, count: summaries.length };
-  },
+  output: z.object({ url: z.string() }),
+  url: "https://ci.example.com/pull-requests",
+  credential: "github",
 });
 
 export const shipFeature = Agent({ id: "ship-feature" })
@@ -273,6 +273,29 @@ export const shipFeature = Agent({ id: "ship-feature" })
   .pipe(prWriter, openPr);
 
 export const agents = [shipFeature];
+```
+
+A flow stage cannot take `approval` yet (`flow.approval-unsupported`). To have a person
+approve opening the PR, give the HTTP tool to an agent as the last stage instead: that
+agent's turn pauses until the call is approved, and the flow session's `pending()` lists
+the wait:
+
+```ts
+const prOpener = Agent({ id: "pr-opener" })
+  .instructions("Open one pull request with open_pr from the summaries you are given.")
+  .tools(
+    http({
+      name: "open_pr",
+      description: "Open a pull request with the given summaries.",
+      input: z.object({ summaries: z.array(z.string()) }),
+      url: "https://ci.example.com/pull-requests",
+      credential: "github",
+      approval: "always",
+    }),
+  );
+
+// …
+  .pipe(prWriter, prOpener);
 ```
 
 | Stage | Role |

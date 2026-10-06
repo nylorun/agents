@@ -1,6 +1,4 @@
 import { Agent } from "@nylorun/agents/define";
-import { mcpTools } from "./capability.js";
-import { LocalMcp } from "./client.js";
 import {
   exampleInstructions,
   modelSelection,
@@ -8,16 +6,24 @@ import {
   type ExampleAgent,
 } from "../shared/types.js";
 
-/** MCP is a capability backed by an ordinary, host-owned stdio client service. */
+/** DeepWiki's public MCP server: answers questions about public GitHub repositories, no key. */
+export const DEEPWIKI_MCP_URL = "https://mcp.deepwiki.com/mcp";
+
+/**
+ * MCP is a remote server declared by URL. The Runtime connects to it through its gates and
+ * offers its tools to the model; nothing of yours runs during the session.
+ */
 export function createMcpAgent(deps: AgentDependencies): ExampleAgent {
-  const mcp = new LocalMcp();
-  const agent = Agent({
+  return Agent({
     id: "mcp",
-    name: "Local MCP",
-    instructions: exampleInstructions,
+    name: "Remote MCP",
+    description: "Answers questions about a public GitHub repository through DeepWiki's MCP server.",
   })
-    .use(modelSelection(deps.provider, deps.model))
-    .use(mcpTools(mcp))
+    .instructions(
+      exampleInstructions,
+      "Use the deepwiki tools for questions about a public GitHub repository, named as owner/repo.",
+    )
+    .mcp({ deepwiki: { type: "streamable-http", url: DEEPWIKI_MCP_URL } })
+    .capability(modelSelection(deps.provider, deps.model))
     .build();
-  return Object.assign(agent, { close: () => mcp.close() });
 }
