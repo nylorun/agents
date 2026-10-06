@@ -1,3 +1,4 @@
 import { assistant } from "./agent.js";
 import { analyst } from "./analyst.js";
-export const agents = [assistant, analyst];
+import { createRepoBrief } from "../repo-brief/agent.js";
+export const agents = [assistant, analyst, createRepoBrief()];
