@@ -20,8 +20,10 @@
  *   gate_forbidden` for another session's call under a run token.
  * - `POST /nylorun/v1/mcp/close` `{server}`: closes the server's connection; `204`.
  * Each answers `200 {ok: true, result}` or `200 {ok: false, error}`: an MCP failure is an
- * answer, not a gate error. A keyed call whose earlier attempt was lost with the gateway answers
- * `{ok: false, error: {uncertain: true}}` and is never run again.
+ * answer, not a gate error. A tool call's failure is coded (`error.failure`, R2b C7), and neither
+ * a result nor a failure carries a credential value the gate sent (C8). A keyed call whose
+ * earlier attempt was lost with the gateway answers `{ok: false, error: {uncertain: true}}` and
+ * is never run again.
  *
  * HTTP tools (R2 M3). `POST /nylorun/v1/http-calls` `{tool, effectId, turnId, input}`: one call
  * of an HTTP tool. The loop names the tool (`{sessionId?, agentId?, capabilityId, toolName}`), or a
@@ -33,6 +35,7 @@
  * model sees), or `{ok: false, error: {uncertain: true}}` for a call lost with the gateway.
  */
 import { z } from "zod";
+import type { McpCallFailure } from "../mcp/connect.js";
 
 export const MCP_CONNECT_PATH = "/nylorun/v1/mcp/connect";
 export const MCP_LIST_PATH = "/nylorun/v1/mcp/list";
@@ -99,13 +102,19 @@ export interface McpGateError {
   /** The call may have run: its earlier attempt was lost with the gateway. Never re-run. */
   readonly uncertain?: boolean;
   /**
-   * The server answered `401` (R2b C1): the loop's `CredentialRejected`, which a tool call turns
-   * into a failed outcome the model sees. `vault` is the scope of the vault whose credential was
-   * sent; absent when none was.
+   * How the request failed, coded (R2b C1, C7): the loop's `McpCallFailed`, which a tool call
+   * turns into a failed outcome the model sees (`mcp.lost` only for a read-only or idempotent
+   * tool). `credential_rejected` for a `401`, with the server and the scope of the vault whose
+   * credential was sent. Its message has no credential value in it (C8).
    */
-  readonly credentialRejected?: { readonly server: string; readonly vault?: "installation" | "user" };
+  readonly failure?: McpCallFailure;
 }
 
 export type McpAnswer<T> =
-  | { readonly ok: true; readonly result: T }
+  | {
+      readonly ok: true;
+      readonly result: T;
+      /** A `tools/call`'s: how many credential values its result echoed, replaced (R2b C8). */
+      readonly redacted?: number;
+    }
   | { readonly ok: false; readonly error: McpGateError };

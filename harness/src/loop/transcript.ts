@@ -213,16 +213,19 @@ function toolResult(value: unknown, index: number): ToolResult {
     case "failed":
       exactKeys(
         result,
-        ["callId", "toolName", "kind", "code", "message", "details"],
+        ["callId", "toolName", "kind", "code", "message", "details", "retryable"],
         `Tool result ${index}`,
       );
       if (typeof result.code !== "string" || typeof result.message !== "string")
         fail(`Tool result ${index} code and message must be strings`);
+      if (result.retryable !== undefined && typeof result.retryable !== "boolean")
+        fail(`Tool result ${index} retryable must be a boolean`);
       return Object.freeze({
         ...base,
         kind: "failed",
         code: result.code,
         message: result.message,
+        ...(result.retryable === undefined ? {} : { retryable: result.retryable }),
         ...(result.details === undefined
           ? {}
           : { details: validationDetails(result.details, index) }),

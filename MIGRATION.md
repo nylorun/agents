@@ -86,6 +86,36 @@ HTTP tools alike, in an installation vault or a person's user vault.
   HTTP tool's `credential`) and the `vault` scope (`installation` or `user`) whose credential was
   sent; never a value.
 
+## Tool and MCP server names
+
+`PUT /v1/agents/{id}`, which `saveAgent` calls, refuses a definition whose declared tool (HTTP
+tools included) or MCP server is named with anything but letters, digits, `_` and `-`, or with
+more than 64 characters (`400`, naming it): the rule agent tools already follow, and what every
+model provider accepts in a tool name. Rename such a tool or server and register the agent again. A
+session opened before the upgrade keeps its pinned tools.
+
+An MCP server's own tool names need no change. The model knows a tool as `server__tool` with every
+other character replaced by `_`; one over 64 characters keeps 55 and gets `_` and 8 hex characters
+of a hash, as does one whose new name collides. The server is still called by its own name, and
+`mcp.discovered` lists each renamed tool (`renamed: [{ serverToolName, name }]`).
+
+## MCP tool errors the model sees
+
+A remote MCP tool call that fails now gives the model a failed tool result with a code, where
+before the call was left `uncertain` for an operator: `mcp.unreachable` (never sent; `retryable:
+true`), `mcp.forbidden` (`403`), `mcp.error` (a JSON-RPC error, its code in the message) and
+`mcp.status` (another HTTP error status). A call sent whose answer was lost is `mcp.lost` to the
+model for a tool the server marks `readOnlyHint` or `idempotentHint`; any other stays `uncertain`,
+as does a call lost with a gateway restart. `tool.completed`'s `error` carries the code and
+`retryable`. When a server has ended the connection's session (`404` to its `Mcp-Session-Id`),
+or a credential's `via` has moved, the Runtime opens the connection again and sends the call once
+more, since the tool never saw it.
+
+Credential values a server echoes back (a vault token or header value of at least 8 characters,
+and the token of a `Bearer` value) are replaced with `[redacted]` in MCP and HTTP tool results
+and errors, before the model, an event or the gateway's record sees them. `tool.completed` gains
+`redacted`, the number replaced. Other fields, such as a `nextToken`, are left as they are.
+
 # The Runtime API as an OAuth resource server (protocol 9)
 
 The Runtime API now behaves as an OAuth 2.1 resource server for your identity provider's

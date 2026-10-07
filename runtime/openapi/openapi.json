@@ -6519,7 +6519,7 @@
                             "properties": {
                               "name": {
                                 "type": "string",
-                                "minLength": 1
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
                               },
                               "description": {
                                 "type": "string"
@@ -6594,7 +6594,7 @@
                                 "properties": {
                                   "name": {
                                     "type": "string",
-                                    "minLength": 1
+                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                   },
                                   "type": {
                                     "type": "string",
@@ -6632,7 +6632,7 @@
                                 "properties": {
                                   "name": {
                                     "type": "string",
-                                    "minLength": 1
+                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                   },
                                   "type": {
                                     "type": "string",
@@ -6866,7 +6866,7 @@
                             "properties": {
                               "name": {
                                 "type": "string",
-                                "minLength": 1
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
                               },
                               "description": {
                                 "type": "string"
@@ -6941,7 +6941,7 @@
                                 "properties": {
                                   "name": {
                                     "type": "string",
-                                    "minLength": 1
+                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                   },
                                   "type": {
                                     "type": "string",
@@ -6979,7 +6979,7 @@
                                 "properties": {
                                   "name": {
                                     "type": "string",
-                                    "minLength": 1
+                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                   },
                                   "type": {
                                     "type": "string",
@@ -7212,7 +7212,7 @@
                             "properties": {
                               "name": {
                                 "type": "string",
-                                "minLength": 1
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
                               },
                               "description": {
                                 "type": "string"
@@ -7287,7 +7287,7 @@
                                 "properties": {
                                   "name": {
                                     "type": "string",
-                                    "minLength": 1
+                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                   },
                                   "type": {
                                     "type": "string",
@@ -7325,7 +7325,7 @@
                                 "properties": {
                                   "name": {
                                     "type": "string",
-                                    "minLength": 1
+                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                   },
                                   "type": {
                                     "type": "string",
@@ -7693,7 +7693,7 @@
                         "properties": {
                           "name": {
                             "type": "string",
-                            "minLength": 1
+                            "pattern": "^[A-Za-z0-9_-]{1,64}$"
                           },
                           "description": {
                             "type": "string"
@@ -7768,7 +7768,7 @@
                             "properties": {
                               "name": {
                                 "type": "string",
-                                "minLength": 1
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
                               },
                               "type": {
                                 "type": "string",
@@ -7806,7 +7806,7 @@
                             "properties": {
                               "name": {
                                 "type": "string",
-                                "minLength": 1
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
                               },
                               "type": {
                                 "type": "string",
@@ -8106,7 +8106,7 @@
                               "properties": {
                                 "name": {
                                   "type": "string",
-                                  "minLength": 1
+                                  "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                 },
                                 "description": {
                                   "type": "string"
@@ -8181,7 +8181,7 @@
                                   "properties": {
                                     "name": {
                                       "type": "string",
-                                      "minLength": 1
+                                      "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                     },
                                     "type": {
                                       "type": "string",
@@ -8219,7 +8219,7 @@
                                   "properties": {
                                     "name": {
                                       "type": "string",
-                                      "minLength": 1
+                                      "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                     },
                                     "type": {
                                       "type": "string",
@@ -8838,7 +8838,7 @@
                             "properties": {
                               "name": {
                                 "type": "string",
-                                "minLength": 1
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
                               },
                               "description": {
                                 "type": "string"
@@ -8913,7 +8913,7 @@
                                 "properties": {
                                   "name": {
                                     "type": "string",
-                                    "minLength": 1
+                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                   },
                                   "type": {
                                     "type": "string",
@@ -8951,7 +8951,7 @@
                                 "properties": {
                                   "name": {
                                     "type": "string",
-                                    "minLength": 1
+                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
                                   },
                                   "type": {
                                     "type": "string",
@@ -11786,6 +11786,9 @@
                       "installation",
                       "user"
                     ]
+                  },
+                  "retryable": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -11793,6 +11796,10 @@
                   "message"
                 ],
                 "additionalProperties": {}
+              },
+              "redacted": {
+                "type": "integer",
+                "exclusiveMinimum": 0
               },
               "agent": {
                 "type": "object",
@@ -12565,6 +12572,25 @@
                       "type": "array",
                       "items": {
                         "type": "string"
+                      }
+                    },
+                    "renamed": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "serverToolName": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "serverToolName",
+                          "name"
+                        ],
+                        "additionalProperties": {}
                       }
                     }
                   },

@@ -65,9 +65,9 @@ async function probe(options: {
       res.end();
       return;
     }
+    // The call arrived and its answer is lost: it may have run (R2b C7).
     if (body?.method === "tools/call" && state.failCalls) {
-      res.writeHead(500);
-      res.end("upstream failed");
+      req.socket.destroy();
       return;
     }
     const mcp = new McpServer({ name: options.name, version: "0.0.0" });

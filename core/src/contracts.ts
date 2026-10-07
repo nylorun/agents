@@ -15,7 +15,7 @@ import {
   manifestVersionIssue,
   workflowVersionIssue,
 } from "./definition/removed.js";
-import { DELEGATE_INPUT_SCHEMA } from "./definition/delegate.js";
+import { DELEGATE_INPUT_SCHEMA, DELEGATE_NAME_PATTERN } from "./definition/delegate.js";
 import { stdioMcpRefusal } from "./definition/mcp.js";
 import {
   APPROVAL_MODES,
@@ -53,12 +53,21 @@ const jsonValue: z.ZodType<JsonValue> = z
     ])
   )
   .meta({ id: "JsonValue" });
+/**
+ * A name the model sees in a tool name (R2b C6): a declared tool's, or an MCP server's, which
+ * prefixes its tools' names. Letters, digits, `_` and `-`, up to 64: what every provider accepts.
+ */
+const modelFacingName = (what: string) =>
+  z.string().regex(DELEGATE_NAME_PATTERN, {
+    error: (issue) =>
+      `${what} name '${String(issue.input)}' may use only letters, digits, _ and -, up to 64 characters, so that every model provider accepts it`,
+  });
 const mcpServerSchema = z.discriminatedUnion(
   "type",
   [
     z
       .object({
-        name: z.string().min(1),
+        name: modelFacingName("MCP server"),
         type: z.literal("streamable-http"),
         url: z.string().min(1),
         headers: z.record(z.string(), z.string()).optional(),
@@ -67,7 +76,7 @@ const mcpServerSchema = z.discriminatedUnion(
       .strict(),
     z
       .object({
-        name: z.string().min(1),
+        name: modelFacingName("MCP server"),
         type: z.literal("sse"),
         url: z.string().min(1),
         headers: z.record(z.string(), z.string()).optional(),
@@ -152,7 +161,7 @@ const reservedKind = (what: string) =>
 const reservedToolKind = reservedKind("tool");
 const toolManifestSchema = z
   .object({
-    name: z.string().min(1),
+    name: modelFacingName("Tool"),
     description: z.string().optional(),
     inputSchema: jsonObject,
     outputSchema: jsonObject.optional(),
@@ -1384,9 +1393,16 @@ export const ToolCompletedPayloadSchema = z
         server: z.string().optional(),
         /** With `credential_rejected`: the scope of the vault whose credential was sent; absent when none was. */
         vault: z.enum(["installation", "user"]).optional(),
+        /** An MCP tool error (R2b C7): true when calling again may work, as for `mcp.unreachable`. */
+        retryable: z.boolean().optional(),
       })
       .passthrough()
       .optional(),
+    /**
+     * How many credential values the Runtime replaced with `[redacted]` in `output` or `error`
+     * (R2b C8): the server echoed what it was sent. Absent when none.
+     */
+    redacted: z.number().int().positive().optional(),
     ...eventAgent,
   })
   .passthrough();
@@ -1656,6 +1672,14 @@ export const McpServerOutcomeSchema = z
     tools: z.number().int().nonnegative(),
     /** The credentials a refusal names. */
     credentialIds: z.array(z.string()).optional(),
+    /**
+     * Tools the model knows by another name (R2b C6): `server__tool` with characters outside
+     * `[A-Za-z0-9_-]` replaced by `_`, and shortened to 64 with a hash, or suffixed with the hash
+     * when that collides. The server is still called by `serverToolName`.
+     */
+    renamed: z
+      .array(z.object({ serverToolName: z.string(), name: z.string() }).passthrough())
+      .optional(),
   })
   .passthrough();
 export type McpServerOutcome = z.infer<typeof McpServerOutcomeSchema>;

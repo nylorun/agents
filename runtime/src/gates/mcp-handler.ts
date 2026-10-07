@@ -5,13 +5,16 @@
  * finds it in the session's pinned manifest, so the loop never chooses a URL or a credential.
  *
  * A failure is an answer (`{ok: false, error}`), shaped so the loop's diagnostics read it as
- * they read a failure in their own process. Logs one line per call, never arguments, results or
- * credentials.
+ * they read a failure in their own process; a tool call's failure is coded (R2b C7). A call's
+ * result and failure carry no credential value sent for it (`sdkClient`, C8), so neither does
+ * its `tool_crossings` row. Logs one line per call, never arguments, results or credentials.
  */
 import type { McpServerManifest } from "@nylorun/core/define";
 import {
-  CredentialRejected,
+  McpCallFailed,
+  McpConnectionStale,
   openMcpServer,
+  unreachable,
   type LiveConnection,
   type McpToolPage,
 } from "../mcp/connect.js";
@@ -63,6 +66,8 @@ interface Live {
   readonly connection: LiveConnection;
   lastUsedAt: number;
   active: number;
+  /** Out of the map (`McpConnectionStale`): closed when its last request ends. */
+  evicted?: boolean;
 }
 
 /** The server is not one the session may reach through the gate. */
@@ -137,13 +142,21 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
         ...fields(server),
         ...extra,
         ms: now() - started,
-        outcome: failed.credentialRejected
-          ? "credential_rejected"
-          : failed.code === undefined
-            ? "failed"
-            : String(failed.code),
+        outcome: failed.failure?.code ?? (failed.code === undefined ? "failed" : String(failed.code)),
       });
       return { ok: false, error: failed };
+    }
+  }
+
+  /** The server's connection; for a tool call, one that cannot be opened is `mcp.unreachable`. */
+  async function opened(tenantId: string | undefined, server: McpServerRef, call: boolean): Promise<Live> {
+    try {
+      return await connection(tenantId, server);
+    } catch (error) {
+      // The call was never sent, so the model may try again (R2b C7). A gate that cannot serve
+      // the session is not the server's failure, and stays as it was.
+      if (!call || error instanceof GateRefusal || error instanceof NotDeclared) throw error;
+      throw unreachable(server.serverName, error);
     }
   }
 
@@ -151,14 +164,49 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
     tenantId: string | undefined,
     server: McpServerRef,
     run: (entry: Live) => Promise<T>,
+    call = false,
   ): Promise<T> {
-    const entry = await connection(tenantId, server);
+    const entry = await opened(tenantId, server, call);
     entry.active += 1;
     try {
       return await run(entry);
+    } catch (error) {
+      // The connection can no longer make requests: the next one opens a new connection, and
+      // the calls still running on this one finish first (the last closes it).
+      if (error instanceof McpConnectionStale) {
+        const key = keyOf(server);
+        if (live.get(key) === entry) live.delete(key);
+        entry.evicted = true;
+      }
+      throw error;
     } finally {
       entry.active -= 1;
       entry.lastUsedAt = now();
+      if (entry.evicted && entry.active === 0) void entry.connection.close().catch(() => {});
+    }
+  }
+
+  /**
+   * One `tools/call`. A connection found stale before the tool saw the call is opened again, and
+   * the call sent once more (R2b C7).
+   */
+  async function callOnce(
+    tenantId: string | undefined,
+    request: { server: McpServerRef; name: string; arguments: Record<string, unknown> },
+    signal: AbortSignal,
+  ) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await use(
+          tenantId,
+          request.server,
+          (entry) =>
+            entry.connection.client.callTool({ name: request.name, arguments: request.arguments }, { signal }),
+          true,
+        );
+      } catch (error) {
+        if (!(error instanceof McpConnectionStale) || attempt > 0) throw error;
+      }
     }
   }
 
@@ -174,19 +222,14 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
           entry.connection.client.listTools(cursor ? { cursor } : undefined, { signal }),
         ),
       ),
-    call: (tenantId, request, signal) =>
-      answer(
-        "call",
-        request.server,
-        () =>
-          use(tenantId, request.server, (entry) =>
-            entry.connection.client.callTool(
-              { name: request.name, arguments: request.arguments },
-              { signal },
-            ),
-          ),
-        { effect: request.effectId },
-      ),
+    async call(tenantId, request, signal) {
+      const answered = await answer("call", request.server, () => callOnce(tenantId, request, signal), {
+        effect: request.effectId,
+      });
+      if (!answered.ok) return answered;
+      const { result, redacted } = answered.result;
+      return { ok: true, result, ...(redacted ? { redacted } : {}) };
+    },
     async close(server) {
       const key = keyOf(server);
       const entry = live.get(key);
@@ -224,17 +267,14 @@ function fields(server: McpServerRef) {
   };
 }
 
-/** An error as the loop's `diagnosticFromError` reads it. */
+/** An error as the loop's `diagnosticFromError` reads it, with a coded failure's code (R2b C7). */
 function errorOf(error: unknown): McpGateError {
   if (error instanceof GateRefusal) return { message: error.outcome.message };
-  if (error instanceof CredentialRejected)
+  if (error instanceof McpCallFailed)
     return {
       message: error.message,
-      code: 401,
-      credentialRejected: {
-        server: error.server,
-        ...(error.vault === undefined ? {} : { vault: error.vault }),
-      },
+      ...(error.code === "credential_rejected" ? { code: 401 } : {}),
+      failure: error.failure,
     };
   const message = error instanceof Error ? error.message.slice(0, 2000) : String(error);
   const code =

@@ -29,7 +29,7 @@ function harness() {
         listTools: async () => ({ tools: [{ name: "echo", inputSchema: { type: "object" } }] }),
         callTool: async () => {
           if (gate.holdCalls) await new Promise<void>((resolve) => (finish = resolve));
-          return { content: [{ type: "text", text: "ok" }] };
+          return { result: { content: [{ type: "text", text: "ok" }] } };
         },
       } as unknown as McpClient;
       const connection: LiveConnection = {

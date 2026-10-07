@@ -4,11 +4,14 @@ import type { OutboundPolicy } from "../tenant/outbound.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import {
   callMcpTool,
-  CredentialRejected,
   diagnosticFromError,
   listMcpTools,
+  McpConnectionStale,
   openMcpServer,
+  unreachable,
   type LiveConnection,
+  type McpToolFailure,
+  type McpToolOutcome,
 } from "./connect.js";
 import {
   declaredToolNames,
@@ -27,6 +30,8 @@ interface LiveServer {
   lastUsedAt: number;
   /** Calls in progress; a connection with any is never closed as idle. */
   active: number;
+  /** Out of the pool (`McpConnectionStale`): closed when its last call ends. */
+  evicted?: boolean;
 }
 
 type Opened =
@@ -103,6 +108,7 @@ export class McpPool {
             listed.omitted.length === 0
               ? "Connected"
               : `Connected. Omitted ${listed.omitted.join(", ")}`,
+          ...(listed.renamed.length === 0 ? {} : { renamed: listed.renamed }),
         });
         this.remember(input.sessionId, declared, opened.connection);
       } catch (error) {
@@ -172,39 +178,62 @@ export class McpPool {
     manifest: AgentManifest;
     /** The effect id: a gate runs the call once under it (F4.1). */
     effectId?: string;
+    /** The tool is read-only or idempotent: a lost answer is the model's to retry (R2b C7). */
+    retrySafe?: boolean;
     signal?: AbortSignal;
-  }): Promise<Awaited<ReturnType<typeof callMcpTool>>> {
+  }): Promise<McpToolOutcome> {
     const key = this.liveKey(input.sessionId, input.agentId, input.capabilityId, input.serverName);
-    let live = this.live.get(key);
-    if (!live) {
-      const declared = findServer(
-        input.manifest,
-        input.agentId,
-        input.capabilityId,
-        input.serverName,
-      );
-      if (!declared) throw new Error(`MCP server '${input.serverName}' is not declared`);
-      let opening = this.opening.get(key);
-      if (!opening) {
-        opening = this.connectDeclared(input, declared).finally(() => this.opening.delete(key));
-        this.opening.set(key, opening);
+    for (let attempt = 0; ; attempt += 1) {
+      const live = await this.liveFor(input, key);
+      // No connection, so no call was sent: the model sees why, a 401 included (R2b C1, C7).
+      if (!("connection" in live)) return live;
+      live.active += 1;
+      try {
+        return await callMcpTool(live.connection.client, input.serverToolName, input.args, {
+          ...(input.effectId === undefined ? {} : { key: input.effectId }),
+          ...(input.retrySafe ? { retrySafe: true } : {}),
+          ...(input.signal ? { signal: input.signal } : {}),
+        });
+      } catch (error) {
+        if (!(error instanceof McpConnectionStale)) throw error;
+        // The server ended the connection's session, or its credential now sends it elsewhere,
+        // and the tool never saw the call: drop the connection and send it once more on a new one.
+        this.evict(key, live);
+        if (attempt > 0) return error.outcome();
+      } finally {
+        live.active -= 1;
+        live.lastUsedAt = this.now();
+        if (live.evicted && live.active === 0) void live.connection.close().catch(() => {});
       }
-      const opened = await opening;
-      // A 401 while reconnecting: no call was sent, and the model sees why (R2b C1).
-      if (!opened.ok && opened.error instanceof CredentialRejected) return opened.error.outcome();
-      if (!opened.ok) throw new Error(opened.diagnostic.message);
-      live = this.remember(input.sessionId, declared, opened.connection);
     }
-    live.active += 1;
-    try {
-      return await callMcpTool(live.connection.client, input.serverToolName, input.args, {
-        ...(input.effectId === undefined ? {} : { key: input.effectId }),
-        ...(input.signal ? { signal: input.signal } : {}),
-      });
-    } finally {
-      live.active -= 1;
-      live.lastUsedAt = this.now();
+  }
+
+  /** The session's connection to the server, opened when there is none, or why it cannot be. */
+  private async liveFor(
+    input: { sessionId: string; agentId?: string; capabilityId: string; serverName: string; manifest: AgentManifest },
+    key: string,
+  ): Promise<LiveServer | McpToolFailure> {
+    const live = this.live.get(key);
+    if (live) return live;
+    const declared = findServer(input.manifest, input.agentId, input.capabilityId, input.serverName);
+    if (!declared) throw new Error(`MCP server '${input.serverName}' is not declared`);
+    let opening = this.opening.get(key);
+    if (!opening) {
+      opening = this.connectDeclared(input, declared).finally(() => this.opening.delete(key));
+      this.opening.set(key, opening);
     }
+    const opened = await opening;
+    if (!opened.ok) return unreachable(input.serverName, opened.error).outcome();
+    return this.remember(input.sessionId, declared, opened.connection);
+  }
+
+  /**
+   * Takes a connection out of the pool, so the next call opens a new one. Calls still running on
+   * it finish first: the last one closes it.
+   */
+  private evict(key: string, live: LiveServer): void {
+    if (this.live.get(key) === live) this.live.delete(key);
+    live.evicted = true;
   }
 
   /**

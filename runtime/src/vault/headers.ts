@@ -19,6 +19,26 @@ const RESERVED_HEADERS = new Set([
   "idempotency-key",
 ]);
 
+/**
+ * The secret values of a credential's `headers`, as a server could echo them (R2b C8, Q16): each
+ * value of at least 8 characters, and the token of a `Bearer …` value. The identity header names
+ * the session owner and is no secret, so it is left out.
+ */
+export function credentialSecrets(
+  headers: Readonly<Record<string, string>>,
+  identity?: { readonly header: string },
+): string[] {
+  const skip = identity?.header.toLowerCase();
+  const secrets = new Set<string>();
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.toLowerCase() === skip) continue;
+    if (value.length >= 8) secrets.add(value);
+    const bearer = /^bearer\s+(\S+)\s*$/iu.exec(value)?.[1];
+    if (bearer !== undefined && bearer.length >= 8) secrets.add(bearer);
+  }
+  return [...secrets];
+}
+
 /** True when a credential may not send `name`: a transport header or `Nylorun-*`. */
 export function isReservedHeader(name: string): boolean {
   const lower = name.toLowerCase();

@@ -256,6 +256,39 @@ describe("projectModelCall", () => {
     ]);
   });
 
+  it("shows the model whether a failed call may be retried (R2b C7)", () => {
+    const call = projectModelCall(
+      request({
+        transcript: [
+          {
+            kind: "tool-results",
+            turnId: "turn",
+            stepId: "step",
+            results: [
+              {
+                callId: "fail_1",
+                toolName: "echo",
+                kind: "failed",
+                code: "mcp.unreachable",
+                message: "x",
+                retryable: true,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(call.prompt[0]).toMatchObject({
+      status: "failed",
+      content: [
+        {
+          type: "text",
+          text: '{"kind":"failed","code":"mcp.unreachable","message":"x","retryable":true}',
+        },
+      ],
+    });
+  });
+
   it("passes the projected call and invocation context to the ModelAdapter", async () => {
     let seen!: ModelCall;
     let requestSessionId!: string;

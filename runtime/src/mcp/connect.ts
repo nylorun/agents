@@ -1,16 +1,29 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerManifest } from "@nylorun/core/define";
 import type { JsonObject } from "@nylorun/core/define";
 import { schemaFromJSON } from "@nylorun/core/define";
-import { guardedFetch, type OutboundPolicy } from "../tenant/outbound.js";
+import { scrub, scrubValues } from "../redact.js";
+import {
+  guardedFetch,
+  OutboundFailed,
+  OutboundRefused,
+  type OutboundPolicy,
+} from "../tenant/outbound.js";
+import { credentialSecrets } from "../vault/headers.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import {
-  modelToolName,
+  normalizeToolName,
   type McpDiagnostic,
+  type McpRenamedTool,
   type McpToolRecord,
 } from "./snapshot.js";
+
+/** How much of a failed answer's body the model sees. */
+export const MCP_ERROR_BODY_CHARS = 2_000;
 
 /** Options of one MCP request. */
 export interface McpRequestOptions {
@@ -33,8 +46,19 @@ export interface McpToolPage {
     readonly description?: string;
     readonly inputSchema?: unknown;
     readonly outputSchema?: unknown;
+    readonly annotations?: Readonly<Record<string, unknown>>;
   }[];
   readonly nextCursor?: string;
+}
+
+/**
+ * A `tools/call` answer: the raw `CallToolResult`, with each credential value sent for the call
+ * that it echoes replaced by `[redacted]` (R2b C8).
+ */
+export interface McpCallAnswer {
+  readonly result: Record<string, unknown>;
+  /** How many values were replaced; absent when none. */
+  readonly redacted?: number;
 }
 
 /**
@@ -44,11 +68,14 @@ export interface McpToolPage {
  */
 export interface McpClient {
   listTools(params?: { cursor?: string }, options?: McpRequestOptions): Promise<McpToolPage>;
-  /** The raw `CallToolResult`; `callMcpTool` reads it. */
+  /**
+   * One `tools/call`; `callMcpTool` reads its answer. A call that failed at the transport or
+   * the server rejects with `McpCallFailed`; any other rejection leaves its fate unknown.
+   */
   callTool(
     params: { name: string; arguments: Record<string, unknown> },
     options?: McpCallOptions,
-  ): Promise<Record<string, unknown>>;
+  ): Promise<McpCallAnswer>;
 }
 
 export interface LiveConnection {
@@ -61,56 +88,197 @@ export type McpToolFailure = {
   readonly kind: "failed";
   readonly code: string;
   readonly message: string;
+  /** True when calling again may work (R2b C7). */
+  readonly retryable?: boolean;
   /** With `credential_rejected`: the server, and the scope of the vault whose credential was sent. */
   readonly server?: string;
   readonly vault?: "installation" | "user";
+  /** How many credential values the message had in it, replaced (R2b C8). */
+  readonly redacted?: number;
 };
+
+/** What a tool call came to (`callMcpTool`). */
+export type McpToolOutcome =
+  | { readonly kind: "completed"; readonly output: unknown; readonly redacted?: number }
+  | McpToolFailure;
+
+/**
+ * How a tool call failed at the transport or the server (R2b C7), as the gate answers it:
+ * - `mcp.unreachable`: never sent (address policy, DNS, refused connection, TLS, a connection
+ *   that could not be opened). Calling again may work.
+ * - `credential_rejected`: the server answered `401` (C1).
+ * - `mcp.forbidden`: the server answered `403`.
+ * - `mcp.error`: the server answered a JSON-RPC error; the message has its code.
+ * - `mcp.status`: the server answered another HTTP error status, without a JSON-RPC error.
+ * - `mcp.lost`: sent, and the answer was lost, so the tool may have run. The model sees it only
+ *   for a tool the server marks read-only or idempotent (Q15); any other call is `uncertain`.
+ */
+export type McpFailureCode =
+  | "mcp.unreachable"
+  | "credential_rejected"
+  | "mcp.forbidden"
+  | "mcp.error"
+  | "mcp.status"
+  | "mcp.lost";
+
+export interface McpCallFailure {
+  readonly code: McpFailureCode;
+  readonly message: string;
+  /** The request reached the server, so it may have acted on it. */
+  readonly sent: boolean;
+  readonly retryable: boolean;
+  /** With `credential_rejected`: the server, and the scope of the vault whose credential was sent. */
+  readonly server?: string;
+  readonly vault?: "installation" | "user";
+  /** How many credential values the message had in it, replaced (R2b C8). */
+  readonly redacted?: number;
+}
+
+/** A tool call that failed with a code the model can act on (R2b C7). */
+export class McpCallFailed extends Error {
+  constructor(readonly failure: McpCallFailure) {
+    super(failure.message);
+    this.name = "McpCallFailed";
+  }
+
+  get code(): McpFailureCode {
+    return this.failure.code;
+  }
+
+  /** The failure the gate answered, as the class the loop's own call would have thrown. */
+  static from(failure: McpCallFailure): McpCallFailed {
+    return failure.code === "credential_rejected" && failure.server !== undefined
+      ? new CredentialRejected(failure.server, failure.vault)
+      : new McpCallFailed(failure);
+  }
+
+  /** The failed tool outcome the model sees. */
+  outcome(): McpToolFailure {
+    const failure = this.failure;
+    return {
+      kind: "failed",
+      code: failure.code,
+      message: failure.message,
+      retryable: failure.retryable,
+      ...(failure.server === undefined ? {} : { server: failure.server }),
+      ...(failure.vault === undefined ? {} : { vault: failure.vault }),
+      ...(failure.redacted ? { redacted: failure.redacted } : {}),
+    };
+  }
+}
 
 /**
  * A request the server answered `401` (R2b C1): it rejected the vault's credential, or wanted one
  * and got none. Never retried, since nothing the gate holds changes between tries (Q4). A tool
- * call that meets it fails with `code` for the model to see; at discovery it is the server's
- * `failed` diagnostic.
+ * call that meets it fails with `credential_rejected` for the model to see; at discovery it is the
+ * server's `failed` diagnostic.
  */
-export class CredentialRejected extends Error {
-  readonly code = "credential_rejected";
-
+export class CredentialRejected extends McpCallFailed {
   constructor(
     readonly server: string,
     /** The scope of the vault whose credential was sent; absent when none was. */
     readonly vault?: "installation" | "user",
   ) {
-    super(
-      vault === undefined
-        ? `The MCP server '${server}' answered HTTP 401: it needs a credential, and the session's vaults hold none for it`
-        : `The MCP server '${server}' answered HTTP 401: it rejected the credential from the ${vault} vault`,
-    );
+    super({
+      code: "credential_rejected",
+      message:
+        vault === undefined
+          ? `The MCP server '${server}' answered HTTP 401: it needs a credential, and the session's vaults hold none for it`
+          : `The MCP server '${server}' answered HTTP 401: it rejected the credential from the ${vault} vault`,
+      sent: true,
+      retryable: false,
+      server,
+      ...(vault === undefined ? {} : { vault }),
+    });
     this.name = "CredentialRejected";
-  }
-
-  /** The failed tool outcome the model sees. */
-  outcome(): McpToolFailure {
-    return {
-      kind: "failed",
-      code: this.code,
-      message: this.message,
-      server: this.server,
-      ...(this.vault === undefined ? {} : { vault: this.vault }),
-    };
   }
 }
 
-/** An SDK `Client` as an `McpClient`. */
-export function sdkClient(client: Client): McpClient {
+/**
+ * A request its connection can no longer make, refused before it reached a tool: the server
+ * answered `404` to the connection's `Mcp-Session-Id` (the session is gone, MCP 2025-06-18
+ * "Session Management"), or the credential's `via` now sends the server's requests elsewhere.
+ * Whoever holds the connection drops it, opens it again and sends the call once more (R2b C7).
+ * When that fails too, it is `mcp.unreachable`: nothing ran.
+ */
+export class McpConnectionStale extends McpCallFailed {
+  constructor(server: string, reason: string) {
+    super({
+      code: "mcp.unreachable",
+      message: `The MCP server '${server}' ${reason}, and the call was not sent`,
+      sent: false,
+      retryable: true,
+    });
+    this.name = "McpConnectionStale";
+  }
+}
+
+/** A tool call that never reached its server: its connection could not be opened. */
+export function unreachable(server: string, error: unknown): McpCallFailed {
+  if (error instanceof McpCallFailed) return error;
+  return unreachableFailure(server, error instanceof Error ? error.message : String(error));
+}
+
+/**
+ * What one MCP operation sent (R2b C7, C8), kept for the requests the SDK makes under it: the
+ * credential values, whether a request was sent in full, and for a tool call whether its answer
+ * was lost on the way back.
+ */
+interface Tracker {
+  readonly secrets: Set<string>;
+  sent: boolean;
+  /** Why the answer was lost after the request was sent. */
+  lost?: string;
+  /** A tool call's: aborted when its answer is lost, so the call ends now. */
+  readonly calling?: AbortController;
+  settled: boolean;
+}
+
+/** The operation a request of the transport's fetch belongs to. */
+const tracking = new AsyncLocalStorage<Tracker>();
+
+function tracked<T>(call: boolean, run: (tracker: Tracker) => Promise<T>): Promise<T> {
+  const tracker: Tracker = {
+    secrets: new Set(),
+    sent: false,
+    settled: false,
+    ...(call ? { calling: new AbortController() } : {}),
+  };
+  return tracking.run(tracker, () => run(tracker));
+}
+
+/**
+ * An SDK `Client` as an `McpClient`. Its answers and failures carry no credential value sent
+ * with them (R2b C8), and a failed call is an `McpCallFailed` (C7).
+ */
+export function sdkClient(client: Client, serverName: string): McpClient {
   return {
     listTools: (params, options) =>
-      client.listTools(params, options?.signal ? { signal: options.signal } : undefined),
+      tracked(false, async (tracker) => {
+        try {
+          const page = await client.listTools(params, options?.signal ? { signal: options.signal } : undefined);
+          return scrubbed(page, tracker) as McpToolPage;
+        } catch (error) {
+          throw scrubError(error, tracker);
+        }
+      }),
     callTool: (params, options) =>
-      client.callTool(
-        params,
-        undefined,
-        options?.signal ? { signal: options.signal } : undefined,
-      ) as Promise<Record<string, unknown>>,
+      tracked(true, async (tracker) => {
+        const lost = tracker.calling!.signal;
+        try {
+          const result = (await client.callTool(params, undefined, {
+            signal: options?.signal ? AbortSignal.any([options.signal, lost]) : lost,
+          })) as Record<string, unknown>;
+          const answer = scrubValues(result, [...tracker.secrets]);
+          return { result: answer.value, ...(answer.redacted > 0 ? { redacted: answer.redacted } : {}) };
+        } catch (error) {
+          // A cancel or a shutdown: the caller decides what it means.
+          if (options?.signal?.aborted) throw error;
+          throw scrubError(failureOf(serverName, error, tracker), tracker);
+        } finally {
+          tracker.settled = true;
+        }
+      }),
   };
 }
 
@@ -141,61 +309,115 @@ export async function openMcpServer(input: {
       ? new SSEClientTransport(url, { fetch: fetchImpl })
       : new StreamableHTTPClientTransport(url, { fetch: fetchImpl });
   const client = createClient();
-  await client.connect(transport);
-  return { client: sdkClient(client), close: () => client.close() };
+  await tracked(false, async (tracker) => {
+    try {
+      await client.connect(transport);
+    } catch (error) {
+      throw scrubError(error, tracker);
+    }
+  });
+  return { client: sdkClient(client, input.server.name), close: () => client.close() };
 }
 
+/**
+ * Lists a server's tools under the names the model knows them by (R2b C6): `server__tool` where
+ * that is a name every provider accepts, else `normalizeToolName`'s, listed in `renamed`. A name
+ * taken by a declared tool or an earlier server's tool omits the tool; a renamed tool that
+ * collides gets the hash suffix first.
+ */
 export async function listMcpTools(
   client: McpClient,
   input: { capabilityId: string; serverName: string; taken: Set<string>; signal?: AbortSignal },
-): Promise<{ tools: McpToolRecord[]; omitted: string[] }> {
-  const tools: McpToolRecord[] = [];
-  const omitted: string[] = [];
+): Promise<{ tools: McpToolRecord[]; omitted: string[]; renamed: McpRenamedTool[] }> {
+  const listed: McpToolPage["tools"][number][] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 100; page += 1) {
-    const listed = await client.listTools(
+    const answer = await client.listTools(
       cursor ? { cursor } : undefined,
       input.signal ? { signal: input.signal } : undefined,
     );
-    for (const tool of listed.tools) {
-      if (typeof tool.name !== "string" || tool.name.length === 0) continue;
-      const name = modelToolName(input.serverName, tool.name);
-      const inputSchema = usableSchema(tool.inputSchema);
-      if (!inputSchema || input.taken.has(name)) {
-        omitted.push(name);
-        continue;
-      }
-      const outputSchema = tool.outputSchema
-        ? usableSchema(tool.outputSchema)
-        : undefined;
-      input.taken.add(name);
-      tools.push({
-        capabilityId: input.capabilityId,
-        serverName: input.serverName,
-        serverToolName: tool.name,
-        name,
-        ...(typeof tool.description === "string" && tool.description.length > 0
-          ? { description: tool.description }
-          : {}),
-        inputSchema,
-        ...(outputSchema === undefined ? {} : { outputSchema }),
-      });
-    }
-    cursor = listed.nextCursor;
+    listed.push(...answer.tools);
+    cursor = answer.nextCursor;
     if (!cursor) break;
   }
-  return { tools, omitted };
+  const omitted: string[] = [];
+  const candidates: { tool: McpToolPage["tools"][number]; inputSchema: JsonObject }[] = [];
+  for (const tool of listed) {
+    if (typeof tool.name !== "string" || tool.name.length === 0) continue;
+    const inputSchema = usableSchema(tool.inputSchema);
+    if (inputSchema) candidates.push({ tool, inputSchema });
+    else omitted.push(normalizeToolName(input.serverName, tool.name));
+  }
+  // Names that need no change first, so a renamed tool never takes the name of another of the
+  // server's tools.
+  const names = new Map<(typeof candidates)[number], string>();
+  const renamed: McpRenamedTool[] = [];
+  for (const candidate of candidates) {
+    const name = normalizeToolName(input.serverName, candidate.tool.name);
+    if (name !== `${input.serverName}__${candidate.tool.name}`) continue;
+    if (input.taken.has(name)) omitted.push(name);
+    else {
+      input.taken.add(name);
+      names.set(candidate, name);
+    }
+  }
+  for (const candidate of candidates) {
+    const raw = `${input.serverName}__${candidate.tool.name}`;
+    let name = normalizeToolName(input.serverName, candidate.tool.name);
+    if (name === raw) continue;
+    if (input.taken.has(name))
+      name = normalizeToolName(input.serverName, candidate.tool.name, { suffixed: true });
+    if (input.taken.has(name)) {
+      omitted.push(name);
+      continue;
+    }
+    input.taken.add(name);
+    names.set(candidate, name);
+    renamed.push({ serverToolName: candidate.tool.name, name });
+  }
+  const tools: McpToolRecord[] = [];
+  for (const candidate of candidates) {
+    const name = names.get(candidate);
+    if (name === undefined) continue;
+    const { tool, inputSchema } = candidate;
+    const outputSchema = tool.outputSchema ? usableSchema(tool.outputSchema) : undefined;
+    const annotations = retryHints(tool.annotations);
+    tools.push({
+      capabilityId: input.capabilityId,
+      serverName: input.serverName,
+      serverToolName: tool.name,
+      name,
+      ...(typeof tool.description === "string" && tool.description.length > 0
+        ? { description: tool.description }
+        : {}),
+      inputSchema,
+      ...(outputSchema === undefined ? {} : { outputSchema }),
+      ...(annotations === undefined ? {} : { annotations }),
+    });
+  }
+  return { tools, omitted, renamed };
 }
 
+/**
+ * One tool call and what it came to. Rejects with `McpConnectionStale` when the connection must
+ * be opened again (the caller retries once), and with any error that leaves the call's fate
+ * unknown.
+ */
 export async function callMcpTool(
   client: McpClient,
   serverToolName: string,
   args: unknown,
-  options: McpCallOptions = {},
-): Promise<{ kind: "completed"; output: unknown } | McpToolFailure> {
-  let result: Record<string, unknown>;
+  options: McpCallOptions & {
+    /**
+     * The tool is read-only or idempotent (`McpToolRecord.annotations`): a call whose answer was
+     * lost after it was sent is `mcp.lost` to the model. Otherwise it is left uncertain (Q15).
+     */
+    readonly retrySafe?: boolean;
+  } = {},
+): Promise<McpToolOutcome> {
+  let answer: McpCallAnswer;
   try {
-    result = await client.callTool(
+    answer = await client.callTool(
       {
         name: serverToolName,
         arguments:
@@ -203,27 +425,39 @@ export async function callMcpTool(
             ? (args as Record<string, unknown>)
             : {},
       },
-      options,
+      {
+        ...(options.key === undefined ? {} : { key: options.key }),
+        ...(options.signal ? { signal: options.signal } : {}),
+      },
     );
   } catch (error) {
-    // The server answered, so the outcome is known: the model sees it, not an uncertain call.
-    if (error instanceof CredentialRejected) return error.outcome();
-    throw error;
+    if (!(error instanceof McpCallFailed)) throw error;
+    // The connection's to handle: its holder opens it again and sends the call once more.
+    if (error instanceof McpConnectionStale) throw error;
+    // Sent, then lost: the tool may have run. Calling it again is the model's choice only for a
+    // tool the server says is safe to repeat; any other waits for an operator.
+    if (error.code === "mcp.lost" && !options.retrySafe) throw new Error(error.message);
+    // Otherwise the outcome is known: the model sees it.
+    return error.outcome();
   }
+  const { result } = answer;
+  const redacted = answer.redacted ? { redacted: answer.redacted } : {};
   if ("isError" in result && result.isError) {
     return {
       kind: "failed",
       code: "mcp.tool",
       message: textContent(result.content) || "MCP tool failed",
+      ...redacted,
     };
   }
   if ("structuredContent" in result && result.structuredContent !== undefined)
-    return { kind: "completed", output: result.structuredContent };
+    return { kind: "completed", output: result.structuredContent, ...redacted };
   const text = "content" in result ? textContent(result.content) : undefined;
-  if (text !== undefined) return { kind: "completed", output: text };
+  if (text !== undefined) return { kind: "completed", output: text, ...redacted };
   return {
     kind: "completed",
     output: "content" in result ? result.content : result,
+    ...redacted,
   };
 }
 
@@ -249,7 +483,7 @@ export function diagnosticFromError(
   }
   const code =
     error && typeof error === "object" && "code" in error
-      ? (error as { code?: number }).code
+      ? (error as { code?: unknown }).code
       : undefined;
   const unauthorized =
     error instanceof CredentialRejected ||
@@ -281,7 +515,9 @@ function endpointOf(server: McpServerManifest, result: AuthorizeResult): string 
 
 /**
  * The transport's fetch: each request to `endpoint`'s origin carries the credential read for it
- * now. A `401` answer is `CredentialRejected`.
+ * now. A `401` answer is `CredentialRejected`, and a POST's other error statuses are
+ * `McpCallFailed`. Under a tracked operation it records the credential values it sends, whether
+ * a POST was sent, and a tool call's answer lost after it was.
  */
 function authorizedFetch(
   server: McpServerManifest,
@@ -303,7 +539,7 @@ function authorizedFetch(
     }
     // A credential whose `via` changed since the connection opened: never send it elsewhere.
     if (!sameOrigin(endpointOf(server, result), endpoint.href))
-      throw new Error("The MCP server's credential now sends it elsewhere; the connection must reopen");
+      throw new McpConnectionStale(server.name, "is now reached at another address (its credential's via changed)");
     const headers = new Headers();
     for (const [key, value] of Object.entries(server.headers ?? {}))
       headers.set(key, value);
@@ -311,8 +547,19 @@ function authorizedFetch(
     // Credential headers, the identity header included, replace manifest headers of the same name.
     if (result.status === "authorized")
       for (const [key, value] of Object.entries(result.headers)) headers.set(key, value);
-    // No redirects, and the address checked on what is connected to (`tenant/outbound.ts`).
-    const response = await send(target, { ...init, headers });
+    const tracker = tracking.getStore();
+    if (tracker && result.status === "authorized")
+      for (const secret of credentialSecrets(result.headers, result.identity)) tracker.secrets.add(secret);
+    const post = (init?.method ?? "GET").toUpperCase() === "POST";
+    let response: Response;
+    try {
+      // No redirects, and the address checked on what is connected to (`tenant/outbound.ts`).
+      response = await send(target, { ...init, headers });
+    } catch (error) {
+      if (tracker && post && error instanceof OutboundFailed && error.sent) tracker.sent = true;
+      throw error;
+    }
+    if (tracker && post) tracker.sent = true;
     if (response.status === 401) {
       await response.body?.cancel().catch(() => undefined);
       throw new CredentialRejected(
@@ -320,8 +567,173 @@ function authorizedFetch(
         result.status === "authorized" ? result.vault : undefined,
       );
     }
-    return response;
+    // The server ended the connection's session: the tool never saw the request.
+    if (post && response.status === 404 && headers.has("mcp-session-id")) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new McpConnectionStale(server.name, "ended the connection's session (HTTP 404)");
+    }
+    // A GET's error status (405: no event stream) is the SDK's to read.
+    if (post && !response.ok) throw statusFailure(server.name, response.status, await bodyText(response));
+    return tracker?.calling && post && response.body ? watched(response, tracker) : response;
   };
+}
+
+/** Error statuses after which the same request may work. */
+const RETRYABLE_STATUSES = new Set([408, 429, 502, 503, 504]);
+
+/** A POST the server answered with an error status: its JSON-RPC error, or the status. */
+function statusFailure(server: string, status: number, body: string): McpCallFailed {
+  const rpc = rpcErrorOf(body);
+  if (status !== 403 && rpc) return rpcFailure(server, `MCP error ${rpc.code}: ${rpc.message}`);
+  const text = body.length > MCP_ERROR_BODY_CHARS ? `${body.slice(0, MCP_ERROR_BODY_CHARS)}…` : body;
+  return new McpCallFailed({
+    code: status === 403 ? "mcp.forbidden" : "mcp.status",
+    message: `The MCP server '${server}' answered HTTP ${status}${text ? `: ${text}` : ""}`,
+    sent: true,
+    retryable: RETRYABLE_STATUSES.has(status),
+  });
+}
+
+function rpcFailure(server: string, message: string): McpCallFailed {
+  return new McpCallFailed({
+    code: "mcp.error",
+    message: `The MCP server '${server}' answered an error: ${message.slice(0, MCP_ERROR_BODY_CHARS)}`,
+    sent: true,
+    retryable: false,
+  });
+}
+
+function unreachableFailure(server: string, detail: string): McpCallFailed {
+  return new McpCallFailed({
+    code: "mcp.unreachable",
+    message: `The MCP server '${server}' could not be reached, and the call was not sent: ${detail.slice(0, MCP_ERROR_BODY_CHARS)}`,
+    sent: false,
+    retryable: true,
+  });
+}
+
+function lostFailure(server: string, detail: string): McpCallFailed {
+  return new McpCallFailed({
+    code: "mcp.lost",
+    message: `The connection to the MCP server '${server}' was lost after the call was sent, so it may have run: ${detail.slice(0, MCP_ERROR_BODY_CHARS)}`,
+    sent: true,
+    retryable: true,
+  });
+}
+
+/** What a tool call's failure means (R2b C7). */
+function failureOf(server: string, error: unknown, tracker: Tracker): McpCallFailed {
+  if (error instanceof McpCallFailed) return error;
+  const detail = error instanceof Error ? error.message : String(error);
+  if (tracker.lost !== undefined) return lostFailure(server, tracker.lost);
+  if (error instanceof OutboundRefused) return unreachableFailure(server, detail);
+  if (error instanceof OutboundFailed)
+    return error.sent ? lostFailure(server, detail) : unreachableFailure(server, detail);
+  if (error instanceof McpError) {
+    // Sent, and no answer came in time.
+    if (error.code === ErrorCode.RequestTimeout) return lostFailure(server, detail);
+    if (error.code === ErrorCode.ConnectionClosed)
+      return tracker.sent ? lostFailure(server, detail) : unreachableFailure(server, detail);
+    return rpcFailure(server, detail);
+  }
+  // An answer that could not be read leaves the call's fate unknown, as a lost one does.
+  return tracker.sent ? lostFailure(server, detail) : unreachableFailure(server, detail);
+}
+
+/** `value` with the operation's credential values replaced (R2b C8). */
+function scrubbed(value: unknown, tracker: Tracker): unknown {
+  return tracker.secrets.size === 0 ? value : scrub(value, [...tracker.secrets], { valuesOnly: true });
+}
+
+/** `error` with no credential value in its message (R2b C8). */
+function scrubError(error: unknown, tracker: Tracker): unknown {
+  if (tracker.secrets.size === 0) return error;
+  if (error instanceof McpCallFailed) {
+    const message = scrubValues(error.failure.message, [...tracker.secrets]);
+    if (message.redacted === 0) return error;
+    return new McpCallFailed({
+      ...error.failure,
+      message: message.value,
+      redacted: (error.failure.redacted ?? 0) + message.redacted,
+    });
+  }
+  if (error instanceof Error) error.message = scrubbed(error.message, tracker) as string;
+  return error;
+}
+
+/**
+ * A tool call's answer whose body reports its loss (R2b C7): a stream that breaks after the
+ * request was sent ends the call as lost, now, instead of at the SDK's request timeout.
+ */
+function watched(response: Response, tracker: Tracker): Response {
+  const source = response.body!.getReader();
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let next: ReadableStreamReadResult<Uint8Array>;
+      try {
+        next = await source.read();
+      } catch (error) {
+        if (!tracker.settled && tracker.lost === undefined) {
+          tracker.lost = error instanceof Error ? error.message : String(error);
+          tracker.calling?.abort(new Error(tracker.lost));
+        }
+        controller.error(error);
+        return;
+      }
+      if (next.done) controller.close();
+      else controller.enqueue(next.value);
+    },
+    cancel: (reason) => source.cancel(reason),
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+/** The start of an error answer's body. */
+async function bodyText(response: Response): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < 4 * MCP_ERROR_BODY_CHARS) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(next.value);
+      size += next.value.byteLength;
+    }
+  } catch {
+    // What arrived is enough to say why.
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+  return Buffer.concat(chunks).toString("utf8").trim();
+}
+
+/** A JSON-RPC error answer's code and message. */
+function rpcErrorOf(body: string): { code: number; message: string } | undefined {
+  try {
+    const parsed = JSON.parse(body) as { error?: { code?: unknown; message?: unknown } };
+    const error = parsed?.error;
+    if (error && typeof error.code === "number" && typeof error.message === "string")
+      return { code: error.code, message: error.message };
+  } catch {
+    // Not JSON: an HTTP error status.
+  }
+  return undefined;
+}
+
+/** The hints that calling a tool again is safe, when the server gives any. */
+function retryHints(
+  annotations: Readonly<Record<string, unknown>> | undefined,
+): McpToolRecord["annotations"] | undefined {
+  const readOnly = annotations?.readOnlyHint === true;
+  const idempotent = annotations?.idempotentHint === true;
+  if (!readOnly && !idempotent) return undefined;
+  return { ...(readOnly ? { readOnlyHint: true } : {}), ...(idempotent ? { idempotentHint: true } : {}) };
 }
 
 function sameOrigin(requestUrl: string, serverUrl: string): boolean {

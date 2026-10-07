@@ -42,7 +42,7 @@ function fakeConnection(): LiveConnection & { calls: string[] } {
     listTools: async () => ({ tools: [{ name: "echo", inputSchema: { type: "object" } }] }),
     callTool: async (params) => {
       calls.push(params.name);
-      return { content: [{ type: "text", text: "ok" }] };
+      return { result: { content: [{ type: "text", text: "ok" }] } };
     },
   };
   return { client, calls, close: async () => {} };
@@ -169,7 +169,7 @@ describe("a session's MCP requests under its run token (F5)", () => {
             released,
             new Promise((resolve) => request?.signal?.addEventListener("abort", resolve, { once: true })),
           ]);
-          return { content: [{ type: "text", text: "ok" }] };
+          return { result: { content: [{ type: "text", text: "ok" }] } };
         },
       };
       return { client, close: async () => {} };

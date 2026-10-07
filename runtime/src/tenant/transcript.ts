@@ -123,6 +123,8 @@ export function toolCompleted(request: HostEffect, value: unknown) {
     message?: unknown;
     server?: unknown;
     vault?: unknown;
+    retryable?: unknown;
+    redacted?: unknown;
   } | null;
   const result =
     outcome?.kind === "failed"
@@ -135,14 +137,23 @@ export function toolCompleted(request: HostEffect, value: unknown) {
             ...(outcome.vault === "installation" || outcome.vault === "user"
               ? { vault: outcome.vault }
               : {}),
+            ...(typeof outcome.retryable === "boolean" ? { retryable: outcome.retryable } : {}),
           },
         }
       : { output: outcome?.kind === "completed" ? outcome.output : value };
+  // Credential values the server echoed, replaced before the outcome was recorded (R2b C8).
+  const redacted =
+    (outcome?.kind === "completed" || outcome?.kind === "failed") &&
+    typeof outcome.redacted === "number" &&
+    outcome.redacted > 0
+      ? { redacted: outcome.redacted }
+      : {};
   return {
     ...ids,
     capabilityId: request.capabilityId!,
     toolName: request.toolName!,
     ...result,
+    ...redacted,
     ...agentOf(request),
   };
 }
