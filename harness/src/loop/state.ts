@@ -28,7 +28,14 @@ const interaction = z
 const outcome = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("completed"), output: json }).strict(),
   z.object({ kind: z.literal("denied"), reason: z.string() }).strict(),
-  z.object({ kind: z.literal("failed"), code: id, message: z.string() }).strict(),
+  z
+    .object({
+      kind: z.literal("failed"),
+      code: id,
+      message: z.string(),
+      retryable: z.boolean().optional(),
+    })
+    .strict(),
 ]);
 const reference = z
   .object({

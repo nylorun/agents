@@ -31,8 +31,10 @@ import {
   type WorkflowManifest,
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
+import { scrubValues } from "../redact.js";
 import { MAX_RESPONSE_BYTES, post, type OutboundPolicy } from "../tenant/outbound.js";
 import type { Logger } from "../tenant/types.js";
+import { credentialSecrets } from "../vault/headers.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import type { McpCredentialRequest } from "../vault/sources.js";
 import type { TenantVaults } from "./tenant-vaults.js";
@@ -42,7 +44,12 @@ export const HTTP_ERROR_BODY_CHARS = 2_000;
 
 /** What an HTTP request came to, as a tool outcome. */
 export type HttpOutcome =
-  | { readonly kind: "completed"; readonly output: unknown }
+  | {
+      readonly kind: "completed";
+      readonly output: unknown;
+      /** How many credential values the answer echoed, replaced with `[redacted]` (R2b C8). */
+      readonly redacted?: number;
+    }
   | {
       readonly kind: "failed";
       readonly code: string;
@@ -50,6 +57,8 @@ export type HttpOutcome =
       /** With `credential_rejected`: the tool's `credential`, and the scope of its vault. */
       readonly server?: string;
       readonly vault?: "installation" | "user";
+      /** How many credential values the message had in it, replaced (R2b C8). */
+      readonly redacted?: number;
     };
 
 /**
@@ -247,6 +256,7 @@ export async function runHttpTool(
       );
     const { http } = declared;
     let credential: Record<string, string> = {};
+    let identity: { readonly header: string } | undefined;
     let target: HttpToolTarget = http;
     let vault: "installation" | "user" | undefined;
     if (http.credential !== undefined) {
@@ -262,11 +272,12 @@ export async function runHttpTool(
           `The session's vaults hold no credential '${http.credential}' for ${authorized.url}`,
         );
       credential = authorized.headers;
+      identity = authorized.identity;
       vault = authorized.vault;
       // A credential with `via` sends the call there, a gateway (R2b C2, Q9).
       if (authorized.via !== undefined) target = { ...http, url: authorized.via };
     }
-    const outcome = await callHttpTarget(target, call.input, {
+    const answered = await callHttpTarget(target, call.input, {
       headers: {
         ...credential,
         [SESSION_ID_HEADER]: tool.sessionId,
@@ -278,6 +289,9 @@ export async function runHttpTool(
       signal: options.signal,
       ...(declared.outputSchema === undefined ? {} : { outputSchema: declared.outputSchema }),
     });
+    // Nothing the service echoes of the credential reaches the model, an event or the gate's
+    // record of the call: its answer and the start of an error body alike (R2b C8).
+    const outcome = scrubbedOutcome(answered, credentialSecrets(credential, identity));
     if (outcome.kind !== "failed" || outcome.code !== "credential_rejected" || http.credential === undefined)
       return outcome;
     return {
@@ -307,4 +321,14 @@ export function gateHttpTools(vaults: TenantVaults, policy: OutboundPolicy, logg
 
 function failed(code: string, message: string): HttpOutcome {
   return { kind: "failed", code, message };
+}
+
+/** `outcome` with each of `secrets` replaced by `[redacted]`, and how many were. */
+function scrubbedOutcome(outcome: HttpOutcome, secrets: readonly string[]): HttpOutcome {
+  if (outcome.kind === "completed") {
+    const output = scrubValues(outcome.output, secrets);
+    return output.redacted === 0 ? outcome : { ...outcome, output: output.value, redacted: output.redacted };
+  }
+  const message = scrubValues(outcome.message, secrets);
+  return message.redacted === 0 ? outcome : { ...outcome, message: message.value, redacted: message.redacted };
 }

@@ -201,7 +201,13 @@ export type ToolContent = JsonValue;
 export type ToolOutcome<Output = ToolContent> =
   | { readonly kind: "completed"; readonly output: Output }
   | { readonly kind: "denied"; readonly reason: string }
-  | { readonly kind: "failed"; readonly code: string; readonly message: string }
+  | {
+      readonly kind: "failed";
+      readonly code: string;
+      readonly message: string;
+      /** True when calling again may work (an MCP server that could not be reached). */
+      readonly retryable?: boolean;
+    }
   | {
       readonly kind: "interaction-required";
       readonly interaction: Interaction;
@@ -234,6 +240,8 @@ export type ToolResult =
       readonly code: string;
       readonly message: string;
       readonly details?: ToolValidationFailureDetails;
+      /** The outcome's `retryable`, when it says. */
+      readonly retryable?: boolean;
     };
 
 /** Immutable tool metadata supplied to model adapters and observers. */

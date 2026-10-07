@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { EventPayload } from "@nylorun/core/contracts";
 import type { JsonObject } from "@nylorun/core/define";
 import { delegateManifest, type AgentManifest } from "@nylorun/core/define";
@@ -8,11 +9,18 @@ export interface McpToolRecord {
   readonly agentId?: string;
   readonly capabilityId: string;
   readonly serverName: string;
+  /** The tool's name on its server, which the call sends. */
   readonly serverToolName: string;
+  /** The name the model knows it by (`normalizeToolName`). */
   readonly name: string;
   readonly description?: string;
   readonly inputSchema: JsonObject;
   readonly outputSchema?: JsonObject;
+  /**
+   * The server's hints that calling the tool again is safe (R2b C7, Q15): a call whose answer
+   * was lost after it was sent is then `mcp.lost` to the model, not `uncertain`.
+   */
+  readonly annotations?: { readonly readOnlyHint?: boolean; readonly idempotentHint?: boolean };
 }
 
 export interface McpSnapshot {
@@ -29,6 +37,14 @@ export interface McpDiagnostic {
   readonly outcome: "connected" | "refused" | "failed";
   readonly message: string;
   readonly credentialIds?: readonly string[];
+  /** Tools the model knows by another name than `server__tool` (R2b C6). */
+  readonly renamed?: readonly McpRenamedTool[];
+}
+
+/** A tool whose model-facing name is not `server__tool` (`normalizeToolName`). */
+export interface McpRenamedTool {
+  readonly serverToolName: string;
+  readonly name: string;
 }
 
 /** The `mcp.discovered` payload: each server's outcome, with the tools it added to the snapshot. */
@@ -49,12 +65,33 @@ export function mcpDiscovered(
       message: item.message,
       tools: tools.get(key(item)) ?? 0,
       ...(item.credentialIds === undefined ? {} : { credentialIds: [...item.credentialIds] }),
+      ...(item.renamed?.length ? { renamed: item.renamed.map((tool) => ({ ...tool })) } : {}),
     })),
   };
 }
 
-export function modelToolName(serverName: string, serverToolName: string): string {
-  return `${serverName}__${serverToolName}`;
+/** The longest tool name every model provider accepts (R2b C6, Q14). */
+export const MODEL_TOOL_NAME_MAX = 64;
+
+/**
+ * The name the model knows an MCP tool by (R2b C6, Q13): `server__tool`, with each character
+ * outside `[A-Za-z0-9_-]` replaced by `_`, since MCP allows `.` and 128 characters and OpenAI,
+ * Bedrock and Gemini on Vertex do not. A name over 64 characters, or one that collides
+ * (`suffixed`), keeps 55 and adds `_` and 8 hex characters of the SHA-256 of the raw
+ * `server/tool`.
+ */
+export function normalizeToolName(
+  serverName: string,
+  serverToolName: string,
+  options: { readonly suffixed?: boolean } = {}
+): string {
+  const name = `${serverName}__${serverToolName}`.replace(/[^A-Za-z0-9_-]/gu, "_");
+  if (name.length <= MODEL_TOOL_NAME_MAX && !options.suffixed) return name;
+  const hash = createHash("sha256")
+    .update(`${serverName}/${serverToolName}`)
+    .digest("hex")
+    .slice(0, 8);
+  return `${name.slice(0, MODEL_TOOL_NAME_MAX - 9)}_${hash}`;
 }
 
 export function declaredToolNames(manifest: AgentManifest): Set<string> {

@@ -32,7 +32,13 @@ export function toolResult(
     typeof outcome.code === "string" &&
     typeof outcome.message === "string"
   )
-    return copyJson({ ...identity, kind: "failed", code: outcome.code, message: outcome.message });
+    return copyJson({
+      ...identity,
+      kind: "failed",
+      code: outcome.code,
+      message: outcome.message,
+      ...(typeof outcome.retryable === "boolean" ? { retryable: outcome.retryable } : {}),
+    });
   if (outcome.kind === "denied" && typeof outcome.reason !== "string")
     throw new HarnessError("tool.invalid-tool-result", "Tool denial reason must be a string");
   if (outcome.kind === "denied" && typeof outcome.reason === "string")

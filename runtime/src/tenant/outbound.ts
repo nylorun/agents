@@ -207,6 +207,11 @@ export class OutboundFailed extends Error {
   constructor(
     message: string,
     readonly code: string,
+    /**
+     * The request was sent in full before it failed, as `post()`'s `lost` (R2b C7): the server
+     * may have acted on it. False for a failure to resolve or connect.
+     */
+    readonly sent = false,
   ) {
     super(message);
     this.name = "OutboundFailed";
@@ -266,6 +271,9 @@ export function guardedFetch(
     if (body) outgoing["content-length"] = String(body.byteLength);
     return await new Promise<Response>((resolve, reject) => {
       let settled = false;
+      // Set when the request is fully sent, as `post()` does: a failure after it may follow
+      // the server acting on the request.
+      let delivered = false;
       const settle = (fn: () => void) => {
         if (settled) return;
         settled = true;
@@ -279,6 +287,7 @@ export function guardedFetch(
               : new OutboundFailed(
                   signal?.aborted ? `The request to ${originalHost} was aborted or timed out` : error.message,
                   signal?.aborted ? "ABORTED" : (error.code ?? error.name),
+                  delivered,
                 ),
           ),
         );
@@ -290,7 +299,9 @@ export function guardedFetch(
           if (status >= 300 && status < 400 && response.headers.location !== undefined) {
             response.resume();
             return settle(() =>
-              reject(new OutboundFailed(`${originalHost} answered a redirect, which this Runtime does not follow`, "REDIRECT")),
+              reject(
+                new OutboundFailed(`${originalHost} answered a redirect, which this Runtime does not follow`, "REDIRECT", true),
+              ),
             );
           }
           const noBody = status === 204 || status === 304 || method === "HEAD";
@@ -317,7 +328,7 @@ export function guardedFetch(
             size += chunk.length;
             if (size > limit) {
               settle(() =>
-                reject(new OutboundFailed(`The answer from ${originalHost} is larger than ${limit} bytes`, "TOO_LARGE")),
+                reject(new OutboundFailed(`The answer from ${originalHost} is larger than ${limit} bytes`, "TOO_LARGE", true)),
               );
               response.destroy();
               return;
@@ -331,6 +342,9 @@ export function guardedFetch(
           );
         },
       );
+      sent.on("finish", () => {
+        delivered = true;
+      });
       sent.on("error", failed);
       sent.end(body);
     });

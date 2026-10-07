@@ -149,6 +149,7 @@ function toolResultPayload(result: ToolResult): unknown {
     kind: result.kind,
     code: result.code,
     message: result.message,
+    ...(result.retryable === undefined ? {} : { retryable: result.retryable }),
     ...(result.details === undefined ? {} : { details: result.details }),
   };
 }

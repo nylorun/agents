@@ -137,6 +137,8 @@ export async function callMcpTool(
     args: request.input,
     manifest: routing.rootManifest,
     effectId: request.effectId,
+    // A read-only or idempotent tool's lost answer is the model's to retry (R2b C7, Q15).
+    retrySafe: tool.annotations?.readOnlyHint === true || tool.annotations?.idempotentHint === true,
     signal,
   });
 }

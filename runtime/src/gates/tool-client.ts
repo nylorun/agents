@@ -6,9 +6,12 @@
  * has finished.
  *
  * Failures keep the meaning they had in the loop's own process:
- * - An MCP request that fails, at the server or on the hop, throws, so the pool reports a
- *   diagnostic and `resolveEffect` marks a call `uncertain`, as before. An HTTP tool call
- *   throws only for the hop, or a call lost with the gateway: its own failures are outcomes.
+ * - An MCP request that fails throws, so the pool reports a diagnostic. A tool call's coded
+ *   failure (R2b C7) throws the `McpCallFailed` the loop's own call would have, which becomes a
+ *   failed outcome the model sees. Only the hop's failures and a call lost with the gateway leave
+ *   it `uncertain`.
+ * - An HTTP tool call throws only for the hop, or a call lost with the gateway: its own failures
+ *   are outcomes.
  *
  * Credentials (F5): a session's MCP requests and keyed cancels carry its run token, read per
  * request from the advance's grant, and leave the session out of the body: the gate takes it
@@ -19,7 +22,13 @@
 import { randomUUID } from "node:crypto";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { CredentialRejected, type LiveConnection, type McpClient, type McpToolPage } from "../mcp/connect.js";
+import {
+  McpCallFailed,
+  type LiveConnection,
+  type McpCallAnswer,
+  type McpClient,
+  type McpToolPage,
+} from "../mcp/connect.js";
 import type { McpServerRef } from "../mcp/pool.js";
 import { TENANT_HEADER } from "./contract.js";
 import { GATE_CLIENT_TIMEOUT_MS } from "./http-client.js";
@@ -167,14 +176,15 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
   }
 
   /**
-   * The result of an MCP or HTTP tool request, or a throw the pool and `resolveEffect` read as
-   * before: the call's fate is unknown, and the effect becomes `uncertain`.
+   * The answer of an MCP or HTTP tool request, or a throw: a coded MCP failure (`McpCallFailed`),
+   * or one the pool and `resolveEffect` read as before, the call's fate unknown and the effect
+   * `uncertain`.
    */
-  async function answered<T>(
+  async function answer<T>(
     path: string,
     scope: Scoped<unknown>,
     request: { signal?: AbortSignal; idempotencyKey?: string },
-  ): Promise<T> {
+  ): Promise<Extract<McpAnswer<T>, { ok: true }>> {
     const result = await exchange(path, scope.body, {
       ...request,
       timeoutMs,
@@ -185,8 +195,16 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
     const parsed = parse(result.text) as McpAnswer<T> | { error?: { message?: string } } | undefined;
     if (result.status !== 200 || !parsed || !("ok" in parsed))
       throw new Error(gateRefusal(result.status, parsed));
-    if (parsed.ok) return parsed.result;
+    if (parsed.ok) return parsed;
     throw mcpError(parsed.error);
+  }
+
+  async function answered<T>(
+    path: string,
+    scope: Scoped<unknown>,
+    request: { signal?: AbortSignal; idempotencyKey?: string },
+  ): Promise<T> {
+    return (await answer<T>(path, scope, request)).result;
   }
 
   async function fireAndForget(path: string, scope: Scoped<unknown>): Promise<void> {
@@ -212,8 +230,8 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
             })),
             request?.signal ? { signal: request.signal } : {},
           ),
-        callTool: (params, request) =>
-          answered<Record<string, unknown>>(
+        async callTool(params, request): Promise<McpCallAnswer> {
+          const called = await answer<Record<string, unknown>>(
             TOOL_CALLS_PATH,
             scoped(
               server,
@@ -228,7 +246,9 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
               ...(request?.signal ? { signal: request.signal } : {}),
               ...(request?.key ? { idempotencyKey: request.key } : {}),
             },
-          ),
+          );
+          return { result: called.result, ...(called.redacted ? { redacted: called.redacted } : {}) };
+        },
       };
       return {
         client,
@@ -259,8 +279,8 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
 
 /** An MCP failure the gate reported, as the loop's own MCP code would have thrown it. */
 function mcpError(error: McpGateError): Error {
-  if (error.credentialRejected)
-    return new CredentialRejected(error.credentialRejected.server, error.credentialRejected.vault);
+  // Coded (R2b C7): the model sees it. A call lost with the gateway never is.
+  if (error.failure && !error.uncertain) return McpCallFailed.from(error.failure);
   const thrown = new Error(
     error.uncertain ? `${error.message} (the call may have run; it is not sent again)` : error.message,
   ) as Error & { code?: number; credentialIds?: readonly string[] };
