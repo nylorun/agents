@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/core",
-  "version": "0.16.0-beta",
+  "version": "0.17.0-beta",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Shared agent definitions and wire contracts",
