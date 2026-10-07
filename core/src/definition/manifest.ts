@@ -2,6 +2,7 @@ import type { BoundMiddleware } from "./bound.js";
 import type {
   AgentManifest,
   CapabilityManifest,
+  ManifestSchemaVersion,
   RuntimeManifest,
   ToolManifest,
 } from "../types/manifest.js";
@@ -11,6 +12,7 @@ import { bindOutputContract } from "./output-contract.js";
 import { normalizedSchemasFor } from "./schema.js";
 import { delegateOf } from "./delegate.js";
 import { httpToolOf } from "./http-tool.js";
+import { manifestVersionFor } from "./mcp.js";
 
 import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
 
@@ -22,10 +24,14 @@ export function createManifest(input: {
   outputSchema?: ToolSchemaSource;
   runtime?: RuntimeManifest;
   middleware: readonly BoundMiddleware[];
+  /** The version a manifest rebuilt from JSON had; it never goes below what the capabilities need. */
+  manifestSchemaVersion?: ManifestSchemaVersion;
 }): AgentManifest {
   const capabilities = input.middleware.map((item) => projectCapability(item));
+  // 6 only when an MCP server sets `tools` or `deferred` (R2b C9), so other hashes stay.
+  const needed = manifestVersionFor(capabilities);
   return deepFreeze({
-    manifestSchemaVersion: 5 as const,
+    manifestSchemaVersion: Math.max(needed, input.manifestSchemaVersion ?? needed) as ManifestSchemaVersion,
     id: input.id,
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.description === undefined

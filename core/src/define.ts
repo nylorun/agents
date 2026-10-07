@@ -45,7 +45,28 @@ export {
   artifactsCapabilityManifest,
   sandboxCapabilityManifest,
 } from "./definition/sandbox-capability.js";
-export { mcp, McpError, normalizeMcpServers, stdioMcpRefusal } from "./definition/mcp.js";
+export {
+  MCP_TOOL_DEFAULTS,
+  manifestVersionFor,
+  mcp,
+  mcpToolSettings,
+  McpError,
+  normalizeMcpServers,
+  stdioMcpRefusal,
+  usesMcpToolSettings,
+} from "./definition/mcp.js";
+export {
+  SERVER_INSTRUCTIONS_MAX_CHARS,
+  TOOL_CALL_TOOL,
+  TOOL_SEARCH_DEFAULT_LIMIT,
+  TOOL_SEARCH_MAX_LIMIT,
+  TOOL_SEARCH_TOOL,
+  TOOLS_CAPABILITY_ID,
+  deferredToolsInstructions,
+  deferredToolsTools,
+  toolsCapabilityManifest,
+  type DeferredServerNote,
+} from "./definition/tools-capability.js";
 export { codeToolRefusal, codeToolsOf } from "./definition/code-tools.js";
 export type { CodeTool } from "./definition/code-tools.js";
 export { CapabilityBuilder, isCapabilityBuilder } from "./definition/capability.js";
@@ -79,7 +100,12 @@ export type {
   FlowHttpTarget,
   FlowImplementations,
 } from "./definition/flow/index.js";
-export type { McpCapability, McpOptions, McpServerSpec } from "./definition/mcp.js";
+export type {
+  McpCapability,
+  McpOptions,
+  McpServerSpec,
+  ResolvedMcpToolSettings,
+} from "./definition/mcp.js";
 export { ToolError, isToolError } from "./definition/tool-error.js";
 export { defineSchema } from "./definition/schema.js";
 export { hashManifest } from "./utils/hash.js";
@@ -125,6 +151,7 @@ export type {
   HttpToolMethod,
   HttpToolTarget,
   McpServerManifest,
+  McpToolSettings,
   RuntimeManifest,
   SandboxManifest,
   SandboxNetworkPreset,

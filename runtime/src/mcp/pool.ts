@@ -16,6 +16,7 @@ import {
 import {
   declaredToolNames,
   type McpDiagnostic,
+  type McpServerNote,
   type McpSnapshot,
   type McpToolRecord,
 } from "./snapshot.js";
@@ -81,6 +82,7 @@ export class McpPool {
     // Each agent names its own tools, so collisions are checked per agent.
     const taken = new Map<string | undefined, Set<string>>();
     const tools: McpToolRecord[] = [];
+    const notes: McpServerNote[] = [];
     const diagnostics: McpDiagnostic[] = [];
     for (const declared of serversOf(input.manifest)) {
       input.signal?.throwIfAborted();
@@ -96,19 +98,33 @@ export class McpPool {
           capabilityId: declared.capabilityId,
           serverName: declared.server.name,
           taken: taken.get(declared.agentId)!,
+          server: declared.server,
           ...(input.signal ? { signal: input.signal } : {}),
         });
         tools.push(...listed.tools.map((tool) => owned(declared, tool)));
+        if (opened.connection.instructions)
+          notes.push(
+            owned(declared, {
+              capabilityId: declared.capabilityId,
+              serverName: declared.server.name,
+              instructions: opened.connection.instructions,
+            }),
+          );
         diagnostics.push({
           ...ownerOf(declared),
           capabilityId: declared.capabilityId,
           serverName: declared.server.name,
           outcome: "connected",
-          message:
-            listed.omitted.length === 0
-              ? "Connected"
-              : `Connected. Omitted ${listed.omitted.join(", ")}`,
+          message: [
+            "Connected",
+            ...(listed.omitted.length === 0 ? [] : [`Omitted ${listed.omitted.join(", ")}`]),
+            ...(listed.unknownTools.length === 0
+              ? []
+              : [`Its tools settings name tools it does not list: ${listed.unknownTools.join(", ")}`]),
+          ].join(". "),
           ...(listed.renamed.length === 0 ? {} : { renamed: listed.renamed }),
+          ...(listed.disabled === 0 ? {} : { disabled: listed.disabled }),
+          ...(listed.unknownTools.length === 0 ? {} : { unknownTools: listed.unknownTools }),
         });
         this.remember(input.sessionId, declared, opened.connection);
       } catch (error) {
@@ -123,6 +139,7 @@ export class McpPool {
         snapshotSchemaVersion: 1,
         manifestHash: input.manifestHash,
         mcpTools: tools,
+        ...(notes.length === 0 ? {} : { servers: notes }),
       },
       diagnostics,
     };

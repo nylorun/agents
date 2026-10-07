@@ -8,7 +8,12 @@ import type { AgentRef, ApprovalMode, ModelAdapter } from "@nylorun/core/define"
 import type { DelegationHost } from "../loop/delegation.js";
 import type { AgentDefinition } from "../definition/agent-definition.js";
 import { AgentManifestSchema } from "@nylorun/core/contracts";
-import { agentFrom, withHttpTarget } from "@nylorun/core/define";
+import {
+  TOOL_CALL_TOOL,
+  TOOLS_CAPABILITY_ID,
+  agentFrom,
+  withHttpTarget,
+} from "@nylorun/core/define";
 import { definitionFor } from "../definition/agent-definition.js";
 import { schemaFromJSON } from "@nylorun/core/define";
 import { hashManifest } from "@nylorun/core/define";
@@ -85,8 +90,15 @@ export interface DurableSessionTool {
   readonly description?: string;
   readonly inputSchema: JsonObject;
   readonly outputSchema?: JsonObject;
-  /** `always`: each call waits for approval (a remote MCP server's `approval`). */
+  /** `always`: each call waits for approval (a remote MCP server's, or its tool's, `approval`). */
   readonly approval?: ApprovalMode;
+  /**
+   * Not in the model's tool list (R2b C10): the model finds it with `tool_search` and runs it
+   * with `tool_call`, which makes the call as this tool's own.
+   */
+  readonly deferred?: boolean;
+  /** Text the model reads with the capability's instructions while this tool is advertised. */
+  readonly instructions?: readonly string[];
 }
 export function createDurableCheckpoint(input: {
   manifest: AgentManifest;
@@ -246,7 +258,10 @@ export async function runDurable(options: {
   /** Rebuild one agent from its manifest with every tool routed through host effects. */
   const hostedDefinition = (agent: AgentManifest, ref?: AgentRef): AgentDefinition => {
     const hostedTool = hostedTools(ref);
-    const owned = sessionTools.filter((tool) => (tool.agentId ?? manifest.id) === agent.id);
+    const mine = sessionTools.filter((tool) => (tool.agentId ?? manifest.id) === agent.id);
+    // Deferred tools stay out of the model's list; `tool_call` runs them (R2b C10).
+    const owned = mine.filter((tool) => !tool.deferred);
+    const deferred = new Map(mine.filter((tool) => tool.deferred).map((tool) => [tool.name, tool]));
     const implementations: Record<string, Implementations[string]> = {};
     for (const capability of agent.capabilities) {
       const tools: Record<string, any> = {};
@@ -260,7 +275,11 @@ export async function runDurable(options: {
           });
         else if (!tool.agent) tools[tool.name] = hostedTool(capability.id, tool);
       for (const tool of owned)
-        if (tool.capabilityId === capability.id) tools[tool.name] = hostedTool(capability.id, tool);
+        if (tool.capabilityId === capability.id)
+          tools[tool.name] =
+            capability.id === TOOLS_CAPABILITY_ID && tool.name === TOOL_CALL_TOOL
+              ? deferredToolCall(tool, deferred, hostedTool)
+              : hostedTool(capability.id, tool);
       implementations[capability.id] = { tools };
     }
     return definitionFor(
@@ -273,6 +292,7 @@ export async function runDurable(options: {
               sessionTools: owned.map((tool) => ({
                 capabilityId: tool.capabilityId,
                 name: tool.name,
+                ...(tool.instructions?.length ? { instructions: tool.instructions } : {}),
               })),
             },
       ),
@@ -353,4 +373,67 @@ export async function runDurable(options: {
 /** Effect identities of an agent used as a tool live under its delegation. */
 function scoped(ref: AgentRef | undefined, identity: string): string {
   return ref ? `${ref.delegationId}/${identity}` : identity;
+}
+
+type HostedTool = (
+  capabilityId: string,
+  tool: DurableSessionTool,
+) => { execute(args: unknown, ctx: unknown): Promise<unknown> };
+
+/**
+ * `tool_call` (R2b C10): runs a deferred tool by name, as that tool's own call. It checks the
+ * arguments against the tool's `inputSchema` first, so a mistake comes back to the model as a
+ * failed result it can fix. The effect then names the tool, so the host routes it, shapes its
+ * result and records `tool.completed` as for a direct call; a tool with approval waits for it
+ * here, with the prompt a direct call would have.
+ */
+function deferredToolCall(
+  tool: DurableSessionTool,
+  deferred: ReadonlyMap<string, DurableSessionTool>,
+  hostedTool: HostedTool,
+) {
+  const hosted = new Map<string, ReturnType<HostedTool>>();
+  const targetOf = (args: unknown) => {
+    const name = (args as { name?: unknown } | undefined)?.name;
+    return typeof name === "string" ? deferred.get(name) : undefined;
+  };
+  const gated = [...deferred.values()].some((item) => item.approval === "always");
+  return {
+    name: tool.name,
+    ...(tool.description === undefined ? {} : { description: tool.description }),
+    inputSchema: schemaFromJSON(tool.inputSchema),
+    ...(gated
+      ? {
+          approval: (args: unknown) => {
+            const target = targetOf(args);
+            return target?.approval === "always" ? `Approve ${target.name}?` : undefined;
+          },
+        }
+      : {}),
+    async execute(args: unknown, ctx: unknown) {
+      const call = args as { name: string; arguments?: Record<string, unknown> };
+      const target = targetOf(call);
+      if (!target)
+        return {
+          kind: "failed",
+          code: "tool.unknown",
+          message: `No deferred tool is named '${call.name}'. Find one with tool_search, and pass its name as it returned it.`,
+        };
+      const checked = schemaFromJSON(target.inputSchema).validate(call.arguments ?? {});
+      if (!checked.ok)
+        return {
+          kind: "failed",
+          code: "tool.invalid-arguments",
+          message: `The arguments do not match the inputSchema of '${target.name}': ${checked.issues
+            .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+            .join("; ")}`,
+        };
+      let run = hosted.get(target.name);
+      if (!run) {
+        run = hostedTool(target.capabilityId, target);
+        hosted.set(target.name, run);
+      }
+      return run.execute(checked.value, ctx);
+    },
+  };
 }

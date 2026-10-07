@@ -6427,9 +6427,19 @@
                 "type": "object",
                 "properties": {
                   "manifestSchemaVersion": {
-                    "type": "number",
-                    "enum": [
-                      5
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "enum": [
+                          5
+                        ]
+                      },
+                      {
+                        "type": "number",
+                        "enum": [
+                          6
+                        ]
+                      }
                     ]
                   },
                   "id": {
@@ -6618,6 +6628,15 @@
                                       "never",
                                       "always"
                                     ]
+                                  },
+                                  "deferred": {
+                                    "type": "boolean"
+                                  },
+                                  "tools": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "$ref": "#/components/schemas/McpToolSettings"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -6656,6 +6675,15 @@
                                       "never",
                                       "always"
                                     ]
+                                  },
+                                  "deferred": {
+                                    "type": "boolean"
+                                  },
+                                  "tools": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "$ref": "#/components/schemas/McpToolSettings"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -6774,9 +6802,19 @@
                 "type": "object",
                 "properties": {
                   "manifestSchemaVersion": {
-                    "type": "number",
-                    "enum": [
-                      5
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "enum": [
+                          5
+                        ]
+                      },
+                      {
+                        "type": "number",
+                        "enum": [
+                          6
+                        ]
+                      }
                     ]
                   },
                   "id": {
@@ -6965,6 +7003,15 @@
                                       "never",
                                       "always"
                                     ]
+                                  },
+                                  "deferred": {
+                                    "type": "boolean"
+                                  },
+                                  "tools": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "$ref": "#/components/schemas/McpToolSettings"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -7003,6 +7050,15 @@
                                       "never",
                                       "always"
                                     ]
+                                  },
+                                  "deferred": {
+                                    "type": "boolean"
+                                  },
+                                  "tools": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "$ref": "#/components/schemas/McpToolSettings"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -7120,9 +7176,19 @@
                 "type": "object",
                 "properties": {
                   "manifestSchemaVersion": {
-                    "type": "number",
-                    "enum": [
-                      5
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "enum": [
+                          5
+                        ]
+                      },
+                      {
+                        "type": "number",
+                        "enum": [
+                          6
+                        ]
+                      }
                     ]
                   },
                   "id": {
@@ -7311,6 +7377,15 @@
                                       "never",
                                       "always"
                                     ]
+                                  },
+                                  "deferred": {
+                                    "type": "boolean"
+                                  },
+                                  "tools": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "$ref": "#/components/schemas/McpToolSettings"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -7349,6 +7424,15 @@
                                       "never",
                                       "always"
                                     ]
+                                  },
+                                  "deferred": {
+                                    "type": "boolean"
+                                  },
+                                  "tools": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "$ref": "#/components/schemas/McpToolSettings"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -7601,9 +7685,19 @@
             "type": "object",
             "properties": {
               "manifestSchemaVersion": {
-                "type": "number",
-                "enum": [
-                  5
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      5
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      6
+                    ]
+                  }
                 ]
               },
               "id": {
@@ -7792,6 +7886,15 @@
                                   "never",
                                   "always"
                                 ]
+                              },
+                              "deferred": {
+                                "type": "boolean"
+                              },
+                              "tools": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "$ref": "#/components/schemas/McpToolSettings"
+                                }
                               }
                             },
                             "required": [
@@ -7830,6 +7933,15 @@
                                   "never",
                                   "always"
                                 ]
+                              },
+                              "deferred": {
+                                "type": "boolean"
+                              },
+                              "tools": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "$ref": "#/components/schemas/McpToolSettings"
+                                }
                               }
                             },
                             "required": [
@@ -8014,9 +8126,19 @@
                   "type": "object",
                   "properties": {
                     "manifestSchemaVersion": {
-                      "type": "number",
-                      "enum": [
-                        5
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "enum": [
+                            5
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            6
+                          ]
+                        }
                       ]
                     },
                     "id": {
@@ -8205,6 +8327,15 @@
                                         "never",
                                         "always"
                                       ]
+                                    },
+                                    "deferred": {
+                                      "type": "boolean"
+                                    },
+                                    "tools": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "$ref": "#/components/schemas/McpToolSettings"
+                                      }
                                     }
                                   },
                                   "required": [
@@ -8243,6 +8374,15 @@
                                         "never",
                                         "always"
                                       ]
+                                    },
+                                    "deferred": {
+                                      "type": "boolean"
+                                    },
+                                    "tools": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "$ref": "#/components/schemas/McpToolSettings"
+                                      }
                                     }
                                   },
                                   "required": [
@@ -8604,6 +8744,25 @@
         },
         "additionalProperties": false
       },
+      "McpToolSettings": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "approval": {
+            "type": "string",
+            "enum": [
+              "never",
+              "always"
+            ]
+          },
+          "deferred": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "JsonValue": {
         "anyOf": [
           {
@@ -8746,9 +8905,19 @@
                 "type": "object",
                 "properties": {
                   "manifestSchemaVersion": {
-                    "type": "number",
-                    "enum": [
-                      5
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "enum": [
+                          5
+                        ]
+                      },
+                      {
+                        "type": "number",
+                        "enum": [
+                          6
+                        ]
+                      }
                     ]
                   },
                   "id": {
@@ -8937,6 +9106,15 @@
                                       "never",
                                       "always"
                                     ]
+                                  },
+                                  "deferred": {
+                                    "type": "boolean"
+                                  },
+                                  "tools": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "$ref": "#/components/schemas/McpToolSettings"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -8975,6 +9153,15 @@
                                       "never",
                                       "always"
                                     ]
+                                  },
+                                  "deferred": {
+                                    "type": "boolean"
+                                  },
+                                  "tools": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "$ref": "#/components/schemas/McpToolSettings"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -12570,6 +12757,20 @@
                     "tools": {
                       "type": "integer",
                       "minimum": 0
+                    },
+                    "deferred": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "disabled": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "unknownTools": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     },
                     "credentialIds": {
                       "type": "array",

@@ -1,5 +1,7 @@
 import type {
   AgentManifest,
+  McpServerManifest,
+  McpToolSettings,
   SkillManifest,
   ToolManifest,
 } from "../types/manifest.js";
@@ -43,8 +45,49 @@ function removeOnlySkills(
 }
 
 /**
+ * One tool setting, or the `"*"` entry, only tightened (R2b C9, Q18): `enabled` kept or set to
+ * `false`, `approval` kept or set to `always`, `deferred` kept. Each level of a tool's resolution
+ * (its entry, then `"*"`) either keeps its value or tightens it, so the tool does too.
+ */
+function tightensSettings(
+  prior: McpToolSettings | undefined,
+  next: McpToolSettings
+): boolean {
+  return (
+    (next.enabled === prior?.enabled || next.enabled === false) &&
+    (next.approval === prior?.approval || next.approval === "always") &&
+    next.deferred === prior?.deferred
+  );
+}
+
+/**
+ * The servers of a turn variant: the pinned ones, the same but for their `tools` maps, where a
+ * variant may only disable a tool or require its approval (R2b C9, Q18). An entry the pin has
+ * stays, since dropping one could widen.
+ */
+function tightensServers(
+  pinned: Readonly<Record<string, McpServerManifest>> | undefined,
+  candidate: Readonly<Record<string, McpServerManifest>> | undefined
+): boolean {
+  if (pinned === undefined || candidate === undefined) return same(candidate, pinned);
+  const names = Object.keys(pinned);
+  if (!same(Object.keys(candidate).sort(), [...names].sort())) return false;
+  return names.every((name) => {
+    const { tools: priorTools, ...prior } = pinned[name]!;
+    const { tools: nextTools, ...next } = candidate[name]!;
+    if (!same(next, prior)) return false;
+    if (nextTools === undefined) return priorTools === undefined;
+    for (const key of Object.keys(priorTools ?? {})) if (!Object.hasOwn(nextTools, key)) return false;
+    return Object.entries(nextTools).every(([key, settings]) =>
+      tightensSettings(Object.hasOwn(priorTools ?? {}, key) ? priorTools![key] : undefined, settings)
+    );
+  });
+}
+
+/**
  * Whether `candidate` is a valid turn-manifest variant of the session's pinned
- * manifest (`loops.md` §3.4). Setup (MCP, sandbox) is fixed;
+ * manifest (`loops.md` §3.4). Setup (MCP, sandbox) is fixed, but a variant may disable an MCP
+ * server's tools or require their approval (R2b C9, Q18);
  * code-backed tools/skills/agents-as-tools are remove-only; plain data may change.
  */
 export function isVariantOf(
@@ -52,7 +95,8 @@ export function isVariantOf(
   pinned: AgentManifest
 ): boolean {
   if (candidate.id !== pinned.id) return false;
-  if (candidate.manifestSchemaVersion !== pinned.manifestSchemaVersion)
+  // A variant of a v5 pin may be v6, to set an MCP server's tools; never older than its pin.
+  if (candidate.manifestSchemaVersion < pinned.manifestSchemaVersion)
     return false;
   if (!same(candidate.runtime ?? {}, pinned.runtime ?? {})) return false;
 
@@ -67,7 +111,7 @@ export function isVariantOf(
     const next = candidateById.get(prior.id);
     // Setup — and any capability that declares it — must not change or be removed.
     if (prior.mcpServers !== undefined) {
-      if (!next || !same(next.mcpServers, prior.mcpServers)) return false;
+      if (!next || !tightensServers(prior.mcpServers, next.mcpServers)) return false;
     }
     if (prior.sandbox !== undefined) {
       if (!next || !same(next.sandbox, prior.sandbox)) return false;
@@ -81,7 +125,7 @@ export function isVariantOf(
     if (!removeOnlyTools(prior.tools, next.tools)) return false;
     if (!removeOnlySkills(prior.skills, next.skills)) return false;
     // Free: name, description, metadata, instructions (and model once it exists).
-    if (!same(next.mcpServers, prior.mcpServers)) return false;
+    if (!tightensServers(prior.mcpServers, next.mcpServers)) return false;
     if (!same(next.sandbox, prior.sandbox)) return false;
   }
 

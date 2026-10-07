@@ -1,8 +1,12 @@
 import type { JsonObject } from "./shared.js";
 import type { WorkflowManifest } from "./workflow.js";
 
-/** Published manifest schema version (no top-level model — Runtime-owned). */
-export type ManifestSchemaVersion = 5;
+/**
+ * Published manifest schema version (no top-level model — Runtime-owned). Version 6 (R2b C9) adds
+ * an MCP server's `tools` and `deferred`; a manifest that uses neither stays version 5, so its
+ * hash is unchanged, and the Runtime accepts both.
+ */
+export type ManifestSchemaVersion = 5 | 6;
 
 /** Whether each call waits for a person's approval (`approve` on the session). Default `never`. */
 export type ApprovalMode = "never" | "always";
@@ -57,24 +61,43 @@ export interface SkillManifest {
   readonly files: Readonly<Record<string, string>>;
 }
 
+/**
+ * One tool's settings on an MCP server (manifest v6, R2b C9). Each setting resolves from the
+ * tool's own entry, then the `"*"` entry, then the server, then the default.
+ */
+export interface McpToolSettings {
+  /** `false`: the tool never reaches the model and cannot be called. Default `true`. */
+  readonly enabled?: boolean;
+  /** `always`: each call waits for approval. Default: the server's `approval`, else `never`. */
+  readonly approval?: ApprovalMode;
+  /**
+   * `true`: the tool leaves the model's tool list; the model finds it with `tool_search` and runs
+   * it with `tool_call` (R2b C10). Default: the server's `deferred`, else deferred when the
+   * agent's MCP tools would take more than a tenth of the model's context window.
+   */
+  readonly deferred?: boolean;
+}
+
+interface McpServerFields {
+  readonly name: string;
+  readonly url: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  /** Each call of every tool of the server waits for approval. */
+  readonly approval?: ApprovalMode;
+  /** Defers every tool of the server, or none (manifest v6, R2b C10). Default: automatic. */
+  readonly deferred?: boolean;
+  /**
+   * Settings per tool (manifest v6, R2b C9), keyed by the server's own tool name (before C6
+   * renaming), with `"*"` for every tool without an entry: `{"*": {enabled: false}}` and an
+   * entry per wanted tool make an allowlist.
+   */
+  readonly tools?: Readonly<Record<string, McpToolSettings>>;
+}
+
 /** A remote MCP server, declared by URL. Nylorun accepts no stdio servers (`stdioMcpRefusal`). */
 export type McpServerManifest =
-  | {
-      readonly name: string;
-      readonly type: "streamable-http";
-      readonly url: string;
-      readonly headers?: Readonly<Record<string, string>>;
-      /** Each call of every tool of the server waits for approval. */
-      readonly approval?: ApprovalMode;
-    }
-  | {
-      readonly name: string;
-      readonly type: "sse";
-      readonly url: string;
-      readonly headers?: Readonly<Record<string, string>>;
-      /** Each call of every tool of the server waits for approval. */
-      readonly approval?: ApprovalMode;
-    };
+  | (McpServerFields & { readonly type: "streamable-http" })
+  | (McpServerFields & { readonly type: "sse" });
 
 /** Network egress preset for a sandbox. Private ranges and metadata endpoints are always blocked. */
 export type SandboxNetworkPreset = "none" | "dev" | "open";

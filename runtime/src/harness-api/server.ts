@@ -45,7 +45,15 @@ import {
 import { definitionFilesOf } from "@nylorun/core/contracts";
 import { isOwnershipLost } from "../store/ownership.js";
 import { ownedSession, type Lease, type TenantContext } from "../tenant/context.js";
-import { mcpDiscovered, sessionToolsOf, type McpDiagnostic, type McpSnapshot } from "../mcp/snapshot.js";
+import {
+  mcpDiscovered,
+  pinDeferral,
+  sessionToolsOf,
+  type McpDiagnostic,
+  type McpSnapshot,
+} from "../mcp/snapshot.js";
+import { contextWindowOf } from "../model/catalog.js";
+import { turnManifestOf } from "../tenant/session.js";
 import { sandboxWorkspaceKey, workspacePrefix } from "../sandbox/records.js";
 import type { RunOf } from "../tenant/run-grants.js";
 import { abortKind } from "../tenant/worker.js";
@@ -338,19 +346,27 @@ export function createHarnessApiServer(
    * session wins, with `mcp.discovered` in its log; diagnostics replace those of the same server.
    * Answers the session's snapshot and the tools the engine advertises.
    */
-  const recordMcp = (run: Run, params: ParamsOf<"session.mcp">) =>
-    ctx.store.tx(async (t) => {
+  const recordMcp = async (run: Run, params: ParamsOf<"session.mcp">) => {
+    const snapshot = params.snapshot as McpSnapshot | undefined;
+    if (snapshot !== undefined && !isSnapshot(snapshot))
+      throw new HarnessApiError("invalid", "The MCP snapshot is malformed");
+    // Which MCP tools the model reaches through tool_search, decided once for the session from
+    // the Tenant's model's context window (R2b C10, Q21).
+    const contextWindow = snapshot ? contextWindowOf(await ctx.vault.getHostModel()) : 0;
+    return ctx.store.tx(async (t) => {
       const { lease } = run.offer;
       const current = await ownedSession(t, lease, lease.sessionId);
       const diagnostics = params.diagnostics as McpDiagnostic[];
-      const snapshot = params.snapshot as McpSnapshot | undefined;
-      if (snapshot !== undefined && !isSnapshot(snapshot))
-        throw new HarnessApiError("invalid", "The MCP snapshot is malformed");
       if (snapshot && !current.mcpSnapshot) {
-        current.mcpSnapshot = snapshot;
+        current.mcpSnapshot = pinDeferral(snapshot, current.manifest, contextWindow);
         current.mcpDiagnostics = diagnostics;
         await t.put("sessions", current.id, current);
-        await t.event(current.id, run.grant.turnId, "mcp.discovered", mcpDiscovered(snapshot, diagnostics));
+        await t.event(
+          current.id,
+          run.grant.turnId,
+          "mcp.discovered",
+          mcpDiscovered(current.mcpSnapshot, diagnostics)
+        );
       } else if (diagnostics.length > 0) {
         const prior = [...(current.mcpDiagnostics ?? [])];
         for (const item of diagnostics) {
@@ -365,9 +381,11 @@ export function createHarnessApiServer(
       }
       return {
         ...(current.mcpSnapshot ? { snapshot: current.mcpSnapshot } : {}),
-        sessionTools: [...(sessionToolsOf(current.mcpSnapshot, current.manifest) ?? [])],
+        // The turn's manifest: a variant may have disabled tools or required their approval.
+        sessionTools: [...(sessionToolsOf(current.mcpSnapshot, turnManifestOf(current)) ?? [])],
       } as { snapshot: unknown; sessionTools: unknown[] };
     });
+  };
 
   /** A definition file the run's definition names (its skills', for its sandbox), base64. */
   const definitionFile = async (run: Run, sha256: string, signal: AbortSignal) => {

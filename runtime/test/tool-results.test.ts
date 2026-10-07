@@ -516,12 +516,16 @@ describe("the pinned manifest", () => {
     expect(sandboxed.ok && names(sandboxed.manifest)).toEqual(expect.arrayContaining(["save_artifact", "read_artifact"]));
   });
 
-  it("adds nothing to an agent without them, or one with its own read_artifact", () => {
+  it("adds nothing to an agent without them, and no read_artifact to one with its own", () => {
     expect(withPlatformTools(Agent({ id: "plain" }).instructions("Answer.").build().manifest)).toBeUndefined();
-    const own = Agent({ id: "own" })
-      .mcp(files)
-      .tools(http({ name: "read_artifact", input: z.object({}), url: "https://own.example.invalid/read" }))
-      .build();
-    expect(withPlatformTools(own.manifest)).toBeUndefined();
+    const readArtifact = http({ name: "read_artifact", input: z.object({}), url: "https://own.example.invalid/read" });
+    expect(withPlatformTools(Agent({ id: "own" }).tools(readArtifact).build().manifest)).toBeUndefined();
+    // With an MCP server it gets only `nylorun.tools` (R2b C10), which is empty.
+    const pinned = withPlatformTools(Agent({ id: "own" }).mcp(files).tools(readArtifact).build().manifest);
+    expect(pinned?.ok).toBe(true);
+    const manifest = (pinned as { manifest: AgentManifest }).manifest;
+    expect(manifest.capabilities.map((capability) => capability.id)).not.toContain("nylorun.artifacts");
+    expect(manifest.capabilities.at(-1)).toMatchObject({ id: "nylorun.tools" });
+    expect(manifest.capabilities.at(-1)!.tools).toBeUndefined();
   });
 });

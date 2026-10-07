@@ -31,6 +31,12 @@ _Avoid_: "Action endpoint" and "executor" (removed in protocols 8 and 3).
 hosted tool. With `approval: "always"` (also on a remote MCP server's tools) the engine pauses
 each call for approval before the effect, as a code tool's `approval` does.
 
+**Deferred session tool**: A session tool marked `deferred` (R2b C10): out of the model's tool
+list, and run by `tool_call` (in the `nylorun.tools` capability), which checks the arguments
+against the tool's `inputSchema`, asks for approval when the tool needs it, and makes the call
+as the tool's own effect. A session tool may carry `instructions`, which the model reads with its
+capability's while it is advertised (`tool_search`'s note of the servers).
+
 **SDK client**: The shared application interface for communicating with a host.
 Authoring accompanies it in the agents SDK.
 
