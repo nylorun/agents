@@ -83,8 +83,11 @@ assistant responses and tool inputs/results, restores history, observes
 canonical SSE events, and cancels a turn. Each session shows chat beside an
 **Events** inspector and an optional Agent Manifest tab. **Tenant settings** groups
 Overview, Models and Credentials. Credentials lists installation vaults and
-manages their URL-bound bearer credentials through the Management API
-(`@nylorun/admin/client`, `/v1/tenant/vaults`); Overview and Models use it too;
+manages their URL-bound credentials through the Management API
+(`@nylorun/admin/client`, `/v1/tenant/vaults`): a Bearer token or a Headers map
+(name and value rows), with an optional gateway URL (`via`) and identity header,
+and **Preview tools** on each one lists the MCP server's tools behind its URL
+(`POST /v1/tenant/mcp/preview`). Overview and Models use it too;
 secret reads return metadata only. Attach vaults explicitly using `vaultIds` when
 creating a session with the SDK or API. Studio-created sessions attach none.
 A person's own keys go in their user vault, which only their sessions attach.

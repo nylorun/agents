@@ -417,31 +417,11 @@ the runtime container never holds an MCP credential or calls a tool's server:
   restart a call that was in flight is `uncertain`: it may have run, and it is
   never run again.
 
-### Credentials
-
-A session's MCP and HTTP tool credentials come from the session's attached vaults
-(`vaultIds`), matched by the URL the agent names:
-
-- An **installation vault** (`POST /v1/tenant/vaults` with `scope: "installation"`, or
-  `admin.vaults.create` in `@nylorun/admin`; Studio's Connections page creates these) holds
-  the installation's own credentials, such as shared tool keys. Any session may attach one.
-- A **person's vault** (owner `ownerUserId`) holds that person's own keys, and attaches only to
-  that person's sessions.
-
-Vault routes are the Management API's and take only a management key (protocol 8): an
-application key, alone or acting for a person, gets `403 key_role_mismatch`.
-
-### Reaching a person's accounts
-
-Nylorun holds no OAuth client and asks no credential resolver (protocol 10). A person's own
-API key for a server goes in their vault, as a `bearer` credential bound to the server's URL. A
-server that signs each person in with OAuth is reached through a gateway that holds their
-sign-in, outside Nylorun.
-
 The gateway also runs `keys`, the only process that reads the vault key: it
 runs every vault write that touches a secret (creating and rotating a
-credential, setting and selecting the host model) and signs every token
-(capability links, run and host tokens, signing-key rotation). The runtime reaches
+credential, setting and selecting the host model), signs every token
+(capability links, run and host tokens, signing-key rotation) and runs MCP tool
+previews, which send a vault credential. The runtime reaches
 it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
 never reads the key: Compose covers `keys/` and `docker/` in the runtime
 container with empty read-only mounts. While the gateway is down, those
@@ -450,6 +430,280 @@ requests answer `503 keys_unavailable`.
 The combined packing suits one developer on one machine: the gateway holds
 every secret of the Tenant in one process. Kubernetes splits it into separate
 services in a later release.
+
+## MCP servers and HTTP tools
+
+An agent names its remote MCP servers and HTTP tools by URL, and its manifest never holds a
+secret. The operator decides, per URL, how this installation reaches each one, with a credential
+in a vault. The same agent can then use a key on a laptop and an MCP gateway in production, with
+no change to its manifest. For each server:
+
+1. **Add a credential** for its URL ([Credentials](#credentials)), or none for a public server.
+2. **Preview its tools** with that credential ([Previewing a server](#previewing-a-server)).
+3. **Set its tools** in the agent's manifest: which are enabled, which need approval, which are
+   deferred ([Tools, results and errors](#tools-results-and-errors)).
+4. **Attach the vault** to the sessions that need it: `vaultIds` when your app server opens one.
+
+Upgrading from protocol 9, which had an MCP OAuth connect and a credential resolver:
+[MIGRATION.md](./MIGRATION.md#mcp-credentials-from-vaults-only-protocol-10).
+
+### Credentials
+
+A session's MCP and HTTP tool credentials come from the session's attached vaults
+(`vaultIds`), matched by the URL the agent names:
+
+- An **installation vault** (`POST /v1/tenant/vaults` with `scope: "installation"`, or
+  `admin.vaults.create` in `@nylorun/admin`; Studio's Credentials page creates these) holds
+  the installation's own credentials, such as shared tool keys and gateway keys. Any session may
+  attach one.
+- A **person's vault** (owner `ownerUserId`) holds that person's own keys, and attaches only to
+  that person's sessions.
+
+Vault routes are the Management API's and take only a management key (protocol 8): an
+application key, alone or acting for a person, gets `403 key_role_mismatch`.
+
+A credential is bound to one URL, the one the manifest names, and is one of two kinds:
+
+| Kind | `auth` | Sends |
+| --- | --- | --- |
+| `bearer` | `{ type: "bearer", url, token }` | `Authorization: Bearer <token>` |
+| `headers` | `{ type: "headers", url, headers: { … } }` | Every header of the map: an `x-api-key`, two keys at once (Datadog's API and application keys), or a scheme other than `Bearer` |
+
+Either kind may add:
+
+- **`via`**: where the requests go instead of `url`, such as a gateway. The manifest's URL still
+  picks the credential, and tool names and diagnostics keep the manifest's server name. It is an
+  `https` URL (plain `http` only to a loopback host) with no userinfo, query string or fragment,
+  and the Host's address policy applies to it.
+- **`identity: { header }`**: a header that carries the session owner's subject, for a gateway
+  that keeps each person's accounts ([Reaching a person's accounts](#reaching-a-persons-accounts)).
+
+Add one on Studio's Credentials page (Tenant settings), with `@nylorun/admin`, or with
+`POST /v1/tenant/vaults/{vaultId}/credentials` and a management key:
+
+```ts
+await admin.vaults.credentials.create(vaultId, {
+  name: "tickets",
+  idempotencyKey: "tickets",
+  auth: {
+    type: "headers",
+    url: "https://mcp.tickets.example/mcp",
+    headers: { "x-api-key": process.env.TICKETS_KEY!, "x-account-id": process.env.TICKETS_ACCOUNT! },
+  },
+});
+```
+
+- Values are sealed with the vault key. No answer, event or log line holds one: a credential is
+  listed with its header names, `via` and identity header only.
+- A rotation (`admin.vaults.credentials.rotate`) replaces the token or the whole header map, and
+  keeps `via` and `identity` unless it gives them (`null` removes one).
+- The transport's own headers (`Content-Type`, `Accept`, `Mcp-Session-Id`, …), `Idempotency-Key`
+  and `Nylorun-*` are refused. A credential header replaces a manifest header of the same name.
+- When two attached vaults hold a credential for one URL, the session's `credentialSelections`
+  picks one by server name (an HTTP tool's `credential`).
+- An MCP server with no credential in the session's vaults is called without one: a server that
+  needs one answers `401`, and `mcp.discovered` reports it for that session. An HTTP tool that
+  names a `credential` the vaults lack fails with `http.credential`, and is not sent.
+
+### Reaching a person's accounts
+
+Nylorun holds no OAuth client, refreshes no token and asks no credential resolver (protocol 10).
+A tool call acts either as the installation or as a person. What to add depends on what the
+server takes:
+
+| The server takes | The credential | In |
+| --- | --- | --- |
+| A key the person made, such as a personal access token (GitHub, Linear, Supabase) | `bearer` or `headers` | The person's vault |
+| Only the person's sign-in, with OAuth (Notion, Slack, Gmail) | A gateway credential: the MCP gateway's key, `via` and an identity header | An installation vault |
+| A client id and secret, exchanged for a short-lived token (MongoDB Atlas, Google service accounts) | A gateway credential | An installation vault |
+
+In a survey of the 50 most used remote MCP servers (2026-10-07), half, and 7 of the top 10, took
+only a person's sign-in, so an MCP gateway is how most installations reach a person's tools.
+
+#### A person's own key
+
+Create the person's vault with a management key (`admin.vaults.create({ name, ownerUserId })`),
+add their key as a `bearer` or `headers` credential bound to the server's URL, and pass the
+vault's id in `vaultIds` when your app server opens their sessions. A key acts as whoever made it:
+put a person's own token only in their vault, and a key that acts for the organization in an
+installation vault.
+
+#### A gateway credential
+
+An MCP gateway holds each person's sign-ins, refreshes their tokens, and asks a person who has not
+connected an account yet to do so (most gateways return a link in the tool result, or through
+MCP's URL elicitation, and the model passes it on). The installation reaches the MCP gateway
+with one key, and the Runtime names the person in a header:
+
+```ts
+await admin.vaults.credentials.create(toolsVaultId, {
+  name: "notion",
+  idempotencyKey: "notion",
+  auth: {
+    type: "bearer",
+    url: "https://mcp.notion.com/mcp", // what the manifest names
+    token: process.env.GATEWAY_KEY!, // the gateway's key
+    via: "https://gateway.internal/mcp/notion", // where the requests go
+    identity: { header: "X-User-Id" }, // the session owner, filled in by the Runtime
+  },
+});
+```
+
+For a session owned by `u_7c41`, Nylorun's Tool Gate sends:
+
+```http
+POST https://gateway.internal/mcp/notion
+Authorization: Bearer <the gateway's key>
+X-User-Id: u_7c41
+```
+
+- The identity header carries the session's `ownerUserId` as the Runtime stores it: the subject
+  your app server names, or the `sub` of a trusted issuer's token. Set up the MCP gateway to know
+  your people by that id.
+- A session owned by `installation` (a scheduled or service session) sends no identity header.
+  Check that your MCP gateway does not treat a missing id as an administrator or a default user.
+- The value comes from the session record. Nothing the model or a manifest says changes it: the
+  run token names no owner, and a manifest header of the same name is replaced.
+- The MCP gateway's key can name any person. Keep it in an installation vault, give it only the
+  scopes your agents need, and rotate it like any other key.
+- Every tool argument and result passes through the MCP gateway.
+- A `401` from the MCP gateway is `credential_rejected` to the model, and is not retried.
+
+**What is tested.** The Runtime's tests run this shape end to end against a fake MCP gateway
+(`runtime/test/r2b-exit.test.ts`): the key and the identity header reach `via`, the header is
+absent for an installation session, and tools keep the manifest's server name. The vendor recipes
+below were written from each vendor's docs on 2026-10-07 and have **not** been tested. Check each
+one against the vendor's current docs before you rely on it.
+
+**Arcade** (hosted; untested). One API key, and the person's id in `Arcade-User-ID`. Arcade stores
+and refreshes each person's tokens, and asks for consent with URL elicitation.
+
+```json
+{ "type": "bearer", "url": "<the server's own URL>", "token": "<Arcade API key>",
+  "via": "https://api.arcade.dev/mcp/<slug>", "identity": { "header": "Arcade-User-ID" } }
+```
+
+**ToolHive vMCP** (self-hosted, Apache-2.0; untested). Holds each person's upstream OAuth and
+injects it. It checks OAuth tokens at its front door, so give the Runtime a service token it
+accepts. How a call names the person was not clear from its docs: check that before you add an
+identity header.
+
+```json
+{ "type": "bearer", "url": "https://mcp.notion.com/mcp", "token": "<a service token ToolHive accepts>",
+  "via": "https://toolhive.internal/notion/mcp" }
+```
+
+**Obot** (self-hosted, MIT; untested). Manages MCP OAuth with per-person and shared credentials,
+reached with a scoped API key. As with ToolHive, check how a call names the person.
+
+```json
+{ "type": "headers", "url": "https://mcp.notion.com/mcp", "via": "https://obot.internal/mcp/notion",
+  "headers": { "Authorization": "Bearer <Obot API key>" } }
+```
+
+**Nylorun Cloud** (hosted; untested). Its MCP gateway takes a key per installation and the
+identity header, and adds the person's credential from their connections. It is one gateway
+among these: nothing in the open-source Runtime is specific to it.
+
+```json
+{ "type": "headers", "url": "<the server's own URL>", "via": "<the Cloud MCP gateway's URL>",
+  "headers": { "x-api-key": "<installation key>" }, "identity": { "header": "<its user header>" } }
+```
+
+#### Gateways that mint something per person
+
+Composio, Klavis, Smithery and Pipedream hold people's sign-ins too, but a call cannot name the
+person with a header alone: each first mints something per person through its own API (a session
+URL, a per-person server URL, a scoped token, or a token that expires within the hour). The
+Runtime does not call those APIs. To use one, run a small proxy of your own in front of it:
+
+- it accepts one key and the identity header from the Runtime;
+- it mints, or takes from its cache, what the vendor needs for that person, and forwards the MCP
+  request;
+- the credential's `via` points at it, as for any gateway.
+
+Keep the minted URLs and tokens out of logs, and out of any URL the Runtime sends (`via` takes no
+query string). These were described from vendor docs on 2026-10-07 and have not been tested.
+
+#### Servers that exchange a client id and secret
+
+Some servers take a client id and secret that must be exchanged for a short-lived token (MongoDB
+Atlas and Google service accounts, PayPal). A vault credential is a static header and the Runtime
+refreshes nothing, so reach these through a gateway or a proxy that does the exchange, with a
+`via` credential as above.
+
+### Previewing a server
+
+```sh
+nylorun mcp inspect https://mcp.linear.app/mcp --server linear
+```
+
+`nylorun mcp inspect <url>` connects with the installation vault's credential for the URL (its
+headers and `via`, never an identity header), lists the server's tools within 15 s, and calls
+none. So do `admin.mcp.preview(…)`, `POST /v1/tenant/mcp/preview` and **Preview tools** on
+Studio's Credentials page. It shows each tool's model name (as a manifest naming the server
+`--server` would give it), its hints and the size of its input schema, and the tools renamed for
+the model. A server that answers `401` needs a credential: the preview says so and shows the
+server's sign-in metadata (RFC 9728), so you know to add a key or reach it through a gateway. Use
+it to choose which tools to enable, and whether a server is large enough to defer.
+
+### Tools, results and errors
+
+Set an MCP server's tools in the agent's manifest, keyed by the server's own tool names, with `"*"`
+for the rest ([agents/README.md](./agents/README.md)):
+
+```ts
+Agent({ id: "triage" }).mcp({
+  github: {
+    type: "streamable-http",
+    url: "https://api.githubcopilot.com/mcp/",
+    tools: {
+      "*": { enabled: false }, // an allowlist: only the tools below
+      search_issues: { enabled: true },
+      create_issue: { enabled: true, approval: "always" },
+    },
+  },
+});
+```
+
+- **Enabled.** A disabled tool never reaches the model and is never called. A key that names no
+  tool the server lists is reported in `mcp.discovered` (`unknownTools`), not refused.
+- **Approval.** `approval: "always"` on a tool, on `"*"` or on the server pauses each call for
+  `session.approve()`.
+- **Deferred.** When an agent's MCP tools would take more than a tenth of the model's context
+  window, the Runtime leaves them out of the model's tool list and gives it `tool_search` and
+  `tool_call`, with a note naming each server. `deferred: true` or `false` on a tool, on `"*"` or
+  on the server decides instead. The choice is made once per session, so the tool list is the same
+  at every step.
+- **Names.** The model knows a tool as `server__tool`, with characters outside `[A-Za-z0-9_-]`
+  replaced by `_` (a dotted `issues.create` is `github__issues_create`). The server is still
+  called by its own name.
+- **Results.** A result past 32 KiB, and every image, audio or file part of one, becomes a file
+  artifact of the session, and the model gets a preview and the artifact's id. It reads on with
+  the built-in `read_artifact`, 32 KiB a call. These artifacts count toward the Tenant's artifact
+  limits (`PUT /v1/tenant/artifacts`). An answer past 8 MiB is not kept.
+- **Secrets.** A credential value a server echoes back is replaced with `[redacted]` before the
+  model, an event or the Tool Gate's record sees it.
+
+When a call fails, the model gets a failed tool result with a `code` and a `message` (and, for
+an MCP call, `retryable`), and `tool.completed`'s `error` records the same:
+
+| Code | When | Retryable |
+| --- | --- | --- |
+| `credential_rejected` | The MCP server, the MCP gateway or the HTTP tool's service answered `401` | No, and never retried: rotate the key, or have the person connect again at the MCP gateway |
+| `mcp.unreachable` | The call was never sent: a refused address, DNS, a refused connection, TLS | Yes |
+| `mcp.forbidden` | `403` | No |
+| `mcp.error` | A JSON-RPC error, with its code in the message | No |
+| `mcp.status` | Another HTTP error status | For `408`, `429`, `502`, `503` and `504` |
+| `mcp.lost` | Sent, and the answer lost, for a tool the server marks `readOnlyHint` or `idempotentHint`. Any other tool's call stays `uncertain`, for an operator | Yes |
+| `mcp.too-large` | An answer past 8 MiB | No |
+
+A tool's own error result (`isError`) is `mcp.tool`. `tool_call` answers `tool.unknown` for a
+name no deferred tool has, and `tool.invalid-arguments` for arguments that do not match the
+tool's input schema, without running it. An HTTP tool's other failures are `http.status`,
+`http.timeout`, `http.refused`, `http.unreachable`, `http.lost`, `http.credential` and
+`http.too-large`. A `credential_rejected` error names the server (or the HTTP tool's
+`credential`) and the scope of the vault whose credential was sent, never a value.
 
 ## The harness: agent turns, MCP servers and workspaces
 

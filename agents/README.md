@@ -69,7 +69,9 @@ answer was lost with the gateway is `uncertain` and never sent again.
 `credential` works as for a remote MCP server: the session's attached vaults
 must hold a credential bound to the tool's exact URL (a `credentialSelections`
 entry whose `serverName` is the `credential` picks one when several are), else
-the call fails before it is sent. `approval: "always"` pauses the turn for `session.approve()`; a
+the call fails before it is sent (`http.credential`). A credential with `via`
+sends the call there instead, such as a gateway, with the session owner in its
+identity header, and a `401` is `credential_rejected` to the model, not retried. `approval: "always"` pauses the turn for `session.approve()`; a
 denied call never runs and the model sees the denial. A remote MCP server takes
 `approval: "always"` too, for every one of its tools:
 `.mcp({ shop: { type: "streamable-http", url, approval: "always" } })`.
@@ -163,6 +165,8 @@ const assistant = Agent({ id: "assistant", name: "Assistant" })
 Each key names a server; its `name` defaults to the key and, when given, must equal it. Repeated `.mcp()` calls add servers to the same capability. Nylorun accepts remote servers only: `streamable-http` and `sse` ([Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers)); a `stdio` server is refused, so run it behind an HTTP transport and declare its URL. Attach an Agent Plugin package with `.plugin(path)`: its skills and remote MCP servers join the agent, and a stdio server in its `mcp.json` throws.
 
 Set a server's tools one by one with `tools`, keyed by the server's own tool names, `"*"` for the rest: `{ "*": { enabled: false }, search_issues: { enabled: true }, create_issue: { enabled: true, approval: "always" } }` is an allowlist with one approval. When an agent's MCP tools would fill more than a tenth of the model's context window, the Runtime defers them: the model finds them with `tool_search` and runs them with `tool_call`. `deferred: true` or `false`, on a tool or on the server, decides instead. Either setting makes the manifest v6 (see MIGRATION.md).
+
+A manifest never carries a server's credential, and its `headers` hold no secret. The operator gives the server's URL a vault credential (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in), and the session's attached vaults supply it: [DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun mcp inspect` for listing a server's tools first. The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
 
 Give a session a sandbox when you open it. The agent declares nothing, so the same agent runs with or without one, in any Tenant:
 

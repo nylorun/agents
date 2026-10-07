@@ -4,7 +4,7 @@
 "@nylorun/runtime": minor
 ---
 
-**Model-safe MCP tool names, coded MCP tool errors and credential scrubbing** (R2b C6, C7, C8). MIGRATION.md (protocol 10, "Tool and MCP server names" and "MCP tool errors the model sees") has the details.
+**Model-safe MCP tool names, coded MCP tool errors and credential scrubbing** (R2b C6, C7, C8). MIGRATION.md (protocol 10, "Tool and MCP server names" and "Tool errors the model sees") has the details.
 
 - `@nylorun/core`: a declared tool's name and an MCP server's name must match `^[A-Za-z0-9_-]{1,64}$` (`AgentManifestSchema`, so `PUT /v1/agents/{id}` refuses others). `mcp.discovered`'s server outcomes gain `renamed: [{ serverToolName, name }]`; `tool.completed` gains `redacted` and its `error` gains `retryable`. A failed `ToolOutcome` and `ToolResult` may carry `retryable`.
 - `@nylorun/harness`: a failed tool result keeps the outcome's `retryable`, and the model sees it beside `code` and `message`.

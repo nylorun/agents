@@ -90,6 +90,17 @@ await admin.vaults.credentials.create(vault.id, {
 });
 ```
 
+A credential is bound to the URL an agent names: a `bearer` token, or a
+`headers` map (`{ type: "headers", url, headers: { "x-api-key": … } }`). Either
+may add `via`, where the requests go instead (an MCP gateway), and
+`identity: { header }`, which carries the session owner's subject. A person's
+own keys go in their vault (`admin.vaults.create({ name, ownerUserId })`).
+Listing and getting a credential return its header names, `via` and identity
+header, never a value; `credentials.rotate` replaces the token or the map. See
+"MCP servers and HTTP tools" in
+[DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools), with gateway
+recipes.
+
 `admin.mcp.preview` shows what that server offers with that credential, before
 an agent names it: the Runtime connects, lists the tools within 15 s and calls
 none. Each tool has the name the model would call it (made with `name`,
@@ -109,7 +120,7 @@ if (preview.authRequired) console.log("needs a sign-in:", preview.authRequired.r
 `@nylorun/admin/client` exports `createManagementClient({ url, key?, fetch?,
 headers? })` and `ManagementClient`, with the same groups and no Node module.
 It is for a browser app behind its own server that adds the management key, as
-Studio's Connections page is: omit `key`, and point `url` at that server. Never
+Studio's Credentials page is: omit `key`, and point `url` at that server. Never
 send a management key from a browser: the Runtime refuses any key sent with an
 `Origin` (`403 origin_rejected`).
 
