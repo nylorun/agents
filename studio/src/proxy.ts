@@ -15,10 +15,15 @@ function isVaultRead(method: string, path: string): boolean {
   );
 }
 
+/**
+ * Vault writes, and a preview of the tools behind a credential's URL (`POST
+ * /v1/tenant/mcp/preview`, R2b C12): it sends the installation vault's credential.
+ */
 function isVaultWrite(method: string, path: string): boolean {
   return (
     (method === "POST" &&
-      (/^\/v1\/tenant\/vaults$/.test(path) ||
+      (path === "/v1/tenant/mcp/preview" ||
+        /^\/v1\/tenant\/vaults$/.test(path) ||
         /^\/v1\/tenant\/vaults\/[^/]+\/credentials$/.test(path) ||
         /^\/v1\/tenant\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path))) ||
     (method === "DELETE" &&

@@ -1,6 +1,6 @@
 /**
  * The Management API client (`/v1/tenant/*`, protocol 8): the Tenant's settings, models,
- * vaults, signing keys and application keys, with a management key. It imports nothing from
+ * vaults, MCP server previews, signing keys and application keys, with a management key. It imports nothing from
  * Node, so a browser app that reaches the Runtime through its own proxy (Studio) uses it too:
  * `@nylorun/admin/client`. `createAdmin()` in the package's main entry finds the URL and key.
  */
@@ -17,6 +17,8 @@ import {
   type HostModelCatalog,
   type HostModelView,
   type ListProvidersResponse,
+  type McpPreview,
+  type McpPreviewRequest,
   type ModelCallExportPage,
   type ModelBudgets,
   type ModelUsageQuery,
@@ -120,6 +122,18 @@ export interface ManagementVaults {
   };
 }
 
+export interface ManagementMcp {
+  /**
+   * A remote MCP server's tools before an agent names it (R2b C12): the Runtime connects with
+   * the installation vault's credential for `url`, lists the tools and closes; it never calls
+   * one. Each tool has the name the model would call it, made with `name` (default: from the
+   * URL's host). A server that needs a person's sign-in answers `authRequired`, with its
+   * protected-resource metadata. A server that cannot be listed rejects with
+   * `mcp_preview_failed` (`details.failure`).
+   */
+  preview(request: McpPreviewRequest): Promise<McpPreview>;
+}
+
 export interface ManagementSigningKeys {
   list(): Promise<SigningKeyView[]>;
   /**
@@ -155,6 +169,7 @@ export class ManagementClient {
   readonly keys: ManagementKeys;
   readonly models: ManagementModels;
   readonly vaults: ManagementVaults;
+  readonly mcp: ManagementMcp;
   readonly signingKeys: ManagementSigningKeys;
   readonly settings: ManagementSettings;
   readonly #key: string | undefined;
@@ -234,6 +249,9 @@ export class ManagementClient {
           call("POST", credential(vaultId, credentialId), withId(request)),
         delete: (vaultId, credentialId) => call("DELETE", credential(vaultId, credentialId)),
       },
+    };
+    this.mcp = {
+      preview: (request) => call("POST", "/v1/tenant/mcp/preview", request),
     };
     this.signingKeys = {
       list: async () =>

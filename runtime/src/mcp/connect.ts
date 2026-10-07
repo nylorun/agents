@@ -88,6 +88,11 @@ export interface LiveConnection {
   readonly client: McpClient;
   /** The server's instructions from `initialize`, cut (`serverInstructions`); absent when none. */
   readonly instructions?: string;
+  /**
+   * The server's `serverInfo` from `initialize` (name, version, title), without a credential
+   * value sent; absent from a connection the gates service holds.
+   */
+  readonly serverInfo?: Readonly<Record<string, unknown>>;
   close(): Promise<void>;
 }
 
@@ -195,6 +200,11 @@ export class CredentialRejected extends McpCallFailed {
     readonly server: string,
     /** The scope of the vault whose credential was sent; absent when none was. */
     readonly vault?: "installation" | "user",
+    /**
+     * The answer's `WWW-Authenticate`, which may name the server's protected-resource metadata
+     * (RFC 9728 `resource_metadata`): a tool preview reads it (R2b C12). Never shown to the model.
+     */
+    readonly challenge?: string,
   ) {
     super({
       code: "credential_rejected",
@@ -313,6 +323,8 @@ export async function openMcpServer(input: {
    * Host that refuses private addresses refuses them here too. Default: no limits.
    */
   policy?: OutboundPolicy;
+  /** Ends `initialize` (a tool preview's timeout, R2b C12). */
+  signal?: AbortSignal;
 }): Promise<LiveConnection> {
   const authorize = input.authorize;
   const initial = await authorize(input.server.url);
@@ -331,17 +343,24 @@ export async function openMcpServer(input: {
       ? new SSEClientTransport(url, { fetch: fetchImpl })
       : new StreamableHTTPClientTransport(url, { fetch: fetchImpl });
   const client = createClient();
-  const instructions = await tracked(false, async (tracker) => {
+  const { instructions, serverInfo } = await tracked(false, async (tracker) => {
     try {
-      await client.connect(transport);
+      await client.connect(transport, input.signal ? { signal: input.signal } : undefined);
     } catch (error) {
+      // Nothing holds a connection that never opened: end whatever its transport started.
+      void client.close().catch(() => undefined);
       throw scrubError(error, tracker);
     }
-    return serverInstructions(client.getInstructions(), [...tracker.secrets]);
+    const info = client.getServerVersion();
+    return {
+      instructions: serverInstructions(client.getInstructions(), [...tracker.secrets]),
+      serverInfo: info ? (scrubbed({ ...info }, tracker) as Record<string, unknown>) : undefined,
+    };
   });
   return {
     client: sdkClient(client, input.server.name),
     ...(instructions === undefined ? {} : { instructions }),
+    ...(serverInfo === undefined ? {} : { serverInfo }),
     close: () => client.close(),
   };
 }
@@ -640,6 +659,7 @@ function authorizedFetch(
       throw new CredentialRejected(
         server.name,
         result.status === "authorized" ? result.vault : undefined,
+        response.headers.get("www-authenticate") ?? undefined,
       );
     }
     // The server ended the connection's session: the tool never saw the request.

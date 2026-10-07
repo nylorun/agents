@@ -171,6 +171,13 @@ export const ERROR_CODES = [
    * answered `401` (R2b C1). The vault's credential (or none) was rejected; the call is not retried.
    */
   "credential_rejected",
+  /**
+   * `POST /v1/tenant/mcp/preview` could not list the server's tools (R2b C12): `502`, with
+   * `details.failure` the code a tool call would have failed with (`mcp.unreachable` for an
+   * address the Host refuses, a connection that failed or a server silent past 15 s;
+   * `mcp.forbidden`, `mcp.status`, `mcp.error`).
+   */
+  "mcp_preview_failed",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

@@ -26,8 +26,9 @@
  * recordAttachment(t: Tx, sessionId: string, vaultIds: readonly string[]): Promise<void>
  *
  * // Use: opens its own transactions; never call it inside one. `sessionCredentials`
- * // (`vault/sources.ts`) calls it for a session's MCP servers and HTTP tools.
- * authorize(input: { sessionId; vaultIds; credentialSelections; url; serverName? }): Promise<AuthorizeResult>
+ * // (`vault/sources.ts`) calls it for a session's MCP servers and HTTP tools; a tool preview
+ * // (R2b C12, `mcp/preview.ts`) for no session.
+ * authorize(input: { sessionId?; vaultIds; credentialSelections; url; serverName? }): Promise<AuthorizeResult>
  *
  * // Host model credential: each opens its own transaction.
  * getHostModel(): Promise<HostModelView>
@@ -433,7 +434,8 @@ export class VaultService {
   // --- use ---------------------------------------------------------------------
 
   async authorize(input: {
-    sessionId: string;
+    /** The session the request is made for; absent for a tool preview (R2b C12). */
+    sessionId?: string;
     vaultIds: readonly string[];
     credentialSelections: readonly CredentialSelection[];
     url: string;

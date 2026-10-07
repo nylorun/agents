@@ -21,6 +21,7 @@ import { HostModelVault } from "../vault/host-model.js";
 import { VaultService, type AuthorizeResult, type HostModelSecret } from "../vault/service.js";
 import { sessionCredentials, type McpCredentialRequest } from "../vault/sources.js";
 import type { SessionStore } from "../store/types.js";
+import type { OutboundPolicy } from "../tenant/outbound.js";
 import type { Session } from "../tenant/context.js";
 import { inProcessKeys, type Keys } from "../keys/keys.js";
 import { SigningKeys } from "../tenant/signing-keys.js";
@@ -66,6 +67,8 @@ export interface TenantVaultsOptions {
   readonly sql: PostgresClient;
   /** The Host root; the gate reads `keys/vault-kek` and `tenant/home` under it. */
   readonly hostRoot: string;
+  /** How the keys service's tool preview reaches a server (`NYLORUN_ENDPOINT_*`, R2b C12). */
+  readonly delivery?: OutboundPolicy;
 }
 
 export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
@@ -95,6 +98,7 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       vault: credentials,
       signingKeys: new SigningKeys({ tenantId, kek: readKek }),
       kek: readKek,
+      ...(options.delivery ? { policy: options.delivery } : {}),
     });
     const session = (sessionId: string) =>
       store.tx((t) => t.get<Session>("sessions", sessionId));

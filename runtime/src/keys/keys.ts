@@ -5,6 +5,9 @@
  * links, run and host tokens, signing-key rotation) run here, whole, so the process that calls them never
  * holds the key or a private signing key.
  *
+ * A tool preview (R2b C12, `previewMcp`) runs here too: it sends an installation vault's
+ * credential to the server it lists, so the process that reads the plaintext makes the request.
+ *
  * Two implementations: `inProcessKeys` (embedding, the ephemeral Runtime, tests, and the gates
  * service itself, which serves the HTTP routes with it), and `httpKeys` (`client.ts`), the
  * runtime container's client of the `keys` service in the gateway.
@@ -14,12 +17,16 @@ import type {
   CreateCredentialRequest,
   CredentialInfo,
   HostModelView,
+  McpPreview,
+  McpPreviewRequest,
   PutHostModelRequest,
   RotateCredentialRequest,
   SelectHostModelRequest,
   SigningKeyView,
 } from "@nylorun/core/contracts";
+import { previewMcpServer } from "../mcp/preview.js";
 import type { SessionStore } from "../store/types.js";
+import type { OutboundPolicy } from "../tenant/outbound.js";
 import { signingKeyView, type SigningKeys } from "../tenant/signing-keys.js";
 import type { VaultService } from "../vault/service.js";
 
@@ -46,6 +53,11 @@ export interface Keys {
   rotateSigningKeys(request: { maxTtlSeconds: number; force: boolean }): Promise<SigningKeyView[]>;
   /** Creates the current and standby keys when the Tenant has none. */
   ensureSigningKeys(): Promise<void>;
+  /**
+   * Lists a remote MCP server's tools with the installation vault's credential for its URL
+   * (R2b C12, `mcp/preview.ts`); never calls a tool.
+   */
+  previewMcp(body: McpPreviewRequest): Promise<McpPreview>;
 }
 
 /** The operations, by the name the HTTP route carries. */
@@ -57,6 +69,7 @@ export const KEYS_OPERATIONS = [
   "sign",
   "rotateSigningKeys",
   "ensureSigningKeys",
+  "previewMcp",
 ] as const satisfies readonly (keyof Keys)[];
 
 export type KeysOperation = (typeof KEYS_OPERATIONS)[number];
@@ -68,6 +81,8 @@ export interface InProcessKeysOptions {
   readonly signingKeys: SigningKeys;
   /** The vault key. */
   readonly kek: () => Buffer;
+  /** How a tool preview reaches the server (`TenantConfig.delivery`). Default: no limits. */
+  readonly policy?: OutboundPolicy;
 }
 
 export function inProcessKeys(options: InProcessKeysOptions): Keys {
@@ -97,5 +112,6 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
       const key = kek();
       await store.tx((t) => signingKeys.ensure(t, key));
     },
+    previewMcp: (body) => previewMcpServer(body, { vault, policy: options.policy ?? {} }),
   };
 }

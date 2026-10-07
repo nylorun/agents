@@ -6,6 +6,8 @@ import {
   isStackCommand,
   keyCommand,
   keyUsage,
+  mcpCommand,
+  mcpUsage,
   sandboxCommand,
   sandboxUsage,
   stackCommand,
@@ -13,12 +15,13 @@ import {
   studioCommand,
 } from "./stack/index.js";
 
-const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|ls|delete|sandbox|key|doctor|telemetry>
+const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|ls|delete|sandbox|key|mcp|doctor|telemetry>
 
 Local Tenants (Docker Compose), one per project:
 ${stackUsage}
 ${sandboxUsage}
 ${keyUsage}
+${mcpUsage}
   doctor [--json]                     check Node, Docker and Compose v2, and the Tenant's health
   telemetry [status|enable|disable]   Studio's anonymous usage analytics (on unless disabled,
                                       NYLORUN_TELEMETRY_DISABLED=1, DO_NOT_TRACK=1 or CI)
@@ -39,7 +42,6 @@ const MOVED_TO_CLIENT: Record<string, string> = {
   configure: `nylorun configure moved to the Runtime client: ${CLIENT} configure`,
   serve: "nylorun serve was removed. Use node dist/src/main.js with NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY.",
   runtime: "nylorun runtime was removed: the local Runtime runs in Docker Compose. Use nylorun up|down|status|logs.",
-  mcp: "nylorun mcp was removed with the MCP OAuth connect (protocol 10): add the server's key to a vault as a bearer credential (Studio's Credentials page, or @nylorun/admin).",
 };
 
 const LOCAL_UI_REMOVED =
@@ -73,6 +75,10 @@ async function main() {
   }
   if (command === "key") {
     process.exitCode = await keyCommand(args, baselineEnv());
+    return;
+  }
+  if (command === "mcp") {
+    process.exitCode = await mcpCommand(args, baselineEnv());
     return;
   }
   if (isStackCommand(command)) {

@@ -6337,6 +6337,7 @@
               "issuer_unavailable",
               "definition_files_missing",
               "credential_rejected",
+              "mcp_preview_failed",
               "internal_error"
             ]
           },

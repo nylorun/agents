@@ -442,6 +442,7 @@ export async function startTestGate(options: {
         vault: options.credentials,
         signingKeys: new SigningKeys({ tenantId: options.tenantId, kek: options.kek! }),
         kek: options.kek!,
+        ...(options.delivery ? { policy: options.delivery } : {}),
       })
     : undefined;
   const server = await startGates({

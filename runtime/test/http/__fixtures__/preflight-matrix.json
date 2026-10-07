@@ -219,6 +219,10 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
+  "POST /v1/tenant/mcp/preview": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
   "GET /v1/access/jwks": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
