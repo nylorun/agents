@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.20.0-beta
+
+### Major Changes
+
+- cf5eb9c: **Protocol 9: the Runtime API is an OAuth 2.1 resource server for your identity provider's tokens.** Nylorun is still never the authorization server. Upgrade every package together; MIGRATION.md has the details.
+
+  - **Breaking (`@nylorun/runtime`): a refused credential is `401`, not the opaque `404`.** No `Authorization` is `401 credential_required`; an unknown key, or a token no trusted issuer signed or that fails a check, is `401 credential_invalid`. Each carries `WWW-Authenticate: Bearer` (OAuth 2.1 §5.3), naming the protected resource metadata (`resource_metadata`) on the Runtime API when the Runtime has trusted issuers; the Management API's challenge is a bare `Bearer`. `token_expired` and `issuer_unavailable` gain the challenge too. Another Tenant named, a Tenant that could not open and an unsigned capability link stay the opaque `404`.
+  - **Breaking (`@nylorun/runtime`): a request with neither `Nylorun-Protocol` nor `Authorization`** on an API route gets that route's `401` challenge instead of `426`, so a generic OAuth client learns where to sign in.
+  - `@nylorun/runtime`: a token without a route's scope still gets `403 scope_required`, now with `WWW-Authenticate: Bearer error="insufficient_scope", scope="…"`. The `Bearer` scheme is matched in any case (RFC 9110).
+  - `@nylorun/runtime`: `GET /.well-known/oauth-protected-resource` (RFC 9728) serves the resource (`NYLORUN_PUBLIC_URL`, else the request's origin), the identity file's issuers in order and their scopes, with no key or protocol; `404` without an identity file.
+  - **Breaking (`@nylorun/runtime`): the identity file drops `maxLifetime`.** The issuer sets its tokens' lifetimes; `exp` is required, `iat` no longer is. A key the file does not define, `maxLifetime` included, is ignored and logged (`identity_file_key_ignored`) instead of stopping the boot. `subject` defaults to `{sub}`, `scopes` to `{ claim: scope }` and `allowedScopes` to every token scope but `studio`.
+  - `@nylorun/core`: `PROTOCOL_VERSION` is 9 and `HOST_PROTOCOL` 4–9, with the required feature `resource-server`; `ERROR_CODES` adds `credential_required` and `credential_invalid`. `@nylorun/agents`, `@nylorun/admin` and `@nylorun/cli` send protocol 9.
+
+### Patch Changes
+
+- 6711320: Cancels and sessions resets reach the other Runtime processes over a control bus on Postgres, not S2's `tenant/control` stream, which is gone: nothing inside the Runtime depends on S2 any more. A cancel writes a `session.cancel` signal in its own transaction and Postgres notifies every process at commit (`LISTEN`/`NOTIFY` on `nylorun_control`), so a cancel aborts the Worker's model or tool call even while S2 is down. Each process holds one `LISTEN` connection of its own and reads recent signals back every 5 s and after a reconnect; connect the Runtime to Postgres directly or through a pooler in session mode. Migration `0015_control_signals` adds `nylorun.control_signals`; the Tenant sweep deletes signals older than an hour. While processes of the previous beta still run beside new ones, a cancel between them is stopped by the Session Store check before the next effect, as when a signal was lost.
+- 6711320: `/ready` no longer checks S2: its `checks` cover the listener, the Tenant, Postgres and Restate, and an unreachable S2 leaves it `200`. S2 only serves API listeners (history, SSE, AG-UI and A2A), so an outage degrades those reads and never makes the Runtime unready. S2's reachability stays in the Tenant's status (`GET /v1/tenant`, `streams.reachable`).
+- 2ed5fe0: The event source `sandboxd` is now `sandboxes`, the name the sandbox lifecycle service took on 3 Oct, matching core, loop, gates, keys, egress and harness. Nothing emits it yet, so no stored event changes; the OpenAPI document's `EventSourceKind` enum shows the new name, and `--service sandboxes` is the blueprint service this release refuses as not yet shipped.
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [cf5eb9c]
+- Updated dependencies [2ed5fe0]
+- Updated dependencies
+  - @nylorun/core@0.16.0-beta
+  - @nylorun/harness@0.23.1-beta
+
 ## 0.19.1-beta
 
 ### Patch Changes

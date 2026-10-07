@@ -1,5 +1,17 @@
 # nylorun
 
+## 0.11.2-beta
+
+### Patch Changes
+
+- 6711320: `/ready` no longer checks S2: its `checks` cover the listener, the Tenant, Postgres and Restate, and an unreachable S2 leaves it `200`. S2 only serves API listeners (history, SSE, AG-UI and A2A), so an outage degrades those reads and never makes the Runtime unready. S2's reachability stays in the Tenant's status (`GET /v1/tenant`, `streams.reachable`).
+- Pin core to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [cf5eb9c]
+- Updated dependencies [2ed5fe0]
+  - @nylorun/core@0.16.0-beta
+
 ## 0.11.1-beta
 
 ### Patch Changes
