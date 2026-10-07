@@ -62,12 +62,22 @@
  *   that write fails, `authorize` rejects and no header leaves the vault, so
  *   every approved use has an audit row. Unreadable ciphertext is audited in
  *   its own transaction before the refusal is returned.
+ *
+ * ## Credentials (R2b C2)
+ *
+ * A credential is bound to the URL a manifest names and sends a `bearer` token or a `headers`
+ * map, both sealed. Its `via` (where requests go, such as a gateway) and `identity` (the header
+ * that names the session owner) are not secret: they live unsealed in the binding, beside the
+ * URL and the header names, and a rotation keeps them unless it changes them. The seal's AAD
+ * binds the type and URL only, and matching is by URL only, so `via` never decides which
+ * credential is chosen.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { INSTALLATION_OWNER } from "@nylorun/core/contracts";
 import type {
   CreateCredentialRequest,
   CreateVaultRequest,
+  CredentialIdentity,
   CredentialInfo,
   CredentialSelection,
   HostModelProviderInfo,
@@ -87,6 +97,7 @@ import type {
 } from "../store/types.js";
 import { decryptSecret, encryptSecret, VaultCryptoError } from "./crypto.js";
 import { VaultError } from "./error.js";
+import { checkCredentialHeaders } from "./headers.js";
 import { hostModelCatalog } from "../model/catalog.js";
 import { normalizeVaultUrl } from "./url.js";
 
@@ -112,10 +123,22 @@ export type HostModelSecret = {
 };
 
 type SecretPayload = {
+  /** A `bearer` credential's token. */
   token?: string;
+  /** A `headers` credential's map, names lower-cased. */
+  headers?: Record<string, string>;
 };
 
-type UserCredentialRow = VaultCredentialRow & { type: "bearer" };
+type UserCredentialRow = VaultCredentialRow & { type: "bearer" | "headers" };
+
+/** A user credential's `bindingJson`: everything about it that is not secret. */
+type CredentialBinding = {
+  url: string;
+  via?: string;
+  identity?: CredentialIdentity;
+  /** A `headers` credential's names, lower-cased. */
+  headerNames?: string[];
+};
 
 export type AuthorizeResult =
   | {
@@ -126,8 +149,14 @@ export type AuthorizeResult =
   | {
       status: "authorized";
       url: string;
-      /** The vault credential's `authorization`. */
+      /** The vault credential's headers: `authorization` for a `bearer`, a `headers` map's. */
       headers: Record<string, string>;
+      /** Where the request goes instead of `url` (a gateway), when the credential has one. */
+      via?: string;
+      /** The header that names the session owner; `sessionCredentials` adds it. */
+      identity?: CredentialIdentity;
+      /** The scope of the vault the credential is in. */
+      vault: "installation" | "user";
     }
   | {
       status: "refused";
@@ -246,17 +275,19 @@ export class VaultService {
           const id = randomUUID();
           const url = normalizeVaultUrl(body.auth.url);
           const type = body.auth.type;
+          const payload = payloadOf(body.auth);
+          const binding = bindingOf(url, payload, body.auth);
           const sealed = encryptSecret(
             kek,
             credentialAad(vaultId, id, type, url),
-            Buffer.from(JSON.stringify(payloadFromCreate(body)), "utf8"),
+            Buffer.from(JSON.stringify(payload), "utf8"),
           );
           const row: UserCredentialRow = {
             id,
             vaultId,
             name: body.name,
             type,
-            bindingJson: JSON.stringify({ url }),
+            bindingJson: JSON.stringify(binding),
             expiresAt: null,
             createdAt: new Date().toISOString(),
             rotatedAt: null,
@@ -306,12 +337,18 @@ export class VaultService {
           const row = await this.credentialRow(t, vaultId, id);
           if (row.type !== body.auth.type)
             throw new VaultError(409, "Credential type cannot change");
-          const next: SecretPayload = { ...readPayload(kek, row), token: body.auth.token };
+          const current = credentialBinding(row);
+          const next = payloadOf(body.auth);
+          const binding = bindingOf(current.url, next, {
+            via: body.auth.via === undefined ? current.via : body.auth.via,
+            identity: body.auth.identity === undefined ? current.identity : body.auth.identity,
+          });
           const updated = await this.writePayload(
             t,
             kek,
             row,
             next,
+            binding,
             new Date().toISOString(),
           );
           await this.audit(t, {
@@ -404,9 +441,18 @@ export class VaultService {
   }): Promise<AuthorizeResult> {
     const url = normalizeVaultUrl(input.url);
     const decided = await this.store.tx(
-      async (t): Promise<{ result: AuthorizeResult } | { row: UserCredentialRow }> => {
+      async (
+        t,
+      ): Promise<
+        { result: AuthorizeResult } | { row: UserCredentialRow; vault: "installation" | "user" }
+      > => {
+        const scopes = new Map<string, string>();
         for (const id of input.vaultIds) {
-          if (await t.getVault(id)) continue;
+          const found = await t.getVault(id);
+          if (found) {
+            scopes.set(id, found.scope);
+            continue;
+          }
           await this.audit(t, {
             actor: "host",
             action: "use",
@@ -453,7 +499,10 @@ export class VaultService {
             },
           };
         }
-        return { row: chosen.row as UserCredentialRow };
+        return {
+          row: chosen.row as UserCredentialRow,
+          vault: scopes.get(chosen.row.vaultId) === "installation" ? "installation" : "user",
+        };
       },
     );
     if ("result" in decided) return decided.result;
@@ -484,8 +533,8 @@ export class VaultService {
         reason: "unreadable",
       };
     }
-    const token = payload.token;
-    if (!token) {
+    const headers = sendHeaders(row, payload);
+    if (!headers) {
       return {
         status: "refused",
         url,
@@ -504,10 +553,14 @@ export class VaultService {
         outcome: "approved",
       }),
     );
+    const binding = credentialBinding(row);
     return {
       status: "authorized",
       url,
-      headers: { authorization: `Bearer ${token}` },
+      headers,
+      ...(binding.via === undefined ? {} : { via: binding.via }),
+      ...(binding.identity === undefined ? {} : { identity: binding.identity }),
+      vault: decided.vault,
     };
   }
 
@@ -643,12 +696,13 @@ export class VaultService {
     return created;
   }
 
-  /** Re-seals a user credential's payload and returns the updated row. */
+  /** Re-seals a user credential's payload with its new binding and returns the updated row. */
   private async writePayload(
     t: Tx,
     kek: Buffer,
     row: UserCredentialRow,
     payload: SecretPayload,
+    binding: CredentialBinding,
     rotatedAt: string,
   ): Promise<UserCredentialRow> {
     const sealed = encryptSecret(
@@ -656,7 +710,7 @@ export class VaultService {
       credentialAad(row.vaultId, row.id, row.type, bindingUrl(row)),
       Buffer.from(JSON.stringify(payload), "utf8"),
     );
-    const patch = { rotatedAt, ...sealed };
+    const patch = { rotatedAt, bindingJson: JSON.stringify(binding), ...sealed };
     if (!(await t.updateCredential(row.vaultId, row.id, patch)))
       throw new VaultError(404, "Credential not found");
     return { ...row, ...patch };
@@ -841,13 +895,21 @@ function vaultInfoOf(row: VaultRow): VaultInfo {
   };
 }
 
+function credentialBinding(row: UserCredentialRow): CredentialBinding {
+  return JSON.parse(row.bindingJson) as CredentialBinding;
+}
+
 function credentialInfoOf(row: UserCredentialRow): CredentialInfo {
+  const binding = credentialBinding(row);
   return {
     id: row.id,
     vaultId: row.vaultId,
     name: row.name,
     type: row.type,
-    binding: JSON.parse(row.bindingJson) as { url: string },
+    binding: { url: binding.url },
+    ...(binding.headerNames === undefined ? {} : { headerNames: binding.headerNames }),
+    ...(binding.via === undefined ? {} : { via: binding.via }),
+    ...(binding.identity === undefined ? {} : { identity: binding.identity }),
     createdAt: row.createdAt,
     ...(row.rotatedAt ? { rotatedAt: row.rotatedAt } : {}),
   };
@@ -984,8 +1046,44 @@ function choose(
   return { kind: "use", row: chosen };
 }
 
-function payloadFromCreate(body: CreateCredentialRequest): SecretPayload {
-  return { token: body.auth.token };
+/** The sealed part of a create or rotate: a token, or a header map with lower-cased names. */
+function payloadOf(
+  auth: { type: "bearer"; token: string } | { type: "headers"; headers: Record<string, string> },
+): SecretPayload {
+  if (auth.type === "bearer") return { token: auth.token };
+  return {
+    headers: Object.fromEntries(
+      Object.entries(auth.headers).map(([name, value]) => [name.toLowerCase(), value]),
+    ),
+  };
+}
+
+/** The unsealed binding of a credential that sends `payload`; refuses a reserved header name. */
+function bindingOf(
+  url: string,
+  payload: SecretPayload,
+  routing: { via?: string | null; identity?: CredentialIdentity | null },
+): CredentialBinding {
+  const sent = payload.headers ? Object.keys(payload.headers) : ["authorization"];
+  checkCredentialHeaders(sent, routing.identity ?? undefined);
+  return {
+    url,
+    ...(routing.via ? { via: routing.via } : {}),
+    ...(routing.identity ? { identity: { header: routing.identity.header.toLowerCase() } } : {}),
+    ...(payload.headers ? { headerNames: sent } : {}),
+  };
+}
+
+/** The headers a credential sends, or undefined when its payload holds none. */
+function sendHeaders(
+  row: UserCredentialRow,
+  payload: SecretPayload,
+): Record<string, string> | undefined {
+  if (row.type === "headers")
+    return payload.headers && Object.keys(payload.headers).length > 0
+      ? { ...payload.headers }
+      : undefined;
+  return payload.token ? { authorization: `Bearer ${payload.token}` } : undefined;
 }
 
 type ModelBinding = {

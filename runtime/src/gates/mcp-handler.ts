@@ -10,6 +10,7 @@
  */
 import type { McpServerManifest } from "@nylorun/core/define";
 import {
+  CredentialRejected,
   openMcpServer,
   type LiveConnection,
   type McpToolPage,
@@ -136,7 +137,11 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
         ...fields(server),
         ...extra,
         ms: now() - started,
-        outcome: failed.code === undefined ? "failed" : String(failed.code),
+        outcome: failed.credentialRejected
+          ? "credential_rejected"
+          : failed.code === undefined
+            ? "failed"
+            : String(failed.code),
       });
       return { ok: false, error: failed };
     }
@@ -222,6 +227,15 @@ function fields(server: McpServerRef) {
 /** An error as the loop's `diagnosticFromError` reads it. */
 function errorOf(error: unknown): McpGateError {
   if (error instanceof GateRefusal) return { message: error.outcome.message };
+  if (error instanceof CredentialRejected)
+    return {
+      message: error.message,
+      code: 401,
+      credentialRejected: {
+        server: error.server,
+        ...(error.vault === undefined ? {} : { vault: error.vault }),
+      },
+    };
   const message = error instanceof Error ? error.message.slice(0, 2000) : String(error);
   const code =
     error && typeof error === "object" && "code" in error && typeof (error as { code?: unknown }).code === "number"

@@ -3,6 +3,7 @@ import type { SessionStore, Tx } from "../src/store/types.js";
 import { VaultError } from "../src/vault/error.js";
 import { HostModelVault } from "../src/vault/host-model.js";
 import { VaultService } from "../src/vault/service.js";
+import { sessionCredentials } from "../src/vault/sources.js";
 import { hostModelCatalog } from "../src/model/catalog.js";
 import { createTestSessionStore } from "./support/store.js";
 
@@ -292,6 +293,7 @@ describe("VaultService authorize", () => {
       status: "authorized",
       url: URL,
       headers: { authorization: "Bearer ada-second-plaintext-token-22ee" },
+      vault: "user",
     });
     const uses = (await read((t) => t.vaultAudit())).filter(
       (row) => row.action === "use",
@@ -351,6 +353,182 @@ describe("VaultService authorize", () => {
       credentialId: ada.credentialId,
       outcome: "refused",
     });
+  });
+});
+
+describe("VaultService header and gateway credentials (R2b C2)", () => {
+  const DD_API = "datadog-api-key-plaintext-0f9e8d7c";
+  const DD_APP = "datadog-app-key-plaintext-6b5a4f3e";
+  const GATEWAY = "https://gateway.example.com/mcp/datadog";
+
+  async function installation(vault: VaultService) {
+    return vault.createVault({
+      requestId: "inst",
+      idempotencyKey: "inst",
+      name: "Shared",
+      scope: "installation",
+    });
+  }
+
+  it("creates, lists and authorizes a header map with via and an identity header, sealed", async () => {
+    const { vault, read } = await setup();
+    const shared = await installation(vault);
+    const info = await vault.createCredential(shared.id, {
+      requestId: "dd",
+      idempotencyKey: "dd",
+      name: "datadog",
+      auth: {
+        type: "headers",
+        url: URL,
+        headers: { "DD-API-KEY": DD_API, "DD-APPLICATION-KEY": DD_APP },
+        via: GATEWAY,
+        identity: { header: "X-User-Id" },
+      },
+    });
+    expect(info).toMatchObject({
+      type: "headers",
+      binding: { url: URL },
+      headerNames: ["dd-api-key", "dd-application-key"],
+      via: GATEWAY,
+      identity: { header: "x-user-id" },
+    });
+    expect(await vault.listCredentials(shared.id)).toEqual([info]);
+    for (const secret of [DD_API, DD_APP]) {
+      expect(JSON.stringify(info)).not.toContain(secret);
+      const row = await read((t) => t.getCredential(info.id));
+      expect(JSON.stringify(row)).not.toContain(secret);
+      expect(Buffer.from(row!.ciphertext).includes(Buffer.from(secret))).toBe(false);
+    }
+    // Matched by the manifest's URL, never by `via`.
+    const session = { sessionId: "s1", vaultIds: [shared.id], credentialSelections: [] };
+    expect(await vault.authorize({ ...session, url: GATEWAY })).toMatchObject({
+      status: "unauthenticated",
+    });
+    expect(await vault.authorize({ ...session, url: URL })).toEqual({
+      status: "authorized",
+      url: URL,
+      headers: { "dd-api-key": DD_API, "dd-application-key": DD_APP },
+      via: GATEWAY,
+      identity: { header: "x-user-id" },
+      vault: "installation",
+    });
+  });
+
+  it("rotates the secret and keeps via and identity unless the rotation changes them", async () => {
+    const { vault } = await setup();
+    const shared = await installation(vault);
+    const created = await vault.createCredential(shared.id, {
+      requestId: "dd",
+      idempotencyKey: "dd",
+      name: "datadog",
+      auth: { type: "headers", url: URL, headers: { "x-api-key": DD_API }, via: GATEWAY, identity: { header: "x-user-id" } },
+    });
+    const session = { sessionId: "s1", vaultIds: [shared.id], credentialSelections: [], url: URL };
+    const kept = await vault.rotateCredential(shared.id, created.id, {
+      requestId: "r1",
+      idempotencyKey: "r1",
+      auth: { type: "headers", headers: { "x-api-key": "rotated-api-key-1234", "x-account": "acct-0001" } },
+    });
+    expect(kept).toMatchObject({ via: GATEWAY, identity: { header: "x-user-id" }, headerNames: ["x-api-key", "x-account"] });
+    expect(await vault.authorize(session)).toMatchObject({
+      headers: { "x-api-key": "rotated-api-key-1234", "x-account": "acct-0001" },
+      via: GATEWAY,
+    });
+    const moved = await vault.rotateCredential(shared.id, created.id, {
+      requestId: "r2",
+      idempotencyKey: "r2",
+      auth: { type: "headers", headers: { "x-api-key": "rotated-api-key-5678" }, via: "https://other.example.com/mcp", identity: null },
+    });
+    expect(moved.via).toBe("https://other.example.com/mcp");
+    expect(moved.identity).toBeUndefined();
+    const direct = await vault.rotateCredential(shared.id, created.id, {
+      requestId: "r3",
+      idempotencyKey: "r3",
+      auth: { type: "headers", headers: { "x-api-key": "rotated-api-key-9999" }, via: null },
+    });
+    expect(direct.via).toBeUndefined();
+    const used = await vault.authorize(session);
+    expect(used).toEqual({ status: "authorized", url: URL, headers: { "x-api-key": "rotated-api-key-9999" }, vault: "installation" });
+    expect(
+      await status(
+        vault.rotateCredential(shared.id, created.id, {
+          requestId: "r4",
+          idempotencyKey: "r4",
+          auth: { type: "bearer", token: "a-bearer-token" },
+        }),
+      ),
+    ).toBe(409);
+  });
+
+  it("accepts the same kinds in a user vault", async () => {
+    const { vault } = await setup();
+    const { vaultId } = await bearer(vault, "ada", "a", ADA_TOKEN, "https://mcp.example.com/unused");
+    const created = await vault.createCredential(vaultId, {
+      requestId: "h",
+      idempotencyKey: "h",
+      name: "own",
+      auth: { type: "bearer", url: URL, token: BAO_TOKEN, via: GATEWAY, identity: { header: "x-user-id" } },
+    });
+    expect(created).toMatchObject({ type: "bearer", via: GATEWAY, identity: { header: "x-user-id" } });
+    expect(created.headerNames).toBeUndefined();
+    expect(await vault.authorize({ sessionId: "s1", vaultIds: [vaultId], credentialSelections: [], url: URL })).toMatchObject({
+      headers: { authorization: `Bearer ${BAO_TOKEN}` },
+      vault: "user",
+    });
+  });
+
+  it("refuses the transport's headers and Nylorun-* in the map and as the identity header", async () => {
+    const { vault } = await setup();
+    const shared = await installation(vault);
+    const create = (key: string, auth: Record<string, unknown>) =>
+      status(
+        vault.createCredential(shared.id, {
+          requestId: key,
+          idempotencyKey: key,
+          name: key,
+          auth: { type: "headers", url: URL, headers: { "x-api-key": "k" }, ...auth } as never,
+        }),
+      );
+    for (const name of ["Content-Type", "mcp-session-id", "Host", "Nylorun-Session-Id", "idempotency-key"])
+      expect(await create(`h-${name}`, { headers: { [name]: "v" } }), name).toBe(400);
+    for (const header of ["nylorun-subject", "accept", "x-api-key", "X-API-KEY"])
+      expect(await create(`i-${header}`, { identity: { header } }), header).toBe(400);
+    expect(
+      await status(
+        vault.createCredential(shared.id, {
+          requestId: "b",
+          idempotencyKey: "b",
+          name: "b",
+          auth: { type: "bearer", url: URL, token: "t", identity: { header: "Authorization" } },
+        }),
+      ),
+    ).toBe(400);
+    expect(await vault.listCredentials(shared.id)).toEqual([]);
+  });
+});
+
+describe("sessionCredentials identity header (R2b C2)", () => {
+  it("names a person's session owner, and nobody for an installation session", async () => {
+    const { vault } = await setup();
+    const shared = await vault.createVault({ requestId: "i", idempotencyKey: "i", name: "Shared", scope: "installation" });
+    await vault.createCredential(shared.id, {
+      requestId: "g",
+      idempotencyKey: "g",
+      name: "gateway",
+      auth: { type: "bearer", url: URL, token: ADA_TOKEN, via: "https://gateway.example.com/mcp", identity: { header: "X-User-Id" } },
+    });
+    const person = await sessionCredentials(vault, { id: "s1", ownerUserId: "u:ada", vaultIds: [shared.id] }, { url: URL });
+    expect(person).toMatchObject({
+      status: "authorized",
+      headers: { authorization: `Bearer ${ADA_TOKEN}`, "x-user-id": "u:ada" },
+      via: "https://gateway.example.com/mcp",
+    });
+    const scheduled = await sessionCredentials(
+      vault,
+      { id: "s2", ownerUserId: "installation", vaultIds: [shared.id] },
+      { url: URL },
+    );
+    expect(scheduled.status === "authorized" && scheduled.headers).toEqual({ authorization: `Bearer ${ADA_TOKEN}` });
   });
 });
 

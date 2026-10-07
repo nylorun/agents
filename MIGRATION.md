@@ -12,7 +12,7 @@ the Runtime still serves protocol 4 to 9 clients on every route that remains.
 | `POST /v1/tenant/vaults/{vaultId}/oauth/start`, `admin.vaults.startOAuth(…)` | `404`; no replacement in the Runtime |
 | `GET /v1/oauth/callback` | `404`. Remove its rule from your reverse proxy |
 | `nylorun mcp connect` | Removed; `nylorun mcp` says how to add a key instead |
-| The vault credential type `oauth` (`auth: { type: "oauth", accessToken, expiresAt?, refresh? }` on create and rotate), and the gateway's refresh of it | A credential is a `bearer` token bound to a URL. A create or rotate with `type: "oauth"` is `400` |
+| The vault credential type `oauth` (`auth: { type: "oauth", accessToken, expiresAt?, refresh? }` on create and rotate), and the gateway's refresh of it | A credential is a `bearer` token or a `headers` map bound to a URL. A create or rotate with `type: "oauth"` is `400` |
 | `CredentialInfo.expiresAt`, and `oauth` in `CredentialInfo.type` | Gone from the type and the answers |
 | `StartOAuthRequest`, `StartOAuthResponse` (`@nylorun/core`) | Removed |
 | The error codes `oauth_client_required`, `oauth_state_invalid`, `oauth_failed` | Removed from `ERROR_CODES` |
@@ -56,6 +56,35 @@ hold none. Move what your resolver served:
 
 Then remove `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` from the gateway's environment
 (and from the shell that runs `nylorun start`), and retire the resolver.
+
+## Header and gateway credentials
+
+These are new, and need no change to existing credentials. Each applies to remote MCP servers and
+HTTP tools alike, in an installation vault or a person's user vault.
+
+- **A header map.** `auth: { type: "headers", url, headers: { "DD-API-KEY": "…",
+  "DD-APPLICATION-KEY": "…" } }` sends every header in the map, for servers that take an
+  `x-api-key`, several keys, or a scheme other than `Bearer`. The values are sealed like a token;
+  `CredentialInfo` lists the names only (`headerNames`, lower case). A rotation replaces the whole
+  map. The MCP transport's headers (`Content-Type`, `Accept`, `Mcp-Session-Id`, …),
+  `Idempotency-Key` and `Nylorun-*` are refused (`400`). A credential header replaces a manifest
+  header of the same name.
+- **`via`, a gateway.** With `via` on a `bearer` or `headers` credential, the server's requests
+  go to that URL instead of the one the manifest names. The credential is still chosen by the
+  manifest's URL, and tool names and diagnostics keep the manifest's server name, so moving a
+  server from a key to a gateway changes no manifest. `via` is an `https` URL (`http` only to a
+  loopback host) with no userinfo, query string or fragment, and the Host's address policy applies
+  to it.
+- **An identity header.** `identity: { header: "X-User-Id" }` adds the session owner's subject
+  (`ownerUserId`, from the session record) in that header, for a gateway that keeps each person's
+  accounts. A session owned by `installation` sends none.
+- A rotation keeps `via` and `identity` unless it gives them; `null` removes one.
+- **A `401` is `credential_rejected`.** When an MCP server or HTTP tool answers `401`, the model
+  sees a failed tool call with code `credential_rejected` (new in `ERROR_CODES`), and it is not
+  retried. Before, an MCP tool call left the call `uncertain` and an HTTP tool gave
+  `http.status`. The `tool.completed` event's `error` names the `server` (the MCP server or the
+  HTTP tool's `credential`) and the `vault` scope (`installation` or `user`) whose credential was
+  sent; never a value.
 
 # The Runtime API as an OAuth resource server (protocol 9)
 

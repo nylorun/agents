@@ -19,7 +19,7 @@
 import { randomUUID } from "node:crypto";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
-import type { LiveConnection, McpClient, McpToolPage } from "../mcp/connect.js";
+import { CredentialRejected, type LiveConnection, type McpClient, type McpToolPage } from "../mcp/connect.js";
 import type { McpServerRef } from "../mcp/pool.js";
 import { TENANT_HEADER } from "./contract.js";
 import { GATE_CLIENT_TIMEOUT_MS } from "./http-client.js";
@@ -259,6 +259,8 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
 
 /** An MCP failure the gate reported, as the loop's own MCP code would have thrown it. */
 function mcpError(error: McpGateError): Error {
+  if (error.credentialRejected)
+    return new CredentialRejected(error.credentialRejected.server, error.credentialRejected.vault);
   const thrown = new Error(
     error.uncertain ? `${error.message} (the call may have run; it is not sent again)` : error.message,
   ) as Error & { code?: number; credentialIds?: readonly string[] };

@@ -4,6 +4,7 @@ import type { OutboundPolicy } from "../tenant/outbound.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import {
   callMcpTool,
+  CredentialRejected,
   diagnosticFromError,
   listMcpTools,
   openMcpServer,
@@ -28,7 +29,9 @@ interface LiveServer {
   active: number;
 }
 
-type Opened = { ok: true; connection: LiveConnection } | { ok: false; diagnostic: McpDiagnostic };
+type Opened =
+  | { ok: true; connection: LiveConnection }
+  | { ok: false; diagnostic: McpDiagnostic; error: unknown };
 
 export class McpPool {
   private readonly live = new Map<string, LiveServer>();
@@ -187,6 +190,8 @@ export class McpPool {
         this.opening.set(key, opening);
       }
       const opened = await opening;
+      // A 401 while reconnecting: no call was sent, and the model sees why (R2b C1).
+      if (!opened.ok && opened.error instanceof CredentialRejected) return opened.error.outcome();
       if (!opened.ok) throw new Error(opened.diagnostic.message);
       live = this.remember(input.sessionId, declared, opened.connection);
     }
@@ -288,6 +293,7 @@ export class McpPool {
     } catch (error) {
       return {
         ok: false,
+        error,
         diagnostic: owned(
           declared,
           diagnosticFromError(declared.capabilityId, declared.server.name, error),

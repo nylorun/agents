@@ -7,7 +7,7 @@
  * HTTP tools in the gates service) and the Tenant (`tenant/effects.ts`, the in-process MCP pool
  * and Tool Gate). The session comes from its row, never from the harness.
  */
-import type { CredentialSelection } from "@nylorun/core/contracts";
+import { isSubject, type CredentialSelection } from "@nylorun/core/contracts";
 import type { AuthorizeResult, VaultService } from "./service.js";
 
 /** The session a request is made for: its row, as stored. */
@@ -27,18 +27,27 @@ export interface McpCredentialRequest {
 
 /**
  * The credential of one request made for `session`: the vault's answer over the session's
- * attached vaults (`VaultService.authorize`).
+ * attached vaults (`VaultService.authorize`). A credential with an identity header (R2b C2)
+ * gets the session owner's subject in it (Q2), from the session row: the run token names no
+ * owner, so neither the model nor the manifest can change it. A session whose owner is no
+ * person (the reserved `installation`) sends none (Q3).
  */
-export function sessionCredentials(
+export async function sessionCredentials(
   vault: Pick<VaultService, "authorize">,
   session: CredentialSession,
   request: McpCredentialRequest,
 ): Promise<AuthorizeResult> {
-  return vault.authorize({
+  const result = await vault.authorize({
     sessionId: session.id,
     vaultIds: session.vaultIds ?? [],
     credentialSelections: session.credentialSelections ?? [],
     url: request.url,
     ...(request.serverName === undefined ? {} : { serverName: request.serverName }),
   });
+  if (result.status !== "authorized" || !result.identity || !isSubject(session.ownerUserId))
+    return result;
+  return {
+    ...result,
+    headers: { ...result.headers, [result.identity.header]: session.ownerUserId },
+  };
 }

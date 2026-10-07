@@ -166,6 +166,11 @@ export const ERROR_CODES = [
    * with `PUT /v1/files/sha256:<hex>` first. `details.missing` lists their hashes.
    */
   "definition_files_missing",
+  /**
+   * Not an HTTP answer: the code of a tool error the model sees when an MCP server or HTTP tool
+   * answered `401` (R2b C1). The vault's credential (or none) was rejected; the call is not retried.
+   */
+  "credential_rejected",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
