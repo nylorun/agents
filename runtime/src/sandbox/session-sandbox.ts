@@ -9,16 +9,23 @@
  * - for each agent of the tree with a remote MCP server or an HTTP tool, `read_artifact` in its
  *   `nylorun.artifacts` capability (R2b C11), with or without a sandbox: the Runtime stores a
  *   result of those tools too large to show as an artifact, and the model reads it in pages.
- *   An agent that declares a tool named `read_artifact` keeps its own, and sees previews only.
+ *   An agent that declares a tool named `read_artifact` keeps its own, and sees previews only;
+ * - for each agent of the tree with a remote MCP server, the `nylorun.tools` capability (R2b
+ *   C10), empty: when the session defers some of the agent's MCP tools, its session tools put
+ *   `tool_search` and `tool_call` there. An agent that declares either name defers nothing.
  *
  * The definition in the registry never changes.
  */
 import { AgentManifestSchema } from "@nylorun/core/contracts";
 import {
   READ_ARTIFACT_TOOL,
+  TOOL_CALL_TOOL,
+  TOOL_SEARCH_TOOL,
+  TOOLS_CAPABILITY_ID,
   artifactsCapabilityManifest,
   hashManifest,
   sandboxCapabilityManifest,
+  toolsCapabilityManifest,
   type AgentManifest,
   type CapabilityManifest,
   type SandboxManifest,
@@ -60,6 +67,25 @@ function readsStoredResults(manifest: AgentManifest): boolean {
   return remote && !taken;
 }
 
+/**
+ * True when the agent itself declares a remote MCP server, some of whose tools the session may
+ * defer (R2b C10), and names no tool `tool_search` or `tool_call` (it then keeps every tool in
+ * its list).
+ */
+function defersTools(manifest: AgentManifest): boolean {
+  const servers = manifest.capabilities.some(
+    (capability) => Object.keys(capability.mcpServers ?? {}).length > 0
+  );
+  const taken = manifest.capabilities.some(
+    (capability) =>
+      capability.id === TOOLS_CAPABILITY_ID ||
+      (capability.tools ?? []).some(
+        (tool) => tool.name === TOOL_SEARCH_TOOL || tool.name === TOOL_CALL_TOOL
+      )
+  );
+  return servers && !taken;
+}
+
 /** `manifest` with the session's capabilities added; the same object when none are. */
 function addCapabilities(manifest: AgentManifest, spec: SandboxManifest | undefined): AgentManifest {
   let changed = false;
@@ -84,7 +110,8 @@ function addCapabilities(manifest: AgentManifest, spec: SandboxManifest | undefi
   });
   const save = spec !== undefined;
   const read = readsStoredResults(manifest);
-  if (!save && !read && !changed) return manifest;
+  const defer = defersTools(manifest);
+  if (!save && !read && !defer && !changed) return manifest;
   return {
     ...manifest,
     // With a sandbox comes `save_artifact`, so files the agent makes reach the user (F8.1). The
@@ -95,6 +122,8 @@ function addCapabilities(manifest: AgentManifest, spec: SandboxManifest | undefi
         ? []
         : [sandboxCapabilityManifest(spec, { skills: skillNamesOf(manifest) })]),
       ...(save || read ? [artifactsCapabilityManifest({ save, read })] : []),
+      // Empty: when the session defers MCP tools, its tools put tool_search and tool_call here.
+      ...(defer ? [toolsCapabilityManifest()] : []),
     ],
   };
 }
@@ -125,8 +154,9 @@ export function withSandboxCapability(
 
 /**
  * The pinned manifest of an agent session without a sandbox: `read_artifact` for each agent of
- * the tree with a remote MCP server or an HTTP tool (R2b C11). Undefined when nothing is added,
- * and the session pins its definition as it is.
+ * the tree with a remote MCP server or an HTTP tool (R2b C11), and `nylorun.tools` for each with
+ * a remote MCP server (R2b C10). Undefined when nothing is added, and the session pins its
+ * definition as it is.
  */
 export function withPlatformTools(manifest: AgentManifest): SandboxedManifest | undefined {
   const pinned = addCapabilities(manifest, undefined);

@@ -40,7 +40,11 @@ export interface McpHandlerOptions {
 }
 
 export interface McpHandler {
-  connect(tenantId: string | undefined, server: McpServerRef): Promise<McpAnswer<null>>;
+  /** Opens the connection; answers the server's instructions when it gave any (R2b C10). */
+  connect(
+    tenantId: string | undefined,
+    server: McpServerRef,
+  ): Promise<McpAnswer<{ instructions: string } | null>>;
   list(
     tenantId: string | undefined,
     server: McpServerRef,
@@ -213,8 +217,9 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
   return {
     connect: (tenantId, server) =>
       answer("connect", server, async () => {
-        await connection(tenantId, server);
-        return null;
+        const { instructions } = (await connection(tenantId, server)).connection;
+        // The server's instructions, for the note on its deferred tools (R2b C10).
+        return instructions === undefined ? null : { instructions };
       }),
     list: (tenantId, server, cursor, signal) =>
       answer("list", server, () =>

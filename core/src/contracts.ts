@@ -16,7 +16,11 @@ import {
   workflowVersionIssue,
 } from "./definition/removed.js";
 import { DELEGATE_INPUT_SCHEMA, DELEGATE_NAME_PATTERN } from "./definition/delegate.js";
-import { stdioMcpRefusal } from "./definition/mcp.js";
+import {
+  mcpToolSettingsVersionIssue,
+  stdioMcpRefusal,
+  usesMcpToolSettings,
+} from "./definition/mcp.js";
 import {
   APPROVAL_MODES,
   HTTP_TOOL_MAX_TIMEOUT_MS,
@@ -62,6 +66,20 @@ const modelFacingName = (what: string) =>
     error: (issue) =>
       `${what} name '${String(issue.input)}' may use only letters, digits, _ and -, up to 64 characters, so that every model provider accepts it`,
   });
+/** One tool's settings on an MCP server (manifest v6, R2b C9). */
+const mcpToolSettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    approval: z.enum(APPROVAL_MODES).optional(),
+    deferred: z.boolean().optional(),
+  })
+  .strict()
+  .meta({ id: "McpToolSettings" });
+/** Manifest v6 (R2b C9, C10): per-tool settings keyed by the server's tool names, `"*"` for the rest. */
+const mcpServerSettings = {
+  deferred: z.boolean().optional(),
+  tools: z.record(z.string().min(1), mcpToolSettingsSchema).optional(),
+};
 const mcpServerSchema = z.discriminatedUnion(
   "type",
   [
@@ -72,6 +90,7 @@ const mcpServerSchema = z.discriminatedUnion(
         url: z.string().min(1),
         headers: z.record(z.string(), z.string()).optional(),
         approval: z.enum(APPROVAL_MODES).optional(),
+        ...mcpServerSettings,
       })
       .strict(),
     z
@@ -81,6 +100,7 @@ const mcpServerSchema = z.discriminatedUnion(
         url: z.string().min(1),
         headers: z.record(z.string(), z.string()).optional(),
         approval: z.enum(APPROVAL_MODES).optional(),
+        ...mcpServerSettings,
       })
       .strict(),
   ],
@@ -196,7 +216,10 @@ const removedFieldError = (issue: { code?: string; keys?: readonly string[] }) =
 };
 export const AgentManifestSchema = z
   .object({
-    manifestSchemaVersion: z.literal(5, { error: (issue) => manifestVersionIssue(issue.input) }),
+    // 6 adds an MCP server's `tools` and `deferred` (R2b C9); 5 is accepted unchanged.
+    manifestSchemaVersion: z.union([z.literal(5), z.literal(6)], {
+      error: (issue) => manifestVersionIssue(issue.input),
+    }),
     id: z.string().min(1),
     name: z.string().min(1).optional(),
     description: z.string().optional(),
@@ -298,6 +321,8 @@ export const AgentManifestSchema = z
             message: `Duplicate MCP server '${server.name}'`,
           });
         servers.add(server.name);
+        if (manifest.manifestSchemaVersion === 5 && usesMcpToolSettings(server))
+          ctx.addIssue({ code: "custom", message: mcpToolSettingsVersionIssue(server.name) });
       }
     }
   }) as unknown as z.ZodType<AgentManifest>;
@@ -1670,6 +1695,18 @@ export const McpServerOutcomeSchema = z
     message: z.string(),
     /** The tools it added to the session; 0 unless connected. */
     tools: z.number().int().nonnegative(),
+    /**
+     * Of those, the tools out of the model's tool list, which it finds with `tool_search` and runs
+     * with `tool_call` (R2b C10); absent when none is.
+     */
+    deferred: z.number().int().positive().optional(),
+    /** Listed tools the server's `tools` settings disable (R2b C9); absent when none. */
+    disabled: z.number().int().positive().optional(),
+    /**
+     * Keys of the server's `tools` settings that name no tool it listed (R2b C9): a diagnostic,
+     * since servers change their lists.
+     */
+    unknownTools: z.array(z.string()).optional(),
     /** The credentials a refusal names. */
     credentialIds: z.array(z.string()).optional(),
     /**

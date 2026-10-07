@@ -102,7 +102,8 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
       !flow && (cp as DurableCheckpoint).state
         ? { ...cp, state: withTranscript((cp as DurableCheckpoint).state, []) }
         : cp,
-    ...(flow ? {} : { sessionTools: sessionToolsOf(current.mcpSnapshot, current.manifest) ?? [] }),
+    // The turn's manifest: a variant may have disabled MCP tools or required their approval.
+    ...(flow ? {} : { sessionTools: sessionToolsOf(current.mcpSnapshot, turnManifestOf(current)) ?? [] }),
     outcomes: segment.outcomes,
     transcript: { cursor: segment.cursor },
     options: {

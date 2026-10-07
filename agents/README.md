@@ -162,6 +162,8 @@ const assistant = Agent({ id: "assistant", name: "Assistant" })
 
 Each key names a server; its `name` defaults to the key and, when given, must equal it. Repeated `.mcp()` calls add servers to the same capability. Nylorun accepts remote servers only: `streamable-http` and `sse` ([Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers)); a `stdio` server is refused, so run it behind an HTTP transport and declare its URL. Attach an Agent Plugin package with `.plugin(path)`: its skills and remote MCP servers join the agent, and a stdio server in its `mcp.json` throws.
 
+Set a server's tools one by one with `tools`, keyed by the server's own tool names, `"*"` for the rest: `{ "*": { enabled: false }, search_issues: { enabled: true }, create_issue: { enabled: true, approval: "always" } }` is an allowlist with one approval. When an agent's MCP tools would fill more than a tenth of the model's context window, the Runtime defers them: the model finds them with `tool_search` and runs them with `tool_call`. `deferred: true` or `false`, on a tool or on the server, decides instead. Either setting makes the manifest v6 (see MIGRATION.md).
+
 Give a session a sandbox when you open it. The agent declares nothing, so the same agent runs with or without one, in any Tenant:
 
 ```ts

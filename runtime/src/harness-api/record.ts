@@ -1,10 +1,11 @@
 /**
  * The Record seam of the Harness API: core's journal for the effects of a run. `recordIntent`
  * journals an effect before anything runs it, and either answers it from the journal, hands it
- * to core's own executors (flow work, delegation, `save_artifact`, `read_artifact` and the skill
- * tools), tells the harness to `execute` it (model calls; MCP, HTTP and sandbox tools; a flow's
- * HTTP stages and HTTP verifiers), or fails a tool the Runtime cannot run (one that would run
- * the developer's code, R2 M6). `recordOutcome` records what the harness's call returned, an
+ * to core's own executors (flow work, delegation, `save_artifact`, `read_artifact`,
+ * `tool_search` and the skill tools), tells the harness to `execute` it (model calls; MCP, HTTP
+ * and sandbox tools, a deferred MCP tool's `tool_call` among them, whose effect names the tool;
+ * a flow's HTTP stages and HTTP verifiers), or fails a tool the Runtime cannot run (one that
+ * would run the developer's code, R2 M6). `recordOutcome` records what the harness's call returned, an
  * agent's MCP or HTTP tool result first shaped to fit (R2b C11). Both run under the advance's
  * lease: every write is epoch-checked (`ownedSession`), and a lost epoch writes nothing.
  *
@@ -40,6 +41,8 @@ import {
   type ShapedCall,
 } from "../tenant/tool-results.js";
 import { callSkillTool, isSkillToolCall } from "../tenant/skill-tool.js";
+import { callToolSearch, isToolSearchCall } from "../tenant/tool-search.js";
+import { turnManifestOf } from "../tenant/session.js";
 import { isOwnershipLost } from "../store/ownership.js";
 import { manifestFor, mcpToolOf } from "../mcp/snapshot.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
@@ -108,7 +111,7 @@ export async function recordIntent(
   const { ctx, lease, signal } = scope;
   const request = effect as HostEffect;
   const answer = await ctx.store.tx(async (t): Promise<
-    IntentAnswer | "flow" | "save" | "read" | { skill: AgentManifest }
+    IntentAnswer | "flow" | "save" | "read" | "search" | { skill: AgentManifest }
   > => {
     const s = await ownedSession(t, lease, request.sessionId);
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId) throw TURN_CANCELLED();
@@ -171,7 +174,8 @@ export async function recordIntent(
     const executed =
       request.kind === "model" ||
       (request.kind === "tool" &&
-        (mcpToolOf(s.mcpSnapshot, request) !== undefined ||
+        // An MCP tool the turn's manifest disables is not one (R2b C9).
+        (mcpToolOf(s.mcpSnapshot, request, turnManifestOf(s)) !== undefined ||
           // HTTP tools (R2 M3) cross the Tool Gate.
           isHttpToolCall(s.manifest, request) ||
           sandboxCapabilityOf(agentManifest, request.capabilityId, request.toolName) !== undefined ||
@@ -179,11 +183,15 @@ export async function recordIntent(
           // C11) and the skill tools (R2 M4).
           isSaveArtifactCall(agentManifest, request) ||
           isReadArtifactCall(agentManifest, request) ||
-          isSkillToolCall(agentManifest, request)));
+          isSkillToolCall(agentManifest, request) ||
+          // `tool_search` (R2b C10) reads the session's pinned MCP snapshot: core serves it.
+          isToolSearchCall(agentManifest, request)));
     if (!executed) {
       // A tool that would run the developer's code: refused at save (a turn's manifest only
-      // removes tools), so this is a backstop. The model sees the failure; nothing runs.
-      const outcome = { value: unrunnableTool(request) };
+      // removes tools), so this is a backstop, as is an MCP tool the turn disabled, which the
+      // model was never offered. The model sees the failure; nothing runs.
+      const disabled = request.kind === "tool" && mcpToolOf(s.mcpSnapshot, request) !== undefined;
+      const outcome = { value: disabled ? disabledTool(request) : unrunnableTool(request) };
       await t.put("effects", request.effectId, { request, requestHash, status: "completed", outcome });
       const transcript = toolCompleted(request, outcome.value);
       if (transcript) await t.event(s.id, request.turnId, "tool.completed", transcript as EventPayload<"tool.completed">);
@@ -201,10 +209,12 @@ export async function recordIntent(
     if (isReadArtifactCall(agentManifest, request)) return "read";
     // The skill tools read the agent's definition files: core serves them.
     if (isSkillToolCall(agentManifest, request)) return { skill: agentManifest };
+    if (isToolSearchCall(agentManifest, request)) return "search";
     return { status: "execute" };
   });
   if (answer === "save") return runInCore(scope, request, () => callSaveArtifact(scope.ctx, request, scope.signal));
   if (answer === "read") return runInCore(scope, request, () => callReadArtifact(scope.ctx, request, scope.signal));
+  if (answer === "search") return runInCore(scope, request, () => callToolSearch(scope.ctx, request));
   if (typeof answer === "object" && "skill" in answer)
     return runInCore(scope, request, () => callSkillTool(scope.ctx, answer.skill, request, scope.signal));
   if (answer !== "flow") return answer;
@@ -213,8 +223,9 @@ export async function recordIntent(
 }
 
 /**
- * Runs a tool core serves (`save_artifact`, F8.1; `read_artifact`, R2b C11; the skill tools, R2
- * M4) for the run and records its outcome, as a harness would record a call it ran: the run gets
+ * Runs a tool core serves (`save_artifact`, F8.1; `read_artifact`, R2b C11; `tool_search`, R2b
+ * C10; the skill tools, R2 M4) for the run and records its outcome, as a harness would record a
+ * call it ran: the run gets
  * the outcome as the intent's answer.
  */
 async function runInCore(
@@ -232,6 +243,15 @@ async function runInCore(
     });
   }
   return recordOutcome(scope, request.effectId, { value });
+}
+
+/** The failed outcome of an MCP tool the turn's manifest disables (R2b C9). */
+function disabledTool(request: HostEffect) {
+  return {
+    kind: "failed",
+    code: "tool.disabled",
+    message: `Tool '${request.toolName ?? ""}' is disabled by its MCP server's tools settings.`,
+  };
 }
 
 /** The failed outcome of a tool the Runtime cannot run: it would run the developer's code. */

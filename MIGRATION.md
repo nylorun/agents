@@ -152,6 +152,71 @@ view's new `definitionHash` (the definition it was opened from; absent on sessio
 before) with the definition's `manifestHash`, as Studio now does. An agent that declares its own tool named `read_artifact` keeps it and sees
 previews only. A session opened before the upgrade gets previews, but no `read_artifact`.
 
+## Per-tool settings and manifest v6
+
+An MCP server may now set its tools one by one. `tools` maps the server's own tool names (as its
+docs show them, before the `server__tool` renaming) to `{ enabled?, approval?, deferred? }`, with
+`"*"` for every tool without an entry; `deferred` on the server sets every tool's deferral (see
+below). Each setting resolves from the tool's entry, then `"*"`, then the server, then the
+default: enabled, approval `never`, deferral automatic.
+
+```ts
+Agent({ id: "triage" }).mcp({
+  github: {
+    type: "streamable-http",
+    url: "https://api.githubcopilot.com/mcp/",
+    tools: {
+      "*": { enabled: false }, // an allowlist: only the tools below
+      search_issues: { enabled: true },
+      create_issue: { enabled: true, approval: "always" },
+    },
+  },
+});
+```
+
+A disabled tool never reaches the model and is never called. A key that names no tool the server
+lists is not an error, since servers change their lists: `mcp.discovered` names it in the server's
+`unknownTools` (and its `message`), and counts the tools the settings disabled in `disabled`.
+
+These fields are manifest **v6**. The Runtime accepts v5 manifests unchanged, and the builder
+writes v6 only for an agent that sets `tools` or `deferred`, so every other manifest, and its hash,
+stays as it was. A v5 manifest that sets them is refused, naming the version they need; an older
+Runtime refuses a v6 manifest (`Unsupported manifestSchemaVersion 6`).
+
+A turn's `message.manifest` may now change an MCP server's `tools`, but only to tighten them: set
+`enabled: false` or `approval: "always"` on a tool or on `"*"`. A variant that enables a tool,
+lifts an approval, drops an entry or changes `deferred` is refused, as before
+(`Turn manifest is not a variant of the session's pinned manifest`). It may be v6 for a v5 pin.
+
+## Deferred tools
+
+When an agent's MCP tools would take more than a tenth of the model's context window (their names,
+descriptions and input schemas as JSON, at 4 characters a token), the Runtime takes them out of
+the model's tool list. The model gets two tools instead, and a short note naming each server, how
+many of its tools are deferred, and the server's own instructions (cut to 2,000 characters):
+
+- `tool_search { query, limit? }` finds deferred tools by words of their names and descriptions
+  (BM25, 8 by default, at most 20) and returns each one's `name`, `description` and
+  `inputSchema`;
+- `tool_call { name, arguments? }` runs one. Arguments that do not match its `inputSchema` come
+  back as a failed result (`tool.invalid-arguments`), and nothing runs. Otherwise the call is the
+  tool's own: it waits for approval when the tool needs it, its effect and `tool.completed` name
+  the tool (not `tool_call`), and its errors, scrubbing and stored results are a direct call's.
+
+The context window is the Tenant's model's (`GET /v1/tenant/model`: the custom endpoint's
+`contextWindow`, else the provider catalog's; 32,768 tokens when unknown). `deferred: true` or
+`false` on a tool, on `"*"` or on the server overrides the size rule. The decision is made once,
+when a session first readies its MCP servers, and kept for the session's life, so the tool list in
+every model call of a session is the same and the provider's prompt cache holds; `mcp.discovered`
+counts each server's deferred tools in `deferred`.
+
+A session of an agent with a remote MCP server now pins a `nylorun.tools` capability, empty in
+the manifest (the two tools come with the session's discovered tools), so its `manifestHash`
+differs from the definition's, as with `read_artifact`; `definitionHash` names the definition.
+An agent that declares a tool named `tool_search` or `tool_call` gets no such capability and keeps
+every MCP tool in its list, as does a session opened before the upgrade, or a turn whose variant
+drops the capability.
+
 # The Runtime API as an OAuth resource server (protocol 9)
 
 The Runtime API now behaves as an OAuth 2.1 resource server for your identity provider's

@@ -219,7 +219,16 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
 
     async openMcp(server: McpServerRef): Promise<LiveConnection> {
       // The credential is read per request: the connection outlives the advance that opened it.
-      await answered<null>(MCP_CONNECT_PATH, scoped(server, (named) => ({ server: named })), {});
+      // A gate answers the server's instructions (R2b C10); an older one answers null.
+      const connected = await answered<{ instructions?: unknown } | null>(
+        MCP_CONNECT_PATH,
+        scoped(server, (named) => ({ server: named })),
+        {},
+      );
+      const instructions =
+        typeof connected?.instructions === "string" && connected.instructions.length > 0
+          ? connected.instructions
+          : undefined;
       const client: McpClient = {
         listTools: (params, request) =>
           answered<McpToolPage>(
@@ -252,6 +261,7 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
       };
       return {
         client,
+        ...(instructions === undefined ? {} : { instructions }),
         close: () => fireAndForget(MCP_CLOSE_PATH, scoped(server, (named) => ({ server: named }))),
       };
     },

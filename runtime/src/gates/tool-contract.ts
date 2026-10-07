@@ -11,7 +11,9 @@
  * Remote MCP. The gate holds the connection and the vault credential; the loop names the
  * server, never a URL or a credential, and the gate finds it in the session's pinned manifest.
  * - `POST /nylorun/v1/mcp/connect` `{server}`: opens the server's connection (vault
- *   authorization included), or keeps the open one.
+ *   authorization included), or keeps the open one. Its result is `{instructions}` when the
+ *   server gave instructions at `initialize` (R2b C10, for the note on its deferred tools), else
+ *   `null`.
  * - `POST /nylorun/v1/mcp/list` `{server, cursor?}`: one page of `tools/list`.
  * - `POST /nylorun/v1/tool-calls` `{server, effectId, name, arguments}`: one
  *   `tools/call`. With an `Idempotency-Key` (the effect id) the call outlives its client and runs

@@ -5,7 +5,12 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerManifest } from "@nylorun/core/define";
 import type { JsonObject } from "@nylorun/core/define";
-import { schemaFromJSON } from "@nylorun/core/define";
+import {
+  MCP_TOOL_DEFAULTS,
+  SERVER_INSTRUCTIONS_MAX_CHARS,
+  mcpToolSettings,
+  schemaFromJSON,
+} from "@nylorun/core/define";
 import { scrub, scrubValues } from "../redact.js";
 import {
   guardedFetch,
@@ -81,6 +86,8 @@ export interface McpClient {
 
 export interface LiveConnection {
   readonly client: McpClient;
+  /** The server's instructions from `initialize`, cut (`serverInstructions`); absent when none. */
+  readonly instructions?: string;
   close(): Promise<void>;
 }
 
@@ -324,14 +331,28 @@ export async function openMcpServer(input: {
       ? new SSEClientTransport(url, { fetch: fetchImpl })
       : new StreamableHTTPClientTransport(url, { fetch: fetchImpl });
   const client = createClient();
-  await tracked(false, async (tracker) => {
+  const instructions = await tracked(false, async (tracker) => {
     try {
       await client.connect(transport);
     } catch (error) {
       throw scrubError(error, tracker);
     }
+    return serverInstructions(client.getInstructions(), [...tracker.secrets]);
   });
-  return { client: sdkClient(client, input.server.name), close: () => client.close() };
+  return {
+    client: sdkClient(client, input.server.name),
+    ...(instructions === undefined ? {} : { instructions }),
+    close: () => client.close(),
+  };
+}
+
+/**
+ * What a server's `initialize` said to do with its tools, for the note on its deferred tools
+ * (R2b C10): cut to `SERVER_INSTRUCTIONS_MAX_CHARS`, without a credential value sent (C8).
+ */
+export function serverInstructions(text: unknown, secrets: readonly string[]): string | undefined {
+  if (typeof text !== "string" || text.trim().length === 0) return undefined;
+  return scrubValues(text.trim().slice(0, SERVER_INSTRUCTIONS_MAX_CHARS), secrets).value;
 }
 
 /**
@@ -342,8 +363,24 @@ export async function openMcpServer(input: {
  */
 export async function listMcpTools(
   client: McpClient,
-  input: { capabilityId: string; serverName: string; taken: Set<string>; signal?: AbortSignal },
-): Promise<{ tools: McpToolRecord[]; omitted: string[]; renamed: McpRenamedTool[] }> {
+  input: {
+    capabilityId: string;
+    serverName: string;
+    taken: Set<string>;
+    signal?: AbortSignal;
+    /**
+     * The server's declaration: a tool its `tools` settings disable is left out before it takes
+     * a name (R2b C9), and a key that names no listed tool is in `unknownTools`.
+     */
+    server?: McpServerManifest;
+  },
+): Promise<{
+  tools: McpToolRecord[];
+  omitted: string[];
+  renamed: McpRenamedTool[];
+  disabled: number;
+  unknownTools: string[];
+}> {
   const listed: McpToolPage["tools"][number][] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 100; page += 1) {
@@ -355,10 +392,21 @@ export async function listMcpTools(
     cursor = answer.nextCursor;
     if (!cursor) break;
   }
+  const server = input.server;
+  const listedNames = new Set(listed.map((tool) => tool.name));
+  // Servers change their lists, so a key naming no tool is a diagnostic, not a failure.
+  const unknownTools = Object.keys(server?.tools ?? {}).filter(
+    (key) => key !== MCP_TOOL_DEFAULTS && !listedNames.has(key),
+  );
+  let disabled = 0;
   const omitted: string[] = [];
   const candidates: { tool: McpToolPage["tools"][number]; inputSchema: JsonObject }[] = [];
   for (const tool of listed) {
     if (typeof tool.name !== "string" || tool.name.length === 0) continue;
+    if (server && !mcpToolSettings(server, tool.name).enabled) {
+      disabled += 1;
+      continue;
+    }
     const inputSchema = usableSchema(tool.inputSchema);
     if (inputSchema) candidates.push({ tool, inputSchema });
     else omitted.push(normalizeToolName(input.serverName, tool.name));
@@ -410,7 +458,7 @@ export async function listMcpTools(
       ...(annotations === undefined ? {} : { annotations }),
     });
   }
-  return { tools, omitted, renamed };
+  return { tools, omitted, renamed, disabled, unknownTools };
 }
 
 /**

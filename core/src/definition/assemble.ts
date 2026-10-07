@@ -1,6 +1,6 @@
 import type { BoundMiddleware } from "./bound.js";
 import type { BuiltAgent } from "../types/agent.js";
-import type { AgentManifest, RuntimeManifest } from "../types/manifest.js";
+import type { AgentManifest, ManifestSchemaVersion, RuntimeManifest } from "../types/manifest.js";
 import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import type { ToolSchemaSource } from "../types/tool.js";
 import type { StepMiddleware } from "../types/middleware.js";
@@ -38,6 +38,8 @@ export function assembleAgent(
     metadata?: JsonObject;
     outputSchema?: ToolSchemaSource;
     runtime?: RuntimeManifest;
+    /** A manifest rebuilt from JSON keeps its version (`agentFrom`); a new one takes the least. */
+    manifestSchemaVersion?: ManifestSchemaVersion;
   }>,
   dynamics: ReadonlyMap<string, CapabilityDynamics> = new Map()
 ): BuildResult<BuiltAgent> {
@@ -157,6 +159,9 @@ export function assembleAgent(
     outputSchema: identity.outputSchema,
     runtime: identity.runtime,
     middleware: frozenMiddleware,
+    ...(identity.manifestSchemaVersion === undefined
+      ? {}
+      : { manifestSchemaVersion: identity.manifestSchemaVersion }),
   });
   const agent = bindAgent(frozenMiddleware, manifest, identity, dynamics);
   return Object.freeze({ ok: true, agent, manifest });

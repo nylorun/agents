@@ -2,6 +2,7 @@ import { HarnessError } from "../errors.js";
 import type {
   AgentManifest,
   CapabilityManifest,
+  ManifestSchemaVersion,
   McpServerManifest,
   SkillManifest,
   ToolManifest,
@@ -18,7 +19,7 @@ import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
 import type { BoundMiddleware } from "./bound.js";
 import { REMOVED_CAPABILITY_FIELDS, manifestVersionIssue } from "./removed.js";
 import { delegateFromManifest, delegateOf } from "./delegate.js";
-import { stdioMcpRefusal } from "./mcp.js";
+import { mcpToolSettingsVersionIssue, stdioMcpRefusal, usesMcpToolSettings } from "./mcp.js";
 import { SKILL_TOOL_NAMES } from "./skill-tools.js";
 import { skillFilesIssue } from "../utils/definition-files.js";
 import { httpToolFromManifest, httpToolOf } from "./http-tool.js";
@@ -31,6 +32,11 @@ const declarative = (tool: ToolDefinition) =>
 export interface SessionToolRef {
   readonly capabilityId: string;
   readonly name: string;
+  /**
+   * Text the model reads with the capability's instructions while the tool is advertised, such
+   * as `tool_search`'s note of the servers whose tools are deferred (R2b C10). Not hashed.
+   */
+  readonly instructions?: readonly string[];
 }
 
 /** Rebuild an agent from manifest JSON + in-process implementations (T28). */
@@ -48,8 +54,12 @@ export function agentFrom<Info = unknown>(
   for (const capability of manifest.capabilities) {
     const impl = implementations[capability.id] ?? {};
     const tools = resolveTools(capability, impl.tools);
-    const session = sessionTools
-      .filter((item) => item.capabilityId === capability.id)
+    const owned = sessionTools.filter((item) => item.capabilityId === capability.id);
+    const instructions = [
+      ...(capability.instructions ?? []),
+      ...owned.flatMap((item) => item.instructions ?? []),
+    ];
+    const session = owned
       .map((item) => {
         const live = impl.tools?.[item.name];
         if (!live)
@@ -73,11 +83,8 @@ export function agentFrom<Info = unknown>(
                   : implementations[capability.id]?.tools?.[tool.name]) ?? tool
             )
           );
-        if (capability.instructions)
-          request.configuration.instructions.set(
-            capability.id,
-            capability.instructions
-          );
+        if (instructions.length > 0)
+          request.configuration.instructions.set(capability.id, instructions);
         return next();
       });
     entries.push(
@@ -150,6 +157,7 @@ export function agentFrom<Info = unknown>(
       metadata: manifest.metadata,
       outputSchema,
       runtime: manifest.runtime,
+      manifestSchemaVersion: manifest.manifestSchemaVersion,
     },
     dynamics
   );
@@ -279,18 +287,22 @@ function normalizeManifest(json: AgentManifest | JsonObject): AgentManifest {
   const capabilities = (value.capabilities as CapabilityManifest[]).map(
     normalizeCapability
   );
+  const version = value.manifestSchemaVersion as ManifestSchemaVersion;
   const servers = new Set<string>();
   for (const capability of capabilities)
-    for (const name of Object.keys(capability.mcpServers ?? {})) {
+    for (const [name, server] of Object.entries(capability.mcpServers ?? {})) {
       if (servers.has(name))
         throw new HarnessError(
           "agent.build-failed",
           `Duplicate MCP server '${name}'`
         );
       servers.add(name);
+      if (version === 5 && usesMcpToolSettings(server))
+        throw new HarnessError("agent.build-failed", mcpToolSettingsVersionIssue(name));
     }
   return deepFreeze({
-    manifestSchemaVersion: 5 as const,
+    // The manifest's own version: a v6 manifest without v6 fields keeps its hash.
+    manifestSchemaVersion: version,
     id: value.id,
     ...(typeof value.name === "string" && value.name ? { name: value.name } : {}),
     ...(typeof value.description === "string"
