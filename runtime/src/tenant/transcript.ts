@@ -121,6 +121,8 @@ export function toolCompleted(request: HostEffect, value: unknown) {
     output?: unknown;
     code?: unknown;
     message?: unknown;
+    server?: unknown;
+    vault?: unknown;
   } | null;
   const result =
     outcome?.kind === "failed"
@@ -128,6 +130,11 @@ export function toolCompleted(request: HostEffect, value: unknown) {
           error: {
             code: String(outcome.code ?? "tool.failed"),
             message: String(outcome.message ?? ""),
+            // `credential_rejected` (R2b C1): which server, and which vault's credential.
+            ...(typeof outcome.server === "string" ? { server: outcome.server } : {}),
+            ...(outcome.vault === "installation" || outcome.vault === "user"
+              ? { vault: outcome.vault }
+              : {}),
           },
         }
       : { output: outcome?.kind === "completed" ? outcome.output : value };

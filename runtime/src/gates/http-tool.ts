@@ -43,7 +43,14 @@ export const HTTP_ERROR_BODY_CHARS = 2_000;
 /** What an HTTP request came to, as a tool outcome. */
 export type HttpOutcome =
   | { readonly kind: "completed"; readonly output: unknown }
-  | { readonly kind: "failed"; readonly code: string; readonly message: string };
+  | {
+      readonly kind: "failed";
+      readonly code: string;
+      readonly message: string;
+      /** With `credential_rejected`: the tool's `credential`, and the scope of its vault. */
+      readonly server?: string;
+      readonly vault?: "installation" | "user";
+    };
 
 /**
  * One declared HTTP tool of a session: what the gate finds it by in the pinned manifest. An
@@ -159,6 +166,9 @@ export async function callHttpTarget(
     case "too_large":
       return failed("http.too-large", `The answer (HTTP ${result.status}) is larger than ${MAX_RESPONSE_BYTES} bytes`);
   }
+  // The service answered, so the outcome is known; never retried, and its body is not shown (R2b C1).
+  if (result.status === 401)
+    return failed("credential_rejected", "The service answered HTTP 401: it rejected the credential, or needs one");
   const text = result.body.toString("utf8");
   if (result.status < 200 || result.status > 299) {
     const body = text.length > HTTP_ERROR_BODY_CHARS ? `${text.slice(0, HTTP_ERROR_BODY_CHARS)}…` : text;
@@ -237,6 +247,8 @@ export async function runHttpTool(
       );
     const { http } = declared;
     let credential: Record<string, string> = {};
+    let target: HttpToolTarget = http;
+    let vault: "installation" | "user" | undefined;
     if (http.credential !== undefined) {
       const authorized = await tenant.authorize(tool.sessionId, {
         url: http.url,
@@ -250,8 +262,11 @@ export async function runHttpTool(
           `The session's vaults hold no credential '${http.credential}' for ${authorized.url}`,
         );
       credential = authorized.headers;
+      vault = authorized.vault;
+      // A credential with `via` sends the call there, a gateway (R2b C2, Q9).
+      if (authorized.via !== undefined) target = { ...http, url: authorized.via };
     }
-    return callHttpTarget(http, call.input, {
+    const outcome = await callHttpTarget(target, call.input, {
       headers: {
         ...credential,
         [SESSION_ID_HEADER]: tool.sessionId,
@@ -263,6 +278,14 @@ export async function runHttpTool(
       signal: options.signal,
       ...(declared.outputSchema === undefined ? {} : { outputSchema: declared.outputSchema }),
     });
+    if (outcome.kind !== "failed" || outcome.code !== "credential_rejected" || http.credential === undefined)
+      return outcome;
+    return {
+      ...outcome,
+      message: `The service answered HTTP 401: it rejected the credential '${http.credential}' from the ${vault} vault`,
+      server: http.credential,
+      ...(vault === undefined ? {} : { vault }),
+    };
   }
 }
 

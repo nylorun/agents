@@ -95,6 +95,7 @@
               "sandbox_expired",
               "issuer_unavailable",
               "definition_files_missing",
+              "credential_rejected",
               "internal_error"
             ]
           },
@@ -2110,7 +2111,8 @@
           "type": {
             "type": "string",
             "enum": [
-              "bearer"
+              "bearer",
+              "headers"
             ]
           },
           "binding": {
@@ -2122,6 +2124,28 @@
             },
             "required": [
               "url"
+            ],
+            "additionalProperties": false
+          },
+          "headerNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "via": {
+            "type": "string"
+          },
+          "identity": {
+            "type": "object",
+            "properties": {
+              "header": {
+                "type": "string",
+                "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+              }
+            },
+            "required": [
+              "header"
             ],
             "additionalProperties": false
           },
@@ -2176,12 +2200,72 @@
                   "token": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "via": {
+                    "type": "string"
+                  },
+                  "identity": {
+                    "type": "object",
+                    "properties": {
+                      "header": {
+                        "type": "string",
+                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                      }
+                    },
+                    "required": [
+                      "header"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
                   "type",
                   "url",
                   "token"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "headers"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "via": {
+                    "type": "string"
+                  },
+                  "identity": {
+                    "type": "object",
+                    "properties": {
+                      "header": {
+                        "type": "string",
+                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                      }
+                    },
+                    "required": [
+                      "header"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "type",
+                  "url",
+                  "headers"
                 ],
                 "additionalProperties": false
               }
@@ -2216,7 +2300,8 @@
                 "type": {
                   "type": "string",
                   "enum": [
-                    "bearer"
+                    "bearer",
+                    "headers"
                   ]
                 },
                 "binding": {
@@ -2228,6 +2313,28 @@
                   },
                   "required": [
                     "url"
+                  ],
+                  "additionalProperties": false
+                },
+                "headerNames": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "via": {
+                  "type": "string"
+                },
+                "identity": {
+                  "type": "object",
+                  "properties": {
+                    "header": {
+                      "type": "string",
+                      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                    }
+                  },
+                  "required": [
+                    "header"
                   ],
                   "additionalProperties": false
                 },
@@ -2281,11 +2388,78 @@
                   "token": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "via": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "identity": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "header": {
+                        "type": "string",
+                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                      }
+                    },
+                    "required": [
+                      "header"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
                   "type",
                   "token"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "headers"
+                    ]
+                  },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "via": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "identity": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "header": {
+                        "type": "string",
+                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                      }
+                    },
+                    "required": [
+                      "header"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "type",
+                  "headers"
                 ],
                 "additionalProperties": false
               }

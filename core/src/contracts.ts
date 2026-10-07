@@ -902,6 +902,70 @@ export const CreateVaultRequestSchema = z
       ctx.addIssue({ code: "custom", path: ["ownerUserId"], message: "An installation vault is owned by installation" });
   });
 export type CreateVaultRequest = z.infer<typeof CreateVaultRequestSchema>;
+/** An RFC 9110 field name. */
+const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+const CredentialHeaderNameSchema = z
+  .string()
+  .regex(HEADER_NAME_PATTERN, "A header name is an RFC 9110 token");
+/** A credential header's value: no CR, LF or NUL. */
+const CredentialHeaderValueSchema = z
+  .string()
+  .min(1)
+  .refine((value) => !/[\r\n\0]/.test(value), "A header value has no CR, LF or NUL");
+/** A `headers` credential's map (Q6): one or more headers sent on every request. */
+const CredentialHeadersSchema = z
+  .record(CredentialHeaderNameSchema, CredentialHeaderValueSchema)
+  .refine((value) => Object.keys(value).length > 0, "At least one header is required")
+  .refine(
+    (value) => new Set(Object.keys(value).map((name) => name.toLowerCase())).size === Object.keys(value).length,
+    "Header names are case-insensitive: each may appear once",
+  );
+const LOOPBACK_HOSTS = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
+/**
+ * `via` (R2b C2, Q11): where this installation reaches the credential's server, such as a
+ * gateway's endpoint for it. An absolute `https` URL (`http` only to a loopback host), with no
+ * userinfo, query string or fragment. Credentials are still matched by the URL the manifest
+ * names; `via` changes only where the request goes.
+ */
+export const CredentialViaSchema = z.string().superRefine((value, ctx) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    ctx.addIssue({ code: "custom", message: "via must be an absolute URL" });
+    return;
+  }
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK_HOSTS.test(url.hostname)))
+    ctx.addIssue({ code: "custom", message: "via must be https (http only to a loopback host)" });
+  if (url.username || url.password)
+    ctx.addIssue({ code: "custom", message: "via may not carry userinfo" });
+  if (url.search || value.includes("?"))
+    ctx.addIssue({ code: "custom", message: "via may not carry a query string" });
+  if (url.hash || value.includes("#"))
+    ctx.addIssue({ code: "custom", message: "via may not carry a fragment" });
+});
+/**
+ * The identity header (R2b C2, Q1–Q3): each request carries the session owner's subject in
+ * `header`, for a gateway that keeps each person's accounts. A session with no person as its
+ * owner (the reserved `installation`) sends none.
+ */
+export const CredentialIdentitySchema = z.object({ header: CredentialHeaderNameSchema }).strict();
+export type CredentialIdentity = z.infer<typeof CredentialIdentitySchema>;
+/** Where a credential's requests go, and whom they name. Neither is secret. */
+const credentialRouting = {
+  via: CredentialViaSchema.optional(),
+  identity: CredentialIdentitySchema.optional(),
+};
+/** On rotate: absent keeps the current value, `null` removes it. */
+const credentialRoutingChange = {
+  via: CredentialViaSchema.nullable().optional(),
+  identity: CredentialIdentitySchema.nullable().optional(),
+};
+/**
+ * A credential for the server at `url` (the URL a manifest names): `bearer` sends
+ * `Authorization: Bearer <token>`, `headers` its header map (R2b C2). The header names may not be
+ * the MCP transport's headers or `Nylorun-*`.
+ */
 export const CreateCredentialRequestSchema = z
   .object({
     ...vaultWriteBase,
@@ -912,6 +976,15 @@ export const CreateCredentialRequestSchema = z
           type: z.literal("bearer"),
           url: z.string().min(1),
           token: z.string().min(1),
+          ...credentialRouting,
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal("headers"),
+          url: z.string().min(1),
+          headers: CredentialHeadersSchema,
+          ...credentialRouting,
         })
         .strict(),
     ]),
@@ -920,6 +993,10 @@ export const CreateCredentialRequestSchema = z
 export type CreateCredentialRequest = z.infer<
   typeof CreateCredentialRequestSchema
 >;
+/**
+ * Replaces a credential's secret; its type and URL stay. `via` and `identity` are kept unless
+ * given (`null` removes one).
+ */
 export const RotateCredentialRequestSchema = z
   .object({
     ...vaultWriteBase,
@@ -928,6 +1005,14 @@ export const RotateCredentialRequestSchema = z
         .object({
           type: z.literal("bearer"),
           token: z.string().min(1),
+          ...credentialRoutingChange,
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal("headers"),
+          headers: CredentialHeadersSchema,
+          ...credentialRoutingChange,
         })
         .strict(),
     ]),
@@ -1014,8 +1099,12 @@ export const CredentialInfoSchema = z
     id: z.string(),
     vaultId: z.string(),
     name: z.string(),
-    type: z.enum(["bearer"]),
+    type: z.enum(["bearer", "headers"]),
     binding: z.object({ url: z.string() }).strict(),
+    /** A `headers` credential's header names (lower case), never their values. */
+    headerNames: z.array(z.string()).optional(),
+    via: z.string().optional(),
+    identity: CredentialIdentitySchema.optional(),
     createdAt: z.string(),
     rotatedAt: z.string().optional(),
   })
@@ -1284,7 +1373,20 @@ export const ToolCompletedPayloadSchema = z
     capabilityId: z.string().min(1),
     toolName: z.string().min(1),
     output: z.unknown().optional(),
-    error: z.object({ code: z.string(), message: z.string() }).passthrough().optional(),
+    error: z
+      .object({
+        code: z.string(),
+        message: z.string(),
+        /**
+         * With `credential_rejected` (R2b C1): the MCP server, or the HTTP tool's `credential`,
+         * whose server answered `401`.
+         */
+        server: z.string().optional(),
+        /** With `credential_rejected`: the scope of the vault whose credential was sent; absent when none was. */
+        vault: z.enum(["installation", "user"]).optional(),
+      })
+      .passthrough()
+      .optional(),
     ...eventAgent,
   })
   .passthrough();

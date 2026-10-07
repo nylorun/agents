@@ -186,7 +186,10 @@ _Avoid_: "shared vault", "org vault".
 the session's attached vaults, matched by the URL the manifest names (`vault/sources.ts`,
 `sessionCredentials` over `VaultService.authorize`), in the gateway or in process. OSS holds
 no OAuth client and asks no credential resolver (protocol 10, D49): a person's own keys go in
-their user vault, the installation's in its vaults.
+their user vault, the installation's in its vaults. A credential is a `bearer` token or a
+`headers` map; its **via** sends the server's requests elsewhere (a gateway) while the manifest's
+URL still picks it, and its **identity header** carries the session owner's subject (none for an
+`installation` session). A `401` is the tool error `credential_rejected` (R2b C1, C2).
 _Avoid_: "MCP OAuth connect" and "credential resolver" (both removed in protocol 10), "broker"
 (Cloud's).
 

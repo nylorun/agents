@@ -6336,6 +6336,7 @@
               "sandbox_expired",
               "issuer_unavailable",
               "definition_files_missing",
+              "credential_rejected",
               "internal_error"
             ]
           },
@@ -11775,6 +11776,16 @@
                   },
                   "message": {
                     "type": "string"
+                  },
+                  "server": {
+                    "type": "string"
+                  },
+                  "vault": {
+                    "type": "string",
+                    "enum": [
+                      "installation",
+                      "user"
+                    ]
                   }
                 },
                 "required": [

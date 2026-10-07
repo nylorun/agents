@@ -38,6 +38,22 @@ type Row = {
   credential: CredentialInfo;
 };
 
+type CredentialType = CredentialInfo["type"];
+
+/** One row of a Headers credential's form. */
+type HeaderRow = { name: string; value: string };
+
+const TYPE_LABELS: Record<CredentialType, string> = {
+  bearer: "Bearer",
+  headers: "Headers",
+};
+
+/** True when the Runtime's answer contains one of the secrets just sent. */
+function leaks(info: unknown, secrets: readonly string[]): boolean {
+  const text = JSON.stringify(info);
+  return secrets.some((value) => value.length >= 8 && text.includes(value));
+}
+
 const client = (tenantId: string) => createTenantManagementClient(tenantId);
 
 function formatWhen(value?: string): string {
@@ -68,7 +84,11 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
   const [vaultName, setVaultName] = useState("");
   const [credentialName, setCredentialName] = useState("");
   const [bindingUrl, setBindingUrl] = useState("");
+  const [credentialType, setCredentialType] = useState<CredentialType>("bearer");
   const [secret, setSecret] = useState("");
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([{ name: "", value: "" }]);
+  const [via, setVia] = useState("");
+  const [identityHeader, setIdentityHeader] = useState("");
   const [confirmName, setConfirmName] = useState("");
 
   const refresh = useCallback(async () => {
@@ -128,9 +148,33 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     setVaultName("");
     setCredentialName("");
     setBindingUrl("");
+    setCredentialType("bearer");
     setSecret("");
+    setHeaderRows([{ name: "", value: "" }]);
+    setVia("");
+    setIdentityHeader("");
     setConfirmName("");
     setActive(undefined);
+  }
+
+  function setHeaderRow(index: number, patch: Partial<HeaderRow>) {
+    setHeaderRows((current) =>
+      current.map((row, at) => (at === index ? { ...row, ...patch } : row)),
+    );
+  }
+
+  /** The form's header map; refuses an empty or repeated name. */
+  function headerMap(): Record<string, string> {
+    const headers: Record<string, string> = {};
+    for (const row of headerRows) {
+      const name = row.name.trim();
+      if (!name) throw new Error("Each header needs a name.");
+      if (Object.keys(headers).some((seen) => seen.toLowerCase() === name.toLowerCase()))
+        throw new Error(`The header ${name} is listed twice.`);
+      headers[name] = row.value;
+    }
+    if (Object.keys(headers).length === 0) throw new Error("Add at least one header.");
+    return headers;
   }
 
   function openPanel(mode: PanelMode, row?: Row) {
@@ -142,6 +186,12 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     if (row) {
       setCredentialName(row.credential.name);
       setBindingUrl(row.credential.binding.url);
+      setCredentialType(row.credential.type);
+      setHeaderRows(
+        (row.credential.headerNames ?? [""]).map((name) => ({ name, value: "" })),
+      );
+      setVia(row.credential.via ?? "");
+      setIdentityHeader(row.credential.identity?.header ?? "");
     }
     setPanelOpen(true);
   }
@@ -153,6 +203,10 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     setPending(true);
     const sdk = client(tenantId);
     const secretValue = secret;
+    const routing = {
+      ...(via.trim() ? { via: via.trim() } : {}),
+      ...(identityHeader.trim() ? { identity: { header: identityHeader.trim() } } : {}),
+    };
     try {
       if (panelMode === "add-vault") {
         await sdk.vaults.create({
@@ -163,26 +217,43 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
         setSaved(`Created vault “${vaultName.trim()}”.`);
       } else if (panelMode === "add-credential") {
         if (!selectedVaultId) throw new Error("Create a vault first.");
+        const url = bindingUrl.trim();
+        const headers = credentialType === "headers" ? headerMap() : undefined;
         const created = await sdk.vaults.credentials.create(selectedVaultId, {
           name: credentialName.trim(),
           idempotencyKey: crypto.randomUUID(),
-          auth: { type: "bearer", url: bindingUrl.trim(), token: secretValue },
+          auth: headers
+            ? { type: "headers", url, headers, ...routing }
+            : { type: "bearer", url, token: secretValue, ...routing },
         });
-        if (JSON.stringify(created).includes(secretValue))
+        if (leaks(created, headers ? Object.values(headers) : [secretValue]))
           throw new Error("The Runtime returned the credential secret.");
         setSaved(
           `Saved “${created.name}”. Secrets stay encrypted in the Runtime vault.`,
         );
       } else if (panelMode === "update" && active) {
+        // Rotation keeps the gateway and identity header unless the form changed them; a
+        // cleared field removes them.
+        const change = {
+          ...(via.trim() !== (active.credential.via ?? "")
+            ? { via: via.trim() || null }
+            : {}),
+          ...(identityHeader.trim() !== (active.credential.identity?.header ?? "")
+            ? { identity: identityHeader.trim() ? { header: identityHeader.trim() } : null }
+            : {}),
+        };
+        const headers = active.credential.type === "headers" ? headerMap() : undefined;
         const updated = await sdk.vaults.credentials.rotate(
           active.vault.id,
           active.credential.id,
           {
             idempotencyKey: crypto.randomUUID(),
-            auth: { type: "bearer", token: secretValue },
+            auth: headers
+              ? { type: "headers", headers, ...change }
+              : { type: "bearer", token: secretValue, ...change },
           },
         );
-        if (JSON.stringify(updated).includes(secretValue))
+        if (leaks(updated, headers ? Object.values(headers) : [secretValue]))
           throw new Error("The Runtime returned the credential secret.");
         setSaved(`Rotated “${updated.name}”.`);
       } else if (panelMode === "delete" && active) {
@@ -195,6 +266,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
         return;
       }
       setSecret("");
+      setHeaderRows([{ name: "", value: "" }]);
       setPanelOpen(false);
       await refresh();
     } catch (cause) {
@@ -240,6 +312,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             : "Credential details";
 
   const secretLabel = panelMode === "update" ? "New token" : "Token";
+  const editing = panelMode === "add-credential" || panelMode === "update";
 
   return (
     <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-auto p-8">
@@ -356,7 +429,14 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">Bearer</Badge>
+                    <Badge variant="outline">
+                      {TYPE_LABELS[row.credential.type] ?? row.credential.type}
+                    </Badge>
+                    {row.credential.via ? (
+                      <Badge variant="outline" className="ml-1">
+                        Gateway
+                      </Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell
                     className="max-w-xs truncate font-mono text-xs"
@@ -486,7 +566,20 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                 )}
                 <label className="grid gap-1 text-sm">
                   Type
-                  <Input value="Bearer" readOnly />
+                  {panelMode === "add-credential" ? (
+                    <select
+                      className="h-9 rounded-md border bg-transparent px-3"
+                      value={credentialType}
+                      onChange={(event) =>
+                        setCredentialType(event.target.value as CredentialType)
+                      }
+                    >
+                      <option value="bearer">Bearer token</option>
+                      <option value="headers">Headers</option>
+                    </select>
+                  ) : (
+                    <Input value={TYPE_LABELS[credentialType] ?? credentialType} readOnly />
+                  )}
                 </label>
                 <label className="grid gap-1 text-sm">
                   Destination URL
@@ -512,7 +605,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                     </span>
                   </label>
                 ) : null}
-                {panelMode === "add-credential" || panelMode === "update" ? (
+                {editing && credentialType === "bearer" ? (
                   <label className="grid gap-1 text-sm">
                     {secretLabel}
                     <Input
@@ -522,6 +615,106 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                       onChange={(event) => setSecret(event.target.value)}
                       required
                     />
+                  </label>
+                ) : null}
+                {credentialType === "headers" ? (
+                  <fieldset className="grid gap-2 text-sm">
+                    <legend className="mb-1">
+                      {panelMode === "update" ? "New headers" : "Headers"}
+                    </legend>
+                    {editing ? (
+                      <>
+                        {headerRows.map((row, index) => (
+                          <div key={index} className="flex gap-2">
+                            <Input
+                              aria-label={`Header ${index + 1} name`}
+                              placeholder="x-api-key"
+                              value={row.name}
+                              onChange={(event) =>
+                                setHeaderRow(index, { name: event.target.value })
+                              }
+                              required
+                            />
+                            <Input
+                              aria-label={`Header ${index + 1} value`}
+                              type="password"
+                              autoComplete="off"
+                              placeholder="Value"
+                              value={row.value}
+                              onChange={(event) =>
+                                setHeaderRow(index, { value: event.target.value })
+                              }
+                              required
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Remove header ${index + 1}`}
+                              disabled={headerRows.length === 1}
+                              onClick={() =>
+                                setHeaderRows((current) =>
+                                  current.filter((_, at) => at !== index),
+                                )
+                              }
+                            >
+                              <Trash2 />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="justify-self-start"
+                          onClick={() =>
+                            setHeaderRows((current) => [...current, { name: "", value: "" }])
+                          }
+                        >
+                          <Plus />
+                          Add header
+                        </Button>
+                      </>
+                    ) : (
+                      <Input
+                        value={(active?.credential.headerNames ?? []).join(", ")}
+                        readOnly
+                      />
+                    )}
+                  </fieldset>
+                ) : null}
+                {editing || via ? (
+                  <label className="grid gap-1 text-sm">
+                    Send through a gateway (optional)
+                    <Input
+                      value={via}
+                      onChange={(event) => setVia(event.target.value)}
+                      placeholder="https://gateway.example.com/mcp/github"
+                      readOnly={!editing}
+                    />
+                    {editing ? (
+                      <span className="text-xs text-muted-foreground">
+                        Requests go to this URL instead of the destination URL, which
+                        still picks the credential.
+                      </span>
+                    ) : null}
+                  </label>
+                ) : null}
+                {editing || identityHeader ? (
+                  <label className="grid gap-1 text-sm">
+                    Identity header (optional)
+                    <Input
+                      value={identityHeader}
+                      onChange={(event) => setIdentityHeader(event.target.value)}
+                      placeholder="x-user-id"
+                      readOnly={!editing}
+                    />
+                    {editing ? (
+                      <span className="text-xs text-muted-foreground">
+                        Each request names the session's owner in this header.
+                        Installation sessions send none.
+                      </span>
+                    ) : null}
                   </label>
                 ) : null}
                 {panelMode === "delete" ? (

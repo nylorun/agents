@@ -56,6 +56,50 @@ export interface LiveConnection {
   close(): Promise<void>;
 }
 
+/** What a failed tool call says to the model (`callMcpTool`). */
+export type McpToolFailure = {
+  readonly kind: "failed";
+  readonly code: string;
+  readonly message: string;
+  /** With `credential_rejected`: the server, and the scope of the vault whose credential was sent. */
+  readonly server?: string;
+  readonly vault?: "installation" | "user";
+};
+
+/**
+ * A request the server answered `401` (R2b C1): it rejected the vault's credential, or wanted one
+ * and got none. Never retried, since nothing the gate holds changes between tries (Q4). A tool
+ * call that meets it fails with `code` for the model to see; at discovery it is the server's
+ * `failed` diagnostic.
+ */
+export class CredentialRejected extends Error {
+  readonly code = "credential_rejected";
+
+  constructor(
+    readonly server: string,
+    /** The scope of the vault whose credential was sent; absent when none was. */
+    readonly vault?: "installation" | "user",
+  ) {
+    super(
+      vault === undefined
+        ? `The MCP server '${server}' answered HTTP 401: it needs a credential, and the session's vaults hold none for it`
+        : `The MCP server '${server}' answered HTTP 401: it rejected the credential from the ${vault} vault`,
+    );
+    this.name = "CredentialRejected";
+  }
+
+  /** The failed tool outcome the model sees. */
+  outcome(): McpToolFailure {
+    return {
+      kind: "failed",
+      code: this.code,
+      message: this.message,
+      server: this.server,
+      ...(this.vault === undefined ? {} : { vault: this.vault }),
+    };
+  }
+}
+
 /** An SDK `Client` as an `McpClient`. */
 export function sdkClient(client: Client): McpClient {
   return {
@@ -88,8 +132,10 @@ export async function openMcpServer(input: {
       initial.credentialIds;
     throw error;
   }
-  const fetchImpl = authorizedFetch(input.server, authorize, input.policy ?? {});
-  const url = new URL(input.server.url);
+  // A credential with `via` sends the server's requests there (R2b C2); the manifest's URL still
+  // names the server for its credential, its tools and its diagnostics.
+  const url = new URL(endpointOf(input.server, initial));
+  const fetchImpl = authorizedFetch(input.server, url, authorize, input.policy ?? {});
   const transport =
     input.server.type === "sse"
       ? new SSEClientTransport(url, { fetch: fetchImpl })
@@ -146,17 +192,24 @@ export async function callMcpTool(
   serverToolName: string,
   args: unknown,
   options: McpCallOptions = {},
-): Promise<{ kind: "completed"; output: unknown } | { kind: "failed"; code: string; message: string }> {
-  const result = await client.callTool(
-    {
-      name: serverToolName,
-      arguments:
-        args && typeof args === "object" && !Array.isArray(args)
-          ? (args as Record<string, unknown>)
-          : {},
-    },
-    options,
-  );
+): Promise<{ kind: "completed"; output: unknown } | McpToolFailure> {
+  let result: Record<string, unknown>;
+  try {
+    result = await client.callTool(
+      {
+        name: serverToolName,
+        arguments:
+          args && typeof args === "object" && !Array.isArray(args)
+            ? (args as Record<string, unknown>)
+            : {},
+      },
+      options,
+    );
+  } catch (error) {
+    // The server answered, so the outcome is known: the model sees it, not an uncertain call.
+    if (error instanceof CredentialRejected) return error.outcome();
+    throw error;
+  }
   if ("isError" in result && result.isError) {
     return {
       kind: "failed",
@@ -199,6 +252,7 @@ export function diagnosticFromError(
       ? (error as { code?: number }).code
       : undefined;
   const unauthorized =
+    error instanceof CredentialRejected ||
     code === 401 ||
     (error instanceof Error && /\b401\b/.test(error.message));
   return {
@@ -220,15 +274,25 @@ function createClient(): Client {
   );
 }
 
+/** Where `server`'s requests go: the credential's `via`, else the URL the manifest names. */
+function endpointOf(server: McpServerManifest, result: AuthorizeResult): string {
+  return result.status === "authorized" && result.via !== undefined ? result.via : server.url;
+}
+
+/**
+ * The transport's fetch: each request to `endpoint`'s origin carries the credential read for it
+ * now. A `401` answer is `CredentialRejected`.
+ */
 function authorizedFetch(
   server: McpServerManifest,
+  endpoint: URL,
   authorize: (url: string) => Promise<AuthorizeResult>,
   policy: OutboundPolicy,
 ): (url: string | URL, init?: RequestInit) => Promise<Response> {
   const send = guardedFetch(policy, { stream: true });
   return async (url, init) => {
     const target = typeof url === "string" ? url : url.href;
-    if (!sameOrigin(target, server.url))
+    if (!sameOrigin(target, endpoint.href))
       throw new Error("MCP request origin does not match the declared server");
     const result = await authorize(server.url);
     if (result.status === "refused") {
@@ -237,14 +301,26 @@ function authorizedFetch(
         result.credentialIds;
       throw error;
     }
+    // A credential whose `via` changed since the connection opened: never send it elsewhere.
+    if (!sameOrigin(endpointOf(server, result), endpoint.href))
+      throw new Error("The MCP server's credential now sends it elsewhere; the connection must reopen");
     const headers = new Headers();
     for (const [key, value] of Object.entries(server.headers ?? {}))
       headers.set(key, value);
     new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
+    // Credential headers, the identity header included, replace manifest headers of the same name.
     if (result.status === "authorized")
       for (const [key, value] of Object.entries(result.headers)) headers.set(key, value);
     // No redirects, and the address checked on what is connected to (`tenant/outbound.ts`).
-    return send(target, { ...init, headers });
+    const response = await send(target, { ...init, headers });
+    if (response.status === 401) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new CredentialRejected(
+        server.name,
+        result.status === "authorized" ? result.vault : undefined,
+      );
+    }
+    return response;
   };
 }
 

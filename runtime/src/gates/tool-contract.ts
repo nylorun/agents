@@ -98,6 +98,12 @@ export interface McpGateError {
   readonly credentialIds?: readonly string[];
   /** The call may have run: its earlier attempt was lost with the gateway. Never re-run. */
   readonly uncertain?: boolean;
+  /**
+   * The server answered `401` (R2b C1): the loop's `CredentialRejected`, which a tool call turns
+   * into a failed outcome the model sees. `vault` is the scope of the vault whose credential was
+   * sent; absent when none was.
+   */
+  readonly credentialRejected?: { readonly server: string; readonly vault?: "installation" | "user" };
 }
 
 export type McpAnswer<T> =

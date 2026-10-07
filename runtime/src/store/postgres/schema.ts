@@ -224,8 +224,8 @@ export const vaultCredentials = nylorun.table(
     id: textC().primaryKey(),
     vaultId: text().notNull(),
     name: text().notNull(),
-    type: text({ enum: ["bearer", "model"] }).notNull(),
-    /** JSON text of the non-secret binding (url, or provider and model). */
+    type: text({ enum: ["bearer", "headers", "model"] }).notNull(),
+    /** JSON text of the non-secret binding: url (and via, identity, header names), or provider and model. */
     bindingJson: text().notNull(),
     expiresAt: text(),
     createdAt: textC().notNull(),
