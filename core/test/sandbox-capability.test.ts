@@ -2,6 +2,8 @@ import { expect, it } from "vitest";
 import { AgentManifestSchema, MessageEventBodySchema } from "../src/contracts.js";
 import {
   ARTIFACTS_CAPABILITY_ID,
+  READ_ARTIFACT_MAX_BYTES,
+  READ_ARTIFACT_TOOL,
   SAVE_ARTIFACT_TOOL,
   artifactsCapabilityManifest,
   SANDBOX_CAPABILITY_ID,
@@ -28,6 +30,24 @@ it("builds the save_artifact capability that comes with a sandbox", () => {
     id: "bot",
     capabilities: [sandboxCapabilityManifest(spec), capability],
   };
+  expect(AgentManifestSchema.safeParse(manifest).success).toBe(true);
+});
+
+it("builds read_artifact, with or without save_artifact (R2b C11)", () => {
+  const read = artifactsCapabilityManifest({ save: false, read: true });
+  expect(read.id).toBe(ARTIFACTS_CAPABILITY_ID);
+  expect(read.tools?.map((tool) => tool.name)).toEqual([READ_ARTIFACT_TOOL]);
+  expect(read.tools![0]!.inputSchema).toMatchObject({
+    required: ["artifactId"],
+    properties: { offset: { minimum: 0 }, length: { maximum: READ_ARTIFACT_MAX_BYTES } },
+  });
+  expect(read.instructions?.join(" ")).toContain("read_artifact");
+  expect(read.instructions?.join(" ")).not.toContain("save_artifact");
+  const both = artifactsCapabilityManifest({ read: true });
+  expect(both.tools?.map((tool) => tool.name)).toEqual([SAVE_ARTIFACT_TOOL, READ_ARTIFACT_TOOL]);
+  // The default is what a sandbox brought before: save_artifact alone.
+  expect(artifactsCapabilityManifest()).toEqual(artifactsCapabilityManifest({ save: true, read: false }));
+  const manifest = { manifestSchemaVersion: 5, id: "bot", capabilities: [read] };
   expect(AgentManifestSchema.safeParse(manifest).success).toBe(true);
 });
 

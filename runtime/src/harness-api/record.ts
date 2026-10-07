@@ -1,12 +1,12 @@
 /**
  * The Record seam of the Harness API: core's journal for the effects of a run. `recordIntent`
  * journals an effect before anything runs it, and either answers it from the journal, hands it
- * to core's own executors (flow work, delegation, `save_artifact` and the skill tools), tells
- * the harness to `execute` it (model calls; MCP, HTTP and sandbox tools; a flow's HTTP stages
- * and HTTP verifiers), or fails a tool the Runtime cannot run (one that would run the
- * developer's code, R2 M6). `recordOutcome`
- * records what the harness's call returned. Both run under the advance's lease: every write is
- * epoch-checked (`ownedSession`), and a lost epoch writes nothing.
+ * to core's own executors (flow work, delegation, `save_artifact`, `read_artifact` and the skill
+ * tools), tells the harness to `execute` it (model calls; MCP, HTTP and sandbox tools; a flow's
+ * HTTP stages and HTTP verifiers), or fails a tool the Runtime cannot run (one that would run
+ * the developer's code, R2 M6). `recordOutcome` records what the harness's call returned, an
+ * agent's MCP or HTTP tool result first shaped to fit (R2b C11). Both run under the advance's
+ * lease: every write is epoch-checked (`ownedSession`), and a lost epoch writes nothing.
  *
  * Rows store the request's hash (`requestHash`) and, for a model call, the request without its
  * prompt: drift is a hash compare. Rows written before carry their full request, hashed on read.
@@ -30,8 +30,15 @@ import {
   type FlowEffect,
 } from "../core/flow-host.js";
 import { sandboxCapabilityOf } from "../sandbox/capability.js";
-import { isSaveArtifactCall } from "../harness/calls.js";
-import { callSaveArtifact } from "../tenant/artifact-tool.js";
+import { abortOn, isReadArtifactCall, isSaveArtifactCall } from "../harness/calls.js";
+import { callReadArtifact, callSaveArtifact } from "../tenant/artifact-tool.js";
+import {
+  mayNeedShaping,
+  resultBytes,
+  resultLimit,
+  shapeToolOutcome,
+  type ShapedCall,
+} from "../tenant/tool-results.js";
 import { callSkillTool, isSkillToolCall } from "../tenant/skill-tool.js";
 import { isOwnershipLost } from "../store/ownership.js";
 import { manifestFor, mcpToolOf } from "../mcp/snapshot.js";
@@ -65,6 +72,8 @@ type StoredEffect = EffectDoc & {
   outcome?: { value: unknown; statePatch?: Record<string, unknown> };
   agentSessionId?: string;
   error?: string;
+  /** A tool result's share of its step's budget, reserved before it is shaped (R2b C11). */
+  resultBytes?: number;
 };
 
 const TURN_CANCELLED = () => new HarnessApiError("turn_cancelled", "Turn cancelled");
@@ -98,7 +107,9 @@ export async function recordIntent(
 ): Promise<IntentAnswer> {
   const { ctx, lease, signal } = scope;
   const request = effect as HostEffect;
-  const answer = await ctx.store.tx(async (t): Promise<IntentAnswer | "flow" | "save" | { skill: AgentManifest }> => {
+  const answer = await ctx.store.tx(async (t): Promise<
+    IntentAnswer | "flow" | "save" | "read" | { skill: AgentManifest }
+  > => {
     const s = await ownedSession(t, lease, request.sessionId);
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId) throw TURN_CANCELLED();
     // An aborted advance starts no effect; the advance decides what the abort means.
@@ -164,8 +175,10 @@ export async function recordIntent(
           // HTTP tools (R2 M3) cross the Tool Gate.
           isHttpToolCall(s.manifest, request) ||
           sandboxCapabilityOf(agentManifest, request.capabilityId, request.toolName) !== undefined ||
-          // `save_artifact` (F8.1) runs beside the sandbox tools, and the skill tools (R2 M4).
+          // `save_artifact` (F8.1) runs beside the sandbox tools, as do `read_artifact` (R2b
+          // C11) and the skill tools (R2 M4).
           isSaveArtifactCall(agentManifest, request) ||
+          isReadArtifactCall(agentManifest, request) ||
           isSkillToolCall(agentManifest, request)));
     if (!executed) {
       // A tool that would run the developer's code: refused at save (a turn's manifest only
@@ -184,11 +197,14 @@ export async function recordIntent(
     // `save_artifact` writes the Tenant's artifacts: core runs it, reading the file through the
     // workspace capability, wherever the sandbox is.
     if (request.kind === "tool" && isSaveArtifactCall(agentManifest, request)) return "save";
+    // `read_artifact` reads the session's artifacts: core serves it, with or without a sandbox.
+    if (isReadArtifactCall(agentManifest, request)) return "read";
     // The skill tools read the agent's definition files: core serves them.
     if (isSkillToolCall(agentManifest, request)) return { skill: agentManifest };
     return { status: "execute" };
   });
   if (answer === "save") return runInCore(scope, request, () => callSaveArtifact(scope.ctx, request, scope.signal));
+  if (answer === "read") return runInCore(scope, request, () => callReadArtifact(scope.ctx, request, scope.signal));
   if (typeof answer === "object" && "skill" in answer)
     return runInCore(scope, request, () => callSkillTool(scope.ctx, answer.skill, request, scope.signal));
   if (answer !== "flow") return answer;
@@ -197,9 +213,9 @@ export async function recordIntent(
 }
 
 /**
- * Runs a tool core serves (`save_artifact`, F8.1; the skill tools, R2 M4) for the run and records
- * its outcome, as a harness would record a call it ran: the run gets the outcome as the intent's
- * answer.
+ * Runs a tool core serves (`save_artifact`, F8.1; `read_artifact`, R2b C11; the skill tools, R2
+ * M4) for the run and records its outcome, as a harness would record a call it ran: the run gets
+ * the outcome as the intent's answer.
  */
 async function runInCore(
   scope: RecordScope,
@@ -252,7 +268,7 @@ export async function recordOutcome(
     });
     return { status: "uncertain" };
   }
-  const { value } = result;
+  const value = await shaped(scope, effectId, result.value);
   return ctx.store.tx(async (t) => {
     const s = await t.assertEpoch<Session>(lease.sessionId, lease.epoch);
     const effect = await t.get<StoredEffect>("effects", effectId);
@@ -283,6 +299,56 @@ export async function recordOutcome(
       await t.event(s.id, request.turnId, "tool.completed", transcript as EventPayload<"tool.completed">);
     return { status: "completed" as const, outcome: effect.outcome };
   });
+}
+
+/**
+ * The outcome of an agent's remote MCP or HTTP tool call, shaped to fit before anything records
+ * it (R2b C11, `tenant/tool-results.ts`): what does not fit becomes the session's artifacts. Any
+ * other outcome, and one a cancel will discard, as it is. Only a cancel stops the upload: after a
+ * shutdown or a deadline the outcome is still recorded, so the next advance replays it.
+ *
+ * Its cap is what its step's budget has left (`resultLimit`): a step's results are one transcript
+ * entry. Parallel results are counted under the session lock, each reserving its share on its
+ * row (`resultBytes`) before it is shaped, so two never spend the same room.
+ */
+async function shaped(scope: RecordScope, effectId: string, value: unknown): Promise<unknown> {
+  const { ctx, lease, signal } = scope;
+  if (abortKind(signal) === "cancel" || !mayNeedShaping(value)) return value;
+  const call = await ctx.store.tx(async (t): Promise<ShapedCall | undefined> => {
+    const s = await t.lockSession<Session>(lease.sessionId);
+    const effect = await t.get<StoredEffect>("effects", effectId);
+    if (!s || !effect || effect.status === "completed") return undefined;
+    const request = effect.request as HostEffect;
+    // An agent's tool; a flow's HTTP stage or verifier names no capability, and its output is data.
+    if (request.kind !== "tool" || request.capabilityId === undefined) return undefined;
+    const mcp = mcpToolOf(s.mcpSnapshot, request) !== undefined;
+    if (!mcp && !isHttpToolCall(s.manifest, request)) return undefined;
+    const step = stepOf(request);
+    let used = 0;
+    if (step !== undefined)
+      for (const other of await t.effectsForTurn<StoredEffect>(s.id, request.turnId, [
+        "invoking",
+        "completed",
+      ])) {
+        if (other.request.effectId === effectId || stepOf(other.request as HostEffect) !== step)
+          continue;
+        used +=
+          other.resultBytes ??
+          (other.status === "completed" ? resultBytes(other.outcome?.value) : 0);
+      }
+    const limit = resultLimit(used);
+    effect.resultBytes = Math.min(resultBytes(value), limit);
+    await t.put("effects", effectId, effect);
+    return { request, session: { id: s.id, ownerUserId: s.ownerUserId }, mcp, limit };
+  });
+  return call ? shapeToolOutcome(ctx, call, value, abortOn(signal, ["cancel"])) : value;
+}
+
+/** The model step a tool call answers, and whose agent: its results share one transcript entry. */
+function stepOf(request: HostEffect): string | undefined {
+  if (request.kind !== "tool") return undefined;
+  const stepId = (request.context as { stepId?: unknown } | undefined)?.stepId;
+  return typeof stepId === "string" ? JSON.stringify([request.agent?.id ?? null, stepId]) : undefined;
 }
 
 /** What a journal row keeps of a request: a model call without its prompt. */

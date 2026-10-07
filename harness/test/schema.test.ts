@@ -462,4 +462,45 @@ describe("Zod schemas", () => {
 
     await turn(result).handle.completed;
   });
+
+  it("does not check a host's preview of a result too large to show, and keeps its files (R2b C11)", async () => {
+    let call = 0;
+    const preview = { truncated: true, artifactId: "af_1", size: 200_000, preview: "…" };
+    const files = [{ mediaType: "image/png", reference: { artifactId: "af_2", version: 1 } }];
+    const result = testAgent()
+      .use(
+        "output",
+        registered(
+          [
+            [
+              tool({
+                name: "output",
+                inputSchema: z.object({}),
+                outputSchema: z.object({ count: z.number() }),
+                async execute() {
+                  return { kind: "completed", output: preview as never, truncated: true, files };
+                },
+              }),
+            ],
+          ],
+          (registeredTools) => async (request, next) => {
+            request.configuration.tools.set("output", registeredTools[0]);
+            return next();
+          },
+        ),
+      )
+      .with(
+        model(async () => {
+          call += 1;
+          if (call === 1) return toolCalls({ id: "output", name: "output", args: {} });
+          return "done";
+        }),
+      )
+      .build();
+
+    const { session, handle } = turn(result);
+    await handle.completed;
+    const entry = session.state.transcript.find((item) => item.kind === "tool-results");
+    expect(entry).toMatchObject({ results: [{ kind: "completed", output: preview, files }] });
+  });
 });

@@ -41,13 +41,13 @@ describe("code tools", () => {
     expect(codeToolRefusal(billing.build().manifest)).toBeUndefined();
   });
 
-  it("leaves the Runtime's built-ins: sandbox tools, save_artifact and the skill tools", () => {
+  it("leaves the Runtime's built-ins: sandbox tools, save_artifact, read_artifact and the skill tools", () => {
     const manifest: AgentManifest = {
       manifestSchemaVersion: 5,
       id: "worker",
       capabilities: [
         sandboxCapabilityManifest({ image: "node:24" }),
-        artifactsCapabilityManifest(),
+        artifactsCapabilityManifest({ read: true }),
         {
           id: "skills",
           type: "agent",

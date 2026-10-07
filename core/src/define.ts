@@ -38,6 +38,8 @@ export {
 } from "./definition/http-tool.js";
 export {
   ARTIFACTS_CAPABILITY_ID,
+  READ_ARTIFACT_MAX_BYTES,
+  READ_ARTIFACT_TOOL,
   SANDBOX_CAPABILITY_ID,
   SAVE_ARTIFACT_TOOL,
   artifactsCapabilityManifest,
@@ -215,6 +217,7 @@ export type {
   ToolOwner,
   ToolOutcome,
   ToolResult,
+  ToolResultFile,
   ToolValidationFailureDetails,
   ToolEffects,
   ToolApproval,

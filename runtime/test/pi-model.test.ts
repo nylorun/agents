@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { piModel } from "../src/model/pi-model.js";
 import type { RuntimeModelCall } from "../src/contracts.js";
 import { scrub } from "../src/redact.js";
@@ -161,6 +161,64 @@ it("preserves context, assistant tool calls, tool results and model controls thr
   expect(JSON.stringify(body.messages)).toContain('"tool_calls"');
   expect(body.temperature).toBe(0.2);
   expect(body.max_tokens ?? body.max_completion_tokens).toBe(80);
+});
+describe("an image a tool returned (R2b C11, Q23)", () => {
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const reference = { artifactId: "af_screenshot", version: 1, name: "files__screenshot-result-2.png" };
+  const screenshot: RuntimeModelCall = {
+    ...call,
+    prompt: [
+      ...call.prompt,
+      {
+        kind: "message",
+        role: "assistant",
+        content: [{ type: "tool-call", id: "call-1", name: "files__screenshot", args: {} }],
+      },
+      {
+        kind: "tool-result",
+        toolCallId: "call-1",
+        toolName: "files__screenshot",
+        status: "completed",
+        content: [
+          { type: "text", text: '[{"type":"image","artifactId":"af_screenshot"}]' },
+          { type: "media", mediaType: "image/png", reference },
+        ],
+      },
+    ],
+  };
+  /** The provider's request body, and the references the model call read. */
+  async function send(model: { provider?: string; model?: string }) {
+    let body = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url, options) => {
+        body = String(options.body);
+        return response({ role: "assistant", content: "seen" });
+      }),
+    );
+    const read: unknown[] = [];
+    const files = async (value: unknown) => {
+      read.push(value);
+      return { name: reference.name, mediaType: "image/png", bytes: PNG };
+    };
+    const result = await piModel({ ...host(model), files })(screenshot, { signal: signal() });
+    return { result, body, read };
+  }
+
+  it("shows it to a model that reads images", async () => {
+    const { result, body, read } = await send({});
+    expect(result.output).toEqual([{ type: "text", text: "seen" }]);
+    expect(read).toEqual([reference]);
+    expect(body).toContain(`data:image/png;base64,${Buffer.from(PNG).toString("base64")}`);
+  });
+
+  it("gives a model that reads no images a note, and reads no bytes", async () => {
+    const { result, body, read } = await send({ provider: "groq", model: "llama-3.1-8b-instant" });
+    expect(result.output).toEqual([{ type: "text", text: "seen" }]);
+    expect(read).toEqual([]);
+    expect(body).not.toContain(Buffer.from(PNG).toString("base64"));
+    expect(body).toContain("The tool returned an image, image/png, that is not shown: this model does not accept images.");
+  });
 });
 it("returns provider tool calls using the portable model contract", async () => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-provider-secret");

@@ -86,3 +86,9 @@ export function isText(contentType: string): boolean {
     type.endsWith("+xml")
   );
 }
+
+/** The usual extension of a media type, for a name the Runtime gives a file; undefined if none. */
+export function extensionFor(contentType: string): string | undefined {
+  const type = essence(contentType);
+  return Object.keys(BY_EXTENSION).find((extension) => BY_EXTENSION[extension] === type);
+}

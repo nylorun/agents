@@ -7,6 +7,8 @@ import {
   type BuiltAgent,
   type BuiltWorkflow,
 } from "@nylorun/agents";
+import type { AgentManifest } from "@nylorun/core/define";
+import { withPlatformTools } from "../src/sandbox/session-sandbox.js";
 import { startTestTenant } from "./support/tenant.js";
 import { startToolServer, type ToolServer } from "./support/tool-server.js";
 
@@ -531,7 +533,14 @@ describe.each([["agent"], ["workflow"]] as const)(
           agentId: "parity",
           ownerUserId: "user-1",
         });
-        expect((await sessionF2.inspect()).manifestHash).toBe(newHash);
+        // An agent with HTTP tools pins its definition with `read_artifact` added (R2b C11).
+        const pinnedF2 =
+          kind === "agent"
+            ? withPlatformTools((defAfter as { manifest: AgentManifest }).manifest)
+            : undefined;
+        expect((await sessionF2.inspect()).manifestHash).toBe(
+          pinnedF2?.ok ? pinnedF2.manifestHash : newHash
+        );
         const doneF2 = collectUntil(sessionF2, {
           done: rootTurnDone(sessionF2.id),
         });

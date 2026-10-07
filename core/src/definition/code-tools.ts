@@ -1,16 +1,20 @@
 /**
  * Tools that would run the developer's code (track R2 M6): an agent tool with no `http` and no
  * `agent` that is not one of the Runtime's built-ins (sandbox tools, skill tools,
- * `save_artifact`), and a flow agent's `tool` stage without `http`. The Runtime runs no code
- * of yours during a session, so `PUT /v1/agents/:id` refuses a definition with one, and the
- * SDK refuses it before sending. The local engine (`@nylorun/harness/run`) still runs
- * `tool({ run })`.
+ * `save_artifact`, `read_artifact`), and a flow agent's `tool` stage without `http`. The
+ * Runtime runs no code of yours during a session, so `PUT /v1/agents/:id` refuses a definition
+ * with one, and the SDK refuses it before sending. The local engine (`@nylorun/harness/run`)
+ * still runs `tool({ run })`.
  */
 import type { AgentManifest, CapabilityManifest, ToolManifest } from "../types/manifest.js";
 import type { WorkflowManifest } from "../types/workflow.js";
 import { isSandboxToolName } from "../utils/sandbox.js";
 import { forEachFlowNode } from "./flow/paths.js";
-import { ARTIFACTS_CAPABILITY_ID, SAVE_ARTIFACT_TOOL } from "./sandbox-capability.js";
+import {
+  ARTIFACTS_CAPABILITY_ID,
+  READ_ARTIFACT_TOOL,
+  SAVE_ARTIFACT_TOOL,
+} from "./sandbox-capability.js";
 import { isSkillTool } from "./skill-tools.js";
 
 /** One tool that would run the developer's code, and the definition that declares it. */
@@ -49,7 +53,11 @@ export function codeToolsOf(
 function runsWithoutCode(capability: CapabilityManifest, tool: ToolManifest): boolean {
   if (tool.http !== undefined) return true;
   if (capability.sandbox !== undefined && isSandboxToolName(tool.name)) return true;
-  if (capability.id === ARTIFACTS_CAPABILITY_ID && tool.name === SAVE_ARTIFACT_TOOL) return true;
+  if (
+    capability.id === ARTIFACTS_CAPABILITY_ID &&
+    (tool.name === SAVE_ARTIFACT_TOOL || tool.name === READ_ARTIFACT_TOOL)
+  )
+    return true;
   return isSkillTool(capability, tool.name);
 }
 

@@ -16,7 +16,7 @@ import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
 import { validateSandboxAttach } from "../core/sandbox-routes.js";
 import { resolveSandbox } from "../sandbox/resolve.js";
-import { withSandboxCapability } from "../sandbox/session-sandbox.js";
+import { withPlatformTools, withSandboxCapability } from "../sandbox/session-sandbox.js";
 import {
   declaredSandboxes,
   sandboxSpecOf,
@@ -237,12 +237,14 @@ export async function putSession(
     // Placement (D38): where this session's harness may run, decided now and kept.
     checkPlacement(await readSandboxConfig(t), sandbox.kind);
     if (sandbox.kind === "pod") await requirePods(ctx.pods, `Sandbox ${sandbox.sandboxId}`);
+    const pinned = sandbox.manifest === undefined ? platformTools(definition) : sandbox;
     const created: Session = {
       id,
       agentId: body.agentId,
       ownerUserId: body.ownerUserId,
-      manifest: sandbox.manifest ?? definition.manifest,
-      manifestHash: sandbox.manifestHash ?? definition.manifestHash,
+      manifest: pinned.manifest ?? definition.manifest,
+      manifestHash: pinned.manifestHash ?? definition.manifestHash,
+      definitionHash: definition.manifestHash,
       implementationVersion: definition.implementationVersion,
       info: body.info,
       status: "idle",
@@ -342,6 +344,18 @@ async function sessionSandbox(
   return pin(definition, resolved.spec, resolved.source);
 }
 
+/**
+ * The manifest a session without a sandbox pins: its agents' `read_artifact` (R2b C11), when
+ * one has a remote MCP server or an HTTP tool; nothing otherwise, and for a workflow.
+ */
+function platformTools(definition: Definition): { manifest?: AgentManifest; manifestHash?: string } {
+  if (isWorkflowManifest(definition.manifest)) return {};
+  const pinned = withPlatformTools(definition.manifest as AgentManifest);
+  if (pinned === undefined) return {};
+  if (!pinned.ok) return fail(400, pinned.message);
+  return { manifest: pinned.manifest, manifestHash: pinned.manifestHash };
+}
+
 async function pin(
   definition: Definition,
   spec: SandboxManifest,
@@ -381,6 +395,7 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
     agentId: s.agentId,
     ownerUserId: s.ownerUserId,
     manifestHash: s.manifestHash,
+    ...(s.definitionHash === undefined ? {} : { definitionHash: s.definitionHash }),
     implementationVersion: s.implementationVersion,
     status: s.status,
     activeTurnId: s.activeTurnId,

@@ -351,6 +351,33 @@ sandbox capability to a session with a sandbox): it saves a sandbox file (`path`
 (`content`) as a file artifact of its session, with its turn and tool call on the event
 (`tenant/artifact-tool.ts`).
 
+**Stored tool result**: What core makes of an agent's remote MCP or HTTP tool result before it
+records the outcome (R2b C11, `tenant/tool-results.ts`), so no journal row, event or prompt holds
+more of one result than the **inline cap** (32 KiB of JSON). An `image`, `audio` or blob
+`resource` part becomes a file artifact of the session (`source: "engine"`), the part naming
+`{artifactId, version, contentType, size}`; an image also goes to the model as a file of the result
+(`ToolResult.files`), which model-gate shows to a model that reads images and replaces with a note
+for one that does not. Text or JSON past the cap becomes an artifact, and the model gets
+`{truncated: true, artifactId, version, contentType, size, preview}`, the first 4 KiB and the last
+1 KiB; each part of a mixed result is shaped alone, the largest text first. A `resource_link` stays
+a link. When the artifact cannot be stored (the Tenant's artifact limits, a failing Object store),
+the preview stays and `dropped` says why. The gate keeps no answer past 8 MiB (`mcp.too-large`,
+`http.too-large`). A flow's HTTP stage output is data, and is not shaped. One model step's results
+are one transcript entry, so they share a **step budget** of 256 KiB: under the session lock, each
+result past 1 KiB reserves its share on its effect row (`resultBytes`) and is capped at what its
+step's other results left (`resultLimit`), down to a 512-byte stub naming its artifact.
+_Avoid_: "offloaded result" or "spill file".
+
+**`read_artifact`**: Our engine's built-in tool that reads a text artifact of its own session in
+pages of at most 32 KiB from a byte `offset`, returning `nextOffset` while more remains, and shows
+an image artifact as a file (R2b C11, Q24; `tenant/artifact-tool.ts`). The `nylorun.artifacts`
+capability gives it to each agent of a session's tree with a remote MCP server or an HTTP tool,
+with or without a sandbox, unless the agent declares a tool of that name
+(`sandbox/session-sandbox.ts`), so such a session pins its definition with it added, and its
+`manifestHash` differs from the definition's; the session view's `definitionHash` names the
+definition it was opened from. It never reads a Tenant-wide artifact or another
+session's.
+
 **Definition file**: A file a definition names by the SHA-256 of its bytes (`sha256:<hex>`), today
 each file of a skill's folder (`SkillManifest.files`, track R2 M4; `tenant/definition-files.ts`).
 A client uploads it once with `PUT /v1/files/sha256:<hex>` (application key, at most 10 MiB, a
@@ -445,7 +472,7 @@ One line each; the module named is where the term lives in code.
 - **Keys service**: The `keys` service (F4.2), run in the gateway's process (`--service gates,keys`): the only process that reads the vault key (`<Host root>/keys/vault-kek`). It runs the vault writes that touch a secret and signs every token, behind the `Keys` seam (`keys/keys.ts`): in process, or over HTTP (`keys/client.ts`, `POST /nylorun/v1/keys/{operation}`, `NYLORUN_KEYS_URL`). With it, a Tenant runtime never reads, creates or holds the key.
 - **Tool Gate**: The gates service's routes for remote MCP servers (`/nylorun/v1/mcp/*`, `/nylorun/v1/tool-calls`), and HTTP tools (`/nylorun/v1/http-calls`), and the `ToolGate` seam the Tenant calls (`gates/tool-gate.ts`): in process, or over HTTP (`gates/tool-client.ts`). Only it holds a remote MCP connection and its credential (`gates/mcp-handler.ts`), and it reaches the server under the Host's address policy (`guardedFetch`, `tenant/outbound.ts`: `localhost` is the Docker host in the local stack). A keyed MCP or HTTP tool call runs once (`gates/tool-calls.ts`, the `tool_crossings` table): a re-send joins it or gets its answer, and one lost with an earlier gateway is `uncertain`. Before it records or returns an answer, it replaces the credential values it sent that the answer echoes with `[redacted]` (R2b C8, `scrubValues` in `redact.ts`; `tool.completed.redacted` counts them). The sandbox tools never cross it.
 - **MCP tool name**: What the model calls a remote MCP server's tool (R2b C6, `normalizeToolName` in `mcp/snapshot.ts`): `server__tool` with characters outside `[A-Za-z0-9_-]` replaced by `_`, shortened to 64 with a hash suffix, which a renamed name that collides also gets. The snapshot keeps the server's own name (`serverToolName`) for the call, and `mcp.discovered` lists the renamed ones. Server and declared tool names are checked at save against the same rule (`DELEGATE_NAME_PATTERN`).
-- **MCP tool error**: A failed remote MCP tool call the model sees as a failed tool result with a code (R2b C7, `McpCallFailed` in `mcp/connect.ts`): `mcp.unreachable` (never sent, `retryable`), `credential_rejected` (`401`), `mcp.forbidden` (`403`), `mcp.error` (a JSON-RPC error), `mcp.status` (another HTTP status), and `mcp.lost` (sent, answer lost) only for a tool annotated `readOnlyHint` or `idempotentHint`; any other lost call, and one lost with the gateway, stays `uncertain`. The gate answers it as `error.failure`. `isError` results stay `mcp.tool`. A connection found stale before the tool saw the call (`McpConnectionStale`: a `404` to its `Mcp-Session-Id`, or a credential whose `via` moved) is dropped from the pool or the gate, opened again, and the call sent once more; a second failure is `mcp.unreachable`.
+- **MCP tool error**: A failed remote MCP tool call the model sees as a failed tool result with a code (R2b C7, `McpCallFailed` in `mcp/connect.ts`): `mcp.unreachable` (never sent, `retryable`), `credential_rejected` (`401`), `mcp.forbidden` (`403`), `mcp.error` (a JSON-RPC error), `mcp.status` (another HTTP status), `mcp.too-large` (an answer past 8 MiB, R2b C11), and `mcp.lost` (sent, answer lost) only for a tool annotated `readOnlyHint` or `idempotentHint`; any other lost call, and one lost with the gateway, stays `uncertain`. The gate answers it as `error.failure`. `isError` results stay `mcp.tool`. A connection found stale before the tool saw the call (`McpConnectionStale`: a `404` to its `Mcp-Session-Id`, or a credential whose `via` moved) is dropped from the pool or the gate, opened again, and the call sent once more; a second failure is `mcp.unreachable`.
 - **HTTP tool**: A tool whose manifest entry has `http` (`url`, `method` POST/PUT/PATCH, `credential`, `timeoutMs`; a sibling of `agent`, with `fn` and `command` reserved), built with `http()`: the Tool Gate sends the input as a JSON body with `Nylorun-Session-Id`, `Nylorun-Turn-Id`, `Nylorun-Agent-Id` and the effect id as `Idempotency-Key`, adding the vault credential bound to the URL that the `credential` selection names (`gates/http-tool.ts`, `runHttpTool`; the request and answer alone are `callHttpTarget`). Its outcome is the answer, or a failed outcome the model sees (`http.status`, `http.timeout`, `http.refused`, `http.credential`, `tool.invalid-output`). An HTTP tool is also a flow stage (a tool node with `http`), and `http({ url })` a Loop's HTTP verifier (`loop.verify: { http }`, POSTed `{ input, output, iteration }`, answering a verdict): their `tool` effects are journaled `invoking` and executed like an agent's (`harness-api/record.ts`), the gate finds the target in the pinned workflow manifest by stage key (`{ sessionId, stage }`, `flowHttpTarget`) and sends the flow agent's id as `Nylorun-Agent-Id`, and a failed outcome fails the stage (or the Loop, `loop.verify-failed`). An HTTP verifier's verdict is recorded as `loop.verified` (`recordVerdict`, `core/flow-host.ts`). _Avoid_: "webhook tool".
 - **Static approval**: `approval: "always"` on an HTTP tool, or on a remote MCP server for all its tools: the engine pauses each call for the session's `approve` before it becomes an effect, and a denied call is `denied` without running (`DurableSessionTool.approval`, `harness/run/durable.ts`).
 - **egress-gate**: The `egress` service (F7.2, D42), run in the gateway's process on 4200 (`NYLORUN_EGRESS_LISTEN_*`): pod sandboxes' only way out, a CONNECT proxy that verifies an egress token, checks its sandbox's host epoch, and tunnels only to a host name in the spec's `network.allow` (exact or `*.suffix`) on 443 or 80 that resolves to a public address, 64 tunnels per sandbox (`gates/egress.ts`). No TLS interception, no credential injection, no events; refusals are logged.

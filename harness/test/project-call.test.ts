@@ -289,6 +289,37 @@ describe("projectModelCall", () => {
     });
   });
 
+  it("gives the model a result's files after its output (R2b C11)", () => {
+    const reference = { artifactId: "af_1", version: 1 };
+    const call = projectModelCall(
+      request({
+        transcript: [
+          {
+            kind: "tool-results",
+            turnId: "turn",
+            stepId: "step",
+            results: [
+              {
+                callId: "shot_1",
+                toolName: "files__screenshot",
+                kind: "completed",
+                output: [{ type: "image", artifactId: "af_1" }],
+                files: [{ mediaType: "image/png", reference }],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(call.prompt[0]).toMatchObject({
+      status: "completed",
+      content: [
+        { type: "text", text: '[{"type":"image","artifactId":"af_1"}]' },
+        { type: "media", mediaType: "image/png", reference },
+      ],
+    });
+  });
+
   it("passes the projected call and invocation context to the ModelAdapter", async () => {
     let seen!: ModelCall;
     let requestSessionId!: string;

@@ -328,11 +328,46 @@ async function buildContext(
   const instructions: string[] = [];
   const content = async (
     parts: readonly PromptContentPart[],
+    toolResult = false,
   ): Promise<(TextContent | ImageContent)[]> => {
     const result: (TextContent | ImageContent)[] = [];
     for (const part of parts) {
       if (part.type === "text") result.push({ type: "text", text: part.text });
-      else if (part.type === "media") {
+      else if (part.type === "media" && toolResult) {
+        // An image a tool returned, stored as an artifact (R2b C11): shown to a model that
+        // reads images. Otherwise, or when it cannot be read, a note: the call still goes.
+        const note = (why: string): TextContent => ({
+          type: "text",
+          text: `(The tool returned an image, ${essence(part.mediaType)}, that is not shown: ${why}.)`,
+        });
+        if (!selected.input.includes("image") || !isModelImage(part.mediaType)) {
+          result.push(
+            note(
+              selected.input.includes("image")
+                ? "the model reads PNG, JPEG, GIF and WebP images only"
+                : "this model does not accept images",
+            ),
+          );
+          continue;
+        }
+        if (!options.files) {
+          result.push(note("files are unavailable"));
+          continue;
+        }
+        try {
+          const file = await options.files(part.reference);
+          if (!isModelImage(file.mediaType)) result.push(note(`it is ${essence(file.mediaType)}`));
+          else
+            result.push({
+              type: "image",
+              data: Buffer.from(file.bytes).toString("base64"),
+              mimeType: essence(file.mediaType),
+            });
+        } catch (error) {
+          if (!(error instanceof FileUnavailableError)) throw error;
+          result.push(note(error.message.replace(/\.$/u, "")));
+        }
+      } else if (part.type === "media") {
         // A file the message named by artifact (protocol 6): its bytes go only into the
         // provider request built here, never into the transcript or the journal.
         if (!options.files)
@@ -387,7 +422,7 @@ async function buildContext(
         toolName: item.toolName,
         isError: item.status !== "completed",
         timestamp: Date.now(),
-        content: await content(item.content),
+        content: await content(item.content, true),
       });
     } else if (item.kind === "message" && item.role === "assistant") {
       messages.push(assistantMessage(item, selected));

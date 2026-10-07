@@ -198,8 +198,29 @@ export type ToolExecutionContext<Info = unknown> = ToolExecutionContextBase & {
 };
 
 export type ToolContent = JsonValue;
+
+/**
+ * A file the model sees beside a tool's output (R2b C11): an image a tool returned, which the
+ * Runtime stored as an artifact. `reference` is the host's, as a message's media part carries it:
+ * the model call resolves it, and a model that reads no images gets a note instead.
+ */
+export type ToolResultFile = {
+  readonly mediaType: string;
+  readonly reference: JsonValue;
+};
+
 export type ToolOutcome<Output = ToolContent> =
-  | { readonly kind: "completed"; readonly output: Output }
+  | {
+      readonly kind: "completed";
+      readonly output: Output;
+      /** Files the model sees beside the output (R2b C11). */
+      readonly files?: readonly ToolResultFile[];
+      /**
+       * The output is the Runtime's preview of a larger result it stored as an artifact (R2b
+       * C11), not the tool's own, so the tool's output schema is not checked against it.
+       */
+      readonly truncated?: boolean;
+    }
   | { readonly kind: "denied"; readonly reason: string }
   | {
       readonly kind: "failed";
@@ -226,6 +247,8 @@ export type ToolResult =
       readonly toolName: string;
       readonly kind: "completed";
       readonly output: ToolContent;
+      /** The outcome's `files`, when it has any. */
+      readonly files?: readonly ToolResultFile[];
     }
   | {
       readonly callId: string;
