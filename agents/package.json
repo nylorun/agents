@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/agents",
-  "version": "0.17.0-beta",
+  "version": "0.18.0-beta",
   "description": "Nylorun agent definitions and session client",
   "type": "module",
   "license": "Apache-2.0",
@@ -43,7 +43,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@nylorun/core": "0.16.0-beta",
+    "@nylorun/core": "0.17.0-beta",
     "gray-matter": "^4.0.3"
   },
   "peerDependencies": {
