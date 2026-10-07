@@ -58,7 +58,7 @@ Management keys are issued on the Tenant's machine only:
 | `admin.tenant` | `status()`, `seed(request)`, `reset(request)` | `GET /v1/tenant`, `PUT /v1/tenant/config/seed`, `POST /v1/tenant/reset` |
 | `admin.keys` | `list()`, `put(id)`, `delete(id)` | `/v1/tenant/keys…` |
 | `admin.models` | `catalog()`, `providers()`, `get()`, `put(request)`, `select(request)`, `usage(query)`, `budgets.get()`, `budgets.put(request)` | `/v1/tenant/models`, `/providers`, `/model`, `/model/selection`, `/usage`, `/budgets` |
-| `admin.vaults` | `create`, `list(ownerUserId?)`, `get`, `delete`, `credentials.create`, `.list`, `.get`, `.rotate`, `.delete`, `startOAuth(vaultId, { url, server, clientId? })` | `/v1/tenant/vaults…` |
+| `admin.vaults` | `create`, `list(ownerUserId?)`, `get`, `delete`, `credentials.create`, `.list`, `.get`, `.rotate`, `.delete` | `/v1/tenant/vaults…` |
 | `admin.signingKeys` | `list()`, `rotate({ force? })`, `revoke(kid)` | `/v1/tenant/signing-keys…` |
 | `admin.settings` | `sandbox.get()`, `sandbox.put(request)`, `artifacts.get()`, `artifacts.put(request)` | `/v1/tenant/sandbox`, `/v1/tenant/artifacts` |
 

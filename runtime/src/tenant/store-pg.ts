@@ -82,6 +82,16 @@ export function createPostgresTenantOpener(options: PostgresTenantOptions): Tena
         from: opened.migrated.from,
         to: opened.migrated.to,
       });
+    // Protocol 10 removed the vault's `oauth` credential type: the migration deleted them.
+    for (const removed of opened.removedCredentials)
+      logger?.warn("oauth_credential_removed", {
+        tenantId,
+        vaultId: removed.vaultId,
+        credentialId: removed.credentialId,
+        url: removed.url,
+        message:
+          "MCP OAuth credentials are gone (protocol 10): store a key for this server in a vault, or reach it through a gateway",
+      });
     let reads: ReturnType<typeof createPostgresReadStore> | undefined;
     try {
       reads = createPostgresReadStore(options.sql, tenantId);

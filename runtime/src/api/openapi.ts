@@ -294,7 +294,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   {
     name: "Vaults",
     description:
-      "The installation's credentials for agents' tools: API keys and MCP OAuth connections. Sessions attach a vault by id. `admin.vaults`.",
+      "The installation's and each person's credentials for agents' tools: API keys, bound to the URL they are sent to. Sessions attach a vault by id. `admin.vaults`.",
     operations: [
       "POST /v1/tenant/vaults",
       "GET /v1/tenant/vaults",
@@ -305,8 +305,6 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
       "GET /v1/tenant/vaults/{vaultId}/credentials/{credentialId}",
       "POST /v1/tenant/vaults/{vaultId}/credentials/{credentialId}",
       "DELETE /v1/tenant/vaults/{vaultId}/credentials/{credentialId}",
-      "POST /v1/tenant/vaults/{vaultId}/oauth/start",
-      "GET /v1/oauth/callback",
     ],
   },
   {

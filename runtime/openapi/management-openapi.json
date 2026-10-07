@@ -5,7 +5,7 @@
     "version": "0.0.0",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 9,
+      "max": 10,
       "features": [
         "runtime-tenants",
         "admin-status",
@@ -94,9 +94,6 @@
               "sandbox_lost",
               "sandbox_expired",
               "issuer_unavailable",
-              "oauth_client_required",
-              "oauth_state_invalid",
-              "oauth_failed",
               "definition_files_missing",
               "internal_error"
             ]
@@ -2113,8 +2110,7 @@
           "type": {
             "type": "string",
             "enum": [
-              "bearer",
-              "oauth"
+              "bearer"
             ]
           },
           "binding": {
@@ -2128,9 +2124,6 @@
               "url"
             ],
             "additionalProperties": false
-          },
-          "expiresAt": {
-            "type": "string"
           },
           "createdAt": {
             "type": "string"
@@ -2191,121 +2184,6 @@
                   "token"
                 ],
                 "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "oauth"
-                    ]
-                  },
-                  "url": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "accessToken": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "expiresAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ],
-                    "minLength": 1
-                  },
-                  "refresh": {
-                    "type": "object",
-                    "properties": {
-                      "tokenEndpoint": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "clientId": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "refreshToken": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "tokenEndpointAuth": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "type": {
-                                "type": "string",
-                                "enum": [
-                                  "none"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "type"
-                            ],
-                            "additionalProperties": false
-                          },
-                          {
-                            "type": "object",
-                            "properties": {
-                              "type": {
-                                "type": "string",
-                                "enum": [
-                                  "client_secret_basic"
-                                ]
-                              },
-                              "clientSecret": {
-                                "type": "string",
-                                "minLength": 1
-                              }
-                            },
-                            "required": [
-                              "type",
-                              "clientSecret"
-                            ],
-                            "additionalProperties": false
-                          },
-                          {
-                            "type": "object",
-                            "properties": {
-                              "type": {
-                                "type": "string",
-                                "enum": [
-                                  "client_secret_post"
-                                ]
-                              },
-                              "clientSecret": {
-                                "type": "string",
-                                "minLength": 1
-                              }
-                            },
-                            "required": [
-                              "type",
-                              "clientSecret"
-                            ],
-                            "additionalProperties": false
-                          }
-                        ]
-                      }
-                    },
-                    "required": [
-                      "tokenEndpoint",
-                      "clientId",
-                      "refreshToken",
-                      "tokenEndpointAuth"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "type",
-                  "url",
-                  "accessToken"
-                ],
-                "additionalProperties": false
               }
             ]
           }
@@ -2338,8 +2216,7 @@
                 "type": {
                   "type": "string",
                   "enum": [
-                    "bearer",
-                    "oauth"
+                    "bearer"
                   ]
                 },
                 "binding": {
@@ -2353,9 +2230,6 @@
                     "url"
                   ],
                   "additionalProperties": false
-                },
-                "expiresAt": {
-                  "type": "string"
                 },
                 "createdAt": {
                   "type": "string"
@@ -2414,33 +2288,6 @@
                   "token"
                 ],
                 "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "oauth"
-                    ]
-                  },
-                  "accessToken": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "expiresAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ],
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "type",
-                  "accessToken"
-                ],
-                "additionalProperties": false
               }
             ]
           }
@@ -2449,47 +2296,6 @@
           "requestId",
           "idempotencyKey",
           "auth"
-        ],
-        "additionalProperties": false
-      },
-      "StartOAuthResponse": {
-        "type": "object",
-        "properties": {
-          "authorizeUrl": {
-            "type": "string"
-          },
-          "expiresAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "authorizeUrl",
-          "expiresAt"
-        ],
-        "additionalProperties": false
-      },
-      "StartOAuthRequest": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2048
-          },
-          "server": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "clientId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          }
-        },
-        "required": [
-          "url",
-          "server"
         ],
         "additionalProperties": false
       },
@@ -2964,10 +2770,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3066,10 +2872,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3178,10 +2984,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3299,10 +3105,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -3434,10 +3240,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3546,10 +3352,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3649,10 +3455,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3743,10 +3549,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3844,10 +3650,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3945,10 +3751,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4044,10 +3850,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4155,10 +3961,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4304,10 +4110,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4424,10 +4230,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4525,10 +4331,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4625,10 +4431,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4737,10 +4543,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4860,10 +4666,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4969,10 +4775,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5076,10 +4882,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5164,7 +4970,7 @@
           "Vaults"
         ],
         "summary": "Add a credential",
-        "description": "A bearer token or OAuth tokens, bound to the URLs a tool may send them to.",
+        "description": "A bearer token, bound to the URL a tool may send it to.",
         "security": [
           {
             "managementKey": []
@@ -5186,10 +4992,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5303,10 +5109,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5420,10 +5226,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5535,10 +5341,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5663,10 +5469,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5745,284 +5551,6 @@
         }
       }
     },
-    "/v1/tenant/vaults/{vaultId}/oauth/start": {
-      "post": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Start an MCP OAuth connect",
-        "description": "Signs the installation in to the remote MCP server at `url` (declared as `server`) and stores its OAuth credential, bound to `url`, in this installation vault. The Runtime discovers the server's authorization server (RFC 9728, RFC 8414), registers itself (RFC 7591) unless `clientId` names a registered client, and answers the URL to open in a browser; the sign-in returns to `GET /v1/oauth/callback` within `expiresAt`. The callback URL is `NYLORUN_PUBLIC_URL` + `/v1/oauth/callback`, or this request's own origin when the Host has no public URL. Application keys acting for no one only. `oauth_client_required` when the server offers no registration and no `clientId` was given.",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `9`"
-            },
-            "required": true,
-            "description": "The protocol version, `9`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StartOAuthRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Where to send the browser",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StartOAuthResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "The authorization server, or its discovery, failed or refused (`oauth_failed`)"
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/oauth/callback": {
-      "get": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Finish an MCP OAuth connect",
-        "description": "Where the authorization server sends the browser back with `code` and `state` (or `error`). Exchanges the code once and stores the credential; answers a small HTML page. Needs no credential and no `Nylorun-Protocol`. A `state` is used once, for ten minutes (`oauth_state_invalid`).",
-        "security": [
-          {
-            "applicationKey": []
-          },
-          {
-            "issuerToken": []
-          },
-          {}
-        ],
-        "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
-        ],
-        "x-nylorun-scopes": "any",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "code",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "state",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "error",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `9`"
-            },
-            "required": false,
-            "description": "The protocol version, `9`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Connected",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "The authorization server refused the code (`oauth_failed`)"
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/tenant/signing-keys": {
       "get": {
         "tags": [
@@ -6042,10 +5570,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6144,10 +5672,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6266,10 +5794,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6380,10 +5908,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6480,10 +6008,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6591,10 +6119,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6691,10 +6219,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `9`"
+              "description": "The protocol version, `10`"
             },
             "required": true,
-            "description": "The protocol version, `9`",
+            "description": "The protocol version, `10`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6800,7 +6328,7 @@
     },
     {
       "name": "Vaults",
-      "description": "The installation's credentials for agents' tools: API keys and MCP OAuth connections. Sessions attach a vault by id. `admin.vaults`."
+      "description": "The installation's and each person's credentials for agents' tools: API keys, bound to the URL they are sent to. Sessions attach a vault by id. `admin.vaults`."
     },
     {
       "name": "Signing keys",

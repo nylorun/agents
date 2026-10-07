@@ -31,7 +31,6 @@ import { openTenantRuntime } from "./runtime.js";
 import type { TrustedIssuerConfig } from "./identity-file.js";
 import { createTrustedIssuers, type TrustedIssuers } from "./issuers.js";
 import type { Logger, TenantConfig, TenantModelConfig } from "./types.js";
-import type { ResolverConfig } from "../vault/sources.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -81,11 +80,6 @@ export interface StartEphemeralRuntimeOptions {
    * `createTrustedIssuers`. Default none.
    */
   issuers?: readonly TrustedIssuerConfig[] | TrustedIssuers;
-  /**
-   * The operator's credential resolver (F9 C1): asked for a person's MCP credential when the
-   * session's vaults hold none. Default: none (vaults only).
-   */
-  resolver?: ResolverConfig;
   logger?: Logger;
   /**
    * The Postgres database of the Tenant (one Tenant per database): a pool, which the caller
@@ -166,7 +160,6 @@ export async function startEphemeralRuntime(
       sandbox: { backend: sandboxBackend },
       model,
       ...(issuers ? { issuers } : {}),
-      ...(options.resolver ? { resolver: options.resolver } : {}),
       logger: createTenantLogger({
         tenantId,
         logPath: tenant.log,

@@ -127,7 +127,6 @@ it("documents vaults and Tenant settings for management keys only (protocol 8)",
     ["get", "/v1/tenant/vaults"],
     ["get", "/v1/tenant/vaults/{vaultId}/credentials/{credentialId}"],
     ["delete", "/v1/tenant/vaults/{vaultId}"],
-    ["post", "/v1/tenant/vaults/{vaultId}/oauth/start"],
     ["post", "/v1/tenant/reset"],
     ["get", "/v1/tenant/models"],
     ["get", "/v1/tenant/providers"],
@@ -137,12 +136,14 @@ it("documents vaults and Tenant settings for management keys only (protocol 8)",
     expect(op.security, `${method} ${path}`).toEqual([{ managementKey: [] }]);
     expect(op["x-nylorun-scopes"], `${method} ${path}`).toBe("never");
   }
-  // The old vault paths are gone.
+  // The old vault paths are gone, and the MCP OAuth connect (protocol 10).
   for (const [method, path] of [
     ["post", "/v1/vaults"],
     ["get", "/v1/vaults"],
     ["get", "/v1/vaults/{vaultId}/credentials/{credentialId}"],
     ["delete", "/v1/vaults/{vaultId}"],
+    ["post", "/v1/tenant/vaults/{vaultId}/oauth/start"],
+    ["get", "/v1/oauth/callback"],
   ] as const)
     expect(operation(method, path), `${method} ${path}`).toBeUndefined();
   expect(operation("put", "/v1/tenant/sandbox").requestBody.content["application/json"].schema).toEqual({

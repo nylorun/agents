@@ -28,9 +28,7 @@ import { httpToolGate } from "../../src/gates/tool-client.js";
 import type { ToolGate } from "../../src/gates/tool-gate.js";
 import { authorizeSessionMcp } from "../../src/gates/tenant-vaults.js";
 import { VaultService, type AuthorizeResult } from "../../src/vault/service.js";
-import { CredentialSources } from "../../src/vault/sources.js";
 import { httpKeys } from "../../src/keys/client.js";
-import { guardedFetch } from "../../src/tenant/outbound.js";
 import { inProcessKeys, type Keys } from "../../src/keys/keys.js";
 import { SigningKeys } from "../../src/tenant/signing-keys.js";
 import { createRunGrants, type RunGrants } from "../../src/tenant/run-grants.js";
@@ -89,12 +87,6 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   pods?: TenantOpenHooks["pods"];
   /** Wraps the Tenant's `fs` Object store (to watch what it is asked to store). */
   wrapBlobs?: (blobs: BlobStore) => BlobStore;
-  /**
-   * The gateway's OAuth fetch with `NYLORUN_TEST_MODEL_GATE=http` (refresh and MCP OAuth
-   * connect). Default `vaultFetch`, else the Host's `guardedFetch` under `delivery`, as the
-   * gateway has it; `vaultFetch` alone is then the runtime container's.
-   */
-  gateVaultFetch?: typeof fetch;
 };
 
 /**
@@ -227,14 +219,9 @@ export async function startTestTenant(
     ...(options.flow === undefined ? {} : { flow: options.flow }),
     ...(options.flowEnv === undefined ? {} : { flowEnv: options.flowEnv }),
     ...(options.issuers === undefined ? {} : { issuers: options.issuers }),
-    ...(options.vaultFetch === undefined
-      ? {}
-      : { vaultFetch: options.vaultFetch }),
     ...(options.modelCall === undefined ? {} : { modelCall: options.modelCall }),
     ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
-    ...(options.resolver === undefined ? {} : { resolver: options.resolver }),
     ...(options.delivery === undefined ? {} : { delivery: options.delivery }),
-    ...(options.publicUrl === undefined ? {} : { publicUrl: options.publicUrl }),
     logger,
   };
 
@@ -296,11 +283,7 @@ export async function startTestTenant(
       tenantId,
       store: opened.store,
       vault: new HostModelVault({ store: opened.store, kek }),
-      credentials: new VaultService({
-        store: opened.store,
-        kek,
-        fetch: options.gateVaultFetch ?? options.vaultFetch ?? guardedFetch(options.delivery ?? {}),
-      }),
+      credentials: new VaultService({ store: opened.store, kek }),
       kek,
       root: paths.home,
       logger,
@@ -308,7 +291,6 @@ export async function startTestTenant(
       ...(options.delivery ? { delivery: options.delivery } : {}),
       // The gateway reads the Tenant's blobs as core writes them (the `fs` store here).
       blobs: createFsBlobStore({ root: paths.blobs }),
-      ...(options.resolver ? { resolver: options.resolver } : {}),
     });
   }
   if (options.modelGate) hooks.modelGate = options.modelGate;
@@ -439,28 +421,19 @@ export async function startTestGate(options: {
   delivery?: TenantConfig["delivery"];
   /** The Tenant's Object store, for the files a prompt names. */
   blobs?: BlobStore;
-  /** The operator's credential resolver (`NYLORUN_RESOLVER_*` on the gateway, F9 C1). */
-  resolver?: TenantConfig["resolver"];
 }): Promise<TestGate> {
   const token = randomBytes(32).toString("hex");
   const runGrants = createRunGrants();
   const session = (sessionId: string) =>
     options.store.tx((t) => t.get<Session>("sessions", sessionId));
-  const sources = options.credentials
-    ? new CredentialSources({
-        vault: options.credentials,
-        ...(options.resolver ? { resolver: options.resolver } : {}),
-      })
-    : undefined;
   const authorizeMcp = async (
     sessionId: string,
-    request: { url: string; serverName?: string; agentId?: string },
+    request: { url: string; serverName?: string },
   ) => {
-    if (!sources) throw new Error("This test gate serves no MCP credentials");
-    return authorizeSessionMcp(sources, session, sessionId, {
+    if (!options.credentials) throw new Error("This test gate serves no MCP credentials");
+    return authorizeSessionMcp(options.credentials, session, sessionId, {
       url: request.url,
       serverName: request.serverName ?? "",
-      ...(request.agentId === undefined ? {} : { agentId: request.agentId }),
     });
   };
   const keys = options.credentials

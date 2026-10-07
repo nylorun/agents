@@ -83,18 +83,17 @@ assistant responses and tool inputs/results, restores history, observes
 canonical SSE events, and cancels a turn. Each session shows chat beside an
 **Events** inspector and an optional Agent Manifest tab. **Tenant settings** groups
 Overview, Models and Credentials. Credentials lists installation vaults and
-manages their URL-bound bearer or OAuth credentials through the Management API
+manages their URL-bound bearer credentials through the Management API
 (`@nylorun/admin/client`, `/v1/tenant/vaults`); Overview and Models use it too;
 secret reads return metadata only. Attach vaults explicitly using `vaultIds` when
 creating a session with the SDK or API. Studio-created sessions attach none.
-Personal MCP credentials come from the operator's external resolver. Use
-`nylorun mcp connect` for the installation's OAuth connection flow.
+A person's own keys go in their user vault, which only their sessions attach.
 
 Settings links use `/tenants/<id>/settings/overview`, `/settings/models` and
 `/settings/credentials` under the same Tenant prefix. Legacy `/settings` and
 `/vault` links redirect to Models and Credentials respectively, including embeds.
-Token streaming, media, an approvals UI, a session vault selector and a Studio
-OAuth Connect button are deferred.
+Token streaming, media, an approvals UI and a session vault selector are
+deferred.
 
 ## The image
 

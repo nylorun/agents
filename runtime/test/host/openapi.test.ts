@@ -54,10 +54,10 @@ it("documents every operation in one document, with who may call it; /v1/me in b
   const routes = tenantApi().openAPIRegistry.definitions.filter((d) => d.type === "route");
   expect(new Set([...runtime, ...management]).size).toBe(routes.length + 5);
   expect(runtime.filter((operation) => management.includes(operation))).toEqual(["GET /v1/me"]);
-  // The Management API is /v1/tenant/*, the OAuth callback, /v1/me and its document.
+  // The Management API is /v1/tenant/*, /v1/me and its document.
   for (const operation of management)
     expect(operation, operation).toMatch(
-      /^(GET|PUT|POST|DELETE) (\/v1\/tenant(\/|$)|\/v1\/oauth\/callback$|\/v1\/me$|\/openapi\/management\.json$)/,
+      /^(GET|PUT|POST|DELETE) (\/v1\/tenant(\/|$)|\/v1\/me$|\/openapi\/management\.json$)/,
     );
   for (const operation of runtime) expect(operation, operation).not.toMatch(/ \/v1\/tenant/);
   for (const document of [runtimeDocument(), managementDocument()])

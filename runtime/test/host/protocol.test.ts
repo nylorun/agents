@@ -60,25 +60,22 @@ it("C3: the Admin API's old paths require the protocol first, as any route does"
   expect(bad.status).toBe(426);
 });
 
-it("P13: the Host serves protocol 4 to 9 clients", async () => {
+it("P13: the Host serves protocol 4 to 10 clients", async () => {
   const { url } = await startTestHost({ module: createFakeModule() });
-  for (const version of ["4", "5", "6", "7", "8", "9"]) {
+  for (const version of ["4", "5", "6", "7", "8", "9", "10"]) {
     const { status } = await getJson(`${url}/v1/agents`, {
       headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: version },
     });
     expect(status, `protocol ${version}`).toBe(200);
   }
-  const ten = await getJson(`${url}/v1/agents`, {
-    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "10" },
+  const eleven = await getJson(`${url}/v1/agents`, {
+    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "11" },
   });
-  expect(ten.status).toBe(426);
-  // Only a capability link is served without the header (protocol 6), and the OAuth callback.
+  expect(eleven.status).toBe(426);
+  // Only a capability link is served without the header (protocol 6).
   const { [PROTOCOL_HEADER]: _protocol, ...unversioned } = tenantHeaders();
   const link = await getJson(`${url}/v1/artifact-links/not-a-token`, { headers: unversioned });
   expect(link.status).not.toBe(426);
-  // Nor the MCP OAuth callback a browser is sent back to (F9 C2), with no credential either.
-  const callback = await getJson(`${url}/v1/oauth/callback?state=s&code=c`, { headers: {} });
-  expect(callback.status).not.toBe(426);
   const noProtocol = await getJson(`${url}/v1/agents`, { headers: unversioned });
   expect(noProtocol.status).toBe(426);
 });

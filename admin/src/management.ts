@@ -34,8 +34,6 @@ import {
   type SeedTenantConfigResponse,
   type SelectHostModelRequest,
   type SigningKeyView,
-  type StartOAuthRequest,
-  type StartOAuthResponse,
   type TenantArtifactsView,
   type TenantSandboxView,
   type TenantStatus,
@@ -120,8 +118,6 @@ export interface ManagementVaults {
     ): Promise<CredentialInfo>;
     delete(vaultId: string, credentialId: string): Promise<{ id: string }>;
   };
-  /** Starts an MCP OAuth connect into an installation vault: open `authorizeUrl` in a browser. */
-  startOAuth(vaultId: string, request: StartOAuthRequest): Promise<StartOAuthResponse>;
 }
 
 export interface ManagementSigningKeys {
@@ -238,7 +234,6 @@ export class ManagementClient {
           call("POST", credential(vaultId, credentialId), withId(request)),
         delete: (vaultId, credentialId) => call("DELETE", credential(vaultId, credentialId)),
       },
-      startOAuth: (vaultId, request) => call("POST", `${vault(vaultId)}/oauth/start`, request),
     };
     this.signingKeys = {
       list: async () =>

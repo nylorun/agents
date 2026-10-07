@@ -30,7 +30,6 @@ const actingForBao = {
 
 type BootOpts = {
   vaultKek?: string | null;
-  vaultFetch?: typeof fetch;
   hostRoot?: string;
   tenantId?: string;
   retainRoot?: boolean;
@@ -41,7 +40,6 @@ async function boot(options: BootOpts = {}) {
     applicationKey: APP,
     managementKey: MANAGEMENT,
     vaultKek: options.vaultKek === undefined ? KEK : options.vaultKek,
-    ...(options.vaultFetch === undefined ? {} : { vaultFetch: options.vaultFetch }),
     ...(options.hostRoot ? { hostRoot: options.hostRoot } : {}),
     ...(options.tenantId ? { tenantId: options.tenantId } : {}),
     ...(options.retainRoot ? { retainRoot: true } : {}),
@@ -388,109 +386,6 @@ it("attaches only the session user's vaults and selects among matching urls", as
       status: "authorized",
       headers: { authorization: `Bearer ${BAO_TOKEN}` },
     });
-  } finally {
-    await runtime.close();
-    await rm(runtime.root, { recursive: true, force: true });
-  }
-});
-
-it("refreshes an oauth grant only at its token endpoint and does not return the new token", async () => {
-  const calls: { url: string; body: string }[] = [];
-  const runtime = await boot({
-    vaultFetch: (async (url, init) => {
-      calls.push({ url: String(url), body: String(init?.body ?? "") });
-      return new Response(
-        JSON.stringify({
-          access_token: "oauth-access-token-new-88aa",
-          expires_in: 3600,
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as typeof fetch,
-  });
-  try {
-    const agent = Agent({ id: "bot", name: "Bot" }).build();
-    expect(
-      (
-        await fetch(`${runtime.url}/v1/agents/bot`, {
-          method: "PUT",
-          headers: server,
-          body: JSON.stringify({
-            requestId: "agent",
-            manifest: agent.manifest,
-            implementationVersion: "dev",
-          }),
-        })
-      ).ok,
-    ).toBe(true);
-    const vault = await json(
-      await fetch(`${runtime.url}/v1/tenant/vaults`, {
-        method: "POST",
-        headers: management,
-        body: JSON.stringify({
-          requestId: "v",
-          idempotencyKey: "v",
-          name: "GitHub",
-          ownerUserId: "ada",
-        }),
-      }),
-    );
-    const vaultId = (vault.body as { id: string }).id;
-    const credential = await json(
-      await fetch(`${runtime.url}/v1/tenant/vaults/${vaultId}/credentials`, {
-        method: "POST",
-        headers: management,
-        body: JSON.stringify({
-          requestId: "c",
-          idempotencyKey: "c",
-          name: "oauth",
-          auth: {
-            type: "oauth",
-            url: URL,
-            accessToken: "oauth-access-token-old-11bb",
-            expiresAt: new Date(Date.now() - 1000).toISOString(),
-            refresh: {
-              tokenEndpoint: "https://auth.example.com/token",
-              clientId: "client",
-              refreshToken: "oauth-refresh-token-33cc",
-              tokenEndpointAuth: { type: "none" },
-            },
-          },
-        }),
-      }),
-    );
-    const credentialId = (credential.body as { id: string }).id;
-    expect(
-      (
-        await fetch(`${runtime.url}/v1/sessions/s1`, {
-          method: "PUT",
-          headers: server,
-          body: JSON.stringify({
-            requestId: "s",
-            agentId: "bot",
-            ownerUserId: "ada",
-            vaultIds: [vaultId],
-          }),
-        })
-      ).ok,
-    ).toBe(true);
-    const authorized = await runtime.authorize("s1", { url: URL });
-    expect(authorized).toMatchObject({
-      status: "authorized",
-      headers: { authorization: "Bearer oauth-access-token-new-88aa" },
-    });
-    expect(calls.map((call) => call.url)).toEqual([
-      "https://auth.example.com/token",
-    ]);
-    expect(calls[0]?.body).toContain("grant_type=refresh_token");
-    const read = await json(
-      await fetch(
-        `${runtime.url}/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`,
-        { headers: management },
-      ),
-    );
-    expect(JSON.stringify(read.body)).not.toContain("oauth-access-token-new-88aa");
-    expect(JSON.stringify(read.body)).not.toContain("oauth-refresh-token-33cc");
   } finally {
     await runtime.close();
     await rm(runtime.root, { recursive: true, force: true });

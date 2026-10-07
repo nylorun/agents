@@ -69,8 +69,7 @@ answer was lost with the gateway is `uncertain` and never sent again.
 `credential` works as for a remote MCP server: the session's attached vaults
 must hold a credential bound to the tool's exact URL (a `credentialSelections`
 entry whose `serverName` is the `credential` picks one when several are), else
-the operator's credential resolver is asked; without one the call fails before
-it is sent. `approval: "always"` pauses the turn for `session.approve()`; a
+the call fails before it is sent. `approval: "always"` pauses the turn for `session.approve()`; a
 denied call never runs and the model sees the denial. A remote MCP server takes
 `approval: "always"` too, for every one of its tools:
 `.mcp({ shop: { type: "streamable-http", url, approval: "always" } })`.
@@ -618,7 +617,7 @@ nothing, and no subject reaches the Management API (`/v1/tenant/*`). Vaults are
 the installation's, created through the Management API with a management key
 (`admin.vaults.create({ scope: "installation", … })` in
 [`@nylorun/admin`](../admin/README.md)); a session attaches them with
-`vaultIds`, and a person's own credentials come from your credential resolver
+`vaultIds`, and a person's own keys go in their user vault
 ([DEPLOYMENT.md](../DEPLOYMENT.md#credentials)). A subject is 1–200 visible ASCII
 characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act

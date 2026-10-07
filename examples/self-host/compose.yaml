@@ -1,11 +1,10 @@
-# The self-host example stack (README.md): Keycloak, oauth2-proxy in front of Studio, OpenBao
-# and a sample credential resolver, beside a Tenant that `nylorun start --tenant selfhost` runs.
-# Development settings throughout (fixed secrets, OpenBao in dev mode, plain HTTP on loopback):
-# never use them as they are on a server.
+# The self-host example stack (README.md): Keycloak and oauth2-proxy in front of Studio, beside a
+# Tenant that `nylorun start --tenant selfhost` runs. Development settings throughout (fixed
+# secrets, plain HTTP on loopback): never use them as they are on a server.
 #
 # Every service joins the Tenant's Compose network (nylorun-<tenant>), so the Tenant's runtime
-# reaches Keycloak's keys, its gateway reaches the resolver, and oauth2-proxy reaches Studio. Start
-# the Tenant first: the network must exist.
+# reaches Keycloak's keys and oauth2-proxy reaches Studio. Start the Tenant first: the network
+# must exist.
 name: nylorun-selfhost-example
 
 services:
@@ -68,33 +67,6 @@ services:
       - --cookie-secure=false # plain HTTP on localhost only; serve the proxy over HTTPS elsewhere
     ports:
       - "127.0.0.1:4180:4180"
-    networks: [default, tenant]
-
-  openbao: # the secret store: KV v2 at secret/, dev mode (in memory, root token below)
-    image: openbao/openbao:2.7.1
-    command: ["server", "-dev"]
-    environment:
-      BAO_DEV_ROOT_TOKEN_ID: selfhost-example-root-token
-      BAO_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
-    cap_add: [IPC_LOCK]
-    ports:
-      - "127.0.0.1:8200:8200"
-    networks: [default]
-
-  resolver: # answers the gateway's credential lookups from OpenBao (resolver/resolver.mjs)
-    image: node:24-alpine
-    command: ["node", "/app/resolver.mjs"]
-    depends_on: [openbao]
-    environment:
-      PORT: "8090"
-      # The same value as NYLORUN_RESOLVER_TOKEN in the shell that runs nylorun start.
-      RESOLVER_TOKEN: ${NYLORUN_RESOLVER_TOKEN:-selfhost-example-resolver-token}
-      BAO_ADDR: http://openbao:8200
-      BAO_TOKEN: selfhost-example-root-token
-    volumes:
-      - ./resolver/resolver.mjs:/app/resolver.mjs:ro
-    ports:
-      - "127.0.0.1:8090:8090" # for smoke.sh; the gateway uses http://resolver:8090
     networks: [default, tenant]
 
 networks:

@@ -345,33 +345,17 @@ describe("parseStackConfig for --service gates", () => {
     ).toBeUndefined();
   });
 
-  it("reads the credential resolver, both settings or neither, and treats empty as unset", () => {
-    const resolver = {
-      NYLORUN_RESOLVER_URL: "http://resolver.internal:8080/resolve",
-      NYLORUN_RESOLVER_TOKEN: "resolver-token",
-    };
-    expect(parseStackConfig({ ...gateway, ...resolver }, ["--service", "gates,keys"]).gates?.resolver).toEqual({
-      url: "http://resolver.internal:8080/resolve",
-      token: "resolver-token",
-    });
-    // Compose's `${NYLORUN_RESOLVER_URL:-}` passes empty strings when unset.
+  it("names the removed credential resolver's variables instead of failing, and treats empty as unset", () => {
+    // Protocol 10: the Host logs `resolver_removed` and ignores them, on any service.
+    const resolver = { NYLORUN_RESOLVER_TOKEN: "resolver-token", NYLORUN_RESOLVER_TIMEOUT: "5" };
+    const config = parseStackConfig({ ...gateway, ...resolver }, ["--service", "gates,keys"]);
+    expect(config.removedResolverVariables).toEqual(["NYLORUN_RESOLVER_TIMEOUT", "NYLORUN_RESOLVER_TOKEN"]);
+    expect(config.gates).not.toHaveProperty("resolver");
+    expect(parseStackConfig({ ...resolver }, ["--service", "core,loop"]).removedResolverVariables).toHaveLength(2);
+    // Compose's `${NYLORUN_RESOLVER_TOKEN:-}` passes empty strings when unset.
     expect(
-      parseStackConfig(
-        { ...gateway, NYLORUN_RESOLVER_URL: "", NYLORUN_RESOLVER_TOKEN: "" },
-        ["--service", "gates"],
-      ).gates,
-    ).not.toHaveProperty("resolver");
-    expect(() =>
-      parseStackConfig({ ...gateway, NYLORUN_RESOLVER_URL: resolver.NYLORUN_RESOLVER_URL }, ["--service", "gates"]),
-    ).toThrow(/NYLORUN_RESOLVER_TOKEN is required/);
-    expect(() =>
-      parseStackConfig({ ...gateway, NYLORUN_RESOLVER_TOKEN: "t" }, ["--service", "gates"]),
-    ).toThrow(/without NYLORUN_RESOLVER_URL/);
-    expect(() =>
-      parseStackConfig({ ...gateway, ...resolver, NYLORUN_RESOLVER_URL: "ftp://x" }, ["--service", "gates"]),
-    ).toThrow(/NYLORUN_RESOLVER_URL must use http or https/);
-    // Core never reads it: remote MCP calls are authorized in the gateway.
-    expect(parseStackConfig({ ...resolver }, ["--service", "core,loop"]).gates).toBeUndefined();
+      parseStackConfig({ ...gateway, NYLORUN_RESOLVER_TOKEN: "" }, ["--service", "gates"]),
+    ).not.toHaveProperty("removedResolverVariables");
   });
 });
 

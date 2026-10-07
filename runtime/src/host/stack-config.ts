@@ -15,8 +15,8 @@
  * `NYLORUN_GATES_TOKEN`. In a container, loop requires the gate: the loop
  * process must never hold a model credential. `egress` (egress-gate, F7.2) joins gates and keys
  * in the gateway and parses its listener (`NYLORUN_EGRESS_LISTEN_*`, default `0.0.0.0:4200`).
- * Only gates reads the operator's credential resolver (`NYLORUN_RESOLVER_URL`,
- * `NYLORUN_RESOLVER_TOKEN`, F9 C1): remote MCP calls are authorized in the gateway.
+ * The credential resolver is gone (protocol 10): its `NYLORUN_RESOLVER_*` variables are ignored,
+ * and the Host logs `resolver_removed` when one is set.
  *
  * `harness` (F6.2) runs alone: it holds the harness credential and nothing else. It connects to
  * core's Harness API listener (`NYLORUN_HARNESS_URL`, `NYLORUN_HARNESS_TOKEN`), calls models and
@@ -137,11 +137,6 @@ export interface GatesConfig {
   listen: ContainerListen;
   /** `NYLORUN_GATES_TOKEN`: the bearer the loop presents; at least 32 bytes as hex. */
   token: string;
-  /**
-   * The operator's credential resolver (`NYLORUN_RESOLVER_URL`, `NYLORUN_RESOLVER_TOKEN`), asked
-   * for a person's MCP credential when the session's vaults hold none (F9 C1). Absent: vaults only.
-   */
-  resolver?: { url: string; token: string };
 }
 
 /** egress-gate's listener (`NYLORUN_EGRESS_LISTEN_HOST`, `NYLORUN_EGRESS_LISTEN_PORT`). */
@@ -252,6 +247,11 @@ export interface StackConfig {
   packing?: "combined" | "split";
   /** Set when the process was started with the deprecated `--role` (logged at startup). */
   deprecatedRole?: RuntimeRole;
+  /**
+   * The removed credential resolver's variables (`NYLORUN_RESOLVER_*`, protocol 10) the
+   * environment still sets: ignored, and logged at startup as `resolver_removed`.
+   */
+  removedResolverVariables?: string[];
   /** Present in container mode; absent means bind what host.json names. */
   listen?: ContainerListen;
   endpoints: StackEndpoints;
@@ -572,9 +572,13 @@ export function parseStackConfig(
   const delivery = parseDelivery(env);
   const tenant = servesApi ? parseTenant(env) : undefined;
   const objectStore = parseObjectStore(env);
+  const removedResolverVariables = Object.keys(env)
+    .filter((name) => name.startsWith(REMOVED_RESOLVER_PREFIX) && read(env, name) !== undefined)
+    .sort();
   return {
     services,
     ...(deprecatedRole ? { deprecatedRole } : {}),
+    ...(removedResolverVariables.length ? { removedResolverVariables } : {}),
     ...(gates ? { gates } : {}),
     ...(egress ? { egress } : {}),
     ...(modelGate ? { modelGate } : {}),
@@ -817,32 +821,14 @@ function parseGates(env: EnvSnapshot): GatesConfig {
     );
   if (!GATES_TOKEN.test(token))
     throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");
-  const resolver = parseResolver(env);
   return {
     listen: { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] },
     token,
-    ...(resolver ? { resolver } : {}),
   };
 }
 
-/** `GatesConfig.resolver` from `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN`: both or neither. */
-function parseResolver(env: EnvSnapshot): { url: string; token: string } | undefined {
-  const url = parseUrl(env, "NYLORUN_RESOLVER_URL", ["http:", "https:"]);
-  const token = read(env, "NYLORUN_RESOLVER_TOKEN");
-  if (url === undefined) {
-    if (token !== undefined)
-      throw new StackConfigError(
-        "NYLORUN_RESOLVER_TOKEN is set without NYLORUN_RESOLVER_URL: set the URL of your credential resolver",
-      );
-    return undefined;
-  }
-  if (token === undefined)
-    throw new StackConfigError(
-      "NYLORUN_RESOLVER_TOKEN is required with NYLORUN_RESOLVER_URL: the bearer the gateway presents to your credential resolver",
-    );
-  if (/\s/.test(token)) throw new StackConfigError("NYLORUN_RESOLVER_TOKEN cannot contain whitespace");
-  return { url, token };
-}
+/** The prefix of the credential resolver's variables (removed in protocol 10). */
+const REMOVED_RESOLVER_PREFIX = "NYLORUN_RESOLVER_";
 
 /** `StackConfig.egress` from `NYLORUN_EGRESS_LISTEN_*`. CONNECT has no Host header to check. */
 function parseEgress(env: EnvSnapshot): EgressConfig {

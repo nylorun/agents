@@ -43,8 +43,6 @@ import {
   CredentialInfoSchema,
   ListCredentialsResponseSchema,
   RotateCredentialRequestSchema,
-  StartOAuthRequestSchema,
-  StartOAuthResponseSchema,
   DeletedResponseSchema,
   ListAgentsResponseSchema,
   ListPublicAgentsResponseSchema,
@@ -192,8 +190,6 @@ export const CreateCredentialRequest = named("CreateCredentialRequest", CreateCr
 export const CredentialInfo = named("CredentialInfo", CredentialInfoSchema);
 export const ListCredentialsResponse = named("ListCredentialsResponse", ListCredentialsResponseSchema);
 export const RotateCredentialRequest = named("RotateCredentialRequest", RotateCredentialRequestSchema);
-export const StartOAuthRequest = named("StartOAuthRequest", StartOAuthRequestSchema);
-export const StartOAuthResponse = named("StartOAuthResponse", StartOAuthResponseSchema);
 export const DeletedResponse = named("DeletedResponse", DeletedResponseSchema);
 
 export const Jwks = named("Jwks", JwksSchema);

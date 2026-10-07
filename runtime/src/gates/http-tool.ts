@@ -239,10 +239,8 @@ export async function runHttpTool(
     let credential: Record<string, string> = {};
     if (http.credential !== undefined) {
       const authorized = await tenant.authorize(tool.sessionId, {
-        kind: "http",
         url: http.url,
         serverName: http.credential,
-        ...(agentId === undefined ? {} : { agentId }),
       });
       if (authorized.status === "refused")
         return failed("http.credential", `The credential '${http.credential}' was refused: ${authorized.reason}`);

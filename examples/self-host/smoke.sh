@@ -6,24 +6,18 @@
 #   2. ben's token is a trusted issuer's: GET /v1/me renders its subject, scopes and sandbox grants.
 #   3. A backend's operator key acts for any subject (Nylorun-Subject); browsers cannot use it.
 #   4. ben's token sees only ben's sessions, and reaches no vault route.
-#   5. ben's own MCP credential comes from OpenBao through the resolver, on the resolver contract.
-#   6. Studio, through oauth2-proxy, admits ada (studio scope) and refuses ben.
+#   5. Studio, through oauth2-proxy, admits ada (studio scope) and refuses ben.
 #
 # Environment (defaults match compose.yaml): NYLORUN_TENANT (selfhost), NYLORUN_CLI (npx --yes
 # nylorun), RUNTIME_URL (from nylorun status), NYLORUN_KEY (else `nylorun key put smoke`, which
-# rotates that key), KEYCLOAK_URL, PROXY_URL, RESOLVER_URL, NYLORUN_RESOLVER_TOKEN, BAO_ADDR,
-# BAO_TOKEN.
+# rotates that key), KEYCLOAK_URL, PROXY_URL.
 set -euo pipefail
 
 TENANT=${NYLORUN_TENANT:-selfhost}
 NYLORUN=${NYLORUN_CLI:-npx --yes nylorun}
 KEYCLOAK_URL=${KEYCLOAK_URL:-http://localhost:8180}
 PROXY_URL=${PROXY_URL:-http://localhost:4180}
-RESOLVER_URL=${RESOLVER_URL:-http://localhost:8090}
-RESOLVER_TOKEN=${NYLORUN_RESOLVER_TOKEN:-selfhost-example-resolver-token}
-BAO_ADDR=${BAO_ADDR:-http://localhost:8200}
-BAO_TOKEN=${BAO_TOKEN:-selfhost-example-root-token}
-PROTOCOL=9
+PROTOCOL=10
 RUN="$(date +%s)-$$"
 
 work=$(mktemp -d)
@@ -141,35 +135,7 @@ rt GET /v1/tenant/vaults "$BEN"
 expect 403 "GET /v1/tenant/vaults (the Management API) with ben's token"
 pass "ben's token lists only his sessions, gets 404 for another's, and reaches no vault route"
 
-# 5. ben's own MCP credential, from OpenBao through the resolver.
-GITHUB_TOKEN="ghp_smoke_$RUN"
-OWNER_PATH=$(node -p 'encodeURIComponent(process.argv[1])' "$BEN_SUBJECT")
-call POST "$BAO_ADDR/v1/secret/data/nylorun/$OWNER_PATH/github" -H "X-Vault-Token: $BAO_TOKEN" \
-  -H "content-type: application/json" -d "$(json_of '{ data: { token: a[0] } }' "$GITHUB_TOKEN")"
-expect 200 "writing ben's GitHub token to OpenBao"
-lookup() {
-  call POST "$RESOLVER_URL/" -H "Authorization: Bearer $1" -H "content-type: application/json" \
-    -d "$(json_of '{ owner: a[0], session: a[1], turn: null,
-      target: { kind: "mcp", server: a[2], agent: a[3], url: "https://mcp.example.com/mcp" } }' "$2" "$OWN" "$3" "$AGENT")"
-}
-lookup "$RESOLVER_TOKEN" "$BEN_SUBJECT" github
-expect 200 "the resolver for ben's github"
-check "v.headers.authorization === \"Bearer $GITHUB_TOKEN\"" "the resolver answers ben's token as a bearer header"
-lookup "$RESOLVER_TOKEN" "$OTHER_SUBJECT" github
-expect 404 "the resolver for a person without a github token"
-lookup "wrong-token" "$BEN_SUBJECT" github
-expect 401 "the resolver with a wrong bearer"
-if docker exec "nylorun-$TENANT-gateway" node -e '
-  const url = process.env.NYLORUN_RESOLVER_URL;
-  if (!url) { console.error("NYLORUN_RESOLVER_URL is not set on the gateway"); process.exit(1); }
-  fetch(new URL("/healthz", url), { signal: AbortSignal.timeout(5000) })
-    .then((r) => process.exit(r.ok ? 0 : 1), (e) => { console.error(String(e)); process.exit(1); });'; then
-  pass "the resolver answers the contract (200 with headers, 404, 401), and the gateway reaches it"
-else
-  die "the gateway (nylorun-$TENANT-gateway) cannot reach its resolver: start the Tenant with NYLORUN_RESOLVER_URL=http://resolver:8090 and NYLORUN_RESOLVER_TOKEN set"
-fi
-
-# 6. Studio through oauth2-proxy (Studio verifies the forwarded token with GET /v1/me).
+# 5. Studio through oauth2-proxy (Studio verifies the forwarded token with GET /v1/me).
 call GET "$PROXY_URL/_studio/hello"
 [ "$status" != 200 ] || die "Studio through the proxy answered 200 without a credential"
 call GET "$PROXY_URL/_studio/hello" -H "Authorization: Bearer $BEN"

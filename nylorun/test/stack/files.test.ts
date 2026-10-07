@@ -190,12 +190,8 @@ describe("compose.yaml", () => {
     expect(compose.match(/NYLORUN_PACKING: combined/g)).toHaveLength(2);
   });
 
-  it("gives the credential resolver's settings to the gateway only, unset by default", () => {
-    const gateway = compose.slice(compose.indexOf("\n  gateway:"), compose.indexOf("\n  runtime:"));
-    expect(gateway).toContain("NYLORUN_RESOLVER_URL: ${NYLORUN_RESOLVER_URL:-}");
-    expect(gateway).toContain("NYLORUN_RESOLVER_TOKEN: ${NYLORUN_RESOLVER_TOKEN:-}");
-    expect(compose.match(/^ +NYLORUN_RESOLVER_URL:/gm)).toHaveLength(1);
-    expect(compose.match(/^ +NYLORUN_RESOLVER_TOKEN:/gm)).toHaveLength(1);
+  it("passes no credential resolver settings (removed in protocol 10)", () => {
+    expect(compose).not.toContain("NYLORUN_RESOLVER_");
   });
 
   it("mounts only the Tenant directory into the gateway, read-only, and never the admin key", () => {

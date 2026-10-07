@@ -243,9 +243,6 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: `${vault}/credentials/crd-missing` },
     { method: "POST", path: `${vault}/credentials/crd-missing`, body: INVALID },
     { method: "DELETE", path: `${vault}/credentials/crd-missing` },
-    // MCP OAuth connect (F9 C2): an invalid body, and a state that was never issued.
-    { method: "POST", path: `${vault}/oauth/start`, body: INVALID },
-    { method: "GET", path: "/v1/oauth/callback?state=matrix-state&code=matrix-code" },
     { method: "GET", path: "/v1/access/jwks" },
     { method: "GET", path: "/v1/me" },
     { method: "GET", path: "/v1/tenant/signing-keys" },
@@ -295,6 +292,9 @@ function edgeOperations(): Operation[] {
     { method: "GET", path: "/v1/vaults/vlt-missing" },
     { method: "DELETE", path: "/v1/vaults/vlt-missing" },
     { method: "POST", path: "/v1/vaults/vlt-missing/oauth/start", body: INVALID },
+    // MCP OAuth connect (protocol 10): gone.
+    { method: "POST", path: `/v1/tenant/vaults/${vaultId}/oauth/start`, body: INVALID },
+    { method: "GET", path: "/v1/oauth/callback?state=matrix-state&code=matrix-code" },
     { method: "GET", path: "/v1/access/signing-keys" },
     { method: "POST", path: "/v1/access/signing-keys/rotate", body: INVALID },
     { method: "GET", path: "/v1/sessions/missing/unknown" },

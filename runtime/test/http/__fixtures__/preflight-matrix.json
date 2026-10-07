@@ -219,14 +219,6 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/tenant/vaults/<vault>/oauth/start": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "GET /v1/oauth/callback?state=matrix-state&code=matrix-code": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
   "GET /v1/access/jwks": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"

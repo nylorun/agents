@@ -4,7 +4,7 @@ import { VaultError } from "../src/vault/error.js";
 import { HostModelVault } from "../src/vault/host-model.js";
 import { VaultService } from "../src/vault/service.js";
 import { hostModelCatalog } from "../src/model/catalog.js";
-import { createTestSessionStore, openTestSessionStore } from "./support/store.js";
+import { createTestSessionStore } from "./support/store.js";
 
 const KEK = Buffer.alloc(32, 9);
 const ADA_TOKEN = "ada-vault-plaintext-token-7f3c9a2e";
@@ -33,29 +33,15 @@ function tracked(inner: SessionStore) {
   return { store, inTx: () => open > 0 };
 }
 
-async function setup(options: { fetch?: typeof fetch } = {}) {
+async function setup() {
   const { store, inTx } = tracked(await createTestSessionStore());
   const kekCalls: boolean[] = [];
-  const fetchCalls: { url: string; body: string; inTx: boolean }[] = [];
-  const fetchImpl =
-    options.fetch ??
-    ((async () => {
-      throw new Error("unexpected fetch");
-    }) as unknown as typeof fetch);
   const vault = new VaultService({
     store,
     kek: () => {
       kekCalls.push(inTx());
       return KEK;
     },
-    fetch: (async (url: string | URL | Request, init?: RequestInit) => {
-      fetchCalls.push({
-        url: String(url),
-        body: String(init?.body ?? ""),
-        inTx: inTx(),
-      });
-      return fetchImpl(url, init);
-    }) as typeof fetch,
   });
   const read = <T>(fn: (t: Tx) => Promise<T>) => store.tx(fn);
   // What only the Model Gate holds: the host model's secret in plaintext.
@@ -66,7 +52,7 @@ async function setup(options: { fetch?: typeof fetch } = {}) {
       return KEK;
     },
   });
-  return { vault, hostModel, store, read, kekCalls, fetchCalls };
+  return { vault, hostModel, store, read, kekCalls };
 }
 
 async function bearer(
@@ -166,15 +152,6 @@ describe("VaultService administration", () => {
       auth: { type: "bearer", token: "rotated-token-5511" },
     });
     expect(rotated.rotatedAt).toBeDefined();
-    expect(
-      await status(
-        vault.rotateCredential(vaultId, credentialId, {
-          requestId: "r2",
-          idempotencyKey: "r2",
-          auth: { type: "oauth", accessToken: "x" },
-        }),
-      ),
-    ).toBe(409);
     const session = { sessionId: "s1", vaultIds: [vaultId], credentialSelections: [] };
     expect(await vault.authorize({ ...session, url: URL })).toMatchObject({
       status: "authorized",
@@ -373,223 +350,6 @@ describe("VaultService authorize", () => {
       action: "use",
       credentialId: ada.credentialId,
       outcome: "refused",
-    });
-  });
-
-  it("refreshes an oauth grant at its token endpoint outside any transaction", async () => {
-    const { vault, read, fetchCalls, kekCalls } = await setup({
-      fetch: (async () =>
-        new Response(
-          JSON.stringify({
-            access_token: "oauth-access-token-new-88aa",
-            expires_in: 3600,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        )) as unknown as typeof fetch,
-    });
-    const created = await vault.createVault({
-      requestId: "v",
-      idempotencyKey: "v",
-      name: "GitHub",
-      ownerUserId: "ada",
-    });
-    const credential = await vault.createCredential(created.id, {
-      requestId: "c",
-      idempotencyKey: "c",
-      name: "oauth",
-      auth: {
-        type: "oauth",
-        url: URL,
-        accessToken: "oauth-access-token-old-11bb",
-        expiresAt: new Date(Date.now() - 1000).toISOString(),
-        refresh: {
-          tokenEndpoint: "https://auth.example.com/token",
-          clientId: "client",
-          refreshToken: "oauth-refresh-token-33cc",
-          tokenEndpointAuth: { type: "none" },
-        },
-      },
-    });
-    const input = {
-      sessionId: "s1",
-      vaultIds: [created.id],
-      credentialSelections: [],
-      url: URL,
-    };
-    expect(await vault.authorize(input)).toEqual({
-      status: "authorized",
-      url: URL,
-      headers: { authorization: "Bearer oauth-access-token-new-88aa" },
-    });
-    expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0]).toMatchObject({
-      url: "https://auth.example.com/token",
-      inTx: false,
-    });
-    expect(fetchCalls[0]!.body).toContain("grant_type=refresh_token");
-    expect(kekCalls.every((inTx) => !inTx)).toBe(true);
-    const info = await vault.getCredential(created.id, credential.id);
-    expect(Date.parse(info.expiresAt!)).toBeGreaterThan(Date.now());
-    expect(JSON.stringify(info)).not.toContain("oauth-access-token-new-88aa");
-    expect(JSON.stringify(info)).not.toContain("oauth-refresh-token-33cc");
-    // The stored token is fresh now, so the next use does not refresh.
-    expect(await vault.authorize(input)).toMatchObject({ status: "authorized" });
-    expect(fetchCalls).toHaveLength(1);
-    const audit = (await read((t) => t.vaultAudit({ vaultId: created.id }))).map(
-      (row) => `${row.action}:${row.outcome}`,
-    );
-    expect(audit).toEqual([
-      "create:created",
-      "create:created",
-      "refresh:approved",
-      "use:approved",
-      "use:approved",
-    ]);
-  });
-
-  it("refuses and audits a failed refresh, keeping the credential", async () => {
-    const { vault, read } = await setup({
-      fetch: (async () =>
-        new Response("nope", { status: 500 })) as unknown as typeof fetch,
-    });
-    const created = await vault.createVault({
-      requestId: "v",
-      idempotencyKey: "v",
-      name: "GitHub",
-      ownerUserId: "ada",
-    });
-    const credential = await vault.createCredential(created.id, {
-      requestId: "c",
-      idempotencyKey: "c",
-      name: "oauth",
-      auth: {
-        type: "oauth",
-        url: URL,
-        accessToken: "old",
-        expiresAt: new Date(Date.now() - 1000).toISOString(),
-        refresh: {
-          tokenEndpoint: "https://auth.example.com/token",
-          clientId: "client",
-          refreshToken: "refresh",
-          tokenEndpointAuth: { type: "none" },
-        },
-      },
-    });
-    expect(
-      await vault.authorize({
-        sessionId: "s1",
-        vaultIds: [created.id],
-        credentialSelections: [],
-        url: URL,
-      }),
-    ).toEqual({
-      status: "refused",
-      url: URL,
-      credentialIds: [credential.id],
-      reason: "refresh_failed",
-    });
-    expect((await read((t) => t.vaultAudit())).at(-1)).toMatchObject({
-      action: "refresh",
-      credentialId: credential.id,
-      target: "https://auth.example.com/token",
-      outcome: "refresh_failed",
-    });
-    expect(await vault.getCredential(created.id, credential.id)).toBeDefined();
-  });
-});
-
-describe("VaultService OAuth refresh races", () => {
-  const ok = (token: string) =>
-    new Response(JSON.stringify({ access_token: token, expires_in: 3600, refresh_token: `${token}-r` }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-
-  /** An OAuth credential whose access token has expired. */
-  async function expired(vault: VaultService) {
-    const created = await vault.createVault({
-      requestId: "v",
-      idempotencyKey: "v",
-      name: "GitHub",
-      ownerUserId: "ada",
-    });
-    await vault.createCredential(created.id, {
-      requestId: "c",
-      idempotencyKey: "c",
-      name: "oauth",
-      auth: {
-        type: "oauth",
-        url: URL,
-        accessToken: "old",
-        expiresAt: new Date(Date.now() - 1000).toISOString(),
-        refresh: {
-          tokenEndpoint: "https://auth.example.com/token",
-          clientId: "client",
-          refreshToken: "single-use-refresh-token",
-          tokenEndpointAuth: { type: "none" },
-        },
-      },
-    });
-    return { sessionId: "s1", vaultIds: [created.id], credentialSelections: [], url: URL };
-  }
-
-  it("refreshes once for concurrent uses of an expired grant", async () => {
-    let release!: () => void;
-    const answered = new Promise<void>((resolve) => (release = resolve));
-    const { vault, fetchCalls } = await setup({
-      fetch: (async () => {
-        await answered;
-        return ok("fresh");
-      }) as unknown as typeof fetch,
-    });
-    const input = await expired(vault);
-    const uses = [vault.authorize(input), vault.authorize(input), vault.authorize(input)];
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    release();
-    for (const result of await Promise.all(uses))
-      expect(result).toMatchObject({ headers: { authorization: "Bearer fresh" } });
-    expect(fetchCalls).toHaveLength(1);
-  });
-
-  it("uses the token another process refreshed when its own refresh token was spent", async () => {
-    const store = await createTestSessionStore();
-    // Another Runtime process, with its own store on the same Tenant, wins the race.
-    const winner = new VaultService({
-      store: await openTestSessionStore({ root: "", tenantId: store.tenantId }),
-      kek: () => KEK,
-      fetch: (async () => ok("winner")) as unknown as typeof fetch,
-    });
-    let input!: Awaited<ReturnType<typeof expired>>;
-    const loser = new VaultService({
-      store,
-      kek: () => KEK,
-      fetch: (async () => {
-        await winner.authorize(input);
-        return new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
-      }) as unknown as typeof fetch,
-    });
-    input = await expired(loser);
-    expect(await loser.authorize(input)).toMatchObject({
-      status: "authorized",
-      headers: { authorization: "Bearer winner" },
-    });
-  });
-
-  it("refuses a refresh whose token endpoint does not answer in time", async () => {
-    const store = await createTestSessionStore();
-    const vault = new VaultService({
-      store,
-      kek: () => KEK,
-      refreshTimeoutMs: 50,
-      fetch: ((_url: string, init?: RequestInit) =>
-        new Promise((_, reject) =>
-          init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)),
-        )) as unknown as typeof fetch,
-    });
-    const input = await expired(vault);
-    expect(await vault.authorize(input)).toMatchObject({
-      status: "refused",
-      reason: "refresh_failed",
     });
   });
 });

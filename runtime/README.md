@@ -86,11 +86,11 @@ is refused with `409 run_stale`. A `gates` process needs only
 `NYLORUN_DATABASE_URL`, `NYLORUN_GATES_TOKEN`, its listener
 (`NYLORUN_GATES_LISTEN_HOST`, `NYLORUN_GATES_LISTEN_PORT`, default 4100, and
 `NYLORUN_GATES_ALLOWED_HOSTS`) and the Host's `tenant/` directory, which it
-never writes; it serves the database's one Tenant. `NYLORUN_RESOLVER_URL` and
-`NYLORUN_RESOLVER_TOKEN` (both or neither, gates only) name the operator's
-credential resolver, which the gate asks for a person's MCP credential when the
-session's vaults hold none ([DEPLOYMENT.md](../DEPLOYMENT.md#credentials)); an
-embedding or `startEphemeralRuntime` takes `resolver: { url, token }` instead. With `egress`
+never writes; it serves the database's one Tenant. A session's MCP servers and
+HTTP tools get their credentials from its attached vaults only
+([DEPLOYMENT.md](../DEPLOYMENT.md#credentials)); the credential resolver is gone
+(protocol 10), and a process that still sets a `NYLORUN_RESOLVER_*` variable logs
+`resolver_removed` and ignores it. With `egress`
 (`--service gates,keys,egress`, for pod sandboxes) the same process runs
 egress-gate on `NYLORUN_EGRESS_LISTEN_HOST`:`NYLORUN_EGRESS_LISTEN_PORT`
 (default `0.0.0.0:4200`): a CONNECT proxy that admits a pod's egress token and
@@ -142,8 +142,6 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 | `/v1/*` Runtime API routes (all but `/v1/tenant/*`) | application key or trusted issuer's token | Require `Nylorun-Protocol`; nothing names the Tenant. A management key is `403 key_role_mismatch`, except on `/v1/me` and the public `GET /v1/access/jwks` |
 | `/v1/tenant/*` Management API routes | management key | Require `Nylorun-Protocol`. An application key, alone or acting for a subject, is `403 key_role_mismatch`; a management key with `Nylorun-Subject` or `Nylorun-Scopes` is `403 subject_invalid` |
 | `PUT /v1/tenant/keys/{keyId}` | management key | Creates application key `keyId` or rotates it, and returns it once; `GET /v1/tenant/keys` lists every key (id, role, when issued, never the keys) and `DELETE` deletes one. `studio`, `bootstrap` and management keys are refused |
-| `POST /v1/tenant/vaults/{vaultId}/oauth/start` | management key | MCP OAuth connect into an installation vault (F9 C2): `{url, server, clientId?}` → `{authorizeUrl, expiresAt}`; the gateway's keys module does discovery, registration and the exchange. `oauth_client_required` without DCR or a `clientId` |
-| `GET /v1/oauth/callback` | the `state` itself | Where the authorization server sends the browser back: no credential, no `Nylorun-Protocol`; finishes the connect once (`oauth_state_invalid` after) and answers a small HTML page. Its base is `NYLORUN_PUBLIC_URL`, else the start request's origin |
 | `GET /v1/artifact-links/{token}` | the link itself | A capability link to one artifact version (protocol 6): no credential, no `Nylorun-Protocol`, Range supported; a folder's link opens its zip, or one of its files |
 
 Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodies
@@ -155,7 +153,8 @@ are refused from browsers before they are looked up. The Runtime sends no CORS h
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
 ([DEPLOYMENT.md](../DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
 unsupported protocol → `426` before authentication, unless the request sends neither
-`Nylorun-Protocol` nor `Authorization` (the Host serves protocols 4 to 9; protocol 9 makes the
+`Nylorun-Protocol` nor `Authorization` (the Host serves protocols 4 to 10; protocol 10 removes
+the MCP OAuth connect, the vault's `oauth` credentials and the credential resolver; protocol 9 makes the
 Runtime API an OAuth 2.1 resource server: a missing or rejected credential is `401
 credential_required` or `credential_invalid` with a `WWW-Authenticate: Bearer` challenge, a
 token without a route's scope gets `error="insufficient_scope"`, and

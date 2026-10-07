@@ -1370,7 +1370,7 @@ async function ensureSelected(ctx: Context, options: { studio: boolean }): Promi
   };
 }
 
-/** The running Tenant's APIs and their keys (`nylorun sandbox`, `nylorun mcp`). */
+/** The running Tenant's APIs and their keys (`nylorun sandbox`). */
 export interface TenantApi {
   /** The Tenant's name. */
   name: string;

@@ -113,6 +113,13 @@
       "when": 1791296131735,
       "tag": "0015_control_signals",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791395759051,
+      "tag": "0016_mcp_oauth_removed",
+      "breakpoints": true
     }
   ]
 }

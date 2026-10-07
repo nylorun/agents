@@ -27,8 +27,8 @@ _Avoid_: "Tenant API" for the whole surface (say which API), "SDK API" or "appli
 
 **Management API**: The Tenant's routes for operators, `/v1/tenant/*` (status, seed and
 reset, models, usage and budgets, vaults, signing keys, sandbox and artifact settings,
-application keys), plus the keyless `GET /v1/oauth/callback` (protocol 8; its routes'
-credentials are `management`, `RouteAccess` in `api/http/define.ts`). It takes management
+application keys) (protocol 8; its routes' credentials are `management`, `RouteAccess` in
+`api/http/define.ts`). It takes management
 keys only: an application key,
 alone or acting for a subject, is `403 key_role_mismatch`. Client package: `@nylorun/admin`.
 Reference: `/openapi/management.json`.
@@ -182,27 +182,13 @@ sessions. The `host` model vault is neither: it
 is never listed or attached.
 _Avoid_: "shared vault", "org vault".
 
-**MCP OAuth connect**: Signing the installation in to a remote MCP server with OAuth
-(F9 C2, `vault/oauth.ts`, `VaultService.startOAuth`/`finishOAuth`, `nylorun mcp
-connect`): discovery (RFC 9728, RFC 8414), a client (the given `clientId`, else dynamic
-registration, else `oauth_client_required`), S256 PKCE and a `state` kept hashed for ten
-minutes in `oauth_pending` (verifier and client secret sealed), then the callback
-exchanges the code once and seals an `oauth` credential bound to the URL in the
-installation vault. All of it runs in the keys module (F9-D14) over `guardedFetch`
-(`tenant/outbound.ts`, the Host's address policy, no redirects), which OAuth refresh
-uses too. Core only routes `POST /v1/tenant/vaults/{id}/oauth/start` (a management key)
-and the anonymous `GET /v1/oauth/callback`, which keeps its path because providers have it
-registered.
-_Avoid_: "OAuth login" (nobody signs in to Nylorun), "per-person connect" (Cloud's broker).
-
-**Credential resolver**: The operator's HTTP service that holds people's own MCP
-credentials, which OSS never stores (`vault/sources.ts`, `NYLORUN_RESOLVER_URL` and
-`NYLORUN_RESOLVER_TOKEN` on the gateway, `TenantConfig.resolver` in process).
-`CredentialSources` asks it only when the session's attached vaults hold nothing for
-the URL, with the session's owner and turn: `200` headers are used, `404` goes without
-a credential, anything else or no answer in 5 s refuses the server
-(`credential_unavailable`). Answers are cached per (owner, URL), at most 5 minutes.
-_Avoid_: "broker" (Cloud's).
+**Session credentials**: Where a session's MCP servers and HTTP tools get their credentials:
+the session's attached vaults, matched by the URL the manifest names (`vault/sources.ts`,
+`sessionCredentials` over `VaultService.authorize`), in the gateway or in process. OSS holds
+no OAuth client and asks no credential resolver (protocol 10, D49): a person's own keys go in
+their user vault, the installation's in its vaults.
+_Avoid_: "MCP OAuth connect" and "credential resolver" (both removed in protocol 10), "broker"
+(Cloud's).
 
 **Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,

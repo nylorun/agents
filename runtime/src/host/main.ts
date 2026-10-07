@@ -169,6 +169,19 @@ async function ensureBucket(
 }
 
 /**
+ * Settings of a removed feature that are still set: logged, never fatal. The credential
+ * resolver (`NYLORUN_RESOLVER_*`) is gone in protocol 10. Never logs the values.
+ */
+function warnRemovedSettings(stack: StackConfig, logger: Logger): void {
+  if (stack.removedResolverVariables)
+    logger.warn("resolver_removed", {
+      variables: stack.removedResolverVariables,
+      message:
+        "The credential resolver is gone (protocol 10) and these variables are ignored: keep a person's keys in their user vault, or reach their accounts through a gateway",
+    });
+}
+
+/**
  * The gateway's services: the Model Gate's listener (gates, keys) and egress-gate's (egress), over
  * the Postgres pool and the Host's tenant directory. Writes nothing to the Host root (the local
  * stack mounts it read-only).
@@ -184,9 +197,8 @@ async function runGates(stack: StackConfig): Promise<void> {
     ...(stack.packing ? { packing: stack.packing } : {}),
     endpoints: describeEndpoints(stack.endpoints),
     objectStore: stack.objectStore ? "s3" : "none",
-    // Never the resolver's URL or token: only whether one is set (F9 C1).
-    resolver: stack.gates?.resolver ? "configured" : "none",
   });
+  warnRemovedSettings(stack, logger);
   const database = createDatabase(stack);
   const servers: { close(): Promise<void> }[] = [];
   try {
@@ -274,6 +286,7 @@ export async function main(): Promise<void> {
       file: identityFile,
       issuers: issuers.issuers.map((issuer) => issuer.config.name),
     });
+  warnRemovedSettings(stack, logger);
   if (stack.deprecatedRole)
     logger.warn("deprecated_flag", {
       flag: "--role",
@@ -301,7 +314,6 @@ export async function main(): Promise<void> {
     logger,
     ...(stack.delivery ? { delivery: stack.delivery } : {}),
     ...(issuers ? { issuers } : {}),
-    ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
   });
 
   // The process's Durable Session Execution: Restate when its endpoints are set, else the
