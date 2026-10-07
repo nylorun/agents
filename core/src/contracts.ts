@@ -2461,6 +2461,13 @@ export const SessionViewSchema = z
     agentId: z.string(),
     ownerUserId: z.string(),
     manifestHash: z.string(),
+    /**
+     * The hash of the definition the session was opened from (R2b C11). `manifestHash` differs
+     * from it when the Runtime pinned its own capabilities beside the definition: a sandbox's
+     * tools and `save_artifact`, or `read_artifact`. Compare this one with the registered
+     * definition's hash. Absent for a session opened before this release.
+     */
+    definitionHash: z.string().optional(),
     implementationVersion: z.string(),
     status: z.enum(SESSION_STATUSES),
     activeTurnId: z.string().nullable(),

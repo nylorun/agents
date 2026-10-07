@@ -6,7 +6,7 @@ import type {
   TranscriptToolsEntry,
   UserContentPart,
 } from "@nylorun/core/define";
-import type { ToolResult } from "@nylorun/core/define";
+import type { ToolResult, ToolResultFile } from "@nylorun/core/define";
 import { assertJson, copyJson, copyJsonObject } from "@nylorun/core/define";
 
 export function validateTranscript(value: readonly TranscriptEntry[]): readonly TranscriptEntry[] {
@@ -203,9 +203,14 @@ function toolResult(value: unknown, index: number): ToolResult {
   const base = { callId: result.callId as string, toolName: result.toolName as string };
   switch (result.kind) {
     case "completed":
-      exactKeys(result, ["callId", "toolName", "kind", "output"], `Tool result ${index}`);
+      exactKeys(result, ["callId", "toolName", "kind", "output", "files"], `Tool result ${index}`);
       assertJson(result.output, `tool result ${index} output`);
-      return Object.freeze({ ...base, kind: "completed", output: copyJson(result.output) });
+      return Object.freeze({
+        ...base,
+        kind: "completed",
+        output: copyJson(result.output),
+        ...(result.files === undefined ? {} : { files: resultFiles(result.files, index) }),
+      });
     case "denied":
       exactKeys(result, ["callId", "toolName", "kind", "reason"], `Tool result ${index}`);
       if (typeof result.reason !== "string") fail(`Tool result ${index} reason must be a string`);
@@ -233,6 +238,23 @@ function toolResult(value: unknown, index: number): ToolResult {
     default:
       fail(`Tool result ${index} has unknown kind '${String(result.kind)}'`);
   }
+}
+
+/** A completed result's files (R2b C11): a media type and the host's reference each. */
+function resultFiles(value: unknown, index: number): readonly ToolResultFile[] {
+  if (!Array.isArray(value)) fail(`Tool result ${index} files must be an array`);
+  return Object.freeze(
+    (value as unknown[]).map((file, fileIndex) => {
+      if (!file || typeof file !== "object" || Array.isArray(file))
+        fail(`Tool result ${index} file ${fileIndex} must be an object`);
+      const item = file as Record<string, unknown>;
+      exactKeys(item, ["mediaType", "reference"], `Tool result ${index} file ${fileIndex}`);
+      if (typeof item.mediaType !== "string" || item.mediaType === "")
+        fail(`Tool result ${index} file ${fileIndex} must contain mediaType`);
+      assertJson(item.reference, `tool result ${index} file ${fileIndex} reference`);
+      return Object.freeze({ mediaType: item.mediaType, reference: copyJson(item.reference) });
+    }),
+  );
 }
 
 function validationDetails(

@@ -112,6 +112,13 @@ test("a session is outdated only when a different manifest is registered", () =>
   assert.equal(isOutdated({ kind: "registered-only", registeredHash: "bbb" }), false);
 });
 
+test("the Runtime's own capabilities in a session's pin do not make it outdated (R2b C11)", () => {
+  // A sandbox or read_artifact changes the pinned hash, not the definition the session opened from.
+  const pinned = { kind: "pinned", manifest: {}, manifestHash: "pinned", definitionHash: "aaa" };
+  assert.equal(isOutdated({ ...pinned, registeredHash: "aaa" }), false);
+  assert.equal(isOutdated({ ...pinned, registeredHash: "bbb" }), true);
+});
+
 test("malformed manifests render as empty", () => {
   assert.deepEqual(manifestView(undefined), { capabilities: [] });
   assert.deepEqual(manifestView({ capabilities: "nope" }).capabilities, []);

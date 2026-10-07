@@ -11,8 +11,12 @@ export interface TranscriptUpdate {
   length: number;
 }
 
-/** An edit's entries are split so each event stays well under S2's 1 MiB record limit. */
-export const CHUNK_BYTES = 256 * 1024;
+/**
+ * An edit's entries are split so each event stays well under S2's 1 MiB record limit: under
+ * 64 KiB when no entry is larger, as a step with one tool result is once the result fits its
+ * 32 KiB cap (R2b C11). An entry larger than this is an event of its own.
+ */
+export const CHUNK_BYTES = 48 * 1024;
 
 export class TranscriptFoldError extends Error {
   constructor(message: string) {

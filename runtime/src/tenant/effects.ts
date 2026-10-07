@@ -41,7 +41,7 @@ import {
   sandboxSpecOf,
   sessionSandboxSpec,
 } from "../sandbox/share.js";
-import { withSandboxCapability } from "../sandbox/session-sandbox.js";
+import { withPlatformTools, withSandboxCapability } from "../sandbox/session-sandbox.js";
 import {
   loadSession,
   ownedSession,
@@ -234,12 +234,15 @@ export async function resolveNewFlowEffect(
       sandboxOwnerId === undefined ? undefined : lookup(sandboxOwnerId) ?? workflow,
       definition
     );
+    // Without one, an agent with MCP or HTTP tools still reads its stored results (R2b C11).
+    const pinned = inherited?.manifest ? inherited : platformTools(definition.manifest);
     const created: Session = {
       id: agentSessionId,
       agentId: body.agentId,
       ownerUserId: workflow.ownerUserId,
-      manifest: inherited?.manifest ?? definition.manifest,
-      manifestHash: inherited?.manifestHash ?? definition.manifestHash,
+      manifest: pinned?.manifest ?? definition.manifest,
+      manifestHash: pinned?.manifestHash ?? definition.manifestHash,
+      definitionHash: definition.manifestHash,
       implementationVersion: definition.implementationVersion,
       status: "idle",
       activeTurnId: null,
@@ -334,6 +337,17 @@ function inheritedSandbox(
   const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec);
   if (!sandboxed.ok) throw new Error(sandboxed.message);
   return { spec, manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
+}
+
+/** A linked agent session's `read_artifact` without a sandbox (R2b C11); undefined for none. */
+function platformTools(
+  manifest: AgentManifest | WorkflowManifest
+): { manifest: AgentManifest; manifestHash: string } | undefined {
+  if (isWorkflowManifest(manifest)) return undefined;
+  const pinned = withPlatformTools(manifest as AgentManifest);
+  if (pinned === undefined) return undefined;
+  if (!pinned.ok) throw new Error(pinned.message);
+  return { manifest: pinned.manifest, manifestHash: pinned.manifestHash };
 }
 
 /**

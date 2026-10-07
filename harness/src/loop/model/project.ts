@@ -138,7 +138,19 @@ function projectToolResult(result: ToolResult): PromptItem {
     toolCallId: result.callId,
     toolName: result.toolName,
     status: result.kind,
-    content: [textPart(JSON.stringify(toolResultPayload(result)))],
+    content: [
+      textPart(JSON.stringify(toolResultPayload(result))),
+      // Images the tool returned, stored by the host (R2b C11): the model call resolves them.
+      ...(result.kind === "completed" && result.files
+        ? result.files.map((file): PromptContentPart =>
+            Object.freeze({
+              type: "media" as const,
+              mediaType: file.mediaType,
+              reference: copyJson(file.reference),
+            }),
+          )
+        : []),
+    ],
   });
 }
 

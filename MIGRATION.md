@@ -116,6 +116,42 @@ and the token of a `Bearer` value) are replaced with `[redacted]` in MCP and HTT
 and errors, before the model, an event or the gateway's record sees them. `tool.completed` gains
 `redacted`, the number replaced. Other fields, such as a `nextToken`, are left as they are.
 
+## Tool results that fit
+
+An agent's remote MCP and HTTP tool results can change shape in `tool.completed`'s `output`, and
+in what the model sees, when they are large or hold files. Nothing changes for a text or JSON
+result of at most 32 KiB.
+
+- **Larger than 32 KiB** (as JSON): the Runtime stores the result as a file artifact of the
+  session and records `{ truncated: true, artifactId, version, contentType, size, preview }`,
+  `preview` being its first 4 KiB and last 1 KiB. Download the whole result from
+  `/v1/artifacts/{artifactId}/versions/1/content`. A structured result stored this way is not
+  checked against the tool's output schema.
+- **Images, audio and blob resources** in an MCP result: each becomes a file artifact, and its
+  part says `{ type, artifactId, version, contentType, size }` (a resource keeps its `uri`).
+  Before, an image was dropped when the result had text, and sent as base64 when it had none; now
+  every part stays. A model that reads images also sees the image; one that does not gets a note.
+- **Mixed MCP results** keep each part: a part too large is stored alone, the largest text first.
+  A `resource_link` stays a link.
+- **Past 8 MiB**: an MCP answer is the failed result `mcp.too-large`, as an HTTP tool's answer
+  already was `http.too-large`.
+- When an artifact cannot be stored (your `/v1/tenant/artifacts` limits are reached), the preview
+  stays and `dropped` says why the rest is gone.
+- **Many results in one step** share 256 KiB: the results of one model step are one transcript
+  entry. Once the step's other results have taken it, a result past 1 KiB is stored and recorded
+  as a stub naming its artifact, with less preview or none.
+
+These artifacts are the session's, `source: "engine"`, with `artifact.created` carrying the turn
+and the tool call, so they appear in `GET /v1/artifacts?sessionId=…` and count toward the
+Tenant's artifact limits. The model reads one with the new built-in tool `read_artifact`
+(`{ artifactId, offset?, length? }`, up to 32 KiB a call), which a session gets for each agent with
+an MCP server or an HTTP tool, with or without a sandbox. Such a session's pinned manifest now has
+`read_artifact` added, as a sandbox session's has its tools, so its `manifestHash` differs from
+the definition's. To tell whether a session runs the registered definition, compare the session
+view's new `definitionHash` (the definition it was opened from; absent on sessions opened
+before) with the definition's `manifestHash`, as Studio now does. An agent that declares its own tool named `read_artifact` keeps it and sees
+previews only. A session opened before the upgrade gets previews, but no `read_artifact`.
+
 # The Runtime API as an OAuth resource server (protocol 9)
 
 The Runtime API now behaves as an OAuth 2.1 resource server for your identity provider's

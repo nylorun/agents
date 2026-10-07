@@ -3,7 +3,12 @@
  * Tenant's provider), the Tool Gate, the MCP pool, the SandboxManager. No store, no record: the
  * session's routing comes with the run (`TurnStart.routing`).
  */
-import { ARTIFACTS_CAPABILITY_ID, SAVE_ARTIFACT_TOOL, type AgentManifest } from "@nylorun/core/define";
+import {
+  ARTIFACTS_CAPABILITY_ID,
+  READ_ARTIFACT_TOOL,
+  SAVE_ARTIFACT_TOOL,
+  type AgentManifest,
+} from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { runAbortKind } from "@nylorun/harness/api";
 import type { AbortReason } from "@nylorun/core/harness-api";
@@ -100,11 +105,28 @@ export function abortOn(signal: AbortSignal, kinds: readonly AbortReason[]): Abo
 
 /** True when `request` calls `save_artifact` of the `nylorun.artifacts` capability `manifest` has. */
 export function isSaveArtifactCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
+  return isArtifactsToolCall(manifest, request, SAVE_ARTIFACT_TOOL);
+}
+
+/** True when `request` calls `read_artifact` (R2b C11) of the `nylorun.artifacts` capability. */
+export function isReadArtifactCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
+  return isArtifactsToolCall(manifest, request, READ_ARTIFACT_TOOL);
+}
+
+function isArtifactsToolCall(
+  manifest: AgentManifest | undefined,
+  request: HostEffect,
+  toolName: string
+): boolean {
   return (
     request.kind === "tool" &&
     request.capabilityId === ARTIFACTS_CAPABILITY_ID &&
-    request.toolName === SAVE_ARTIFACT_TOOL &&
-    manifest?.capabilities.some((capability) => capability.id === ARTIFACTS_CAPABILITY_ID) === true
+    request.toolName === toolName &&
+    manifest?.capabilities.some(
+      (capability) =>
+        capability.id === ARTIFACTS_CAPABILITY_ID &&
+        capability.tools?.some((tool) => tool.name === toolName) === true
+    ) === true
   );
 }
 

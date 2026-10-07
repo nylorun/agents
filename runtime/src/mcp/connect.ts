@@ -9,6 +9,7 @@ import { schemaFromJSON } from "@nylorun/core/define";
 import { scrub, scrubValues } from "../redact.js";
 import {
   guardedFetch,
+  MAX_RESPONSE_BYTES,
   OutboundFailed,
   OutboundRefused,
   type OutboundPolicy,
@@ -112,6 +113,8 @@ export type McpToolOutcome =
  * - `mcp.status`: the server answered another HTTP error status, without a JSON-RPC error.
  * - `mcp.lost`: sent, and the answer was lost, so the tool may have run. The model sees it only
  *   for a tool the server marks read-only or idempotent (Q15); any other call is `uncertain`.
+ * - `mcp.too-large`: the answer passed `MCP_RESULT_MAX_BYTES` (R2b C11), as an HTTP tool's
+ *   answer is `http.too-large`. The tool ran; its answer was not kept.
  */
 export type McpFailureCode =
   | "mcp.unreachable"
@@ -119,7 +122,14 @@ export type McpFailureCode =
   | "mcp.forbidden"
   | "mcp.error"
   | "mcp.status"
-  | "mcp.lost";
+  | "mcp.lost"
+  | "mcp.too-large";
+
+/**
+ * The largest `tools/call` answer the gate holds (R2b C11): 8 MiB, an HTTP tool's cap. Core
+ * stores what does not fit a tool result as an artifact (`tenant/tool-results.ts`).
+ */
+export const MCP_RESULT_MAX_BYTES = MAX_RESPONSE_BYTES;
 
 export interface McpCallFailure {
   readonly code: McpFailureCode;
@@ -229,7 +239,9 @@ interface Tracker {
   sent: boolean;
   /** Why the answer was lost after the request was sent. */
   lost?: string;
-  /** A tool call's: aborted when its answer is lost, so the call ends now. */
+  /** A tool call's answer passed `MCP_RESULT_MAX_BYTES` (R2b C11). */
+  tooLarge?: boolean;
+  /** A tool call's: aborted when its answer is lost or too large, so the call ends now. */
   readonly calling?: AbortController;
   settled: boolean;
 }
@@ -269,6 +281,9 @@ export function sdkClient(client: Client, serverName: string): McpClient {
           const result = (await client.callTool(params, undefined, {
             signal: options?.signal ? AbortSignal.any([options.signal, lost]) : lost,
           })) as Record<string, unknown>;
+          // An answer the stream did not count (an `sse` server answers on its event stream).
+          if (Buffer.byteLength(JSON.stringify(result)) > MCP_RESULT_MAX_BYTES)
+            throw tooLargeFailure(serverName);
           const answer = scrubValues(result, [...tracker.secrets]);
           return { result: answer.value, ...(answer.redacted > 0 ? { redacted: answer.redacted } : {}) };
         } catch (error) {
@@ -452,13 +467,25 @@ export async function callMcpTool(
   }
   if ("structuredContent" in result && result.structuredContent !== undefined)
     return { kind: "completed", output: result.structuredContent, ...redacted };
-  const text = "content" in result ? textContent(result.content) : undefined;
+  // Text alone is the text. With an image, audio or a resource in it, every part stays, and core
+  // stores the bytes as artifacts before anything records them (R2b C11, `tenant/tool-results.ts`).
+  const text =
+    "content" in result && onlyText(result.content) ? textContent(result.content) : undefined;
   if (text !== undefined) return { kind: "completed", output: text, ...redacted };
   return {
     kind: "completed",
     output: "content" in result ? result.content : result,
     ...redacted,
   };
+}
+
+function onlyText(content: unknown): boolean {
+  return (
+    Array.isArray(content) &&
+    content.every(
+      (part) => !!part && typeof part === "object" && (part as { type?: unknown }).type === "text",
+    )
+  );
 }
 
 export function diagnosticFromError(
@@ -621,9 +648,19 @@ function lostFailure(server: string, detail: string): McpCallFailed {
   });
 }
 
+function tooLargeFailure(server: string): McpCallFailed {
+  return new McpCallFailed({
+    code: "mcp.too-large",
+    message: `The MCP server '${server}' answered more than ${MCP_RESULT_MAX_BYTES} bytes, the most a tool result may hold, so the answer was not kept`,
+    sent: true,
+    retryable: false,
+  });
+}
+
 /** What a tool call's failure means (R2b C7). */
 function failureOf(server: string, error: unknown, tracker: Tracker): McpCallFailed {
   if (error instanceof McpCallFailed) return error;
+  if (tracker.tooLarge) return tooLargeFailure(server);
   const detail = error instanceof Error ? error.message : String(error);
   if (tracker.lost !== undefined) return lostFailure(server, tracker.lost);
   if (error instanceof OutboundRefused) return unreachableFailure(server, detail);
@@ -663,25 +700,36 @@ function scrubError(error: unknown, tracker: Tracker): unknown {
 
 /**
  * A tool call's answer whose body reports its loss (R2b C7): a stream that breaks after the
- * request was sent ends the call as lost, now, instead of at the SDK's request timeout.
+ * request was sent ends the call as lost, now, instead of at the SDK's request timeout. One that
+ * passes `MCP_RESULT_MAX_BYTES` ends it as `mcp.too-large` (C11), before more of it is read.
  */
 function watched(response: Response, tracker: Tracker): Response {
   const source = response.body!.getReader();
+  let received = 0;
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       let next: ReadableStreamReadResult<Uint8Array>;
       try {
         next = await source.read();
       } catch (error) {
-        if (!tracker.settled && tracker.lost === undefined) {
+        if (!tracker.settled && tracker.lost === undefined && !tracker.tooLarge) {
           tracker.lost = error instanceof Error ? error.message : String(error);
           tracker.calling?.abort(new Error(tracker.lost));
         }
         controller.error(error);
         return;
       }
-      if (next.done) controller.close();
-      else controller.enqueue(next.value);
+      if (next.done) return controller.close();
+      received += next.value.byteLength;
+      if (received > MCP_RESULT_MAX_BYTES) {
+        tracker.tooLarge = true;
+        const error = new Error(`The answer passed ${MCP_RESULT_MAX_BYTES} bytes`);
+        tracker.calling?.abort(error);
+        controller.error(error);
+        void source.cancel(error).catch(() => undefined);
+        return;
+      }
+      controller.enqueue(next.value);
     },
     cancel: (reason) => source.cancel(reason),
   });

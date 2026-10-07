@@ -47,10 +47,12 @@ export function useSessionManifest(
           abort.signal,
         );
         if (abort.signal.aborted) return;
+        const definitionHash = (view as { definitionHash?: unknown }).definitionHash;
         setPinned({
           kind: "pinned",
           manifest: read.manifest,
           manifestHash: read.manifestHash,
+          ...(typeof definitionHash === "string" ? { definitionHash } : {}),
           registeredHash,
         });
       } catch (error) {

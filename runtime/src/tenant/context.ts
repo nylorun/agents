@@ -54,6 +54,11 @@ export interface Session {
   /** Session pin — the manifest the session was created with. */
   manifest: any;
   manifestHash: string;
+  /**
+   * The hash of the definition the session was opened from; `manifestHash` differs when the
+   * Runtime pinned its own capabilities beside it (R2b C11). Absent on older sessions.
+   */
+  definitionHash?: string;
   /** Validated turn-manifest variants, keyed by hash (loops.md §4.2). */
   variants?: Record<string, AgentManifest>;
   implementationVersion: string;

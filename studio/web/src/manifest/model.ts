@@ -159,21 +159,35 @@ export function shortHash(hash: string): string {
 }
 
 export type PinnedManifestState =
-  /** The Runtime returned the session's own manifest. */
-  | { kind: "pinned"; manifest: unknown; manifestHash: string; registeredHash?: string }
+  /**
+   * The Runtime returned the session's own manifest. `definitionHash` is the definition it was
+   * opened from (a newer Runtime's session view): the pinned manifest differs from it by the
+   * capabilities the Runtime added (sandbox tools, `save_artifact`, `read_artifact`).
+   */
+  | {
+      kind: "pinned";
+      manifest: unknown;
+      manifestHash: string;
+      definitionHash?: string;
+      registeredHash?: string;
+    }
   /** The Runtime has no `session-reads`: only the registered manifest is known. */
   | { kind: "registered-only"; registeredHash?: string }
   | { kind: "loading" }
   | { kind: "failed"; message: string };
 
-/** True when the session runs an older manifest than the one now registered for its agent. */
+/**
+ * True when the session runs an older manifest than the one now registered for its agent: the
+ * definition it was opened from is not the registered one. The capabilities the Runtime adds to
+ * a session's pin do not make it older.
+ */
 export function isOutdated(
   state: PinnedManifestState,
 ): state is Extract<PinnedManifestState, { kind: "pinned" }> & { registeredHash: string } {
   return (
     state.kind === "pinned" &&
     state.registeredHash !== undefined &&
-    state.registeredHash !== state.manifestHash
+    state.registeredHash !== (state.definitionHash ?? state.manifestHash)
   );
 }
 

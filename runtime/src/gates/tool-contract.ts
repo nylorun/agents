@@ -21,7 +21,9 @@
  * - `POST /nylorun/v1/mcp/close` `{server}`: closes the server's connection; `204`.
  * Each answers `200 {ok: true, result}` or `200 {ok: false, error}`: an MCP failure is an
  * answer, not a gate error. A tool call's failure is coded (`error.failure`, R2b C7), and neither
- * a result nor a failure carries a credential value the gate sent (C8). A keyed call whose
+ * a result nor a failure carries a credential value the gate sent (C8). An answer past 8 MiB is
+ * `mcp.too-large` (C11), as an HTTP tool's is `http.too-large`; core shapes what fits into a
+ * result the model can take (`tenant/tool-results.ts`). A keyed call whose
  * earlier attempt was lost with the gateway answers `{ok: false, error: {uncertain: true}}` and
  * is never run again.
  *
