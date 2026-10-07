@@ -84,7 +84,6 @@ import type {
   VaultCredentialRow,
   VaultIdempotencyRow,
   VaultRow,
-  OAuthPendingRow,
 } from "./postgres/schema.js";
 
 // ---------------------------------------------------------------------------
@@ -294,7 +293,6 @@ export type {
   VaultCredentialRow,
   VaultIdempotencyRow,
   VaultRow,
-  OAuthPendingRow,
 };
 
 /** Which rows of the usage ledger a total covers. */
@@ -695,13 +693,6 @@ export interface Tx {
   getVaultIdempotency(id: string): Promise<VaultIdempotencyRow | undefined>;
   /** Rejects when the id exists. */
   insertVaultIdempotency(row: VaultIdempotencyRow): Promise<void>;
-
-  /** An MCP OAuth connect's start (F9 C2). Rejects on a duplicate state or an unknown vault. */
-  insertOAuthPending(row: OAuthPendingRow): Promise<void>;
-  /** Deletes and returns the pending connect of `stateHash`, expired or not: each is used once. */
-  takeOAuthPending(stateHash: string): Promise<OAuthPendingRow | undefined>;
-  /** Deletes the pending connects that expired before `now` (ISO); returns how many. */
-  deleteExpiredOAuthPending(now: string): Promise<number>;
 
   // --- signing keys --------------------------------------------------------
 

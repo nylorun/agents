@@ -1,6 +1,10 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 10: MCP credential custody leaves OSS (D49). The vault credential type `oauth`, the
+ * MCP OAuth connect (`/v1/tenant/vaults/{vaultId}/oauth/start`, `/v1/oauth/callback`) and the
+ * credential resolver are gone: a session's MCP servers and HTTP tools reach their credentials
+ * through its attached vaults only.
  * Protocol 9: the Runtime API is an OAuth 2.1 resource server (RFC 6750, RFC 9728). A missing
  * or unknown credential is `401 credential_required` or `credential_invalid` with a
  * `WWW-Authenticate: Bearer` challenge instead of the opaque 404, a token missing a scope gets
@@ -19,7 +23,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -89,7 +93,7 @@ export interface ProtocolRange {
  */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 4,
-  max: 9,
+  max: 10,
   features: ["runtime-tenants", "admin-status", ...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
@@ -157,15 +161,6 @@ export const ERROR_CODES = [
    * be fetched now (Host feature `trusted-issuers`): retry later. Keys already fetched keep working.
    */
   "issuer_unavailable",
-  /**
-   * An MCP OAuth connect found no way to identify this installation to the authorization server:
-   * it offers no dynamic client registration and no client id was given (F9 C2).
-   */
-  "oauth_client_required",
-  /** An OAuth callback's `state` is unknown, already used or expired: start the connect again. */
-  "oauth_state_invalid",
-  /** The authorization server (or its discovery) failed or refused an MCP OAuth connect step. */
-  "oauth_failed",
   /**
    * A definition names definition files the Runtime does not hold (track R2 M4): upload each
    * with `PUT /v1/files/sha256:<hex>` first. `details.missing` lists their hashes.

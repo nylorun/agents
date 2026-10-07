@@ -185,11 +185,7 @@ ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # MCP servers and HTTP tools on this machine: \`localhost\` in their URLs means the Docker host.
-      NYLORUN_ENDPOINT_LOOPBACK: docker-host
-      # Your credential resolver, for people's own MCP credentials (DEPLOYMENT.md, Credentials);
-      # unset by default. Set both in the shell that runs \`nylorun start\`.
-      NYLORUN_RESOLVER_URL: \${NYLORUN_RESOLVER_URL:-}
-      NYLORUN_RESOLVER_TOKEN: \${NYLORUN_RESOLVER_TOKEN:-}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and HTTP tools on this machine
     volumes:

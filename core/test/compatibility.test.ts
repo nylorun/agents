@@ -166,15 +166,15 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 4 to 9 clients; protocol 6 and later clients require artifacts", () => {
-    expect(PROTOCOL_VERSION).toBe(9);
+  it("serves protocol 4 to 10 clients; protocol 6 and later clients require artifacts", () => {
+    expect(PROTOCOL_VERSION).toBe(10);
     // Protocol 8 clients require the Management API (key roles); protocol 9 clients the OAuth
     // resource server's 401 challenges.
     expect(PROTOCOL_FEATURES).toContain("management-api");
     expect(PROTOCOL_FEATURES).toContain("resource-server");
     expect(PROTOCOL_FEATURES).not.toContain("runtime-tenants");
     expect(PROTOCOL_FEATURES).toContain("artifacts");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 4, max: 9 });
+    expect(HOST_PROTOCOL).toMatchObject({ min: 4, max: 10 });
     // Protocol 7 removed these Host features (F9 I3).
     for (const removed of ["subject-tokens", "browser-access", "derived-principals"])
       expect(HOST_PROTOCOL.features).not.toContain(removed);

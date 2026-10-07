@@ -5,10 +5,6 @@
  * links, run and host tokens, signing-key rotation) run here, whole, so the process that calls them never
  * holds the key or a private signing key.
  *
- * MCP OAuth connect (F9-D14) runs here too: discovery, registration, the code exchange and the
- * credential it seals, so the plaintext tokens, the PKCE verifier and any client secret never
- * reach the runtime container; core only routes the start and the callback.
- *
  * Two implementations: `inProcessKeys` (embedding, the ephemeral Runtime, tests, and the gates
  * service itself, which serves the HTTP routes with it), and `httpKeys` (`client.ts`), the
  * runtime container's client of the `keys` service in the gateway.
@@ -25,7 +21,7 @@ import type {
 } from "@nylorun/core/contracts";
 import type { SessionStore } from "../store/types.js";
 import { signingKeyView, type SigningKeys } from "../tenant/signing-keys.js";
-import type { FinishOAuthInput, StartOAuthInput, VaultService } from "../vault/service.js";
+import type { VaultService } from "../vault/service.js";
 
 /** One JWT to sign: its `typ` and every claim, `iss`, `aud`, `sub`, `iat`, `exp` and `jti` included. */
 export interface SignRequest {
@@ -50,10 +46,6 @@ export interface Keys {
   rotateSigningKeys(request: { maxTtlSeconds: number; force: boolean }): Promise<SigningKeyView[]>;
   /** Creates the current and standby keys when the Tenant has none. */
   ensureSigningKeys(): Promise<void>;
-  /** Starts an MCP OAuth connect into an installation vault (`VaultService.startOAuth`). */
-  startOAuth(input: StartOAuthInput): Promise<{ authorizeUrl: string; expiresAt: string }>;
-  /** Finishes one from its callback (`VaultService.finishOAuth`). */
-  finishOAuth(input: FinishOAuthInput): Promise<{ vaultId: string; credentialId: string }>;
 }
 
 /** The operations, by the name the HTTP route carries. */
@@ -65,8 +57,6 @@ export const KEYS_OPERATIONS = [
   "sign",
   "rotateSigningKeys",
   "ensureSigningKeys",
-  "startOAuth",
-  "finishOAuth",
 ] as const satisfies readonly (keyof Keys)[];
 
 export type KeysOperation = (typeof KEYS_OPERATIONS)[number];
@@ -87,8 +77,6 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
     rotateCredential: (vaultId, id, body) => vault.rotateCredential(vaultId, id, body),
     putHostModel: (body) => vault.putHostModel(body),
     selectHostModel: (body) => vault.selectHostModel(body),
-    startOAuth: (input) => vault.startOAuth(input),
-    finishOAuth: (input) => vault.finishOAuth(input),
     async sign(request) {
       const key = kek();
       const row = await store.tx((t) => signingKeys.ensure(t, key));

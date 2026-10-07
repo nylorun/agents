@@ -341,7 +341,6 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
     );
     expect(outcome).toEqual({ kind: "completed", output: { ok: true } });
     expect(authorizeMcp).toHaveBeenCalledWith("http-a", {
-      kind: "http",
       url: target.url,
       serverName: "billing",
     });

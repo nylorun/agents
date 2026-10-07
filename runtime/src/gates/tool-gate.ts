@@ -1,8 +1,8 @@
 /**
  * The Tool Gate seam (blueprint §12, F4.1). Every tool call that leaves the loop crosses one
  * `ToolGate`: a remote MCP server's connection and calls, and an HTTP tool's request (R2 M3).
- * The gate owns what those need that the loop must not hold: the MCP and HTTP tool credentials
- * and their OAuth refresh, and the outbound route.
+ * The gate owns what those need that the loop must not hold: the MCP and HTTP tool credentials,
+ * and the outbound route.
  *
  * Two implementations: `inProcessToolGate` (embedding, the ephemeral Runtime, tests), which
  * opens remote servers and calls HTTP tools in this process, and the HTTP client of the gates

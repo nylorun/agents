@@ -8,7 +8,7 @@ store plug in.
 Read [DEPLOYMENT.md](./DEPLOYMENT.md) first: it covers the Tenant's containers, the reverse proxy
 in front of the Runtime, Postgres, the gateway and the harness. This guide covers who gets in
 and where credentials come from. [`examples/self-host`](./examples/self-host/README.md) runs
-all of it on one machine with Keycloak, oauth2-proxy, OpenBao and a sample resolver, and checks
+all of it on one machine with Keycloak and oauth2-proxy, and checks
 it end to end. Upgrading from protocol 7:
 [MIGRATION.md](./MIGRATION.md#runtime-and-management-apis-protocol-8); from an earlier release:
 [MIGRATION.md](./MIGRATION.md#open-source-auth-protocol-7).
@@ -27,9 +27,7 @@ Open source includes:
 - application keys for your servers, which act for the whole Tenant or for one person, and
   management keys for your operators' tools;
 - each person's sessions kept to that person (another person's session is a `404`);
-- installation vaults for shared credentials, including OAuth MCP servers the installation
-  signs in to once;
-- a hook to your own credential store for each person's credentials (the resolver);
+- installation vaults for shared credentials, and each person's vault for their own keys;
 - Studio behind a sign-in proxy, for the people you give the `studio` scope.
 
 It leaves out, on purpose:
@@ -37,8 +35,9 @@ It leaves out, on purpose:
 - **sign-in**: no login page, passwords, sessions or social login. Use your identity provider;
 - **user management**: no directory, invitations, groups or roles. A person is the subject
   your tokens or your server name; revoke people at your identity provider;
-- **per-person secret storage**: Nylorun never stores a person's own tokens. They stay in your
-  secret store, and the resolver hands them over per request;
+- **per-person OAuth**: Nylorun signs no one in to their tools and refreshes no token. A
+  gateway holds each person's sign-ins
+  ([DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts));
 - **multi-tenancy**: one Tenant per installation;
 - **CORS and rate limits**: your reverse proxy answers both.
 
@@ -285,14 +284,12 @@ and point `jwks` at an address the runtime container can reach.
 
 ## Credentials
 
-A session's MCP credential comes from the session's attached vaults first, then from your
-credential resolver. The model credential is the Tenant's own, set by `nylorun start` from the
+A session's MCP credential comes from the session's attached vaults. The model credential is the Tenant's own, set by `nylorun start` from the
 project's `.env` or in Studio.
 
 ### Installation vaults
 
-Installation vaults hold the installation's own credentials: shared tool keys and the MCP
-servers the installation signs in to. Any session may attach one (`vaultIds` when the session
+Installation vaults hold the installation's own credentials, such as shared tool keys. Any session may attach one (`vaultIds` when the session
 is created). Create them on Studio's **Connections** page, or through the Management API with a
 management key:
 
@@ -314,72 +311,12 @@ Over HTTP that is `POST /v1/tenant/vaults` with
 an application key is `403 key_role_mismatch`, and the app server only names the vault ids
 when it opens a session.
 
-### OAuth MCP servers
+### A person's own keys
 
-A remote MCP server that signs clients in with OAuth is connected once for the installation:
-
-```sh
-npx nylorun mcp connect https://mcp.example.com/mcp --server linear
-# a server without dynamic client registration: register a client whose redirect URI is the
-# callback below, and pass its id
-npx nylorun mcp connect https://mcp.example.com/mcp --server linear --client-id <id>
-```
-
-It creates the installation vault `mcp` (or uses `--vault <id>`), opens the sign-in page and
-waits up to 10 minutes for the credential, which the gateway refreshes. Connecting again
-rotates it. A tool of your own does the same with a management key:
-`admin.vaults.startOAuth(vaultId, { url, server, clientId? })`, or
-`POST /v1/tenant/vaults/{vaultId}/oauth/start`, answering `{ authorizeUrl, expiresAt }`.
-
-The authorization server sends the browser back to `NYLORUN_PUBLIC_URL` +
-`/v1/oauth/callback`. A local Tenant's is `http://localhost:<port>`, so sign in from a browser on
-that machine. A Runtime you deploy yourself behind a proxy sets `NYLORUN_PUBLIC_URL` to its public
-address; the proxy forwards `/v1/*`, which includes the callback. The gateway runs every OAuth
-step; tokens never reach the runtime container. See
-[DEPLOYMENT.md](./DEPLOYMENT.md#connecting-a-remote-mcp-server-with-oauth).
-
-### The credential resolver
-
-A person's own credentials (their GitHub token, their Linear connection) stay in your secret
-store. When a person's session calls a remote MCP server and its attached vaults hold nothing for
-the server's URL, the gateway asks your resolver:
-
-```text
-POST <NYLORUN_RESOLVER_URL>
-Authorization: Bearer <NYLORUN_RESOLVER_TOKEN>
-Content-Type: application/json
-
-{ "owner": "u:priya", "session": "s_…", "turn": "t_…" | null,
-  "target": { "kind": "mcp", "server": "github", "agent": "support", "url": "https://…/mcp" } }
-```
-
-| Answer | Effect |
-| --- | --- |
-| `200 { "headers": { "authorization": "Bearer …" }, "expiresAt"?: "<ISO time>" }` | The headers go on the MCP requests |
-| `404` | The call goes without a credential |
-| Anything else, a malformed body, or no answer within 5 s | The server is refused: `credential_unavailable` |
-
-- `owner` is the session's owner and `turn` its active turn, from the Runtime's own record,
-  never from the agent. `server` and `agent` are the MCP server's name and the agent that
-  declares it.
-- `headers` is a non-empty object of header names to strings, without line breaks. The
-  transport's own headers (`host`, `content-length`, `content-type`, `transfer-encoding`,
-  `connection`, `accept`, `mcp-session-id`, `mcp-protocol-version`) are refused.
-- The gateway keeps `200` and `404` answers per owner and URL until `expiresAt`, at most 5
-  minutes, and 60 s without one; concurrent lookups share one request; failures are not kept. A
-  revoked credential can work for up to 5 minutes.
-- The resolver is never asked for the installation's own sessions, only for a person's.
-- The gateway allows private addresses for the resolver and never follows a redirect. Keep it
-  on a private network, check the bearer, and answer `404` for a person who has not connected.
-
-Set `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` on the gateway, both or neither (the
-token has no whitespace). A local Tenant passes them from the shell that runs `nylorun start`, on
-every start. In process: `TenantConfig.resolver`, or `startEphemeralRuntime({ resolver })`.
-
-[`examples/self-host/resolver/resolver.mjs`](./examples/self-host/resolver/resolver.mjs) is a
-resolver in about 50 lines: it reads `secret/data/nylorun/<owner>/<server>` from OpenBao's KV
-and answers `{ headers: { authorization: "Bearer <token>" } }`, or `404`. A self-hosted Nango
-or your own token service fits behind the same contract.
+A person's own key for a server (their GitHub token, say) goes in their vault (`ownerUserId`),
+which only their sessions attach. Nylorun holds no OAuth client and asks no credential resolver
+(protocol 10): see "Reaching a person's accounts" in
+[DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
 
 ## Studio behind a sign-in proxy
 
@@ -473,8 +410,7 @@ on the same machine. **On a server, refuse them:** set `NYLORUN_ENDPOINT_PRIVATE
 `NYLORUN_ENDPOINT_HTTP=refuse`) on the gateway and the runtime, so a discovery document or a
 tool's URL cannot point the gateway at your internal network. If the services your tools call live
 on a private network, keep `allow` and limit the gateway's egress with your firewall instead.
-The resolver and the identity file's `jwks` URLs are yours, so they are not subject to these
-settings.
+The identity file's `jwks` URLs are yours, so they are not subject to these settings.
 
 ## Backups
 
@@ -504,8 +440,7 @@ terms.
   them to operators and CI, never to app servers or browsers.
 - **Optionally, limit `/v1/tenant/*` to operator networks at your proxy**, on top of the key
   role: the Management API then answers only from the addresses your operators and CI use
-  ([DEPLOYMENT.md](./DEPLOYMENT.md#reaching-the-runtime-from-another-machine)). Leave
-  `/v1/oauth/callback` open: browsers come back to it.
+  ([DEPLOYMENT.md](./DEPLOYMENT.md#reaching-the-runtime-from-another-machine)).
 
-Restate's UI, the gateway (no published port), your secret store and your resolver don't
+Restate's UI, the gateway (no published port) and your secret store don't
 belong on a public address either, and Studio reaches one only through a sign-in proxy.

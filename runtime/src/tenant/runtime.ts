@@ -29,7 +29,6 @@ import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
 import { SigningKeys } from "./signing-keys.js";
 import { VaultService, type AuthorizeResult } from "../vault/service.js";
-import { CredentialSources } from "../vault/sources.js";
 import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
 import { storeSandboxRecords } from "../sandbox/records.js";
@@ -75,7 +74,6 @@ import {
 } from "./worker.js";
 import { authorize } from "./effects.js";
 import { inProcessToolGate, type ToolGate } from "../gates/tool-gate.js";
-import { guardedFetch } from "./outbound.js";
 import { inProcessKeys, type Keys } from "../keys/keys.js";
 import type { RunGrants } from "./run-grants.js";
 import { tenantApi } from "../api/http/app.js";
@@ -270,16 +268,7 @@ export class TenantRuntime implements TenantHandle {
         t.getSetting("sandbox.backend")
       );
 
-      const vault = new VaultService({
-        store: opened,
-        kek: ensureKek,
-        // OAuth refresh and connect follow the Host's address policy (F9 C2).
-        fetch: config.vaultFetch ?? guardedFetch(config.delivery ?? {}),
-      });
-      const credentials = new CredentialSources({
-        vault,
-        ...(config.resolver ? { resolver: config.resolver } : {}),
-      });
+      const vault = new VaultService({ store: opened, kek: ensureKek });
       // `ctx` is assigned below; these callbacks only run once the Tenant is open.
       let ctx!: TenantContext;
       const toolGate =
@@ -398,7 +387,6 @@ export class TenantRuntime implements TenantHandle {
         reads: hooks.reads,
         store: opened,
         vault,
-        credentials,
         ...(mcp ? { mcp } : {}),
         sandbox,
         flowLimits,

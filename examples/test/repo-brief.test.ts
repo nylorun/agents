@@ -186,7 +186,7 @@ beforeAll(async () => {
     method: "PUT",
     headers: {
       authorization: `Bearer ${runtime.managementKey}`,
-      "nylorun-protocol": "9",
+      "nylorun-protocol": "10",
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -273,7 +273,7 @@ it("researches, writes, checks and publishes a brief in one turn", { timeout: 60
   // skill's check script in the session's sandbox, where it passed.
   const writer = agents.find((e) => e.payload.path === "research/writer")!.payload.sessionId as string;
   const response = await fetch(`${runtime.url}/v1/sessions/${writer}/items`, {
-    headers: { authorization: `Bearer ${runtime.applicationKey}`, "nylorun-protocol": "9" },
+    headers: { authorization: `Bearer ${runtime.applicationKey}`, "nylorun-protocol": "10" },
   });
   const { items } = (await response.json()) as { items: { type: string; payload: any }[] };
   const [skill, now, check] = items.filter((item) => item.type === "tool.completed").map((item) => item.payload);

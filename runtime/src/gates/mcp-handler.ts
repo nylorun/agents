@@ -1,7 +1,7 @@
 /**
  * Remote MCP servers in the gates service (F4.1): the gate holds each session's connection to a
- * declared `streamable-http` or `sse` server, authorizes it with the Tenant vault (OAuth refresh
- * included) and runs `tools/list` and `tools/call` on it. The loop names the server; the gate
+ * declared `streamable-http` or `sse` server, authorizes it with the Tenant vault and runs
+ * `tools/list` and `tools/call` on it. The loop names the server; the gate
  * finds it in the session's pinned manifest, so the loop never chooses a URL or a credential.
  *
  * A failure is an answer (`{ok: false, error}`), shaped so the loop's diagnostics read it as

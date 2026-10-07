@@ -875,29 +875,6 @@ const vaultWriteBase = {
   requestId: RequestIdSchema,
   idempotencyKey: IdempotencyKeySchema,
 };
-const tokenEndpointAuthSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("none") }).strict(),
-  z
-    .object({
-      type: z.literal("client_secret_basic"),
-      clientSecret: z.string().min(1),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("client_secret_post"),
-      clientSecret: z.string().min(1),
-    })
-    .strict(),
-]);
-const oauthRefreshSchema = z
-  .object({
-    tokenEndpoint: z.string().min(1),
-    clientId: z.string().min(1),
-    refreshToken: z.string().min(1),
-    tokenEndpointAuth: tokenEndpointAuthSchema,
-  })
-  .strict();
 /** The owner of every installation vault (`scope: "installation"`); a reserved subject. */
 export const INSTALLATION_OWNER = "installation";
 export const CreateVaultRequestSchema = z
@@ -937,15 +914,6 @@ export const CreateCredentialRequestSchema = z
           token: z.string().min(1),
         })
         .strict(),
-      z
-        .object({
-          type: z.literal("oauth"),
-          url: z.string().min(1),
-          accessToken: z.string().min(1),
-          expiresAt: z.string().min(1).nullable().optional(),
-          refresh: oauthRefreshSchema.optional(),
-        })
-        .strict(),
     ]),
   })
   .strict();
@@ -960,13 +928,6 @@ export const RotateCredentialRequestSchema = z
         .object({
           type: z.literal("bearer"),
           token: z.string().min(1),
-        })
-        .strict(),
-      z
-        .object({
-          type: z.literal("oauth"),
-          accessToken: z.string().min(1),
-          expiresAt: z.string().min(1).nullable().optional(),
         })
         .strict(),
     ]),
@@ -1053,9 +1014,8 @@ export const CredentialInfoSchema = z
     id: z.string(),
     vaultId: z.string(),
     name: z.string(),
-    type: z.enum(["bearer", "oauth"]),
+    type: z.enum(["bearer"]),
     binding: z.object({ url: z.string() }).strict(),
-    expiresAt: z.string().optional(),
     createdAt: z.string(),
     rotatedAt: z.string().optional(),
   })
@@ -2609,25 +2569,6 @@ export const ListCredentialsResponseSchema = z
   .object({ credentials: z.array(CredentialInfoSchema) })
   .strict();
 export type ListCredentialsResponse = z.infer<typeof ListCredentialsResponseSchema>;
-/**
- * `POST /v1/vaults/{vaultId}/oauth/start` (F9 C2): sign the installation in to the remote MCP
- * server at `url`, declared as `server`, and store its OAuth credential in the installation vault.
- * `clientId` names a client registered with the authorization server; without one the Runtime
- * registers itself (RFC 7591) when the server allows it.
- */
-export const StartOAuthRequestSchema = z
-  .object({
-    url: z.string().min(1).max(2048),
-    server: z.string().min(1).max(128),
-    clientId: z.string().min(1).max(512).optional(),
-  })
-  .strict();
-export type StartOAuthRequest = z.infer<typeof StartOAuthRequestSchema>;
-/** Where to send the browser, and until when the sign-in can finish. */
-export const StartOAuthResponseSchema = z
-  .object({ authorizeUrl: z.string(), expiresAt: z.string() })
-  .strict();
-export type StartOAuthResponse = z.infer<typeof StartOAuthResponseSchema>;
 /** A deleted vault or credential. */
 export const DeletedResponseSchema = z.object({ id: z.string() }).strict();
 export type DeletedResponse = z.infer<typeof DeletedResponseSchema>;

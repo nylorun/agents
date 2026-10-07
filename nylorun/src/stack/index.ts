@@ -4,7 +4,6 @@ import { runStackCommand, runStudioCommand, type StackDeps } from "./commands.js
 import { spawnDocker } from "./docker.js";
 import { keyCommand as runKeyCommand } from "./keys.js";
 import { sandboxCommand as runSandboxCommand } from "./sandbox.js";
-import { mcpCommand as runMcpCommand } from "./mcp.js";
 import { pinnedVersion } from "./versions.js";
 import { loopbackPorts } from "./ports.js";
 
@@ -109,15 +108,6 @@ export async function sandboxCommand(
   return await runSandboxCommand(defaultStackDeps(env), args);
 }
 export { sandboxUsage } from "./sandbox.js";
-
-/** Entry for `nylorun mcp connect`. */
-export async function mcpCommand(
-  args: readonly string[],
-  env: Readonly<Record<string, string | undefined>>,
-): Promise<number> {
-  return await runMcpCommand(defaultStackDeps(env), args);
-}
-export { mcpUsage } from "./mcp.js";
 
 /** Entry for `nylorun key put|list|rm`. */
 export async function keyCommand(

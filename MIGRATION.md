@@ -1,3 +1,62 @@
+# MCP credentials from vaults only (protocol 10)
+
+Nylorun no longer holds an OAuth client for MCP servers and no longer asks a credential
+resolver. A session's MCP servers and HTTP tools get their credentials from the vaults attached
+to the session, and nowhere else. Clients and SDKs of this release send `Nylorun-Protocol: 10`;
+the Runtime still serves protocol 4 to 9 clients on every route that remains.
+
+## What is removed
+
+| Removed | Now |
+| --- | --- |
+| `POST /v1/tenant/vaults/{vaultId}/oauth/start`, `admin.vaults.startOAuth(…)` | `404`; no replacement in the Runtime |
+| `GET /v1/oauth/callback` | `404`. Remove its rule from your reverse proxy |
+| `nylorun mcp connect` | Removed; `nylorun mcp` says how to add a key instead |
+| The vault credential type `oauth` (`auth: { type: "oauth", accessToken, expiresAt?, refresh? }` on create and rotate), and the gateway's refresh of it | A credential is a `bearer` token bound to a URL. A create or rotate with `type: "oauth"` is `400` |
+| `CredentialInfo.expiresAt`, and `oauth` in `CredentialInfo.type` | Gone from the type and the answers |
+| `StartOAuthRequest`, `StartOAuthResponse` (`@nylorun/core`) | Removed |
+| The error codes `oauth_client_required`, `oauth_state_invalid`, `oauth_failed` | Removed from `ERROR_CODES` |
+| The credential resolver: `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` on the gateway | Ignored. The Runtime logs `resolver_removed` naming the variables, and starts |
+| In process: `TenantConfig.resolver`, `startEphemeralRuntime({ resolver })`, the `ResolverConfig` type, `TenantConfig.publicUrl`, `TenantConfig.vaultFetch`, `VaultService`'s `fetch` option | Removed |
+
+`NYLORUN_PUBLIC_URL` stays: it is the `resource` of the protected resource metadata.
+
+## Existing `oauth` credentials are deleted
+
+On its first start the Runtime applies migration `0016_mcp_oauth_removed`. It drops the table of
+pending OAuth connects and deletes every vault credential of type `oauth`, writing one audit row
+for each (actor `migration`, action `delete`, target the credential's URL). Then it logs one
+`oauth_credential_removed` warning per deleted credential, with its vault id, credential id and
+URL. The rows cannot be converted: the secret's encryption is bound to its type.
+
+A session that attached a vault holding one of them now calls that server with no credential,
+until you add one. Before you upgrade, list each vault's credentials
+(`admin.vaults.credentials.list(vaultId)`) and note those of type `oauth`. After it, for each
+server:
+
+- if the server takes an API key or a long-lived token, add it as a `bearer` credential bound to
+  the same URL (`admin.vaults.credentials.create(vaultId, { name, auth: { type: "bearer", url,
+  token } })`);
+- otherwise, reach the server through a gateway that holds the OAuth sign-in: see "Reaching a
+  person's accounts" in [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
+
+## A person's credentials move to their vault
+
+The gateway no longer asks your resolver for a person's credential when the session's vaults
+hold none. Move what your resolver served:
+
+- **Static keys** (a person's API key or personal access token): create that person's vault with
+  a management key (`admin.vaults.create({ name, ownerUserId })`, or `POST /v1/tenant/vaults`
+  with `ownerUserId`), add each key as a `bearer` credential bound to the server's URL, and pass
+  the vault's id in `vaultIds` when you open that person's sessions. Unlike the resolver, which
+  was asked for every person's session, a vault is used only by the sessions that attach it.
+- **OAuth sign-ins** (a person's GitHub or Google account): Nylorun does not refresh them. Reach
+  those servers through a gateway that holds each person's sign-in; see "Reaching a person's
+  accounts" in [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
+
+Then remove `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` from the gateway's environment
+(and from the shell that runs `nylorun start`), and retire the resolver.
+
 # The Runtime API as an OAuth resource server (protocol 9)
 
 The Runtime API now behaves as an OAuth 2.1 resource server for your identity provider's

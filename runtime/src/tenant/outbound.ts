@@ -1,6 +1,6 @@
 /**
  * The Runtime's requests to developer URLs: HTTP tools (`gates/http-tool.ts`) and, through
- * `guardedFetch`, remote MCP servers and OAuth: one request, no redirects, a bounded answer, and
+ * `guardedFetch`, remote MCP servers: one request, no redirects, a bounded answer, and
  * the Host's address policy checked on the address actually connected to, so a DNS answer cannot
  * steer a request somewhere the Host forbids.
  *
@@ -213,7 +213,7 @@ export class OutboundFailed extends Error {
   }
 }
 
-/** The largest answer `guardedFetch` reads. OAuth metadata and tokens are small. */
+/** The largest answer `guardedFetch` reads. */
 export const MAX_FETCH_RESPONSE_BYTES = 1024 * 1024;
 /** How long a `guardedFetch` request may take without a signal of its own. */
 export const FETCH_TIMEOUT_MS = 30_000;
@@ -222,9 +222,8 @@ export const FETCH_TIMEOUT_MS = 30_000;
  * A `fetch` under the Host's address policy (F9 C2): the literal-IP and DNS checks of `post`
  * on the address actually connected to, `localhost` rewritten for the local stack, no
  * redirects (`redirect: "error"`; a 3xx answer rejects), a bounded answer and a 30 s timeout
- * unless the caller passes a signal. The gateway calls OAuth discovery, registration, the code
- * exchange and refresh with it. A refused URL or address rejects with `OutboundRefused`, any
- * other failure with `OutboundFailed`.
+ * unless the caller passes a signal. A refused URL or address rejects with `OutboundRefused`,
+ * any other failure with `OutboundFailed`.
  *
  * `stream`: the Response resolves once the headers arrive and its body streams, unbounded and
  * with no timeout but the caller's signal: remote MCP servers, whose answers and event streams

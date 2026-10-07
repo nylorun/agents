@@ -33,7 +33,7 @@ import {
 import { mayDispatchMore } from "../core/limits.js";
 import type { Tx } from "../store/types.js";
 import type { AuthorizeResult } from "../vault/service.js";
-import type { McpCredentialRequest } from "../vault/sources.js";
+import { sessionCredentials, type McpCredentialRequest } from "../vault/sources.js";
 import { isRemoteMcpCall } from "../harness/calls.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
 import {
@@ -338,7 +338,7 @@ function inheritedSandbox(
 
 /**
  * The credential of an MCP server or HTTP tool request made on behalf of a session: from its
- * attached vaults, else the operator's credential resolver (`vault/sources.ts`).
+ * attached vaults (`vault/sources.ts`).
  */
 export async function authorize(
   ctx: TenantContext,
@@ -346,7 +346,7 @@ export async function authorize(
   request: McpCredentialRequest
 ): Promise<AuthorizeResult> {
   const s = await loadSession(ctx, sessionId);
-  return ctx.credentials.authorize({ ...s, id: sessionId }, request);
+  return sessionCredentials(ctx.vault, { ...s, id: sessionId }, request);
 }
 
 /**

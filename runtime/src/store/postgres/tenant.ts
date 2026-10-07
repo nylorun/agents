@@ -11,6 +11,8 @@
  *    tables of a pre-release build of it. It is never touched: this release starts fresh.
  * 2. Apply the missing migrations (`migrate.ts`). A database with migrations this Runtime
  *    does not know is `schema-too-new`; a migration Postgres rejects is `migration-failed`.
+ *    `0016_mcp_oauth_removed` deletes the vault's MCP OAuth credentials (protocol 10), each
+ *    with an audit row; the open returns them (`removedCredentials`) for a boot warning.
  * 3. When `nylorun.tenant` is empty, create the Tenant: its row (id, name, created time) and
  *    its first principals. A database whose row is gone but that holds a Tenant's data
  *    (principals, sessions, agents, vaults, keys) is `envelope-invalid`, never given a new
@@ -47,6 +49,7 @@ import {
   signingKeys,
   TENANT_SCHEMA,
   tenant,
+  vaultAudit,
   vaults,
 } from "./schema.js";
 import { createPostgresSessionStore } from "./store.js";
@@ -98,7 +101,23 @@ export interface OpenedTenantDatabase {
   created: boolean;
   /** The schema versions (applied migrations) before and after. */
   migrated: { from: number; to: number };
+  /**
+   * The MCP OAuth credentials this call's migration `0016_mcp_oauth_removed` deleted (protocol
+   * 10), from the audit rows it wrote: the Host names each in a boot warning. Empty otherwise.
+   */
+  removedCredentials: RemovedCredential[];
 }
+
+/** A vault credential a migration deleted. */
+export interface RemovedCredential {
+  vaultId: string;
+  credentialId: string;
+  /** The URL it was bound to. */
+  url: string | null;
+}
+
+/** The migration that deletes the vault's `oauth` credentials, each with an audit row. */
+const OAUTH_REMOVED_MIGRATION = "0016_mcp_oauth_removed";
 
 /**
  * Migrates the database, creates its Tenant when it has none, and opens its Session Store.
@@ -111,14 +130,15 @@ export async function openTenantDatabase(
   const db = database(pool);
   const now = options.now ?? (() => new Date());
   const migrations = options.migrations ?? shippedMigrations();
-  let outcome: { created: boolean; migrated: { from: number; to: number } };
+  let outcome: Omit<OpenedTenantDatabase, "store" | "envelope">;
   try {
     outcome = await db.transaction(async (tx) => {
       await lockMigrations(tx);
       await assertCurrentLayout(tx);
       const migrated = await applyMigrations(tx, migrations);
       const created = await ensureTenant(tx, options.create, migrated, now);
-      return { created, migrated };
+      const removedCredentials = await removedBy(tx, migrations, migrated);
+      return { created, migrated, removedCredentials };
     });
   } catch (thrown) {
     const error = driverError(thrown);
@@ -175,6 +195,29 @@ export async function readTenantEnvelope(
   } catch (error) {
     throw driverError(error);
   }
+}
+
+/**
+ * The credentials `0016_mcp_oauth_removed` deleted, when this transaction applied it: its
+ * audit rows (actor `migration`). Empty when it ran before, or is not among `migrations`.
+ */
+async function removedBy(
+  tx: Transaction,
+  migrations: readonly Migration[],
+  migrated: { from: number; to: number },
+): Promise<RemovedCredential[]> {
+  const index = migrations.findIndex((migration) => migration.tag === OAUTH_REMOVED_MIGRATION);
+  if (index < migrated.from || index >= migrated.to) return [];
+  const rows = await tx
+    .select({ vaultId: vaultAudit.vaultId, credentialId: vaultAudit.credentialId, url: vaultAudit.target })
+    .from(vaultAudit)
+    .where(and(eq(vaultAudit.actor, "migration"), eq(vaultAudit.action, "delete")))
+    .orderBy(vaultAudit.ord);
+  return rows.flatMap((row) =>
+    row.vaultId && row.credentialId
+      ? [{ vaultId: row.vaultId, credentialId: row.credentialId, url: row.url }]
+      : [],
+  );
 }
 
 /**

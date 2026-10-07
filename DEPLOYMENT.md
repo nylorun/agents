@@ -214,7 +214,7 @@ way in. Nothing in the Runtime changes.
 | Rewrite `Host` to `localhost:<port>` | The Runtime answers `421` to any other `Host` |
 | Forward to the Runtime port only (`NYLORUN_PORT`); never Studio or Restate | Studio is for operators, behind its own sign-in proxy; Restate's UI has no authentication |
 | Forward only `/health`, `/ready`, `/.well-known/oauth-protected-resource` and `/v1/*` | Nothing else is the Runtime API or the Management API; the well-known document tells OAuth clients where to sign in |
-| Optional: answer `/v1/tenant/*` with `403` unless the request comes from your operator networks | Defense in depth for the Management API, on top of the key role. Leave `/v1/oauth/callback` open: browsers come back to it |
+| Optional: answer `/v1/tenant/*` with `403` unless the request comes from your operator networks | Defense in depth for the Management API, on top of the key role |
 | Pass every other header through: `Authorization`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime refuses keys sent with an `Origin` |
 | Answer CORS yourself, for your app's origins only, when browsers call the Runtime: preflights (`OPTIONS`) and `Access-Control-Allow-Origin`; allow `Authorization`, `Content-Type`, `Nylorun-Protocol` and `Last-Event-ID`, and expose `Retry-After` and `WWW-Authenticate` | The Runtime sends no CORS headers (protocol 7); browsers present a trusted issuer's token |
 | Don't buffer responses; allow idle streams | Event streams are long-lived SSE with a keepalive every 15 seconds |
@@ -403,8 +403,8 @@ The gateway is also the Tool Gate. Tool calls that leave the loop cross it, so
 the runtime container never holds an MCP credential or calls a tool's server:
 
 - **Remote MCP servers** (`streamable-http` and `sse`): the gateway opens the
-  connection, authorizes it from the session's attached vaults (OAuth refresh
-  included) and runs `tools/list` and `tools/call`. `nylorun logs gateway`
+  connection, authorizes it from the session's attached vaults and runs
+  `tools/list` and `tools/call`. `nylorun logs gateway`
   shows one `mcp_request` line per request, never arguments, results or
   credentials. Nylorun accepts remote MCP servers only: there are no stdio
   servers to run.
@@ -419,78 +419,28 @@ the runtime container never holds an MCP credential or calls a tool's server:
 
 ### Credentials
 
-A session's MCP credential comes from two places, in this order:
+A session's MCP and HTTP tool credentials come from the session's attached vaults
+(`vaultIds`), matched by the URL the agent names:
 
-1. **The session's attached vaults.** An installation vault
-   (`POST /v1/tenant/vaults` with `scope: "installation"`, or
-   `admin.vaults.create` in `@nylorun/admin`; Studio's Connections page creates
-   these) holds the installation's own credentials: shared tool keys and the
-   operator's MCP connections. Any session may attach one (`vaultIds`). Vault
-   routes are the Management API's and take only a management key (protocol 8):
-   an application key, alone or acting for a person, gets
-   `403 key_role_mismatch`. A person's vault (owner `ownerUserId`) still
-   attaches only to that person's sessions.
-2. **Your credential resolver**, for a person's own credentials, which Nylorun
-   never stores. Set `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` on the
-   gateway (a local Tenant passes them from the shell that runs `nylorun
-   start`). When the attached vaults hold nothing for the server's URL, the
-   gateway asks:
+- An **installation vault** (`POST /v1/tenant/vaults` with `scope: "installation"`, or
+  `admin.vaults.create` in `@nylorun/admin`; Studio's Connections page creates these) holds
+  the installation's own credentials, such as shared tool keys. Any session may attach one.
+- A **person's vault** (owner `ownerUserId`) holds that person's own keys, and attaches only to
+  that person's sessions.
 
-   ```text
-   POST <NYLORUN_RESOLVER_URL>
-   Authorization: Bearer <NYLORUN_RESOLVER_TOKEN>
-   { "owner": "u:priya", "session": "s_…", "turn": "t_…" | null,
-     "target": { "kind": "mcp", "server": "github", "agent": "support", "url": "https://…/mcp" } }
+Vault routes are the Management API's and take only a management key (protocol 8): an
+application key, alone or acting for a person, gets `403 key_role_mismatch`.
 
-   200 { "headers": { "authorization": "Bearer …" }, "expiresAt"?: "<ISO time>" }
-   404                                      the call goes without a credential
-   anything else, or no answer within 5 s   the server is refused: credential_unavailable
-   ```
+### Reaching a person's accounts
 
-   `owner` and `turn` come from the session, never from the agent. Answers are
-   kept per owner and URL until `expiresAt`, at most 5 minutes (60 s without
-   one), so a revoked credential can work for up to 5 minutes. Keep the
-   resolver on a private network: the gateway allows private addresses for it,
-   and never follows a redirect.
-
-### Connecting a remote MCP server with OAuth
-
-An MCP server that signs clients in with OAuth (MCP authorization: RFC 9728
-discovery, then RFC 8414 metadata) can be connected once for the whole
-installation; the credential goes into an installation vault:
-
-```sh
-nylorun mcp connect https://mcp.example.com/mcp --server linear
-# a server without dynamic client registration (RFC 7591): register a client
-# with it, its redirect URI the callback below, and pass the client's id
-nylorun mcp connect https://mcp.example.com/mcp --server linear --client-id <id>
-```
-
-The command creates the installation vault `mcp` unless `--vault <id>` names
-another, prints the sign-in URL and opens the browser, and waits (up to 10
-minutes) for the credential: an `oauth` credential bound to the URL, named
-after `--server`, refreshed by the gateway when it expires. Connecting again
-rotates it. Sessions use it when they attach the vault (`vaultIds`). A tool of
-your own does the same with a management key:
-`POST /v1/tenant/vaults/{vaultId}/oauth/start`, or
-`admin.vaults.startOAuth(vaultId, { url, server })` in `@nylorun/admin`.
-
-The gateway's `keys` service does every OAuth step: discovery, registration,
-the PKCE code exchange and refresh. Tokens, the PKCE verifier and any client
-secret never reach the runtime container, which only routes the start and the
-callback. The authorization server sends the browser back to
-`NYLORUN_PUBLIC_URL` + `/v1/oauth/callback` (`http://localhost:<port>` for a
-local Tenant); a server reached through a proxy sets `NYLORUN_PUBLIC_URL` to
-its public address. Without one, the callback is the start request's own
-origin. A sign-in must finish within 10 minutes, and its `state` works once.
-
-These requests follow the `NYLORUN_ENDPOINT_*` settings, like HTTP tool calls: no redirects, and a local Tenant may reach an OAuth server on this
-machine. On a server, set `NYLORUN_ENDPOINT_PRIVATE=refuse` on the gateway so
-a discovery document cannot point it at a private address.
+Nylorun holds no OAuth client and asks no credential resolver (protocol 10). A person's own
+API key for a server goes in their vault, as a `bearer` credential bound to the server's URL. A
+server that signs each person in with OAuth is reached through a gateway that holds their
+sign-in, outside Nylorun.
 
 The gateway also runs `keys`, the only process that reads the vault key: it
 runs every vault write that touches a secret (creating and rotating a
-credential, setting and selecting the host model, MCP OAuth connect) and signs every token
+credential, setting and selecting the host model) and signs every token
 (capability links, run and host tokens, signing-key rotation). The runtime reaches
 it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
 never reads the key: Compose covers `keys/` and `docker/` in the runtime

@@ -125,10 +125,9 @@ Rules for a web backend:
   AG-UI events and nothing else; the handler calls the Runtime as each person
   (`client.as`), so people only reach their own threads, and any `Nylorun-*`
   header a browser sends is ignored.
-- Per-user credentials (a user's GitHub, their Drive) stay in your own store:
-  the Runtime asks your credential resolver for them when a session's vaults
-  hold none ([Credentials](../DEPLOYMENT.md#credentials)). Shared tool keys go
-  in an installation vault.
+- Per-user keys (a user's GitHub, their Drive) go in that person's user vault,
+  which only their sessions attach ([Credentials](../DEPLOYMENT.md#credentials)).
+  Shared tool keys go in an installation vault.
 - The Runtime stays off the network: see
   [Serving people through an app server](../DEPLOYMENT.md#serving-people-through-an-app-server).
 

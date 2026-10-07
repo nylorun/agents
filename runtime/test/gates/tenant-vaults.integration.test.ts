@@ -52,7 +52,7 @@ describe.skipIf(!STACK_ENABLED)("the gates service's Tenant vault on Postgres", 
     const opened = await openTenantDatabase({ sql, create: { name: "gate" } });
     stores.push(opened.store);
     const kek = createKekFile(tenantPaths(hostRoot).kek);
-    await new VaultService({ store: opened.store, kek: () => kek, fetch }).putHostModel({
+    await new VaultService({ store: opened.store, kek: () => kek }).putHostModel({
       requestId: "host-1",
       idempotencyKey: "host-model",
       provider: "custom",

@@ -67,7 +67,6 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
   const [active, setActive] = useState<Row | undefined>();
   const [vaultName, setVaultName] = useState("");
   const [credentialName, setCredentialName] = useState("");
-  const [authType, setAuthType] = useState<"bearer" | "oauth">("bearer");
   const [bindingUrl, setBindingUrl] = useState("");
   const [secret, setSecret] = useState("");
   const [confirmName, setConfirmName] = useState("");
@@ -128,7 +127,6 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
   function resetForm() {
     setVaultName("");
     setCredentialName("");
-    setAuthType("bearer");
     setBindingUrl("");
     setSecret("");
     setConfirmName("");
@@ -143,7 +141,6 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     setActive(row);
     if (row) {
       setCredentialName(row.credential.name);
-      setAuthType(row.credential.type);
       setBindingUrl(row.credential.binding.url);
     }
     setPanelOpen(true);
@@ -169,14 +166,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
         const created = await sdk.vaults.credentials.create(selectedVaultId, {
           name: credentialName.trim(),
           idempotencyKey: crypto.randomUUID(),
-          auth:
-            authType === "bearer"
-              ? { type: "bearer", url: bindingUrl.trim(), token: secretValue }
-              : {
-                  type: "oauth",
-                  url: bindingUrl.trim(),
-                  accessToken: secretValue,
-                },
+          auth: { type: "bearer", url: bindingUrl.trim(), token: secretValue },
         });
         if (JSON.stringify(created).includes(secretValue))
           throw new Error("The Runtime returned the credential secret.");
@@ -189,10 +179,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
           active.credential.id,
           {
             idempotencyKey: crypto.randomUUID(),
-            auth:
-              active.credential.type === "bearer"
-                ? { type: "bearer", token: secretValue }
-                : { type: "oauth", accessToken: secretValue },
+            auth: { type: "bearer", token: secretValue },
           },
         );
         if (JSON.stringify(updated).includes(secretValue))
@@ -252,14 +239,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             ? "Delete credential"
             : "Credential details";
 
-  const secretLabel =
-    panelMode === "update"
-      ? active?.credential.type === "oauth"
-        ? "New access token"
-        : "New token"
-      : authType === "oauth"
-        ? "Access token"
-        : "Token";
+  const secretLabel = panelMode === "update" ? "New token" : "Token";
 
   return (
     <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-auto p-8">
@@ -343,7 +323,6 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Destination URL</TableHead>
-              <TableHead>Expires</TableHead>
               <TableHead>Rotated</TableHead>
               <TableHead className="w-24 text-right">Actions</TableHead>
             </TableRow>
@@ -352,7 +331,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             {vaults.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={5}
                   className="h-24 text-center text-muted-foreground"
                 >
                   Create a vault to store credentials.
@@ -361,7 +340,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             ) : visible.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={5}
                   className="h-24 text-center text-muted-foreground"
                 >
                   No credentials in this vault yet.
@@ -377,18 +356,13 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">
-                      {row.credential.type === "oauth" ? "OAuth" : "Bearer"}
-                    </Badge>
+                    <Badge variant="outline">Bearer</Badge>
                   </TableCell>
                   <TableCell
                     className="max-w-xs truncate font-mono text-xs"
                     title={row.credential.binding.url}
                   >
                     {row.credential.binding.url}
-                  </TableCell>
-                  <TableCell>
-                    {formatWhen(row.credential.expiresAt)}
                   </TableCell>
                   <TableCell>
                     {formatWhen(row.credential.rotatedAt)}
@@ -444,17 +418,9 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             {`await client.createSession({\n  agentId: "assistant",\n  ownerUserId: "developer",\n  vaultIds: [${JSON.stringify(selectedVault?.id ?? "vault-id")}],\n});`}
           </pre>
           <p>
-            For an MCP server with OAuth, use the CLI to connect and refresh the
-            installation's credential:
-          </p>
-          <pre className="whitespace-pre-wrap break-all rounded-md border bg-background p-3 text-xs text-foreground">
-            {`nylorun mcp connect https://mcp.example.com/mcp --server example${selectedVault ? ` --vault ${selectedVault.id}` : ""}`}
-          </pre>
-          <p>
-            Studio-created sessions do not attach vaults automatically. Personal
-            credentials are supplied by your operator's external credential
-            resolver.
-            Model-provider credentials are managed in the Models tab.
+            Studio-created sessions do not attach vaults automatically. A
+            person's own keys go in their user vault, which only their sessions
+            attach. Model-provider credentials are managed in the Models tab.
           </p>
           <a
             className="text-primary underline underline-offset-4"
@@ -518,29 +484,10 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                     <Input value={credentialName} readOnly />
                   </label>
                 )}
-                {panelMode === "add-credential" ? (
-                  <label className="grid gap-1 text-sm">
-                    Type
-                    <select
-                      className="h-9 rounded-md border bg-transparent px-3"
-                      value={authType}
-                      onChange={(event) =>
-                        setAuthType(event.target.value as "bearer" | "oauth")
-                      }
-                    >
-                      <option value="bearer">Bearer</option>
-                      <option value="oauth">OAuth access token</option>
-                    </select>
-                  </label>
-                ) : (
-                  <label className="grid gap-1 text-sm">
-                    Type
-                    <Input
-                      value={authType === "oauth" ? "OAuth" : "Bearer"}
-                      readOnly
-                    />
-                  </label>
-                )}
+                <label className="grid gap-1 text-sm">
+                  Type
+                  <Input value="Bearer" readOnly />
+                </label>
                 <label className="grid gap-1 text-sm">
                   Destination URL
                   <Input
@@ -593,9 +540,6 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                     Created {formatWhen(active.credential.createdAt)}
                     {active.credential.rotatedAt
                       ? ` · Rotated ${formatWhen(active.credential.rotatedAt)}`
-                      : ""}
-                    {active.credential.expiresAt
-                      ? ` · Expires ${formatWhen(active.credential.expiresAt)}`
                       : ""}
                   </p>
                 ) : null}

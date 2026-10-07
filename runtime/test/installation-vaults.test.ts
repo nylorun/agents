@@ -1,7 +1,7 @@
 /**
  * F9 C1: installation vaults (`scope: "installation"`, any session may attach one; only
- * management keys see them, protocol 8) and the operator's credential resolver, end to end over
- * the Tenant API and a remote MCP server. With `NYLORUN_TEST_MODEL_GATE=http` the gateway
+ * management keys see them, protocol 8) and a person's own user vault, end to end over the
+ * Tenant API and a remote MCP server. With `NYLORUN_TEST_MODEL_GATE=http` the gateway
  * authorizes the MCP calls, as in the local stack; otherwise the Tenant does, in process.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -19,7 +19,7 @@ import { startTestTenant } from "./support/tenant.js";
 const APP = "installation-vaults-app-key-aaaaaaa";
 const KEK = Buffer.alloc(32, 7).toString("base64");
 const SHARED_TOKEN = "installation-shared-token-1f2e3d4c";
-const RESOLVER_TOKEN = "resolver-bearer-0a1b2c3d";
+const PERSONAL_TOKEN = "personal-token-0a1b2c3d";
 
 const MANAGEMENT = "installation-vaults-management-key-aa";
 
@@ -109,30 +109,6 @@ async function remoteServer() {
   return { url: `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`, requests };
 }
 
-/** The operator's resolver: a token per owner, or `status` for everyone. */
-async function resolverServer(answer: { status?: number } = {}) {
-  const asked: { authorization?: string; body: any }[] = [];
-  const http = createServer(async (req, res) => {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(chunk as Buffer);
-    const body = JSON.parse(Buffer.concat(chunks).toString());
-    asked.push({ ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}), body });
-    const status = answer.status ?? 200;
-    res.writeHead(status, { "content-type": "application/json" });
-    res.end(
-      JSON.stringify(
-        status === 200 ? { headers: { authorization: `Bearer person-${body.owner}` } } : { status: "not_connected" },
-      ),
-    );
-  });
-  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
-  open.push(() => new Promise<void>((resolve) => http.close(() => resolve())));
-  return {
-    config: { url: `http://127.0.0.1:${(http.address() as AddressInfo).port}/resolve`, token: RESOLVER_TOKEN },
-    asked,
-  };
-}
-
 /** Calls `remote__echo` once, then answers. */
 const model: ModelProvider = async (effect: { input: unknown }) => {
   const input = effect.input as { tools?: { name: string }[]; prompt?: { kind?: string }[] };
@@ -144,7 +120,6 @@ const model: ModelProvider = async (effect: { input: unknown }) => {
 
 async function boot(
   options: {
-    resolver?: { url: string; token: string };
     mcpUrl?: string;
     issuers?: ReturnType<typeof createTrustedIssuers>;
   } = {},
@@ -154,7 +129,6 @@ async function boot(
     managementKey: MANAGEMENT,
     vaultKek: KEK,
     modelProvider: model,
-    ...(options.resolver ? { resolver: options.resolver } : {}),
     ...(options.issuers ? { issuers: options.issuers } : {}),
   });
   open.push(() => runtime.close());
@@ -303,7 +277,7 @@ describe("installation vaults over the Tenant API", () => {
   });
 });
 
-describe("installation vaults and the credential resolver, through MCP", () => {
+describe("installation and user vaults, through MCP", () => {
   it("lets sessions of two owners use one installation vault, and select its credential", async () => {
     const remote = await remoteServer();
     const runtime = await boot({ mcpUrl: remote.url });
@@ -324,64 +298,26 @@ describe("installation vaults and the credential resolver, through MCP", () => {
     expect(remote.requests.every((item) => item.authorization === `Bearer ${SHARED_TOKEN}`)).toBe(true);
   });
 
-  it("asks the resolver once per person for many MCP requests, and never gives u:a u:b's answer", async () => {
+  it("uses a person's own user vault for their sessions, and sends nothing when no attached vault holds one", async () => {
     const remote = await remoteServer();
-    const resolver = await resolverServer();
-    const runtime = await boot({ mcpUrl: remote.url, resolver: resolver.config });
+    const runtime = await boot({ mcpUrl: remote.url });
+    const personal = await call(runtime, "POST", "/v1/tenant/vaults", {
+      body: { requestId: "vault-a", idempotencyKey: "vault-a", name: "A's", ownerUserId: "u:a" },
+    });
+    expect(personal.status).toBe(200);
+    await bearer(runtime, personal.body.id, remote.url, PERSONAL_TOKEN);
 
-    expect((await runTurn(runtime, "s-a", "u:a")).status).toBe("completed");
+    expect((await runTurn(runtime, "s-a", "u:a", { vaultIds: [personal.body.id] })).status).toBe("completed");
     const forA = remote.requests.length;
     expect(forA).toBeGreaterThan(2); // initialize, tools/list, tools/call, …
-    expect((await runTurn(runtime, "s-a2", "u:a")).status).toBe("completed");
-    const forA2 = remote.requests.length;
     expect((await runTurn(runtime, "s-b", "u:b")).status).toBe("completed");
 
-    expect(remote.requests.slice(0, forA2).every((item) => item.authorization === "Bearer person-u:a")).toBe(true);
-    expect(remote.requests.slice(forA2).every((item) => item.authorization === "Bearer person-u:b")).toBe(true);
-    expect(resolver.asked.map((item) => [item.authorization, item.body.owner, item.body.session])).toEqual([
-      [`Bearer ${RESOLVER_TOKEN}`, "u:a", "s-a"],
-      [`Bearer ${RESOLVER_TOKEN}`, "u:b", "s-b"],
-    ]);
-    expect(resolver.asked[0]!.body).toMatchObject({
-      turn: expect.any(String),
-      target: { kind: "mcp", server: "remote", url: remote.url },
+    expect(remote.requests.slice(0, forA).every((item) => item.authorization === `Bearer ${PERSONAL_TOKEN}`)).toBe(true);
+    expect(remote.requests.slice(forA).every((item) => item.authorization === null)).toBe(true);
+    // Another person's vault does not attach to u:b's session.
+    const attached = await call(runtime, "PUT", "/v1/sessions/s-b2", {
+      body: { requestId: "s-b2", agentId: "bot", ownerUserId: "u:b", vaultIds: [personal.body.id] },
     });
-  });
-
-  it("prefers the session's vault credential to the resolver", async () => {
-    const remote = await remoteServer();
-    const resolver = await resolverServer();
-    const runtime = await boot({ mcpUrl: remote.url, resolver: resolver.config });
-    const vault = await installationVault(runtime);
-    await bearer(runtime, vault.id, remote.url, SHARED_TOKEN);
-    expect((await runTurn(runtime, "s-a", "u:a", { vaultIds: [vault.id] })).status).toBe("completed");
-    expect(remote.requests.every((item) => item.authorization === `Bearer ${SHARED_TOKEN}`)).toBe(true);
-    expect(resolver.asked).toEqual([]);
-  });
-
-  it("goes without a credential on a 404 and refuses the server on a resolver failure", async () => {
-    const remote = await remoteServer();
-    const missing = await resolverServer({ status: 404 });
-    const runtime = await boot({ mcpUrl: remote.url, resolver: missing.config });
-    const connected = await runTurn(runtime, "s-a", "u:a");
-    expect(connected.status).toBe("completed");
-    expect(remote.requests.some((item) => item.method === "tools/call")).toBe(true);
-    expect(remote.requests.every((item) => item.authorization === null)).toBe(true);
-
-    const failing = await resolverServer({ status: 500 });
-    const other = await boot({ mcpUrl: remote.url, resolver: failing.config });
-    const before = remote.requests.length;
-    const refused = await runTurn(other, "s-b", "u:b");
-    expect(refused.status).toBe("completed");
-    expect(remote.requests.length).toBe(before);
-    expect(refused.mcpDiagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          serverName: "remote",
-          outcome: "refused",
-          message: expect.stringContaining("credential_unavailable"),
-        }),
-      ]),
-    );
+    expect(attached.status).toBe(403);
   });
 });
