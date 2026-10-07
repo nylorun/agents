@@ -211,6 +211,50 @@ test("proxy requires explicit installation vaults on the Management API and list
   );
 });
 
+test("proxy forwards a same-origin MCP tool preview and refuses one from another origin", async () => {
+  const seen: { path: string; body: string; headers: Record<string, string | string[] | undefined> }[] = [];
+  await withUpstream(
+    async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      seen.push({ path: `${req.method} ${req.url}`, body, headers: { ...req.headers } });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ tools: [], renamed: [] }));
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret" });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      const url = `http://127.0.0.1:${address.port}/_studio/runtime/v1/tenant/mcp/preview`;
+      const body = JSON.stringify({ url: "https://mcp.example.com/mcp", vaultId: "v1" });
+      try {
+        const previewed = await fetch(url, { method: "POST", headers: { origin, "content-type": "application/json" }, body });
+        assert.equal(previewed.status, 200);
+        assert.equal(seen[0]!.path, "POST /v1/tenant/mcp/preview");
+        assert.deepEqual(JSON.parse(seen[0]!.body), { url: "https://mcp.example.com/mcp", vaultId: "v1" });
+        assert.equal(seen[0]!.headers.authorization, "Bearer server-secret");
+        const foreign = await fetch(url, {
+          method: "POST",
+          headers: { origin: "https://evil.example", "content-type": "application/json" },
+          body,
+        });
+        assert.equal(foreign.status, 403);
+        const read = await fetch(url);
+        assert.equal(read.status, 404);
+        assert.equal(seen.length, 1);
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});
+
 test("proxy forwards a session's pinned manifest read and nothing else under the session", async () => {
   const seen: string[] = [];
   await withUpstream(

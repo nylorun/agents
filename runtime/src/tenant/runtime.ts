@@ -280,7 +280,14 @@ export class TenantRuntime implements TenantHandle {
         });
       const signingKeys = new SigningKeys({ tenantId: config.tenantId, kek: ensureKek });
       const keys =
-        hooks.keys ?? inProcessKeys({ store: opened, vault, signingKeys, kek: ensureKek });
+        hooks.keys ??
+        inProcessKeys({
+          store: opened,
+          vault,
+          signingKeys,
+          kek: ensureKek,
+          policy: config.delivery ?? {},
+        });
       const harnessMode = hooks.harness ?? "memory";
       const inProcess = harnessMode === "memory" || harnessMode === "json";
       const preference = seededBackend ?? config.sandbox.backend;

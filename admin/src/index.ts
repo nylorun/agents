@@ -30,6 +30,7 @@ export {
   createManagementClient,
   type ManagementClientOptions,
   type ManagementKeys,
+  type ManagementMcp,
   type ManagementModels,
   type ManagementSettings,
   type ManagementSigningKeys,
@@ -39,7 +40,7 @@ export {
 
 /**
  * The Management API client for the installation (`/v1/tenant/*`): `tenant`, `keys`
- * (application keys), `models`, `vaults`, `signingKeys` and `settings`, with a management key.
+ * (application keys), `models`, `vaults`, `mcp`, `signingKeys` and `settings`, with a management key.
  * `source` says where the connection came from.
  */
 export type Admin = AdminClient;

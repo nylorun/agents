@@ -308,6 +308,12 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
     ],
   },
   {
+    name: "MCP servers",
+    description:
+      "See a remote MCP server's tools before an agent names it, with the installation vault's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`.",
+    operations: ["POST /v1/tenant/mcp/preview"],
+  },
+  {
     name: "Signing keys",
     description:
       "The keys the Runtime signs capability links and run tokens with; their public halves are the Runtime API's JWKS. `admin.signingKeys`.",

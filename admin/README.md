@@ -1,7 +1,7 @@
 # @nylorun/admin
 
 The Management API client (protocol 8): the Tenant's status, seed and reset, its
-models, vaults, signing keys, settings and application keys, through
+models, vaults, MCP server previews, signing keys, settings and application keys, through
 `/v1/tenant/*` with a **management key**. It also holds the two helpers over the
 admin key that Studio needs. Depends only on `@nylorun/core`.
 Requires Node 24+. Vocabulary: [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
@@ -59,6 +59,7 @@ Management keys are issued on the Tenant's machine only:
 | `admin.keys` | `list()`, `put(id)`, `delete(id)` | `/v1/tenant/keys…` |
 | `admin.models` | `catalog()`, `providers()`, `get()`, `put(request)`, `select(request)`, `usage(query)`, `budgets.get()`, `budgets.put(request)` | `/v1/tenant/models`, `/providers`, `/model`, `/model/selection`, `/usage`, `/budgets` |
 | `admin.vaults` | `create`, `list(ownerUserId?)`, `get`, `delete`, `credentials.create`, `.list`, `.get`, `.rotate`, `.delete` | `/v1/tenant/vaults…` |
+| `admin.mcp` | `preview({ url, type?, name?, vaultId? })` | `POST /v1/tenant/mcp/preview` |
 | `admin.signingKeys` | `list()`, `rotate({ force? })`, `revoke(kid)` | `/v1/tenant/signing-keys…` |
 | `admin.settings` | `sandbox.get()`, `sandbox.put(request)`, `artifacts.get()`, `artifacts.put(request)` | `/v1/tenant/sandbox`, `/v1/tenant/artifacts` |
 
@@ -87,6 +88,20 @@ await admin.vaults.credentials.create(vault.id, {
   idempotencyKey: "linear",
   auth: { type: "bearer", url: "https://mcp.linear.app/mcp", token: process.env.LINEAR_TOKEN! },
 });
+```
+
+`admin.mcp.preview` shows what that server offers with that credential, before
+an agent names it: the Runtime connects, lists the tools within 15 s and calls
+none. Each tool has the name the model would call it (made with `name`,
+default from the URL's host), its annotations and its input schema's size. A
+server that answers `401` comes back with `authRequired` and its RFC 9728
+protected-resource metadata; one that cannot be listed rejects with
+`mcp_preview_failed` (`details.failure`).
+
+```ts
+const preview = await admin.mcp.preview({ url: "https://mcp.linear.app/mcp", name: "linear", vaultId: vault.id });
+for (const tool of preview.tools) console.log(tool.modelName, tool.schemaBytes);
+if (preview.authRequired) console.log("needs a sign-in:", preview.authRequired.resourceMetadata);
 ```
 
 ## In a browser

@@ -95,6 +95,7 @@ it("describes and groups the tags, every operation in one of them, in the order 
     "Application keys",
     "Models",
     "Vaults",
+    "MCP servers",
     "Signing keys",
     "Settings",
   ]);

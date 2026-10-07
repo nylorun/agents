@@ -45,8 +45,49 @@ describe("the Management API client", () => {
     for (const name of ["status", "adminUrl", "listTenants", "getTenant", "deleteTenant", "createTenant"])
       expect(name in admin, name).toBe(false);
     expect("OPERATOR_KEYS_FEATURE" in sdk).toBe(false);
-    for (const group of ["tenant", "keys", "models", "vaults", "signingKeys", "settings"] as const)
+    for (const group of ["tenant", "keys", "models", "vaults", "mcp", "signingKeys", "settings"] as const)
       expect(admin[group], group).toBeDefined();
+  });
+
+  it("previews an MCP server's tools, and rejects a failed preview with its failure code", async () => {
+    const preview = {
+      name: "linear",
+      url: "https://mcp.linear.app/mcp",
+      type: "streamable-http",
+      credentialSent: true,
+      tools: [{ serverToolName: "search", modelName: "linear__search", schemaBytes: 42 }],
+      renamed: [],
+    };
+    const bodies: unknown[] = [];
+    const server = await startStubServer((request, response, text) => {
+      if (request.url === "/health") return sendJson(response, 200, healthBody());
+      expect(request.headers.authorization).toBe(`Bearer ${MANAGEMENT_KEY}`);
+      expect(request.url).toBe("/v1/tenant/mcp/preview");
+      expect(request.method).toBe("POST");
+      const body = JSON.parse(text) as { url: string };
+      bodies.push(body);
+      if (body.url.includes("down"))
+        return sendJson(response, 502, {
+          status: "rejected",
+          code: "mcp_preview_failed",
+          message: "The MCP server 'down' could not be listed",
+          details: { failure: "mcp.unreachable" },
+        });
+      sendJson(response, 200, preview);
+    });
+    try {
+      const admin = createAdmin({ url: server.url, key: MANAGEMENT_KEY });
+      await expect(admin.mcp.preview({ url: preview.url, vaultId: "v1" })).resolves.toEqual(preview);
+      expect(bodies).toEqual([{ url: preview.url, vaultId: "v1" }]);
+      await expect(admin.mcp.preview({ url: "https://down.test/mcp" })).rejects.toMatchObject({
+        name: "AdminError",
+        code: "mcp_preview_failed",
+        status: 502,
+        details: { failure: "mcp.unreachable" },
+      });
+    } finally {
+      await server.close();
+    }
   });
 
   it("throws AdminError with a registry code on rejected responses", async () => {

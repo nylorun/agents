@@ -1144,6 +1144,93 @@ export const CredentialInfoSchema = z
   })
   .strict();
 export type CredentialInfo = z.infer<typeof CredentialInfoSchema>;
+/** The MCP transports a preview speaks: a manifest's remote server types. */
+export const MCP_PREVIEW_TYPES = ["streamable-http", "sse"] as const;
+/**
+ * `POST /v1/tenant/mcp/preview` (R2b C12): what a remote MCP server offers, before an agent
+ * names it. The Runtime connects with the installation vault's credential for `url` (one
+ * credential across the installation vaults, or the one in `vaultId`), lists the tools and
+ * closes the connection; it never calls a tool.
+ */
+export const McpPreviewRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    /** The server's URL, as a manifest would name it: an absolute `http` or `https` URL. */
+    url: z.string().min(1).superRefine((value, ctx) => {
+      let url: URL;
+      try {
+        url = new URL(value);
+      } catch {
+        ctx.addIssue({ code: "custom", message: "url must be an absolute URL" });
+        return;
+      }
+      if (url.protocol !== "https:" && url.protocol !== "http:")
+        ctx.addIssue({ code: "custom", message: "url must be http or https" });
+      if (url.username || url.password)
+        ctx.addIssue({ code: "custom", message: "url may not carry userinfo" });
+    }),
+    /** The transport, as a manifest declares it. Default `streamable-http`. */
+    type: z.enum(MCP_PREVIEW_TYPES).optional(),
+    /**
+     * The server name the agent will use: it prefixes the tools' model names. Default: the URL
+     * host's name before its top-level domain (`linear` for `mcp.linear.app`).
+     */
+    name: modelFacingName("MCP server").optional(),
+    /** The installation vault whose credential to send. Default: every installation vault. */
+    vaultId: z.string().min(1).optional(),
+  })
+  .strict();
+export type McpPreviewRequest = z.infer<typeof McpPreviewRequestSchema>;
+/** One tool a preview found. */
+export const McpPreviewToolSchema = z
+  .object({
+    /** The server's own name for the tool. */
+    serverToolName: z.string(),
+    /**
+     * What the model would call it (R2b C6); absent when the Runtime leaves the tool out (its
+     * input schema is not one the Runtime can use).
+     */
+    modelName: z.string().optional(),
+    description: z.string().optional(),
+    /** The server's annotations of the tool (`readOnlyHint`, `destructiveHint`, `title`, …). */
+    annotations: z.record(z.string(), z.unknown()).optional(),
+    /** The size of the tool's input schema as JSON: what it costs the model's context. */
+    schemaBytes: z.number().int().nonnegative(),
+  })
+  .strict();
+export type McpPreviewTool = z.infer<typeof McpPreviewToolSchema>;
+/**
+ * A preview (R2b C12). A server that answered `401` is `authRequired`, with its RFC 9728
+ * protected-resource metadata when it publishes any: it needs a person's sign-in or a key the
+ * installation vaults do not hold, so reach it with a key or through a gateway (`via`).
+ */
+export const McpPreviewSchema = z
+  .object({
+    /** The server name the model names were made with. */
+    name: z.string(),
+    url: z.string(),
+    type: z.enum(MCP_PREVIEW_TYPES),
+    /** True when an installation vault's credential was sent. */
+    credentialSent: z.boolean(),
+    /** The server's `initialize` answer: its name, version and title. */
+    serverInfo: z.record(z.string(), z.unknown()).optional(),
+    /** The server's instructions from `initialize`, cut to 2,000 characters. */
+    instructions: z.string().optional(),
+    tools: z.array(McpPreviewToolSchema),
+    /** Tools the model knows by another name than `server__tool` (R2b C6). */
+    renamed: z.array(z.object({ serverToolName: z.string(), name: z.string() }).strict()),
+    authRequired: z
+      .object({
+        /** Where the server's protected-resource metadata was read from. */
+        resourceMetadataUrl: z.string().optional(),
+        /** The metadata (RFC 9728): `resource`, `authorization_servers`, `scopes_supported`, … */
+        resourceMetadata: z.record(z.string(), z.unknown()).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type McpPreview = z.infer<typeof McpPreviewSchema>;
 const commandBase = {
   requestId: RequestIdSchema,
   idempotencyKey: IdempotencyKeySchema,

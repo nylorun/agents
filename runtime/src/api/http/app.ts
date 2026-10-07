@@ -22,6 +22,7 @@ import { fileRoutes } from "./routes/files.js";
 import { keyRoutes } from "./routes/keys.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { vaultRoutes } from "./routes/vaults.js";
+import { mcpRoutes } from "./routes/mcp.js";
 
 export type TenantBindings = NodeBindings & { readonly tenant: TenantContext };
 export type TenantEnv = {
@@ -68,6 +69,7 @@ function build(): OpenAPIHono<TenantEnv> {
   tenantRoutes(api);
   keyRoutes(api);
   vaultRoutes(api);
+  mcpRoutes(api);
   accessRoutes(api);
   meRoutes(api);
   agUiRoutes(api);

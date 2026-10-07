@@ -49,6 +49,7 @@ nylorun sandbox rm <id> [--tenant <name>]   # delete a sandbox and its files
 nylorun key put <id> [--management] [--tenant <name>]   # create or rotate the Tenant's application key <id> (--management: a management key); prints it once
 nylorun key list [--tenant <name>] [--json] # the Tenant's keys: id, role, when issued
 nylorun key rm <id> [--tenant <name>]       # delete a key: it stops working at once
+nylorun mcp inspect <url> [--server <name>] [--vault <id>] [--sse] [--tenant <name>] [--json]   # a remote MCP server's tools, with the installation vault's credential
 nylorun doctor [--json]            # prerequisites and the Tenant's health
 nylorun telemetry [status|enable|disable]   # Studio's anonymous usage analytics
 nylorun sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]
@@ -59,7 +60,8 @@ nylorun sandbox status [--tenant <name>] [--json]   # pods on a Kubernetes conte
 `up` and `down` are the Docker Compose spellings of `start` and `stop`: `down`
 stops the containers and keeps the volumes, so no Tenant data is lost. Removed
 commands exit 2 naming the replacement: `nylorun dev`, `nylorun configure`,
-`nylorun status --env` and `nylorun doctor sandbox`.
+`nylorun status --env`, `nylorun doctor sandbox` and the MCP OAuth `connect`
+subcommand of `nylorun mcp` (protocol 10).
 
 ## Tenants
 
@@ -185,9 +187,26 @@ key's id, role and when it was issued, never the keys; `nylorun key rm <id>`
 deletes one. Ids match `^[a-z][a-z0-9-]{0,31}$`; `studio` belongs to Studio and
 `bootstrap` to `NYLORUN_MANAGEMENT_KEY_FILE`, and both are refused. Putting an
 id that holds the other role is refused. Give each app server its own
-application key. `nylorun sandbox` uses the linked project's keys, or the keys
-`cli` and `cli-management` it puts once and keeps in
+application key. `nylorun sandbox` and `nylorun mcp` use the linked project's keys, or the keys
+`cli` and `cli-management` they put once and keep in
 `<Host root>/cli-credentials.json` (mode 0600).
+
+## MCP servers
+
+`nylorun mcp inspect <url>` shows what a remote MCP server offers before an
+agent names it, through the running Tenant's Management API
+(`POST /v1/tenant/mcp/preview`, with the management key). The Runtime connects
+with the installation vault's credential for `<url>` (`--vault <id>` picks the
+vault when several hold one), lists the tools within 15 s and calls none. It
+prints a table of each tool's model name, input schema size, hints
+(`read-only`, `destructive`, `idempotent`) and description, then the tools
+renamed for the model. `--server` is the server name your manifest uses (default:
+the host's name, `linear` for `mcp.linear.app`); `--sse` speaks the older SSE
+transport; `--json` prints the Runtime's answer. A server that answers `401`
+needs a credential: it says so, and names the server's sign-in from its
+protected-resource metadata, since such a server needs a key in a vault or a
+gateway that holds each person's sign-in. A server it cannot list exits 1 with
+the reason (`mcp.unreachable` for an address the Runtime refuses).
 
 ## The containers
 

@@ -89,7 +89,11 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
   if (!vaults) {
     if (!database || options.hostRoot === undefined)
       throw new Error("startGates needs the Postgres pool and the Host root");
-    vaults = createTenantVaults({ sql: database, hostRoot: options.hostRoot });
+    vaults = createTenantVaults({
+      sql: database,
+      hostRoot: options.hostRoot,
+      ...(options.delivery ? { delivery: options.delivery } : {}),
+    });
   }
   const blobs =
     options.blobs ??

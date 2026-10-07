@@ -96,6 +96,7 @@
               "issuer_unavailable",
               "definition_files_missing",
               "credential_rejected",
+              "mcp_preview_failed",
               "internal_error"
             ]
           },
@@ -2470,6 +2471,137 @@
           "requestId",
           "idempotencyKey",
           "auth"
+        ],
+        "additionalProperties": false
+      },
+      "McpPreview": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "streamable-http",
+              "sse"
+            ]
+          },
+          "credentialSent": {
+            "type": "boolean"
+          },
+          "serverInfo": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "serverToolName": {
+                  "type": "string"
+                },
+                "modelName": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "annotations": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "schemaBytes": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "serverToolName",
+                "schemaBytes"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "renamed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "serverToolName": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "serverToolName",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "authRequired": {
+            "type": "object",
+            "properties": {
+              "resourceMetadataUrl": {
+                "type": "string"
+              },
+              "resourceMetadata": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "type",
+          "credentialSent",
+          "tools",
+          "renamed"
+        ],
+        "additionalProperties": false
+      },
+      "McpPreviewRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "streamable-http",
+              "sse"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "vaultId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "url"
         ],
         "additionalProperties": false
       },
@@ -5725,6 +5857,138 @@
         }
       }
     },
+    "/v1/tenant/mcp/preview": {
+      "post": {
+        "tags": [
+          "MCP servers"
+        ],
+        "summary": "Preview an MCP server's tools",
+        "description": "Connects to the remote MCP server at `url` with the installation vault's credential for that URL (its headers and `via`; never an identity header), under the Host's address policy, lists its tools within 15 s and closes the connection. It never calls a tool. Each tool comes with the name the model would call it (`modelName`, made with `name`), its annotations and its input schema's size. A server that answers `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any: it needs a person's sign-in, so reach it through a gateway (`via`), or with a key. No credential value is in the answer.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `10`"
+            },
+            "required": true,
+            "description": "The protocol version, `10`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/McpPreviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server's tools, or that it needs a credential (`authRequired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Several installation vaults hold a credential for the URL (name one with `vaultId`), or the one there cannot be used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The server could not be listed (`mcp_preview_failed`): `details.failure` is the code a tool call would have failed with, such as `mcp.unreachable` for an address the Host refuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tenant/signing-keys": {
       "get": {
         "tags": [
@@ -6503,6 +6767,10 @@
     {
       "name": "Vaults",
       "description": "The installation's and each person's credentials for agents' tools: API keys, bound to the URL they are sent to. Sessions attach a vault by id. `admin.vaults`."
+    },
+    {
+      "name": "MCP servers",
+      "description": "See a remote MCP server's tools before an agent names it, with the installation vault's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`."
     },
     {
       "name": "Signing keys",

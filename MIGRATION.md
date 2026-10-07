@@ -11,7 +11,7 @@ the Runtime still serves protocol 4 to 9 clients on every route that remains.
 | --- | --- |
 | `POST /v1/tenant/vaults/{vaultId}/oauth/start`, `admin.vaults.startOAuth(…)` | `404`; no replacement in the Runtime |
 | `GET /v1/oauth/callback` | `404`. Remove its rule from your reverse proxy |
-| `nylorun mcp connect` | Removed; `nylorun mcp` says how to add a key instead |
+| `nylorun mcp connect` | Removed; it says how to add a key instead. `nylorun mcp inspect <url>` lists a server's tools (see "Previewing a server's tools") |
 | The vault credential type `oauth` (`auth: { type: "oauth", accessToken, expiresAt?, refresh? }` on create and rotate), and the gateway's refresh of it | A credential is a `bearer` token or a `headers` map bound to a URL. A create or rotate with `type: "oauth"` is `400` |
 | `CredentialInfo.expiresAt`, and `oauth` in `CredentialInfo.type` | Gone from the type and the answers |
 | `StartOAuthRequest`, `StartOAuthResponse` (`@nylorun/core`) | Removed |
@@ -216,6 +216,41 @@ differs from the definition's, as with `read_artifact`; `definitionHash` names t
 An agent that declares a tool named `tool_search` or `tool_call` gets no such capability and keeps
 every MCP tool in its list, as does a session opened before the upgrade, or a turn whose variant
 drops the capability.
+
+## Previewing a server's tools
+
+`POST /v1/tenant/mcp/preview` (the Management API: a management key, or Studio's) shows what a
+remote MCP server offers before an agent names it. It is new; nothing changes for existing
+clients.
+
+```json
+{ "url": "https://mcp.linear.app/mcp", "type": "streamable-http", "name": "linear", "vaultId": "…" }
+```
+
+Only `url` is required. `type` defaults to `streamable-http`; `name` is the server name the model
+names are made with (default: the URL host's name before its top-level domain, without a leading
+`mcp`, `www` or `api`: `linear` for `mcp.linear.app`); `vaultId` picks the installation vault whose
+credential is sent (default: every installation vault, and `409` when two hold one for the URL).
+The keys service connects with that credential (its headers and its `via`; never an identity
+header, since no person asked), under the Host's address policy, lists the tools within 15 s,
+closes the connection, and calls no tool. The answer:
+
+- `serverInfo`, `instructions`, `credentialSent`, and `tools`: each with `serverToolName`,
+  `modelName` (what the model would call it; absent for a tool the Runtime leaves out),
+  `description`, `annotations` and `schemaBytes`, the size of its input schema;
+- `renamed`: the tools whose model name is not `server__tool`;
+- `authRequired` instead of tools, still `200`, when the server answered `401`: its RFC 9728
+  protected-resource metadata (`resourceMetadata`, from the challenge's `resource_metadata`, else
+  the well-known path), so you know it needs a person's sign-in: reach it through a gateway, or
+  with a key.
+
+A server that cannot be listed is `502 mcp_preview_failed`, a new error code, with
+`details.failure` the code a tool call would have had (`mcp.unreachable` for an address the Host
+refuses, a failed connection or 15 s of silence). No credential value is in any answer.
+
+`admin.mcp.preview({ url, … })` (`@nylorun/admin`) calls it, `nylorun mcp inspect <url> [--server
+<name>] [--vault <id>] [--sse] [--json]` prints it for the running local Tenant, and Studio's
+Credentials page has **Preview tools** on each credential.
 
 # The Runtime API as an OAuth resource server (protocol 9)
 

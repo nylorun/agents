@@ -31,7 +31,7 @@ import { listFrom } from "@/runtime-body.ts";
 
 const SECRET_MASK = "••••••••••••••••";
 
-type PanelMode = "add-vault" | "add-credential" | "view" | "update" | "delete";
+type PanelMode = "add-vault" | "add-credential" | "view" | "update" | "delete" | "preview";
 
 type Row = {
   vault: VaultInfo;
@@ -55,6 +55,19 @@ function leaks(info: unknown, secrets: readonly string[]): boolean {
 }
 
 const client = (tenantId: string) => createTenantManagementClient(tenantId);
+
+/** What the Runtime found behind a credential's URL (R2b C12). */
+type McpPreview = Awaited<ReturnType<ReturnType<typeof client>["mcp"]["preview"]>>;
+
+/** A tool's annotations, as a few words. */
+function toolHints(annotations: Record<string, unknown> | undefined): string {
+  const hints = [
+    annotations?.readOnlyHint === true ? "read-only" : undefined,
+    annotations?.destructiveHint === true ? "destructive" : undefined,
+    annotations?.idempotentHint === true ? "idempotent" : undefined,
+  ].filter(Boolean);
+  return hints.join(", ");
+}
 
 function formatWhen(value?: string): string {
   if (!value) return "—";
@@ -90,6 +103,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
   const [via, setVia] = useState("");
   const [identityHeader, setIdentityHeader] = useState("");
   const [confirmName, setConfirmName] = useState("");
+  const [preview, setPreview] = useState<McpPreview | undefined>();
 
   const refresh = useCallback(async () => {
     const sdk = client(tenantId);
@@ -154,6 +168,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     setVia("");
     setIdentityHeader("");
     setConfirmName("");
+    setPreview(undefined);
     setActive(undefined);
   }
 
@@ -261,7 +276,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
           throw new Error("Type the credential name to confirm deletion.");
         await sdk.vaults.credentials.delete(active.vault.id, active.credential.id);
         setSaved(`Deleted “${active.credential.name}”.`);
-      } else if (panelMode === "view") {
+      } else if (panelMode === "view" || panelMode === "preview") {
         setPanelOpen(false);
         return;
       }
@@ -269,6 +284,27 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
       setHeaderRows([{ name: "", value: "" }]);
       setPanelOpen(false);
       await refresh();
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  /**
+   * Lists the tools of the MCP server at the credential's URL, connecting with this vault's
+   * credential; the Runtime calls no tool.
+   */
+  async function previewTools(row: Row) {
+    openPanel("preview", row);
+    setPending(true);
+    try {
+      setPreview(
+        await client(tenantId).mcp.preview({
+          url: row.credential.binding.url,
+          vaultId: row.vault.id,
+        }),
+      );
     } catch (cause) {
       setError(messageOf(cause));
     } finally {
@@ -309,7 +345,9 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
         ? "Rotate credential"
           : panelMode === "delete"
             ? "Delete credential"
-            : "Credential details";
+            : panelMode === "preview"
+              ? "Server tools"
+              : "Credential details";
 
   const secretLabel = panelMode === "update" ? "New token" : "Token";
   const editing = panelMode === "add-credential" || panelMode === "update";
@@ -465,6 +503,11 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                           View
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          onSelect={() => void previewTools(row)}
+                        >
+                          Preview tools
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           onSelect={() => openPanel("update", row)}
                         >
                           Rotate
@@ -520,7 +563,9 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             <SheetDescription>
               {panelMode === "view"
                 ? "Metadata only. Secret values are never returned by the Runtime."
-                : panelMode === "delete"
+                : panelMode === "preview"
+                  ? "The Runtime connected with this credential and listed the server's tools. It called none."
+                  : panelMode === "delete"
                   ? "Type the credential name to confirm. This cannot be undone."
                   : "The Runtime encrypts secrets in the vault. Studio never keeps a copy."}
             </SheetDescription>
@@ -739,6 +784,87 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
               </>
             ) : null}
 
+            {panelMode === "preview" ? (
+              <div className="grid gap-3 text-sm">
+                <p className="break-all font-mono text-xs">
+                  {active?.credential.binding.url}
+                </p>
+                {pending ? (
+                  <p className="text-muted-foreground">Listing the server's tools…</p>
+                ) : null}
+                {preview?.authRequired ? (
+                  <div className="grid gap-2 rounded-md border p-3">
+                    <p className="font-medium">
+                      {preview.credentialSent
+                        ? "The server rejected this credential (HTTP 401)."
+                        : "The server needs a credential (HTTP 401)."}
+                    </p>
+                    {Array.isArray(preview.authRequired.resourceMetadata?.authorization_servers) ? (
+                      <p className="text-muted-foreground">
+                        It signs people in with{" "}
+                        {(preview.authRequired.resourceMetadata.authorization_servers as unknown[])
+                          .map(String)
+                          .join(", ")}
+                        .
+                      </p>
+                    ) : null}
+                    <p className="text-muted-foreground">
+                      Nylorun holds no OAuth client: store the server's API key here, or send
+                      its requests through a gateway that keeps each person's sign-in (a
+                      credential with a gateway URL and an identity header).
+                    </p>
+                  </div>
+                ) : null}
+                {preview && !preview.authRequired ? (
+                  <>
+                    <p className="text-muted-foreground">
+                      {typeof preview.serverInfo?.name === "string"
+                        ? `${preview.serverInfo.name}${typeof preview.serverInfo.version === "string" ? ` ${preview.serverInfo.version}` : ""}: `
+                        : ""}
+                      {preview.tools.length} {preview.tools.length === 1 ? "tool" : "tools"}.
+                      Model names use the server name “{preview.name}”; your manifest's
+                      server name replaces it.
+                    </p>
+                    <ul className="grid max-h-96 gap-2 overflow-auto">
+                      {preview.tools.map((tool) => (
+                        <li key={tool.serverToolName} className="rounded-md border p-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <code className="font-mono text-xs">
+                              {tool.modelName ?? tool.serverToolName}
+                            </code>
+                            {toolHints(tool.annotations) ? (
+                              <Badge variant="outline">{toolHints(tool.annotations)}</Badge>
+                            ) : null}
+                            <span className="text-xs text-muted-foreground">
+                              {tool.schemaBytes} B schema
+                            </span>
+                          </div>
+                          {tool.modelName === undefined ? (
+                            <p className="text-xs text-muted-foreground">
+                              Left out: its input schema is not usable.
+                            </p>
+                          ) : null}
+                          {tool.description ? (
+                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                              {tool.description}
+                            </p>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                    {preview.renamed.length > 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Renamed for the model:{" "}
+                        {preview.renamed
+                          .map((item) => `${item.serverToolName} → ${item.name}`)
+                          .join(", ")}
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
             {error && panelOpen ? (
               <p role="alert" className="text-sm text-red-600">
                 {error}
@@ -746,7 +872,17 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             ) : null}
 
             <SheetFooter className="px-0">
-              {panelMode === "view" ? (
+              {panelMode === "view" && active ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() => void previewTools(active)}
+                >
+                  Preview tools
+                </Button>
+              ) : null}
+              {panelMode === "view" || panelMode === "preview" ? (
                 <Button type="button" onClick={() => setPanelOpen(false)}>
                   Close
                 </Button>
