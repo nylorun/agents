@@ -61,7 +61,8 @@ nylorun sandbox status [--tenant <name>] [--json]   # pods on a Kubernetes conte
 stops the containers and keeps the volumes, so no Tenant data is lost. Removed
 commands exit 2 naming the replacement: `nylorun dev`, `nylorun configure`,
 `nylorun status --env`, `nylorun doctor sandbox` and the MCP OAuth `connect`
-subcommand of `nylorun mcp` (protocol 10).
+subcommand of `nylorun mcp` (protocol 10: add a key or a gateway credential to a
+vault instead, and preview the server with `nylorun mcp inspect`).
 
 ## Tenants
 
@@ -193,6 +194,13 @@ application key. `nylorun sandbox` and `nylorun mcp` use the linked project's ke
 
 ## MCP servers
 
+An agent names its MCP servers by URL; the operator gives each URL a vault
+credential, a `bearer` token or a `headers` map, with `via` and an identity
+header when an MCP gateway holds each person's sign-in. Add it on Studio's
+Credentials page or with `@nylorun/admin` (no `nylorun` command adds one); the
+whole flow, with gateway recipes, is in
+[DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools).
+
 `nylorun mcp inspect <url>` shows what a remote MCP server offers before an
 agent names it, through the running Tenant's Management API
 (`POST /v1/tenant/mcp/preview`, with the management key). The Runtime connects
@@ -204,8 +212,8 @@ renamed for the model. `--server` is the server name your manifest uses (default
 the host's name, `linear` for `mcp.linear.app`); `--sse` speaks the older SSE
 transport; `--json` prints the Runtime's answer. A server that answers `401`
 needs a credential: it says so, and names the server's sign-in from its
-protected-resource metadata, since such a server needs a key in a vault or a
-gateway that holds each person's sign-in. A server it cannot list exits 1 with
+protected-resource metadata, since such a server needs a key in a vault or an
+MCP gateway that holds each person's sign-in. A server it cannot list exits 1 with
 the reason (`mcp.unreachable` for an address the Runtime refuses).
 
 ## The containers

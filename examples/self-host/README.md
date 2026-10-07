@@ -78,8 +78,12 @@ The smoke runs by hand, not in CI. It leaves its agent and sessions in the Tenan
 
 ## A person's MCP credential
 
-A person's own key for an MCP server goes in their user vault, which only their sessions attach:
-see "Reaching a person's accounts" in [DEPLOYMENT.md](../../DEPLOYMENT.md).
+A person's own key for an MCP server goes in their user vault (`ownerUserId` set to their
+subject: `u:<their Keycloak sub>` with this example's identity file), as a `bearer` or `headers`
+credential bound to the server's URL; only their sessions attach it. A server that needs each person's sign-in goes through an MCP gateway: one
+credential in an installation vault with the gateway's key, `via` and an identity header, which
+the Runtime fills with the session owner's subject. See "Reaching a person's accounts" in
+[DEPLOYMENT.md](../../DEPLOYMENT.md#reaching-a-persons-accounts). This example adds neither.
 
 ## Clean up
 

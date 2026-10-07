@@ -2,8 +2,16 @@
 
 Nylorun no longer holds an OAuth client for MCP servers and no longer asks a credential
 resolver. A session's MCP servers and HTTP tools get their credentials from the vaults attached
-to the session, and nowhere else. Clients and SDKs of this release send `Nylorun-Protocol: 10`;
-the Runtime still serves protocol 4 to 9 clients on every route that remains.
+to the session, and nowhere else. The same release adds the rest of a complete MCP client: header
+map and gateway credentials, tool names every model accepts, coded tool errors, results that fit,
+per-tool settings, deferred tools and a preview of a server's tools. Clients and SDKs of this
+release send `Nylorun-Protocol: 10`; the Runtime still serves protocol 4 to 9 clients on every
+route that remains.
+
+The sections below go in order: what is removed, how to move your credentials, the new credential
+kinds, then the changes to tool names, errors, results, per-tool settings (manifest v6), deferred
+tools and previews. The operator's guide to all of it, with gateway recipes, is "MCP servers and
+HTTP tools" in [DEPLOYMENT.md](./DEPLOYMENT.md#mcp-servers-and-http-tools).
 
 ## What is removed
 
@@ -36,9 +44,11 @@ server:
 
 - if the server takes an API key or a long-lived token, add it as a `bearer` credential bound to
   the same URL (`admin.vaults.credentials.create(vaultId, { name, auth: { type: "bearer", url,
-  token } })`);
-- otherwise, reach the server through a gateway that holds the OAuth sign-in: see "Reaching a
-  person's accounts" in [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
+  token } })`), or as a `headers` credential when it takes another header (see "Header and
+  gateway credentials" below);
+- otherwise, reach the server through a gateway that holds the OAuth sign-in, with a credential
+  for the same URL that has `via` and an identity header: see "Reaching a person's accounts" in
+  [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
 
 ## A person's credentials move to their vault
 
@@ -47,12 +57,14 @@ hold none. Move what your resolver served:
 
 - **Static keys** (a person's API key or personal access token): create that person's vault with
   a management key (`admin.vaults.create({ name, ownerUserId })`, or `POST /v1/tenant/vaults`
-  with `ownerUserId`), add each key as a `bearer` credential bound to the server's URL, and pass
-  the vault's id in `vaultIds` when you open that person's sessions. Unlike the resolver, which
+  with `ownerUserId`), add each key as a `bearer` (or `headers`) credential bound to the server's
+  URL, and pass the vault's id in `vaultIds` when you open that person's sessions. Unlike the resolver, which
   was asked for every person's session, a vault is used only by the sessions that attach it.
 - **OAuth sign-ins** (a person's GitHub or Google account): Nylorun does not refresh them. Reach
-  those servers through a gateway that holds each person's sign-in; see "Reaching a person's
-  accounts" in [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
+  those servers through a gateway that holds each person's sign-in: one credential in an
+  installation vault with the gateway's key, `via` and an identity header, which carries the
+  session owner. See "Reaching a person's accounts" in
+  [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts), with recipes for several gateways.
 
 Then remove `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` from the gateway's environment
 (and from the shell that runs `nylorun start`), and retire the resolver.
@@ -79,12 +91,8 @@ HTTP tools alike, in an installation vault or a person's user vault.
   (`ownerUserId`, from the session record) in that header, for a gateway that keeps each person's
   accounts. A session owned by `installation` sends none.
 - A rotation keeps `via` and `identity` unless it gives them; `null` removes one.
-- **A `401` is `credential_rejected`.** When an MCP server or HTTP tool answers `401`, the model
-  sees a failed tool call with code `credential_rejected` (new in `ERROR_CODES`), and it is not
-  retried. Before, an MCP tool call left the call `uncertain` and an HTTP tool gave
-  `http.status`. The `tool.completed` event's `error` names the `server` (the MCP server or the
-  HTTP tool's `credential`) and the `vault` scope (`installation` or `user`) whose credential was
-  sent; never a value.
+- A `401` from the server, or from the gateway, is `credential_rejected` (see "Tool errors the
+  model sees").
 
 ## Tool and MCP server names
 
@@ -99,15 +107,22 @@ other character replaced by `_`; one over 64 characters keeps 55 and gets `_` an
 of a hash, as does one whose new name collides. The server is still called by its own name, and
 `mcp.discovered` lists each renamed tool (`renamed: [{ serverToolName, name }]`).
 
-## MCP tool errors the model sees
+## Tool errors the model sees
 
-A remote MCP tool call that fails now gives the model a failed tool result with a code, where
-before the call was left `uncertain` for an operator: `mcp.unreachable` (never sent; `retryable:
-true`), `mcp.forbidden` (`403`), `mcp.error` (a JSON-RPC error, its code in the message) and
-`mcp.status` (another HTTP error status). A call sent whose answer was lost is `mcp.lost` to the
-model for a tool the server marks `readOnlyHint` or `idempotentHint`; any other stays `uncertain`,
-as does a call lost with a gateway restart. `tool.completed`'s `error` carries the code and
-`retryable`. When a server has ended the connection's session (`404` to its `Mcp-Session-Id`),
+**A `401` is `credential_rejected`.** When an MCP server or HTTP tool answers `401`, the model
+sees a failed tool call with code `credential_rejected` (new in `ERROR_CODES`), and it is not
+retried. Before, an MCP tool call left the call `uncertain` and an HTTP tool gave
+`http.status`. The `tool.completed` event's `error` names the `server` (the MCP server or the
+HTTP tool's `credential`) and the `vault` scope (`installation` or `user`) whose credential was
+sent; never a value.
+
+A remote MCP tool call that fails otherwise now gives the model a failed tool result with a code,
+where before the call was left `uncertain` for an operator: `mcp.unreachable` (never sent;
+`retryable: true`), `mcp.forbidden` (`403`), `mcp.error` (a JSON-RPC error, its code in the
+message) and `mcp.status` (another HTTP error status). A call sent whose answer was lost is
+`mcp.lost` to the model for a tool the server marks `readOnlyHint` or `idempotentHint`; any
+other stays `uncertain`, as does a call lost with a gateway restart. `tool.completed`'s `error`
+carries the code and `retryable`. When a server has ended the connection's session (`404` to its `Mcp-Session-Id`),
 or a credential's `via` has moved, the Runtime opens the connection again and sends the call once
 more, since the tool never saw it.
 

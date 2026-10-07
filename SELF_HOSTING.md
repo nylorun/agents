@@ -284,14 +284,17 @@ and point `jwks` at an address the runtime container can reach.
 
 ## Credentials
 
-A session's MCP credential comes from the session's attached vaults. The model credential is the Tenant's own, set by `nylorun start` from the
-project's `.env` or in Studio.
+A session's MCP and HTTP tool credentials come from the session's attached vaults, matched by the
+URL the agent names ([DEPLOYMENT.md](./DEPLOYMENT.md#mcp-servers-and-http-tools) has the operator's
+whole flow: credential kinds, previews, tool settings and errors). The model credential is the
+Tenant's own, set by `nylorun start` from the project's `.env` or in Studio.
 
 ### Installation vaults
 
-Installation vaults hold the installation's own credentials, such as shared tool keys. Any session may attach one (`vaultIds` when the session
-is created). Create them on Studio's **Connections** page, or through the Management API with a
-management key:
+Installation vaults hold the installation's own credentials, such as shared tool keys and MCP
+gateway keys. Any session may attach one (`vaultIds` when the session is created). Create them on
+Studio's **Credentials** page (Tenant settings), or through the Management API with a management
+key:
 
 ```ts
 import { createAdmin } from "@nylorun/admin";
@@ -311,12 +314,37 @@ Over HTTP that is `POST /v1/tenant/vaults` with
 an application key is `403 key_role_mismatch`, and the app server only names the vault ids
 when it opens a session.
 
-### A person's own keys
+### Reaching a person's accounts
 
-A person's own key for a server (their GitHub token, say) goes in their vault (`ownerUserId`),
-which only their sessions attach. Nylorun holds no OAuth client and asks no credential resolver
-(protocol 10): see "Reaching a person's accounts" in
-[DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
+Nylorun holds no OAuth client, refreshes no token and asks no credential resolver (protocol 10).
+A session reaches a person's tools in one of two ways, both set by the operator per server URL:
+
+- **The person's own key** (a personal access token, say) goes in their vault, created with
+  `ownerUserId`, as a `bearer` or `headers` credential bound to the server's URL. Only their
+  sessions attach it (`vaultIds`).
+- **An MCP gateway** holds each person's sign-ins and refreshes them, for the servers that take
+  only a person's OAuth sign-in. Put one credential for the server's URL in an installation vault:
+  the gateway's key, `via` (the gateway's endpoint for that server) and an identity header.
+  The Runtime fills that header with the session owner's subject, and leaves it out for a session
+  owned by `installation`.
+
+Before you put an MCP gateway in front of your people:
+
+- The identity header carries the subject your identity provider or app server names (the
+  `sub` of a trusted issuer's token, or the `ownerUserId` your app server sends). Have the
+  MCP gateway know your people by that same id, and keep it stable: a renamed subject is a new
+  person to it.
+- The MCP gateway trusts whoever holds its key to name any person. Only a management key reaches that
+  credential, and the Runtime takes the identity from the session record, never from the model or
+  a manifest. Keep the key scoped to what your agents need.
+- Check what your MCP gateway does with a request that names no one: an installation session sends
+  none.
+- Every tool argument and result passes through the MCP gateway, so it is part of your installation's
+  trust domain.
+
+The credential fields, recipes for Arcade, ToolHive, Obot and Nylorun Cloud, the proxy for gateways
+that mint something per person (Composio, Klavis, Smithery, Pipedream), and servers that exchange a
+client id and secret: [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
 
 ## Studio behind a sign-in proxy
 
@@ -394,10 +422,10 @@ In the Caddy site of DEPLOYMENT.md, before the `@api` handle:
 
 ## Private addresses
 
-The gateway's outbound requests to URLs that agents name (HTTP tools and remote MCP servers),
-and every MCP OAuth step (discovery, registration, the code exchange and
-refresh), follow three settings. Each is checked on the address actually connected to, so a DNS
-answer cannot steer a request, and no redirect is followed.
+The gateway's outbound requests to URLs that agents name (HTTP tools and remote MCP servers), to a
+credential's `via`, and those of MCP tool previews follow three settings. Each is checked on the
+address actually connected to, so a DNS answer cannot steer a request, and no redirect is
+followed.
 
 | Setting | Values | Default |
 | --- | --- | --- |
@@ -405,11 +433,11 @@ answer cannot steer a request, and no redirect is followed.
 | `NYLORUN_ENDPOINT_HTTP` | `allow` or `refuse`: plain `http` URLs | `allow` |
 | `NYLORUN_ENDPOINT_LOOPBACK` | `docker-host`: `localhost` means the machine that runs Docker | unset; a local Tenant sets it |
 
-A local Tenant allows private addresses, so it reaches HTTP tools, MCP servers and OAuth servers
+A local Tenant allows private addresses, so it reaches HTTP tools, MCP servers and MCP gateways
 on the same machine. **On a server, refuse them:** set `NYLORUN_ENDPOINT_PRIVATE=refuse` (and
-`NYLORUN_ENDPOINT_HTTP=refuse`) on the gateway and the runtime, so a discovery document or a
-tool's URL cannot point the gateway at your internal network. If the services your tools call live
-on a private network, keep `allow` and limit the gateway's egress with your firewall instead.
+`NYLORUN_ENDPOINT_HTTP=refuse`) on the gateway and the runtime, so a tool's URL, a `via` or a
+server's metadata cannot point the gateway at your internal network. If the services your tools
+call live on a private network, keep `allow` and limit the gateway's egress with your firewall instead.
 The identity file's `jwks` URLs are yours, so they are not subject to these settings.
 
 ## Backups

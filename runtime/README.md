@@ -87,8 +87,10 @@ is refused with `409 run_stale`. A `gates` process needs only
 (`NYLORUN_GATES_LISTEN_HOST`, `NYLORUN_GATES_LISTEN_PORT`, default 4100, and
 `NYLORUN_GATES_ALLOWED_HOSTS`) and the Host's `tenant/` directory, which it
 never writes; it serves the database's one Tenant. A session's MCP servers and
-HTTP tools get their credentials from its attached vaults only
-([DEPLOYMENT.md](../DEPLOYMENT.md#credentials)); the credential resolver is gone
+HTTP tools get their credentials from its attached vaults only: a `bearer` token
+or a `headers` map per URL, sent to an MCP gateway instead when it has `via`,
+with the session owner in its identity header
+([DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools)); the credential resolver is gone
 (protocol 10), and a process that still sets a `NYLORUN_RESOLVER_*` variable logs
 `resolver_removed` and ignores it. With `egress`
 (`--service gates,keys,egress`, for pod sandboxes) the same process runs
@@ -154,8 +156,9 @@ are refused from browsers before they are looked up. The Runtime sends no CORS h
 ([DEPLOYMENT.md](../DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
 unsupported protocol → `426` before authentication, unless the request sends neither
 `Nylorun-Protocol` nor `Authorization` (the Host serves protocols 4 to 10; protocol 10 removes
-the MCP OAuth connect, the vault's `oauth` credentials and the credential resolver; protocol 9 makes the
-Runtime API an OAuth 2.1 resource server: a missing or rejected credential is `401
+the MCP OAuth connect, the vault's `oauth` credentials and the credential resolver, and adds
+`headers` credentials, `via` and the identity header, manifest v6 and
+`POST /v1/tenant/mcp/preview`; protocol 9 makes the Runtime API an OAuth 2.1 resource server: a missing or rejected credential is `401
 credential_required` or `credential_invalid` with a `WWW-Authenticate: Bearer` challenge, a
 token without a route's scope gets `error="insufficient_scope"`, and
 `/.well-known/oauth-protected-resource` lists the trusted issuers (RFC 9728); protocol 8 gives keys roles, moves vaults and signing keys under `/v1/tenant` and removes
@@ -238,7 +241,10 @@ Save agents with `PUT /v1/agents/{agentId}` using the application principal (`sa
 in `@nylorun/agents`). The Runtime runs the agent from its manifest and never calls your
 code during a session: a definition with a tool that would (`tool({ run })`, a flow's tool
 stage) is refused. Your services are reached as tools: HTTP tools, POSTed from the Runtime,
-so their URLs must be reachable from it, and remote MCP servers. Model gateway
+so their URLs must be reachable from it, and remote MCP servers. The operator gives
+each URL a vault credential, previews an MCP server's tools (`nylorun mcp inspect`),
+and the manifest says which tools are enabled, need approval or are deferred
+([DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools)). Model gateway
 and sandbox backend are Tenant configuration (vault / seed), not Host process
 env.
 
