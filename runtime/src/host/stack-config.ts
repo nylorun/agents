@@ -433,9 +433,10 @@ function loopbackForms(port: number): string[] {
   return [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`];
 }
 
-function isLoopbackAddress(host: string): boolean {
-  const value = host.toLowerCase();
-  return value === "127.0.0.1" || value === "::1" || value === "localhost";
+/** A loopback bind address: `127.0.0.1`, `::1` or `localhost`. */
+export function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return normalized === "127.0.0.1" || normalized === "::1" || normalized === "localhost";
 }
 
 function parseUrl(
@@ -458,39 +459,68 @@ function parseUrl(
   return raw;
 }
 
-function parseListen(env: EnvSnapshot): ContainerListen | undefined {
-  const rawHost = read(env, "NYLORUN_LISTEN_HOST");
-  const rawPort = read(env, "NYLORUN_LISTEN_PORT");
-  const rawAllowed = read(env, "NYLORUN_ALLOWED_HOSTS");
-  if (rawHost === undefined && rawPort === undefined && rawAllowed === undefined)
-    return undefined;
+/** Who sends a listener's `Host` headers, for the error when its allowlist is missing. */
+interface AllowedHostsRule {
+  /** e.g. `clients send`. */
+  senders: string;
+  /** An allowlist for the listener's port, e.g. `runtime:4000`. */
+  example: (port: number) => string;
+}
 
-  const host = rawHost ?? DEFAULT_CONTAINER_LISTEN_HOST;
+/**
+ * A listener from `<prefix>LISTEN_HOST` (default `0.0.0.0`) and `<prefix>LISTEN_PORT`, and with
+ * `hosts`, the `Host` headers it accepts from `<prefix>ALLOWED_HOSTS`: required unless the
+ * address is loopback, and always with the loopback forms of the port.
+ */
+function parseListener(env: EnvSnapshot, prefix: string, defaultPort: number): { host: string; port: number };
+function parseListener(
+  env: EnvSnapshot,
+  prefix: string,
+  defaultPort: number,
+  hosts: AllowedHostsRule,
+): ContainerListen;
+function parseListener(
+  env: EnvSnapshot,
+  prefix: string,
+  defaultPort: number,
+  hosts?: AllowedHostsRule,
+): { host: string; port: number; allowedHosts?: readonly string[] } {
+  const hostName = `${prefix}LISTEN_HOST`;
+  const host = read(env, hostName) ?? DEFAULT_CONTAINER_LISTEN_HOST;
   if (/\s|\//.test(host))
-    throw new StackConfigError(`NYLORUN_LISTEN_HOST is not an address: ${host}`);
-  const port =
-    rawPort === undefined
-      ? DEFAULT_CONTAINER_LISTEN_PORT
-      : parsePort("NYLORUN_LISTEN_PORT", rawPort);
-
-  const explicit =
-    rawAllowed === undefined
-      ? []
-      : rawAllowed
-          .split(",")
-          .map((entry) => entry.trim())
-          .filter((entry) => entry !== "")
-          .map((entry) => normalizeAllowedHost("NYLORUN_ALLOWED_HOSTS", entry));
-  if (explicit.length === 0 && !isLoopbackAddress(host))
+    throw new StackConfigError(`${hostName} is not an address: ${host}`);
+  const portName = `${prefix}LISTEN_PORT`;
+  const rawPort = read(env, portName);
+  const port = rawPort === undefined ? defaultPort : parsePort(portName, rawPort);
+  if (!hosts) return { host, port };
+  const allowedName = `${prefix}ALLOWED_HOSTS`;
+  const explicit = (read(env, allowedName) ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "")
+    .map((entry) => normalizeAllowedHost(allowedName, entry));
+  if (explicit.length === 0 && !isLoopbackHost(host))
     throw new StackConfigError(
-      `NYLORUN_ALLOWED_HOSTS is required when NYLORUN_LISTEN_HOST is ${host}: list the Host headers clients send, e.g. runtime:${port},localhost:<published port>`,
+      `${allowedName} is required when ${hostName} is ${host}: list the Host headers ${hosts.senders}, e.g. ${hosts.example(port)}`,
     );
-
   // Loopback forms of the listen port serve probes from inside the container
   // (health checks). A browser on the Docker host never sends them: it sends
   // the published port.
-  const allowedHosts = [...new Set([...explicit, ...loopbackForms(port)])];
-  return { host, port, allowedHosts };
+  return { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] };
+}
+
+/** The API's listener (`NYLORUN_LISTEN_*`, `NYLORUN_ALLOWED_HOSTS`): none when none is set. */
+function parseListen(env: EnvSnapshot): ContainerListen | undefined {
+  if (
+    ["NYLORUN_LISTEN_HOST", "NYLORUN_LISTEN_PORT", "NYLORUN_ALLOWED_HOSTS"].every(
+      (name) => read(env, name) === undefined,
+    )
+  )
+    return undefined;
+  return parseListener(env, "NYLORUN_", DEFAULT_CONTAINER_LISTEN_PORT, {
+    senders: "clients send",
+    example: (port) => `runtime:${port},localhost:<published port>`,
+  });
 }
 
 const IDENTITY_KEY = /^publickeyv1_[1-9A-HJ-NP-Za-km-z]{32,64}$/;
@@ -684,35 +714,15 @@ function parseSandboxes(env: EnvSnapshot): SandboxesConfig | undefined {
  * (required with `NYLORUN_HARNESS=remote`; optional when only sandbox pods connect).
  */
 function parseHarnessListener(env: EnvSnapshot, tokenRequired = true): HarnessListenConfig {
-  const host = read(env, "NYLORUN_HARNESS_LISTEN_HOST") ?? DEFAULT_CONTAINER_LISTEN_HOST;
-  if (/\s|\//.test(host))
-    throw new StackConfigError(`NYLORUN_HARNESS_LISTEN_HOST is not an address: ${host}`);
-  const rawPort = read(env, "NYLORUN_HARNESS_LISTEN_PORT");
-  const port =
-    rawPort === undefined
-      ? DEFAULT_HARNESS_LISTEN_PORT
-      : parsePort("NYLORUN_HARNESS_LISTEN_PORT", rawPort);
-  const rawAllowed = read(env, "NYLORUN_HARNESS_ALLOWED_HOSTS");
-  const explicit =
-    rawAllowed === undefined
-      ? []
-      : rawAllowed
-          .split(",")
-          .map((entry) => entry.trim())
-          .filter((entry) => entry !== "")
-          .map((entry) => normalizeAllowedHost("NYLORUN_HARNESS_ALLOWED_HOSTS", entry));
-  if (explicit.length === 0 && !isLoopbackAddress(host))
-    throw new StackConfigError(
-      `NYLORUN_HARNESS_ALLOWED_HOSTS is required when NYLORUN_HARNESS_LISTEN_HOST is ${host}: list the Host headers harnesses send, e.g. runtime:${port}`,
-    );
+  const listen = parseListener(env, "NYLORUN_HARNESS_", DEFAULT_HARNESS_LISTEN_PORT, {
+    senders: "harnesses send",
+    example: (port) => `runtime:${port}`,
+  });
   const token =
     tokenRequired || read(env, "NYLORUN_HARNESS_TOKEN") !== undefined
       ? parseHarnessToken(env, "with NYLORUN_HARNESS=remote: the credential harnesses present")
       : undefined;
-  return {
-    listen: { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] },
-    ...(token ? { token } : {}),
-  };
+  return { listen, ...(token ? { token } : {}) };
 }
 
 /** What a harness process must not hold: it runs next to agent code. */
@@ -793,27 +803,10 @@ function parsePodHost(env: EnvSnapshot, url: string): { config: PodHostConfig; w
 
 /** `StackConfig.gates` from `NYLORUN_GATES_*`. */
 function parseGates(env: EnvSnapshot): GatesConfig {
-  const host = read(env, "NYLORUN_GATES_LISTEN_HOST") ?? DEFAULT_CONTAINER_LISTEN_HOST;
-  if (/\s|\//.test(host))
-    throw new StackConfigError(`NYLORUN_GATES_LISTEN_HOST is not an address: ${host}`);
-  const rawPort = read(env, "NYLORUN_GATES_LISTEN_PORT");
-  const port =
-    rawPort === undefined
-      ? DEFAULT_GATES_LISTEN_PORT
-      : parsePort("NYLORUN_GATES_LISTEN_PORT", rawPort);
-  const rawAllowed = read(env, "NYLORUN_GATES_ALLOWED_HOSTS");
-  const explicit =
-    rawAllowed === undefined
-      ? []
-      : rawAllowed
-          .split(",")
-          .map((entry) => entry.trim())
-          .filter((entry) => entry !== "")
-          .map((entry) => normalizeAllowedHost("NYLORUN_GATES_ALLOWED_HOSTS", entry));
-  if (explicit.length === 0 && !isLoopbackAddress(host))
-    throw new StackConfigError(
-      `NYLORUN_GATES_ALLOWED_HOSTS is required when NYLORUN_GATES_LISTEN_HOST is ${host}: list the Host headers the loop sends, e.g. gateway:${port}`,
-    );
+  const listen = parseListener(env, "NYLORUN_GATES_", DEFAULT_GATES_LISTEN_PORT, {
+    senders: "the loop sends",
+    example: (port) => `gateway:${port}`,
+  });
   const token = read(env, "NYLORUN_GATES_TOKEN");
   if (token === undefined)
     throw new StackConfigError(
@@ -821,10 +814,7 @@ function parseGates(env: EnvSnapshot): GatesConfig {
     );
   if (!GATES_TOKEN.test(token))
     throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");
-  return {
-    listen: { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] },
-    token,
-  };
+  return { listen, token };
 }
 
 /** The prefix of the credential resolver's variables (removed in protocol 10). */
@@ -832,13 +822,7 @@ const REMOVED_RESOLVER_PREFIX = "NYLORUN_RESOLVER_";
 
 /** `StackConfig.egress` from `NYLORUN_EGRESS_LISTEN_*`. CONNECT has no Host header to check. */
 function parseEgress(env: EnvSnapshot): EgressConfig {
-  const host = read(env, "NYLORUN_EGRESS_LISTEN_HOST") ?? DEFAULT_CONTAINER_LISTEN_HOST;
-  if (/\s|\//.test(host))
-    throw new StackConfigError(`NYLORUN_EGRESS_LISTEN_HOST is not an address: ${host}`);
-  const rawPort = read(env, "NYLORUN_EGRESS_LISTEN_PORT");
-  const port =
-    rawPort === undefined ? DEFAULT_EGRESS_LISTEN_PORT : parsePort("NYLORUN_EGRESS_LISTEN_PORT", rawPort);
-  return { listen: { host, port } };
+  return { listen: parseListener(env, "NYLORUN_EGRESS_", DEFAULT_EGRESS_LISTEN_PORT) };
 }
 
 /** `StackConfig.modelGate` from `NYLORUN_GATES_URL` and `NYLORUN_GATES_TOKEN`. */

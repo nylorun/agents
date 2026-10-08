@@ -135,8 +135,8 @@ export async function runDurable(options: {
   /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
   yieldAfter?: { readonly steps?: number; readonly ms?: number };
 }): Promise<DurableResult> {
+  // `hostedDefinition` checks the manifest against AgentManifestSchema (`agentFrom`).
   const { manifest, checkpoint, host } = options;
-  AgentManifestSchema.parse(manifest);
   if (
     checkpoint.version !== CHECKPOINT_VERSION ||
     checkpoint.engineVersion !== ENGINE_VERSION ||

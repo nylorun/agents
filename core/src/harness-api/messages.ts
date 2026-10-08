@@ -3,25 +3,39 @@
  * between core and a harness. A run is a lease on one session's segment; core records, the
  * harness runs the engine. Who executes what: the harness runs model, MCP, HTTP and sandbox
  * calls; core runs flow work, linked sessions, delegation journaling, `save_artifact`, the
- * skill tools, settle and takeover.
+ * skill tools, settle and takeover. Each message's type is inferred from its schema
+ * (`schema.ts`), which a socket validates it with.
  */
-import type { EffectOutcome } from "../contracts.js";
-import type { AgentRef } from "../types/tool.js";
-import type { TranscriptUpdate } from "./transcript.js";
+import type { z } from "zod";
+import type {
+  EffectIntentSchema,
+  IntentAnswerSchema,
+  OutcomeAnswerSchema,
+  RecordedOutcomeSchema,
+  ReleaseReasonSchema,
+  RequestTypes,
+  RunGrantSchema,
+  RunRoutingSchema,
+  TurnOutputSchema,
+  TurnStartSchema,
+  WorkspaceBytesCallSchema,
+  WorkspaceCallSchema,
+  WorkspaceListCallSchema,
+  WorkspaceRecordSchema,
+  WorkspaceSessionSchema,
+  coreMessages,
+  coreRequests,
+  harnessRequests,
+} from "./schema.js";
 
 export const HARNESS_API_VERSION = 2;
 
 /** Why core stopped a run. Matches the advance's abort kinds. */
-export type AbortReason = "cancel" | "shutdown" | "deadline" | "ownership.lost";
-export const ABORT_REASONS: readonly AbortReason[] = [
-  "cancel",
-  "shutdown",
-  "deadline",
-  "ownership.lost",
-];
+export const ABORT_REASONS = ["cancel", "shutdown", "deadline", "ownership.lost"] as const;
+export type AbortReason = (typeof ABORT_REASONS)[number];
 
 /** Why a harness gave a run back without an output. */
-export type ReleaseReason = "shutdown" | "ownership.lost" | "connection.lost";
+export type ReleaseReason = z.infer<typeof ReleaseReasonSchema>;
 
 /**
  * Events a harness may claim: for a run it holds, or for a workspace request core sent it. A
@@ -42,267 +56,58 @@ export const HARNESS_ERROR_CODES = [
 export type HarnessErrorCode = (typeof HARNESS_ERROR_CODES)[number];
 
 /** One effect the engine asks for: a `HostEffect`, by structure. Model intents carry no `input`. */
-export interface EffectIntent {
-  readonly effectId: string;
-  readonly sessionId: string;
-  readonly turnId: string;
-  readonly agentId: string;
-  readonly manifestHash: string;
-  readonly kind: "model" | "tool" | "delegation" | "agent";
-  readonly agent?: AgentRef;
-  readonly capabilityId?: string;
-  readonly toolName?: string;
-  readonly path?: string;
-  readonly key?: string;
-  readonly iterations?: string;
-  readonly input?: unknown;
-  readonly context: Record<string, unknown>;
-}
+export type EffectIntent = z.infer<typeof EffectIntentSchema>;
 
 /** A completed outcome of the segment, with the hash of the request it answered. */
-export interface RecordedOutcome {
-  readonly effectId: string;
-  readonly requestHash: string;
-  readonly outcome: EffectOutcome;
-}
+export type RecordedOutcome = z.infer<typeof RecordedOutcomeSchema>;
 
 /** The lease on one run. `token` is the run token (F5) when the gates require one. */
-export interface RunGrant {
-  readonly runId: string;
-  readonly sessionId: string;
-  readonly turnId: string;
-  readonly epoch: number;
-  readonly token?: string;
-  readonly tokenExpiresAt?: string;
-}
+export type RunGrant = z.infer<typeof RunGrantSchema>;
 
 /** Where a harness sends the session's tool calls. */
-export interface RunRouting {
-  /** The session's pinned manifest: an effect's agent resolves against it. */
-  readonly rootManifest: unknown;
-  readonly mcpSnapshot?: unknown;
-  /** The session that owns the tree's sandbox, and the sandbox resource it is attached to. */
-  readonly sandbox?: { readonly ownerId: string; readonly sandboxId?: string; readonly spec?: unknown };
-}
+export type RunRouting = z.infer<typeof RunRoutingSchema>;
 
 /** What a run starts from: `turn.start` (message, continue, resume) or `approval.answer`. */
-export interface TurnStart {
-  readonly type: "turn.start" | "approval.answer";
-  readonly engine: "agent" | "flow";
-  /** The turn's manifest (agent) or the workflow manifest (flow). */
-  readonly manifest: unknown;
-  /** The segment's checkpoint; an agent's state has no transcript (`transcript.cursor`). */
-  readonly checkpoint: unknown;
-  readonly sessionTools?: readonly unknown[];
-  /** Completed outcomes of this segment, resolved without asking core. */
-  readonly outcomes: readonly RecordedOutcome[];
-  /** The record position the session's transcript was folded at. */
-  readonly transcript: { readonly cursor: number };
-  readonly options: {
-    readonly yieldAfter?: { readonly steps?: number; readonly ms?: number };
-    readonly flowLimits?: unknown;
-    readonly fixtureModel: boolean;
-  };
-  readonly routing: RunRouting;
-}
-
-/** How a segment ended, as the harness reports it. */
-export type TurnStatus =
-  | "completed"
-  | "paused"
-  | "yielded"
-  | "waiting"
-  | "uncertain"
-  | "failed"
-  | "cancelled";
+export type TurnStart = z.infer<typeof TurnStartSchema>;
 
 /**
  * A segment's end. `state` is the agent's engine state without its transcript; `transcript`
  * edits the transcript the segment started from. `thrown` reports an engine that threw.
  */
-export interface TurnOutput {
-  readonly runId: string;
-  readonly status?: TurnStatus;
-  readonly state?: unknown;
-  readonly output?: unknown;
-  readonly pending?: unknown;
-  readonly error?: unknown;
-  readonly effectIds?: readonly string[];
-  readonly cancelEffectIds?: readonly string[];
-  readonly transcript?: readonly TranscriptUpdate[];
-  readonly thrown?: { readonly code?: string; readonly message: string };
-}
+export type TurnOutput = z.infer<typeof TurnOutputSchema>;
+
+/** How a segment ended, as the harness reports it. */
+export type TurnStatus = NonNullable<TurnOutput["status"]>;
 
 export type OutputMethod = "turn.completed" | "turn.paused" | "turn.waiting" | "turn.failed" | "checkpoint";
 
-export type IntentAnswer =
-  | { readonly status: "completed"; readonly outcome: EffectOutcome }
-  | { readonly status: "pending" | "uncertain" }
-  | { readonly status: "execute"; readonly rejoin?: true };
+export type IntentAnswer = z.infer<typeof IntentAnswerSchema>;
 
-export type OutcomeAnswer =
-  | { readonly status: "completed"; readonly outcome: EffectOutcome }
-  | { readonly status: "uncertain" };
+export type OutcomeAnswer = z.infer<typeof OutcomeAnswerSchema>;
 
 /** Requests a harness sends to core, with their answers. */
-export interface HarnessRequests {
-  /**
-   * `capabilities.workspace` declares that the harness serves the Tenant's workspaces (F6.2):
-   * core then sends it the `workspace.*` requests. The answer names the Tenant (its workspace
-   * keys are scoped by it) and the sandbox backend preference the harness selects with.
-   */
-  hello: {
-    params: {
-      api: number;
-      name: string;
-      version: string;
-      capabilities: { workspace?: unknown };
-    };
-    result: {
-      api: number;
-      tenantId: string;
-      sandbox: { backend: string | null };
-      renewEveryMs: number;
-    };
-  };
-  lease: {
-    params: { slots?: number };
-    result: { run: RunGrant; input: TurnStart };
-  };
-  "lease.renew": {
-    params: { runId: string };
-    result: { ok: true; token?: string; tokenExpiresAt?: string } | { ok: false };
-  };
-  "lease.release": {
-    params: { runId: string; reason: ReleaseReason };
-    result: Record<string, never>;
-  };
-  "effect.intent": {
-    params: { runId: string; effect: EffectIntent; requestHash: string };
-    result: IntentAnswer;
-  };
-  "effect.outcome": {
-    params:
-      | { runId: string; effectId: string; value: unknown }
-      | { runId: string; effectId: string; error: string };
-    result: OutcomeAnswer;
-  };
-  "transcript.read": {
-    params: { runId: string };
-    result: { cursor: number; entries: unknown[] };
-  };
-  event: {
-    params: {
-      runId?: string;
-      sessionId: string;
-      turnId: string | null;
-      type: HarnessClaim;
-      payload: unknown;
-      /** With `sandbox.state`: the workspace's compute record as it is now. */
-      record?: WorkspaceRecord;
-    };
-    result: Record<string, never>;
-  };
-  "session.mcp": {
-    params: { runId: string; snapshot?: unknown; diagnostics: unknown[] };
-    result: { snapshot: unknown; sessionTools: unknown[] };
-  };
-  /**
-   * A definition file's bytes, base64 (track R2 M4): one the run's definition names, for the
-   * skills its sandbox mounts.
-   */
-  "definition.file": {
-    params: { runId: string; sha256: string };
-    result: { base64: string };
-  };
-  "turn.completed": { params: TurnOutput; result: { cursor?: number } };
-  "turn.paused": { params: TurnOutput; result: { cursor?: number } };
-  "turn.waiting": { params: TurnOutput; result: { cursor?: number } };
-  "turn.failed": { params: TurnOutput; result: { cursor?: number } };
-  /** A yielded segment's state: ends the run, the turn goes on in the next. */
-  checkpoint: { params: TurnOutput; result: { cursor?: number } };
-}
+export type HarnessRequests = RequestTypes<typeof harnessRequests>;
 
 /** The session a workspace request acts for: the workspace's owner and its sandbox resource. */
-export interface WorkspaceSession {
-  /** The session that owns the workspace: its log records the workspace's events. */
-  readonly ownerId: string;
-  readonly sandboxId?: string;
-  readonly activeTurnId: string | null;
-}
+export type WorkspaceSession = z.infer<typeof WorkspaceSessionSchema>;
 
 /** A workspace's compute record, as the harness keeps it. */
-export interface WorkspaceRecord {
-  readonly key: string;
-  readonly sessionId: string;
-  readonly sandboxId?: string;
-  readonly backend: string;
-  readonly image: string;
-  readonly state: "creating" | "running" | "stopped";
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
+export type WorkspaceRecord = z.infer<typeof WorkspaceRecordSchema>;
 
 /** A sandbox tool call core sends to the harness that serves workspaces. */
-export interface WorkspaceCall {
-  readonly session: WorkspaceSession;
-  /** The sandbox spec the workspace runs (`SandboxManifest`). */
-  readonly spec: unknown;
-  readonly tool: string;
-  readonly input: unknown;
-}
+export type WorkspaceCall = z.infer<typeof WorkspaceCallSchema>;
 
-/**
- * A file of a workspace read as bytes (`save_artifact`, F8.1), at most `maxBytes`. The answer is
- * `{kind: "read", path, base64}`, `{kind: "missing", path}` or a failed tool outcome.
- */
-export interface WorkspaceBytesCall {
-  readonly session: WorkspaceSession;
-  readonly spec: unknown;
-  readonly bytes: { readonly path: string; readonly maxBytes: number };
-}
+/** A file of a workspace read as bytes (`save_artifact`, F8.1), at most `maxBytes`. */
+export type WorkspaceBytesCall = z.infer<typeof WorkspaceBytesCallSchema>;
 
-/**
- * The regular files under a directory of a workspace, recursively, at most `maxEntries + 1`
- * (the turn-end export, F8.2). The answer is `{kind: "listed", path, listing: {entries,
- * truncated}}`, `{kind: "missing", path}` (no sandbox yet, or not a directory) or a failed tool
- * outcome.
- */
-export interface WorkspaceListCall {
-  readonly session: WorkspaceSession;
-  readonly spec: unknown;
-  readonly list: { readonly dir: string; readonly maxEntries: number };
-}
+/** The regular files under a directory of a workspace (the turn-end export, F8.2). */
+export type WorkspaceListCall = z.infer<typeof WorkspaceListCallSchema>;
 
-/**
- * Requests core sends to a harness that declared `workspace` (F6.2), with their answers. A
- * sandbox tool's answer is its `SandboxToolOutcome`; the harness claims its `sandbox.*` events
- * while the request is in flight. `workspace.read` stays generic: F8.2 exports outputs
- * through it.
- */
-export interface CoreRequests {
-  "workspace.read": {
-    params: WorkspaceCall | WorkspaceBytesCall | WorkspaceListCall;
-    result: Record<string, unknown>;
-  };
-  "workspace.write": { params: WorkspaceCall; result: Record<string, unknown> };
-  "workspace.exec": { params: WorkspaceCall; result: Record<string, unknown> };
-  /** The harness's sandbox selection report (`GET /v1/tenant/sandbox`, Tenant status). */
-  "workspace.report": { params: Record<string, never>; result: Record<string, unknown> };
-  /** Stops idle workspaces, then lists every workspace the harness keeps. */
-  "workspace.sweep": { params: { now?: number }; result: { workspaces: WorkspaceRecord[] } };
-  /** Deletes workspaces with their files: by key, by sandbox resource, or all of them. */
-  "workspace.remove": {
-    params: { keys?: string[]; sandboxIds?: string[]; all?: true };
-    result: Record<string, never>;
-  };
-}
+/** Requests core sends to a harness that declared `workspace` (F6.2), with their answers. */
+export type CoreRequests = RequestTypes<typeof coreRequests>;
 
 /** Messages core sends to a harness, without an answer. */
-export interface CoreMessages {
-  /** `message` is core's abort message, which the run's executors see as theirs. */
-  cancel: { runId: string; reason: AbortReason; message?: string };
-}
+export type CoreMessages = { [M in keyof typeof coreMessages]: z.infer<(typeof coreMessages)[M]> };
 
 export type HarnessMethod = keyof HarnessRequests;
 export type CoreMethod = keyof CoreRequests;

@@ -1,13 +1,20 @@
 /**
- * Manifest fields that manifest v5 removed, and what replaces each. Manifest v5 (with workflow
+ * Capability fields that manifest v5 removed, and what replaces each. Manifest v5 (with workflow
  * manifest v3 for flow agents) is the first where the Runtime never calls the developer's code
- * during a session (see MIGRATION.md).
+ * during a session (see MIGRATION.md). `model` went earlier: the Runtime owns the model.
  */
 export const REMOVED_CAPABILITY_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   hooks:
     "hooks were removed: the Runtime no longer calls your code during a session. Use an HTTP tool, approval on a tool, or a loop verifier instead (see MIGRATION.md)",
   beforeModelCall: "beforeModelCall was removed with hooks (see MIGRATION.md)",
   afterModelCall: "afterModelCall was removed with hooks (see MIGRATION.md)",
+  model: "A capability must not include model; the Runtime owns model resolution",
+});
+
+/** Manifest fields an older SDK wrote, and why each is refused. */
+export const REMOVED_MANIFEST_FIELDS: Readonly<Record<string, string>> = Object.freeze({
+  schemaVersion: "Manifest field schemaVersion was renamed to manifestSchemaVersion",
+  model: "Manifest must not include top-level model; Runtime owns model resolution",
 });
 
 /**

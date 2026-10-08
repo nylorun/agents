@@ -3,13 +3,11 @@
  * `transcript.updated` events, each an edit of the transcript before it. Shared by core, which
  * records and folds them, and a harness, which computes them and keeps its cache with them.
  */
+import type { z } from "zod";
+import type { TranscriptUpdateSchema } from "./schema.js";
 
 /** The payload of one `transcript.updated` event. */
-export interface TranscriptUpdate {
-  keep: number;
-  entries: unknown[];
-  length: number;
-}
+export type TranscriptUpdate = z.infer<typeof TranscriptUpdateSchema>;
 
 /**
  * An edit's entries are split so each event stays well under S2's 1 MiB record limit: under

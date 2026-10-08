@@ -150,6 +150,38 @@ it("skips an invalid skill and keeps its sibling and MCP servers", async () => {
   ]);
 });
 
+it("checks a plugin's MCP server as a manifest does, then its URL and headers", () => {
+  const directory = root();
+  write(directory, "plugin.json", manifest("docs"));
+  write(
+    directory,
+    "mcp.json",
+    JSON.stringify({
+      $schema: MCP_SCHEMA,
+      mcpServers: {
+        "github.com": { type: "streamable-http", url: "https://mcp.example.com/github" },
+        loopback: { type: "sse", url: "http://[::1]:9/mcp", headers: { "X-Team": "docs" } },
+        nameless: { type: "sse", url: "https://mcp.example.com/sse", headers: { "bad header": "x" } },
+        twice: { type: "sse", url: "https://mcp.example.com/sse", headers: { "X-A": "1", "x-a": "2" } },
+        typed: { type: "sse", url: 42 },
+      },
+    })
+  );
+  const loaded = loadPlugin(directory);
+  expect(loaded.mcpServers).toEqual({
+    loopback: { name: "loopback", type: "sse", url: "http://[::1]:9/mcp", headers: { "X-Team": "docs" } },
+  });
+  const skipped = loaded.diagnostics
+    .filter((item) => item.code === "plugin.mcp-server-skipped")
+    .map((item) => item.message);
+  expect(skipped).toEqual([
+    expect.stringMatching(/^Skipped invalid MCP server 'github\.com': name: MCP server name 'github\.com' may use only/),
+    "Skipped invalid MCP server 'nameless': header 'bad header' is not a valid header",
+    "Skipped invalid MCP server 'twice': header 'x-a' is repeated",
+    expect.stringMatching(/^Skipped invalid MCP server 'typed': url: /),
+  ]);
+});
+
 it("warns when the agent is built that a plugin's MCP server was skipped, and why", () => {
   const directory = root();
   write(directory, "plugin.json", manifest("tools"));

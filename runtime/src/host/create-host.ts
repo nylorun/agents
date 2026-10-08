@@ -9,14 +9,13 @@ import type { ResourceServerConfig } from "../tenant/resource-server.js";
 import type { Logger, TenantModule } from "../tenant/types.js";
 import { createHostApp } from "./app.js";
 import type { HostConfigFile } from "./config.js";
-import type { ContainerListen } from "./stack-config.js";
+import { isLoopbackHost, type ContainerListen } from "./stack-config.js";
 import {
   bindListener as bind,
   EXIT_NON_LOOPBACK,
   headerValue,
   HostListenError,
   isAllowedRequestHost,
-  isLoopbackHost,
   pathnameIsLogged,
   redactRoutePath,
   rejectedResponse,
