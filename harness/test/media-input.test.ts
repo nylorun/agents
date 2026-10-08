@@ -1,12 +1,6 @@
 import { runAgent } from "./run-agent.js";
 import { describe, expect, it, vi } from "vitest";
-import { type ModelCall, type ObserveEvent } from "@nylorun/core/define";
-import {
-  chatCompletionsAdapter,
-  preparedModel,
-  toMessages,
-  toResponses,
-} from "../src/loop/model/adapters.js";
+import { HarnessError, type ModelCall, type ObserveEvent } from "@nylorun/core/define";
 import { model, testAgent } from "./fixtures.js";
 
 const image = {
@@ -93,90 +87,41 @@ describe("media input", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("maps direct URL images in bundled adapters and rejects unsupported content before send", async () => {
-    const mediaCall: ModelCall = {
-      executionId: "session",
-      prompt: [
-        {
-          kind: "message",
-          role: "user",
-          content: [{ type: "text", text: "Inspect." }, image],
-        },
-      ],
-      tools: [],
-    };
-    expect(toResponses(mediaCall).input).toEqual([
-      {
-        type: "message",
-        role: "user",
-        content: [
-          { type: "input_text", text: "Inspect." },
-          { type: "input_image", image_url: "https://cdn.example.test/chart.png" },
-        ],
-      },
-    ]);
-    expect(toMessages(mediaCall, 64).messages).toEqual([
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "Inspect." },
-          {
-            type: "image",
-            source: { type: "url", url: "https://cdn.example.test/chart.png" },
-          },
-        ],
-      },
-    ]);
-
-    const send = vi.fn(async () => ({ choices: [{ message: { content: "done" } }] }));
-    const session = testAgent().with(chatCompletionsAdapter(send)).build().run();
-    await session.input({ content: [{ type: "text", text: "Inspect." }, image] }).completed;
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: expect.arrayContaining([
-          expect.objectContaining({
-            role: "user",
-            content: [
-              { type: "text", text: "Inspect." },
-              { type: "image_url", image_url: { url: "https://cdn.example.test/chart.png" } },
-            ],
-          }),
-        ]),
-      }),
-      expect.anything(),
-      expect.anything(),
-    );
-
-    const unsupportedSend = vi.fn(async () => ({ choices: [{ message: { content: "no" } }] }));
-    const unsupported = testAgent().with(chatCompletionsAdapter(unsupportedSend)).build().run();
-    const result = await unsupported.input({
-      content: [{ type: "media", mediaType: "application/pdf", reference: { url: "x" } }],
-    }).completed;
+  it("leaves media support to the model adapter, whose unsupported-content error ends the turn", async () => {
+    const pdf = { type: "media" as const, mediaType: "application/pdf", reference: { url: "x" } };
+    const calls: ModelCall[] = [];
+    const session = testAgent()
+      .with(
+        model(async (call) => {
+          calls.push(call);
+          throw new HarnessError("model.unsupported-content", "PDF input is not supported");
+        }),
+      )
+      .build()
+      .run();
+    const result = await session.input({ content: [{ type: "text", text: "Inspect." }, pdf] })
+      .completed;
+    expect(calls[0]?.prompt).toContainEqual({
+      kind: "message",
+      role: "user",
+      content: [{ type: "text", text: "Inspect." }, pdf],
+    });
     expect(result.events).toContainEqual(
       expect.objectContaining({
         type: "tripwire",
         tripwire: expect.objectContaining({ code: "model.unsupported-content" }),
       }),
     );
-    expect(unsupportedSend).not.toHaveBeenCalled();
   });
 
-  it("observes one derived call from preparedModel after the canonical call", async () => {
+  it("observes the one derived call an adapter reports, after the canonical call", async () => {
     const events: ObserveEvent[] = [];
-    const adapter = preparedModel({
-      adapter: "test-provider",
-      async prepare(call) {
-        return {
-          request: { messageCount: call.prompt.length },
-          observed: { messageCount: call.prompt.length },
-        };
-      },
-      async send(request) {
-        return { text: `prepared ${request.messageCount}` };
-      },
-      decode(response) {
-        return (response as { text: string }).text;
-      },
+    const adapter = model(async (call, context) => {
+      context.reportPreparedCall({
+        adapter: "test-provider",
+        call: { messageCount: call.prompt.length },
+      });
+      return `prepared ${call.prompt.length}`;
     });
     const session = testAgent().with(adapter).build().run();
     session.observe((event) => events.push(event));
