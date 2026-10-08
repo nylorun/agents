@@ -1,61 +1,37 @@
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ProjectLinkFileSchema } from "@nylorun/core/contracts";
+import {
+  ProjectFileError,
+  projectCredentialsPath,
+  projectLinkPath,
+  readCredentialsFile as readCredentials,
+  readProjectLink as readLink,
+  type ProjectLink,
+} from "@nylorun/core/project";
 import { CliError } from "../errors.js";
 
 /**
  * The Project link (`.nylorun/link.json`) and credentials (`.nylorun/credentials.json`).
  * `nylorun start` writes both, format 3: the local Tenant's name, its URL and Host id, and
  * the Tenant id as information (nothing in a request selects a Tenant). `start` replaces a link
- * of an older format.
+ * of an older format. Reading is `@nylorun/core/project`'s, which every client shares.
  */
-export interface ProjectLink {
-  format: 0 | 1 | 2 | 3;
-  /** The local Tenant's name (format 3). */
-  tenant?: string;
-  hostUrl: string;
-  hostId: string;
-  tenantId?: string;
-}
-
-export function linkPath(projectRoot: string): string {
-  return join(projectRoot, ".nylorun", "link.json");
-}
-
-export function credentialsPath(projectRoot: string): string {
-  return join(projectRoot, ".nylorun", "credentials.json");
-}
+export type { ProjectLink };
+export { projectLinkPath as linkPath, projectCredentialsPath as credentialsPath };
 
 /** The Project's link, or undefined when it has none. An unreadable link is an error. */
 export async function readProjectLink(projectRoot: string): Promise<ProjectLink | undefined> {
-  let text: string;
   try {
-    text = await readFile(linkPath(projectRoot), "utf8");
+    return readLink(projectRoot);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    if (error instanceof ProjectFileError)
+      throw new CliError(
+        `Invalid or newer Project link at ${error.path}. Upgrade nylorun, or remove the file and run "npx nylorun start" again.`,
+        1,
+      );
     throw error;
   }
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    value = undefined;
-  }
-  const parsed = ProjectLinkFileSchema.safeParse(value);
-  if (!parsed.success)
-    throw new CliError(
-      `Invalid or newer Project link at ${linkPath(projectRoot)}. Upgrade nylorun, or remove the file and run "npx nylorun start" again.`,
-      1,
-    );
-  const link = parsed.data;
-  return {
-    format: link.format,
-    ...(link.format === 3 && link.tenant ? { tenant: link.tenant } : {}),
-    hostUrl: link.hostUrl.replace(/\/$/, ""),
-    hostId: link.hostId,
-    ...(link.tenantId ? { tenantId: link.tenantId } : {}),
-  };
 }
 
 async function writePrivate(path: string, value: unknown): Promise<void> {
@@ -82,7 +58,7 @@ export async function writeProjectLink(
   link: { tenant: string; hostUrl: string; hostId: string; tenantId: string },
 ): Promise<void> {
   await ensureProjectDir(projectRoot);
-  await writePrivate(linkPath(projectRoot), {
+  await writePrivate(projectLinkPath(projectRoot), {
     format: 3,
     tenant: link.tenant,
     hostUrl: link.hostUrl.replace(/\/$/, ""),
@@ -105,34 +81,28 @@ export interface KeyCredentials {
 export async function readProjectCredentials(
   projectRoot: string,
 ): Promise<KeyCredentials | undefined> {
-  return await readCredentialsFile(credentialsPath(projectRoot));
+  return await readCredentialsFile(projectCredentialsPath(projectRoot));
 }
 
 /**
- * A credentials file (`{ format: 1, applicationKey, principalId, managementKey?,
- * managementPrincipalId? }`): the Project's, or one the nylorun commands keep in the Host root.
- * Undefined when absent or unreadable.
+ * A credentials file (format 0 or 1): the Project's, or one the nylorun commands keep in the
+ * Host root. Undefined when absent or unreadable, so `start` replaces it.
  */
 export async function readCredentialsFile(path: string): Promise<KeyCredentials | undefined> {
+  let value;
   try {
-    const value = JSON.parse(await readFile(path, "utf8")) as {
-      applicationKey?: unknown;
-      principalId?: unknown;
-      managementKey?: unknown;
-      managementPrincipalId?: unknown;
-    };
-    if (typeof value.applicationKey !== "string" || typeof value.principalId !== "string")
-      return undefined;
-    return {
-      applicationKey: value.applicationKey,
-      principalId: value.principalId,
-      ...(typeof value.managementKey === "string" && typeof value.managementPrincipalId === "string"
-        ? { management: { key: value.managementKey, principalId: value.managementPrincipalId } }
-        : {}),
-    };
+    value = readCredentials(path);
   } catch {
     return undefined;
   }
+  if (!value) return undefined;
+  return {
+    applicationKey: value.applicationKey,
+    principalId: value.principalId,
+    ...(value.managementKey && value.managementPrincipalId
+      ? { management: { key: value.managementKey, principalId: value.managementPrincipalId } }
+      : {}),
+  };
 }
 
 /** `.nylorun/credentials.json` (format 1, mode 0600). */
@@ -141,7 +111,7 @@ export async function writeProjectCredentials(
   credentials: KeyCredentials,
 ): Promise<void> {
   await ensureProjectDir(projectRoot);
-  await writeCredentialsFile(credentialsPath(projectRoot), credentials);
+  await writeCredentialsFile(projectCredentialsPath(projectRoot), credentials);
 }
 
 /** A credentials file (format 1), written atomically with mode 0600. */

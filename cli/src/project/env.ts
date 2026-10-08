@@ -1,6 +1,6 @@
+import { findProjectRoot } from "@nylorun/admin/project";
 import { readCredentials } from "./credentials.js";
 import { readLink } from "./link.js";
-import { findProjectRoot } from "./root.js";
 
 /** Two `export` lines for `nylo env` (was `nylorun status --env`, F2-7). */
 export async function printLinkedEnvExports(

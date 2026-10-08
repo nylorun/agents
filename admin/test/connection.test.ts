@@ -252,6 +252,39 @@ describe("local Tenants", () => {
     }
   });
 
+  it("refuses a broken Project link unless something else names the Host, and broken credentials", async () => {
+    clearEnv();
+    const server = await stub();
+    const temporary = await realpath(await mkdtemp(join(tmpdir(), "nylorun-admin-broken-")));
+    try {
+      process.env.HOME = join(temporary, "home");
+      const project = join(temporary, "project");
+      await mkdir(join(project, ".nylorun"), { recursive: true });
+      const linkPath = join(project, ".nylorun", "link.json");
+      await writeFile(linkPath, "{");
+      expect(missing(() => createAdmin({ cwd: project })).message).toBe(
+        `Invalid Project link at ${linkPath}. Remove .nylorun/link.json and run "npx nylorun start".`,
+      );
+      expect(() => createAdmin({ cwd: project, tenant: "one" })).toThrow(tenantHostRoot("one"));
+
+      const root = tenantHostRoot("my-app");
+      await mkdir(root, { recursive: true });
+      await writeFile(join(root, "host.json"), JSON.stringify({ host: "127.0.0.1", port: server.port }));
+      await writeCredentials(join(root, "project-credentials.json"), "a".repeat(64));
+      await writeFile(
+        linkPath,
+        JSON.stringify({ format: 3, tenant: "my-app", hostUrl: server.url, hostId: "h" }),
+      );
+      await writeFile(join(project, ".nylorun", "credentials.json"), "{", { mode: 0o600 });
+      expect(missing(() => createAdmin({ cwd: project })).message).toMatch(
+        /Invalid Project credentials at .*credentials\.json/,
+      );
+    } finally {
+      await server.close();
+      await rm(temporary, { recursive: true, force: true });
+    }
+  });
+
   it("prefers the tenant option, then NYLORUN_TENANT, and NYLORUN_HOME over both", () => {
     clearEnv();
     expect(() => createAdmin({ tenant: "one" })).toThrow(tenantHostRoot("one"));

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -145,7 +145,7 @@ describe("resolveConnection (C1)", () => {
 
   it("refuses a link from an older nylorun (format 0 to 2), naming nylorun start", async () => {
     for (const format of [undefined, 0, 1, 2]) {
-      const root = await mkdtemp(join(tmpdir(), "nylorun-conn-"));
+      const root = await realpath(await mkdtemp(join(tmpdir(), "nylorun-conn-")));
       await writeProjectLink(root, {
         link: {
           ...(format === undefined ? {} : { format }),
@@ -161,6 +161,43 @@ describe("resolveConnection (C1)", () => {
         `connection_missing: the Project link at ${join(root, ".nylorun", "link.json")} is from an older nylorun. ` +
           `Run "npx nylorun start" in this project to link it again.`,
       );
+    }
+  });
+
+  it("refuses a link without credentials, and a broken link, with connection_missing", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "nylorun-conn-")));
+    try {
+      await writeProjectLink(root);
+      await rm(join(root, ".nylorun", "credentials.json"));
+      const error = await resolveConnection({ cwd: root }).catch((e) => e);
+      expect(error).toMatchObject({ code: "connection_missing" });
+      expect(String(error.message)).toMatch(/has a link but no credentials/);
+      await writeFile(join(root, ".nylorun", "link.json"), "{");
+      const broken = await resolveConnection({ cwd: root }).catch((e) => e);
+      expect(broken).toMatchObject({ code: "connection_missing" });
+      expect(String(broken.message)).toContain(
+        `Invalid Project link at ${join(root, ".nylorun", "link.json")}`,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("never reads a link at or above the home directory", async () => {
+    const above = await realpath(await mkdtemp(join(tmpdir(), "nylorun-conn-home-")));
+    const home = join(above, "home");
+    const previous = process.env.HOME;
+    try {
+      await writeProjectLink(above);
+      await mkdir(join(home, "code"), { recursive: true });
+      process.env.HOME = home;
+      await expect(resolveConnection({ cwd: join(home, "code") })).rejects.toMatchObject({
+        code: "connection_missing",
+      });
+    } finally {
+      if (previous === undefined) delete process.env.HOME;
+      else process.env.HOME = previous;
+      await rm(above, { recursive: true, force: true });
     }
   });
 

@@ -4,13 +4,9 @@
  * Node, so a browser app that reaches the Runtime through its own proxy (Studio) uses it too:
  * `@nylorun/admin/client`. `createAdmin()` in the package's main entry finds the URL and key.
  */
-import {
-  PROTOCOL_HEADER,
-  PROTOCOL_VERSION,
-} from "@nylorun/core/compatibility";
+import { parseBody, requestHeaders } from "@nylorun/core/transport";
 import {
   ModelCallExportPageSchema,
-  RejectedResponseSchema,
   type CreateCredentialRequest,
   type CreateVaultRequest,
   type CredentialInfo,
@@ -41,7 +37,7 @@ import {
   type TenantStatus,
   type VaultInfo,
 } from "@nylorun/core/contracts";
-import { AdminError } from "./errors.js";
+import { AdminError, rejection } from "./errors.js";
 
 export interface ManagementClientOptions {
   /** The Tenant's URL, or a proxy in front of it. */
@@ -300,9 +296,8 @@ export class ManagementClient {
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = {
-      [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+      ...requestHeaders(this.#key),
       accept: "application/json",
-      ...(this.#key ? { authorization: `Bearer ${this.#key}` } : {}),
       ...(body === undefined ? {} : { "content-type": "application/json" }),
       ...this.#headers,
     };
@@ -313,26 +308,8 @@ export class ManagementClient {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const text = await response.text();
-    let parsed: unknown = undefined;
-    if (text) {
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = text;
-      }
-    }
-    if (!response.ok) {
-      const rejected = RejectedResponseSchema.safeParse(parsed);
-      if (rejected.success)
-        throw new AdminError(rejected.data.code, rejected.data.message, {
-          status: response.status,
-          details: rejected.data.details,
-        });
-      throw new AdminError("not_found", `${method} ${path} failed (${response.status})`, {
-        status: response.status,
-        details: parsed,
-      });
-    }
+    const parsed = text ? parseBody(text) : undefined;
+    if (!response.ok) throw rejection(response.status, parsed, `${method} ${path} failed`);
     return parsed as T;
   }
 }

@@ -34,15 +34,21 @@ order, and `admin.source` says which one it used (`options`, `environment` or
 3. The local Host. The URL comes from `host.json` in the Host root:
    `options.home`, else `NYLORUN_HOME`, else `~/.nylorun/tenants/<tenant>/` for
    the local Tenant named by `options.tenant`, `NYLORUN_TENANT` or the Project
-   link (`.nylorun/link.json`, format 3, found from `options.cwd` upwards). The
+   link (`.nylorun/link.json`, format 3, in the nearest directory with
+   `.nylorun/` from `options.cwd` upwards, below the home directory). The
    key is the `managementKey` of the linked Project's `.nylorun/credentials.json`,
    else of the Host root's `project-credentials.json`, else of its
    `cli-credentials.json`. `nylorun start` writes them (the keys
    `project-management` and `cli-management`). On POSIX a credentials file must
    be the user's and not group- or world-readable.
 
-When none resolves, or the Project link is from an older nylorun, it throws
-`connection_missing` and lists what it tried. The first request checks the
+When none resolves, or the Project link is from an older nylorun or does not
+validate (and nothing else names the Host root), or the linked Project's
+`credentials.json` does not validate, it throws `connection_missing` and lists
+what it tried. Only this local-Host step reads the Host root: `@nylorun/agents`
+takes the Runtime API's key from the Project or the environment only.
+`@nylorun/admin/project` re-exports `@nylorun/core/project`, the reader of the
+Project files, for tools that depend on this package (`nylo`). The first request checks the
 Host's `/health` and throws `incompatible_host` unless the Host serves protocol
 8 with the feature `management-api`.
 

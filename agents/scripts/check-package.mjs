@@ -19,6 +19,15 @@ try {
   const embedNodeOnly = loaded.slice(embedStart).filter((url) => url.startsWith("node:"));
   if (embedNodeOnly.length)
     throw new Error(`Studio embed entry loaded Node-only modules: ${embedNodeOnly.join(", ")}`);
+  // So does the Runtime API client: `createClient()` loads the Project link reader only when
+  // it resolves a connection.
+  const clientStart = loaded.length;
+  const client = await import("@nylorun/agents/client");
+  if (typeof client.createClient !== "function")
+    throw new Error("Missing @nylorun/agents/client export createClient");
+  const clientNodeOnly = loaded.slice(clientStart).filter((url) => url.startsWith("node:"));
+  if (clientNodeOnly.length)
+    throw new Error(`@nylorun/agents/client loaded Node-only modules: ${clientNodeOnly.join(", ")}`);
   const sdk = await import("@nylorun/agents");
   for (const name of ["Agent", "createClient", "http"])
     if (typeof sdk[name] !== "function")
@@ -76,7 +85,7 @@ try {
   )
     throw new Error("Missing @nylorun/agents/ag-ui exports");
   console.log(
-    "SDK entry point imports; no engine, host or AG-UI modules loaded; the A2A entry loads no protocol package; the Studio embed entry loads no Node-only module."
+    "SDK entry point imports; no engine, host or AG-UI modules loaded; the A2A entry loads no protocol package; the Studio embed and client entries load no Node-only module."
   );
 } finally {
   hooks.deregister();
