@@ -1,6 +1,6 @@
 /** Public wire contracts only. Never import checkpoint or engine modules here. */
 import { z } from "zod";
-import type { AgentManifest } from "./types/manifest.js";
+import type { AgentManifest, McpServerManifest } from "./types/manifest.js";
 import type { JsonObject, JsonValue } from "./types/shared.js";
 import type { WorkflowLoopVerify, WorkflowManifest, WorkflowNode } from "./types/workflow.js";
 import {
@@ -112,6 +112,8 @@ const mcpServerSchema = z.discriminatedUnion(
   ],
   { error: (issue) => stdioIssue(issue.input) },
 );
+/** A remote MCP server as a manifest declares it (`streamable-http` or `sse`). */
+export const McpServerManifestSchema: z.ZodType<McpServerManifest> = mcpServerSchema;
 /** The refusal of a `stdio` server; other bad declarations keep zod's own message. */
 function stdioIssue(input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined;
@@ -1009,7 +1011,7 @@ export const CreateVaultRequestSchema = z
   });
 export type CreateVaultRequest = z.infer<typeof CreateVaultRequestSchema>;
 /** An RFC 9110 field name. */
-const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+export const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const CredentialHeaderNameSchema = z
   .string()
   .regex(HEADER_NAME_PATTERN, "A header name is an RFC 9110 token");
@@ -1026,7 +1028,8 @@ const CredentialHeadersSchema = z
     (value) => new Set(Object.keys(value).map((name) => name.toLowerCase())).size === Object.keys(value).length,
     "Header names are case-insensitive: each may appear once",
   );
-const LOOPBACK_HOSTS = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
+/** A loopback host as a URL's `hostname` names it: plain `http` reaches only these. */
+export const LOOPBACK_HOSTS = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
 /**
  * `via` (R2b C2, Q11): where this installation reaches the credential's server, such as a
  * gateway's endpoint for it. An absolute `https` URL (`http` only to a loopback host), with no

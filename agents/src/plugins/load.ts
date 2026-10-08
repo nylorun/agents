@@ -1,6 +1,11 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { stdioMcpRefusal, type McpServerManifest } from "@nylorun/core/define";
+import {
+  HEADER_NAME_PATTERN,
+  LOOPBACK_HOSTS,
+  McpServerManifestSchema,
+} from "@nylorun/core/contracts";
 import { loadSkillsFromDirectory, type LoadedSkill } from "../skills/load.js";
 
 export const PLUGIN_SCHEMA =
@@ -257,6 +262,10 @@ function validateServer(name: string, value: unknown): McpServerManifest | strin
   return `type '${value.type}' is not streamable-http or sse`;
 }
 
+/**
+ * A plugin's server as a manifest declares it (`McpServerManifestSchema`), named by its key. A
+ * plugin may set only type, url and headers, and the URL and headers must be fit to send.
+ */
 function validateRemote(
   name: string,
   value: Record<string, unknown>
@@ -264,29 +273,23 @@ function validateRemote(
   const allowed = new Set(["type", "url", "headers"]);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length > 0) return `${value.type} servers take only type, url and headers, not ${unknown.join(", ")}`;
-  if (typeof value.url !== "string") return "url must be a string";
-  const problem = remoteUrlProblem(value.url);
+  const parsed = McpServerManifestSchema.safeParse({ ...value, name });
+  if (!parsed.success)
+    return parsed.error.issues
+      .map((issue) => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
+      .join("; ");
+  const server = parsed.data;
+  const problem = remoteUrlProblem(server.url);
   if (problem) return problem;
-  let headers: Record<string, string> | undefined;
-  if (value.headers !== undefined) {
-    if (!isRecord(value.headers)) return "headers must be an object";
-    const seen = new Set<string>();
-    headers = {};
-    for (const [key, item] of Object.entries(value.headers)) {
-      if (typeof item !== "string" || !isHeaderName(key) || /[\r\n\0]/.test(item))
-        return `header '${key}' is not a valid header`;
-      const folded = key.toLowerCase();
-      if (seen.has(folded)) return `header '${key}' is repeated`;
-      seen.add(folded);
-      headers[key] = item;
-    }
+  const seen = new Set<string>();
+  for (const [key, item] of Object.entries(server.headers ?? {})) {
+    if (!HEADER_NAME_PATTERN.test(key) || /[\r\n\0]/.test(item))
+      return `header '${key}' is not a valid header`;
+    const folded = key.toLowerCase();
+    if (seen.has(folded)) return `header '${key}' is repeated`;
+    seen.add(folded);
   }
-  return {
-    name,
-    type: value.type as "streamable-http" | "sse",
-    url: value.url,
-    ...(headers === undefined ? {} : { headers }),
-  };
+  return server;
 }
 
 /**
@@ -304,20 +307,8 @@ function remoteUrlProblem(value: string): string | undefined {
   if (url.hash) return "url must not have a fragment";
   if (url.protocol === "https:") return undefined;
   if (url.protocol !== "http:") return `url must be https, not ${url.protocol.slice(0, -1)}`;
-  if (isLoopback(url.hostname)) return undefined;
+  if (LOOPBACK_HOSTS.test(url.hostname)) return undefined;
   return `plain http is allowed only for localhost, 127.0.0.1 or [::1]; use https for ${url.hostname}`;
-}
-
-function isLoopback(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host === "::1") return true;
-  const match = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!match) return false;
-  return match.slice(1).every((part) => Number(part) <= 255);
-}
-
-function isHeaderName(name: string): boolean {
-  return /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name);
 }
 
 function isPluginName(value: unknown): value is string {
