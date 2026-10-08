@@ -8,7 +8,7 @@ import type { Implementations } from "./implementations.js";
 import { assembleAgent } from "./assemble.js";
 import type { CapabilityDynamics } from "./assemble.js";
 import { schemaFromJSON } from "./schema-json.js";
-import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
+import { assertJson, deepFreeze } from "../utils/immutable.js";
 import type { BoundMiddleware } from "./bound.js";
 import { delegateFromManifest, delegateOf } from "./delegate.js";
 import { SKILL_TOOL_NAMES } from "./skill-tools.js";
@@ -252,6 +252,6 @@ function normalizeManifest(json: AgentManifest | JsonObject): AgentManifest {
     manifest.metadata,
     ...manifest.capabilities.map((capability) => capability.metadata),
   ])
-    if (metadata !== undefined) copyJsonObject(metadata, "metadata");
+    if (metadata !== undefined) assertJson(metadata, "metadata");
   return deepFreeze(JSON.parse(JSON.stringify(manifest)) as AgentManifest);
 }
