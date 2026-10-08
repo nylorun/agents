@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.25.0-beta
+
+### Major Changes
+
+- 417f336: **The harness has no provider adapters.** The harness makes no model call: it builds the provider-neutral `ModelCall` and reads back a `ModelCandidate`, and the Runtime's Model Gate makes the provider call. MIGRATION.md ("The harness has no provider adapters") has the details.
+
+  - **Breaking (`@nylorun/harness`): the `./model/adapters` subpath is removed**, with the OpenAI Chat Completions, OpenAI Responses and Anthropic Messages translators in it (`toChatCompletions`, `fromChatCompletions`, `chatCompletionsAdapter`, `toResponses`, `fromResponses`, `responsesAdapter`, `toMessages`, `fromMessages`, `anthropicAdapter`, their request and message types, `AnthropicAdapterOptions`, `AdapterSend`) and `preparedModel`. The package root no longer exports `PreparedModelOptions`. A host that runs the engine in process passes its own `onModelCall` (the Runtime's `piModel`, or its own provider mapping) and reports the provider request with `context.reportPreparedCall({ adapter, call })`, as `preparedModel()` did. Nothing changes on the wire, in manifests or in checkpoints.
+
+### Patch Changes
+
+- 6fecd4c: **Docs: who journals effects.** `HOST_CONTRACT.md` no longer says Restate journals effect boundaries. The Runtime journals each effect in the Session Store under the advance's lease, and Durable Session Execution (Restate) only runs one advance per session at a time and delivers wakes and timers.
+- 070674d: **One source of truth for the manifest and Harness API schemas.**
+
+  - `@nylorun/core`: `Agent.from` (`agentFrom`) checks a manifest with `AgentManifestSchema`, the Runtime's own check, instead of a validator of its own, and refuses with `agent.build-failed` and the schema's messages (each prefixed with its path, such as `capabilities.0.tools.0.name: …`). It now refuses what the Runtime refuses at registration and it let through, such as unknown fields (it dropped them) or a tool or MCP server name that not every model provider accepts. The schema names a top-level `model` or `schemaVersion` and a capability's `model` as before, and the skill whose `files` are wrong (`Skill 'triage' files must include SKILL.md`). The rebuilt manifest is a frozen copy; the object passed in is no longer frozen. `AgentManifestSchema` and `WorkflowManifestSchema` are no longer force-cast to their types: the build checks that each accepts exactly `AgentManifest` and `WorkflowManifest`. `@nylorun/core/contracts` exports `McpServerManifestSchema`, `HEADER_NAME_PATTERN` and `LOOPBACK_HOSTS`. The Harness API's types (`@nylorun/core/harness-api`) are inferred from the schemas that validate its frames, so they match them: `TurnStart.manifest`, `TurnStart.checkpoint` and `RunRouting.rootManifest` are `object`, `WorkspaceCall.tool` is a sandbox tool name, `ABORT_REASONS` is a tuple, and properties are no longer `readonly` (arrays that were stay so).
+  - `@nylorun/harness`: `runDurable` checks the manifest once, when it rebuilds the agent, instead of twice. The unpublished, stale `schemas/manifest.schema.json` (manifest `schemaVersion` 2) is gone; `z.toJSONSchema(AgentManifestSchema)` is the manifest's JSON Schema.
+  - `@nylorun/agents`: a plugin's MCP servers are checked with core's `McpServerManifestSchema`, header-name pattern and loopback hosts. A server whose key is not a name every model provider accepts is skipped with a `plugin.mcp-server-skipped` warning, since the Runtime would refuse the manifest declaring it.
+  - `@nylorun/runtime`: the stack configuration reads its four listeners (`NYLORUN_LISTEN_*`, `NYLORUN_GATES_LISTEN_*`, `NYLORUN_HARNESS_LISTEN_*`, `NYLORUN_EGRESS_LISTEN_*`) with one parser; the variables and their errors are unchanged.
+
+- Pin core to the tested release.
+- Updated dependencies [7780b2f]
+- Updated dependencies [070674d]
+  - @nylorun/core@0.18.0-beta
+
 ## 0.24.0-beta
 
 ### Minor Changes
