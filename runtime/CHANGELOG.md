@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.21.1-beta
+
+### Patch Changes
+
+- 070674d: **One source of truth for the manifest and Harness API schemas.**
+
+  - `@nylorun/core`: `Agent.from` (`agentFrom`) checks a manifest with `AgentManifestSchema`, the Runtime's own check, instead of a validator of its own, and refuses with `agent.build-failed` and the schema's messages (each prefixed with its path, such as `capabilities.0.tools.0.name: …`). It now refuses what the Runtime refuses at registration and it let through, such as unknown fields (it dropped them) or a tool or MCP server name that not every model provider accepts. The schema names a top-level `model` or `schemaVersion` and a capability's `model` as before, and the skill whose `files` are wrong (`Skill 'triage' files must include SKILL.md`). The rebuilt manifest is a frozen copy; the object passed in is no longer frozen. `AgentManifestSchema` and `WorkflowManifestSchema` are no longer force-cast to their types: the build checks that each accepts exactly `AgentManifest` and `WorkflowManifest`. `@nylorun/core/contracts` exports `McpServerManifestSchema`, `HEADER_NAME_PATTERN` and `LOOPBACK_HOSTS`. The Harness API's types (`@nylorun/core/harness-api`) are inferred from the schemas that validate its frames, so they match them: `TurnStart.manifest`, `TurnStart.checkpoint` and `RunRouting.rootManifest` are `object`, `WorkspaceCall.tool` is a sandbox tool name, `ABORT_REASONS` is a tuple, and properties are no longer `readonly` (arrays that were stay so).
+  - `@nylorun/harness`: `runDurable` checks the manifest once, when it rebuilds the agent, instead of twice. The unpublished, stale `schemas/manifest.schema.json` (manifest `schemaVersion` 2) is gone; `z.toJSONSchema(AgentManifestSchema)` is the manifest's JSON Schema.
+  - `@nylorun/agents`: a plugin's MCP servers are checked with core's `McpServerManifestSchema`, header-name pattern and loopback hosts. A server whose key is not a name every model provider accepts is skipped with a `plugin.mcp-server-skipped` warning, since the Runtime would refuse the manifest declaring it.
+  - `@nylorun/runtime`: the stack configuration reads its four listeners (`NYLORUN_LISTEN_*`, `NYLORUN_GATES_LISTEN_*`, `NYLORUN_HARNESS_LISTEN_*`, `NYLORUN_EGRESS_LISTEN_*`) with one parser; the variables and their errors are unchanged.
+
+- 34d1a81: A commit can no longer lose its wake. A transaction that asks for an advance writes the wake to the Session Store's wake outbox (`Tx.wake`, migration `0017_wake_outbox` adds `nylorun.wakes`) and sends it to Durable Session Execution after commit, with an idempotency key (the wake's dedupe key, or one made from its row), deleting the row once Restate accepted it. A send that fails, or that a crash between the commit and the send cut off, is sent again by the Tenant sweep under the same key: on a process's first pass for any row, then for rows older than 2 s. Restate deduplicates the repeat, so a wake whose answer was lost runs one advance. The sweep's orphan scan no longer delivers lost wakes: it runs on a process's first pass and then once a minute, as the backstop for what the execution itself lost (Restate state wiped, an invocation killed, an in-process execution's queue). Restate owns when a session runs (wakes, one advance per session, retries, timers); the Session Store owns what happened (checkpoint, effect journal, events, the lease's epoch and the outbox), as `src/CONTEXT.md` and `adapters/execution/restate.ts` now describe. A Runtime of the previous beta refuses the migrated database (`schema-too-new`); while processes of both run, the old ones send wakes as before.
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [417f336]
+- Updated dependencies [6fecd4c]
+- Updated dependencies [7780b2f]
+- Updated dependencies [070674d]
+- Updated dependencies
+  - @nylorun/core@0.18.0-beta
+  - @nylorun/harness@0.25.0-beta
+
 ## 0.21.0-beta
 
 ### Major Changes
