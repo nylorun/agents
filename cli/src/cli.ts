@@ -7,7 +7,7 @@ import {
 } from "./model/configure.js";
 import { putHostModel } from "./model/host-model.js";
 import { CliError } from "./errors.js";
-import { findProjectRoot } from "./project/root.js";
+import { findProjectRoot } from "@nylorun/admin/project";
 import { printLinkedEnvExports } from "./project/env.js";
 import { linkedConnection, managementClient } from "./project/connection.js";
 import { accessCommand } from "./access/commands.js";

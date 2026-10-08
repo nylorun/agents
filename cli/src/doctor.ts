@@ -1,7 +1,7 @@
 import { release } from "node:os";
+import { findProjectRoot } from "@nylorun/admin/project";
 import { CliError } from "./errors.js";
 import { linkedConnection, managementClient } from "./project/connection.js";
-import { findProjectRoot } from "./project/root.js";
 
 export type SandboxReport = {
   preference: string;

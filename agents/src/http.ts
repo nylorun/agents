@@ -1,11 +1,16 @@
 import {
   PROTOCOL_FEATURES,
-  PROTOCOL_HEADER,
-  PROTOCOL_VERSION,
-  checkCompatibility,
-  type Compatibility,
   type ProtocolRange,
 } from "@nylorun/core/compatibility";
+import {
+  advertisedProtocol,
+  checkHealth,
+  clientCompatibility,
+  describeIncompatibility,
+  readBody,
+  requestHeaders,
+  type Incompatibility,
+} from "@nylorun/core/transport";
 
 /**
  * Bearer tokens for a client that holds no Tenant key: a trusted issuer's tokens (Host feature
@@ -43,7 +48,7 @@ export class RuntimeError extends Error {
   }
 }
 
-export type IncompatibleReason = Extract<Compatibility, { ok: false }>;
+export type IncompatibleReason = Incompatibility;
 
 /** Host protocol is outside the client's supported range or missing required features. */
 export class IncompatibleRuntimeError extends Error {
@@ -53,11 +58,7 @@ export class IncompatibleRuntimeError extends Error {
 
   constructor(compatibility: IncompatibleReason) {
     const remedy = remedyFor(compatibility);
-    const detail =
-      compatibility.reason === "version"
-        ? `client protocol ${compatibility.client} is outside Host range ${compatibility.host.min}–${compatibility.host.max}`
-        : `Host is missing required features: ${compatibility.missing.join(", ")}`;
-    super(`Incompatible Runtime: ${detail}. ${remedy}`);
+    super(`Incompatible Runtime: ${describeIncompatibility(compatibility)}. ${remedy}`);
     this.name = "IncompatibleRuntimeError";
     this.compatibility = compatibility;
     this.remedy = remedy;
@@ -73,24 +74,6 @@ function remedyFor(compatibility: IncompatibleReason): string {
     return "Upgrade this client (npm i -D @nylorun/agents@latest) or use a CLI that matches the Host protocol.";
   }
   return "Upgrade the Runtime Host with nylorun runtime restart from a newer CLI, or install a matching older client (npm i -D @nylorun/cli@<compatible>).";
-}
-
-function parseProtocolRange(value: unknown): ProtocolRange | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return undefined;
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.min !== "number" ||
-    typeof record.max !== "number" ||
-    !Array.isArray(record.features) ||
-    !record.features.every((f) => typeof f === "string")
-  )
-    return undefined;
-  return {
-    min: record.min,
-    max: record.max,
-    features: record.features as readonly string[],
-  };
 }
 
 /** The Host compatibility result, shared by a transport and its `withHeaders` copies. */
@@ -153,39 +136,21 @@ export class Transport {
 
   private async ensureCompatible(signal?: AbortSignal): Promise<void> {
     if (this.check.compatible) return;
-    const response = await this.fetcher(`${this.url}/health`, {
-      method: "GET",
-      redirect: "error",
-      signal,
+    const health = await checkHealth(this.url, {
+      fetch: this.fetcher,
+      ...(signal ? { signal } : {}),
     });
-    const text = await response.text();
-    let body: unknown = text;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      /* keep text */
-    }
-    if (!response.ok)
-      throw new RuntimeError(response.status, body);
-    const protocol = parseProtocolRange(
-      body && typeof body === "object" && !Array.isArray(body)
-        ? (body as Record<string, unknown>).protocol
-        : undefined,
-    );
-    if (!protocol)
+    if (health.result === "failed") throw new RuntimeError(health.status, health.body);
+    if (health.result === "unadvertised")
       throw new IncompatibleRuntimeError({
         ok: false,
         reason: "feature",
         missing: [...PROTOCOL_FEATURES],
         host: { min: 0, max: 0, features: [] },
       });
-    const result = checkCompatibility(
-      { version: PROTOCOL_VERSION, required: [...PROTOCOL_FEATURES] },
-      protocol,
-    );
-    if (!result.ok) throw new IncompatibleRuntimeError(result);
-    this.check.features = [...protocol.features];
-    this.check.range = protocol;
+    if (health.result === "incompatible") throw new IncompatibleRuntimeError(health.compatibility);
+    this.check.features = [...health.protocol.features];
+    this.check.range = health.protocol;
     this.check.compatible = true;
   }
 
@@ -214,8 +179,8 @@ export class Transport {
     const bearer = this.token
       ? await this.token.get(init.signal ?? undefined)
       : this.key;
-    headers.set("Authorization", `Bearer ${bearer}`);
-    headers.set(PROTOCOL_HEADER, String(PROTOCOL_VERSION));
+    for (const [name, value] of Object.entries(requestHeaders(bearer)))
+      headers.set(name, value);
     // JSON unless the caller says otherwise (an artifact upload sends the file's type).
     if (init.body && !headers.has("content-type")) headers.set("Content-Type", "application/json");
     return headers;
@@ -253,37 +218,15 @@ export class Transport {
         );
         return this.request(path, init, { retried426: true });
       }
-      const text = await response.text();
-      let body: unknown = text;
-      try {
-        body = JSON.parse(text);
-      } catch {
-        /* keep text */
-      }
-      const protocol = parseProtocolRange(
-        body && typeof body === "object" && !Array.isArray(body)
-          ? (body as Record<string, unknown>).protocol
-          : undefined,
-      );
+      const body = await readBody(response);
+      const protocol = advertisedProtocol(body);
       if (protocol) {
-        const result = checkCompatibility(
-          { version: PROTOCOL_VERSION, required: [...PROTOCOL_FEATURES] },
-          protocol,
-        );
+        const result = clientCompatibility(protocol);
         if (!result.ok) throw new IncompatibleRuntimeError(result);
       }
       throw new RuntimeError(426, body);
     }
-    if (!response.ok) {
-      const text = await response.text();
-      let body: unknown = text;
-      try {
-        body = JSON.parse(text);
-      } catch {
-        /* keep text */
-      }
-      throw new RuntimeError(response.status, body);
-    }
+    if (!response.ok) throw new RuntimeError(response.status, await readBody(response));
     return response;
   }
 

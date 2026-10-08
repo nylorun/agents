@@ -25,6 +25,13 @@ export type {
   Compatibility,
   ErrorCode,
 } from "@nylorun/core/compatibility";
+// The `/health` compatibility probe every Runtime client shares (Studio's server uses it).
+export {
+  checkHealth,
+  describeIncompatibility,
+  parseProtocolRange,
+} from "@nylorun/core/transport";
+export type { HealthCheck, Incompatibility } from "@nylorun/core/transport";
 export { Agent, AgentBuilder } from "./builder.js";
 export {
   AgentBuildError,

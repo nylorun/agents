@@ -86,9 +86,13 @@ only on the Runtime (a local `run()` reports `http.runtime-only`).
 2. Environment — if `NYLORUN_RUNTIME_URL` or `NYLORUN_SERVER_KEY` is set, both
    must be present
 3. Project link — `.nylorun/link.json` + `credentials.json` (the application
-   key), written by `npx nylorun start`. A link from an older nylorun
-   (format 0 to 2) fails with `connection_missing`: run `npx nylorun start` in
-   the project again.
+   key), written by `npx nylorun start`, in the nearest directory with
+   `.nylorun/` from `cwd` upwards (never the home directory or above it, whose
+   `.nylorun/` is the Nylorun home). A link from an older nylorun
+   (format 0 to 2), a link without credentials, or a file that does not
+   validate fails with `connection_missing`: run `npx nylorun start` in the
+   project again. The Project files are read by `@nylorun/core/project`, as
+   `@nylorun/admin`, `nylorun` and `nylo` read them.
 
 Sources never mix. Partial environment fails with `connection_missing`. A
 Runtime serves one Tenant, so nothing names it: the `tenant` option is gone

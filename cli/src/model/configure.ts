@@ -18,7 +18,7 @@ import {
   streamSimple,
 } from "@earendil-works/pi-ai/api/openai-completions";
 import type { ManagementClient } from "@nylorun/admin";
-import { resolveHome } from "../home.js";
+import { nylorunHome } from "@nylorun/admin/project";
 
 export class ConfigurationCancelled extends Error {
   readonly exitCode: number;
@@ -343,7 +343,7 @@ export async function configureProvider(
  * A stable id for this CLI installation, created on first use under the Host root.
  * OpenAI's "Sign in with ChatGPT" sends it as the agent host id.
  */
-export function installationId(home: string = resolveHome()): string {
+export function installationId(home: string = nylorunHome()): string {
   const file = join(home, "cli-installation-id");
   try {
     const existing = readFileSync(file, "utf8").trim();

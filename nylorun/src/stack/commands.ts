@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { compareVersions } from "@nylorun/core/compatibility";
+import { findProjectRoot } from "@nylorun/core/project";
 import { CliError } from "../errors.js";
 import {
   credentialsPath,
@@ -12,7 +13,6 @@ import {
   writeProjectLink,
   type ProjectLink,
 } from "../project/link.js";
-import { findProjectRoot } from "../project/root.js";
 import { seedTenant } from "../project/seed.js";
 import {
   readTelemetry,

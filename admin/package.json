@@ -19,6 +19,10 @@
     "./client": {
       "types": "./dist/management.d.ts",
       "import": "./dist/management.js"
+    },
+    "./project": {
+      "types": "./dist/project.d.ts",
+      "import": "./dist/project.js"
     }
   },
   "scripts": {

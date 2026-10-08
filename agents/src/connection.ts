@@ -1,9 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import {
-  ProjectCredentialsFileSchema,
-  ProjectLinkFileSchema,
-} from "@nylorun/core/contracts";
+import { ProjectFileError, findLinkedProject } from "@nylorun/core/project";
 import type { ErrorCode } from "@nylorun/core/compatibility";
 import { env } from "./http.js";
 
@@ -33,41 +28,33 @@ function stripTrailingSlash(url: string): string {
   return url.replace(/\/$/, "");
 }
 
-async function readProjectLink(
-  startDir: string,
-): Promise<ResolvedConnection | undefined> {
-  let dir = resolve(startDir);
-  for (;;) {
-    const nylorun = join(dir, ".nylorun");
-    const linkPath = join(nylorun, "link.json");
-    let linkRaw: string;
-    try {
-      linkRaw = await readFile(linkPath, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        const parent = dirname(dir);
-        if (parent === dir) return undefined;
-        dir = parent;
-        continue;
-      }
-      throw error;
-    }
-    const link = ProjectLinkFileSchema.parse(JSON.parse(linkRaw));
-    // Formats 0 to 2 are from older releases.
-    if (link.format < 3)
-      throw new ConnectionError(
-        `connection_missing: the Project link at ${linkPath} is from an older nylorun. ` +
-          `Run "npx nylorun start" in this project to link it again.`,
-      );
-    const credentials = ProjectCredentialsFileSchema.parse(
-      JSON.parse(await readFile(join(nylorun, "credentials.json"), "utf8")),
-    );
-    return {
-      url: stripTrailingSlash(link.hostUrl),
-      key: credentials.applicationKey,
-      source: "project-link",
-    };
+/** The application key of the linked Project from `cwd` upwards (`@nylorun/core/project`). */
+function readProjectLink(cwd: string): ResolvedConnection | undefined {
+  let project;
+  try {
+    project = findLinkedProject(cwd);
+  } catch (error) {
+    if (error instanceof ProjectFileError)
+      throw new ConnectionError(`connection_missing: ${error.message}`);
+    throw error;
   }
+  if (!project) return undefined;
+  // Formats 0 to 2 are from older releases.
+  if (project.link.format < 3)
+    throw new ConnectionError(
+      `connection_missing: the Project link at ${project.linkPath} is from an older nylorun. ` +
+        `Run "npx nylorun start" in this project to link it again.`,
+    );
+  if (!project.credentials)
+    throw new ConnectionError(
+      `connection_missing: the Project at ${project.root} has a link but no credentials ` +
+        `(.nylorun/credentials.json). Run "npx nylorun start" in this project to link it again.`,
+    );
+  return {
+    url: project.link.hostUrl,
+    key: project.credentials.applicationKey,
+    source: "project-link",
+  };
 }
 
 /**
@@ -112,7 +99,7 @@ export async function resolveConnection(options?: {
   tried.push("project-link");
   const cwd =
     options?.cwd ?? (typeof process !== "undefined" ? process.cwd() : ".");
-  const fromLink = await readProjectLink(cwd);
+  const fromLink = readProjectLink(cwd);
   if (fromLink) return fromLink;
 
   missing(tried);

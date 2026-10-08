@@ -187,8 +187,14 @@ export function checkBoundaries(name) {
         if (pattern.test(source) && !http.dirs.includes(top))
           throw new Error(`${path} imports the HTTP framework; only ${http.dirs.join("/ and ")}/ may`);
       }
-      if (name === "core" && /(?:from\s*|import\s*\()["']node:/.test(source))
+      // Core is portable, except its Node-only `./project` subpath (the Project link and the Host
+      // root on this machine), which no other Core module imports.
+      const nodeOnly =
+        name === "core" && /^(?:src\/project\.ts|dist\/project\.(?:js|d\.ts))$/.test(relative.join("/"));
+      if (name === "core" && !nodeOnly && /(?:from\s*|import\s*\()["']node:/.test(source))
         throw new Error(`Core must remain portable: ${path}`);
+      if (name === "core" && !nodeOnly && /(?:from\s*|import\s*\()["']\.\.?\/(?:[^"']*\/)?project\.js["']/.test(source))
+        throw new Error(`${path} imports the Node-only project module; Core must remain portable`);
     }
   // The nylorun package owns `nylorun`; the Runtime is a library and an image, with no bin.
   if (name === "runtime" && pkg.bin !== undefined)
