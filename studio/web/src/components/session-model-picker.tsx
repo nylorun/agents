@@ -9,24 +9,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { tenantRuntime } from "@/proxy-client";
+import type { ManagementModels } from "@nylorun/admin/client";
+import { createTenantManagementClient } from "@/proxy-client";
 import { listFrom } from "@/runtime-body.ts";
 
-type HostModelProviderInfo = {
-  id: string;
-  name: string;
-  model: string;
-  authType: "api_key" | "oauth";
-  baseUrl?: string;
-  lastUpdated: string;
-  active: boolean;
-};
-
-type CatalogProvider = {
-  id: string;
-  name: string;
-  models: { id: string; name: string }[];
-};
+type HostModelProviderInfo = Awaited<
+  ReturnType<ManagementModels["providers"]>
+>["providers"][number];
+type CatalogProvider = Awaited<ReturnType<ManagementModels["catalog"]>>["providers"][number];
 
 type ModelOption = {
   key: string;
@@ -51,7 +41,7 @@ export function SessionModelPicker({
   disabled?: boolean;
   className?: string;
 }>) {
-  const runtime = useMemo(() => tenantRuntime(tenantId), [tenantId]);
+  const api = useMemo(() => createTenantManagementClient(tenantId).models, [tenantId]);
   const [open, setOpen] = useState(false);
   const [providers, setProviders] = useState<HostModelProviderInfo[]>([]);
   const [catalog, setCatalog] = useState<CatalogProvider[]>([]);
@@ -61,26 +51,11 @@ export function SessionModelPicker({
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [providersResponse, catalogResponse] = await Promise.all([
-      runtime("/v1/tenant/providers"),
-      runtime("/v1/tenant/models"),
-    ]);
-    if (!providersResponse.ok || !catalogResponse.ok)
-      throw new Error("The Runtime did not return connected model providers.");
+    const [connected, listed] = await Promise.all([api.providers(), api.catalog()]);
     const message = "The Runtime did not return connected model providers.";
-    const listed = listFrom<HostModelProviderInfo>(
-      await providersResponse.json(),
-      "providers",
-      message,
-    );
-    const models = listFrom<CatalogProvider>(
-      await catalogResponse.json(),
-      "providers",
-      message,
-    );
-    setProviders(listed);
-    setCatalog(models);
-  }, [runtime]);
+    setProviders(listFrom<HostModelProviderInfo>(connected, "providers", message));
+    setCatalog(listFrom<CatalogProvider>(listed, "providers", message));
+  }, [api]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,22 +120,12 @@ export function SessionModelPicker({
     setPending(true);
     setError("");
     try {
-      const response = await runtime("/v1/tenant/model/selection", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          requestId: crypto.randomUUID(),
-          idempotencyKey: crypto.randomUUID(),
-          provider: option.providerId,
-          model: option.modelId,
-          ...(option.baseUrl ? { baseUrl: option.baseUrl } : {}),
-        }),
+      await api.select({
+        idempotencyKey: crypto.randomUUID(),
+        provider: option.providerId,
+        model: option.modelId,
+        ...(option.baseUrl ? { baseUrl: option.baseUrl } : {}),
       });
-      const body = (await response.json()) as { message?: string };
-      if (!response.ok)
-        throw new Error(
-          body.message ?? "The Runtime rejected the model selection.",
-        );
       await refresh();
       setOpen(false);
       setQuery("");

@@ -55,7 +55,6 @@ import {
   createTenantClient,
   fetchHello,
   tenantHref,
-  tenantRuntime,
   tenantScope,
 } from "@/proxy-client";
 import {
@@ -122,6 +121,9 @@ const pretty = (value: unknown) =>
 
 const code =
   "rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground";
+
+const tabTrigger =
+  "border-b-2 border-transparent px-0 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground";
 
 /**
  * Studio serves its installation's one Tenant. `/tenants/<id>/…` is its
@@ -540,31 +542,24 @@ function SessionRedirect({
   const navigate = useNavigate();
   const [problem, setProblem] = useState<string | undefined>();
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await tenantRuntime(tenantId)(
-          `/v1/sessions/${encodeURIComponent(sessionId)}`,
-        );
-        if (cancelled) return;
-        if (response.status === 404) return setProblem("not-found");
-        if (!response.ok) return setProblem(`Studio could not load the session (${response.status}).`);
-        const body = (await response.json()) as { agentId?: unknown };
-        if (cancelled) return;
-        if (typeof body.agentId !== "string" || body.agentId === "")
-          return setProblem("not-found");
+    const abort = new AbortController();
+    studioClient(tenantId)
+      .session(sessionId)
+      .inspect(abort.signal)
+      .then((view) => {
+        if (abort.signal.aborted) return;
+        if (!view.agentId) return setProblem("not-found");
         void navigate(
-          `/agents/${encodeURIComponent(body.agentId)}/sessions/${encodeURIComponent(sessionId)}`,
+          `/agents/${encodeURIComponent(view.agentId)}/sessions/${encodeURIComponent(sessionId)}`,
           { replace: true },
         );
-      } catch (cause) {
-        if (!cancelled)
-          setProblem(cause instanceof Error ? cause.message : String(cause));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      })
+      .catch((cause: unknown) => {
+        if (abort.signal.aborted) return;
+        if ((cause as { status?: unknown }).status === 404) return setProblem("not-found");
+        setProblem(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => abort.abort();
   }, [tenantId, sessionId, navigate]);
   if (problem === undefined)
     return <p className="p-8 text-muted-foreground">Opening the session…</p>;
@@ -1001,13 +996,13 @@ function SessionView({
                 <>
                   <TabsPrimitive.Trigger
                     value="tree"
-                    className="border-b-2 border-transparent px-0 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground"
+                    className={tabTrigger}
                   >
                     Tree
                   </TabsPrimitive.Trigger>
                   <TabsPrimitive.Trigger
                     value="iterations"
-                    className="border-b-2 border-transparent px-0 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground"
+                    className={tabTrigger}
                   >
                     Iterations
                   </TabsPrimitive.Trigger>
@@ -1015,13 +1010,13 @@ function SessionView({
               ) : null}
               <TabsPrimitive.Trigger
                 value="events"
-                className="border-b-2 border-transparent px-0 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground"
+                className={tabTrigger}
               >
                 Events
               </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger
                 value="manifest"
-                className="border-b-2 border-transparent px-0 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground"
+                className={tabTrigger}
               >
                 {workflowManifest ? "Manifest" : "Agent Manifest"}
               </TabsPrimitive.Trigger>

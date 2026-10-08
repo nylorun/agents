@@ -3,10 +3,10 @@ import test from "node:test";
 import {
   StudioSignedOutError,
   createTenantClient,
+  createTenantManagementClient,
   fetchHello,
   studioFetch,
   tenantHref,
-  tenantRuntime,
   tenantRuntimePath,
   tenantScope,
 } from "../web/src/proxy-client.ts";
@@ -44,12 +44,17 @@ test("studioFetch is same-origin only and sends the session cookie", async () =>
     assert.throws(() => studioFetch(path, undefined, fetcher), /same-origin/);
 });
 
-test("tenantRuntime prefixes the Tenant's proxy path and carries no bearer", async () => {
-  const { calls, fetcher } = recorder();
-  await tenantRuntime("tn_1", fetcher)("/v1/tenant/model", { method: "PUT", body: "{}" });
-  assert.equal(calls[0].url, "/_studio/tenants/tn_1/runtime/v1/tenant/model");
+test("createTenantManagementClient targets the Tenant proxy and carries no bearer", async () => {
+  const { calls, fetcher } = recorder(() => Response.json({ configured: false }));
+  const client = createTenantManagementClient("tn_1", { origin: "http://localhost:4170", fetcher });
+  await client.models.select({ idempotencyKey: "k1", provider: "openai", model: "gpt" });
+  assert.equal(calls[0].url, "http://localhost:4170/_studio/tenants/tn_1/runtime/v1/tenant/model/selection");
   assert.equal(calls[0].init.method, "PUT");
+  assert.equal(calls[0].init.credentials, "same-origin");
   assert.equal(new Headers(calls[0].init.headers).has("authorization"), false);
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(typeof body.requestId, "string");
+  assert.equal(body.idempotencyKey, "k1");
 });
 
 test("createTenantClient strips the SDK bearer and targets the Tenant proxy", async () => {

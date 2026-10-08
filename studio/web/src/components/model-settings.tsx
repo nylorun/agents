@@ -25,43 +25,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { tenantRuntime } from "@/proxy-client";
+import type { ManagementModels } from "@nylorun/admin/client";
+import { createTenantManagementClient } from "@/proxy-client";
+import { listFrom } from "@/runtime-body.ts";
 
-type HostModelView =
-  | { configured: false }
-  | {
-      configured: true;
-      provider: string;
-      model: string;
-      authType: "api_key" | "oauth";
-      baseUrl?: string;
-      settings?: CustomModelSettings;
-    };
-
+type HostModelView = Awaited<ReturnType<ManagementModels["get"]>>;
+type CatalogProvider = Awaited<ReturnType<ManagementModels["catalog"]>>["providers"][number];
+type ConfiguredProvider = Awaited<
+  ReturnType<ManagementModels["providers"]>
+>["providers"][number];
 /** A custom endpoint's window, output limit, reasoning and pi-ai compat (Model Calls §7). */
-type CustomModelSettings = {
-  contextWindow?: number;
-  maxTokens?: number;
-  reasoning?: boolean;
-  compat?: Record<string, unknown>;
-};
-
-type CatalogProvider = {
-  id: string;
-  name: string;
-  models: { id: string; name: string }[];
-};
-
-type ConfiguredProvider = {
-  id: string;
-  name: string;
-  model: string;
-  authType: "api_key" | "oauth";
-  baseUrl?: string;
-  settings?: CustomModelSettings;
-  lastUpdated: string;
-  active: boolean;
-};
+type CustomModelSettings = NonNullable<ConfiguredProvider["settings"]>;
 
 type PanelMode = "add" | "view" | "update";
 
@@ -75,7 +49,7 @@ function formatUpdated(value: string): string {
 }
 
 export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
-  const runtime = useMemo(() => tenantRuntime(tenantId), [tenantId]);
+  const models = useMemo(() => createTenantManagementClient(tenantId).models, [tenantId]);
   const [active, setActive] = useState<HostModelView | undefined>();
   const [catalog, setCatalog] = useState<CatalogProvider[]>([]);
   const [providers, setProviders] = useState<ConfiguredProvider[]>([]);
@@ -94,28 +68,19 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
   const [compat, setCompat] = useState("");
 
   const refresh = useCallback(async () => {
-    const [modelResponse, catalogResponse, providersResponse] =
-      await Promise.all([
-        runtime("/v1/tenant/model"),
-        runtime("/v1/tenant/models"),
-        runtime("/v1/tenant/providers"),
-      ]);
-    if (!modelResponse.ok || !catalogResponse.ok || !providersResponse.ok)
-      throw new Error("The Runtime did not return model settings.");
-    const next = (await modelResponse.json()) as HostModelView;
-    const listed = (await catalogResponse.json()) as {
-      providers: CatalogProvider[];
-    };
-    const configured = (await providersResponse.json()) as {
-      providers: ConfiguredProvider[];
-    };
+    const [next, listed, configured] = await Promise.all([
+      models.get(),
+      models.catalog(),
+      models.providers(),
+    ]);
+    const message = "The Runtime did not return model settings.";
     setActive(next);
     setCatalog([
-      ...listed.providers,
+      ...listFrom<CatalogProvider>(listed, "providers", message),
       { id: "custom", name: "Custom OpenAI-compatible", models: [] },
     ]);
-    setProviders(configured.providers);
-  }, [runtime]);
+    setProviders(listFrom<ConfiguredProvider>(configured, "providers", message));
+  }, [models]);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,26 +140,14 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
     const key = apiKey;
     try {
       const settings = custom ? customSettings() : undefined;
-      const response = await runtime("/v1/tenant/model", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          requestId: crypto.randomUUID(),
-          idempotencyKey: crypto.randomUUID(),
-          provider,
-          model,
-          ...(custom && baseUrl ? { baseUrl } : {}),
-          ...(settings ? { settings } : {}),
-          auth: { type: "api_key", key },
-        }),
+      const body = await models.put({
+        idempotencyKey: crypto.randomUUID(),
+        provider,
+        model,
+        ...(custom && baseUrl ? { baseUrl } : {}),
+        ...(settings ? { settings } : {}),
+        auth: { type: "api_key", key },
       });
-      const body = (await response.json()) as HostModelView & {
-        message?: string;
-      };
-      if (!response.ok)
-        throw new Error(
-          body.message ?? "The Runtime rejected the model provider.",
-        );
       if (JSON.stringify(body).includes(key))
         throw new Error("The Runtime returned the provider key.");
       await refresh();
@@ -245,24 +198,12 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
     setSaved("");
     setPending(true);
     try {
-      const response = await runtime("/v1/tenant/model/selection", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          requestId: crypto.randomUUID(),
-          idempotencyKey: crypto.randomUUID(),
-          provider,
-          model,
-          ...(custom && baseUrl ? { baseUrl } : {}),
-        }),
+      const body = await models.select({
+        idempotencyKey: crypto.randomUUID(),
+        provider,
+        model,
+        ...(custom && baseUrl ? { baseUrl } : {}),
       });
-      const body = (await response.json()) as HostModelView & {
-        message?: string;
-      };
-      if (!response.ok)
-        throw new Error(
-          body.message ?? "The Runtime rejected the provider selection.",
-        );
       await refresh();
       setPanelOpen(false);
       setSaved(
