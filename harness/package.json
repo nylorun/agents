@@ -36,10 +36,6 @@
       "types": "./dist/api/index.d.ts",
       "import": "./dist/api/index.js"
     },
-    "./model/adapters": {
-      "types": "./dist/loop/model/adapters.d.ts",
-      "import": "./dist/loop/model/adapters.js"
-    },
     "./compatibility": {
       "types": "./dist/compatibility.d.ts",
       "import": "./dist/compatibility.js"

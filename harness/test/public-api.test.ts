@@ -3,7 +3,7 @@ import * as api from "../src/index.js";
 import manifest from "../package.json";
 
 describe("public API", () => {
-  it("exports the documented construction helpers and model adapters subpath", () => {
+  it("exports the documented construction helpers and no provider adapters", () => {
     expect(Object.keys(api)).toEqual(
       expect.arrayContaining([
         "run",
@@ -20,13 +20,12 @@ describe("public API", () => {
     expect(api).not.toHaveProperty("BuiltAgent");
     expect(api).not.toHaveProperty("defineToolFamily");
     expect(manifest.exports).toHaveProperty(".");
-    expect(manifest.exports).toHaveProperty("./model/adapters");
+    expect(manifest.exports).not.toHaveProperty("./model/adapters");
     expect(manifest.exports).toHaveProperty("./run");
     expect(Object.keys(manifest.exports).sort()).toEqual([
       ".",
       "./api",
       "./compatibility",
-      "./model/adapters",
       "./run",
     ]);
     expect(Object.keys(manifest.dependencies ?? {})).toEqual(["@nylorun/core"]);

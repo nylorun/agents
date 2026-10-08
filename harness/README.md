@@ -5,9 +5,14 @@ contracts live in `@nylorun/core`; applications use `@nylorun/agents`.
 OSS publishes harness for local Runtime; Cloud installs published packages from
 npm independently.
 
-Use `/run` for explicit execution, `/model/adapters` for provider format adapters,
+Use `/run` for explicit execution, `/api` for a harness over the Harness API,
 and `/compatibility` for checkpoint compatibility. Definitions and protocol
 schemas are no longer harness exports.
+
+The harness makes no model call. Each step projects a provider-neutral `ModelCall`
+(`@nylorun/core/define`) and hands it to its host: to `onModelCall` with `run`, or
+as a model effect with `runDurable` and `/api`. The Runtime's Model Gate makes the
+provider call.
 
 > **DX v5.6:** definition ⊥ engine. `model` is not on `Agent({})` — Runtime injects `onModelCall`. Host data stays `info` (not `user`); session memory is `state`.
 

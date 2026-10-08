@@ -1,3 +1,26 @@
+# The harness has no provider adapters: `@nylorun/harness/model/adapters` is removed
+
+The harness makes no model call. Each step builds the provider-neutral `ModelCall` and reads
+back a `ModelCandidate` (`@nylorun/core/define`); the Runtime's Model Gate makes the provider
+call. The OpenAI Chat Completions, OpenAI Responses and Anthropic Messages translators that
+`@nylorun/harness` still shipped, which the Runtime never used, are removed with their subpath.
+Nothing changes on the wire, in a manifest or in a checkpoint, and an agent the Runtime runs is
+unaffected.
+
+| Removed (`@nylorun/harness`) | Now |
+| --- | --- |
+| The `./model/adapters` subpath | Not exported (`ERR_PACKAGE_PATH_NOT_EXPORTED`) |
+| `toChatCompletions`, `fromChatCompletions`, `chatCompletionsAdapter` and the `ChatCompletions*` types | Removed |
+| `toResponses`, `fromResponses`, `responsesAdapter` and the `Responses*` types | Removed |
+| `toMessages`, `fromMessages`, `anthropicAdapter`, `AnthropicAdapterOptions` and the `Messages*` types | Removed |
+| `preparedModel`, `AdapterSend`, and `PreparedModelOptions` (also from the package root) | Call `context.reportPreparedCall({ adapter, call })` in your adapter |
+
+A host that runs the engine in process (`run` from `@nylorun/harness/run`) passes `onModelCall`,
+a `ModelAdapter`: use the Runtime's `piModel` (`@nylorun/runtime/node`), or map the `ModelCall` to
+your provider in your own code. To publish the provider request as the `model.prepared`
+observation, call `context.reportPreparedCall({ adapter, call })` once per call with a JSON-safe
+`call`, which is all `preparedModel()` did.
+
 # MCP credentials from vaults only (protocol 10)
 
 Nylorun no longer holds an OAuth client for MCP servers and no longer asks a credential

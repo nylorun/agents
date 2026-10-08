@@ -89,8 +89,6 @@ try {
     "LICENSE",
     "dist/index.js",
     "dist/index.d.ts",
-    "dist/loop/model/adapters.js",
-    "dist/loop/model/adapters.d.ts",
     "dist/run/index.js",
     "dist/run/index.d.ts",
   ]) {
@@ -111,6 +109,8 @@ try {
     "definition/agent-definition.js",
     "definition/bound.js",
     "loop/step/runtime.js",
+    // Removed: model calls are the Runtime's (its Model Gate), not the harness's.
+    "model/adapters",
   ]) {
     try {
       await import(`@nylorun/harness/${path}`);
@@ -120,7 +120,6 @@ try {
     }
   }
   const definitions = await import("@nylorun/core/define");
-  const adapters = await import(new URL("../dist/loop/model/adapters.js", import.meta.url));
   for (const name of [
     "AgentBuilder",
     "AgentBuildError",
@@ -154,20 +153,8 @@ try {
   ]) {
     if (!(name in execution)) throw new Error(`Missing run export: ${name}`);
   }
-  for (const name of [
-    "toChatCompletions",
-    "fromChatCompletions",
-    "chatCompletionsAdapter",
-    "toResponses",
-    "fromResponses",
-    "responsesAdapter",
-    "toMessages",
-    "fromMessages",
-    "anthropicAdapter",
-    "preparedModel",
-  ]) {
-    if (!(name in adapters)) throw new Error(`Missing model adapter export: ${name}`);
-  }
+  if (files.some((path) => path.startsWith("dist/loop/model/adapters.")))
+    throw new Error("The harness ships no provider adapters: dist/loop/model/adapters.*");
   checkPackedConsumer(cache);
   console.log(`Tarball and dependency boundary passed (${files.length} files).`);
 } finally {

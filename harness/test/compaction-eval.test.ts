@@ -1,8 +1,11 @@
 /**
  * Compaction evaluation (Model Calls W1.5). Opt-in: it calls a real model.
  *
- *   NYLORUN_TEST_MODEL_URL=http://127.0.0.1:11434/v1 NYLORUN_TEST_MODEL=qwen3:8b \
- *     npm run eval:compaction -w @nylorun/harness
+ * The harness makes no model call of its own, so the eval takes the model from a module whose
+ * default export is a `ModelAdapter` (`@nylorun/core/define`): one over the Runtime's `piModel`
+ * or a provider client of your own. The path is relative to `harness/`.
+ *
+ *   NYLORUN_EVAL_MODEL_ADAPTER=../my-adapter.mjs npm run eval:compaction -w @nylorun/harness
  *
  * Each scenario is a long session whose facts are stated early. After compaction, the model
  * answers each fact's question from the summary alone; the score is the share it gets right.
@@ -10,15 +13,16 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 import type { ModelAdapter, ModelCall, TranscriptEntry } from "@nylorun/core/define";
-import { chatCompletionsAdapter } from "../src/loop/model/adapters.js";
 import { compact, summaryPrompt } from "../src/loop/compaction/index.js";
 
-const url = process.env.NYLORUN_TEST_MODEL_URL;
-const modelId = process.env.NYLORUN_TEST_MODEL ?? "default";
-const key = process.env.NYLORUN_TEST_MODEL_KEY ?? "none";
+const adapterPath = process.env.NYLORUN_EVAL_MODEL_ADAPTER;
+const adapter: ModelAdapter | undefined = adapterPath
+  ? ((await import(pathToFileURL(resolve(adapterPath)).href)) as { default: ModelAdapter }).default
+  : undefined;
 
 type Scenario = {
   name: string;
@@ -71,27 +75,6 @@ function session(scenario: Scenario): TranscriptEntry[] {
   return entries;
 }
 
-/** A local model can think longer than fetch waits for a response; one retry covers it. */
-async function post(url: string, init: RequestInit): Promise<Response> {
-  try {
-    return await fetch(url, init);
-  } catch (error) {
-    if ((init.signal as AbortSignal | undefined)?.aborted) throw error;
-    return fetch(url, init);
-  }
-}
-
-const adapter: ModelAdapter = chatCompletionsAdapter(async (request, _call, context) => {
-  const response = await post(`${url!.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ ...request, model: modelId }),
-    signal: context.signal,
-  });
-  if (!response.ok) throw new Error(`Model returned ${response.status}: ${await response.text()}`);
-  return response.json();
-});
-
 async function ask(summary: string, question: string): Promise<string> {
   const call: ModelCall = {
     executionId: "eval",
@@ -110,7 +93,7 @@ async function ask(summary: string, question: string): Promise<string> {
       },
     ],
   };
-  const outcome = await adapter(call, {
+  const outcome = await adapter!(call, {
     request: {} as never,
     invocationId: "question",
     signal: AbortSignal.timeout(600_000),
@@ -121,7 +104,7 @@ async function ask(summary: string, question: string): Promise<string> {
   return outcome.output.map((block) => (block.type === "text" ? block.text : "")).join("");
 }
 
-it.skipIf(!url)(
+it.skipIf(!adapter)(
   "keeps the facts a long session needs after compaction",
   async () => {
     let right = 0;
@@ -140,7 +123,10 @@ it.skipIf(!url)(
       process.env.NYLORUN_EVAL_REPORT ?? join(tmpdir(), "nylorun-compaction-eval.json");
     const write = () => {
       const score = `${right}/${total} (${total ? Math.round((right / total) * 100) : 0}%)`;
-      writeFileSync(report, JSON.stringify({ model: modelId, score, results, summaries }, null, 2));
+      writeFileSync(
+        report,
+        JSON.stringify({ adapter: adapterPath, score, results, summaries }, null, 2),
+      );
       return score;
     };
     // NYLORUN_EVAL_ONLY=name,name runs some scenarios, e.g. to finish an interrupted run.
@@ -155,7 +141,7 @@ it.skipIf(!url)(
         trigger: "threshold",
         // Small enough that the kept tail excludes the facts.
         budget: { contextWindow: 4_000, reserve: 1_000 },
-        invoke: adapter,
+        invoke: adapter!,
         signal: AbortSignal.timeout(1_800_000),
       });
       expect(compacted?.[0]?.kind).toBe("compaction");
@@ -177,7 +163,7 @@ it.skipIf(!url)(
       }
       write();
     }
-    process.stdout.write(`Compaction eval with ${modelId}: ${write()}. Report: ${report}\n`);
+    process.stdout.write(`Compaction eval with ${adapterPath}: ${write()}. Report: ${report}\n`);
   },
   7_200_000,
 );
