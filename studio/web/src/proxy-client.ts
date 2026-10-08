@@ -77,12 +77,6 @@ export function studioFetch(
   return fetcher(path, { ...init, credentials: "same-origin" });
 }
 
-/** `fetch` for one Tenant's Tenant API routes, e.g. `/v1/tenant/model`. */
-export function tenantRuntime(tenantId: string, fetcher?: StudioFetch) {
-  return (path: string, init?: RequestInit): Promise<Response> =>
-    studioFetch(tenantRuntimePath(tenantId) + path, init, fetcher);
-}
-
 /**
  * SDK client for one Tenant through the Studio server. The SDK requires a
  * key; the placeholder is removed before each request (an embedded session's

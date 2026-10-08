@@ -300,27 +300,37 @@ type EmbedClaims = Readonly<{
   exp: number;
 }>;
 
-/** A bearer session: `v2.<base64url(claims)>.<signature>` (Studio §8.4). */
-function issueEmbedSession(key: Buffer, claims: EmbedClaims): string {
-  const payload = `${EMBED_SESSION_VERSION}.${Buffer.from(JSON.stringify(claims)).toString("base64url")}`;
+/** A signed claims token: `<version>.<base64url(claims)>.<signature>`. */
+function issueClaims(key: Buffer, version: string, claims: object): string {
+  const payload = `${version}.${Buffer.from(JSON.stringify(claims)).toString("base64url")}`;
   return `${payload}.${sign(key, payload)}`;
 }
 
-function embedSession(key: Buffer, value: string, at: number): EmbedClaims | undefined {
+/** The claims object of a `version` token whose signature `key` made, unchecked otherwise. */
+function verifiedClaims(
+  key: Buffer,
+  version: string,
+  value: string,
+): Record<string, unknown> | undefined {
   const parts = value.split(".");
-  if (parts.length !== 3 || parts[0] !== EMBED_SESSION_VERSION) return undefined;
+  if (parts.length !== 3 || parts[0] !== version) return undefined;
   const expected = Buffer.from(sign(key, `${parts[0]}.${parts[1]}`));
   const provided = Buffer.from(parts[2]!);
   if (provided.length !== expected.length || !timingSafeEqual(provided, expected))
     return undefined;
-  let claims: unknown;
-  try {
-    claims = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"));
-  } catch {
-    return undefined;
-  }
-  if (!claims || typeof claims !== "object") return undefined;
-  const { aud, tenant, sub, iat, exp } = claims as Record<string, unknown>;
+  const claims = base64urlJson(parts[1]!);
+  return claims && typeof claims === "object" ? (claims as Record<string, unknown>) : undefined;
+}
+
+/** A bearer session: `v2.<base64url(claims)>.<signature>` (Studio §8.4). */
+function issueEmbedSession(key: Buffer, claims: EmbedClaims): string {
+  return issueClaims(key, EMBED_SESSION_VERSION, claims);
+}
+
+function embedSession(key: Buffer, value: string, at: number): EmbedClaims | undefined {
+  const claims = verifiedClaims(key, EMBED_SESSION_VERSION, value);
+  if (!claims) return undefined;
+  const { aud, tenant, sub, iat, exp } = claims;
   if (aud !== EMBED_AUDIENCE) return undefined;
   if (tenant !== null && (typeof tenant !== "string" || !TENANT_ID.test(tenant)))
     return undefined;
@@ -347,25 +357,13 @@ type SubjectClaims = Readonly<{ aud: string; sub: string | null; iat: number; ex
 
 /** A cookie session from forwarded sign-in: `v3.<base64url(claims)>.<signature>`. */
 function issueSubjectSession(key: Buffer, claims: SubjectClaims): string {
-  const payload = `${SUBJECT_SESSION_VERSION}.${Buffer.from(JSON.stringify(claims)).toString("base64url")}`;
-  return `${payload}.${sign(key, payload)}`;
+  return issueClaims(key, SUBJECT_SESSION_VERSION, claims);
 }
 
 function subjectSession(key: Buffer, value: string, at: number): SubjectClaims | undefined {
-  const parts = value.split(".");
-  if (parts.length !== 3 || parts[0] !== SUBJECT_SESSION_VERSION) return undefined;
-  const expected = Buffer.from(sign(key, `${parts[0]}.${parts[1]}`));
-  const provided = Buffer.from(parts[2]!);
-  if (provided.length !== expected.length || !timingSafeEqual(provided, expected))
-    return undefined;
-  let claims: unknown;
-  try {
-    claims = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"));
-  } catch {
-    return undefined;
-  }
-  if (!claims || typeof claims !== "object") return undefined;
-  const { aud, sub, iat, exp } = claims as Record<string, unknown>;
+  const claims = verifiedClaims(key, SUBJECT_SESSION_VERSION, value);
+  if (!claims) return undefined;
+  const { aud, sub, iat, exp } = claims;
   if (aud !== SUBJECT_SESSION_AUDIENCE) return undefined;
   if (sub !== null && typeof sub !== "string") return undefined;
   if (typeof iat !== "number" || typeof exp !== "number") return undefined;
