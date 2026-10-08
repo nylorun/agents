@@ -244,12 +244,3 @@ export async function readJsonBody(request: Request, limit = 1024 * 1024): Promi
     throw Object.assign(new Error("Invalid JSON"), { status: 400 });
   }
 }
-
-export function isLoopbackHost(host: string): boolean {
-  const normalized = host.trim().toLowerCase();
-  return (
-    normalized === "127.0.0.1" ||
-    normalized === "::1" ||
-    normalized === "localhost"
-  );
-}
