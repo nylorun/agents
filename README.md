@@ -67,8 +67,8 @@ Tenants; `nylorun start --tenant <name>` (or `NYLORUN_TENANT`) attaches a
 checkout to an existing one. Outside a project, `nylorun start` runs the
 Tenant `default`.
 `@nylorun/cli`, command `nylo`, is the Runtime client for the linked
-installation (`nylo status|reset|endpoints|configure|access`). Studio runs in
-the Tenant's containers as the `ghcr.io/nylorun/studio` image.
+installation (`nylo status|reset|access|configure|env|doctor`). Studio runs
+in the Tenant's containers as the `ghcr.io/nylorun/studio` image.
 
 ## Develop this repository
 
