@@ -25,7 +25,32 @@
  *   What a run answers arms its timers and its retry.
  *
  * Wakes, sandbox reconciles, timers and sweep arming go through the ingress as one-way
- * sends, so an API node can call them without ever calling `start`.
+ * sends, so an API node can call them without ever calling `start`. A wake a commit asked for
+ * comes from the Session Store's wake outbox (`Tx.wake`) with an idempotency key, so a send
+ * repeated after its answer was lost causes no second advance.
+ *
+ * ## What Restate owns, and what the Session Store owns
+ *
+ * Restate owns when a session runs: it delivers each wake at least once, deduped by its
+ * key for `dedupeRetentionMs`; runs at most one invocation per key at a time; retries an
+ * invocation whose attempt failed, so an advance whose Worker died runs again and takes the
+ * session over (§11.4); and keeps every timer: the busy re-wake, `NylorunTimer`,
+ * `NylorunSandbox` and the `NylorunTenant` sweep chain. The Session Store (Postgres) owns
+ * what happened: the checkpoint, the effect journal (`harness-api/record.ts`), the events
+ * (the Record), and the wake outbox that hands each committed wake to Restate. Restate
+ * journals no effect: an effect's intent and outcome commit with the session's events in
+ * one transaction, under the advance's lease, and remote harnesses and pod engines write
+ * them too, over the Harness API.
+ *
+ * Two Session Store mechanisms overlap Restate on purpose:
+ *
+ * - **The lease and its epoch** (§10.6). Restate's one invocation per key holds for an
+ *   attempt, not for the code it started: an attempt that ends (abort timeout, a dropped
+ *   connection) is retried while the previous attempt's handler may still run on its Worker,
+ *   and a remote harness or pod engine may still hold the run. The epoch fences their writes,
+ *   and `busy` answers the overlap.
+ * - **The advance deadline** (`tenant/worker.ts`). Restate's abort timeout does not stop a
+ *   running handler, so the Worker bounds each advance itself, below `timeouts`.
  */
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
 import * as restate from "@restatedev/restate-sdk";

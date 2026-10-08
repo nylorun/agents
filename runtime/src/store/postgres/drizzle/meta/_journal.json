@@ -120,6 +120,13 @@
       "when": 1791395759051,
       "tag": "0016_mcp_oauth_removed",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791455573196,
+      "tag": "0017_wake_outbox",
+      "breakpoints": true
     }
   ]
 }

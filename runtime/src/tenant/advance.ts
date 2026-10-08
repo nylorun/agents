@@ -564,11 +564,10 @@ async function settle(
         await slimModelEffects(t, id, s.activeTurnId);
         await t.put("sessions", id, current);
         const segment = finished.segment + 1;
-        t.afterCommit(() =>
-          ctx.wake(id, {
-            reason: "rollover",
-            dedupeKey: `rollover:${s.activeTurnId}:${segment}`,
-          })
+        await t.wake(
+          id,
+          { reason: "rollover", dedupeKey: `rollover:${s.activeTurnId}:${segment}` },
+          ctx.wake
         );
         return siblings;
       }

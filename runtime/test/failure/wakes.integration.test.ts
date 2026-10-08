@@ -90,18 +90,24 @@ describe.skipIf(!STACK_ENABLED)("§17 wake failures on Postgres, Restate and S2"
     expect(await sessionRow(node)).toMatchObject({ status: "completed", owner: null });
   });
 
-  it("§17.2 a wake lost between commit and send: the Tenant sweep on Restate recovers it", async () => {
+  it("§17.2 a wake lost between commit and send: the Tenant sweep on Restate delivers it from the outbox", async () => {
     const t = failureTenant();
     const model = countingModel();
     const lost: Wake[] = [];
+    const sent: Wake[] = [];
     const worker = t.worker({
       offset: 6,
       prefix: "lost",
-      // The message's wake never reaches Restate, as if the process died right after commit.
+      // The message's first send never reaches Restate, as if the process died right after
+      // commit: its outbox row stays, and the sweep sends it again.
       wrap: (inner): DurableExecution => ({
         wake: async (tenantId, sessionId, wake) => {
-          if (wake.reason === "message") lost.push(wake);
-          else await inner.wake(tenantId, sessionId, wake);
+          sent.push(wake);
+          if (wake.reason === "message" && lost.length === 0) {
+            lost.push(wake);
+            throw new Error("the send never reached Restate");
+          }
+          await inner.wake(tenantId, sessionId, wake);
         },
         timer: (...args) => inner.timer(...args),
         armSweep: (tenantId) => inner.armSweep(tenantId),
@@ -119,6 +125,8 @@ describe.skipIf(!STACK_ENABLED)("§17 wake failures on Postgres, Restate and S2"
     expect(lost[0]!.dedupeKey).toMatch(/^message:/);
 
     await until(() => view(node), (v) => v.status === "completed", "completed", 20_000);
+    // Sent again under the same idempotency key.
+    expect(sent.filter((wake) => wake.reason === "message")).toEqual([lost[0], lost[0]]);
     const history = await completeHistory(node);
     expect(countOf(history, "command.message")).toBe(1);
     expect(countOf(history, "turn.completed")).toBe(1);

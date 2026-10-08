@@ -5,9 +5,10 @@
  *
  * Business code changes state only inside `ctx.store.tx(async (t) => …)` and follows the
  * seam rules: events through `t.event(...)` (the relay appends them to Durable Streams after
- * commit), and advances through `t.afterCommit(() => ctx.wake(id, { reason, dedupeKey }))`. It never publishes or notifies
- * itself; `runtime.ts` wires the streams with `wireStreams()`. No external I/O runs inside a
- * tx.
+ * commit), and advances through `await t.wake(id, { reason, dedupeKey }, ctx.wake)`, which
+ * writes the wake to the outbox in the transaction and delivers it after commit. It never
+ * publishes or notifies itself; `runtime.ts` wires the streams with `wireStreams()`. No
+ * external I/O runs inside a tx.
  *
  * `wake` goes to `DurableExecution.wake`, which calls the Tenant's `advance` (`advance.ts`)
  * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
@@ -213,11 +214,13 @@ export interface TenantContext {
   /** How long an advance's ownership lease lasts; the heartbeat renews it. */
   readonly ownerLeaseMs: number;
   /**
-   * Seam: request an advance of a session (`DurableExecution.wake`). Call it from
-   * `t.afterCommit`, never inside a tx. Dropped while the Tenant is closing; the sweep
-   * re-wakes anything left runnable.
+   * Seam: hand a wake to `DurableExecution.wake`, outside any tx. Business code passes it to
+   * `t.wake` (the outbox), which calls it after commit; the sweep calls it for outbox rows
+   * left undelivered and for orphaned sessions. Resolves `true` once the execution accepted
+   * the wake, `false` while the Tenant is closing: the wake is not sent, and its outbox row
+   * stays for the next sweep.
    */
-  wake(sessionId: string, wake: Wake): Promise<void>;
+  wake(sessionId: string, wake: Wake): Promise<boolean>;
   /**
    * Seam: abort the advance of a session running in this process, if any. With `turnId`, only
    * an advance of that turn (a cancel signal names the turn it cancelled).

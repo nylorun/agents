@@ -1,8 +1,9 @@
 /**
  * Ownership and the Durable Execution seam on a real Tenant runtime (on Postgres; architecture
- * §10.5–10.6, §11.4, §17): racing advances, takeover, stale owners, and duplicate and lost
- * wakes recovered through the Tenant sweep.
+ * §10.5–10.6, §11.4, §17): racing advances, takeover, stale owners, duplicate wakes, and
+ * wakes whose send failed or was cut off after commit, delivered from the wake outbox.
  */
+import { rm } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import type { ModelProvider } from "../../src/core/provider.js";
@@ -290,14 +291,24 @@ it("treats duplicate wakes as harmless", async () => {
   expect(model.calls).toBe(1);
 });
 
-it("recovers a wake lost between commit and send through the sweep", async () => {
-  const inner = new MemoryExecution({ sweepIntervalMs: 30 });
+/**
+ * Delegates to `inner`, except that `lose` picks wakes whose send fails, as when the process
+ * dies after commit or Restate is unreachable. Records every wake it is handed.
+ */
+function lossyExecution(
+  inner: MemoryExecution,
+  lose: (wake: Wake) => boolean
+): DurableExecution & { handed: Wake[]; lost: Wake[] } {
+  const handed: Wake[] = [];
   const lost: Wake[] = [];
-  const lossy: DurableExecution = {
+  return {
+    handed,
+    lost,
     wake: async (tenantId, sessionId, wake) => {
-      if (wake.reason === "message") {
+      handed.push(wake);
+      if (lose(wake)) {
         lost.push(wake);
-        return;
+        throw new Error("the send never reached the execution");
       }
       await inner.wake(tenantId, sessionId, wake);
     },
@@ -307,6 +318,27 @@ it("recovers a wake lost between commit and send through the sweep", async () =>
     start: (handlers) => inner.start(handlers),
     stop: () => inner.stop(),
   };
+}
+
+/** The Tenant's wake outbox rows not yet delivered. */
+async function outbox(runtime: Started) {
+  const store = await openTestSessionStore(runtime);
+  try {
+    return await store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 100));
+  } finally {
+    await store.close();
+  }
+}
+
+it("delivers a wake whose send failed after commit from the outbox, with its dedupe key", async () => {
+  const inner = new MemoryExecution({ sweepIntervalMs: 30 });
+  // The message's wake fails once: the commit stands and its outbox row stays.
+  let failed = false;
+  const lossy = lossyExecution(inner, (wake) => {
+    if (wake.reason !== "message" || failed) return false;
+    failed = true;
+    return true;
+  });
   const workers = new TenantWorkers();
   await lossy.start(workers.handlers);
   const runtime = await boot({
@@ -315,12 +347,63 @@ it("recovers a wake lost between commit and send through the sweep", async () =>
   });
   try {
     await openTurn(runtime, plain.manifest);
-    expect(lost).toHaveLength(1);
-    expect(lost[0]!.dedupeKey).toMatch(/^message:/);
+    expect(lossy.lost).toHaveLength(1);
+    expect(lossy.lost[0]!.dedupeKey).toMatch(/^message:/);
+    expect((await outbox(runtime)).map((row) => row.wake)).toEqual(lossy.lost);
+    // The sweep sends it again once it is `WAKE_GRACE_MS` old, under the same key.
     await until(() => view(runtime), (v) => v.status === "completed", "completed");
+    const sent = lossy.handed.filter((wake) => wake.reason === "message");
+    expect(sent).toEqual([lossy.lost[0], lossy.lost[0]]);
     expect(count(await types(runtime), "turn.completed")).toBe(1);
+    expect(await outbox(runtime)).toEqual([]);
   } finally {
     await runtime.close();
     await inner.stop();
+  }
+});
+
+it("loses no wake to a crash between commit and send: the next process delivers it from the outbox", async () => {
+  // Process A commits the message, then dies before the wake reaches the execution.
+  const innerA = new MemoryExecution({ sweepIntervalMs: 60_000 });
+  const crashed = lossyExecution(innerA, (wake) => wake.reason === "message");
+  const workersA = new TenantWorkers();
+  await crashed.start(workersA.handlers);
+  let calls = 0;
+  const model: ModelProvider = async () => {
+    calls += 1;
+    return { output: [{ type: "text", text: "done" }] };
+  };
+  const a = await boot({
+    modelProvider: model,
+    execution: { execution: crashed, workers: workersA },
+    retainRoot: true,
+  });
+  await openTurn(a, plain.manifest);
+  expect(crashed.lost).toHaveLength(1);
+  expect(await outbox(a)).toMatchObject([{ sessionId: "s1", wake: crashed.lost[0] }]);
+  await a.close();
+  await innerA.stop();
+
+  // Process B opens the Tenant: its first sweep pass hands the outbox's wake over, same key.
+  const innerB = new MemoryExecution({ sweepIntervalMs: 60_000 });
+  const recorded = lossyExecution(innerB, () => false);
+  const workersB = new TenantWorkers();
+  await recorded.start(workersB.handlers);
+  const b = await boot({
+    hostRoot: a.root,
+    tenantId: a.tenantId,
+    modelProvider: model,
+    execution: { execution: recorded, workers: workersB },
+  });
+  try {
+    await until(() => view(b), (v) => v.status === "completed", "completed");
+    expect(recorded.handed).toContainEqual(crashed.lost[0]);
+    expect(count(await types(b), "turn.completed")).toBe(1);
+    expect(calls).toBe(1);
+    expect(await outbox(b)).toEqual([]);
+  } finally {
+    await b.close();
+    await innerB.stop();
+    await rm(a.root, { recursive: true, force: true });
   }
 });

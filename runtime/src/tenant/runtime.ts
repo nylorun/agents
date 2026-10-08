@@ -416,8 +416,9 @@ export class TenantRuntime implements TenantHandle {
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
         wake: async (sessionId, wake) => {
-          if (ctx.closing || ctx.closed) return;
+          if (ctx.closing || ctx.closed) return false;
           await execution.wake(config.tenantId, sessionId, wake);
+          return true;
         },
         abortLocal: (sessionId, turnId) => abortLocal(ctx, sessionId, "cancel", turnId),
         ...(hooks.pods ? { pods: hooks.pods } : {}),
