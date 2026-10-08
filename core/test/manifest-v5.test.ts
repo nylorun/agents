@@ -98,7 +98,7 @@ it("validates a skill's file paths, hashes and count", () => {
   for (let index = 0; index < 500; index += 1) many[`f${index}.txt`] = LABELS;
   expect(issue(many)).toContain("a skill may have at most 500");
   expect(() => Agent.from(skillManifest({ "notes.md": LABELS }), { docs: {} })).toThrow(
-    /skill 'triage' files must include SKILL.md/,
+    /Skill 'triage' files must include SKILL.md/,
   );
 });
 
@@ -166,4 +166,51 @@ it("refuses manifest v4 and older with a message naming the change", () => {
       /manifestSchemaVersion \d is no longer supported/
     );
   }
+});
+
+it("rebuilds only what AgentManifestSchema accepts, refusing with its messages", () => {
+  const refusal = (json: Record<string, unknown>) => {
+    const parsed = AgentManifestSchema.safeParse(json);
+    expect(parsed.success).toBe(false);
+    try {
+      Agent.from(json, {});
+    } catch (error) {
+      expect(error).toBeInstanceOf(HarnessError);
+      expect((error as HarnessError).code).toBe("agent.build-failed");
+      for (const issue of parsed.error!.issues)
+        expect((error as HarnessError).message).toContain(issue.message);
+      return (error as HarnessError).message;
+    }
+    throw new Error("Agent.from accepted the manifest");
+  };
+  expect(refusal({ ...manifest([]), model: "gpt" })).toContain(
+    "Manifest must not include top-level model; Runtime owns model resolution"
+  );
+  const { manifestSchemaVersion: _version, ...unversioned } = manifest([]);
+  expect(refusal({ ...unversioned, schemaVersion: 2 })).toContain(
+    "Manifest field schemaVersion was renamed to manifestSchemaVersion"
+  );
+  expect(refusal(manifest([{ id: "chat", type: "agent", model: "gpt" }]))).toContain(
+    "A capability must not include model"
+  );
+  // The schema's own checks, which the rebuild used to skip: unknown fields, tool names.
+  expect(refusal({ ...manifest([]), extra: true })).toMatch(/extra/);
+  expect(
+    refusal(
+      manifest([
+        { id: "tools", type: "agent", tools: [{ name: "open.pr", inputSchema: { type: "object" } }] },
+      ])
+    )
+  ).toContain("capabilities.0.tools.0.name: Tool name 'open.pr'");
+  expect(() => Agent.from({ ...manifest([]), metadata: { at: new Date() } }, {})).toThrow(
+    expect.objectContaining({ code: "json.invalid-data" })
+  );
+});
+
+it("rebuilds a frozen copy of the manifest", () => {
+  const json = manifest([{ id: "docs", type: "agent", metadata: { tags: ["a"] } }]);
+  const restored = Agent.from(json, { docs: {} });
+  expect(restored.manifest).toEqual(json);
+  expect(Object.isFrozen(restored.manifest.capabilities[0]?.metadata?.tags)).toBe(true);
+  expect(Object.isFrozen(json.capabilities[0])).toBe(false);
 });

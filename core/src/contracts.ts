@@ -1,8 +1,8 @@
 /** Public wire contracts only. Never import checkpoint or engine modules here. */
 import { z } from "zod";
 import type { AgentManifest } from "./types/manifest.js";
-import type { JsonValue } from "./types/shared.js";
-import type { WorkflowManifest, WorkflowNode } from "./types/workflow.js";
+import type { JsonObject, JsonValue } from "./types/shared.js";
+import type { WorkflowLoopVerify, WorkflowManifest, WorkflowNode } from "./types/workflow.js";
 import {
   SANDBOX_NETWORK_PRESETS,
   SANDBOX_TOOL_NAMES,
@@ -12,6 +12,7 @@ import {
 } from "./utils/sandbox.js";
 import {
   REMOVED_CAPABILITY_FIELDS,
+  REMOVED_MANIFEST_FIELDS,
   manifestVersionIssue,
   workflowVersionIssue,
 } from "./definition/removed.js";
@@ -43,6 +44,11 @@ import { ERROR_CODES } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
 export const IdempotencyKeySchema = z.string().min(1).max(256);
 const jsonObject = z.record(z.string(), z.unknown());
+/**
+ * A JSON object in a definition document (a schema, metadata). Documents arrive as JSON, so its
+ * values are JSON values: the manifest types say `JsonObject`, and the schema checks no value.
+ */
+const definitionJson = jsonObject as z.ZodType<JsonObject>;
 // Recursive schemas carry an `id`: a document generated from them (the Runtime's OpenAPI)
 // refers back to the named schema instead of expanding it forever.
 const jsonValue: z.ZodType<JsonValue> = z
@@ -117,12 +123,13 @@ const skillManifestSchema = z
   .object({
     name: z.string().min(1),
     description: z.string().min(1),
-    files: z.record(z.string(), z.string()).superRefine((files, ctx) => {
-      const issue = skillFilesIssue(files);
-      if (issue) ctx.addIssue({ code: "custom", message: `Skill ${issue}` });
-    }),
+    files: z.record(z.string(), z.string()),
   })
-  .strict();
+  .strict()
+  .superRefine((skill, ctx) => {
+    const issue = skillFilesIssue(skill.files);
+    if (issue) ctx.addIssue({ code: "custom", path: ["files"], message: `Skill '${skill.name}' ${issue}` });
+  });
 const sandboxManifestSchema = z
   .object({
     image: z.string().min(1).optional(),
@@ -183,8 +190,8 @@ const toolManifestSchema = z
   .object({
     name: modelFacingName("Tool"),
     description: z.string().optional(),
-    inputSchema: jsonObject,
-    outputSchema: jsonObject.optional(),
+    inputSchema: definitionJson,
+    outputSchema: definitionJson.optional(),
     agent: z
       .lazy(() => z.union([workflowManifestSchema, AgentManifestSchema]))
       .meta({ id: "ToolAgentManifest" })
@@ -208,50 +215,54 @@ const toolManifestSchema = z
         message: `Tool '${tool.name}' takes approval only as an HTTP tool`,
       });
   });
-/** A capability naming a field manifest v5 removed is refused with what replaces it. */
-const removedFieldError = (issue: { code?: string; keys?: readonly string[] }) => {
-  if (issue.code !== "unrecognized_keys") return undefined;
-  const removed = issue.keys?.find((key) => REMOVED_CAPABILITY_FIELDS[key] !== undefined);
-  return removed === undefined ? undefined : REMOVED_CAPABILITY_FIELDS[removed];
-};
-export const AgentManifestSchema = z
-  .object({
-    // 6 adds an MCP server's `tools` and `deferred` (R2b C9); 5 is accepted unchanged.
-    manifestSchemaVersion: z.union([z.literal(5), z.literal(6)], {
-      error: (issue) => manifestVersionIssue(issue.input),
-    }),
-    id: z.string().min(1),
-    name: z.string().min(1).optional(),
-    description: z.string().optional(),
-    metadata: jsonObject.optional(),
-    outputSchema: jsonObject.optional(),
-    capabilities: z.array(
-      z.strictObject(
-        {
-          id: z.string().min(1),
-          type: z.enum(["agent", "agent-plugin"]),
-          name: z.string().min(1).optional(),
-          description: z.string().optional(),
-          metadata: jsonObject.optional(),
-          instructions: z.array(z.string()).optional(),
-          skills: z.record(z.string(), skillManifestSchema).optional(),
-          tools: z.array(toolManifestSchema).optional(),
-          mcpServers: z.record(z.string(), mcpServerSchema).optional(),
-          sandbox: sandboxManifestSchema.optional(),
-        },
-        { error: removedFieldError }
-      )
-    ),
-    runtime: z.object({}).strict().optional(),
-    // Reserved for Functions, which are deferred: developer code the Runtime will run from
-    // uploaded definition files (a `functions/` folder). Any value is refused below.
-    functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
-  })
-  .strict()
+/** A manifest or capability naming a removed field is refused with what replaces it. */
+const removedFieldError =
+  (removedFields: Readonly<Record<string, string>>) =>
+  (issue: { code?: string; keys?: readonly string[] }) => {
+    if (issue.code !== "unrecognized_keys") return undefined;
+    const removed = issue.keys?.find((key) => removedFields[key] !== undefined);
+    return removed === undefined ? undefined : removedFields[removed];
+  };
+const agentManifestSchema = z
+  .strictObject(
+    {
+      // 6 adds an MCP server's `tools` and `deferred` (R2b C9); 5 is accepted unchanged.
+      manifestSchemaVersion: z.union([z.literal(5), z.literal(6)], {
+        error: (issue) => manifestVersionIssue(issue.input),
+      }),
+      id: z.string().min(1),
+      name: z.string().min(1).optional(),
+      description: z.string().optional(),
+      metadata: definitionJson.optional(),
+      outputSchema: definitionJson.optional(),
+      capabilities: z.array(
+        z.strictObject(
+          {
+            id: z.string().min(1),
+            type: z.enum(["agent", "agent-plugin"]),
+            name: z.string().min(1).optional(),
+            description: z.string().optional(),
+            metadata: definitionJson.optional(),
+            instructions: z.array(z.string()).optional(),
+            skills: z.record(z.string(), skillManifestSchema).optional(),
+            tools: z.array(toolManifestSchema).optional(),
+            mcpServers: z.record(z.string(), mcpServerSchema).optional(),
+            sandbox: sandboxManifestSchema.optional(),
+          },
+          { error: removedFieldError(REMOVED_CAPABILITY_FIELDS) }
+        )
+      ),
+      runtime: z.object({}).strict().optional(),
+      // Reserved for Functions, which are deferred: developer code the Runtime will run from
+      // uploaded definition files (a `functions/` folder). Any value is refused below.
+      functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
+    },
+    { error: removedFieldError(REMOVED_MANIFEST_FIELDS) }
+  )
   .superRefine((manifest, ctx) => {
     if (manifest.functions !== undefined)
       ctx.addIssue({ code: "custom", path: ["functions"], message: "Functions are not available yet" });
-    delegationIssues(manifest as AgentManifest, (message) =>
+    delegationIssues(manifest, (message) =>
       ctx.addIssue({ code: "custom", message })
     );
     const ids = new Set<string>();
@@ -325,7 +336,12 @@ export const AgentManifestSchema = z
           ctx.addIssue({ code: "custom", message: mcpToolSettingsVersionIssue(server.name) });
       }
     }
-  }) as unknown as z.ZodType<AgentManifest>;
+  });
+/**
+ * An agent's manifest (manifest v5 and v6). Its output is checked against `AgentManifest` here and
+ * below (`ManifestDrift`): the hand-written type keeps its read-only fields and its docs.
+ */
+export const AgentManifestSchema: z.ZodType<AgentManifest> = agentManifestSchema;
 /** Agents used as tools: one level deep, `{ task }` input, one shared sandbox spec. */
 function delegationIssues(manifest: AgentManifest, issue: (message: string) => void): void {
   const sandboxes = new Set<string>();
@@ -396,8 +412,8 @@ const workflowLoopVerifySchema = z
     else if (verify.http !== undefined && verify.id !== undefined)
       ctx.addIssue({ code: "custom", path: ["id"], message: "An HTTP verifier takes no id" });
   })
-  .meta({ id: "WorkflowLoopVerify" });
-const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
+  .meta({ id: "WorkflowLoopVerify" }) as z.ZodType<WorkflowLoopVerify>; // the refinement picks one kind
+const workflowNodeKinds = z.lazy(() =>
   z.union([
     workflowAgentNodeSchema,
     z
@@ -406,8 +422,8 @@ const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
           .object({
             name: z.string().min(1),
             description: z.string().optional(),
-            inputSchema: jsonObject.optional(),
-            outputSchema: jsonObject.optional(),
+            inputSchema: definitionJson.optional(),
+            outputSchema: definitionJson.optional(),
             /** An HTTP stage: the Runtime makes the request, as for an agent's HTTP tool. */
             http: httpToolTargetSchema.optional(),
           })
@@ -457,7 +473,8 @@ const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
       .strict(),
   ])
 ).meta({ id: "WorkflowNode" });
-const workflowManifestSchema: z.ZodTypeAny = z.lazy(() =>
+const workflowNodeSchema: z.ZodType<WorkflowNode> = workflowNodeKinds;
+const workflowManifestObject = z.lazy(() =>
   z
     .object({
       kind: z.literal("workflow"),
@@ -467,9 +484,9 @@ const workflowManifestSchema: z.ZodTypeAny = z.lazy(() =>
       id: z.string().min(1),
       name: z.string().min(1).optional(),
       description: z.string().optional(),
-      metadata: jsonObject.optional(),
-      inputSchema: jsonObject.optional(),
-      outputSchema: jsonObject.optional(),
+      metadata: definitionJson.optional(),
+      inputSchema: definitionJson.optional(),
+      outputSchema: definitionJson.optional(),
       sandbox: sandboxManifestSchema.optional(),
       root: workflowNodeSchema,
       agents: z.record(
@@ -479,7 +496,7 @@ const workflowManifestSchema: z.ZodTypeAny = z.lazy(() =>
     })
     .strict()
     .superRefine((manifest, ctx) => {
-      for (const agentId of referencedAgents(manifest.root as WorkflowNode)) {
+      for (const agentId of referencedAgents(manifest.root)) {
         if (!(agentId in manifest.agents))
           ctx.addIssue({
             code: "custom",
@@ -487,7 +504,7 @@ const workflowManifestSchema: z.ZodTypeAny = z.lazy(() =>
             message: `Agent '${agentId}' is used in the flow but not embedded in agents`,
           });
       }
-      for (const [key, agent] of Object.entries(manifest.agents as Record<string, { id: string }>)) {
+      for (const [key, agent] of Object.entries(manifest.agents)) {
         if (agent.id !== key)
           ctx.addIssue({
             code: "custom",
@@ -497,6 +514,7 @@ const workflowManifestSchema: z.ZodTypeAny = z.lazy(() =>
       }
     })
 ).meta({ id: "WorkflowManifest" });
+const workflowManifestSchema: z.ZodType<WorkflowManifest> = workflowManifestObject;
 function referencedAgents(node: WorkflowNode): string[] {
   const out: string[] = [];
   const visit = (child: WorkflowNode): void => {
@@ -516,7 +534,61 @@ function referencedAgents(node: WorkflowNode): string[] {
   return out;
 }
 /** Workflow definition document. `kind: "workflow"`; a missing `kind` is never a workflow. */
-export const WorkflowManifestSchema = workflowManifestSchema as unknown as z.ZodType<WorkflowManifest>;
+export const WorkflowManifestSchema = workflowManifestSchema;
+/**
+ * The manifest types are written by hand (read-only fields, their docs); each schema above must
+ * accept exactly them. Its annotation checks that what it outputs is one; `ManifestDrift` checks
+ * the other way: the same keys, optional the same, with the same leaf types. Read-only modifiers
+ * do not count, nor do the reserved names (typed `unknown`, refused when set). The paths stop at
+ * the recursive types, which are compared on their own.
+ */
+type SameType<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type ShapeStop = JsonObject | AgentManifest | WorkflowManifest | WorkflowNode | WorkflowLoopVerify;
+/** Whether `T` is a stop (or one kind of node), compared as a type, not by its shape. */
+type IsShapeStop<T, Stop = ShapeStop> = Stop extends unknown ? SameType<T, Stop> : never;
+/** Every property path of `T`: keys (`?` when optional), `[]` for an item, then the leaf's type. */
+type ShapePaths<T, Top extends boolean = false> = T extends unknown
+  ? Top extends false
+    ? true extends IsShapeStop<T>
+      ? []
+      : ShapeMembers<T>
+    : ShapeMembers<T>
+  : never;
+type ShapeMembers<T> = T extends readonly (infer Item)[]
+  ? ["[]", ...ShapePaths<Item>]
+  : T extends object
+    ? Exclude<
+        {
+          [K in keyof T]: unknown extends T[K]
+            ? never
+            : [NonNullable<T[K]>] extends [never]
+              ? never
+              : [ShapeKey<T, K>] | [ShapeKey<T, K>, ...ShapePaths<NonNullable<T[K]>>];
+        }[keyof T],
+        undefined
+      >
+    : [T];
+type ShapeKey<T, K extends keyof T> = {} extends Pick<T, K> ? `${K & string}?` : K;
+/** `true`, or the paths only one side has. */
+type ManifestDrift<Declared, Schema> = [
+  Exclude<ShapePaths<Declared, true>, ShapePaths<Schema, true>>,
+  Exclude<ShapePaths<Schema, true>, ShapePaths<Declared, true>>,
+] extends [never, never]
+  ? true
+  : {
+      declaredOnly: Exclude<ShapePaths<Declared, true>, ShapePaths<Schema, true>>;
+      schemaOnly: Exclude<ShapePaths<Schema, true>, ShapePaths<Declared, true>>;
+    };
+type AssertNoDrift<T extends true> = T;
+type _AgentManifestDrift = AssertNoDrift<
+  ManifestDrift<AgentManifest, z.output<typeof agentManifestSchema>>
+>;
+type _WorkflowManifestDrift = AssertNoDrift<
+  ManifestDrift<WorkflowManifest, z.output<typeof workflowManifestObject>>
+>;
+type _WorkflowNodeDrift = AssertNoDrift<
+  ManifestDrift<WorkflowNode, z.output<typeof workflowNodeKinds>>
+>;
 /** Registry document: agent (no `kind`, or legacy) or workflow (`kind: "workflow"`). */
 export const DefinitionDocumentSchema = z.union([
   AgentManifestSchema,

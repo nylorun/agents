@@ -1,12 +1,5 @@
 import { HarnessError } from "../errors.js";
-import type {
-  AgentManifest,
-  CapabilityManifest,
-  ManifestSchemaVersion,
-  McpServerManifest,
-  SkillManifest,
-  ToolManifest,
-} from "../types/manifest.js";
+import type { AgentManifest, CapabilityManifest } from "../types/manifest.js";
 import type { BuiltAgent } from "../types/agent.js";
 import type { JsonObject } from "../types/shared.js";
 import type { ToolDefinition } from "../types/tool.js";
@@ -17,12 +10,10 @@ import type { CapabilityDynamics } from "./assemble.js";
 import { schemaFromJSON } from "./schema-json.js";
 import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
 import type { BoundMiddleware } from "./bound.js";
-import { REMOVED_CAPABILITY_FIELDS, manifestVersionIssue } from "./removed.js";
 import { delegateFromManifest, delegateOf } from "./delegate.js";
-import { mcpToolSettingsVersionIssue, stdioMcpRefusal, usesMcpToolSettings } from "./mcp.js";
 import { SKILL_TOOL_NAMES } from "./skill-tools.js";
-import { skillFilesIssue } from "../utils/definition-files.js";
 import { httpToolFromManifest, httpToolOf } from "./http-tool.js";
+import { AgentManifestSchema } from "../contracts.js";
 
 /** Tools the engine or the Runtime runs, which need no implementation: agents and HTTP tools. */
 const declarative = (tool: ToolDefinition) =>
@@ -233,271 +224,34 @@ function resolveTools(
   });
 }
 
+/**
+ * The manifest as `AgentManifestSchema` accepts it (the Runtime's own check), as a frozen copy.
+ * A refusal is `agent.build-failed` with the schema's messages.
+ */
 function normalizeManifest(json: AgentManifest | JsonObject): AgentManifest {
   if (!json || typeof json !== "object" || Array.isArray(json))
     throw new HarnessError(
       "agent.build-failed",
       "Agent.from requires a manifest object"
     );
-  const value = json as Record<string, unknown>;
-  if (typeof value.id !== "string" || !value.id)
+  const parsed = AgentManifestSchema.safeParse(json);
+  if (!parsed.success)
     throw new HarnessError(
       "agent.build-failed",
-      "Manifest id must be a non-empty string"
+      parsed.error.issues
+        .map((issue) =>
+          issue.path.length === 0
+            ? issue.message
+            : `${issue.path.join(".")}: ${issue.message}`
+        )
+        .join("; ")
     );
-  if ("name" in value && value.name !== undefined) {
-    if (typeof value.name !== "string" || !value.name)
-      throw new HarnessError(
-        "agent.build-failed",
-        "Manifest name must be a non-empty string"
-      );
-  }
-  if (!Array.isArray(value.capabilities))
-    throw new HarnessError(
-      "agent.build-failed",
-      "Manifest capabilities must be an array"
-    );
-  if ("schemaVersion" in value && value.schemaVersion !== undefined)
-    throw new HarnessError(
-      "agent.build-failed",
-      "Manifest field schemaVersion was renamed to manifestSchemaVersion"
-    );
-  const versionIssue = manifestVersionIssue(value.manifestSchemaVersion);
-  if (versionIssue) throw new HarnessError("agent.build-failed", versionIssue);
-  if ("functions" in value && value.functions !== undefined)
-    throw new HarnessError("agent.build-failed", "Functions are not available yet");
-  // Reject top-level model (Runtime-owned).
-  if ("model" in value && value.model !== undefined)
-    throw new HarnessError(
-      "agent.build-failed",
-      "Manifest must not include top-level model; Runtime owns model resolution"
-    );
-  if ("description" in value && value.description !== undefined) {
-    if (typeof value.description !== "string")
-      throw new HarnessError(
-        "agent.build-failed",
-        "Manifest description must be a string"
-      );
-  }
-  const metadata =
-    "metadata" in value && value.metadata !== undefined
-      ? copyJsonObject(value.metadata, "metadata")
-      : undefined;
-  const runtime = normalizeRuntime(value.runtime);
-  const capabilities = (value.capabilities as CapabilityManifest[]).map(
-    normalizeCapability
-  );
-  const version = value.manifestSchemaVersion as ManifestSchemaVersion;
-  const servers = new Set<string>();
-  for (const capability of capabilities)
-    for (const [name, server] of Object.entries(capability.mcpServers ?? {})) {
-      if (servers.has(name))
-        throw new HarnessError(
-          "agent.build-failed",
-          `Duplicate MCP server '${name}'`
-        );
-      servers.add(name);
-      if (version === 5 && usesMcpToolSettings(server))
-        throw new HarnessError("agent.build-failed", mcpToolSettingsVersionIssue(name));
-    }
-  return deepFreeze({
-    // The manifest's own version: a v6 manifest without v6 fields keeps its hash.
-    manifestSchemaVersion: version,
-    id: value.id,
-    ...(typeof value.name === "string" && value.name ? { name: value.name } : {}),
-    ...(typeof value.description === "string"
-      ? { description: value.description }
-      : {}),
-    ...(metadata === undefined ? {} : { metadata }),
-    ...(value.outputSchema && typeof value.outputSchema === "object"
-      ? { outputSchema: value.outputSchema as JsonObject }
-      : {}),
-    capabilities,
-    ...(runtime === undefined ? {} : { runtime }),
-  });
-}
-
-function normalizeRuntime(value: unknown) {
-  if (value === undefined) return undefined;
-  if (
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    Object.keys(value).length > 0
-  )
-    throw new HarnessError(
-      "agent.build-failed",
-      "runtime must be an empty object when present"
-    );
-  return {};
-}
-
-function normalizeCapability(
-  capability: CapabilityManifest
-): CapabilityManifest {
-  const raw = capability as CapabilityManifest & {
-    name?: unknown;
-    description?: unknown;
-  };
-  if ("name" in raw && raw.name !== undefined) {
-    if (typeof raw.name !== "string" || !raw.name)
-      throw new HarnessError(
-        "agent.build-failed",
-        `Capability '${capability.id}' name must be a non-empty string`
-      );
-  }
-  if ("description" in raw && raw.description !== undefined) {
-    if (typeof raw.description !== "string")
-      throw new HarnessError(
-        "agent.build-failed",
-        `Capability '${capability.id}' description must be a string`
-      );
-  }
-  if ("model" in raw && (raw as { model?: unknown }).model !== undefined)
-    throw new HarnessError(
-      "agent.build-failed",
-      `Capability '${capability.id}' must not include model; Runtime owns model resolution`
-    );
-  if (capability.type !== "agent" && capability.type !== "agent-plugin")
-    throw new HarnessError(
-      "agent.build-failed",
-      `Capability '${capability.id}' type must be agent or agent-plugin`
-    );
-  for (const [field, message] of Object.entries(REMOVED_CAPABILITY_FIELDS))
-    if (field in raw)
-      throw new HarnessError("agent.build-failed", `Capability '${capability.id}': ${message}`);
-  const metadata =
-    capability.metadata === undefined
-      ? undefined
-      : copyJsonObject(capability.metadata, "metadata");
-  const mcpServers = normalizeMcpServers(capability.id, capability.mcpServers);
-  const skills = normalizeSkills(capability.id, capability.skills);
-  return Object.freeze({
-    id: capability.id,
-    type: capability.type,
-    ...(typeof raw.name === "string" && raw.name ? { name: raw.name } : {}),
-    ...(typeof raw.description === "string"
-      ? { description: raw.description }
-      : {}),
-    ...(metadata === undefined ? {} : { metadata }),
-    ...(capability.instructions
-      ? { instructions: Object.freeze([...capability.instructions]) }
-      : {}),
-    ...(capability.tools
-      ? { tools: Object.freeze(capability.tools.map(normalizeTool)) }
-      : {}),
-    ...(skills === undefined ? {} : { skills }),
-    ...(mcpServers === undefined ? {} : { mcpServers }),
-    ...(capability.sandbox === undefined
-      ? {}
-      : {
-          sandbox: deepFreeze(
-            copyJsonObject(capability.sandbox as unknown as JsonObject, "sandbox")
-          ) as CapabilityManifest["sandbox"],
-        }),
-  });
-}
-
-function normalizeSkills(
-  capabilityId: string,
-  skills: CapabilityManifest["skills"]
-): CapabilityManifest["skills"] {
-  if (skills === undefined) return undefined;
-  if (
-    !skills ||
-    typeof skills !== "object" ||
-    Array.isArray(skills) ||
-    Object.keys(skills).length === 0
-  )
-    throw new HarnessError(
-      "agent.build-failed",
-      `Capability '${capabilityId}' skills must be a non-empty map or omitted`
-    );
-  const normalized: Record<string, SkillManifest> = {};
-  for (const [key, skill] of Object.entries(skills)) {
-    if (
-      !skill ||
-      typeof skill !== "object" ||
-      skill.name !== key ||
-      typeof skill.description !== "string" ||
-      skill.description.length === 0
-    )
-      throw new HarnessError(
-        "agent.build-failed",
-        `Capability '${capabilityId}' skills key '${key}' must equal the skill name`
-      );
-    const issue = skillFilesIssue(skill.files);
-    if (issue)
-      throw new HarnessError(
-        "agent.build-failed",
-        `Capability '${capabilityId}' skill '${key}' ${issue}`
-      );
-    normalized[key] = Object.freeze({
-      name: skill.name,
-      description: skill.description,
-      files: Object.freeze({ ...skill.files }),
-    });
-  }
-  return Object.freeze(normalized);
-}
-
-function normalizeMcpServers(
-  capabilityId: string,
-  servers: CapabilityManifest["mcpServers"]
-): CapabilityManifest["mcpServers"] {
-  if (servers === undefined) return undefined;
-  if (
-    !servers ||
-    typeof servers !== "object" ||
-    Array.isArray(servers) ||
-    Object.keys(servers).length === 0
-  )
-    throw new HarnessError(
-      "agent.build-failed",
-      `Capability '${capabilityId}' mcpServers must be a non-empty map or omitted`
-    );
-  const normalized: Record<string, McpServerManifest> = {};
-  for (const [key, server] of Object.entries(servers)) {
-    if ((server as { type?: unknown }).type === "stdio")
-      throw new HarnessError("agent.build-failed", stdioMcpRefusal(key));
-    if (!isMcpServer(server) || server.name !== key)
-      throw new HarnessError(
-        "agent.build-failed",
-        `Capability '${capabilityId}' mcpServers key '${key}' must equal the server name`
-      );
-    normalized[key] = server;
-  }
-  return Object.freeze(normalized);
-}
-
-function isMcpServer(value: unknown): value is McpServerManifest {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const server = value as Record<string, unknown>;
-  if (typeof server.name !== "string" || !server.name) return false;
-  if (server.type === "streamable-http" || server.type === "sse")
-    return typeof server.url === "string" && server.url.length > 0;
-  return false;
-}
-
-function normalizeTool(tool: ToolManifest): ToolManifest {
-  return Object.freeze({
-    name: tool.name,
-    ...(tool.description === undefined
-      ? {}
-      : { description: tool.description }),
-    inputSchema: tool.inputSchema,
-    ...(tool.outputSchema === undefined
-      ? {}
-      : { outputSchema: tool.outputSchema }),
-    ...(tool.agent === undefined
-      ? {}
-      : {
-          agent:
-            "kind" in tool.agent
-              ? deepFreeze(JSON.parse(JSON.stringify(tool.agent)))
-              : normalizeManifest(tool.agent as unknown as JsonObject),
-        }),
-    ...(tool.http === undefined ? {} : { http: Object.freeze({ ...tool.http }) }),
-    ...(tool.approval === undefined ? {} : { approval: tool.approval }),
-  });
+  // The schema checks no value of a JSON object; metadata must be JSON data, as before.
+  const manifest = parsed.data;
+  for (const metadata of [
+    manifest.metadata,
+    ...manifest.capabilities.map((capability) => capability.metadata),
+  ])
+    if (metadata !== undefined) copyJsonObject(metadata, "metadata");
+  return deepFreeze(JSON.parse(JSON.stringify(manifest)) as AgentManifest);
 }
