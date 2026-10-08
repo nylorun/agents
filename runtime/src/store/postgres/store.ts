@@ -49,6 +49,7 @@
  * `timestamptz`.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import {
   and,
   count,
@@ -77,6 +78,7 @@ import type {
   SessionEventOf,
 } from "@nylorun/core/contracts";
 import type { RecordReader } from "../../streams/relay/types.js";
+import type { Wake, WakeReason } from "../../execution/types.js";
 import { appendEvent, appendSandboxEvent } from "../../record/index.js";
 import { OwnershipLostError, PrincipalRoleConflict } from "../ownership.js";
 import type {
@@ -122,6 +124,9 @@ import type {
   VaultCredentialRow,
   VaultIdempotencyRow,
   VaultRow,
+  OutboxWake,
+  PendingWake,
+  WakeDelivery,
 } from "../types.js";
 import { followControlSignals, pruneSignals, writeSignal } from "./control.js";
 import { database, driverError, type Database, type Transaction } from "./db.js";
@@ -156,6 +161,7 @@ import {
   vaultCredentials,
   vaultIdempotency,
   vaults,
+  wakes,
 } from "./schema.js";
 
 export interface PostgresSessionStoreOptions extends SessionStoreOptions {
@@ -228,7 +234,7 @@ class PostgresSessionStore implements SessionStore {
     // Wrapped so `begin` does not treat an array result as queries to await.
     const run = this.db.transaction(
       async (db) => {
-        t = new PostgresTx(db, this.tenantId, this.now);
+        t = new PostgresTx(db, this.tenantId, this.now, this.deleteWake);
         try {
           return { value: await this.active.run(this, () => fn(t)) };
         } finally {
@@ -268,6 +274,11 @@ class PostgresSessionStore implements SessionStore {
     }
     return result.value;
   }
+
+  /** Deletes a delivered outbox request, outside any transaction (`Tx.wake`). */
+  private readonly deleteWake = async (id: string): Promise<void> => {
+    await this.db.delete(wakes).where(eq(wakes.id, id));
+  };
 
   onCommit(listener: CommitListener): () => void {
     this.listeners.add(listener);
@@ -397,7 +408,12 @@ const SIGNING_KEY_STAMP: Partial<
 /** The audit columns a row has (`ord` only orders them). */
 const { ord: _ord, ...AUDIT } = getTableColumns(vaultAudit);
 
-const SESSION_TABLES = [sessions, commands, effects, links];
+const SESSION_TABLES = [sessions, commands, effects, links, wakes];
+
+/** An outbox row as it is delivered: the wake's own dedupe key, or one made from the row id. */
+function outboxWake(id: string, reason: WakeReason, dedupeKey: string | null): OutboxWake {
+  return { reason, dedupeKey: dedupeKey ?? `wake:${id}` };
+}
 
 /** The inserted row's `column` (`ON CONFLICT … DO UPDATE`). */
 const excluded = (column: string): SQL => sql.raw(`excluded.${column}`);
@@ -412,6 +428,7 @@ class PostgresTx implements Tx {
     private readonly db: Transaction,
     private readonly tenantId: string,
     private readonly now: () => Date,
+    private readonly deleteWake: (id: string) => Promise<void>,
   ) {}
 
   private check(): void {
@@ -501,6 +518,51 @@ class PostgresTx implements Tx {
   afterCommit(fn: () => void | Promise<void>): void {
     this.check();
     this.callbacks.push(fn);
+  }
+
+  // --- wake outbox ---------------------------------------------------------
+
+  async wake(
+    sessionId: string,
+    wake: Wake,
+    deliver: WakeDelivery,
+  ): Promise<void> {
+    this.check();
+    const id = randomUUID();
+    await this.db.insert(wakes).values({
+      id,
+      sessionId,
+      reason: wake.reason,
+      dedupeKey: wake.dedupeKey ?? null,
+    });
+    const delivered = outboxWake(id, wake.reason, wake.dedupeKey ?? null);
+    // A rejection goes to the store's error hook (as every callback's), and the row stays.
+    this.callbacks.push(async () => {
+      if ((await deliver(sessionId, delivered)) === false) return;
+      await this.deleteWake(id);
+    });
+  }
+
+  async pendingWakes(before: Date, limit: number): Promise<PendingWake[]> {
+    this.check();
+    const rows = await this.db
+      .select()
+      .from(wakes)
+      .where(lt(wakes.createdAt, before))
+      .orderBy(wakes.createdAt, wakes.id)
+      .limit(limit);
+    return rows.map((row) => ({
+      id: row.id,
+      sessionId: row.sessionId,
+      wake: outboxWake(row.id, row.reason as WakeReason, row.dedupeKey),
+      createdAt: row.createdAt.toISOString(),
+    }));
+  }
+
+  async deleteWakes(ids: readonly string[]): Promise<void> {
+    this.check();
+    if (ids.length === 0) return;
+    await this.db.delete(wakes).where(inArray(wakes.id, [...ids]));
   }
 
   // --- ownership -----------------------------------------------------------

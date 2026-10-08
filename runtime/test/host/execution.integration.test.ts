@@ -71,14 +71,27 @@ function restateOptions(
   };
 }
 
-/** Delegates to `inner`, recording every advance result the Worker returns. */
-function recording(inner: DurableExecution): DurableExecution & {
-  results: AdvanceResult[];
-} {
+/** Sends a wake through `inner` (`DurableExecution.wake`), for fault injection. */
+type WakeSend = (
+  inner: DurableExecution,
+  ...args: Parameters<DurableExecution["wake"]>
+) => Promise<void>;
+
+type Recording = DurableExecution & { results: AdvanceResult[]; sweeps: number };
+
+/**
+ * Delegates to `inner`, recording every advance result the Worker returns and counting sweep
+ * passes. `wake` replaces how a wake is sent.
+ */
+function recording(
+  inner: DurableExecution,
+  wake: WakeSend = (execution, ...args) => execution.wake(...args)
+): Recording {
   const results: AdvanceResult[] = [];
-  return {
+  const recorder: Recording = {
     results,
-    wake: (...args) => inner.wake(...args),
+    sweeps: 0,
+    wake: (...args) => wake(inner, ...args),
     timer: (...args) => inner.timer(...args),
     armSweep: (tenantId) => inner.armSweep(tenantId),
     disarmSweep: (tenantId) => inner.disarmSweep(tenantId),
@@ -92,8 +105,13 @@ function recording(inner: DurableExecution): DurableExecution & {
           results.push(result);
           return result;
         },
+        sweep: async (tenantId) => {
+          await handlers.sweep(tenantId);
+          recorder.sweeps += 1;
+        },
       }),
   };
+  return recorder;
 }
 
 const open: Started[] = [];
@@ -117,9 +135,11 @@ function hostExecution(input: {
   restate?: Partial<RestateExecutionOptions>;
   resolve?: (tenantId: string) => Promise<TenantRuntime["worker"] | undefined>;
   advanceGraceMs?: number;
+  wake?: WakeSend;
 }) {
   const execution = recording(
-    createRestateExecution(restateOptions(input.offset, input.prefix, input.restate))
+    createRestateExecution(restateOptions(input.offset, input.prefix, input.restate)),
+    input.wake
   );
   const host = createHostExecution({
     execution,
@@ -342,6 +362,90 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     expect(count(await types(opened!), "turn.completed")).toBe(1);
     // Arming again is harmless.
     await next.host.armAll([before.tenantId]);
+  });
+
+  it("delivers a wake whose send failed after commit from the outbox through Restate", async () => {
+    const sent: string[] = [];
+    let failed = false;
+    const { host, execution } = hostExecution({
+      offset: 11,
+      prefix: "outbox",
+      // The message's first send fails, as when Restate is unreachable or the process dies.
+      wake: async (inner, tenantId, sessionId, wake) => {
+        sent.push(`${wake.reason}:${wake.dedupeKey}`);
+        if (wake.reason === "message" && !failed) {
+          failed = true;
+          throw new Error("Restate ingress unreachable");
+        }
+        await inner.wake(tenantId, sessionId, wake);
+      },
+    });
+    await host.start();
+    const runtime = await tenant({ execution: host.tenantExecution });
+    await until(async () => execution.sweeps, (n) => n > 0, "the first sweep pass");
+    await openSession(runtime);
+    await sendMessage(runtime);
+    expect(failed).toBe(true);
+    expect((await view(runtime)).status).toBe("runnable");
+    await until(() => view(runtime), (v) => v.status === "completed", "completed", 20_000);
+    const messages = sent.filter((wake) => wake.startsWith("message:"));
+    expect(messages).toHaveLength(2);
+    expect(new Set(messages).size).toBe(1);
+    expect(count(await types(runtime), "turn.completed")).toBe(1);
+    const left = await openTestSessionStore(runtime);
+    try {
+      expect(await left.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 10))).toEqual([]);
+    } finally {
+      await left.close();
+    }
+  });
+
+  it("runs one advance for a wake Restate accepted but whose answer was lost, sent again from the outbox", async () => {
+    let lost = false;
+    const { host, execution } = hostExecution({
+      offset: 12,
+      prefix: "unacked",
+      // Restate accepts the message's wake, but the answer never arrives: the row stays.
+      wake: async (inner, tenantId, sessionId, wake) => {
+        await inner.wake(tenantId, sessionId, wake);
+        if (wake.reason === "message" && !lost) {
+          lost = true;
+          throw new Error("connection reset before the answer");
+        }
+      },
+    });
+    await host.start();
+    let calls = 0;
+    const runtime = await tenant({
+      execution: host.tenantExecution,
+      modelProvider: async () => {
+        calls += 1;
+        return { output: [{ type: "text", text: "done" }] };
+      },
+    });
+    await until(async () => execution.sweeps, (n) => n > 0, "the first sweep pass");
+    await openSession(runtime);
+    await sendMessage(runtime);
+    expect(lost).toBe(true);
+    await until(() => view(runtime), (v) => v.status === "completed", "completed", 20_000);
+    const store = await openTestSessionStore(runtime);
+    try {
+      // The sweep sends it again under the same idempotency key, and deletes the row.
+      await until(
+        () => store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 10)),
+        (rows) => rows.length === 0,
+        "the outbox to empty",
+        20_000
+      );
+    } finally {
+      await store.close();
+    }
+    // Restate deduplicated the second send: one advance, one model call. A second invocation
+    // would have run by now (retries and sweeps every 200 ms).
+    await sleep(1500);
+    expect(execution.results).toEqual([{ status: "done" }]);
+    expect(calls).toBe(1);
+    expect(count(await types(runtime), "turn.completed")).toBe(1);
   });
 
   it("cancels a long model call on the Worker from another node through the control bus", async () => {

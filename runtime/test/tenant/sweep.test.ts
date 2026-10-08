@@ -1,8 +1,8 @@
 /**
  * The advance's ownership steps and the Tenant sweep's steps, on a Postgres Tenant schema
- * (architecture §10.5–10.6, §12.3).
+ * (architecture §10.5–10.6, §12.3): the wake outbox, orphaned sessions and linked agents.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Wake } from "../../src/execution/types.js";
 import { commandKey, linkedMessageKey } from "../../src/core/flow-host.js";
 import { isOwnershipLost, ownedTx } from "../../src/store/ownership.js";
@@ -11,7 +11,11 @@ import { advance } from "../../src/tenant/advance.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import { createWorkState } from "../../src/tenant/scheduler.js";
 import {
+  ORPHAN_SCAN_MS,
+  WAKE_GRACE_MS,
+  deliverPendingWakes,
   reconcileLinkedAgents,
+  sweep,
   wakeOrphanedSessions,
 } from "../../src/tenant/sweep.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
@@ -34,7 +38,12 @@ async function makeStore(): Promise<SessionStore> {
 
 const silent = { info() {}, warn() {}, error() {} };
 
-function contextOf(store: SessionStore, ownerLeaseMs = 1000) {
+/** `accept` decides what the Tenant's `wake` answers: `false` is a closing Tenant's. */
+function contextOf(
+  store: SessionStore,
+  ownerLeaseMs = 1000,
+  accept: (id: string, wake: Wake) => boolean = () => true
+) {
   const wakes: { id: string; wake: Wake }[] = [];
   const ctx = {
     store,
@@ -45,12 +54,22 @@ function contextOf(store: SessionStore, ownerLeaseMs = 1000) {
     work: createWorkState(),
     config: { logger: silent },
     toolGate: inProcessToolGate(),
+    // What the whole sweep reaches beyond the store: no sandboxes, pods, MCP or hooks.
+    sandbox: { sweep: async () => {} },
+    sweepHooks: new Set(),
     wake: async (id: string, wake: Wake) => {
       wakes.push({ id, wake });
+      return accept(id, wake);
     },
   } as unknown as TenantContext;
   return { ctx, wakes };
 }
+
+/** Writes an outbox wake for `id` whose delivery after commit did not happen. */
+const undelivered = (store: SessionStore, id: string, wake: Wake) =>
+  store.tx((t) => t.wake(id, wake, () => false));
+const pending = (store: SessionStore) =>
+  store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 100));
 
 function session(id: string, fields: Record<string, unknown> = {}) {
   return { id, agentId: "bot", status: "idle", activeTurnId: null, ...fields };
@@ -220,6 +239,93 @@ describe("on the Postgres store", () => {
       { reason: "recover" },
       { reason: "recover" },
     ]);
+  });
+
+  it("delivers the outbox wakes their commits did not, keeping the ones a closing Tenant declines", async () => {
+    const store = await makeStore();
+    const { ctx, wakes } = contextOf(store, 1000, (id) => id !== "declined");
+    await undelivered(store, "s1", { reason: "message", dedupeKey: "message:t1:0" });
+    await undelivered(store, "declined", { reason: "linked", dedupeKey: "linked:t1:e1" });
+    await undelivered(store, "s2", { reason: "flow" });
+    const [, , flow] = await pending(store);
+    // Too young for this pass.
+    expect(await deliverPendingWakes(ctx, new Date(Date.now() - 60_000))).toEqual([]);
+    expect(wakes).toEqual([]);
+
+    const delivered = await deliverPendingWakes(ctx, new Date(Date.now() + 1000));
+    expect(delivered).toHaveLength(2);
+    expect(wakes).toEqual([
+      { id: "s1", wake: { reason: "message", dedupeKey: "message:t1:0" } },
+      { id: "declined", wake: { reason: "linked", dedupeKey: "linked:t1:e1" } },
+      // A wake without a dedupe key is sent under one made from its row.
+      { id: "s2", wake: { reason: "flow", dedupeKey: `wake:${flow!.id}` } },
+    ]);
+    expect((await pending(store)).map((row) => row.sessionId)).toEqual(["declined"]);
+  });
+
+  it("deletes the wakes it delivered before one that fails", async () => {
+    const store = await makeStore();
+    const { ctx } = contextOf(store, 1000, (id) => {
+      if (id === "s2") throw new Error("Restate unreachable");
+      return true;
+    });
+    await undelivered(store, "s1", { reason: "message" });
+    await undelivered(store, "s2", { reason: "message" });
+    await expect(deliverPendingWakes(ctx, new Date(Date.now() + 1000))).rejects.toThrow(
+      "Restate unreachable"
+    );
+    expect((await pending(store)).map((row) => row.sessionId)).toEqual(["s2"]);
+  });
+
+  it("delivers every outbox wake on its first pass, then only those older than the grace", async () => {
+    const store = await makeStore();
+    const { ctx, wakes } = contextOf(store);
+    await undelivered(store, "left-by-a-crash", { reason: "message" });
+    await sweep(ctx);
+    expect(wakes.map((w) => w.id)).toEqual(["left-by-a-crash"]);
+    expect(await pending(store)).toEqual([]);
+
+    wakes.length = 0;
+    await undelivered(store, "just-committed", { reason: "message" });
+    await sweep(ctx);
+    expect(wakes).toEqual([]);
+    expect((await pending(store)).map((row) => row.sessionId)).toEqual(["just-committed"]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + WAKE_GRACE_MS + 1000);
+      await sweep(ctx);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(wakes.map((w) => w.id)).toEqual(["just-committed"]);
+    expect(await pending(store)).toEqual([]);
+  });
+
+  it("scans for orphaned sessions on its first pass, then once per ORPHAN_SCAN_MS", async () => {
+    const store = await makeStore();
+    const { ctx, wakes } = contextOf(store);
+    await store.tx((t) =>
+      t.put("sessions", "orphan", session("orphan", { status: "runnable" }))
+    );
+    const start = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(start);
+      await sweep(ctx);
+      expect(wakes).toEqual([{ id: "orphan", wake: { reason: "recover" } }]);
+      vi.setSystemTime(start + ORPHAN_SCAN_MS - 1);
+      await sweep(ctx);
+      expect(wakes).toHaveLength(1);
+      vi.setSystemTime(start + ORPHAN_SCAN_MS);
+      await sweep(ctx);
+      expect(wakes).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+    // Another process (a context of its own) scans on its first pass.
+    const other = contextOf(store);
+    await sweep(other.ctx);
+    expect(other.wakes).toEqual([{ id: "orphan", wake: { reason: "recover" } }]);
   });
 
   it("settles a pending agent effect whose linked turn already finished", async () => {

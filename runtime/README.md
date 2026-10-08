@@ -42,8 +42,10 @@ whose key the admin key derives (the only derived key). Management keys come fro
 rotates and deletes the Tenant's application keys (`PUT /v1/tenant/keys/{keyId}`); a rotated
 or deleted key stops authenticating at once. A database written by a Runtime that kept several Tenants in one
 database (`tenant_<id>` schemas), or by a pre-release build of one Tenant per database
-(`schema_version` tables), is refused: this release starts fresh on a new database. Restate runs one advance of a session at a time and holds the Tenant's sweep
-timer (Durable Session Execution); every session's events are relayed from the record to
+(`schema_version` tables), is refused: this release starts fresh on a new database. Restate runs one advance of a session at a time, delivers its wakes and holds
+its timers and the Tenant's sweep (Durable Session Execution), and journals no effect:
+checkpoints, effects, events and the wake outbox are the Session Store's, and a wake is
+written to the outbox in the transaction that causes it, so a commit never loses it; every session's events are relayed from the record to
 its own S2 stream, which history and SSE read (Durable Streams). One image runs every **service**,
 and `--service` picks what a process runs: `core` serves the Runtime API, the
 Management API and SSE and runs the stream relay, `loop` runs advances (the Worker), and

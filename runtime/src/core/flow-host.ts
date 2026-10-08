@@ -4,7 +4,8 @@
  * Every function that touches state takes the caller's transaction `t: Tx` and
  * is async. Nothing here publishes, notifies or schedules directly (seam rule
  * 1): events go through `t.event(...)`, which the store publishes after
- * commit, and wakes go through `t.afterCommit(() => schedule(id, wake))`. Functions
+ * commit, and wakes go through `t.wake(id, wake, schedule)`, the wake outbox, which
+ * calls `schedule` after commit. Functions
  * that rewrite a session-scoped document lock that session first with
  * `t.lockSession` (a no-op when the caller already holds it).
  *
@@ -35,8 +36,9 @@
  * - `foreignInteractionConflict({ t, workflowSessionId, interactionId }): Promise<{ status: 409; message; ownerSessionId } | undefined>`
  * - `wakeForQueuedEffects({ t, workflowSessionId, turnId, limits, schedule }): Promise<boolean>`
  *
- * `schedule: (sessionId, wake) => void | Promise<void>` runs after commit, never inside `t`;
- * `wake` carries the reason (`linked`, `flow`) and, where the cause has one, a dedupe key.
+ * `schedule` (a `WakeDelivery`, the Tenant's `ctx.wake`) runs after commit, never inside `t`;
+ * `wake` carries the reason (`linked`, `flow`) and, where the cause has one, a dedupe key. A
+ * wake `schedule` does not deliver stays in the outbox for the Tenant sweep (`Tx.wake`).
  *
  * An `agent` effect settles only from the linked turn it started. A linked agent session is
  * reused by every iteration of a Loop (its id derives from the workflow and the path), so its
@@ -52,7 +54,7 @@ import type { EffectOutcome } from "@nylorun/core/contracts";
 import { isVerdict, type JsonValue, type WorkflowManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import type { Wake } from "../execution/types.js";
-import type { EffectDoc, Tx } from "../store/types.js";
+import type { EffectDoc, Tx, WakeDelivery } from "../store/types.js";
 import { mayDispatchMore, type FlowLimits } from "./limits.js";
 
 /** Deterministic agent session id: derive(workflowSessionId, path, …parts). */
@@ -242,7 +244,7 @@ export type CascadeCancelPlan = {
 };
 
 /** Wakes a session after commit (`DurableExecution.wake` through the Tenant context). */
-type Schedule = (sessionId: string, wake: Wake) => void | Promise<void>;
+type Schedule = WakeDelivery;
 
 /** Effect documents as the flow host writes them. */
 export type FlowEffect = EffectDoc & {
@@ -251,13 +253,14 @@ export type FlowEffect = EffectDoc & {
   error?: string;
 };
 
-function scheduleAfterCommit(
+/** Writes the wake to the outbox; `schedule` delivers it after commit. */
+function requestWake(
   t: Tx,
   schedule: Schedule,
   id: string,
   wake: Wake
-): void {
-  t.afterCommit(() => schedule(id, wake));
+): Promise<void> {
+  return t.wake(id, wake, schedule);
 }
 
 /** Active agent turns + tool nodes in flight for one workflow turn. */
@@ -389,7 +392,7 @@ export async function wakeLinkedWorkflow(input: {
 
   workflow.status = "runnable";
   await t.put("sessions", workflow.id, workflow);
-  scheduleAfterCommit(t, input.schedule, workflow.id, {
+  await requestWake(t, input.schedule, workflow.id, {
     reason: "linked",
     dedupeKey: `linked:${link.turnId}:${link.effectId}`,
   });
@@ -715,7 +718,7 @@ export async function wakeForQueuedEffects(input: {
     workflow.status = "runnable";
     await t.put("sessions", workflow.id, workflow);
   }
-  scheduleAfterCommit(t, input.schedule, input.workflowSessionId, {
+  await requestWake(t, input.schedule, input.workflowSessionId, {
     reason: "flow",
   });
   return true;

@@ -3,7 +3,10 @@
  *
  * Durable Session Execution decides when to look at a session again. It never
  * holds session state: every outcome lives in the Session Store, and `advance`
- * is safe to repeat (§10.1). Restate is the supported implementation
+ * is safe to repeat (§10.1). It owns the schedule (wake delivery, one advance per
+ * key, retries, timers, the sweep chain); the Session Store owns the record (the
+ * checkpoint, the effect journal, the events) and the wake outbox that bridges the
+ * two. Restate is the supported implementation
  * (`adapters/execution/restate.ts`); `execution/memory.ts` is the in-process
  * implementation used by unit tests, `startEphemeralRuntime` and a Host
  * started without Restate endpoints.
@@ -15,11 +18,14 @@
  *   Different keys may run concurrently.
  * - **At least once after a wake.** When `wake` resolves, an `advance` for the
  *   key will start after that point (possibly merged with other wakes). Wakes
- *   are sent after the Session Store transaction that caused them commits
- *   (`Tx.afterCommit`), never inside it.
+ *   are sent after the Session Store transaction that caused them commits, never
+ *   inside it: the transaction writes the wake to its outbox (`Tx.wake`), and the
+ *   wake is sent after commit, or by the Tenant sweep when that send failed or a
+ *   crash cut it off. A wake may therefore be sent more than once, always with the
+ *   same `dedupeKey`.
  * - **Dedupe.** Wakes carrying the same `dedupeKey` for the same key cause at
  *   most one advance for that cause (within the implementation's retention
- *   window, at least 24 hours for Restate).
+ *   window, at least 24 hours for Restate). Every wake from the outbox has one.
  * - **Busy re-wake.** An advance that returns `busy` is re-run for the same key
  *   after `retryAfterMs`.
  * - **Retries on infrastructure errors.** A handler that throws is retried with
@@ -27,7 +33,9 @@
  *   becomes `uncertain` is settled in the Session Store and `advance` returns
  *   `done`.
  * - **Sweeps.** `armSweep` arms one self-re-arming sweep per Tenant; arming an
- *   armed Tenant is a no-op. The sweep re-wakes orphaned `runnable` sessions.
+ *   armed Tenant is a no-op. The sweep sends the outbox's undelivered wakes and,
+ *   as a backstop for what an implementation lost, re-wakes orphaned sessions
+ *   (`tenant/sweep.ts`).
  * - **One reconcile per sandbox at a time** (F7.2). `sandbox` runs
  *   `WorkerHandlers.sandbox` for the key `<tenantId>:<sandboxId>` at least once
  *   after a `reconcile` resolves, never overlapping another run for the key. A

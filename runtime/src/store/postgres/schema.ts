@@ -7,7 +7,8 @@
  * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables,
  *   principals, vaults and credentials, signing keys, settings, the model usage
  *   ledger, the model budgets, the Tool Gate's crossings, file artifacts with their versions,
- *   the definition files agent definitions name and the control bus's signals.
+ *   the definition files agent definitions name, the control bus's signals and the wake
+ *   outbox.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -574,6 +575,27 @@ export const controlSignals = nylorun.table(
     index("control_signals_created_at").on(t.createdAt),
     check("control_signals_kind_check", sql`${t.kind} IN ('session.cancel', 'sessions.reset')`),
   ],
+);
+
+/**
+ * The wake outbox (architecture §12.3): one row per wake a committed transaction asked for
+ * (`Tx.wake`), written in that transaction, so a commit never loses its wake. The row is
+ * deleted once Durable Session Execution has accepted the wake; until then the Tenant sweep
+ * delivers it again, with the same idempotency key (`dedupe_key`, or `wake:<id>` without
+ * one). `created_at` is the insert's own clock (`clock_timestamp()`).
+ */
+export const wakes = nylorun.table(
+  "wakes",
+  {
+    id: textC().primaryKey(),
+    sessionId: textC().notNull(),
+    reason: text().notNull(),
+    dedupeKey: text(),
+    createdAt: timestamp({ withTimezone: true, mode: "date" })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [index("wakes_created_at").on(t.createdAt)],
 );
 
 // ---------------------------------------------------------------------------

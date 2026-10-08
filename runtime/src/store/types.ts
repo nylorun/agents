@@ -25,16 +25,18 @@
  *    generation, `streams/basin.ts`), and the cursor is
  *    `base64url("<sessionId>:<seq>")` (see `record/cursor.ts`).
  * 4. **No external I/O inside `fn`.** No model, tool, MCP, sandbox, Restate or
- *    S2 call, and no `fetch`, runs inside a transaction. Wakes go
- *    through `afterCommit`, and events are delivered to commit listeners after
- *    commit (seam rule 1 and 2).
+ *    S2 call, and no `fetch`, runs inside a transaction. A wake is written in the
+ *    transaction (`Tx.wake`, the wake outbox) and delivered after commit, and events
+ *    are delivered to commit listeners after commit (seam rule 1 and 2).
  * 5. **No nested transactions.** Calling `store.tx` from inside `fn` rejects.
  *    A `Tx` must not be used after its `tx` call settles.
  * 6. **Post-commit order.** After a commit, the store first calls every commit
  *    listener once with the transaction's events (in allocation order), then runs the `afterCommit` callbacks in registration
  *    order and awaits them. Listener and callback failures are reported to the
  *    store's error hook; they never reject `tx`, because the commit stands.
- *    Recovery from a lost post-commit step is the Tenant sweep's job.
+ *    Recovery from a lost post-commit step is the Tenant sweep's job: a wake's
+ *    delivery is a callback too, and its outbox row is what the sweep delivers
+ *    again (`Tx.wake`).
  * 7. **Documents are values.** `get` and queries return fresh copies; mutating
  *    them changes nothing until `put`.
  * 8. **Ownership columns are store-managed.** `owner`, `epoch` and
@@ -56,6 +58,7 @@
  */
 import type { KeyRole } from "@nylorun/core/compatibility";
 import type { RecordReader } from "../streams/relay/types.js";
+import type { Wake } from "../execution/types.js";
 import type {
   EventPayload,
   EventType,
@@ -386,6 +389,28 @@ export interface SessionStore {
   close(): Promise<void>;
 }
 
+/** A wake as the outbox delivers it: its `dedupeKey` is the request's idempotency key. */
+export type OutboxWake = Wake & { dedupeKey: string };
+
+/**
+ * Hands an outbox request to Durable Session Execution (`Tx.wake`). Resolving means the
+ * execution accepted it; `false` means it was not delivered and stays in the outbox, as a
+ * rejection does, without an error.
+ */
+export type WakeDelivery = (
+  sessionId: string,
+  wake: OutboxWake,
+) => boolean | void | Promise<boolean | void>;
+
+/** A wake outbox request not yet delivered (`Tx.pendingWakes`). */
+export interface PendingWake {
+  id: string;
+  sessionId: string;
+  wake: OutboxWake;
+  /** ISO time it was written. */
+  createdAt: string;
+}
+
 /**
  * A signal on the control bus (D21, D48): one process tells the others with the Tenant open.
  * Signals are not events: they are never recorded in a session's log or streamed, and a
@@ -481,8 +506,31 @@ export interface Tx {
     payload: EventPayload<T>,
   ): Promise<SessionEventOf<T>>;
 
-  /** Runs `fn` after a successful commit (never on rollback). Used for wakes. */
+  /**
+   * Runs `fn` after a successful commit (never on rollback): a sandbox signal or a host
+   * revocation. Nothing writes it down, so a crash after commit loses it. A wake goes
+   * through `wake`, which does.
+   */
   afterCommit(fn: () => void | Promise<void>): void;
+
+  // --- wake outbox (architecture §12.3) -------------------------------------
+
+  /**
+   * Asks for an advance of `sessionId` once this transaction commits. The request is a row
+   * of the wake outbox written in this transaction, so it commits, or rolls back, with what
+   * caused it: a commit never loses its wake. After commit, in `afterCommit` order, the
+   * store calls `deliver` (`DurableExecution.wake`, through the Tenant) and deletes the row
+   * once it resolves to anything but `false`. A request `deliver` declines (`false`) or
+   * rejects, or one a crash cut off, stays in the outbox until the Tenant sweep delivers it
+   * (`pendingWakes`, `deleteWakes`). `deliver` gets the request's idempotency key as
+   * `dedupeKey`: the wake's own, or `wake:<row id>` without one, so a request delivered
+   * twice still causes one advance.
+   */
+  wake(sessionId: string, wake: Wake, deliver: WakeDelivery): Promise<void>;
+  /** Outbox requests written before `before`, oldest first. */
+  pendingWakes(before: Date, limit: number): Promise<PendingWake[]>;
+  /** Deletes delivered outbox requests. */
+  deleteWakes(ids: readonly string[]): Promise<void>;
 
   // --- ownership (§10.6) ---------------------------------------------------
 

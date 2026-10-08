@@ -1,11 +1,11 @@
 /**
  * The session command service: `message`, `approve`/`respond` and `cancel`,
  * with per-session idempotency keys. A command locks its session and commits its state
- * change, events and wakes in one transaction (the store publishes the events and runs the
- * `afterCommit` wakes), then aborts a cancelled advance and cascades workflow cancels to the
- * linked agent sessions, one transaction each.
+ * change, events and wakes in one transaction (the store publishes the events and delivers the
+ * wakes from its outbox after commit, `Tx.wake`), then aborts a cancelled advance and cascades
+ * workflow cancels to the linked agent sessions, one transaction each.
  *
- * Wakes (`ctx.wake`, architecture §12.3) carry the command type as the reason and a dedupe
+ * Wakes (`t.wake`, architecture §12.3) carry the command type as the reason and a dedupe
  * key naming the cause: `<type>:<turnId>:<segment>` for `message`, `approve` and `respond`
  * (every accepted one writes a new checkpoint segment), except that a workflow's `approve` and
  * `respond` name `<type>:<turnId>:<interactionId>`: a flow resumes in the same segment.
@@ -270,7 +270,7 @@ export async function command(
         reason: command.type,
         dedupeKey: `${command.type}:${s.activeTurnId}:${cause}`,
       };
-      t.afterCommit(() => ctx.wake(id, commandWake));
+      await t.wake(id, commandWake, ctx.wake);
       event = await t.event(
         id,
         s.activeTurnId,
