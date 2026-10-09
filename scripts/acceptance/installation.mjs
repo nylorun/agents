@@ -413,7 +413,8 @@ async function i9(url, stack, temporary) {
 // ── I7: the Tenant outlives the installing Project's node_modules ──
 async function i7(url, stack, packed, temporary) {
   const project = join(temporary, "project-i7");
-  await installProject(project, packed, ["core", "nylorun"]);
+  // nylorun depends on @nylorun/admin (for nylo); a release PR's admin is not on npm yet.
+  await installProject(project, packed, ["core", "admin", "nylorun"]);
   const projectCli = join(project, "node_modules/nylorun/dist/cli.js");
   const { stdout } = await stack.nylorun(["status", "--json"], { echo: false, entry: projectCli });
   assert.equal(JSON.parse(stdout).runtime.healthy, true);
