@@ -1189,7 +1189,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
     describe("wake outbox", () => {
       type Delivered = { sessionId: string; reason: string; dedupeKey: string };
       /** Records each delivery; `answer` is what it resolves to (or throws). */
-      function deliveries(answer: () => boolean | void = () => undefined) {
+      function deliveries(answer: () => boolean | void | Promise<boolean | void> = () => undefined) {
         const delivered: Delivered[] = [];
         const deliver = (sessionId: string, wake: { reason: string; dedupeKey: string }) => {
           delivered.push({ sessionId, ...wake });
@@ -1197,92 +1197,101 @@ export function storeContract(name: string, factory: StoreFactory): void {
         };
         return { delivered, deliver };
       }
-      const later = () => new Date(Date.now() + 60_000);
+      /** Every row that is due, however young. */
+      const due = (store: SessionStore, limit = 10) => store.tx((t) => t.pendingWakes(0, limit));
 
-      it("delivers a wake after commit, after the transaction's other callbacks before it, and deletes it", async () => {
+      it("delivers a wake after commit without the caller waiting for it, and deletes it", async () => {
         const store = await fresh();
-        const log: string[] = [];
-        const { delivered, deliver } = deliveries(() => void log.push("deliver"));
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        const { delivered, deliver } = deliveries(() => held);
+        store.deliverTo(deliver);
         await store.tx(async (t) => {
-          t.afterCommit(() => void log.push("callback"));
-          await t.wake("s1", { reason: "message", dedupeKey: "message:t1:0" }, deliver);
+          await t.wake("s1", { reason: "message", dedupeKey: "message:t1:0" });
           expect(delivered).toEqual([]);
-          log.push("body");
         });
-        expect(log).toEqual(["body", "callback", "deliver"]);
+        // The commit returned while the delivery is still running.
         expect(delivered).toEqual([{ sessionId: "s1", reason: "message", dedupeKey: "message:t1:0" }]);
-        expect(await store.tx((t) => t.pendingWakes(later(), 10))).toEqual([]);
+        expect(await due(store)).toHaveLength(1);
+        release();
+        await store.delivered();
+        expect(await due(store)).toEqual([]);
       });
 
       it("writes nothing and delivers nothing when the transaction rolls back", async () => {
         const store = await fresh();
         const { delivered, deliver } = deliveries();
+        store.deliverTo(deliver);
         await expect(
           store.tx(async (t) => {
-            await t.wake("s1", { reason: "flow" }, deliver);
+            await t.wake("s1", { reason: "flow" });
             throw new Error("rollback");
           }),
         ).rejects.toThrow("rollback");
+        await store.delivered();
         expect(delivered).toEqual([]);
-        expect(await store.tx((t) => t.pendingWakes(later(), 10))).toEqual([]);
+        expect(await due(store)).toEqual([]);
       });
 
-      it("keeps a wake that was not delivered, with the idempotency key it was delivered with", async () => {
+      it("keeps a wake that was not delivered, due at once, with the idempotency key it was delivered with", async () => {
         const store = await fresh();
         // Declined (`false`), rejected (reported, the commit stands), and a key made for a wake without one.
         const declined = deliveries(() => false);
         const failing = deliveries(() => {
           throw new Error("Restate unreachable");
         });
-        await store.tx((t) => t.wake("s1", { reason: "message", dedupeKey: "message:t1:0" }, declined.deliver));
-        await store.tx((t) => t.wake("s2", { reason: "flow" }, failing.deliver));
+        store.deliverTo(declined.deliver);
+        await store.tx((t) => t.wake("s1", { reason: "message", dedupeKey: "message:t1:0" }));
+        store.deliverTo(failing.deliver);
+        await store.tx((t) => t.wake("s2", { reason: "flow" }));
+        await store.delivered();
         expect(errors).toHaveLength(1);
         expect((errors[0] as Error).message).toBe("Restate unreachable");
-        const pending = await store.tx((t) => t.pendingWakes(later(), 10));
+        // Not left for the grace: the sweep's next pass sends them.
+        const pending = (await store.tx((t) => t.pendingWakes(60_000, 10))).sort((a, b) =>
+          a.sessionId.localeCompare(b.sessionId),
+        );
         expect(pending.map(({ sessionId, wake }) => ({ sessionId, ...wake }))).toEqual([
           { sessionId: "s1", reason: "message", dedupeKey: "message:t1:0" },
           { sessionId: "s2", reason: "flow", dedupeKey: failing.delivered[0]!.dedupeKey },
         ]);
         expect(failing.delivered[0]!.dedupeKey).toBe(`wake:${pending[1]!.id}`);
-        expect(Date.parse(pending[0]!.createdAt)).toBeLessThanOrEqual(Date.parse(pending[1]!.createdAt));
+        expect(pending.map((wake) => wake.attempts)).toEqual([0, 0]);
       });
 
-      it("lists pending wakes written before a time, oldest first, and deletes them by id", async () => {
+      it("lists the wakes older than the grace, oldest first, and deletes them by id", async () => {
         const store = await fresh();
-        const { deliver } = deliveries(() => false);
-        for (const id of ["s1", "s2", "s3"])
-          await store.tx((t) => t.wake(id, { reason: "recover" }, deliver));
-        expect(await store.tx((t) => t.pendingWakes(new Date(Date.now() - 60_000), 10))).toEqual([]);
-        const pending = await store.tx((t) => t.pendingWakes(later(), 2));
+        for (const id of ["s1", "s2", "s3"]) await store.tx((t) => t.wake(id, { reason: "recover" }));
+        // Without a delivery they wait for the sweep, and are not due within a grace.
+        expect(await store.tx((t) => t.pendingWakes(60_000, 10))).toEqual([]);
+        const pending = await due(store, 2);
         expect(pending.map((wake) => wake.sessionId)).toEqual(["s1", "s2"]);
+        expect(Date.parse(pending[0]!.createdAt)).toBeLessThanOrEqual(Date.parse(pending[1]!.createdAt));
         await store.tx((t) => t.deleteWakes(pending.map((wake) => wake.id)));
         await store.tx((t) => t.deleteWakes([]));
-        expect((await store.tx((t) => t.pendingWakes(later(), 10))).map((wake) => wake.sessionId)).toEqual(["s3"]);
+        expect((await due(store)).map((wake) => wake.sessionId)).toEqual(["s3"]);
       });
 
       it("puts a failed wake behind the others until its retry, and never lists a parked one", async () => {
         const store = await fresh();
-        const { deliver } = deliveries(() => false);
-        for (const id of ["s1", "s2", "s3"])
-          await store.tx((t) => t.wake(id, { reason: "recover" }, deliver));
-        const [first, second] = await store.tx((t) => t.pendingWakes(later(), 10));
+        for (const id of ["s1", "s2", "s3"]) await store.tx((t) => t.wake(id, { reason: "recover" }));
+        const [first, second] = await due(store);
         await store.tx((t) => t.failWake(first!.id, { retryInMs: 60_000, park: false }));
         await store.tx((t) => t.failWake(second!.id, { retryInMs: 0, park: false }));
         // s1 waits for its retry; s2 is due again at once, by its retry time: after s3.
-        const due = await store.tx((t) => t.pendingWakes(later(), 10));
-        expect(due.map((wake) => [wake.sessionId, wake.attempts])).toEqual([
+        expect((await due(store)).map((wake) => [wake.sessionId, wake.attempts])).toEqual([
           ["s3", 0],
           ["s2", 1],
         ]);
         await store.tx((t) => t.failWake(second!.id, { retryInMs: 0, park: true }));
-        expect((await store.tx((t) => t.pendingWakes(later(), 10))).map((wake) => wake.sessionId)).toEqual(["s3"]);
+        expect((await due(store)).map((wake) => wake.sessionId)).toEqual(["s3"]);
       });
 
       it("drops pending wakes with a sessions reset", async () => {
         const store = await fresh();
-        await store.tx((t) => t.wake("s1", { reason: "message" }, () => false));
+        await store.tx((t) => t.wake("s1", { reason: "message" }));
         await store.tx((t) => t.reset("sessions"));
-        expect(await store.tx((t) => t.pendingWakes(later(), 10))).toEqual([]);
+        expect(await due(store)).toEqual([]);
       });
     });
 

@@ -7,8 +7,9 @@
  * 1. **Wakes.** Wake outbox rows (`Tx.wake`) are delivered again and deleted: a delivery
  *    after commit that failed, or that a crash between the commit and the send cut off. The
  *    first pass on this process takes every row, so a previous process's are not left
- *    waiting; later passes take the rows older than `WAKE_GRACE_MS`, batch after batch
- *    within `DRAIN_BUDGET_MS`. Each row carries the
+ *    waiting; later passes take the rows older than `WAKE_GRACE_MS` (the database's clock)
+ *    and those whose delivery after commit failed, batch after batch within
+ *    `DRAIN_BUDGET_MS`. Each row carries the
  *    idempotency key it was first sent with, so a wake the execution did accept before the
  *    crash, or one still being sent after its commit, causes no second advance. Rows are
  *    delivered one by one: a row that fails is retried with backoff and parked after
@@ -48,11 +49,12 @@ const BATCH = 100;
 /** How long a control signal is kept after it was written. */
 const SIGNAL_RETENTION_MS = 60 * 60 * 1000;
 /**
- * How old a wake outbox row is before the sweep delivers it: longer than a delivery after
- * commit takes, so the sweep seldom sends a wake its commit is still sending. Sending one
- * twice is harmless either way (the idempotency key).
+ * How old a wake outbox row is before the sweep delivers it, unless its delivery after commit
+ * already failed (then it is due at once): longer than that delivery can take with its
+ * retries, so the sweep does not send again, and double the load on, an execution that is
+ * only slow. Sending one twice is harmless either way (the idempotency key).
  */
-export const WAKE_GRACE_MS = 2000;
+export const WAKE_GRACE_MS = 30_000;
 /** How often the orphan scan runs after the first pass of a Tenant opened on this process. */
 export const ORPHAN_SCAN_MS = 60_000;
 /**
@@ -83,8 +85,7 @@ export async function sweep(ctx: TenantContext): Promise<void> {
   const steps: Step[] = [
     [
       "wakes",
-      () =>
-        deliverPendingWakes(ctx, first ? now : new Date(now.getTime() - WAKE_GRACE_MS)),
+      () => deliverPendingWakes(ctx, first ? 0 : WAKE_GRACE_MS),
     ],
     ["linked", () => reconcileLinkedAgents(ctx)],
     ...(scanOrphans
@@ -143,8 +144,9 @@ const WAKE_RETRY_MS = 5000;
 const WAKE_RETRY_MAX_MS = 10 * 60_000;
 
 /**
- * Deliver the wake outbox rows written before `before` that are due, oldest first, batch after
- * batch until none is left or `budgetMs` is spent, and delete the delivered ones. Each row is
+ * Deliver the wake outbox rows that are due (`Tx.pendingWakes`: older than `graceMs`, or
+ * whose delivery failed), oldest first, batch after batch until none is left or `budgetMs` is
+ * spent, and delete the delivered ones. Each row is
  * delivered on its own: one that fails (Restate refuses it, or a Runtime that does not know
  * its reason) is tried again later, with backoff, so it never holds back the rows behind it,
  * and after `MAX_WAKE_ATTEMPTS` failures it is parked: logged once, at error, and kept in the
@@ -154,13 +156,13 @@ const WAKE_RETRY_MAX_MS = 10 * 60_000;
  */
 export async function deliverPendingWakes(
   ctx: Pick<TenantContext, "store" | "wake" | "config">,
-  before = new Date(),
+  graceMs = 0,
   budgetMs = DRAIN_BUDGET_MS
 ): Promise<string[]> {
   const deadline = Date.now() + budgetMs;
   const delivered: string[] = [];
   for (;;) {
-    const pending = await ctx.store.tx((t) => t.pendingWakes(before, BATCH));
+    const pending = await ctx.store.tx((t) => t.pendingWakes(graceMs, BATCH));
     const batch: string[] = [];
     let done = pending.length < BATCH;
     try {
@@ -211,17 +213,13 @@ async function failed(
 
 /** Settle pending workflow `agent` effects whose linked turn already finished. */
 export async function reconcileLinkedAgents(
-  ctx: Pick<TenantContext, "store" | "wake">
+  ctx: Pick<TenantContext, "store">
 ): Promise<void> {
   const { store } = ctx;
   const effects = await store.tx((t) => pendingAgentEffects(t));
   for (const effect of effects)
     await store.tx((t) =>
-      reconcilePendingAgentEffect({
-        t,
-        effectId: effect.request.effectId,
-        schedule: ctx.wake,
-      })
+      reconcilePendingAgentEffect({ t, effectId: effect.request.effectId })
     );
 }
 

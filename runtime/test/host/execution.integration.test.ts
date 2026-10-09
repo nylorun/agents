@@ -394,7 +394,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     expect(count(await types(runtime), "turn.completed")).toBe(1);
     const left = await openTestSessionStore(runtime);
     try {
-      expect(await left.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 10))).toEqual([]);
+      expect(await left.tx((t) => t.pendingWakes(0, 10))).toEqual([]);
     } finally {
       await left.close();
     }
@@ -432,7 +432,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     try {
       // The sweep sends it again under the same idempotency key, and deletes the row.
       await until(
-        () => store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 10)),
+        () => store.tx((t) => t.pendingWakes(0, 10)),
         (rows) => rows.length === 0,
         "the outbox to empty",
         20_000

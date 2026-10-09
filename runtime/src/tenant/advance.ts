@@ -464,7 +464,6 @@ async function wakeWorkflowOf(
         type === "turn.failed"
           ? String((payload as { message?: string }).message ?? "")
           : undefined,
-      schedule: ctx.wake,
     });
   else if (type === "turn.cancelled")
     await wakeLinkedWorkflow({
@@ -473,7 +472,6 @@ async function wakeWorkflowOf(
       turnId,
       cancelled: true,
       error: "Agent turn was cancelled",
-      schedule: ctx.wake,
     });
 }
 
@@ -564,11 +562,10 @@ async function settle(
         await slimModelEffects(t, id, s.activeTurnId);
         await t.put("sessions", id, current);
         const segment = finished.segment + 1;
-        await t.wake(
-          id,
-          { reason: "rollover", dedupeKey: `rollover:${s.activeTurnId}:${segment}` },
-          ctx.wake
-        );
+        await t.wake(id, {
+          reason: "rollover",
+          dedupeKey: `rollover:${s.activeTurnId}:${segment}`,
+        });
         return siblings;
       }
       const flow = isWorkflowManifest(current.manifest);

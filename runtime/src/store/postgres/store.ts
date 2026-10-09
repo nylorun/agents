@@ -209,6 +209,9 @@ class PostgresSessionStore implements SessionStore {
   private readonly active = new AsyncLocalStorage<PostgresSessionStore>();
   private readonly listeners = new Set<CommitListener>();
   private readonly inflight = new Set<Promise<unknown>>();
+  /** Deliveries of committed wakes still running (`deliverTo`). */
+  private readonly deliveries = new Set<Promise<void>>();
+  private deliver?: WakeDelivery;
   private readonly now: () => Date;
   private readonly onError: (error: unknown) => void;
   private closed = false;
@@ -235,7 +238,7 @@ class PostgresSessionStore implements SessionStore {
     // Wrapped so `begin` does not treat an array result as queries to await.
     const run = this.db.transaction(
       async (db) => {
-        t = new PostgresTx(db, this.tenantId, this.now, this.deleteWake);
+        t = new PostgresTx(db, this.tenantId, this.now);
         try {
           return { value: await this.active.run(this, () => fn(t)) };
         } finally {
@@ -266,6 +269,7 @@ class PostgresSessionStore implements SessionStore {
         }
       }
     }
+    if (t.wakes.length > 0) this.send(t.wakes);
     for (const callback of t.callbacks) {
       try {
         await callback();
@@ -276,10 +280,42 @@ class PostgresSessionStore implements SessionStore {
     return result.value;
   }
 
-  /** Deletes a delivered outbox request, outside any transaction (`Tx.wake`). */
-  private readonly deleteWake = async (id: string): Promise<void> => {
-    await this.db.delete(wakes).where(eq(wakes.id, id));
-  };
+  deliverTo(deliver: WakeDelivery | undefined): void {
+    this.deliver = deliver;
+  }
+
+  async delivered(): Promise<void> {
+    while (this.deliveries.size > 0) await Promise.allSettled([...this.deliveries]);
+  }
+
+  /**
+   * Hands a commit's wakes to the delivery, one after the other, without the caller waiting:
+   * a delivered one's row is deleted, and one that was not is due at the sweep's next pass.
+   */
+  private send(committed: readonly { id: string; sessionId: string; wake: OutboxWake }[]): void {
+    const deliver = this.deliver;
+    if (!deliver) return;
+    const run = (async () => {
+      for (const { id, sessionId, wake } of committed) {
+        let sent: boolean | void = false;
+        try {
+          sent = await deliver(sessionId, wake);
+        } catch (error) {
+          this.onError(error);
+        }
+        try {
+          if (sent === false)
+            await this.db.update(wakes).set({ retryAt: sql`clock_timestamp()` }).where(eq(wakes.id, id));
+          else await this.db.delete(wakes).where(eq(wakes.id, id));
+        } catch (error) {
+          // The row stays as it was: the sweep sends it again, under the same key.
+          this.onError(error);
+        }
+      }
+    })();
+    this.deliveries.add(run);
+    void run.finally(() => this.deliveries.delete(run));
+  }
 
   onCommit(listener: CommitListener): () => void {
     this.listeners.add(listener);
@@ -314,10 +350,14 @@ class PostgresSessionStore implements SessionStore {
     return followControlSignals(this.sql, this.db, onSignal, options);
   }
 
-  /** Rejects new transactions and waits for running ones. Does not end the pool. */
+  /**
+   * Rejects new transactions and waits for running ones, and for the deliveries of committed
+   * wakes. Does not end the pool.
+   */
   async close(): Promise<void> {
     this.closed = true;
     await Promise.allSettled([...this.inflight]);
+    await this.delivered();
   }
 }
 
@@ -424,12 +464,13 @@ class PostgresTx implements Tx {
   readonly events: LiveEvent[] = [];
   readonly generations: number[] = [];
   readonly callbacks: (() => void | Promise<void>)[] = [];
+  /** The wakes this transaction wrote, delivered after it commits. */
+  readonly wakes: { id: string; sessionId: string; wake: OutboxWake }[] = [];
 
   constructor(
     private readonly db: Transaction,
     private readonly tenantId: string,
     private readonly now: () => Date,
-    private readonly deleteWake: (id: string) => Promise<void>,
   ) {}
 
   private check(): void {
@@ -523,11 +564,7 @@ class PostgresTx implements Tx {
 
   // --- wake outbox ---------------------------------------------------------
 
-  async wake(
-    sessionId: string,
-    wake: Wake,
-    deliver: WakeDelivery,
-  ): Promise<void> {
+  async wake(sessionId: string, wake: Wake): Promise<void> {
     this.check();
     const id = randomUUID();
     await this.db.insert(wakes).values({
@@ -536,27 +573,18 @@ class PostgresTx implements Tx {
       reason: wake.reason,
       dedupeKey: wake.dedupeKey ?? null,
     });
-    const delivered = outboxWake(id, wake.reason, wake.dedupeKey ?? null);
-    // A rejection goes to the store's error hook (as every callback's), and the row stays.
-    this.callbacks.push(async () => {
-      if ((await deliver(sessionId, delivered)) === false) return;
-      await this.deleteWake(id);
-    });
+    this.wakes.push({ id, sessionId, wake: outboxWake(id, wake.reason, wake.dedupeKey ?? null) });
   }
 
-  async pendingWakes(before: Date, limit: number): Promise<PendingWake[]> {
+  async pendingWakes(graceMs: number, limit: number): Promise<PendingWake[]> {
     this.check();
-    const dueAt = sql`coalesce(${wakes.retryAt}, ${wakes.createdAt})`;
+    // Compared on the database's clock, which wrote `created_at` and `retry_at`.
+    const grace = sql`make_interval(secs => ${Math.max(0, graceMs) / 1000})`;
+    const dueAt = sql`coalesce(${wakes.retryAt}, ${wakes.createdAt} + ${grace})`;
     const rows = await this.db
       .select()
       .from(wakes)
-      .where(
-        and(
-          isNull(wakes.parkedAt),
-          lt(wakes.createdAt, before),
-          or(isNull(wakes.retryAt), lte(wakes.retryAt, sql`clock_timestamp()`)),
-        ),
-      )
+      .where(and(isNull(wakes.parkedAt), lte(dueAt, sql`clock_timestamp()`)))
       .orderBy(dueAt, wakes.id)
       .limit(limit);
     return rows.map((row) => ({

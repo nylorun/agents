@@ -438,6 +438,20 @@ export class TenantRuntime implements TenantHandle {
           return () => sweepHooks.delete(hook);
         },
       };
+      // Committed wakes go to the execution without the request waiting; one that fails is
+      // the sweep's to send again, so it is only a warning here.
+      opened.deliverTo(async (sessionId, wake) => {
+        try {
+          return await ctx.wake(sessionId, wake);
+        } catch (error) {
+          config.logger.warn("wake delivery after commit failed; the sweep sends it again", {
+            sessionId,
+            reason: wake.reason,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return false;
+        }
+      });
       harnessServer = createHarnessApiServer(ctx, { sandboxPreference: preference });
       if (mcp && manager)
         harness = await startInProcessHarness(

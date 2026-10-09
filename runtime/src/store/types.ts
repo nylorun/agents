@@ -31,11 +31,12 @@
  * 5. **No nested transactions.** Calling `store.tx` from inside `fn` rejects.
  *    A `Tx` must not be used after its `tx` call settles.
  * 6. **Post-commit order.** After a commit, the store first calls every commit
- *    listener once with the transaction's events (in allocation order), then runs the `afterCommit` callbacks in registration
- *    order and awaits them. Listener and callback failures are reported to the
- *    store's error hook; they never reject `tx`, because the commit stands.
- *    Recovery from a lost post-commit step is the Tenant sweep's job: a wake's
- *    delivery is a callback too, and its outbox row is what the sweep delivers
+ *    listener once with the transaction's events (in allocation order), then hands
+ *    the transaction's wakes to the delivery (`deliverTo`) without awaiting it, then
+ *    runs the `afterCommit` callbacks in registration order and awaits them.
+ *    Listener and callback failures are reported to the store's error hook; they
+ *    never reject `tx`, because the commit stands. A wake whose delivery fails, or
+ *    that a crash cuts off, stays in the outbox, which the Tenant sweep delivers
  *    again (`Tx.wake`).
  * 7. **Documents are values.** `get` and queries return fresh copies; mutating
  *    them changes nothing until `put`.
@@ -386,6 +387,14 @@ export interface SessionStore {
     onSignal: (signal: ControlSignal) => void,
     options?: FollowSignalsOptions,
   ): Promise<SignalFollower>;
+  /**
+   * Sets where committed wakes go (`Tx.wake`): after each commit the store hands its wakes to
+   * `deliver` without waiting for it, so a slow execution never holds up the caller. Without
+   * one, wakes wait in the outbox for the Tenant sweep.
+   */
+  deliverTo(deliver: WakeDelivery | undefined): void;
+  /** Resolves once every delivery started so far has settled (`close` waits for them too). */
+  delivered(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -393,9 +402,10 @@ export interface SessionStore {
 export type OutboxWake = Wake & { dedupeKey: string };
 
 /**
- * Hands an outbox request to Durable Session Execution (`Tx.wake`). Resolving means the
- * execution accepted it; `false` means it was not delivered and stays in the outbox, as a
- * rejection does, without an error.
+ * Hands an outbox request to Durable Session Execution (`SessionStore.deliverTo`). Resolving
+ * means the execution accepted it; `false` means it was not delivered and stays in the
+ * outbox, due at the sweep's next pass, as after a rejection, which also goes to the store's
+ * error hook.
  */
 export type WakeDelivery = (
   sessionId: string,
@@ -520,21 +530,22 @@ export interface Tx {
   /**
    * Asks for an advance of `sessionId` once this transaction commits. The request is a row
    * of the wake outbox written in this transaction, so it commits, or rolls back, with what
-   * caused it: a commit never loses its wake. After commit, in `afterCommit` order, the
-   * store calls `deliver` (`DurableExecution.wake`, through the Tenant) and deletes the row
-   * once it resolves to anything but `false`. A request `deliver` declines (`false`) or
-   * rejects, or one a crash cut off, stays in the outbox until the Tenant sweep delivers it
-   * (`pendingWakes`, `deleteWakes`). `deliver` gets the request's idempotency key as
-   * `dedupeKey`: the wake's own, or `wake:<row id>` without one, so a request delivered
-   * twice still causes one advance.
+   * caused it: a commit never loses its wake. After commit the store hands it to the
+   * delivery (`SessionStore.deliverTo`, `DurableExecution.wake` through the Tenant) without
+   * waiting, and deletes the row once that resolves to anything but `false`. A request the
+   * delivery declines or rejects is due at the sweep's next pass; one a crash cut off, or
+   * still being sent, is due once it is older than the sweep's grace (`pendingWakes`). The
+   * delivery gets the request's idempotency key as `dedupeKey`: the wake's own, or
+   * `wake:<row id>` without one, so a request delivered twice still causes one advance.
    */
-  wake(sessionId: string, wake: Wake, deliver: WakeDelivery): Promise<void>;
+  wake(sessionId: string, wake: Wake): Promise<void>;
   /**
-   * Outbox requests written before `before` that are due: not parked, and not waiting for the
-   * retry a failed delivery set (`failWake`). Oldest first, a retried one by its retry time,
-   * so a request that keeps failing never holds the head of the queue.
+   * Outbox requests that are due, by the database's clock: written more than `graceMs` ago,
+   * or whose delivery failed and whose retry time has come (`failWake`), and not parked.
+   * Oldest first, a retried one by its retry time, so a request that keeps failing never
+   * holds the head of the queue.
    */
-  pendingWakes(before: Date, limit: number): Promise<PendingWake[]>;
+  pendingWakes(graceMs: number, limit: number): Promise<PendingWake[]>;
   /** Deletes delivered outbox requests. */
   deleteWakes(ids: readonly string[]): Promise<void>;
   /**

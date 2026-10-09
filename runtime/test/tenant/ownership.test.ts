@@ -324,7 +324,7 @@ function lossyExecution(
 async function outbox(runtime: Started) {
   const store = await openTestSessionStore(runtime);
   try {
-    return await store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 100));
+    return await store.tx((t) => t.pendingWakes(0, 100));
   } finally {
     await store.close();
   }
@@ -349,8 +349,8 @@ it("delivers a wake whose send failed after commit from the outbox, with its ded
     await openTurn(runtime, plain.manifest);
     expect(lossy.lost).toHaveLength(1);
     expect(lossy.lost[0]!.dedupeKey).toMatch(/^message:/);
-    expect((await outbox(runtime)).map((row) => row.wake)).toEqual(lossy.lost);
-    // The sweep sends it again once it is `WAKE_GRACE_MS` old, under the same key.
+    // A delivery that failed is due at once: the sweep's next pass sends it again, under the
+    // same key, without waiting for `WAKE_GRACE_MS`.
     await until(() => view(runtime), (v) => v.status === "completed", "completed");
     const sent = lossy.handed.filter((wake) => wake.reason === "message");
     expect(sent).toEqual([lossy.lost[0], lossy.lost[0]]);
@@ -405,5 +405,44 @@ it("loses no wake to a crash between commit and send: the next process delivers 
     await b.close();
     await innerB.stop();
     await rm(a.root, { recursive: true, force: true });
+  }
+});
+
+it("answers a command without waiting for its wake's send: the send runs on, and the row goes once it is accepted", async () => {
+  const inner = new MemoryExecution({ sweepIntervalMs: 60_000 });
+  // The execution takes its time with message wakes, as a slow or retrying Restate would.
+  let release!: () => void;
+  const slow = new Promise<void>((resolve) => (release = resolve));
+  const held: Wake[] = [];
+  const execution: DurableExecution = {
+    ...lossyExecution(inner, () => false),
+    wake: async (tenantId, sessionId, wake) => {
+      if (wake.reason === "message") {
+        held.push(wake);
+        await slow;
+      }
+      await inner.wake(tenantId, sessionId, wake);
+    },
+  };
+  const workers = new TenantWorkers();
+  await execution.start(workers.handlers);
+  const runtime = await boot({
+    modelProvider: async () => ({ output: [{ type: "text", text: "done" }] }),
+    execution: { execution, workers },
+  });
+  try {
+    await openTurn(runtime, plain.manifest);
+    // Answered while the send is still waiting; its outbox row is kept until it is accepted.
+    expect(held).toHaveLength(1);
+    expect((await outbox(runtime)).map((row) => row.wake)).toEqual(held);
+    expect((await view(runtime)).status).toBe("runnable");
+    release();
+    await until(() => view(runtime), (v) => v.status === "completed", "completed");
+    await until(() => outbox(runtime), (rows) => rows.length === 0, "the row deleted");
+    expect(count(await types(runtime), "turn.completed")).toBe(1);
+  } finally {
+    release();
+    await runtime.close();
+    await inner.stop();
   }
 });

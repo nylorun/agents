@@ -69,9 +69,11 @@ function contextOf(
 
 /** Writes an outbox wake for `id` whose delivery after commit did not happen. */
 const undelivered = (store: SessionStore, id: string, wake: Wake) =>
-  store.tx((t) => t.wake(id, wake, () => false));
-const pending = (store: SessionStore) =>
-  store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 100));
+  store.tx((t) => t.wake(id, wake));
+const pending = (store: SessionStore) => store.tx((t) => t.pendingWakes(0, 100));
+/** Moves every outbox row `ms` into the past, as if written then. */
+const age = (store: SessionStore, ms: number) =>
+  testTenantPool(store.tenantId)`UPDATE nylorun.wakes SET created_at = created_at - make_interval(secs => ${ms / 1000})`;
 /** Every wake outbox row, parked ones too, read directly. */
 const outboxRows = (store: SessionStore) =>
   testTenantPool(store.tenantId)`SELECT id, attempts, parked_at FROM nylorun.wakes`;
@@ -255,10 +257,10 @@ describe("on the Postgres store", () => {
     await undelivered(store, "s2", { reason: "flow" });
     const [, , flow] = await pending(store);
     // Too young for this pass.
-    expect(await deliverPendingWakes(ctx, new Date(Date.now() - 60_000))).toEqual([]);
+    expect(await deliverPendingWakes(ctx, 60_000)).toEqual([]);
     expect(wakes).toEqual([]);
 
-    const delivered = await deliverPendingWakes(ctx, new Date(Date.now() + 1000));
+    const delivered = await deliverPendingWakes(ctx);
     expect(delivered).toHaveLength(2);
     expect(wakes).toEqual([
       { id: "s1", wake: { reason: "message", dedupeKey: "message:t1:0" } },
@@ -278,14 +280,13 @@ describe("on the Postgres store", () => {
     await undelivered(store, "poison", { reason: "message" });
     await undelivered(store, "s1", { reason: "message" });
     await undelivered(store, "s2", { reason: "flow" });
-    const delivered = await deliverPendingWakes(ctx, new Date(Date.now() + 1000));
+    const delivered = await deliverPendingWakes(ctx);
     expect(delivered).toHaveLength(2);
     expect(wakes.map((w) => w.id)).toEqual(["poison", "s1", "s2"]);
     // Counted, and not due again until its retry: the next pass skips it.
-    const [left] = await store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 100));
-    expect(left).toBeUndefined();
+    expect(await pending(store)).toEqual([]);
     wakes.length = 0;
-    expect(await deliverPendingWakes(ctx, new Date(Date.now() + 1000))).toEqual([]);
+    expect(await deliverPendingWakes(ctx)).toEqual([]);
     expect(wakes).toEqual([]);
   });
 
@@ -308,7 +309,7 @@ describe("on the Postgres store", () => {
     for (let i = 1; i < MAX_WAKE_ATTEMPTS; i++)
       await store.tx((t) => t.failWake(row!.id, { retryInMs: 0, park: false }));
     expect((await pending(store))[0]!.attempts).toBe(MAX_WAKE_ATTEMPTS - 1);
-    await deliverPendingWakes(ctx, new Date(Date.now() + 1000));
+    await deliverPendingWakes(ctx);
     expect(logged.filter((entry) => entry.level === "error")).toMatchObject([
       {
         message: "wake outbox row parked: its delivery keeps failing",
@@ -317,7 +318,7 @@ describe("on the Postgres store", () => {
     ]);
     // Parked: never due again, never sent again, but kept.
     expect(await pending(store)).toEqual([]);
-    await deliverPendingWakes(ctx, new Date(Date.now() + 1000));
+    await deliverPendingWakes(ctx);
     expect(logged.filter((entry) => entry.level === "error")).toHaveLength(1);
     expect(await outboxRows(store)).toMatchObject([
       { id: row!.id, attempts: MAX_WAKE_ATTEMPTS, parked_at: expect.any(String) },
@@ -354,13 +355,9 @@ describe("on the Postgres store", () => {
     await sweep(ctx);
     expect(wakes).toEqual([]);
     expect((await pending(store)).map((row) => row.sessionId)).toEqual(["just-committed"]);
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      vi.setSystemTime(Date.now() + WAKE_GRACE_MS + 1000);
-      await sweep(ctx);
-    } finally {
-      vi.useRealTimers();
-    }
+    // The grace is the database's clock: this process's has no say.
+    await age(store, WAKE_GRACE_MS + 1000);
+    await sweep(ctx);
     expect(wakes.map((w) => w.id)).toEqual(["just-committed"]);
     expect(await pending(store)).toEqual([]);
   });
@@ -376,15 +373,15 @@ describe("on the Postgres store", () => {
     });
     await store.tx(async (t) => {
       for (let i = 0; i < 250; i++)
-        await t.wake(`s${String(i).padStart(3, "0")}`, { reason: "message" }, () => false);
+        await t.wake(`s${String(i).padStart(3, "0")}`, { reason: "message" });
     });
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       vi.setSystemTime(start);
-      expect(await deliverPendingWakes(ctx, new Date(start + 60_000))).toHaveLength(150);
+      expect(await deliverPendingWakes(ctx)).toHaveLength(150);
       expect(await pending(store)).toHaveLength(100);
       // The next pass goes on with the rest.
-      expect(await deliverPendingWakes(ctx, new Date(start + 60_000))).toHaveLength(100);
+      expect(await deliverPendingWakes(ctx)).toHaveLength(100);
     } finally {
       vi.useRealTimers();
     }
@@ -460,6 +457,7 @@ describe("on the Postgres store", () => {
   it("settles a pending agent effect whose linked turn already finished", async () => {
     const store = await makeStore();
     const { ctx, wakes } = contextOf(store);
+    store.deliverTo(ctx.wake);
     await store.tx(async (t) => {
       await t.put("sessions", "wf", session("wf", { status: "waiting", activeTurnId: "t1" }));
       await t.put(
@@ -486,6 +484,7 @@ describe("on the Postgres store", () => {
       await commitLinkedMessage(t, request, "a1");
     });
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(await store.tx((t) => t.get("effects", "eff"))).toMatchObject({
       status: "completed",
       outcome: { value: "done" },
@@ -497,6 +496,7 @@ describe("on the Postgres store", () => {
       { id: "wf", wake: { reason: "linked", dedupeKey: "linked:t1:eff" } },
     ]);
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(wakes).toHaveLength(1);
   });
 
@@ -505,6 +505,7 @@ describe("on the Postgres store", () => {
   it("never settles a Loop's next agent effect from the linked session's earlier turn", async () => {
     const store = await makeStore();
     const { ctx, wakes } = contextOf(store);
+    store.deliverTo(ctx.wake);
     const first = agentEffect("eff-1", 1);
     const second = agentEffect("eff-2", 2);
     await store.tx(async (t) => {
@@ -540,6 +541,7 @@ describe("on the Postgres store", () => {
       });
     });
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(await store.tx((t) => t.get("effects", "eff-2"))).toMatchObject({
       status: "pending",
     });
@@ -556,6 +558,7 @@ describe("on the Postgres store", () => {
       await commitLinkedMessage(t, second, "a2");
     });
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(await store.tx((t) => t.get("effects", "eff-2"))).toMatchObject({
       status: "pending",
     });
@@ -573,6 +576,7 @@ describe("on the Postgres store", () => {
       });
     });
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(await store.tx((t) => t.get("effects", "eff-2"))).toMatchObject({
       status: "completed",
       outcome: { value: "draft-v2" },

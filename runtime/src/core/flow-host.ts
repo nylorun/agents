@@ -4,8 +4,8 @@
  * Every function that touches state takes the caller's transaction `t: Tx` and
  * is async. Nothing here publishes, notifies or schedules directly (seam rule
  * 1): events go through `t.event(...)`, which the store publishes after
- * commit, and wakes go through `t.wake(id, wake, schedule)`, the wake outbox, which
- * calls `schedule` after commit. Functions
+ * commit, and wakes go through `t.wake(id, wake)`, the wake outbox, which the store
+ * delivers after commit. Functions
  * that rewrite a session-scoped document lock that session first with
  * `t.lockSession` (a no-op when the caller already holds it).
  *
@@ -24,9 +24,9 @@
  * - `linkedMessageKey(request): string`
  * - `linkedTurnOf(t, agentSessionId, request): Promise<string | undefined>`
  * - `linkedTurnEnd(t, effect, agent): Promise<LinkedTurnEnd | undefined>`
- * - `wakeLinkedWorkflow({ t, agentSessionId, turnId, output?, failed?, cancelled?, error?, schedule }): Promise<void>`
+ * - `wakeLinkedWorkflow({ t, agentSessionId, turnId, output?, failed?, cancelled?, error? }): Promise<void>`
  * - `pendingAgentEffects(t): Promise<FlowEffect[]>`
- * - `reconcilePendingAgentEffect({ t, effectId, schedule }): Promise<boolean>`
+ * - `reconcilePendingAgentEffect({ t, effectId }): Promise<boolean>`
  * - `planCancelCascade({ t, workflowSessionId, turnId }): Promise<CascadeCancelPlan>`
  * - `cancelSiblingWork({ t, workflowSessionId, turnId, siblingPaths?, cancelEffectIds? }): Promise<CancelSiblingResult>`
  * - `cancelQueuedEffects({ t, workflowSessionId, turnId }): Promise<string[]>`
@@ -34,11 +34,11 @@
  * - `flowInteractionOf(waits, workflowSessionId, interactionId): { id; kind } | undefined`
  * - `findInteractionOwner({ t, workflowSessionId, interactionId }): Promise<{ sessionId; path } | undefined>`
  * - `foreignInteractionConflict({ t, workflowSessionId, interactionId }): Promise<{ status: 409; message; ownerSessionId } | undefined>`
- * - `wakeForQueuedEffects({ t, workflowSessionId, turnId, limits, schedule }): Promise<boolean>`
+ * - `wakeForQueuedEffects({ t, workflowSessionId, turnId, limits }): Promise<boolean>`
  *
- * `schedule` (a `WakeDelivery`, the Tenant's `ctx.wake`) runs after commit, never inside `t`;
- * `wake` carries the reason (`linked`, `flow`) and, where the cause has one, a dedupe key. A
- * wake `schedule` does not deliver stays in the outbox for the Tenant sweep (`Tx.wake`).
+ * A wake carries the reason (`linked`, `flow`) and, where the cause has one, a dedupe key.
+ * The store delivers it after commit, never inside `t`; one it does not deliver stays in the
+ * outbox for the Tenant sweep (`Tx.wake`).
  *
  * An `agent` effect settles only from the linked turn it started. A linked agent session is
  * reused by every iteration of a Loop (its id derives from the workflow and the path), so its
@@ -54,7 +54,7 @@ import type { EffectOutcome } from "@nylorun/core/contracts";
 import { isVerdict, type JsonValue, type WorkflowManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import type { Wake } from "../execution/types.js";
-import type { EffectDoc, Tx, WakeDelivery } from "../store/types.js";
+import type { EffectDoc, Tx } from "../store/types.js";
 import { mayDispatchMore, type FlowLimits } from "./limits.js";
 
 /** Deterministic agent session id: derive(workflowSessionId, path, …parts). */
@@ -243,9 +243,6 @@ export type CascadeCancelPlan = {
   readonly agentSessionIds: string[];
 };
 
-/** Wakes a session after commit (`DurableExecution.wake` through the Tenant context). */
-type Schedule = WakeDelivery;
-
 /** Effect documents as the flow host writes them. */
 export type FlowEffect = EffectDoc & {
   agentSessionId?: string;
@@ -253,14 +250,9 @@ export type FlowEffect = EffectDoc & {
   error?: string;
 };
 
-/** Writes the wake to the outbox; `schedule` delivers it after commit. */
-function requestWake(
-  t: Tx,
-  schedule: Schedule,
-  id: string,
-  wake: Wake
-): Promise<void> {
-  return t.wake(id, wake, schedule);
+/** Writes the wake to the outbox, which delivers it after commit. */
+function requestWake(t: Tx, id: string, wake: Wake): Promise<void> {
+  return t.wake(id, wake);
 }
 
 /** Active agent turns + tool nodes in flight for one workflow turn. */
@@ -353,7 +345,6 @@ export async function wakeLinkedWorkflow(input: {
   readonly failed?: boolean;
   readonly cancelled?: boolean;
   readonly error?: string;
-  readonly schedule: Schedule;
 }): Promise<void> {
   const { t } = input;
   const link = await t.get<FlowLink>("links", input.agentSessionId);
@@ -392,7 +383,7 @@ export async function wakeLinkedWorkflow(input: {
 
   workflow.status = "runnable";
   await t.put("sessions", workflow.id, workflow);
-  await requestWake(t, input.schedule, workflow.id, {
+  await requestWake(t, workflow.id, {
     reason: "linked",
     dedupeKey: `linked:${link.turnId}:${link.effectId}`,
   });
@@ -418,7 +409,6 @@ export async function pendingAgentEffects(t: Tx): Promise<FlowEffect[]> {
 export async function reconcilePendingAgentEffect(input: {
   readonly t: Tx;
   readonly effectId: string;
-  readonly schedule: Schedule;
 }): Promise<boolean> {
   const { t } = input;
   const found = await t.get<FlowEffect>("effects", input.effectId);
@@ -444,7 +434,6 @@ export async function reconcilePendingAgentEffect(input: {
       : end.status === "failed"
       ? { failed: true, error: end.error }
       : { cancelled: true, error: end.error }),
-    schedule: input.schedule,
   });
   return true;
 }
@@ -695,7 +684,6 @@ export async function wakeForQueuedEffects(input: {
   readonly workflowSessionId: string;
   readonly turnId: string;
   readonly limits: FlowLimits;
-  readonly schedule: Schedule;
 }): Promise<boolean> {
   const { t } = input;
   if (
@@ -718,7 +706,7 @@ export async function wakeForQueuedEffects(input: {
     workflow.status = "runnable";
     await t.put("sessions", workflow.id, workflow);
   }
-  await requestWake(t, input.schedule, input.workflowSessionId, {
+  await requestWake(t, input.workflowSessionId, {
     reason: "flow",
   });
   return true;
