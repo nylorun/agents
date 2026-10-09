@@ -261,7 +261,8 @@ try {
       tenant = await stack.tenant();
       await api("PUT", "/v1/tenant/sandbox", {
         requestId: randomUUID(),
-        limits: { idle: "10m", ttl: "2h" },
+        // The echo hosts the credentials step's sandbox reaches (R2c), in place of the dev preset.
+        limits: { idle: "10m", ttl: "2h", network: ECHO_HOSTS },
         lifecycle: { onExpiry: "retain", stopGrace: "10s" },
       });
       const cluster = (await api("GET", "/v1/tenant/sandbox")).body.cluster;
