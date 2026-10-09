@@ -323,7 +323,9 @@ describe("egress-gate", () => {
   it("runs in the gateway over the Tenant's keys (`--service egress`)", async () => {
     sandboxes.set("sbx_1", { epoch: 1, allow: ["allowed.test"] });
     const vaults: TenantVaults = {
-      open: async () => ({ tenantId: runs.tenantId, store: runs.store }) as unknown as TenantVault,
+      // No session on the sandbox binds a shell secret (R2c): every host is a tunnel.
+      open: async () =>
+        ({ tenantId: runs.tenantId, store: runs.store, environmentSecretBound: async () => false }) as unknown as TenantVault,
     };
     const proxy = await startEgress({
       egress: { listen: { host: "127.0.0.1", port: 0 } },

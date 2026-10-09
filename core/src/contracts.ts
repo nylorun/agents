@@ -1071,6 +1071,92 @@ const credentialRoutingChange = {
   identity: CredentialIdentitySchema.nullable().optional(),
 };
 /**
+ * An environment variable name a shell secret or plain variable may take (R2c, D50): a POSIX
+ * name. Names the sandbox needs for itself (the proxy, the trust store, `PATH`, `HOME`) and
+ * `NYLORUN_*` are reserved.
+ */
+export const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+export const RESERVED_ENVIRONMENT_NAMES: ReadonlySet<string> = new Set([
+  "PATH",
+  "HOME",
+  "PWD",
+  "SHELL",
+  "USER",
+  "HTTPS_PROXY",
+  "HTTP_PROXY",
+  "NO_PROXY",
+  "ALL_PROXY",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
+  "REQUESTS_CA_BUNDLE",
+  "CURL_CA_BUNDLE",
+  "GIT_SSL_CAINFO",
+  "AWS_CA_BUNDLE",
+]);
+export function isReservedEnvironmentName(name: string): boolean {
+  const upper = name.toUpperCase();
+  return RESERVED_ENVIRONMENT_NAMES.has(upper) || upper.startsWith("NYLORUN_");
+}
+const EnvironmentNameSchema = z
+  .string()
+  .regex(ENVIRONMENT_NAME_PATTERN, "An environment variable name is a letter or _ followed by letters, digits or _")
+  .refine((name) => !isReservedEnvironmentName(name), "That environment variable name is reserved");
+/** The value a sandbox sees for every `environment_secret` (R2c, D50): never the secret. */
+export const ENVIRONMENT_SECRET_SENTINEL = "nylorun-managed";
+/**
+ * How egress-gate writes an `environment_secret` into a request (R2c, D50): one header, set on
+ * every request to a bound host. `format` is text with `{value}` once, optionally inside a
+ * `{base64:…}` group, for example `Bearer {value}` (the default),
+ * `Basic {base64:x-access-token:{value}}` or `{value}`.
+ */
+export const ENVIRONMENT_SECRET_DEFAULT_INJECT = { header: "Authorization", format: "Bearer {value}" } as const;
+const BASE64_GROUP = /\{base64:((?:[^{}]|\{value\})*)\}/g;
+export function isInjectFormat(format: string): boolean {
+  if (/[\r\n\0]/.test(format)) return false;
+  const values = format.match(/\{value\}/g)?.length ?? 0;
+  const rest = format.replace(BASE64_GROUP, (_, inner: string) => inner.replace(/\{value\}/g, "")).replace(/\{value\}/g, "");
+  return values === 1 && !/[{}]/.test(rest);
+}
+/** `format` with `{value}` replaced, and each `{base64:…}` group encoded. */
+export function renderInjectFormat(format: string, value: string): string {
+  return format
+    .replace(BASE64_GROUP, (_, inner: string) => base64Utf8(inner.replace(/\{value\}/g, () => value)))
+    .replace(/\{value\}/g, () => value);
+}
+function base64Utf8(text: string): string {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+export const EnvironmentSecretInjectSchema = z
+  .object({
+    header: CredentialHeaderNameSchema,
+    format: z.string().min(1).refine(isInjectFormat, "format has {value} exactly once, optionally inside one {base64:…} group"),
+  })
+  .strict();
+export type EnvironmentSecretInject = z.infer<typeof EnvironmentSecretInjectSchema>;
+/** Exact host names an `environment_secret` may be sent to: no wildcards, no IP literals. */
+const AllowedHostsSchema = z
+  .array(
+    z
+      .string()
+      .toLowerCase()
+      .refine(
+        (host) => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host) && !/^\d+(\.\d+){3}$/.test(host),
+        "allowedHosts takes exact host names such as api.github.com: no wildcard, port or IP address",
+      ),
+  )
+  .min(1)
+  .max(32)
+  .refine((hosts) => new Set(hosts).size === hosts.length, "allowedHosts lists each host once");
+const EnvironmentValueSchema = z
+  .string()
+  .min(1)
+  .max(8192)
+  .refine((value) => !/[\r\n\0]/.test(value), "A value has no CR, LF or NUL");
+
+/**
  * A credential for the server at `url` (the URL a manifest names): `bearer` sends
  * `Authorization: Bearer <token>`, `headers` its header map (R2b C2). The header names may not be
  * the MCP transport's headers or `Nylorun-*`.
@@ -1094,6 +1180,22 @@ export const CreateCredentialRequestSchema = z
           url: z.string().min(1),
           headers: CredentialHeadersSchema,
           ...credentialRouting,
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal("environment_secret"),
+          secretName: EnvironmentNameSchema,
+          secretValue: EnvironmentValueSchema,
+          allowedHosts: AllowedHostsSchema,
+          inject: EnvironmentSecretInjectSchema.optional(),
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal("environment_variable"),
+          variableName: EnvironmentNameSchema,
+          variableValue: EnvironmentValueSchema,
         })
         .strict(),
     ]),
@@ -1124,6 +1226,8 @@ export const RotateCredentialRequestSchema = z
           ...credentialRoutingChange,
         })
         .strict(),
+      z.object({ type: z.literal("environment_secret"), secretValue: EnvironmentValueSchema }).strict(),
+      z.object({ type: z.literal("environment_variable"), variableValue: EnvironmentValueSchema }).strict(),
     ]),
   })
   .strict();
@@ -1208,8 +1312,22 @@ export const CredentialInfoSchema = z
     id: z.string(),
     vaultId: z.string(),
     name: z.string(),
-    type: z.enum(["bearer", "headers"]),
-    binding: z.object({ url: z.string() }).strict(),
+    type: z.enum(["bearer", "headers", "environment_secret", "environment_variable"]),
+    /**
+     * What the credential is bound to: the server `url` for `bearer` and `headers`; the variable
+     * name and hosts for `environment_secret` (R2c); the name and its plain value for
+     * `environment_variable`, which is not a secret. A secret's value is never shown.
+     */
+    binding: z
+      .object({
+        url: z.string().optional(),
+        secretName: z.string().optional(),
+        allowedHosts: z.array(z.string()).optional(),
+        inject: EnvironmentSecretInjectSchema.optional(),
+        variableName: z.string().optional(),
+        variableValue: z.string().optional(),
+      })
+      .strict(),
     /** A `headers` credential's header names (lower case), never their values. */
     headerNames: z.array(z.string()).optional(),
     via: z.string().optional(),

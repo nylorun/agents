@@ -46,7 +46,22 @@ type HeaderRow = { name: string; value: string };
 const TYPE_LABELS: Record<CredentialType, string> = {
   bearer: "Bearer",
   headers: "Headers",
+  environment_secret: "Secret",
+  environment_variable: "Variable",
 };
+
+/** A shell credential (R2c): set through the Management API; Studio lists and deletes it. */
+function isShellCredential(credential: CredentialInfo): boolean {
+  return credential.type === "environment_secret" || credential.type === "environment_variable";
+}
+
+/** What a credential is for: its URL, or the variable a shell credential sets and where. */
+function bindingOf(credential: CredentialInfo): string {
+  const { binding } = credential;
+  if (binding.url) return binding.url;
+  if (binding.secretName) return `$${binding.secretName} → ${(binding.allowedHosts ?? []).join(", ")}`;
+  return binding.variableName ? `$${binding.variableName}` : "";
+}
 
 /** True when the Runtime's answer contains one of the secrets just sent. */
 function leaks(info: unknown, secrets: readonly string[]): boolean {
@@ -200,7 +215,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     setActive(row);
     if (row) {
       setCredentialName(row.credential.name);
-      setBindingUrl(row.credential.binding.url);
+      setBindingUrl(row.credential.binding.url ?? "");
       setCredentialType(row.credential.type);
       setHeaderRows(
         (row.credential.headerNames ?? [""]).map((name) => ({ name, value: "" })),
@@ -301,7 +316,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     try {
       setPreview(
         await client(tenantId).mcp.preview({
-          url: row.credential.binding.url,
+          url: row.credential.binding.url ?? "",
           vaultId: row.vault.id,
         }),
       );
@@ -478,9 +493,9 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                   </TableCell>
                   <TableCell
                     className="max-w-xs truncate font-mono text-xs"
-                    title={row.credential.binding.url}
+                    title={bindingOf(row.credential)}
                   >
-                    {row.credential.binding.url}
+                    {bindingOf(row.credential)}
                   </TableCell>
                   <TableCell>
                     {formatWhen(row.credential.rotatedAt)}
@@ -502,16 +517,20 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                         >
                           View
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => void previewTools(row)}
-                        >
-                          Preview tools
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => openPanel("update", row)}
-                        >
-                          Rotate
-                        </DropdownMenuItem>
+                        {isShellCredential(row.credential) ? null : (
+                          <>
+                            <DropdownMenuItem
+                              onSelect={() => void previewTools(row)}
+                            >
+                              Preview tools
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => openPanel("update", row)}
+                            >
+                              Rotate
+                            </DropdownMenuItem>
+                          </>
+                        )}
                         <DropdownMenuItem
                           onSelect={() => openPanel("delete", row)}
                         >

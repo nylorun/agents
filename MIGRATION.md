@@ -1,3 +1,22 @@
+# Credentials for skills: two new vault credential kinds
+
+Vault credentials gain `environment_secret` and `environment_variable` (R2c), for skills whose
+CLIs run in pod sandboxes. Nothing you use changes: existing credentials, routes and the protocol
+(10) are as they were. Two things are new to a client:
+
+- `CredentialInfo.type` can be `environment_secret` or `environment_variable`, and
+  `CredentialInfo.binding.url` is absent for them (their binding has `secretName`,
+  `allowedHosts` and `inject`, or `variableName` and `variableValue`). A client that reads
+  `binding.url` for every credential, or parses `type` as `bearer | headers` only, must allow
+  these.
+- `PUT /v1/sessions/{id}` can answer `409` with code `credential_conflict` when the attached
+  vaults set one variable twice, bind one host twice, or the sandbox would serve two owners'
+  secrets.
+
+The pod engine's join answer also carries the egress CA certificate (`caCertificate`); an image
+whose engine is older ignores it. See "Credentials for skills" in
+[DEPLOYMENT.md](./DEPLOYMENT.md#credentials-for-skills).
+
 # The harness has no provider adapters: `@nylorun/harness/model/adapters` is removed
 
 The harness makes no model call. Each step builds the provider-neutral `ModelCall` and reads

@@ -217,7 +217,11 @@ export async function putSession(
       credentialSelections,
       { opaque }
     );
+    const environment = await ctx.vault.sessionEnvironment(t, vaultIds);
+    if (environment.conflict) fail(409, environment.conflict, { code: "credential_conflict" });
     if (prior) {
+      if (prior.sandboxId !== undefined)
+        await assertSandboxSecrets(ctx, t, prior.sandboxId, id, body.ownerUserId, environment.secretHosts);
       if (sessionIdentity(prior.creation) !== sessionIdentity(body))
         fail(409, "Session already exists with different creation parameters");
       prior.vaultIds = vaultIds;
@@ -237,6 +241,8 @@ export async function putSession(
     // Placement (D38): where this session's harness may run, decided now and kept.
     checkPlacement(await readSandboxConfig(t), sandbox.kind);
     if (sandbox.kind === "pod") await requirePods(ctx.pods, `Sandbox ${sandbox.sandboxId}`);
+    if (sandbox.sandboxId !== undefined)
+      await assertSandboxSecrets(ctx, t, sandbox.sandboxId, id, body.ownerUserId, environment.secretHosts);
     const pinned = sandbox.manifest === undefined ? platformTools(definition) : sandbox;
     const created: Session = {
       id,
@@ -265,6 +271,32 @@ export async function putSession(
     if (sandbox.sandboxId !== undefined) await recordAttachment(t, id, sandbox.sandboxId);
     return created;
   });
+}
+
+/**
+ * A sandbox's shell secrets must be unambiguous (R2c, D50): egress-gate sets the header from the
+ * one `environment_secret` bound to a host among the sessions using the sandbox. So while any of
+ * them has secrets, they all have one owner, and no host is bound to two credentials.
+ */
+async function assertSandboxSecrets(
+  ctx: TenantContext,
+  t: Tx,
+  sandboxId: string,
+  sessionId: string,
+  ownerUserId: string,
+  secretHosts: Readonly<Record<string, string>>
+): Promise<void> {
+  const conflict = (message: string) => fail(409, message, { code: "credential_conflict" });
+  const mine = Object.keys(secretHosts).length > 0;
+  for (const other of await t.sessionsOnSandbox<Session>(sandboxId)) {
+    if (other.id === sessionId) continue;
+    const theirs = (await ctx.vault.sessionEnvironment(t, other.vaultIds ?? [])).secretHosts;
+    if (other.ownerUserId !== ownerUserId && (mine || Object.keys(theirs).length > 0))
+      conflict(`Sandbox ${sandboxId} serves environment_secret credentials of one owner at a time`);
+    for (const [host, credentialId] of Object.entries(secretHosts))
+      if (theirs[host] !== undefined && theirs[host] !== credentialId)
+        conflict(`Two environment_secret credentials would be bound to ${host} in sandbox ${sandboxId}`);
+  }
 }
 
 function isShare(value: unknown): value is { session: string } {

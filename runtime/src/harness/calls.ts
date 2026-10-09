@@ -39,6 +39,8 @@ export interface ToolRouting {
   /** The session that owns the tree's sandbox, and the sandbox resource it is attached to. */
   readonly sandboxOwnerId: string;
   readonly sandboxId?: string;
+  /** Variables every sandbox command gets (R2c): secret names set to the sentinel, plain values. */
+  readonly environment?: Readonly<Record<string, string>>;
   readonly activeTurnId: string | null;
   /** Who the sandbox call's events are claimed for: the run's id. */
   readonly claim?: string;
@@ -201,6 +203,7 @@ export async function callSandboxTool(
       activeTurnId: routing.activeTurnId,
       manifest: routing.rootManifest,
       ...(routing.sandboxId === undefined ? {} : { sandboxId: routing.sandboxId }),
+      ...(routing.environment === undefined ? {} : { environment: routing.environment }),
       ...(routing.claim === undefined ? {} : { claim: routing.claim }),
     },
     capability,
