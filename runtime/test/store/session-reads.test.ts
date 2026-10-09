@@ -28,11 +28,13 @@ it("exports safe transaction order across held transactions, rollback and restar
     await insert(sql, "later-committed");
     expect((await reads.exportModel(undefined, 1)).calls).toEqual([]);
     await held`commit`;
+    // Transaction IDs are cluster-wide, so a transaction in another test file's database can
+    // hold the horizon between the two rows. Wait until both are safe; the horizon only advances.
     await expect
-      .poll(async () => (await reads.exportModel(undefined, 1)).calls.map((c) => c.id), {
+      .poll(async () => (await reads.exportModel(undefined, 2)).calls.map((c) => c.id), {
         timeout: 10_000,
       })
-      .toEqual(["earlier-held"]);
+      .toEqual(["earlier-held", "later-committed"]);
     const first = await reads.exportModel(undefined, 1);
     expect(first.calls.map((c) => c.id)).toEqual(["earlier-held"]);
     expect(first.caughtUp).toBe(false);
