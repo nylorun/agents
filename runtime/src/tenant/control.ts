@@ -8,9 +8,16 @@
  * - `sessions.reset` is written by the reset's transaction (`reset.ts`): every process moves
  *   its session streams to the new basin generation and ends those of deleted sessions
  *   (`checkSessionStreams`).
+ * - `host.revoked` is written by the transaction that moves a pod sandbox's host epoch
+ *   (`sandboxes.ts`, `sandbox/join.ts`, `sandbox/pods/reconcile.ts`): every process closes its
+ *   connections hosting that sandbox at an older epoch, wherever the host connected
+ *   (`HarnessApiServer.revokeHost`).
  *
  * A lost signal costs latency, never correctness: the advance checks the Session Store before
- * every effect, and the session streams are checked periodically (`streams.ts`).
+ * every effect, the session streams are checked periodically (`streams.ts`), and a revoked
+ * host's writes are fenced by its runs' lease epochs and its token by the sandbox's row.
+ * Signals are read back from their rows for two minutes, so a process whose listener was
+ * down catches up.
  */
 import type { TenantContext } from "./context.js";
 import { checkSessionStreams } from "./session-streams.js";
@@ -40,6 +47,7 @@ export async function wireControl(
   const follower = await ctx.store.followSignals(
     (signal) => {
       if (signal.type === "session.cancel") ctx.abortLocal(signal.sessionId, signal.turnId);
+      else if (signal.type === "host.revoked") ctx.harness.revokeHost(signal.sandboxId, signal.epoch);
       else void checkSessionStreams(ctx).catch(report("session stream check failed"));
     },
     {

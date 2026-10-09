@@ -15,19 +15,27 @@ import {
   planCancelCascade,
   pendingAgentEffects,
   reconcilePendingAgentEffect,
-  wakeForQueuedEffects,
   wakeLinkedWorkflow,
   type FlowHostSession,
   type FlowLink,
 } from "../../src/core/flow-host.js";
-import { resolveFlowLimits } from "../../src/core/limits.js";
 import type { DocTable, SessionStore } from "../../src/store/types.js";
 import { createTestSessionStore } from "../support/store.js";
 
 async function testStore() {
   const store = await createTestSessionStore();
+  // Where committed wakes go (the outbox's delivery after commit).
+  const scheduled: string[] = [];
+  store.deliverTo((request) => {
+    if (request.kind === "wake") scheduled.push(request.sessionId);
+  });
   return {
     store,
+    /** The sessions woken so far, once their deliveries ran. */
+    woken: async () => {
+      await store.delivered();
+      return [...scheduled];
+    },
     put: (table: DocTable, id: string, body: unknown) =>
       store.tx((t) => t.put(table, id, body)),
     get: <T = any>(table: DocTable, id: string) =>
@@ -177,36 +185,6 @@ it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and tool nodes in 
   await put("effects", "agent-2", effect("agent-2", "agent", "pending", "turn-0"));
 
   expect(await store.tx((t) => countActiveFlowWork(t, "wf-1", "turn-1"))).toBe(2);
-});
-
-it("WF-L1: wakeForQueuedEffects schedules the workflow after commit when a slot frees", async () => {
-  const { store, put, get } = await testStore();
-  await put("sessions", "wf-1", {
-    id: "wf-1",
-    status: "waiting",
-    activeTurnId: "turn-1",
-  });
-  await put("effects", "q", {
-    request: { effectId: "q", sessionId: "wf-1", turnId: "turn-1", kind: "tool" },
-    status: "queued",
-  });
-  const scheduled: string[] = [];
-  const woke = await store.tx(async (t) => {
-    const result = await wakeForQueuedEffects({
-      t,
-      workflowSessionId: "wf-1",
-      turnId: "turn-1",
-      limits: resolveFlowLimits({ flow: { maxConcurrency: 1 } }),
-      schedule: (sid) => scheduled.push(sid),
-    });
-    expect(scheduled).toEqual([]);
-    return result;
-  });
-  expect(woke).toBe(true);
-  expect(scheduled).toEqual(["wf-1"]);
-  expect((await get<FlowHostSession>("sessions", "wf-1"))?.status).toBe(
-    "runnable"
-  );
 });
 
 it("PAR-R6: cancelSiblingWork lists the sibling agents to cancel", async () => {
@@ -395,7 +373,6 @@ it("records a verifier agent's verdict as loop.verified when its turn settles", 
         agentSessionId: agentId,
         turnId: `turn-${effectId}`,
         output: output as never,
-        schedule: () => undefined,
       })
     );
   };
@@ -413,7 +390,7 @@ it("records a verifier agent's verdict as loop.verified when its turn settles", 
 });
 
 it("WF-R54: wakeLinkedWorkflow records agent.cancelled", async () => {
-  const { store, put, get } = await testStore();
+  const { store, put, get, woken } = await testStore();
   const agentId = deriveSessionId("wf-1", "branch");
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -429,16 +406,12 @@ it("WF-R54: wakeLinkedWorkflow records agent.cancelled", async () => {
   const request = agentRequest("eff-1", "branch");
   await put("effects", "eff-1", { status: "pending", request });
   await commitLinkedMessage(put, agentId, request, "agent-turn-1");
-  let scheduled = "";
   await store.tx((t) =>
     wakeLinkedWorkflow({
       t,
       agentSessionId: agentId,
       turnId: "agent-turn-1",
       cancelled: true,
-      schedule: (sid) => {
-        scheduled = sid;
-      },
     })
   );
   expect((await get("effects", "eff-1"))?.outcome?.value).toMatchObject({
@@ -448,11 +421,11 @@ it("WF-R54: wakeLinkedWorkflow records agent.cancelled", async () => {
   expect((await get<FlowHostSession>("sessions", "wf-1"))?.status).toBe(
     "runnable"
   );
-  expect(scheduled).toBe("wf-1");
+  expect(await woken()).toEqual(["wf-1"]);
 });
 
-it("wakeLinkedWorkflow schedules nothing when the transaction rolls back", async () => {
-  const { store, put, get } = await testStore();
+it("wakeLinkedWorkflow wakes nothing when the transaction rolls back", async () => {
+  const { store, put, get, woken } = await testStore();
   const agentId = deriveSessionId("wf-1", "branch");
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -468,7 +441,6 @@ it("wakeLinkedWorkflow schedules nothing when the transaction rolls back", async
   const request = agentRequest("eff-1", "branch");
   await put("effects", "eff-1", { status: "pending", request });
   await commitLinkedMessage(put, agentId, request, "agent-turn-1");
-  const scheduled: string[] = [];
   await expect(
     store.tx(async (t) => {
       await wakeLinkedWorkflow({
@@ -476,17 +448,16 @@ it("wakeLinkedWorkflow schedules nothing when the transaction rolls back", async
         agentSessionId: agentId,
         turnId: "agent-turn-1",
         output: "done",
-        schedule: (sid) => scheduled.push(sid),
       });
       throw new Error("rollback");
     })
   ).rejects.toThrow("rollback");
-  expect(scheduled).toEqual([]);
+  expect(await woken()).toEqual([]);
   expect((await get("effects", "eff-1"))?.status).toBe("pending");
 });
 
 it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () => {
-  const { store, put, get } = await testStore();
+  const { store, put, get, woken } = await testStore();
   const agentId = deriveSessionId("wf-1", "writer");
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -513,28 +484,21 @@ it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () 
     request,
   });
   await commitLinkedMessage(put, agentId, request, "agent-turn-1");
-  const scheduled: { id: string; reason: string }[] = [];
   const pending = await store.tx((t) => pendingAgentEffects(t));
   expect(pending.map((e) => e.request.effectId ?? "eff")).toHaveLength(1);
   expect(
-    await store.tx((t) =>
-      reconcilePendingAgentEffect({
-        t,
-        effectId: "eff",
-        schedule: (id, wake) => {
-          scheduled.push({ id, reason: wake.reason });
-        },
-      })
-    )
+    await store.tx((t) => reconcilePendingAgentEffect({ t, effectId: "eff" }))
   ).toBe(true);
   const effect = await get("effects", "eff");
   expect(effect?.status).toBe("completed");
   expect(effect?.outcome).toEqual({ value: "done" });
-  expect(scheduled).toEqual([{ id: "wf-1", reason: "linked" }]);
+  expect(await woken()).toEqual(["wf-1"]);
+  // Delivered: its outbox row is gone.
+  expect(await store.tx((t) => t.pendingOutbox(0, 10))).toEqual([]);
 });
 
 it("an agent effect settles only from the linked turn it started, never an earlier one", async () => {
-  const { store, put, get } = await testStore();
+  const { store, put, get, woken } = await testStore();
   const agentId = deriveSessionId("wf-1", "writer");
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -569,16 +533,9 @@ it("an agent effect settles only from the linked turn it started, never an earli
     effectId: "eff-2",
     turnId: "turn-1",
   });
-  const scheduled: string[] = [];
-  const schedule = (id: string) => {
-    scheduled.push(id);
-  };
-
   // Neither the sweep nor a late settle of the earlier turn settles iteration 2.
   expect(
-    await store.tx((t) =>
-      reconcilePendingAgentEffect({ t, effectId: "eff-2", schedule })
-    )
+    await store.tx((t) => reconcilePendingAgentEffect({ t, effectId: "eff-2" }))
   ).toBe(false);
   await store.tx((t) =>
     wakeLinkedWorkflow({
@@ -586,11 +543,10 @@ it("an agent effect settles only from the linked turn it started, never an earli
       agentSessionId: agentId,
       turnId: "agent-turn-1",
       output: "draft-v1",
-      schedule,
     })
   );
   expect((await get("effects", "eff-2"))?.status).toBe("pending");
-  expect(scheduled).toEqual([]);
+  expect(await woken()).toEqual([]);
 
   // Iteration 2's turn ends: its settle completes the effect with its own output.
   await commitLinkedMessage(put, agentId, second, "agent-turn-2");
@@ -600,12 +556,11 @@ it("an agent effect settles only from the linked turn it started, never an earli
       agentSessionId: agentId,
       turnId: "agent-turn-2",
       output: "draft-v2",
-      schedule,
     })
   );
   expect(await get("effects", "eff-2")).toMatchObject({
     status: "completed",
     outcome: { value: "draft-v2" },
   });
-  expect(scheduled).toEqual(["wf-1"]);
+  expect(await woken()).toEqual(["wf-1"]);
 });

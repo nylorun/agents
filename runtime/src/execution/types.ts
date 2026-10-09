@@ -1,12 +1,10 @@
 /**
  * The Durable Session Execution seam (architecture §12.3).
  *
- * Durable Session Execution decides when to look at a session again. It never
- * holds session state: every outcome lives in the Session Store, and `advance`
- * is safe to repeat (§10.1). It owns the schedule (wake delivery, one advance per
- * key, retries, timers, the sweep chain); the Session Store owns the record (the
- * checkpoint, the effect journal, the events) and the wake outbox that bridges the
- * two. Restate is the supported implementation
+ * Durable Session Execution decides when to look at a session again; `advance` is
+ * safe to repeat (§10.1). What it owns and what the Session Store owns is said once,
+ * under "Durable Session Execution" in `src/CONTEXT.md`. Restate is the supported
+ * implementation
  * (`adapters/execution/restate.ts`); `execution/memory.ts` is the in-process
  * implementation used by unit tests, `startEphemeralRuntime` and a Host
  * started without Restate endpoints.
@@ -19,7 +17,7 @@
  * - **At least once after a wake.** When `wake` resolves, an `advance` for the
  *   key will start after that point (possibly merged with other wakes). Wakes
  *   are sent after the Session Store transaction that caused them commits, never
- *   inside it: the transaction writes the wake to its outbox (`Tx.wake`), and the
+ *   inside it: the transaction writes the wake to the outbox (`Tx.wake`), and the
  *   wake is sent after commit, or by the Tenant sweep when that send failed or a
  *   crash cut it off. A wake may therefore be sent more than once, always with the
  *   same `dedupeKey`.
@@ -87,9 +85,12 @@ export type AdvanceResult =
 /** A pod sandbox's timers. */
 export type SandboxTimer = "idle" | "ttl";
 
-/** What `DurableExecution.sandbox` asks for: a reconcile, or a timer. */
+/**
+ * What `DurableExecution.sandbox` asks for: a reconcile, or a timer. A reconcile's `key` merges
+ * repeated sends of one request (the outbox's `signal:<row id>`); without one, every send runs.
+ */
 export type SandboxSignal =
-  | { kind: "reconcile" }
+  | { kind: "reconcile"; key?: string }
   | { kind: "arm"; timer: SandboxTimer; at: number };
 
 /** Why `WorkerHandlers.sandbox` runs. */

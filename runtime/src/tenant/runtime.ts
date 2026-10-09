@@ -423,9 +423,14 @@ export class TenantRuntime implements TenantHandle {
         abortLocal: (sessionId, turnId) => abortLocal(ctx, sessionId, "cancel", turnId),
         ...(hooks.pods ? { pods: hooks.pods } : {}),
         sandboxSignal: async (sandboxId, signal) => {
-          if (ctx.closing || ctx.closed || !execution.sandbox) return;
-          await execution.sandbox(config.tenantId, sandboxId, signal);
+          if (ctx.closing || ctx.closed) return false;
+          await execution.sandbox?.(config.tenantId, sandboxId, signal);
+          return true;
         },
+        send: (request) =>
+          request.kind === "wake"
+            ? ctx.wake(request.sessionId, request.wake)
+            : ctx.sandboxSignal(request.sandboxId, request.signal),
         ...(hooks.execution?.stuckInvocations
           ? {
               stuckInvocations: () =>
@@ -438,6 +443,21 @@ export class TenantRuntime implements TenantHandle {
           return () => sweepHooks.delete(hook);
         },
       };
+      // What a commit asks of the execution goes without the request waiting; a send that
+      // fails is the sweep's to send again, so it is only a warning here.
+      opened.deliverTo(async (request) => {
+        try {
+          return await ctx.send(request);
+        } catch (error) {
+          config.logger.warn("outbox delivery after commit failed; the sweep sends it again", {
+            ...(request.kind === "wake"
+              ? { sessionId: request.sessionId, reason: request.wake.reason }
+              : { sandboxId: request.sandboxId, signal: request.signal.kind }),
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return false;
+        }
+      });
       harnessServer = createHarnessApiServer(ctx, { sandboxPreference: preference });
       if (mcp && manager)
         harness = await startInProcessHarness(

@@ -19,7 +19,8 @@
  *   `sandbox-pods`): an agent-sandbox pod on the Tenant's cluster, created at once, whose engine
  *   runs the turns of the sessions attached to it. Its lifecycle (`sandbox/pods/lifecycle.ts`)
  *   runs in the `Sandbox` object: this module records what is wanted (`desired`, `rev`) and asks
- *   for a reconcile after the commit (`ctx.sandboxSignal`). Without sandbox pods kind `pod` is
+ *   for a reconcile in the same transaction (`Tx.signalSandbox`, delivered after the commit),
+ *   and a host epoch it moves goes on the control bus (`host.revoked`). Without sandbox pods kind `pod` is
  *   `409 sandbox_unavailable`. `POST .../stop` suspends a pod (the volume is kept; the next turn
  *   starts it), `POST .../reset` gives it a new pod on a new volume. An expired pod refuses
  *   turns (`sandbox_expired`) until a `PUT` sets a longer `lifecycle.ttl`; a lost one
@@ -193,9 +194,14 @@ function specMismatch(existing: SandboxResource, body: PutSandboxRequest): strin
   return undefined;
 }
 
-/** Asks for a pod's reconcile once the transaction commits. */
-function reconcileAfter(ctx: TenantContext, t: Tx, id: string): void {
-  t.afterCommit(() => ctx.sandboxSignal(id, { kind: "reconcile" }));
+/** Asks for a pod's reconcile once the transaction commits (the sandbox signal outbox). */
+function reconcileAfter(t: Tx, id: string): Promise<void> {
+  return t.signalSandbox(id, { kind: "reconcile" });
+}
+
+/** Tells every process that pod sandbox `id`'s host epoch moved to `epoch`, at commit. */
+function revokeHost(t: Tx, id: string, epoch: number): Promise<void> {
+  return t.signal({ type: "host.revoked", sandboxId: id, epoch });
 }
 
 /** Asks the pod to run (again): a new `rev`, so the service applies it. */
@@ -272,7 +278,7 @@ export async function putSandbox(
           });
         if (revive || pod.desired !== "running" || pod.observed === "failed") {
           await wantRunning(t, current as SandboxResource & { pod: SandboxPodState }, now);
-          reconcileAfter(ctx, t, id);
+          await reconcileAfter(t, id);
         }
         return viewOf(ctx, t, (await t.sandboxResource(id)) ?? current, ownerOf(scope));
       }
@@ -322,9 +328,9 @@ export async function putSandbox(
     await t.sandboxEvent(id, "sandbox.created", { kind, labels: row.labels });
     if (row.pod) {
       // Created at once; idle from now if no turn comes.
-      reconcileAfter(ctx, t, id);
+      await reconcileAfter(t, id);
       const idleAt = Date.parse(now) + podLifecycleConfig(config).idleMs;
-      t.afterCommit(() => ctx.sandboxSignal(id, { kind: "arm", timer: "idle", at: idleAt }));
+      await t.signalSandbox(id, { kind: "arm", timer: "idle", at: idleAt });
     }
     return viewOf(ctx, t, row, ownerOf(scope));
   });
@@ -393,8 +399,8 @@ export async function deleteSandbox(
         { desired: "deleted", observed: "deleting", rev: sandbox.pod.rev + 1, hostEpoch: epoch },
         new Date().toISOString(),
       );
-      reconcileAfter(ctx, t, id);
-      t.afterCommit(() => ctx.harness.revokeHost(id, epoch));
+      await reconcileAfter(t, id);
+      await revokeHost(t, id, epoch);
     } else await t.deleteSandboxResource(id);
     return true;
   });
@@ -425,8 +431,8 @@ export async function stopSandbox(ctx: TenantContext, id: string, scope: AuthSco
       const epoch = pod.hostEpoch + 1;
       await t.updateSandboxPod(id, { desired: "suspended", rev: pod.rev + 1, hostEpoch: epoch }, now);
       await t.sandboxEvent(id, "sandbox.suspended", { reason: "stop" });
-      reconcileAfter(ctx, t, id);
-      t.afterCommit(() => ctx.harness.revokeHost(id, epoch));
+      await reconcileAfter(t, id);
+      await revokeHost(t, id, epoch);
     }
     return viewOf(ctx, t, (await t.sandboxResource(id)) ?? sandbox, ownerOf(scope));
   });
@@ -474,8 +480,8 @@ export async function resetSandbox(ctx: TenantContext, id: string, scope: AuthSc
       now,
     );
     await t.sandboxEvent(id, "sandbox.reset", { volumeGeneration: volumeGen });
-    reconcileAfter(ctx, t, id);
-    t.afterCommit(() => ctx.harness.revokeHost(id, epoch));
+    await reconcileAfter(t, id);
+    await revokeHost(t, id, epoch);
     return viewOf(ctx, t, (await t.sandboxResource(id)) ?? sandbox, ownerOf(scope));
   });
 }
@@ -564,7 +570,7 @@ export async function checkSandboxTurn(
   const now = new Date().toISOString();
   if (pod.desired !== "running" || pod.observed === "failed") {
     await wantRunning(t, sandbox as SandboxResource & { pod: SandboxPodState }, now);
-    reconcileAfter(ctx!, t, id);
+    await reconcileAfter(t, id);
   } else await t.updateSandboxPod(id, { lastActiveAt: now }, now);
 }
 
@@ -588,14 +594,14 @@ export async function detachAllSessions(t: Tx): Promise<void> {
  */
 export async function touchPodSandbox(ctx: TenantContext, id: string): Promise<void> {
   try {
-    const at = await ctx.store.tx(async (t) => {
+    await ctx.store.tx(async (t) => {
       const sandbox = await t.sandboxResource(id, { lock: true });
-      if (!sandbox?.pod || sandbox.pod.desired !== "running") return undefined;
+      if (!sandbox?.pod || sandbox.pod.desired !== "running") return;
       const now = new Date();
       await t.updateSandboxPod(id, { lastActiveAt: now.toISOString() }, now.toISOString());
-      return now.getTime() + podLifecycleConfig(await readSandboxConfig(t)).idleMs;
+      const at = now.getTime() + podLifecycleConfig(await readSandboxConfig(t)).idleMs;
+      await t.signalSandbox(id, { kind: "arm", timer: "idle", at });
     });
-    if (at !== undefined) await ctx.sandboxSignal(id, { kind: "arm", timer: "idle", at });
   } catch (error) {
     ctx.config.logger.warn("sandbox idle timer not armed", {
       sandboxId: id,

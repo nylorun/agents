@@ -19,12 +19,14 @@
  * services, so the open would fail. A core-only process relies on a Worker having registered
  * them first.
  *
- * **One Worker URL.** `start` registers the Worker endpoint (`NYLORUN_WORKER_URL`) with
- * Restate once. Restate sends new invocations to the latest registered deployment, so
- * several Workers that each register their own URL do not share load: the last one to start
- * takes every new invocation. The local stack runs a single `runtime` container with
- * `--service core,loop`. A deployment with several Worker processes (Helm, Cloud) must advertise one
- * load-balanced `NYLORUN_WORKER_URL` shared by all of them.
+ * **One Worker URL per version.** `start` registers the Worker endpoint with Restate once, as
+ * `<NYLORUN_WORKER_URL>/nylorun/<version>` (`workerDeployment` in `infra/execution.ts`).
+ * Restate sends new invocations to the latest registered deployment, so several Workers that
+ * each register their own URL do not share load: the last one to start takes every new
+ * invocation. The local stack runs a single `runtime` container with `--service core,loop`. A
+ * deployment with several Worker processes (Helm, Cloud) must advertise one load-balanced
+ * `NYLORUN_WORKER_URL` shared by all of them; a rolling upgrade registers the new version's
+ * path next to the old one, which keeps the invocations it started.
  */
 import type { DurableExecution } from "../execution/types.js";
 import { startWorker, stopWorker, type WorkerHandle } from "../infra/workers.js";

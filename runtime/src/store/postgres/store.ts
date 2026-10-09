@@ -15,7 +15,7 @@
  *
  * Every `tx` is one READ COMMITTED transaction on a pooled connection (Drizzle's
  * `transaction` on postgres.js `begin`). Tables are addressed by schema-qualified names,
- * never through `search_path`. Commit listeners and `afterCommit` callbacks run after `COMMIT`
+ * never through `search_path`. Commit listeners and outbox deliveries run after `COMMIT`
  * returns and never reject the committed `tx`. Nested `tx` calls are detected with
  * `AsyncLocalStorage` and rejected, and a `Tx` rejects every call once its callback settles.
  * A failed statement rejects `tx` with the driver's error (`driverError`), not Drizzle's
@@ -56,6 +56,7 @@ import {
   eq,
   getTableColumns,
   gte,
+  gt,
   inArray,
   isNotNull,
   isNull,
@@ -78,7 +79,7 @@ import type {
   SessionEventOf,
 } from "@nylorun/core/contracts";
 import type { RecordReader } from "../../streams/relay/types.js";
-import type { Wake, WakeReason } from "../../execution/types.js";
+import type { SandboxSignal, SandboxTimer, Wake, WakeReason } from "../../execution/types.js";
 import { appendEvent, appendSandboxEvent } from "../../record/index.js";
 import { OwnershipLostError, PrincipalRoleConflict } from "../ownership.js";
 import type {
@@ -124,9 +125,11 @@ import type {
   VaultCredentialRow,
   VaultIdempotencyRow,
   VaultRow,
+  OutboxDelivery,
+  OutboxRef,
+  OutboxRequest,
   OutboxWake,
-  PendingWake,
-  WakeDelivery,
+  PendingRequest,
 } from "../types.js";
 import { followControlSignals, pruneSignals, writeSignal } from "./control.js";
 import { database, driverError, type Database, type Transaction } from "./db.js";
@@ -161,6 +164,7 @@ import {
   vaultCredentials,
   vaultIdempotency,
   vaults,
+  sandboxSignals,
   wakes,
 } from "./schema.js";
 
@@ -208,6 +212,9 @@ class PostgresSessionStore implements SessionStore {
   private readonly active = new AsyncLocalStorage<PostgresSessionStore>();
   private readonly listeners = new Set<CommitListener>();
   private readonly inflight = new Set<Promise<unknown>>();
+  /** Deliveries of committed outbox requests still running (`deliverTo`). */
+  private readonly deliveries = new Set<Promise<void>>();
+  private deliver?: OutboxDelivery;
   private readonly now: () => Date;
   private readonly onError: (error: unknown) => void;
   private closed = false;
@@ -234,7 +241,7 @@ class PostgresSessionStore implements SessionStore {
     // Wrapped so `begin` does not treat an array result as queries to await.
     const run = this.db.transaction(
       async (db) => {
-        t = new PostgresTx(db, this.tenantId, this.now, this.deleteWake);
+        t = new PostgresTx(db, this.tenantId, this.now);
         try {
           return { value: await this.active.run(this, () => fn(t)) };
         } finally {
@@ -265,20 +272,48 @@ class PostgresSessionStore implements SessionStore {
         }
       }
     }
-    for (const callback of t.callbacks) {
-      try {
-        await callback();
-      } catch (error) {
-        this.onError(error);
-      }
-    }
+    if (t.outbox.length > 0) this.send(t.outbox);
     return result.value;
   }
 
-  /** Deletes a delivered outbox request, outside any transaction (`Tx.wake`). */
-  private readonly deleteWake = async (id: string): Promise<void> => {
-    await this.db.delete(wakes).where(eq(wakes.id, id));
-  };
+  deliverTo(deliver: OutboxDelivery | undefined): void {
+    this.deliver = deliver;
+  }
+
+  async delivered(): Promise<void> {
+    while (this.deliveries.size > 0) await Promise.allSettled([...this.deliveries]);
+  }
+
+  /**
+   * Hands a commit's outbox requests to the delivery, one after the other, without the caller
+   * waiting: a delivered one's row is deleted, and one that was not is due at the sweep's next
+   * pass.
+   */
+  private send(committed: readonly (OutboxRef & { request: OutboxRequest })[]): void {
+    const deliver = this.deliver;
+    if (!deliver) return;
+    const run = (async () => {
+      for (const { kind, id, request } of committed) {
+        let sent: boolean | void = false;
+        try {
+          sent = await deliver(request);
+        } catch (error) {
+          this.onError(error);
+        }
+        const table = OUTBOX[kind];
+        try {
+          if (sent === false)
+            await this.db.update(table).set({ retryAt: sql`clock_timestamp()` }).where(eq(table.id, id));
+          else await this.db.delete(table).where(eq(table.id, id));
+        } catch (error) {
+          // The row stays as it was: the sweep sends it again, under the same key.
+          this.onError(error);
+        }
+      }
+    })();
+    this.deliveries.add(run);
+    void run.finally(() => this.deliveries.delete(run));
+  }
 
   onCommit(listener: CommitListener): () => void {
     this.listeners.add(listener);
@@ -313,10 +348,14 @@ class PostgresSessionStore implements SessionStore {
     return followControlSignals(this.sql, this.db, onSignal, options);
   }
 
-  /** Rejects new transactions and waits for running ones. Does not end the pool. */
+  /**
+   * Rejects new transactions and waits for running ones, and for the deliveries of committed
+   * outbox requests. Does not end the pool.
+   */
   async close(): Promise<void> {
     this.closed = true;
     await Promise.allSettled([...this.inflight]);
+    await this.delivered();
   }
 }
 
@@ -410,10 +449,41 @@ const { ord: _ord, ...AUDIT } = getTableColumns(vaultAudit);
 
 const SESSION_TABLES = [sessions, commands, effects, links, wakes];
 
-/** An outbox row as it is delivered: the wake's own dedupe key, or one made from the row id. */
+/**
+ * The outbox's tables, by the kind of request each holds. Their delivery columns (`id`,
+ * `created_at`, `attempts`, `retry_at`, `parked_at`) are the same.
+ */
+const OUTBOX = {
+  wake: wakes,
+  sandbox: sandboxSignals as unknown as typeof wakes,
+} as const satisfies Record<OutboxRef["kind"], unknown>;
+
+/** A wake outbox row as it is delivered: its own dedupe key, or one made from the row id. */
 function outboxWake(id: string, reason: WakeReason, dedupeKey: string | null): OutboxWake {
   return { reason, dedupeKey: dedupeKey ?? `wake:${id}` };
 }
+
+/** A sandbox signal outbox row as it is delivered: a reconcile is keyed by the row. */
+function outboxSignal(
+  id: string,
+  row: { kind: string; timer: string | null; at: number | null },
+): SandboxSignal {
+  return row.kind === "arm"
+    ? { kind: "arm", timer: row.timer as SandboxTimer, at: row.at! }
+    : { kind: "reconcile", key: `signal:${id}` };
+}
+
+/** When an outbox row of `table` is due, after a grace of `graceMs` (the database's clock). */
+function dueAt(table: typeof wakes, graceMs: number): SQL<number> {
+  const grace = sql`make_interval(secs => ${Math.max(0, graceMs) / 1000})`;
+  return sql<number>`coalesce(${table.retryAt}, ${table.createdAt} + ${grace})`;
+}
+
+/** Due rows of `table`, soonest first: their epoch seconds, to merge two tables' rows. */
+const DUE = (table: typeof wakes, graceMs: number) => ({
+  due: dueAt(table, graceMs),
+  dueSeconds: sql<number>`extract(epoch from ${dueAt(table, graceMs)})::float8`,
+});
 
 /** The inserted row's `column` (`ON CONFLICT … DO UPDATE`). */
 const excluded = (column: string): SQL => sql.raw(`excluded.${column}`);
@@ -422,13 +492,13 @@ class PostgresTx implements Tx {
   closed = false;
   readonly events: LiveEvent[] = [];
   readonly generations: number[] = [];
-  readonly callbacks: (() => void | Promise<void>)[] = [];
+  /** The outbox requests this transaction wrote, delivered after it commits. */
+  readonly outbox: (OutboxRef & { request: OutboxRequest })[] = [];
 
   constructor(
     private readonly db: Transaction,
     private readonly tenantId: string,
     private readonly now: () => Date,
-    private readonly deleteWake: (id: string) => Promise<void>,
   ) {}
 
   private check(): void {
@@ -515,18 +585,9 @@ class PostgresTx implements Tx {
     return structuredClone(event);
   }
 
-  afterCommit(fn: () => void | Promise<void>): void {
-    this.check();
-    this.callbacks.push(fn);
-  }
-
   // --- wake outbox ---------------------------------------------------------
 
-  async wake(
-    sessionId: string,
-    wake: Wake,
-    deliver: WakeDelivery,
-  ): Promise<void> {
+  async wake(sessionId: string, wake: Wake): Promise<void> {
     this.check();
     const id = randomUUID();
     await this.db.insert(wakes).values({
@@ -535,34 +596,93 @@ class PostgresTx implements Tx {
       reason: wake.reason,
       dedupeKey: wake.dedupeKey ?? null,
     });
-    const delivered = outboxWake(id, wake.reason, wake.dedupeKey ?? null);
-    // A rejection goes to the store's error hook (as every callback's), and the row stays.
-    this.callbacks.push(async () => {
-      if ((await deliver(sessionId, delivered)) === false) return;
-      await this.deleteWake(id);
+    this.outbox.push({
+      kind: "wake",
+      id,
+      request: { kind: "wake", sessionId, wake: outboxWake(id, wake.reason, wake.dedupeKey ?? null) },
     });
   }
 
-  async pendingWakes(before: Date, limit: number): Promise<PendingWake[]> {
+  async signalSandbox(sandboxId: string, signal: SandboxSignal): Promise<void> {
     this.check();
-    const rows = await this.db
-      .select()
-      .from(wakes)
-      .where(lt(wakes.createdAt, before))
-      .orderBy(wakes.createdAt, wakes.id)
-      .limit(limit);
-    return rows.map((row) => ({
-      id: row.id,
-      sessionId: row.sessionId,
-      wake: outboxWake(row.id, row.reason as WakeReason, row.dedupeKey),
-      createdAt: row.createdAt.toISOString(),
-    }));
+    const id = randomUUID();
+    const row = {
+      kind: signal.kind,
+      timer: signal.kind === "arm" ? signal.timer : null,
+      at: signal.kind === "arm" ? signal.at : null,
+    };
+    await this.db.insert(sandboxSignals).values({ id, sandboxId, ...row });
+    this.outbox.push({
+      kind: "sandbox",
+      id,
+      request: { kind: "sandbox", sandboxId, signal: outboxSignal(id, row) },
+    });
   }
 
-  async deleteWakes(ids: readonly string[]): Promise<void> {
+  async pendingOutbox(graceMs: number, limit: number): Promise<PendingRequest[]> {
     this.check();
-    if (ids.length === 0) return;
-    await this.db.delete(wakes).where(inArray(wakes.id, [...ids]));
+    // Compared on the database's clock, which wrote `created_at` and `retry_at`.
+    const now = sql`clock_timestamp()`;
+    const wake = DUE(wakes, graceMs);
+    const signal = DUE(OUTBOX.sandbox, graceMs);
+    const wakeRows = await this.db
+      .select({ ...getTableColumns(wakes), dueSeconds: wake.dueSeconds })
+      .from(wakes)
+      .where(and(isNull(wakes.parkedAt), lte(wake.due, now)))
+      .orderBy(wake.due, wakes.id)
+      .limit(limit);
+    const signalRows = await this.db
+      .select({ ...getTableColumns(sandboxSignals), dueSeconds: signal.dueSeconds })
+      .from(sandboxSignals)
+      .where(and(isNull(sandboxSignals.parkedAt), lte(signal.due, now)))
+      .orderBy(signal.due, sandboxSignals.id)
+      .limit(limit);
+    const rows = [
+      ...wakeRows.map((row) => ({
+        kind: "wake" as const,
+        id: row.id,
+        request: {
+          kind: "wake" as const,
+          sessionId: row.sessionId,
+          wake: outboxWake(row.id, row.reason as WakeReason, row.dedupeKey),
+        },
+        createdAt: row.createdAt.toISOString(),
+        attempts: row.attempts,
+        due: row.dueSeconds,
+      })),
+      ...signalRows.map((row) => ({
+        kind: "sandbox" as const,
+        id: row.id,
+        request: { kind: "sandbox" as const, sandboxId: row.sandboxId, signal: outboxSignal(row.id, row) },
+        createdAt: row.createdAt.toISOString(),
+        attempts: row.attempts,
+        due: row.dueSeconds,
+      })),
+    ];
+    rows.sort((a, b) => a.due - b.due || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return rows.slice(0, limit).map(({ due: _due, ...row }) => row);
+  }
+
+  async deleteOutbox(rows: readonly OutboxRef[]): Promise<void> {
+    this.check();
+    for (const kind of ["wake", "sandbox"] as const) {
+      const ids = rows.filter((row) => row.kind === kind).map((row) => row.id);
+      if (ids.length > 0) await this.db.delete(OUTBOX[kind]).where(inArray(OUTBOX[kind].id, ids));
+    }
+  }
+
+  async failOutbox(row: OutboxRef, retry: { retryInMs: number; park: boolean }): Promise<void> {
+    this.check();
+    const table = OUTBOX[row.kind];
+    const secs = Math.max(0, retry.retryInMs) / 1000;
+    await this.db
+      .update(table)
+      .set({
+        attempts: sql`${table.attempts} + 1`,
+        retryAt: sql`clock_timestamp() + make_interval(secs => ${secs})`,
+        ...(retry.park ? { parkedAt: sql`clock_timestamp()` } : {}),
+      })
+      .where(eq(table.id, row.id));
   }
 
   // --- ownership -----------------------------------------------------------
@@ -668,6 +788,7 @@ class PostgresTx implements Tx {
   async orphanedSessions<T extends SessionDoc = SessionDoc>(
     now: Date,
     limit: number,
+    after?: string,
   ): Promise<StoredSession<T>[]> {
     this.check();
     const rows = await this.sessions()
@@ -679,13 +800,10 @@ class PostgresTx implements Tx {
             isNull(sessions.ownerExpiresAt),
             lte(sessions.ownerExpiresAt, now),
           ),
+          after === undefined ? undefined : gt(sessions.id, after),
         ),
       )
-      // Never-owned sessions first, then the longest expired.
-      .orderBy(
-        sql`CASE WHEN ${sessions.owner} IS NULL THEN NULL ELSE ${sessions.ownerExpiresAt} END ASC NULLS FIRST`,
-        sessions.id,
-      )
+      .orderBy(sessions.id)
       .limit(limit);
     return rows.map((row) => storedSession<T>(row));
   }
@@ -1538,6 +1656,7 @@ class PostgresTx implements Tx {
       await db.delete(sandboxes);
       await db.delete(sandboxResources);
       await db.delete(sandboxEvents);
+      await db.delete(sandboxSignals);
     }
     if (scope === "all") {
       await db.delete(definitions);

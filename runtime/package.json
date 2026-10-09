@@ -68,6 +68,7 @@
     "@nylorun/core": "0.19.0-beta",
     "@nylorun/harness": "0.25.1-beta",
     "@restatedev/restate-sdk": "1.17.2",
+    "@restatedev/restate-sdk-clients": "1.17.2",
     "@s2-dev/streamstore": "0.28.0",
     "aws4fetch": "1.0.20",
     "drizzle-orm": "^0.45.3",

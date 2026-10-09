@@ -23,6 +23,7 @@ import { historyCursor, historyResume } from "../reads/cursor.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../record/index.js";
+import { sleep } from "../retry.js";
 import { basinOf } from "../streams/basin.js";
 import {
   sessionStream,
@@ -537,15 +538,3 @@ export function endAllStreams(hub: SessionStreams): void {
   clearObservers(hub);
 }
 
-export function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve();
-    const done = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal.addEventListener("abort", done, { once: true });
-  });
-}

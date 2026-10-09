@@ -557,7 +557,8 @@ export const definitionFileUses = nylorun.table(
  * written in the transaction that commits what they announce and notified on
  * `nylorun_control` at commit (`control.ts`). A row outlives its notification so a process
  * whose listener was down catches up; the Tenant sweep deletes old ones. `created_at` is the
- * insert's own clock (`clock_timestamp()`), not its transaction's start.
+ * insert's own clock (`clock_timestamp()`), not its transaction's start. `sandbox_id` and
+ * `epoch` are a `host.revoked` signal's.
  */
 export const controlSignals = nylorun.table(
   "control_signals",
@@ -570,10 +571,15 @@ export const controlSignals = nylorun.table(
     createdAt: timestamp({ withTimezone: true, mode: "string" })
       .notNull()
       .default(sql`clock_timestamp()`),
+    sandboxId: textC(),
+    epoch: integer(),
   },
   (t) => [
     index("control_signals_created_at").on(t.createdAt),
-    check("control_signals_kind_check", sql`${t.kind} IN ('session.cancel', 'sessions.reset')`),
+    check(
+      "control_signals_kind_check",
+      sql`${t.kind} IN ('session.cancel', 'sessions.reset', 'host.revoked')`,
+    ),
   ],
 );
 
@@ -582,7 +588,9 @@ export const controlSignals = nylorun.table(
  * (`Tx.wake`), written in that transaction, so a commit never loses its wake. The row is
  * deleted once Durable Session Execution has accepted the wake; until then the Tenant sweep
  * delivers it again, with the same idempotency key (`dedupe_key`, or `wake:<id>` without
- * one). `created_at` is the insert's own clock (`clock_timestamp()`).
+ * one). `created_at` is the insert's own clock (`clock_timestamp()`). `attempts` counts the
+ * sweep's failed deliveries, `retry_at` is when it tries the row again, and a row
+ * `parked_at` is never tried again: it stays for an operator (`Tx.failOutbox`).
  */
 export const wakes = nylorun.table(
   "wakes",
@@ -594,8 +602,39 @@ export const wakes = nylorun.table(
     createdAt: timestamp({ withTimezone: true, mode: "date" })
       .notNull()
       .default(sql`clock_timestamp()`),
+    attempts: integer().notNull().default(0),
+    retryAt: timestamp({ withTimezone: true, mode: "date" }),
+    parkedAt: timestamp({ withTimezone: true, mode: "date" }),
   },
   (t) => [index("wakes_created_at").on(t.createdAt)],
+);
+
+/**
+ * The sandbox signal outbox (F7.2): one row per pod sandbox reconcile or timer a committed
+ * transaction asked for (`Tx.signalSandbox`), kept and delivered as the wake outbox's rows are
+ * (`attempts`, `retry_at`, `parked_at`). A reconcile is sent with the idempotency key
+ * `signal:<id>`; a timer (`kind` `arm`) is its `timer` at `at` (ms since the epoch). Not in
+ * `wakes`, so a Runtime that delivers only wakes never reads one.
+ */
+export const sandboxSignals = nylorun.table(
+  "sandbox_signals",
+  {
+    id: textC().primaryKey(),
+    sandboxId: textC().notNull(),
+    kind: text().notNull(),
+    timer: text(),
+    at: bigint({ mode: "number" }),
+    createdAt: timestamp({ withTimezone: true, mode: "date" })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    attempts: integer().notNull().default(0),
+    retryAt: timestamp({ withTimezone: true, mode: "date" }),
+    parkedAt: timestamp({ withTimezone: true, mode: "date" }),
+  },
+  (t) => [
+    index("sandbox_signals_created_at").on(t.createdAt),
+    check("sandbox_signals_kind_check", sql`${t.kind} IN ('reconcile', 'arm')`),
+  ],
 );
 
 // ---------------------------------------------------------------------------

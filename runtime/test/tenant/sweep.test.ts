@@ -6,20 +6,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Wake } from "../../src/execution/types.js";
 import { commandKey, linkedMessageKey } from "../../src/core/flow-host.js";
 import { isOwnershipLost, ownedTx } from "../../src/store/ownership.js";
-import type { SessionStore, Tx } from "../../src/store/types.js";
+import type { OutboxRequest, PendingRequest, SessionStore, Tx } from "../../src/store/types.js";
 import { advance } from "../../src/tenant/advance.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import { createWorkState } from "../../src/tenant/scheduler.js";
 import {
+  DRAIN_BUDGET_MS,
+  MAX_OUTBOX_ATTEMPTS,
   ORPHAN_SCAN_MS,
-  WAKE_GRACE_MS,
-  deliverPendingWakes,
+  OUTBOX_GRACE_MS,
+  deliverOutbox,
   reconcileLinkedAgents,
   sweep,
   wakeOrphanedSessions,
 } from "../../src/tenant/sweep.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
-import { createTestSessionStore, dropTestTenant } from "../support/store.js";
+import { createTestSessionStore, dropTestTenant, testTenantPool } from "../support/store.js";
 import { inProcessToolGate } from "../../src/gates/tool-gate.js";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -61,15 +63,30 @@ function contextOf(
       wakes.push({ id, wake });
       return accept(id, wake);
     },
+    // Outbox requests: wakes as above, sandbox signals recorded.
+    send: async (request: OutboxRequest) => {
+      if (request.kind === "wake") return ctx.wake(request.sessionId, request.wake);
+      signals.push(request);
+      return true;
+    },
   } as unknown as TenantContext;
-  return { ctx, wakes };
+  const signals: OutboxRequest[] = [];
+  return { ctx, wakes, signals };
 }
 
 /** Writes an outbox wake for `id` whose delivery after commit did not happen. */
 const undelivered = (store: SessionStore, id: string, wake: Wake) =>
-  store.tx((t) => t.wake(id, wake, () => false));
-const pending = (store: SessionStore) =>
-  store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 100));
+  store.tx((t) => t.wake(id, wake));
+const pending = (store: SessionStore) => store.tx((t) => t.pendingOutbox(0, 100));
+/** The session (or sandbox) an outbox row is for. */
+const target = (row: PendingRequest) =>
+  row.request.kind === "wake" ? row.request.sessionId : row.request.sandboxId;
+/** Moves every outbox row `ms` into the past, as if written then. */
+const age = (store: SessionStore, ms: number) =>
+  testTenantPool(store.tenantId)`UPDATE nylorun.wakes SET created_at = created_at - make_interval(secs => ${ms / 1000})`;
+/** Every wake outbox row, parked ones too, read directly. */
+const outboxRows = (store: SessionStore) =>
+  testTenantPool(store.tenantId)`SELECT id, attempts, parked_at FROM nylorun.wakes`;
 
 function session(id: string, fields: Record<string, unknown> = {}) {
   return { id, agentId: "bot", status: "idle", activeTurnId: null, ...fields };
@@ -233,8 +250,9 @@ describe("on the Postgres store", () => {
       });
       await t.put("sessions", "waiting", session("waiting", { status: "waiting" }));
     });
-    const woken = await wakeOrphanedSessions(ctx);
-    expect(woken.sort()).toEqual(["dead-owner", "lost-wake"]);
+    const { woken, next } = await wakeOrphanedSessions(ctx);
+    expect(woken).toEqual(["dead-owner", "lost-wake"]);
+    expect(next).toBeUndefined();
     expect(wakes.map((w) => w.wake)).toEqual([
       { reason: "recover" },
       { reason: "recover" },
@@ -249,10 +267,10 @@ describe("on the Postgres store", () => {
     await undelivered(store, "s2", { reason: "flow" });
     const [, , flow] = await pending(store);
     // Too young for this pass.
-    expect(await deliverPendingWakes(ctx, new Date(Date.now() - 60_000))).toEqual([]);
+    expect(await deliverOutbox(ctx, 60_000)).toEqual([]);
     expect(wakes).toEqual([]);
 
-    const delivered = await deliverPendingWakes(ctx, new Date(Date.now() + 1000));
+    const delivered = await deliverOutbox(ctx);
     expect(delivered).toHaveLength(2);
     expect(wakes).toEqual([
       { id: "s1", wake: { reason: "message", dedupeKey: "message:t1:0" } },
@@ -260,21 +278,78 @@ describe("on the Postgres store", () => {
       // A wake without a dedupe key is sent under one made from its row.
       { id: "s2", wake: { reason: "flow", dedupeKey: `wake:${flow!.id}` } },
     ]);
-    expect((await pending(store)).map((row) => row.sessionId)).toEqual(["declined"]);
+    expect((await pending(store)).map(target)).toEqual(["declined"]);
   });
 
-  it("deletes the wakes it delivered before one that fails", async () => {
+  it("delivers each wake on its own: one that fails is retried later and holds back none behind it", async () => {
     const store = await makeStore();
-    const { ctx } = contextOf(store, 1000, (id) => {
-      if (id === "s2") throw new Error("Restate unreachable");
+    const { ctx, wakes } = contextOf(store, 1000, (id) => {
+      if (id === "poison") throw new Error("Restate ingress 400: refused");
       return true;
     });
+    await undelivered(store, "poison", { reason: "message" });
     await undelivered(store, "s1", { reason: "message" });
-    await undelivered(store, "s2", { reason: "message" });
-    await expect(deliverPendingWakes(ctx, new Date(Date.now() + 1000))).rejects.toThrow(
-      "Restate unreachable"
+    await undelivered(store, "s2", { reason: "flow" });
+    const delivered = await deliverOutbox(ctx);
+    expect(delivered).toHaveLength(2);
+    expect(wakes.map((w) => w.id)).toEqual(["poison", "s1", "s2"]);
+    // Counted, and not due again until its retry: the next pass skips it.
+    expect(await pending(store)).toEqual([]);
+    wakes.length = 0;
+    expect(await deliverOutbox(ctx)).toEqual([]);
+    expect(wakes).toEqual([]);
+  });
+
+  it("parks a wake after MAX_OUTBOX_ATTEMPTS failed deliveries, logs it once at error and keeps it", async () => {
+    const store = await makeStore();
+    const logged: { level: string; message: string; fields: any }[] = [];
+    const logger = Object.fromEntries(
+      ["info", "warn", "error"].map((level) => [
+        level,
+        (message: string, fields: unknown) => logged.push({ level, message, fields }),
+      ])
     );
-    expect((await pending(store)).map((row) => row.sessionId)).toEqual(["s2"]);
+    const { ctx } = contextOf(store, 1000, () => {
+      throw new Error("Unknown wake reason: later");
+    });
+    (ctx as any).config = { logger };
+    await undelivered(store, "poison", { reason: "message" });
+    const [row] = await pending(store);
+    // The sweep failed it all but once already; each retry is due at once here.
+    for (let i = 1; i < MAX_OUTBOX_ATTEMPTS; i++)
+      await store.tx((t) => t.failOutbox(row!, { retryInMs: 0, park: false }));
+    expect((await pending(store))[0]!.attempts).toBe(MAX_OUTBOX_ATTEMPTS - 1);
+    await deliverOutbox(ctx);
+    expect(logged.filter((entry) => entry.level === "error")).toMatchObject([
+      {
+        message: "outbox row parked: its delivery keeps failing",
+        fields: { rowId: row!.id, sessionId: "poison", attempts: MAX_OUTBOX_ATTEMPTS },
+      },
+    ]);
+    // Parked: never due again, never sent again, but kept.
+    expect(await pending(store)).toEqual([]);
+    await deliverOutbox(ctx);
+    expect(logged.filter((entry) => entry.level === "error")).toHaveLength(1);
+    expect(await outboxRows(store)).toMatchObject([
+      { id: row!.id, attempts: MAX_OUTBOX_ATTEMPTS, parked_at: expect.any(String) },
+    ]);
+  });
+
+  it("goes on with its other steps, and does not fail, when a wake cannot be delivered", async () => {
+    const store = await makeStore();
+    const { ctx, wakes } = contextOf(store, 1000, (_id, wake) => {
+      if (wake.reason === "message") throw new Error("Restate ingress 400: refused");
+      return true;
+    });
+    await undelivered(store, "poison", { reason: "message" });
+    await store.tx((t) =>
+      t.put("sessions", "orphan", session("orphan", { status: "runnable" }))
+    );
+    await sweep(ctx);
+    expect(wakes).toEqual([
+      { id: "poison", wake: expect.objectContaining({ reason: "message" }) },
+      { id: "orphan", wake: { reason: "recover" } },
+    ]);
   });
 
   it("delivers every outbox wake on its first pass, then only those older than the grace", async () => {
@@ -289,16 +364,77 @@ describe("on the Postgres store", () => {
     await undelivered(store, "just-committed", { reason: "message" });
     await sweep(ctx);
     expect(wakes).toEqual([]);
-    expect((await pending(store)).map((row) => row.sessionId)).toEqual(["just-committed"]);
+    expect((await pending(store)).map(target)).toEqual(["just-committed"]);
+    // The grace is the database's clock: this process's has no say.
+    await age(store, OUTBOX_GRACE_MS + 1000);
+    await sweep(ctx);
+    expect(wakes.map((w) => w.id)).toEqual(["just-committed"]);
+    expect(await pending(store)).toEqual([]);
+  });
+
+  it("drains the whole outbox in one pass, batch after batch, until its budget is spent", async () => {
+    const store = await makeStore();
+    const start = Date.now();
+    let sent = 0;
+    const { ctx } = contextOf(store, 1000, () => {
+      // The budget runs out while the 150th wake is sent.
+      if (++sent === 150) vi.setSystemTime(start + DRAIN_BUDGET_MS);
+      return true;
+    });
+    await store.tx(async (t) => {
+      for (let i = 0; i < 250; i++)
+        await t.wake(`s${String(i).padStart(3, "0")}`, { reason: "message" });
+    });
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
-      vi.setSystemTime(Date.now() + WAKE_GRACE_MS + 1000);
-      await sweep(ctx);
+      vi.setSystemTime(start);
+      expect(await deliverOutbox(ctx)).toHaveLength(150);
+      expect(await pending(store)).toHaveLength(100);
+      // The next pass goes on with the rest.
+      expect(await deliverOutbox(ctx)).toHaveLength(100);
     } finally {
       vi.useRealTimers();
     }
-    expect(wakes.map((w) => w.id)).toEqual(["just-committed"]);
     expect(await pending(store)).toEqual([]);
+  });
+
+  it("pages through every orphan, going on at the next pass when a scan runs out of budget", async () => {
+    const store = await makeStore();
+    const ids = Array.from({ length: 250 }, (_, i) => `o${String(i).padStart(3, "0")}`);
+    await store.tx(async (t) => {
+      for (const id of ids) await t.put("sessions", id, session(id, { status: "runnable" }));
+    });
+    const start = Date.now();
+    const { ctx, wakes } = contextOf(store, 1000, () => {
+      if (wakes.length === 120) vi.setSystemTime(start + DRAIN_BUDGET_MS);
+      return true;
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(start);
+      // The first page holds 100; the budget ends the second at 120: the scan stops at a page's end.
+      const first = await wakeOrphanedSessions(ctx, new Date(start), undefined);
+      expect(first.woken).toEqual(ids.slice(0, 200));
+      expect(first.next).toBe(ids[199]);
+      const rest = await wakeOrphanedSessions(ctx, new Date(start), first.next);
+      expect(rest).toEqual({ woken: ids.slice(200) });
+
+      // Through the sweep: an unfinished scan goes on at the next pass, within ORPHAN_SCAN_MS.
+      wakes.length = 0;
+      const other = contextOf(store, 1000, () => {
+        if (other.wakes.length === 100) vi.setSystemTime(Date.now() + DRAIN_BUDGET_MS);
+        return true;
+      });
+      vi.setSystemTime(start);
+      await sweep(other.ctx);
+      expect(other.wakes).toHaveLength(100);
+      await sweep(other.ctx);
+      expect(other.wakes.map((w) => w.id)).toEqual(ids);
+      await sweep(other.ctx);
+      expect(other.wakes).toHaveLength(250);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("scans for orphaned sessions on its first pass, then once per ORPHAN_SCAN_MS", async () => {
@@ -331,6 +467,7 @@ describe("on the Postgres store", () => {
   it("settles a pending agent effect whose linked turn already finished", async () => {
     const store = await makeStore();
     const { ctx, wakes } = contextOf(store);
+    store.deliverTo(ctx.send);
     await store.tx(async (t) => {
       await t.put("sessions", "wf", session("wf", { status: "waiting", activeTurnId: "t1" }));
       await t.put(
@@ -357,6 +494,7 @@ describe("on the Postgres store", () => {
       await commitLinkedMessage(t, request, "a1");
     });
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(await store.tx((t) => t.get("effects", "eff"))).toMatchObject({
       status: "completed",
       outcome: { value: "done" },
@@ -368,6 +506,7 @@ describe("on the Postgres store", () => {
       { id: "wf", wake: { reason: "linked", dedupeKey: "linked:t1:eff" } },
     ]);
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(wakes).toHaveLength(1);
   });
 
@@ -376,6 +515,7 @@ describe("on the Postgres store", () => {
   it("never settles a Loop's next agent effect from the linked session's earlier turn", async () => {
     const store = await makeStore();
     const { ctx, wakes } = contextOf(store);
+    store.deliverTo(ctx.send);
     const first = agentEffect("eff-1", 1);
     const second = agentEffect("eff-2", 2);
     await store.tx(async (t) => {
@@ -411,6 +551,7 @@ describe("on the Postgres store", () => {
       });
     });
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(await store.tx((t) => t.get("effects", "eff-2"))).toMatchObject({
       status: "pending",
     });
@@ -427,6 +568,7 @@ describe("on the Postgres store", () => {
       await commitLinkedMessage(t, second, "a2");
     });
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(await store.tx((t) => t.get("effects", "eff-2"))).toMatchObject({
       status: "pending",
     });
@@ -444,6 +586,7 @@ describe("on the Postgres store", () => {
       });
     });
     await reconcileLinkedAgents(ctx);
+    await store.delivered();
     expect(await store.tx((t) => t.get("effects", "eff-2"))).toMatchObject({
       status: "completed",
       outcome: { value: "draft-v2" },

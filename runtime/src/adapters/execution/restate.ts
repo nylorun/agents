@@ -25,35 +25,20 @@
  *   What a run answers arms its timers and its retry.
  *
  * Wakes, sandbox reconciles, timers and sweep arming go through the ingress as one-way
- * sends, so an API node can call them without ever calling `start`. A wake a commit asked for
- * comes from the Session Store's wake outbox (`Tx.wake`) with an idempotency key, so a send
- * repeated after its answer was lost causes no second advance.
+ * sends (`@restatedev/restate-sdk-clients`), so an API node can call them without ever
+ * calling `start`. Every send carries an idempotency key, which the client's retries need: a
+ * wake's dedupe key (the outbox gives every committed wake one), a reconcile's outbox key, a
+ * timer's `<key>@<at>`, a sandbox timer's `<timer>@<at>`, or one made for the call. A send
+ * repeated after its answer was lost therefore starts no second invocation.
  *
- * ## What Restate owns, and what the Session Store owns
- *
- * Restate owns when a session runs: it delivers each wake at least once, deduped by its
- * key for `dedupeRetentionMs`; runs at most one invocation per key at a time; retries an
- * invocation whose attempt failed, so an advance whose Worker died runs again and takes the
- * session over (§11.4); and keeps every timer: the busy re-wake, `NylorunTimer`,
- * `NylorunSandbox` and the `NylorunTenant` sweep chain. The Session Store (Postgres) owns
- * what happened: the checkpoint, the effect journal (`harness-api/record.ts`), the events
- * (the Record), and the wake outbox that hands each committed wake to Restate. Restate
- * journals no effect: an effect's intent and outcome commit with the session's events in
- * one transaction, under the advance's lease, and remote harnesses and pod engines write
- * them too, over the Harness API.
- *
- * Two Session Store mechanisms overlap Restate on purpose:
- *
- * - **The lease and its epoch** (§10.6). Restate's one invocation per key holds for an
- *   attempt, not for the code it started: an attempt that ends (abort timeout, a dropped
- *   connection) is retried while the previous attempt's handler may still run on its Worker,
- *   and a remote harness or pod engine may still hold the run. The epoch fences their writes,
- *   and `busy` answers the overlap.
- * - **The advance deadline** (`tenant/worker.ts`). Restate's abort timeout does not stop a
- *   running handler, so the Worker bounds each advance itself, below `timeouts`.
+ * What Restate owns and what the Session Store owns, and where the two overlap on purpose,
+ * is said once, under "Durable Session Execution" in `src/CONTEXT.md`.
  */
+import { randomUUID } from "node:crypto";
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
 import * as restate from "@restatedev/restate-sdk";
+import * as clients from "@restatedev/restate-sdk-clients";
+import { retry } from "../../retry.js";
 import {
   DEFAULT_STOP_GRACE_MS,
   WAKE_REASONS,
@@ -72,6 +57,12 @@ import {
 } from "../../execution/types.js";
 
 const HOUR_MS = 60 * 60 * 1000;
+/**
+ * How long one send through the ingress keeps retrying while the ingress is unreachable,
+ * overloaded, or answers 404 because a just-registered service has not reached it yet. The
+ * outbox's grace (`OUTBOX_GRACE_MS` in `tenant/sweep.ts`) is longer.
+ */
+export const SEND_RETRY_MS = 10_000;
 
 export interface RestateTimeouts {
   /**
@@ -133,8 +124,8 @@ export interface RestateExecutionOptions {
   /**
    * Overwrite a deployment already registered at `workerAdvertisedUrl`, so a
    * restarted Worker with changed code takes effect. Default true, which suits
-   * a stable URL on a developer machine. Rolling upgrades should advertise a
-   * versioned URL instead (§14.6).
+   * a stable URL on a developer machine. A Host in a container advertises a
+   * versioned URL without it (`workerDeployment` in `infra/execution.ts`, §14.6).
    */
   forceRegistration?: boolean;
   /** How long `start` keeps retrying registration while Restate comes up. Default 60000. */
@@ -193,6 +184,7 @@ export class RestateExecution implements DurableExecution {
     sandbox: string;
   };
   private readonly ingressUrl: string;
+  private readonly ingress: clients.Ingress;
   private readonly adminUrl: string;
   private readonly sweepIntervalMs: number;
 
@@ -207,6 +199,19 @@ export class RestateExecution implements DurableExecution {
       sandbox: `${prefix}NylorunSandbox`,
     };
     this.ingressUrl = options.ingressUrl.replace(/\/+$/, "");
+    this.ingress = clients.connect({
+      url: this.ingressUrl,
+      retry: {
+        maxAttempts: false,
+        maxDuration: SEND_RETRY_MS,
+        initialInterval: 100,
+        maxInterval: 2000,
+        // A just-registered service can take a moment to reach the ingress.
+        shouldRetry: (failure) =>
+          clients.defaultShouldRetry(failure) ||
+          (failure.kind === "response" && failure.status === 404),
+      },
+    });
     this.adminUrl = options.adminUrl.replace(/\/+$/, "");
     this.sweepIntervalMs = options.sweepIntervalMs ?? 5000;
   }
@@ -229,32 +234,43 @@ export class RestateExecution implements DurableExecution {
       sessionKey(tenantId, sessionId),
       "advance",
       { reason: wake.reason } satisfies WakeInput,
-      wake.dedupeKey,
+      wake.dedupeKey ?? randomUUID(),
     );
   }
 
   async sandbox(tenantId: string, sandboxId: string, signal: SandboxSignal): Promise<void> {
     const key = sessionKey(tenantId, sandboxId);
-    if (signal.kind === "reconcile") await this.send(this.names.sandbox, key, "reconcile", {});
+    if (signal.kind === "reconcile")
+      await this.send(this.names.sandbox, key, "reconcile", {}, signal.key ?? randomUUID());
     else
-      await this.send(this.names.sandbox, key, "arm", {
-        timer: signal.timer,
-        at: signal.at,
-      } satisfies SandboxTimerInput);
+      await this.send(
+        this.names.sandbox,
+        key,
+        "arm",
+        { timer: signal.timer, at: signal.at } satisfies SandboxTimerInput,
+        // Arming a timer for the same time again changes nothing.
+        `${signal.timer}@${signal.at}`,
+      );
   }
 
   async timer(tenantId: string, key: string, at: Date): Promise<void> {
-    await this.send(this.names.timer, sessionKey(tenantId, key), "set", {
-      at: at.getTime(),
-    } satisfies TimerInput);
+    const ms = at.getTime();
+    await this.send(
+      this.names.timer,
+      sessionKey(tenantId, key),
+      "set",
+      { at: ms } satisfies TimerInput,
+      `${key}@${ms}`,
+    );
   }
 
   async armSweep(tenantId: string): Promise<void> {
-    await this.send(this.names.tenant, tenantKey(tenantId), "arm", {});
+    // A key of its own: a later arm (a Host opening the Tenant again) must still run.
+    await this.send(this.names.tenant, tenantKey(tenantId), "arm", {}, randomUUID());
   }
 
   async disarmSweep(tenantId: string): Promise<void> {
-    await this.send(this.names.tenant, tenantKey(tenantId), "disarm", {});
+    await this.send(this.names.tenant, tenantKey(tenantId), "disarm", {}, randomUUID());
   }
 
   /**
@@ -548,45 +564,42 @@ export class RestateExecution implements DurableExecution {
     };
   }
 
-  /** One-way send through the ingress. Retries while the ingress is unreachable or overloaded. */
+  /**
+   * One-way send through the ingress (`@restatedev/restate-sdk-clients`). Every send carries
+   * an idempotency key, so the client's retries (`SEND_RETRY_MS`), and a send repeated after
+   * its answer was lost, start one invocation: the request's own key where it has one (an
+   * outbox row's, a timer's time), or one made for this call.
+   */
   private async send(
     service: string,
     key: string,
     handler: string,
     body: unknown,
-    idempotencyKey?: string,
+    idempotencyKey: string,
   ): Promise<void> {
-    const url = `${this.ingressUrl}/${service}/${encodeURIComponent(key)}/${handler}/send`;
-    const headers: Record<string, string> = { "content-type": "application/json" };
-    if (idempotencyKey !== undefined) headers["idempotency-key"] = idempotencyKey;
-    await withRetry(`Restate send to ${service}/${handler}`, 10_000, async () => {
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10_000),
+    try {
+      await this.ingress.send({
+        service,
+        handler,
+        key,
+        parameter: body,
+        opts: clients.SendOpts.from({ idempotencyKey, timeout: 10_000 }),
       });
-      if (response.ok) {
-        await response.body?.cancel();
-        return;
-      }
-      const text = await response.text().catch(() => "");
-      const error = new Error(
-        `Restate ingress ${response.status} for ${service}/${handler}: ${text}`,
-      );
-      // A just-registered service can take a moment to reach the ingress.
-      throw response.status >= 500 || response.status === 404 || response.status === 429
-        ? error
-        : new PermanentError(error.message);
-    });
+    } catch (error) {
+      const message =
+        error instanceof clients.HttpCallError
+          ? `Restate ingress ${error.status}: ${error.responseText}`
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      throw new Error(`Restate send to ${service}/${handler} failed: ${message}`, { cause: error });
+    }
   }
 
   /** Registers the Worker endpoint with the admin API, retrying until Restate is up. */
   private async register(uri: string): Promise<void> {
     const force = this.options.forceRegistration ?? true;
-    await withRetry(
-      "Restate deployment registration",
-      this.options.registrationTimeoutMs ?? 60_000,
+    const registered = await retry(
       async () => {
         const response = await fetch(`${this.adminUrl}/deployments`, {
           method: "POST",
@@ -594,18 +607,33 @@ export class RestateExecution implements DurableExecution {
           body: JSON.stringify({ uri, force }),
           signal: AbortSignal.timeout(30_000),
         });
-        if (response.ok) {
-          await response.body?.cancel();
-          return;
-        }
+        if (response.ok)
+          return ((await response.json().catch(() => ({}))) as { services?: { name?: string }[] })
+            .services;
         const text = await response.text().catch(() => "");
         const message = `Restate admin ${response.status} registering ${uri}: ${text}`;
         // Discovery failures (Restate cannot reach the endpoint yet) come back
         // as 4xx/5xx; keep trying until the deadline.
         throw new Error(message);
       },
-    );
+      { minMs: 100, maxMs: 2000, deadlineMs: this.options.registrationTimeoutMs ?? 60_000 },
+    ).catch((error: unknown) => {
+      throw new Error(`Restate deployment registration failed: ${(error as Error).message}`, {
+        cause: error,
+      });
+    });
+    // Without `force`, Restate answers a URL already registered with the deployment it has
+    // there, without discovering the endpoint again: one with other services is refused here.
+    const names = new Set((registered ?? []).map((service) => service.name));
+    const missing = Object.values(this.names).filter((name) => !names.has(name));
+    if (registered && missing.length > 0)
+      throw new Error(
+        `Restate deployment registration failed: ${uri} is registered with other services ` +
+          `(missing ${missing.join(", ")}); register this Worker at a URL of its own ` +
+          "(NYLORUN_WORKER_VERSION)",
+      );
   }
+
 }
 
 // Handler maps for typed self-sends (the SDK types clients by handler map).
@@ -724,30 +752,6 @@ function tenantKey(tenantId: string): string {
 
 function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
-}
-
-class PermanentError extends Error {}
-
-async function withRetry(
-  what: string,
-  timeoutMs: number,
-  attempt: () => Promise<void>,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  let delay = 100;
-  for (;;) {
-    try {
-      await attempt();
-      return;
-    } catch (error) {
-      if (error instanceof PermanentError || Date.now() + delay > deadline)
-        throw new Error(`${what} failed: ${(error as Error).message}`, {
-          cause: error,
-        });
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      delay = Math.min(delay * 2, 2000);
-    }
-  }
 }
 
 function sdkLogger(

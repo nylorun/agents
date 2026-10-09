@@ -394,7 +394,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     expect(count(await types(runtime), "turn.completed")).toBe(1);
     const left = await openTestSessionStore(runtime);
     try {
-      expect(await left.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 10))).toEqual([]);
+      expect(await left.tx((t) => t.pendingOutbox(0, 10))).toEqual([]);
     } finally {
       await left.close();
     }
@@ -426,13 +426,14 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     await until(async () => execution.sweeps, (n) => n > 0, "the first sweep pass");
     await openSession(runtime);
     await sendMessage(runtime);
-    expect(lost).toBe(true);
+    // The command is answered without waiting for its wake's send.
+    await until(async () => lost, (sent) => sent, "the message's wake sent");
     await until(() => view(runtime), (v) => v.status === "completed", "completed", 20_000);
     const store = await openTestSessionStore(runtime);
     try {
       // The sweep sends it again under the same idempotency key, and deletes the row.
       await until(
-        () => store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 10)),
+        () => store.tx((t) => t.pendingOutbox(0, 10)),
         (rows) => rows.length === 0,
         "the outbox to empty",
         20_000

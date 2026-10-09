@@ -1,7 +1,8 @@
 /**
  * The control bus on Postgres (blueprint D21, D48): how one process tells the others with the
  * Tenant open to act now. `session.cancel` aborts the advance of a cancelled turn;
- * `sessions.reset` moves the session streams to the Tenant's new basin generation. Nothing
+ * `sessions.reset` moves the session streams to the Tenant's new basin generation;
+ * `host.revoked` closes a pod sandbox's host connections of an older epoch. Nothing
  * internal goes through S2, which only serves API listeners.
  *
  * - **Write.** `writeSignal` inserts a `control_signals` row and calls `pg_notify` on
@@ -41,6 +42,8 @@ const SIGNAL = {
   sessionId: controlSignals.sessionId,
   turnId: controlSignals.turnId,
   generation: controlSignals.generation,
+  sandboxId: controlSignals.sandboxId,
+  epoch: controlSignals.epoch,
 };
 type SignalRow = {
   id: number;
@@ -48,6 +51,8 @@ type SignalRow = {
   sessionId: string | null;
   turnId: string | null;
   generation: number | null;
+  sandboxId: string | null;
+  epoch: number | null;
 };
 
 /** Puts `signal` on the bus in the transaction `db` runs: a row, notified at commit. */
@@ -59,6 +64,8 @@ export async function writeSignal(db: Queryable, signal: ControlSignal): Promise
       sessionId: signal.type === "session.cancel" ? signal.sessionId : null,
       turnId: signal.type === "session.cancel" ? (signal.turnId ?? null) : null,
       generation: signal.type === "sessions.reset" ? signal.generation : null,
+      sandboxId: signal.type === "host.revoked" ? signal.sandboxId : null,
+      epoch: signal.type === "host.revoked" ? signal.epoch : null,
     })
     .returning({ id: controlSignals.id });
   // The payload is only the id: a follower reads the rows back either way.
@@ -202,5 +209,7 @@ function signalOf(row: SignalRow): ControlSignal | undefined {
     };
   if (row.kind === "sessions.reset" && row.generation !== null)
     return { type: "sessions.reset", generation: row.generation };
+  if (row.kind === "host.revoked" && row.sandboxId !== null && row.epoch !== null)
+    return { type: "host.revoked", sandboxId: row.sandboxId, epoch: row.epoch };
   return undefined;
 }

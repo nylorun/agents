@@ -270,7 +270,7 @@ export async function command(
         reason: command.type,
         dedupeKey: `${command.type}:${s.activeTurnId}:${cause}`,
       };
-      await t.wake(id, commandWake, ctx.wake);
+      await t.wake(id, commandWake);
       event = await t.event(
         id,
         s.activeTurnId,
@@ -288,7 +288,6 @@ export async function command(
         turnId: cancelledTurnId,
         cancelled: true,
         error: "Agent turn was cancelled",
-        schedule: ctx.wake,
       });
     const response = {
       status: "accepted",

@@ -66,6 +66,7 @@ import {
   type S2Stream,
 } from "@s2-dev/streamstore";
 import { parseBasin, tenantBasinName, validateBasinPrefix } from "../../streams/basin.js";
+import { sleep } from "../../retry.js";
 import {
   type AppendOptions,
   type AppendResult,
@@ -428,17 +429,4 @@ function escapeRegExp(text: string): string {
 
 function anySignal(...signals: (AbortSignal | undefined)[]): AbortSignal {
   return AbortSignal.any(signals.filter((s): s is AbortSignal => s !== undefined));
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve();
-    const done = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal.addEventListener("abort", done, { once: true });
-  });
 }

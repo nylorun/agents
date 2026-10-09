@@ -22,6 +22,7 @@
  *
  * The relay never writes the record and never deletes from S2.
  */
+import { sleep } from "../../retry.js";
 import { basinOf } from "../basin.js";
 import { sessionStream, type DurableStreams } from "../types.js";
 import type { ChangeSource, CommittedTx, LogHead, RecordReader, RecordRow } from "./types.js";
@@ -414,16 +415,3 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve();
-    const done = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal.addEventListener("abort", done, { once: true });
-  });
-}

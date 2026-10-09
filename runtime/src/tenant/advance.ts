@@ -55,6 +55,7 @@ import {
 import type { AdvanceResult } from "../execution/types.js";
 import type { TurnOutput } from "@nylorun/core/harness-api";
 import { isOwnershipLost, ownedTx } from "../store/ownership.js";
+import { endAdvance } from "./scheduler.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import type { Lease, Session, TenantContext } from "./context.js";
 import { isGateToolEffect, recoversModelCalls, recoversToolCalls } from "./effects.js";
@@ -205,10 +206,7 @@ export async function advance(
     heartbeat.stop();
     dropRunGrant(ctx, lease);
     signal.removeEventListener("abort", forward);
-    if (ctx.work.running.get(id) === controller) {
-      ctx.work.running.delete(id);
-      ctx.work.runningTurns.delete(id);
-    }
+    endAdvance(ctx.work, id, controller);
     // Best effort: a release that fails leaves a lease that simply expires.
     if (release)
       await ctx.store
@@ -464,7 +462,6 @@ async function wakeWorkflowOf(
         type === "turn.failed"
           ? String((payload as { message?: string }).message ?? "")
           : undefined,
-      schedule: ctx.wake,
     });
   else if (type === "turn.cancelled")
     await wakeLinkedWorkflow({
@@ -473,7 +470,6 @@ async function wakeWorkflowOf(
       turnId,
       cancelled: true,
       error: "Agent turn was cancelled",
-      schedule: ctx.wake,
     });
 }
 
@@ -564,11 +560,10 @@ async function settle(
         await slimModelEffects(t, id, s.activeTurnId);
         await t.put("sessions", id, current);
         const segment = finished.segment + 1;
-        await t.wake(
-          id,
-          { reason: "rollover", dedupeKey: `rollover:${s.activeTurnId}:${segment}` },
-          ctx.wake
-        );
+        await t.wake(id, {
+          reason: "rollover",
+          dedupeKey: `rollover:${s.activeTurnId}:${segment}`,
+        });
         return siblings;
       }
       const flow = isWorkflowManifest(current.manifest);

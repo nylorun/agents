@@ -10,8 +10,8 @@
  * 1. **One transaction per `tx` call, READ COMMITTED or stronger.** Nothing a
  *    transaction wrote is visible to others before it commits, and nothing is
  *    kept when `fn` throws: document writes, event sequences, record rows,
- *    and `afterCommit` callbacks are all discarded, and `tx` rejects with the
- *    error `fn` threw.
+ *    and outbox requests are all discarded, and `tx` rejects with the error `fn`
+ *    threw.
  * 2. **Session-scoped writes lock the session row first.** `lockSession` takes
  *    a row lock (`SELECT … FOR UPDATE`) held until the transaction ends. Effect
  *    intent and outcome, checkpoint settlement and event
@@ -25,18 +25,22 @@
  *    generation, `streams/basin.ts`), and the cursor is
  *    `base64url("<sessionId>:<seq>")` (see `record/cursor.ts`).
  * 4. **No external I/O inside `fn`.** No model, tool, MCP, sandbox, Restate or
- *    S2 call, and no `fetch`, runs inside a transaction. A wake is written in the
- *    transaction (`Tx.wake`, the wake outbox) and delivered after commit, and events
- *    are delivered to commit listeners after commit (seam rule 1 and 2).
+ *    S2 call, and no `fetch`, runs inside a transaction. What a transaction asks of
+ *    Durable Session Execution (a wake, a pod sandbox's reconcile or timer) is written
+ *    to the outbox in the transaction (`Tx.wake`, `Tx.signalSandbox`) and delivered
+ *    after commit; what it tells the other processes goes on the control bus
+ *    (`Tx.signal`); and events are delivered to commit listeners after commit (seam
+ *    rule 1 and 2).
  * 5. **No nested transactions.** Calling `store.tx` from inside `fn` rejects.
  *    A `Tx` must not be used after its `tx` call settles.
  * 6. **Post-commit order.** After a commit, the store first calls every commit
- *    listener once with the transaction's events (in allocation order), then runs the `afterCommit` callbacks in registration
- *    order and awaits them. Listener and callback failures are reported to the
- *    store's error hook; they never reject `tx`, because the commit stands.
- *    Recovery from a lost post-commit step is the Tenant sweep's job: a wake's
- *    delivery is a callback too, and its outbox row is what the sweep delivers
- *    again (`Tx.wake`).
+ *    listener once with the transaction's events (in allocation order), then hands
+ *    the transaction's outbox requests to the delivery (`deliverTo`), in the order
+ *    they were written, without the caller waiting. Listener and delivery failures
+ *    are reported to the store's error hook; they never reject `tx`, because the
+ *    commit stands. A request whose delivery fails, or that a crash cuts off, stays
+ *    in the outbox, which the Tenant sweep delivers again. Nothing else runs after
+ *    commit: a step that is not written down is lost to a crash.
  * 7. **Documents are values.** `get` and queries return fresh copies; mutating
  *    them changes nothing until `put`.
  * 8. **Ownership columns are store-managed.** `owner`, `epoch` and
@@ -58,7 +62,7 @@
  */
 import type { KeyRole } from "@nylorun/core/compatibility";
 import type { RecordReader } from "../streams/relay/types.js";
-import type { Wake } from "../execution/types.js";
+import type { SandboxSignal, Wake } from "../execution/types.js";
 import type {
   EventPayload,
   EventType,
@@ -386,6 +390,14 @@ export interface SessionStore {
     onSignal: (signal: ControlSignal) => void,
     options?: FollowSignalsOptions,
   ): Promise<SignalFollower>;
+  /**
+   * Sets where committed outbox requests go (`Tx.wake`, `Tx.signalSandbox`): after each
+   * commit the store hands them to `deliver` without waiting for it, so a slow execution
+   * never holds up the caller. Without one, they wait in the outbox for the Tenant sweep.
+   */
+  deliverTo(deliver: OutboxDelivery | undefined): void;
+  /** Resolves once every delivery started so far has settled (`close` waits for them too). */
+  delivered(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -393,22 +405,34 @@ export interface SessionStore {
 export type OutboxWake = Wake & { dedupeKey: string };
 
 /**
- * Hands an outbox request to Durable Session Execution (`Tx.wake`). Resolving means the
- * execution accepted it; `false` means it was not delivered and stays in the outbox, as a
- * rejection does, without an error.
+ * What a committed transaction asked of Durable Session Execution, as the outbox delivers it:
+ * a wake (`Tx.wake`), or a pod sandbox's reconcile or timer (`Tx.signalSandbox`; a reconcile
+ * carries its idempotency key, `signal:<row id>`).
  */
-export type WakeDelivery = (
-  sessionId: string,
-  wake: OutboxWake,
+export type OutboxRequest =
+  | { kind: "wake"; sessionId: string; wake: OutboxWake }
+  | { kind: "sandbox"; sandboxId: string; signal: SandboxSignal };
+
+/**
+ * Hands an outbox request to Durable Session Execution (`SessionStore.deliverTo`). Resolving
+ * means the execution accepted it; `false` means it was not delivered and stays in the
+ * outbox, due at the sweep's next pass, as after a rejection, which also goes to the store's
+ * error hook.
+ */
+export type OutboxDelivery = (
+  request: OutboxRequest,
 ) => boolean | void | Promise<boolean | void>;
 
-/** A wake outbox request not yet delivered (`Tx.pendingWakes`). */
-export interface PendingWake {
-  id: string;
-  sessionId: string;
-  wake: OutboxWake;
+/** An outbox row: which table (`kind`) and its id. */
+export type OutboxRef = { kind: OutboxRequest["kind"]; id: string };
+
+/** An outbox request not yet delivered (`Tx.pendingOutbox`). */
+export interface PendingRequest extends OutboxRef {
+  request: OutboxRequest;
   /** ISO time it was written. */
   createdAt: string;
+  /** The sweep's failed deliveries of it so far (`failOutbox`). */
+  attempts: number;
 }
 
 /**
@@ -428,6 +452,16 @@ export type ControlSignal =
       /** The Tenant's sessions were reset and it moved to basin generation `generation`. */
       type: "sessions.reset";
       generation: number;
+    }
+  | {
+      /**
+       * Pod sandbox `sandboxId`'s host epoch moved to `epoch` (a join, a stop, a reset, a
+       * deletion, a loss): every process closes its connections hosting it at an older epoch
+       * (`HarnessApiServer.revokeHost`).
+       */
+      type: "host.revoked";
+      sandboxId: string;
+      epoch: number;
     };
 
 export interface FollowSignalsOptions {
@@ -452,7 +486,7 @@ export interface SessionStoreOptions {
   tenantId: string;
   /** Clock for event `time`. Defaults to `() => new Date()`. */
   now?: () => Date;
-  /** Receives listener and `afterCommit` failures, which never reject `tx`. */
+  /** Receives listener and outbox delivery failures, which never reject `tx`. */
   onError?: (error: unknown) => void;
 }
 
@@ -506,31 +540,42 @@ export interface Tx {
     payload: EventPayload<T>,
   ): Promise<SessionEventOf<T>>;
 
-  /**
-   * Runs `fn` after a successful commit (never on rollback): a sandbox signal or a host
-   * revocation. Nothing writes it down, so a crash after commit loses it. A wake goes
-   * through `wake`, which does.
-   */
-  afterCommit(fn: () => void | Promise<void>): void;
-
-  // --- wake outbox (architecture §12.3) -------------------------------------
+  // --- outbox (architecture §12.3) ------------------------------------------
 
   /**
    * Asks for an advance of `sessionId` once this transaction commits. The request is a row
    * of the wake outbox written in this transaction, so it commits, or rolls back, with what
-   * caused it: a commit never loses its wake. After commit, in `afterCommit` order, the
-   * store calls `deliver` (`DurableExecution.wake`, through the Tenant) and deletes the row
-   * once it resolves to anything but `false`. A request `deliver` declines (`false`) or
-   * rejects, or one a crash cut off, stays in the outbox until the Tenant sweep delivers it
-   * (`pendingWakes`, `deleteWakes`). `deliver` gets the request's idempotency key as
-   * `dedupeKey`: the wake's own, or `wake:<row id>` without one, so a request delivered
-   * twice still causes one advance.
+   * caused it: a commit never loses its wake. After commit the store hands it to the
+   * delivery (`SessionStore.deliverTo`, `DurableExecution.wake` through the Tenant) without
+   * waiting, and deletes the row once that resolves to anything but `false`. A request the
+   * delivery declines or rejects is due at the sweep's next pass; one a crash cut off, or
+   * still being sent, is due once it is older than the sweep's grace (`pendingOutbox`). The
+   * delivery gets the request's idempotency key as `dedupeKey`: the wake's own, or
+   * `wake:<row id>` without one, so a request delivered twice still causes one advance.
    */
-  wake(sessionId: string, wake: Wake, deliver: WakeDelivery): Promise<void>;
-  /** Outbox requests written before `before`, oldest first. */
-  pendingWakes(before: Date, limit: number): Promise<PendingWake[]>;
+  wake(sessionId: string, wake: Wake): Promise<void>;
+  /**
+   * Asks for a pod sandbox's reconcile, or sets one of its timers, once this transaction
+   * commits (`DurableExecution.sandbox`): a row of the sandbox signal outbox, delivered as a
+   * wake's is. A reconcile is delivered with the key `signal:<row id>`, so one delivered
+   * twice runs once.
+   */
+  signalSandbox(sandboxId: string, signal: SandboxSignal): Promise<void>;
+  /**
+   * Outbox requests that are due, by the database's clock: written more than `graceMs` ago,
+   * or whose delivery failed and whose retry time has come (`failOutbox`), and not parked.
+   * Oldest first, a retried one by its retry time, so a request that keeps failing never
+   * holds the head of the queue.
+   */
+  pendingOutbox(graceMs: number, limit: number): Promise<PendingRequest[]>;
   /** Deletes delivered outbox requests. */
-  deleteWakes(ids: readonly string[]): Promise<void>;
+  deleteOutbox(rows: readonly OutboxRef[]): Promise<void>;
+  /**
+   * Records a failed delivery of outbox request `row`: one more attempt, due again `retryInMs`
+   * from now (the database's clock). With `park` it is never due again: it stays in the
+   * outbox, with when it was parked, for an operator to send again or delete.
+   */
+  failOutbox(row: OutboxRef, retry: { retryInMs: number; park: boolean }): Promise<void>;
 
   // --- ownership (§10.6) ---------------------------------------------------
 
@@ -582,11 +627,13 @@ export interface Tx {
   ): Promise<StoredSession<T>[]>;
   /**
    * Sessions `running` or `runnable` with no owner or an owner whose lease
-   * ended at or before `now`, oldest lease first. The sweep re-wakes these.
+   * ended at or before `now`, by id, the first `limit` after `after` (a page:
+   * pass the last id of the previous one). The sweep re-wakes these.
    */
   orphanedSessions<T extends SessionDoc = SessionDoc>(
     now: Date,
     limit: number,
+    after?: string,
   ): Promise<StoredSession<T>[]>;
   /** Sessions, optionally of one agent and one owner (`ownerUserId`), by id. */
   listSessions<T extends SessionDoc = SessionDoc>(filter?: {

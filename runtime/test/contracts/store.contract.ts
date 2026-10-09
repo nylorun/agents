@@ -22,6 +22,7 @@ import {
   type ControlSignal,
   type SignalFollower,
   type ModelUsageWrite,
+  type OutboxRequest,
   type SessionStore,
   type SessionStoreOptions,
   type VaultCredentialRow,
@@ -246,25 +247,28 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect(await store.tx((t) => t.get("sessions", "s1"))).toBeDefined();
       });
 
-      it("rolls back writes, events and afterCommit on throw", async () => {
+      it("rolls back writes, events and outbox requests on throw", async () => {
         const store = await fresh();
         await store.tx((t) => t.put("sessions", "s1", session("s1")));
         const commits: Commit[] = [];
         store.onCommit((commit) => commits.push(commit));
         let ran = false;
+        store.deliverTo(() => {
+          ran = true;
+        });
         const failure = new Error("boom");
         await expect(
           store.tx(async (t) => {
             await t.put("sessions", "s1", session("s1", { status: "running" }));
             await t.put("commands", "c1", { id: "c1" });
             await t.event("s1", "t1", "turn.completed", { tag: "turn.started", output: {} });
-            t.afterCommit(() => {
-              ran = true;
-            });
+            await t.wake("s1", { reason: "message" });
             throw failure;
           }),
         ).rejects.toBe(failure);
+        await store.delivered();
         expect(ran).toBe(false);
+        expect(await store.tx((t) => t.pendingOutbox(0, 10))).toEqual([]);
         expect(commits).toEqual([]);
         await store.tx(async (t) => {
           expect((await t.get("sessions", "s1")).status).toBe("idle");
@@ -276,7 +280,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect((await recorded(store)).map((row) => row.seq)).toEqual([0]);
       });
 
-      it("delivers events to commit listeners, then runs afterCommit in order", async () => {
+      it("delivers events to commit listeners, then the outbox requests in order", async () => {
         const store = await fresh();
         await store.tx((t) => t.put("sessions", "s1", session("s1")));
         const log: string[] = [];
@@ -285,19 +289,19 @@ export function storeContract(name: string, factory: StoreFactory): void {
           commits.push(commit);
           log.push("listener");
         });
+        store.deliverTo(async (request) => {
+          if (request.kind === "wake") await sleep(5);
+          log.push(request.kind);
+        });
         await store.tx(async (t) => {
           await t.event("s1", "t1", "turn.completed", { tag: "a", output: { n: 1 } });
           await t.event("s1", "t1", "turn.completed", { tag: "b", output: { n: 2 } });
-          t.afterCommit(() => {
-            log.push("first");
-          });
-          t.afterCommit(async () => {
-            await sleep(5);
-            log.push("second");
-          });
+          await t.wake("s1", { reason: "message" });
+          await t.signalSandbox("sb1", { kind: "reconcile" });
           log.push("body");
         });
-        expect(log).toEqual(["body", "listener", "first", "second"]);
+        await store.delivered();
+        expect(log).toEqual(["body", "listener", "wake", "sandbox"]);
         expect(commits).toHaveLength(1);
         expect(commits[0]!.events.map((e) => (e.payload as { tag: string }).tag)).toEqual(["a", "b"]);
       });
@@ -321,32 +325,36 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect(calls).toBe(1);
       });
 
-      it("lets afterCommit read committed state and open a new transaction", async () => {
+      it("lets a delivery read committed state and open a new transaction", async () => {
         const store = await fresh();
         let seen: unknown;
+        store.deliverTo(async () => {
+          seen = await store.tx((t2) => t2.get("sessions", "s1"));
+        });
         await store.tx(async (t) => {
           await t.put("sessions", "s1", session("s1", { status: "runnable" }));
-          t.afterCommit(async () => {
-            seen = await store.tx((t2) => t2.get("sessions", "s1"));
-          });
+          await t.wake("s1", { reason: "message" });
         });
+        await store.delivered();
         expect(seen).toMatchObject({ status: "runnable" });
       });
 
-      it("reports afterCommit and listener failures without rejecting the committed tx", async () => {
+      it("reports delivery and listener failures without rejecting the committed tx", async () => {
         const store = await fresh();
         store.onCommit(() => {
           throw new Error("listener");
+        });
+        store.deliverTo(() => {
+          throw new Error("wake");
         });
         await store.tx((t) => t.put("sessions", "s1", session("s1")));
         const result = await store.tx(async (t) => {
           await t.put("commands", "c1", { id: "c1" });
           await t.event("s1", null, "turn.completed", { tag: "x", output: {} });
-          t.afterCommit(() => {
-            throw new Error("wake");
-          });
+          await t.wake("s1", { reason: "message" });
           return 7;
         });
+        await store.delivered();
         expect(result).toBe(7);
         expect(await store.tx((t) => t.get("commands", "c1"))).toBeDefined();
         expect(errors.map((e) => (e as Error).message).sort()).toEqual([
@@ -714,8 +722,11 @@ export function storeContract(name: string, factory: StoreFactory): void {
           expect(ids(await t.listSessions({ ownerUserId: "user-2", agentId: "agent-b" }))).toEqual([]);
           // s2 has no owner; s1's lease ends at +1s; wf-b's at +60s.
           expect(ids(await t.orphanedSessions(new Date(now.getTime() + 500), 10))).toEqual(["s2"]);
-          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 10))).toEqual(["s2", "s1"]);
-          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 1))).toEqual(["s2"]);
+          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 10))).toEqual(["s1", "s2"]);
+          // Pages by id.
+          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 1))).toEqual(["s1"]);
+          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 1, "s1"))).toEqual(["s2"]);
+          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 1, "s2"))).toEqual([]);
         });
       });
 
@@ -1130,11 +1141,13 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx((t) => t.signal({ type: "session.cancel", sessionId: "s1", turnId: "t1" }));
         await store.tx((t) => t.signal({ type: "session.cancel", sessionId: "s2" }));
         await store.tx((t) => t.signal({ type: "sessions.reset", generation: 3 }));
-        await until(() => (seen.length === 3 ? true : undefined), "three signals");
+        await store.tx((t) => t.signal({ type: "host.revoked", sandboxId: "sb1", epoch: 4 }));
+        await until(() => (seen.length === 4 ? true : undefined), "four signals");
         expect(seen).toEqual([
           { type: "session.cancel", sessionId: "s1", turnId: "t1" },
           { type: "session.cancel", sessionId: "s2" },
           { type: "sessions.reset", generation: 3 },
+          { type: "host.revoked", sandboxId: "sb1", epoch: 4 },
         ]);
         expect(errors).toEqual([]);
       });
@@ -1183,85 +1196,139 @@ export function storeContract(name: string, factory: StoreFactory): void {
       });
     });
 
-    describe("wake outbox", () => {
-      type Delivered = { sessionId: string; reason: string; dedupeKey: string };
+    describe("outbox", () => {
       /** Records each delivery; `answer` is what it resolves to (or throws). */
-      function deliveries(answer: () => boolean | void = () => undefined) {
-        const delivered: Delivered[] = [];
-        const deliver = (sessionId: string, wake: { reason: string; dedupeKey: string }) => {
-          delivered.push({ sessionId, ...wake });
+      function deliveries(answer: () => boolean | void | Promise<boolean | void> = () => undefined) {
+        const delivered: OutboxRequest[] = [];
+        const deliver = (request: OutboxRequest) => {
+          delivered.push(request);
           return answer();
         };
         return { delivered, deliver };
       }
-      const later = () => new Date(Date.now() + 60_000);
+      /** Every row that is due, however young. */
+      const due = (store: SessionStore, limit = 10) => store.tx((t) => t.pendingOutbox(0, limit));
+      const target = (row: { request: OutboxRequest }) =>
+        row.request.kind === "wake" ? row.request.sessionId : row.request.sandboxId;
 
-      it("delivers a wake after commit, after the transaction's other callbacks before it, and deletes it", async () => {
+      it("delivers a request after commit without the caller waiting for it, and deletes it", async () => {
         const store = await fresh();
-        const log: string[] = [];
-        const { delivered, deliver } = deliveries(() => void log.push("deliver"));
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        const { delivered, deliver } = deliveries(() => held);
+        store.deliverTo(deliver);
         await store.tx(async (t) => {
-          t.afterCommit(() => void log.push("callback"));
-          await t.wake("s1", { reason: "message", dedupeKey: "message:t1:0" }, deliver);
+          await t.wake("s1", { reason: "message", dedupeKey: "message:t1:0" });
           expect(delivered).toEqual([]);
-          log.push("body");
         });
-        expect(log).toEqual(["body", "callback", "deliver"]);
-        expect(delivered).toEqual([{ sessionId: "s1", reason: "message", dedupeKey: "message:t1:0" }]);
-        expect(await store.tx((t) => t.pendingWakes(later(), 10))).toEqual([]);
+        // The commit returned while the delivery is still running.
+        expect(delivered).toEqual([
+          { kind: "wake", sessionId: "s1", wake: { reason: "message", dedupeKey: "message:t1:0" } },
+        ]);
+        expect(await due(store)).toHaveLength(1);
+        release();
+        await store.delivered();
+        expect(await due(store)).toEqual([]);
       });
 
       it("writes nothing and delivers nothing when the transaction rolls back", async () => {
         const store = await fresh();
         const { delivered, deliver } = deliveries();
+        store.deliverTo(deliver);
         await expect(
           store.tx(async (t) => {
-            await t.wake("s1", { reason: "flow" }, deliver);
+            await t.wake("s1", { reason: "flow" });
+            await t.signalSandbox("sb1", { kind: "reconcile" });
             throw new Error("rollback");
           }),
         ).rejects.toThrow("rollback");
+        await store.delivered();
         expect(delivered).toEqual([]);
-        expect(await store.tx((t) => t.pendingWakes(later(), 10))).toEqual([]);
+        expect(await due(store)).toEqual([]);
       });
 
-      it("keeps a wake that was not delivered, with the idempotency key it was delivered with", async () => {
+      it("keeps a request that was not delivered, due at once, with the idempotency key it was delivered with", async () => {
         const store = await fresh();
         // Declined (`false`), rejected (reported, the commit stands), and a key made for a wake without one.
         const declined = deliveries(() => false);
         const failing = deliveries(() => {
           throw new Error("Restate unreachable");
         });
-        await store.tx((t) => t.wake("s1", { reason: "message", dedupeKey: "message:t1:0" }, declined.deliver));
-        await store.tx((t) => t.wake("s2", { reason: "flow" }, failing.deliver));
+        store.deliverTo(declined.deliver);
+        await store.tx((t) => t.wake("s1", { reason: "message", dedupeKey: "message:t1:0" }));
+        store.deliverTo(failing.deliver);
+        await store.tx((t) => t.wake("s2", { reason: "flow" }));
+        await store.delivered();
         expect(errors).toHaveLength(1);
         expect((errors[0] as Error).message).toBe("Restate unreachable");
-        const pending = await store.tx((t) => t.pendingWakes(later(), 10));
-        expect(pending.map(({ sessionId, wake }) => ({ sessionId, ...wake }))).toEqual([
-          { sessionId: "s1", reason: "message", dedupeKey: "message:t1:0" },
-          { sessionId: "s2", reason: "flow", dedupeKey: failing.delivered[0]!.dedupeKey },
+        // Not left for the grace: the sweep's next pass sends them.
+        const pending = (await store.tx((t) => t.pendingOutbox(60_000, 10))).sort((a, b) =>
+          target(a).localeCompare(target(b)),
+        );
+        expect(pending.map((row) => row.request)).toEqual([...declined.delivered, ...failing.delivered]);
+        expect(failing.delivered[0]).toMatchObject({ wake: { dedupeKey: `wake:${pending[1]!.id}` } });
+        expect(pending.map((row) => [row.kind, row.attempts])).toEqual([
+          ["wake", 0],
+          ["wake", 0],
         ]);
-        expect(failing.delivered[0]!.dedupeKey).toBe(`wake:${pending[1]!.id}`);
-        expect(Date.parse(pending[0]!.createdAt)).toBeLessThanOrEqual(Date.parse(pending[1]!.createdAt));
       });
 
-      it("lists pending wakes written before a time, oldest first, and deletes them by id", async () => {
+      it("keeps a pod sandbox's reconcile and timer, a reconcile keyed by its row", async () => {
         const store = await fresh();
-        const { deliver } = deliveries(() => false);
-        for (const id of ["s1", "s2", "s3"])
-          await store.tx((t) => t.wake(id, { reason: "recover" }, deliver));
-        expect(await store.tx((t) => t.pendingWakes(new Date(Date.now() - 60_000), 10))).toEqual([]);
-        const pending = await store.tx((t) => t.pendingWakes(later(), 2));
-        expect(pending.map((wake) => wake.sessionId)).toEqual(["s1", "s2"]);
-        await store.tx((t) => t.deleteWakes(pending.map((wake) => wake.id)));
-        await store.tx((t) => t.deleteWakes([]));
-        expect((await store.tx((t) => t.pendingWakes(later(), 10))).map((wake) => wake.sessionId)).toEqual(["s3"]);
+        const { delivered, deliver } = deliveries(() => false);
+        store.deliverTo(deliver);
+        await store.tx(async (t) => {
+          await t.signalSandbox("sb1", { kind: "reconcile" });
+          await t.signalSandbox("sb1", { kind: "arm", timer: "idle", at: 1_700_000_000_000 });
+        });
+        await store.delivered();
+        const pending = await due(store);
+        expect(pending.map((row) => row.request)).toEqual(delivered);
+        expect(delivered).toEqual([
+          { kind: "sandbox", sandboxId: "sb1", signal: { kind: "reconcile", key: `signal:${pending[0]!.id}` } },
+          { kind: "sandbox", sandboxId: "sb1", signal: { kind: "arm", timer: "idle", at: 1_700_000_000_000 } },
+        ]);
+        await store.tx((t) => t.reset("sandboxes"));
+        expect(await due(store)).toEqual([]);
+      });
+
+      it("lists the requests older than the grace, oldest first across both outboxes, and deletes them", async () => {
+        const store = await fresh();
+        await store.tx((t) => t.wake("s1", { reason: "recover" }));
+        await store.tx((t) => t.signalSandbox("sb1", { kind: "reconcile" }));
+        await store.tx((t) => t.wake("s3", { reason: "recover" }));
+        // Without a delivery they wait for the sweep, and are not due within a grace.
+        expect(await store.tx((t) => t.pendingOutbox(60_000, 10))).toEqual([]);
+        const pending = await due(store, 2);
+        expect(pending.map(target)).toEqual(["s1", "sb1"]);
+        expect(Date.parse(pending[0]!.createdAt)).toBeLessThanOrEqual(Date.parse(pending[1]!.createdAt));
+        await store.tx((t) => t.deleteOutbox(pending));
+        await store.tx((t) => t.deleteOutbox([]));
+        expect((await due(store)).map(target)).toEqual(["s3"]);
+      });
+
+      it("puts a failed request behind the others until its retry, and never lists a parked one", async () => {
+        const store = await fresh();
+        await store.tx((t) => t.wake("s1", { reason: "recover" }));
+        await store.tx((t) => t.signalSandbox("sb2", { kind: "reconcile" }));
+        await store.tx((t) => t.wake("s3", { reason: "recover" }));
+        const [first, second] = await due(store);
+        await store.tx((t) => t.failOutbox(first!, { retryInMs: 60_000, park: false }));
+        await store.tx((t) => t.failOutbox(second!, { retryInMs: 0, park: false }));
+        // s1 waits for its retry; sb2 is due again at once, by its retry time: after s3.
+        expect((await due(store)).map((row) => [target(row), row.attempts])).toEqual([
+          ["s3", 0],
+          ["sb2", 1],
+        ]);
+        await store.tx((t) => t.failOutbox(second!, { retryInMs: 0, park: true }));
+        expect((await due(store)).map(target)).toEqual(["s3"]);
       });
 
       it("drops pending wakes with a sessions reset", async () => {
         const store = await fresh();
-        await store.tx((t) => t.wake("s1", { reason: "message" }, () => false));
+        await store.tx((t) => t.wake("s1", { reason: "message" }));
         await store.tx((t) => t.reset("sessions"));
-        expect(await store.tx((t) => t.pendingWakes(later(), 10))).toEqual([]);
+        expect(await due(store)).toEqual([]);
       });
     });
 
