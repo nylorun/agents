@@ -3,8 +3,8 @@
 This release supports one machine: the **local Tenant** that `nylorun start`
 runs for a project (the Runtime, its gateway and harness, Studio, Postgres, Restate,
 s2-lite and RustFS, as Docker Compose project `nylorun-<tenant>`), an installation that
-serves that one **Tenant**, and the application's **Action
-endpoints** (the tools it serves) on the same machine or reachable from it. Vocabulary:
+serves that one **Tenant**, and the services the application's agents call as
+tools (HTTP tools and remote MCP servers) on the same machine or reachable from it. Vocabulary:
 [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 
 ```sh
@@ -68,7 +68,7 @@ management key, and the app server attaches them to sessions by id (`vaultIds`)
 ([Credentials](#credentials)).
 
 - Keep the Runtime off the network. An app server on the same machine calls
-  `http://localhost:<port>` (the URL `nylorun up` prints). An app server
+  `http://localhost:<port>` (the URL `nylorun start` prints). An app server
   container joins the Tenant's Compose network and calls `http://runtime:4000`,
   which the Runtime already accepts as a `Host`. An app server on another
   machine reaches it through a reverse proxy:
@@ -221,7 +221,7 @@ way in. Nothing in the Runtime changes.
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
 
 A [Caddy](https://caddyserver.com) configuration that does all of this
-(replace the name and `8787` with your host name and the port `nylorun up`
+(replace the name and `8787` with your host name and the port `nylorun start`
 prints):
 
 ```caddyfile
@@ -361,7 +361,7 @@ a model credential.
 
 - The gateway has no published port; only the runtime and the harness reach it,
   on the Compose networks. It accepts two credentials:
-  - **Core's credential**, `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun up`
+  - **Core's credential**, `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun start`
     generates it once and keeps it, and only the runtime container holds it. It
     is the only credential for vault writes and token signing, and it covers MCP
     requests the runtime makes outside a turn (closing a connection, for example).
@@ -800,7 +800,7 @@ Each release publishes the Runtime and Studio as multi-arch images
 | `ghcr.io/nylorun/runtime:<runtime version>` | `runtime/Dockerfile` (the `runtime`, `gateway` and `harness` containers) |
 | `ghcr.io/nylorun/studio:<studio version>` | `studio/Dockerfile` |
 
-`nylorun up` runs the versions its release pins (`nylorun/package.json`
+`nylorun start` runs the versions its release pins (`nylorun/package.json`
 `nylorun.runtime` and `nylorun.studio`) beside the official Postgres, Restate,
 s2-lite and RustFS images. `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` replace
 the pinned images, for example with a local build. Tags are never moved, and
