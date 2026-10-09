@@ -47,7 +47,8 @@ export { tenantHostRoot };
 /**
  * The Project link (`.nylorun/link.json`, format 3) from `cwd` upwards (`@nylorun/core/project`):
  * the Tenant it names and the Project's root, or why it cannot be used (`unusable`: a link from
- * an older nylorun or a broken file), which only matters when nothing else names the Host root.
+ * an older nylorun, a broken file or one that cannot be read), which only matters when nothing
+ * else names the Host root.
  */
 function projectLink(cwd: string): { tenant?: string; project?: string; unusable?: string } {
   const project = findLinkedProjectRoot(cwd);
@@ -62,14 +63,31 @@ function projectLink(cwd: string): { tenant?: string; project?: string; unusable
     return { ...(link.tenant ? { tenant: link.tenant } : {}), project };
   } catch (error) {
     if (error instanceof ProjectFileError) return { unusable: error.message };
-    throw error;
+    // EACCES (a root-owned file after `sudo npx nylorun start`) or EISDIR.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (typeof code !== "string") throw error;
+    return {
+      unusable: `Cannot read the Project link at ${projectLinkPath(project)} (${code}). Fix its permissions, or remove .nylorun/link.json and run "npx nylorun start".`,
+    };
   }
 }
 
 /**
- * The Host root of the local Host: `options.home`, `NYLORUN_HOME`, or the Host root of the
- * Tenant named by `options.tenant`, `NYLORUN_TENANT` or the Project link. `project` is the
- * linked Project's root when the link names this Host root's Tenant.
+ * The Host root named without the Project link: `options.home`, `NYLORUN_HOME`, or the Host root
+ * of the Tenant named by `options.tenant` or `NYLORUN_TENANT`.
+ */
+function namedHome(options?: AdminConnectionOptions): string | undefined {
+  if (options?.home !== undefined && options.home.trim() !== "") return resolve(options.home);
+  const fromEnv = env("NYLORUN_HOME");
+  if (fromEnv) return resolve(fromEnv);
+  const named = options?.tenant?.trim() || env("NYLORUN_TENANT")?.trim();
+  return named ? tenantHostRoot(named) : undefined;
+}
+
+/**
+ * The Host root of the local Host: the one named (`namedHome`), else the Host root of the Tenant
+ * the Project link names. `project` is the linked Project's root when the link names this Host
+ * root's Tenant. Only the local-Host step reads the link.
  */
 function resolveHome(options?: AdminConnectionOptions): {
   home?: string;
@@ -78,16 +96,7 @@ function resolveHome(options?: AdminConnectionOptions): {
 } {
   const link = projectLink(options?.cwd ?? process.cwd());
   const linked = link.tenant ? tenantHostRoot(link.tenant) : undefined;
-  const fromEnv = env("NYLORUN_HOME");
-  const named = options?.tenant?.trim() || env("NYLORUN_TENANT")?.trim();
-  const home =
-    options?.home !== undefined && options.home.trim() !== ""
-      ? resolve(options.home)
-      : fromEnv
-        ? resolve(fromEnv)
-        : named
-          ? tenantHostRoot(named)
-          : linked;
+  const home = namedHome(options) ?? linked;
   return {
     ...(home ? { home } : {}),
     ...(home && home === linked ? { project: link.project } : {}),
@@ -182,15 +191,17 @@ function readLocalHost(
 
 /** Resolve the Management API connection once: options → environment → local Host. */
 export function resolveAdminConnection(options?: AdminConnectionOptions): ResolvedAdmin {
-  const { home, project, unusableLink } = resolveHome(options);
+  // Options and the environment never read the Project link: a link that does not read must not
+  // break a connection named outright.
+  const named = namedHome(options);
   const optionUrl = options?.url?.trim() || undefined;
   const optionKey = options?.key?.trim() || undefined;
   if (optionUrl || optionKey) {
     if (!optionUrl || !optionKey)
       connectionMissing(
-        `Incomplete options: both url and key (a management key) are required. ${sourcesTriedMessage(home)}`,
+        `Incomplete options: both url and key (a management key) are required. ${sourcesTriedMessage(named)}`,
       );
-    return { url: optionUrl.replace(/\/$/, ""), key: optionKey, source: "options", ...(home ? { home } : {}) };
+    return { url: optionUrl.replace(/\/$/, ""), key: optionKey, source: "options", ...(named ? { home: named } : {}) };
   }
 
   // NYLORUN_RUNTIME_URL alone is an app's (with NYLORUN_SERVER_KEY): only the key selects this.
@@ -199,11 +210,12 @@ export function resolveAdminConnection(options?: AdminConnectionOptions): Resolv
     const envUrl = env("NYLORUN_RUNTIME_URL");
     if (!envUrl)
       connectionMissing(
-        `Incomplete environment: NYLORUN_MANAGEMENT_KEY needs NYLORUN_RUNTIME_URL. ${sourcesTriedMessage(home)}`,
+        `Incomplete environment: NYLORUN_MANAGEMENT_KEY needs NYLORUN_RUNTIME_URL. ${sourcesTriedMessage(named)}`,
       );
-    return { url: envUrl.replace(/\/$/, ""), key: envKey, source: "environment", ...(home ? { home } : {}) };
+    return { url: envUrl.replace(/\/$/, ""), key: envKey, source: "environment", ...(named ? { home: named } : {}) };
   }
 
+  const { home, project, unusableLink } = resolveHome(options);
   if (unusableLink && !home) connectionMissing(unusableLink);
   const local = home === undefined ? undefined : readLocalHost(home, project);
   if (local) return { url: local.url, key: local.key, source: "local-host", home };

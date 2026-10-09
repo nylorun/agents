@@ -125,4 +125,16 @@ describe("the Project link", () => {
       principalId: "project",
     });
   });
+
+  it("reads broken credentials as none, so start replaces them, and refuses newer ones", async () => {
+    const root = await project();
+    await mkdir(join(root, ".nylorun"));
+    const file = join(root, ".nylorun", "credentials.json");
+    await writeFile(file, "{");
+    expect(await readProjectCredentials(root)).toBeUndefined();
+    await writeFile(file, JSON.stringify({ format: 2, applicationKey: "ab".repeat(32), principalId: "project" }));
+    await expect(readProjectCredentials(root)).rejects.toThrow(
+      `Newer credentials at ${file}. Upgrade nylorun, or remove the file and run "npx nylorun start" again.`,
+    );
+  });
 });

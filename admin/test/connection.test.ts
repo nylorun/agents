@@ -285,6 +285,30 @@ describe("local Tenants", () => {
     }
   });
 
+  it("never reads the Project link for options or the environment; the local Host refuses one that does not read", async () => {
+    clearEnv();
+    const project = await realpath(await mkdtemp(join(tmpdir(), "nylorun-admin-unreadable-")));
+    try {
+      // A directory where link.json should be: reading it fails (EISDIR), as a root-owned file
+      // after `sudo npx nylorun start` fails with EACCES.
+      const linkPath = join(project, ".nylorun", "link.json");
+      await mkdir(linkPath, { recursive: true });
+      const url = "http://127.0.0.1:1";
+      expect(createAdmin({ cwd: project, url, key: MANAGEMENT_KEY }).source).toBe("options");
+      process.env.NYLORUN_RUNTIME_URL = url;
+      process.env.NYLORUN_MANAGEMENT_KEY = "e".repeat(64);
+      expect(createAdmin({ cwd: project }).source).toBe("environment");
+
+      clearEnv();
+      expect(missing(() => createAdmin({ cwd: project })).message).toBe(
+        `Cannot read the Project link at ${linkPath} (EISDIR). Fix its permissions, or remove .nylorun/link.json and run "npx nylorun start".`,
+      );
+      expect(() => createAdmin({ cwd: project, tenant: "one" })).toThrow(tenantHostRoot("one"));
+    } finally {
+      await rm(project, { recursive: true, force: true });
+    }
+  });
+
   it("prefers the tenant option, then NYLORUN_TENANT, and NYLORUN_HOME over both", () => {
     clearEnv();
     expect(() => createAdmin({ tenant: "one" })).toThrow(tenantHostRoot("one"));

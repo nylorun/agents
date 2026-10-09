@@ -267,6 +267,23 @@ describe("start in a project", () => {
     );
   });
 
+  it("refuses credentials a newer nylorun wrote rather than replace them", async () => {
+    const { tmp, base } = await machine();
+    const dir = await project(join(tmp, "shop"));
+    const fetch = machineFetch(base);
+    expect(await runStackCommand("start", ["--no-studio"], machineDeps(base, dir, { fetch }))).toBe(0);
+    const credentials = join(dir, ".nylorun", "credentials.json");
+    const newer = JSON.stringify({ ...readJson(credentials), format: 2 });
+    await writeFile(credentials, newer, { mode: 0o600 });
+
+    const docker = fakeDocker();
+    await expect(
+      runStackCommand("start", ["--no-studio"], machineDeps(base, dir, { fetch, docker })),
+    ).rejects.toThrow(`Newer credentials at ${credentials}. Upgrade nylorun`);
+    expect(readFileSync(credentials, "utf8")).toBe(newer);
+    expect(operated(docker)).toEqual([]);
+  });
+
   it("keeps a project key from before operator keys while it authenticates, for every checkout", async () => {
     const { tmp, base } = await machine();
     const fetch = machineFetch(base);

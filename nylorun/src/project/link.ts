@@ -86,13 +86,19 @@ export async function readProjectCredentials(
 
 /**
  * A credentials file (format 0 or 1): the Project's, or one the nylorun commands keep in the
- * Host root. Undefined when absent or unreadable, so `start` replaces it.
+ * Host root. Undefined when absent or unreadable, so `start` replaces it; a newer format is an
+ * error, as for the link, so this release never rewrites it in its own.
  */
 export async function readCredentialsFile(path: string): Promise<KeyCredentials | undefined> {
   let value;
   try {
     value = readCredentials(path);
-  } catch {
+  } catch (error) {
+    if (error instanceof ProjectFileError && error.reason === "newer")
+      throw new CliError(
+        `Newer credentials at ${error.path}. Upgrade nylorun, or remove the file and run "npx nylorun start" again.`,
+        1,
+      );
     return undefined;
   }
   if (!value) return undefined;
