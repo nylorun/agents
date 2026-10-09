@@ -178,6 +178,12 @@ export const ERROR_CODES = [
    * `mcp.forbidden`, `mcp.status`, `mcp.error`).
    */
   "mcp_preview_failed",
+  /**
+   * A session's shell credentials would be ambiguous (R2c, D50): `409`. Two attached
+   * `environment_secret` or `environment_variable` credentials share a variable name, two
+   * secrets are bound to one host, or the sandbox would serve secrets to sessions of two owners.
+   */
+  "credential_conflict",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

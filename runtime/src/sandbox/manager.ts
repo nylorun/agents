@@ -74,6 +74,8 @@ export interface SandboxSessionRef {
    * so every session attached to it shares the files; absent, the workspace is the session's.
    */
   readonly sandboxId?: string;
+  /** Variables every command of the call gets (R2c): secret names set to the sentinel, plain values. */
+  readonly environment?: Readonly<Record<string, string>>;
   /**
    * Who the call's events are claimed for, passed back to `emit`: in a harness, the run that
    * made the call (its run id).
@@ -480,7 +482,8 @@ export class SandboxManager {
         signal,
         (value) => {
           report = value;
-        }
+        },
+        session.environment
       );
       await this.options.emit(
         session.id,

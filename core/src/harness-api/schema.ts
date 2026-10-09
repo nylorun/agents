@@ -147,7 +147,16 @@ export const RunRoutingSchema = z
     mcpSnapshot: z.unknown().optional(),
     /** The session that owns the tree's sandbox, and the sandbox resource it is attached to. */
     sandbox: z
-      .object({ ownerId: id, sandboxId: id.optional(), spec: z.unknown().optional() })
+      .object({
+        ownerId: id,
+        sandboxId: id.optional(),
+        spec: z.unknown().optional(),
+        /**
+         * Variables every sandbox command gets (R2c, D50): each `environment_secret` name set to
+         * the sentinel `nylorun-managed`, and each `environment_variable`'s value. Never a secret.
+         */
+        environment: z.record(z.string(), z.string()).optional(),
+      })
       .strict()
       .optional(),
   })

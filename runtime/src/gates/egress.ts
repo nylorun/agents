@@ -17,7 +17,10 @@
  *    (cloud metadata included), multicast or reserved, else 502 or 403;
  * 6. the gate connects to that checked address (never to the name again) and pipes.
  *
- * No TLS interception and no credential injection: a tunnel is opaque bytes. Any other request
+ * A tunnel is opaque bytes, with one exception (R2c, D50): port 443 of a host that an
+ * `environment_secret` of a live session on the sandbox is bound to. There the gate terminates
+ * TLS and sets the credential's header on every request (`egress-credentials.ts`), still sending
+ * only to the checked address. Every other host gets the tunnel. Any other request
  * (an absolute-form plain HTTP request included) is answered 405. Refusals are logged, never as
  * events; the token never is. Tunnels close after `idleMs` without traffic in either direction.
  */
@@ -31,6 +34,7 @@ import type { SessionStore } from "../store/types.js";
 import { isPrivateAddress } from "../tenant/outbound.js";
 import type { Logger } from "../tenant/types.js";
 import { bindListener } from "../host/http.js";
+import { credentialTerminator, type EgressCredentials } from "./egress-credentials.js";
 
 /**
  * What egress-gate reads of a sandbox: its current host epoch, the pod that joined at it, and
@@ -70,6 +74,8 @@ export interface StartEgressGateOptions {
   readonly blocked?: (address: string) => boolean;
   /** Tests replace how the checked address is dialled. */
   readonly dial?: (address: string, port: number) => Socket;
+  /** The vault and keys, for hosts an `environment_secret` is bound to (R2c). None: tunnels only. */
+  readonly credentials?: EgressCredentials;
 }
 
 export interface EgressGate {
@@ -194,6 +200,9 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     return value;
   }
 
+  const terminator = options.credentials
+    ? credentialTerminator({ credentials: options.credentials, logger, idleMs })
+    : undefined;
   const open = new Map<string, Set<Duplex>>();
   const tunnels = new Set<Duplex>();
 
@@ -245,6 +254,11 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     if (allowed.length === 0)
       return refuse(403, "address_refused", { sandboxId }, `${host} resolves only to addresses tunnels may not reach`);
     if (client.destroyed) return;
+    if (terminator && port === 443 && (await options.credentials!.bound(sandboxId, host))) {
+      // A client that spoke before the 200 is not one this path serves.
+      if (head.length > 0) return refuse(403, "early_data", { sandboxId }, "wait for the CONNECT answer before sending");
+      return terminator.terminate(client, { sandboxId, host, addresses: allowed });
+    }
     const upstream = await dialFirst(allowed.map((entry) => entry.address), port);
     if (!upstream) return refuse(502, "connect_failed", { sandboxId }, `could not connect to ${host}:${port}`);
     if (client.destroyed) {

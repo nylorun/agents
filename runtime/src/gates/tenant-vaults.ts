@@ -45,6 +45,10 @@ export interface TenantVault {
   authorizeMcp(sessionId: string, request: McpCredentialRequest): Promise<AuthorizeResult>;
   /** Vault writes and token signing with the Tenant's vault key (the keys service, F4.2). */
   keys(): Keys;
+  /** Whether a live session on the sandbox has an `environment_secret` bound to `host` (R2c). */
+  environmentSecretBound(sandboxId: string, host: string): Promise<boolean>;
+  /** The header an `environment_secret` sets on one request to `host` (R2c). */
+  releaseEnvironmentSecret(sandboxId: string, host: string): ReturnType<VaultService["releaseEnvironmentSecret"]>;
 }
 
 export interface TenantVaults {
@@ -112,6 +116,8 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       authorizeMcp: (sessionId, request) =>
         authorizeSessionMcp(credentials, session, sessionId, request),
       keys: () => keys,
+      environmentSecretBound: (sandboxId, host) => credentials.environmentSecretBound(sandboxId, host),
+      releaseEnvironmentSecret: (sandboxId, host) => credentials.releaseEnvironmentSecret({ sandboxId, host }),
     };
   }
 
