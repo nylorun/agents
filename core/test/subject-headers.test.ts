@@ -4,7 +4,7 @@ import {
   SCOPES_HEADER,
   SUBJECT_HEADER,
 } from "../src/compatibility.js";
-import { CreateVaultRequestSchema, SUBJECT_SCOPES, parseSubjectHeaders } from "../src/contracts.js";
+import { CreateVaultRequestSchema, SUBJECT_SCOPES, parseSubjectHeaders, vaultScopeOf } from "../src/contracts.js";
 
 describe("parseSubjectHeaders", () => {
   it("returns the subject and its scopes, collapsing duplicates", () => {
@@ -57,9 +57,17 @@ describe("CreateVaultRequestSchema", () => {
     expect(
       CreateVaultRequestSchema.safeParse({ ...base, scope: "installation", ownerUserId: "installation" }).success,
     ).toBe(true);
-    expect(CreateVaultRequestSchema.safeParse(base).success).toBe(false);
+    expect(CreateVaultRequestSchema.safeParse({ ...base, scope: "user" }).success).toBe(false);
     expect(CreateVaultRequestSchema.safeParse({ ...base, ownerUserId: "installation" }).success).toBe(false);
     expect(CreateVaultRequestSchema.safeParse({ ...base, scope: "installation", ownerUserId: "ada" }).success).toBe(false);
     expect(CreateVaultRequestSchema.safeParse({ ...base, scope: "host" }).success).toBe(false);
+  });
+
+  it("takes the scope from the owner when none is given", () => {
+    expect(CreateVaultRequestSchema.safeParse(base).success).toBe(true);
+    expect(vaultScopeOf(base)).toBe("installation");
+    expect(vaultScopeOf({ ...base, ownerUserId: "ada" })).toBe("user");
+    expect(vaultScopeOf({ ...base, scope: "installation" })).toBe("installation");
+    expect(vaultScopeOf({ ...base, scope: "user", ownerUserId: "ada" })).toBe("user");
   });
 });

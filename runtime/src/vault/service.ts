@@ -79,6 +79,7 @@ import {
   ENVIRONMENT_SECRET_SENTINEL,
   INSTALLATION_OWNER,
   renderInjectFormat,
+  vaultScopeOf,
 } from "@nylorun/core/contracts";
 import type {
   CreateCredentialRequest,
@@ -215,7 +216,7 @@ export class VaultService {
   async createVault(body: CreateVaultRequest): Promise<VaultInfo> {
     return this.store.tx((t) =>
       this.replay(t, `create-vault:${body.idempotencyKey}`, body, async () => {
-        const installation = body.scope === "installation";
+        const installation = vaultScopeOf(body) === "installation";
         const ownerUserId = installation ? INSTALLATION_OWNER : body.ownerUserId;
         if (!ownerUserId) throw new VaultError(400, "ownerUserId is required for a user vault");
         const row: VaultRow = {

@@ -124,6 +124,16 @@ describe("VaultService administration", () => {
     ]);
   });
 
+  it("takes the scope from the owner when none is given", async () => {
+    const { vault, read } = await setup();
+    const shared = await vault.createVault({ requestId: "s", idempotencyKey: "s", name: "Shared" });
+    expect(shared.ownerUserId).toBe("installation");
+    expect((await read((t) => t.getVault(shared.id)))?.scope).toBe("installation");
+    const own = await vault.createVault({ requestId: "o", idempotencyKey: "o", name: "Own", ownerUserId: "ada" });
+    expect(own.ownerUserId).toBe("ada");
+    expect((await read((t) => t.getVault(own.id)))?.scope).toBe("user");
+  });
+
   it("stores credentials sealed and never returns the plaintext", async () => {
     const { vault, read } = await setup();
     const { vaultId, credentialId } = await bearer(vault, "ada", "a", ADA_TOKEN);

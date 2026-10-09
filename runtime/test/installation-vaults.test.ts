@@ -207,10 +207,17 @@ describe("installation vaults over the Tenant API", () => {
     expect((await call(runtime, "GET", `/v1/tenant/vaults/${vault.id}`)).status).toBe(404);
 
     // A user vault still needs its owner, which may not be the reserved `installation`.
-    for (const body of [{ name: "x" }, { name: "x", ownerUserId: "installation" }])
+    for (const body of [{ name: "x", scope: "user" }, { name: "x", ownerUserId: "installation" }])
       expect(
         (await call(runtime, "POST", "/v1/tenant/vaults", { body: { requestId: "bad", idempotencyKey: "bad", ...body } })).status,
       ).toBe(400);
+
+    // With no scope and no owner, the vault is the installation's.
+    const bare = await call(runtime, "POST", "/v1/tenant/vaults", {
+      body: { requestId: "bare", idempotencyKey: "bare", name: "Bare" },
+    });
+    expect(bare.status).toBe(200);
+    expect(bare.body.ownerUserId).toBe("installation");
   });
 
   it("refuses every vault route to an application key and to a request acting for a subject (protocol 8)", async () => {
