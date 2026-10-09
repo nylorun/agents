@@ -78,7 +78,7 @@ export function localBackend(options: LocalBackendOptions): SandboxBackend {
       if (signal.aborted) return reject(signal.reason ?? new Error("Turn cancelled"));
       const child = spawn("/bin/sh", ["-c", request.command], {
         cwd: request.cwd,
-        env: { ...env, ...(options.proxyEnv?.() ?? {}) },
+        env: { ...env, ...(request.env ?? {}), ...(options.proxyEnv?.() ?? {}) },
         stdio: ["ignore", "pipe", "pipe"],
         // Its own process group, so a timeout or a cancel kills everything it started.
         detached: true,

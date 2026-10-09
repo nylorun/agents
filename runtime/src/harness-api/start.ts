@@ -40,7 +40,12 @@ export interface SegmentStart {
   readonly cursor: number;
   readonly outcomes: RecordedOutcome[];
   /** The tree's sandbox workspace: its owning session, and the sandbox resource it is attached to. */
-  readonly sandbox: { readonly ownerId: string; readonly sandboxId?: string };
+  readonly sandbox: {
+    readonly ownerId: string;
+    readonly sandboxId?: string;
+    /** Variables every sandbox command gets (R2c): secret names set to the sentinel, plain values. */
+    readonly environment?: Readonly<Record<string, string>>;
+  };
   /** The sandbox is a pod sandbox (F7.2): its engine runs the segment. Its lifecycle state. */
   readonly pod?: { readonly id: string; readonly pod: SandboxPodState };
 }
@@ -67,8 +72,10 @@ export async function startSegment(
       }
       const fixtureModel = await usesFixtureModel(t);
       if (!options.harness) return { current, fixtureModel, outcomes: [], sandbox: { ownerId: id } };
-      const sandbox = sandboxWorkspaceOf(current, await sandboxLookup(t, current.id));
-      const resource = sandbox.sandboxId === undefined ? undefined : await t.sandboxResource(sandbox.sandboxId);
+      const workspace = sandboxWorkspaceOf(current, await sandboxLookup(t, current.id));
+      const resource = workspace.sandboxId === undefined ? undefined : await t.sandboxResource(workspace.sandboxId);
+      const { environment } = await ctx.vault.sessionEnvironment(t, current.vaultIds ?? []);
+      const sandbox = Object.keys(environment).length > 0 ? { ...workspace, environment } : workspace;
       return {
         current,
         fixtureModel,

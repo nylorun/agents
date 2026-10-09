@@ -41,6 +41,11 @@ export interface ExecRequest {
   readonly command: string;
   readonly cwd: string;
   readonly timeoutMs: number;
+  /**
+   * Variables this command gets on top of the backend's own (R2c): never a secret. The backend's
+   * proxy and trust variables win over them.
+   */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface ExecResult {

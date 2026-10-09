@@ -61,12 +61,14 @@ export async function runSandboxTool(
   name: SandboxToolName,
   input: Record<string, any>,
   signal: AbortSignal,
-  report: (value: SandboxToolReport) => void
+  report: (value: SandboxToolReport) => void,
+  /** Variables every command gets (R2c): secret names set to the sentinel, plain values. */
+  environment?: Readonly<Record<string, string>>
 ): Promise<SandboxToolOutcome> {
   const workspace = handle.workspace ?? SANDBOX_WORKSPACE;
   const resolvePath = (path: string) => resolveSandboxPath(path, workspace);
   const exec = (command: string, timeoutMs = 60_000): Promise<ExecResult> =>
-    handle.exec({ command, cwd: workspace, timeoutMs }, signal);
+    handle.exec({ command, cwd: workspace, timeoutMs, ...(environment ? { env: environment } : {}) }, signal);
   switch (name) {
     case "bash": {
       const command = String(input.command);

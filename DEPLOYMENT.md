@@ -705,6 +705,46 @@ tool's input schema, without running it. An HTTP tool's other failures are `http
 `http.too-large`. A `credential_rejected` error names the server (or the HTTP tool's
 `credential`) and the scope of the vault whose credential was sent, never a value.
 
+## Credentials for skills
+
+A skill that runs a CLI (`gh`, `glab`, `aws`, `curl`) in a pod sandbox authenticates with a
+vault credential whose value never enters the sandbox. Two credential kinds, in the same vaults
+as MCP credentials, attached to sessions the same way (`vaultIds`):
+
+- **`environment_secret`** `{ secretName, secretValue, allowedHosts, inject? }`: every command
+  sees `$<secretName>` set to `nylorun-managed`, a fixed sentinel. When a command sends HTTPS to
+  one of `allowedHosts` (exact host names, port 443), egress-gate sets the credential's header
+  on each request: `inject.header` (default `Authorization`) with `inject.format` (default
+  `Bearer {value}`; `{base64:…}` encodes a part, so `Basic {base64:x-access-token:{value}}`
+  works). The value is read from the vault on every request, so a rotation applies to the next
+  one. Listing a credential never shows its value.
+- **`environment_variable`** `{ variableName, variableValue }`: a plain variable every command
+  sees, such as a region or an organization name. Its value is visible to anyone who can list
+  the vault.
+
+```bash
+curl -X POST "$RUNTIME/v1/tenant/vaults/$VAULT/credentials" \
+  -H "Authorization: Bearer $MANAGEMENT_KEY" -H "Content-Type: application/json" \
+  -d '{"requestId":"gh","idempotencyKey":"gh","name":"github","auth":{
+        "type":"environment_secret","secretName":"GH_TOKEN","secretValue":"ghp_…",
+        "allowedHosts":["api.github.com","github.com"]}}'
+```
+
+How it works: pods trust one installation egress CA (keys holds its key; the join answer
+carries its certificate and the engine points `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`,
+`REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` and `AWS_CA_BUNDLE` at a bundle of the
+public roots plus that CA). For a bound host, egress-gate terminates TLS with a short-lived leaf
+for that host, sets the header and forwards the request over verified TLS to the address it
+checked. Every other host stays an opaque tunnel. A CLI that pins certificates or ignores those
+variables cannot use this path; HTTP/2-only and WebSocket endpoints are not served on it.
+
+Session open is refused with `409 credential_conflict` when two attached credentials set the
+same variable, two secrets are bound to the same host, or a sandbox would serve secrets of two
+owners (sessions sharing a sandbox must then have one owner). Pod sandboxes only: a virtual
+sandbox gets the variables but no header. A refused release is a `502` to the CLI and an
+`egress_credential_refused` line in the gateway's log, never a session event. Studio lists these
+credentials; create and rotate them with the Management API or `@nylorun/admin`.
+
 ## The harness: agent turns, MCP servers and workspaces
 
 The `harness` container runs the Runtime image a third time, as `--service

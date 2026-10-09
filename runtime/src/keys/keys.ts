@@ -12,6 +12,7 @@
  * service itself, which serves the HTTP routes with it), and `httpKeys` (`client.ts`), the
  * runtime container's client of the `keys` service in the gateway.
  */
+import { EgressAuthority } from "./egress-ca.js";
 import { SignJWT } from "jose";
 import type {
   CreateCredentialRequest,
@@ -58,6 +59,13 @@ export interface Keys {
    * (R2b C12, `mcp/preview.ts`); never calls a tool.
    */
   previewMcp(body: McpPreviewRequest): Promise<McpPreview>;
+  /** The egress CA's certificate (PEM), creating the CA when the Tenant has none (R2c, D50). */
+  egressCa(): Promise<string>;
+  /**
+   * A short-lived leaf for `host` and the caller's P-256 public key (SPKI PEM), signed by the
+   * egress CA (R2c). The leaf's private key never reaches keys; the CA's never leaves it.
+   */
+  signEgressLeaf(host: string, publicKey: string): Promise<string>;
 }
 
 /** The operations, by the name the HTTP route carries. */
@@ -70,6 +78,8 @@ export const KEYS_OPERATIONS = [
   "rotateSigningKeys",
   "ensureSigningKeys",
   "previewMcp",
+  "egressCa",
+  "signEgressLeaf",
 ] as const satisfies readonly (keyof Keys)[];
 
 export type KeysOperation = (typeof KEYS_OPERATIONS)[number];
@@ -87,6 +97,7 @@ export interface InProcessKeysOptions {
 
 export function inProcessKeys(options: InProcessKeysOptions): Keys {
   const { store, vault, signingKeys, kek } = options;
+  const egress = new EgressAuthority(store, kek);
   return {
     createCredential: (vaultId, body) => vault.createCredential(vaultId, body),
     rotateCredential: (vaultId, id, body) => vault.rotateCredential(vaultId, id, body),
@@ -113,5 +124,7 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
       await store.tx((t) => signingKeys.ensure(t, key));
     },
     previewMcp: (body) => previewMcpServer(body, { vault, policy: options.policy ?? {} }),
+    egressCa: () => egress.certificate(),
+    signEgressLeaf: (host, publicKey) => egress.signLeaf(host, publicKey),
   };
 }

@@ -24,6 +24,10 @@
  * and the pod (`tenant/host-token.ts`). `renew` mints a new pair at the same epoch while the
  * host is current; it is refused once the epoch moved.
  *
+ * The answer also carries the installation's egress CA certificate (R2c, D50): the engine adds it
+ * to the trust bundle every command gets, so a host egress-gate terminates TLS for (one an
+ * `environment_secret` is bound to) is trusted. Only the certificate: its key stays in keys.
+ *
  * Every refusal answers the same 401 (the reason is logged), so a caller learns nothing about
  * which check failed.
  */
@@ -56,6 +60,8 @@ export interface HostJoinAnswer {
   readonly epoch: number;
   /** ISO time the tokens expire. */
   readonly expiresAt: string;
+  /** The egress CA certificate (PEM) the sandbox trusts (R2c). */
+  readonly caCertificate: string;
 }
 
 /** A refused join, renewal or host connection. */
@@ -92,13 +98,14 @@ function sameHash(a: string, b: string): boolean {
   return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
 }
 
-function answerOf(grant: HostGrant): HostJoinAnswer {
+function answerOf(grant: HostGrant, caCertificate: string): HostJoinAnswer {
   return {
     hostToken: grant.hostToken,
     egressToken: grant.egressToken,
     sandboxId: grant.claims.sandboxId,
     epoch: grant.claims.epoch,
     expiresAt: new Date(grant.claims.expiresAt).toISOString(),
+    caCertificate,
   };
 }
 
@@ -192,11 +199,11 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
       });
       if (typeof joined === "object") return refuse("the volume was replaced: the sandbox is lost");
       ctx.config.logger.info("sandbox host joined", { sandboxId, epoch: joined });
-      return answerOf(await mintHostTokens(ctx, { sandboxId, epoch: joined, podUid }));
+      return answerOf(await mintHostTokens(ctx, { sandboxId, epoch: joined, podUid }), await ctx.keys.egressCa());
     },
     async renew(hostToken) {
       const claims = await verified(hostToken);
-      return answerOf(await mintHostTokens(ctx, claims));
+      return answerOf(await mintHostTokens(ctx, claims), await ctx.keys.egressCa());
     },
     verify: verified,
   };

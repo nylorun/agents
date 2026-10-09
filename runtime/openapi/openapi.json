@@ -6338,6 +6338,7 @@
               "definition_files_missing",
               "credential_rejected",
               "mcp_preview_failed",
+              "credential_conflict",
               "internal_error"
             ]
           },
