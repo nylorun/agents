@@ -714,8 +714,11 @@ export function storeContract(name: string, factory: StoreFactory): void {
           expect(ids(await t.listSessions({ ownerUserId: "user-2", agentId: "agent-b" }))).toEqual([]);
           // s2 has no owner; s1's lease ends at +1s; wf-b's at +60s.
           expect(ids(await t.orphanedSessions(new Date(now.getTime() + 500), 10))).toEqual(["s2"]);
-          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 10))).toEqual(["s2", "s1"]);
-          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 1))).toEqual(["s2"]);
+          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 10))).toEqual(["s1", "s2"]);
+          // Pages by id.
+          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 1))).toEqual(["s1"]);
+          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 1, "s1"))).toEqual(["s2"]);
+          expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 1, "s2"))).toEqual([]);
         });
       });
 

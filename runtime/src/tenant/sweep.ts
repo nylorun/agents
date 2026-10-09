@@ -7,7 +7,8 @@
  * 1. **Wakes.** Wake outbox rows (`Tx.wake`) are delivered again and deleted: a delivery
  *    after commit that failed, or that a crash between the commit and the send cut off. The
  *    first pass on this process takes every row, so a previous process's are not left
- *    waiting; later passes take the rows older than `WAKE_GRACE_MS`. Each row carries the
+ *    waiting; later passes take the rows older than `WAKE_GRACE_MS`, batch after batch
+ *    within `DRAIN_BUDGET_MS`. Each row carries the
  *    idempotency key it was first sent with, so a wake the execution did accept before the
  *    crash, or one still being sent after its commit, causes no second advance. Rows are
  *    delivered one by one: a row that fails is retried with backoff and parked after
@@ -17,7 +18,8 @@
  *    older Runtime).
  * 3. **Orphaned sessions.** On this process's first pass for the Tenant, then at most every
  *    `ORPHAN_SCAN_MS`: `running` or `runnable` sessions with no owner, or an owner whose lease
- *    expired, are woken with reason `recover`. Neither a lost wake (step 1) nor a Worker that
+ *    expired, are woken with reason `recover`, page by page within `DRAIN_BUDGET_MS`; a scan
+ *    the budget cut short goes on at the next pass. Neither a lost wake (step 1) nor a Worker that
  *    died mid-advance (the execution retries that advance, which takes over, §11.4) needs it:
  *    it is the backstop for what the execution itself lost or ended without an advance, such
  *    as an in-process execution's queue when its process stopped, an advance for a Tenant not
@@ -53,9 +55,18 @@ const SIGNAL_RETENTION_MS = 60 * 60 * 1000;
 export const WAKE_GRACE_MS = 2000;
 /** How often the orphan scan runs after the first pass of a Tenant opened on this process. */
 export const ORPHAN_SCAN_MS = 60_000;
+/**
+ * How long one pass may spend draining the wake outbox, and paging through orphaned sessions.
+ * A backlog is worked off over several passes rather than holding one (and with it the
+ * Tenant's sweep object in the execution) for long.
+ */
+export const DRAIN_BUDGET_MS = 2000;
 
-/** Each open Tenant's sweep state on this process: when its orphan scan last ran. */
-const passes = new WeakMap<TenantContext, { orphansAt?: number }>();
+/**
+ * Each open Tenant's sweep state on this process: when its last orphan scan finished, and the
+ * last session id of one that ran out of budget, which the next pass goes on from.
+ */
+const passes = new WeakMap<TenantContext, { orphansAt?: number; orphansAfter?: string }>();
 
 type Step = [name: string, run: () => Promise<unknown>];
 
@@ -66,7 +77,9 @@ export async function sweep(ctx: TenantContext): Promise<void> {
   const pass = passes.get(ctx) ?? {};
   passes.set(ctx, pass);
   const scanOrphans =
-    pass.orphansAt === undefined || now.getTime() - pass.orphansAt >= ORPHAN_SCAN_MS;
+    pass.orphansAt === undefined ||
+    pass.orphansAfter !== undefined ||
+    now.getTime() - pass.orphansAt >= ORPHAN_SCAN_MS;
   const steps: Step[] = [
     [
       "wakes",
@@ -79,8 +92,9 @@ export async function sweep(ctx: TenantContext): Promise<void> {
           [
             "orphans",
             async () => {
-              await wakeOrphanedSessions(ctx, now);
-              pass.orphansAt = now.getTime();
+              const scan = await wakeOrphanedSessions(ctx, now, pass.orphansAfter);
+              pass.orphansAfter = scan.next;
+              if (scan.next === undefined) pass.orphansAt = now.getTime();
             },
           ] satisfies Step,
         ]
@@ -129,36 +143,49 @@ const WAKE_RETRY_MS = 5000;
 const WAKE_RETRY_MAX_MS = 10 * 60_000;
 
 /**
- * Deliver the wake outbox rows written before `before` that are due (oldest first, one batch)
- * and delete the delivered ones. Each row is delivered on its own: one that fails (Restate
- * refuses it, or a Runtime that does not know its reason) is tried again later, with backoff,
- * so it never holds back the rows behind it, and after `MAX_WAKE_ATTEMPTS` failures it is
- * parked: logged once, at error, and kept in the outbox for an operator. Its session is still
- * re-woken by the orphan scan while it is runnable. A row the Tenant declines (it is closing)
- * stays as it is. Never throws for a delivery; returns the ids of the rows delivered.
+ * Deliver the wake outbox rows written before `before` that are due, oldest first, batch after
+ * batch until none is left or `budgetMs` is spent, and delete the delivered ones. Each row is
+ * delivered on its own: one that fails (Restate refuses it, or a Runtime that does not know
+ * its reason) is tried again later, with backoff, so it never holds back the rows behind it,
+ * and after `MAX_WAKE_ATTEMPTS` failures it is parked: logged once, at error, and kept in the
+ * outbox for an operator. Its session is still re-woken by the orphan scan while it is
+ * runnable. A row the Tenant declines (it is closing) stays as it is, and ends the drain.
+ * Never throws for a delivery; returns the ids of the rows delivered.
  */
 export async function deliverPendingWakes(
   ctx: Pick<TenantContext, "store" | "wake" | "config">,
-  before = new Date()
+  before = new Date(),
+  budgetMs = DRAIN_BUDGET_MS
 ): Promise<string[]> {
-  const pending = await ctx.store.tx((t) => t.pendingWakes(before, BATCH));
+  const deadline = Date.now() + budgetMs;
   const delivered: string[] = [];
-  try {
-    for (const row of pending) {
-      let accepted: boolean;
-      try {
-        accepted = await ctx.wake(row.sessionId, row.wake);
-      } catch (error) {
-        await failed(ctx, row, error);
-        continue;
+  for (;;) {
+    const pending = await ctx.store.tx((t) => t.pendingWakes(before, BATCH));
+    const batch: string[] = [];
+    let done = pending.length < BATCH;
+    try {
+      for (const row of pending) {
+        if (Date.now() >= deadline) {
+          done = true;
+          break;
+        }
+        let accepted: boolean;
+        try {
+          accepted = await ctx.wake(row.sessionId, row.wake);
+        } catch (error) {
+          await failed(ctx, row, error);
+          continue;
+        }
+        if (accepted) batch.push(row.id);
+        else done = true;
       }
-      if (accepted) delivered.push(row.id);
+    } finally {
+      // Delivered ones go even when a later step fails, so they are not sent again.
+      if (batch.length > 0) await ctx.store.tx((t) => t.deleteWakes(batch));
     }
-  } finally {
-    // Delivered ones go even when a later step fails, so they are not sent again.
-    if (delivered.length > 0) await ctx.store.tx((t) => t.deleteWakes(delivered));
+    delivered.push(...batch);
+    if (done) return delivered;
   }
-  return delivered;
 }
 
 /** Records a failed delivery of `row`: retried with backoff, parked after the last attempt. */
@@ -198,15 +225,30 @@ export async function reconcileLinkedAgents(
     );
 }
 
-/** Wake `running`/`runnable` sessions without a live owner. Returns the ids woken. */
+/**
+ * Wake `running`/`runnable` sessions without a live owner, page after page from the first id
+ * after `after`, until none is left or `budgetMs` is spent. Returns the ids woken, and the last
+ * id when the budget ran out first (`next`, where the next scan goes on).
+ */
 export async function wakeOrphanedSessions(
   ctx: Pick<TenantContext, "store" | "wake">,
-  now = new Date()
-): Promise<string[]> {
-  const orphans = await ctx.store.tx((t) => t.orphanedSessions(now, BATCH));
-  const ids = orphans.map((session) => session.id);
-  for (const id of ids) await ctx.wake(id, { reason: "recover" });
-  return ids;
+  now = new Date(),
+  after?: string,
+  budgetMs = DRAIN_BUDGET_MS
+): Promise<{ woken: string[]; next?: string }> {
+  const deadline = Date.now() + budgetMs;
+  const woken: string[] = [];
+  let cursor = after;
+  for (;;) {
+    const page = await ctx.store.tx((t) => t.orphanedSessions(now, BATCH, cursor));
+    for (const session of page) {
+      await ctx.wake(session.id, { reason: "recover" });
+      woken.push(session.id);
+      cursor = session.id;
+    }
+    if (page.length < BATCH) return { woken };
+    if (Date.now() >= deadline) return { woken, next: cursor! };
+  }
 }
 
 /** A pod sandbox in a change this long without a reconcile gets one from the sweep. */

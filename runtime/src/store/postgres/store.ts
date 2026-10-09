@@ -56,6 +56,7 @@ import {
   eq,
   getTableColumns,
   gte,
+  gt,
   inArray,
   isNotNull,
   isNull,
@@ -689,6 +690,7 @@ class PostgresTx implements Tx {
   async orphanedSessions<T extends SessionDoc = SessionDoc>(
     now: Date,
     limit: number,
+    after?: string,
   ): Promise<StoredSession<T>[]> {
     this.check();
     const rows = await this.sessions()
@@ -700,13 +702,10 @@ class PostgresTx implements Tx {
             isNull(sessions.ownerExpiresAt),
             lte(sessions.ownerExpiresAt, now),
           ),
+          after === undefined ? undefined : gt(sessions.id, after),
         ),
       )
-      // Never-owned sessions first, then the longest expired.
-      .orderBy(
-        sql`CASE WHEN ${sessions.owner} IS NULL THEN NULL ELSE ${sessions.ownerExpiresAt} END ASC NULLS FIRST`,
-        sessions.id,
-      )
+      .orderBy(sessions.id)
       .limit(limit);
     return rows.map((row) => storedSession<T>(row));
   }

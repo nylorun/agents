@@ -594,11 +594,13 @@ export interface Tx {
   ): Promise<StoredSession<T>[]>;
   /**
    * Sessions `running` or `runnable` with no owner or an owner whose lease
-   * ended at or before `now`, oldest lease first. The sweep re-wakes these.
+   * ended at or before `now`, by id, the first `limit` after `after` (a page:
+   * pass the last id of the previous one). The sweep re-wakes these.
    */
   orphanedSessions<T extends SessionDoc = SessionDoc>(
     now: Date,
     limit: number,
+    after?: string,
   ): Promise<StoredSession<T>[]>;
   /** Sessions, optionally of one agent and one owner (`ownerUserId`), by id. */
   listSessions<T extends SessionDoc = SessionDoc>(filter?: {

@@ -11,6 +11,7 @@ import { advance } from "../../src/tenant/advance.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import { createWorkState } from "../../src/tenant/scheduler.js";
 import {
+  DRAIN_BUDGET_MS,
   MAX_WAKE_ATTEMPTS,
   ORPHAN_SCAN_MS,
   WAKE_GRACE_MS,
@@ -237,8 +238,9 @@ describe("on the Postgres store", () => {
       });
       await t.put("sessions", "waiting", session("waiting", { status: "waiting" }));
     });
-    const woken = await wakeOrphanedSessions(ctx);
-    expect(woken.sort()).toEqual(["dead-owner", "lost-wake"]);
+    const { woken, next } = await wakeOrphanedSessions(ctx);
+    expect(woken).toEqual(["dead-owner", "lost-wake"]);
+    expect(next).toBeUndefined();
     expect(wakes.map((w) => w.wake)).toEqual([
       { reason: "recover" },
       { reason: "recover" },
@@ -361,6 +363,71 @@ describe("on the Postgres store", () => {
     }
     expect(wakes.map((w) => w.id)).toEqual(["just-committed"]);
     expect(await pending(store)).toEqual([]);
+  });
+
+  it("drains the whole outbox in one pass, batch after batch, until its budget is spent", async () => {
+    const store = await makeStore();
+    const start = Date.now();
+    let sent = 0;
+    const { ctx } = contextOf(store, 1000, () => {
+      // The budget runs out while the 150th wake is sent.
+      if (++sent === 150) vi.setSystemTime(start + DRAIN_BUDGET_MS);
+      return true;
+    });
+    await store.tx(async (t) => {
+      for (let i = 0; i < 250; i++)
+        await t.wake(`s${String(i).padStart(3, "0")}`, { reason: "message" }, () => false);
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(start);
+      expect(await deliverPendingWakes(ctx, new Date(start + 60_000))).toHaveLength(150);
+      expect(await pending(store)).toHaveLength(100);
+      // The next pass goes on with the rest.
+      expect(await deliverPendingWakes(ctx, new Date(start + 60_000))).toHaveLength(100);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(await pending(store)).toEqual([]);
+  });
+
+  it("pages through every orphan, going on at the next pass when a scan runs out of budget", async () => {
+    const store = await makeStore();
+    const ids = Array.from({ length: 250 }, (_, i) => `o${String(i).padStart(3, "0")}`);
+    await store.tx(async (t) => {
+      for (const id of ids) await t.put("sessions", id, session(id, { status: "runnable" }));
+    });
+    const start = Date.now();
+    const { ctx, wakes } = contextOf(store, 1000, () => {
+      if (wakes.length === 120) vi.setSystemTime(start + DRAIN_BUDGET_MS);
+      return true;
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(start);
+      // The first page holds 100; the budget ends the second at 120: the scan stops at a page's end.
+      const first = await wakeOrphanedSessions(ctx, new Date(start), undefined);
+      expect(first.woken).toEqual(ids.slice(0, 200));
+      expect(first.next).toBe(ids[199]);
+      const rest = await wakeOrphanedSessions(ctx, new Date(start), first.next);
+      expect(rest).toEqual({ woken: ids.slice(200) });
+
+      // Through the sweep: an unfinished scan goes on at the next pass, within ORPHAN_SCAN_MS.
+      wakes.length = 0;
+      const other = contextOf(store, 1000, () => {
+        if (other.wakes.length === 100) vi.setSystemTime(Date.now() + DRAIN_BUDGET_MS);
+        return true;
+      });
+      vi.setSystemTime(start);
+      await sweep(other.ctx);
+      expect(other.wakes).toHaveLength(100);
+      await sweep(other.ctx);
+      expect(other.wakes.map((w) => w.id)).toEqual(ids);
+      await sweep(other.ctx);
+      expect(other.wakes).toHaveLength(250);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("scans for orphaned sessions on its first pass, then once per ORPHAN_SCAN_MS", async () => {
