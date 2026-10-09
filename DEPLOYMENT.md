@@ -742,8 +742,9 @@ Session open is refused with `409 credential_conflict` when two attached credent
 same variable, two secrets are bound to the same host, or a sandbox would serve secrets of two
 owners (sessions sharing a sandbox must then have one owner). Pod sandboxes only: a virtual
 sandbox gets the variables but no header. A refused release is a `502` to the CLI and an
-`egress_credential_refused` line in the gateway's log, never a session event. Studio lists these
-credentials; create and rotate them with the Management API or `@nylorun/admin`.
+`egress_credential_refused` line in the gateway's log, never a session event. Create, rotate and
+delete them in Studio's Credentials page (type **Secret** or **Variable**), with the Management
+API, or with `@nylorun/admin`.
 
 ## The harness: agent turns, MCP servers and workspaces
 
