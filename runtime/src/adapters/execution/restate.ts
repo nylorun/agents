@@ -38,6 +38,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
 import * as restate from "@restatedev/restate-sdk";
 import * as clients from "@restatedev/restate-sdk-clients";
+import { retry } from "../../retry.js";
 import {
   DEFAULT_STOP_GRACE_MS,
   WAKE_REASONS,
@@ -598,9 +599,7 @@ export class RestateExecution implements DurableExecution {
   /** Registers the Worker endpoint with the admin API, retrying until Restate is up. */
   private async register(uri: string): Promise<void> {
     const force = this.options.forceRegistration ?? true;
-    await withRetry(
-      "Restate deployment registration",
-      this.options.registrationTimeoutMs ?? 60_000,
+    await retry(
       async () => {
         const response = await fetch(`${this.adminUrl}/deployments`, {
           method: "POST",
@@ -618,7 +617,12 @@ export class RestateExecution implements DurableExecution {
         // as 4xx/5xx; keep trying until the deadline.
         throw new Error(message);
       },
-    );
+      { minMs: 100, maxMs: 2000, deadlineMs: this.options.registrationTimeoutMs ?? 60_000 },
+    ).catch((error: unknown) => {
+      throw new Error(`Restate deployment registration failed: ${(error as Error).message}`, {
+        cause: error,
+      });
+    });
   }
 }
 
@@ -738,28 +742,6 @@ function tenantKey(tenantId: string): string {
 
 function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
-}
-
-async function withRetry(
-  what: string,
-  timeoutMs: number,
-  attempt: () => Promise<void>,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  let delay = 100;
-  for (;;) {
-    try {
-      await attempt();
-      return;
-    } catch (error) {
-      if (Date.now() + delay > deadline)
-        throw new Error(`${what} failed: ${(error as Error).message}`, {
-          cause: error,
-        });
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      delay = Math.min(delay * 2, 2000);
-    }
-  }
 }
 
 function sdkLogger(

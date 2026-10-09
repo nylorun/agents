@@ -55,6 +55,7 @@ import {
 import type { AdvanceResult } from "../execution/types.js";
 import type { TurnOutput } from "@nylorun/core/harness-api";
 import { isOwnershipLost, ownedTx } from "../store/ownership.js";
+import { endAdvance } from "./scheduler.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import type { Lease, Session, TenantContext } from "./context.js";
 import { isGateToolEffect, recoversModelCalls, recoversToolCalls } from "./effects.js";
@@ -205,10 +206,7 @@ export async function advance(
     heartbeat.stop();
     dropRunGrant(ctx, lease);
     signal.removeEventListener("abort", forward);
-    if (ctx.work.running.get(id) === controller) {
-      ctx.work.running.delete(id);
-      ctx.work.runningTurns.delete(id);
-    }
+    endAdvance(ctx.work, id, controller);
     // Best effort: a release that fails leaves a lease that simply expires.
     if (release)
       await ctx.store

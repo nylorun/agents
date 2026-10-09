@@ -67,6 +67,7 @@ import { createRunGrants } from "../tenant/run-grants.js";
 import { runHarness } from "../harness/main.js";
 import { startHarnessListener, type HarnessListener } from "../harness-api/ws-server.js";
 import { httpSandboxesClient } from "../sandbox/pods/client.js";
+import { retry } from "../retry.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -150,21 +151,14 @@ async function ensureBucket(
   bucket: string,
   logger: ReturnType<typeof createHostLogger>,
 ): Promise<void> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      await store.ensureBucket();
-      logger.info("object_store_ready", { bucket });
-      return;
-    } catch (error) {
-      if (attempt >= 10) {
-        logger.error("object_store_unavailable", {
-          bucket,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * attempt, 5000)));
-    }
+  try {
+    await retry(() => store.ensureBucket(), { minMs: 1000, maxMs: 5000, attempts: 10 });
+    logger.info("object_store_ready", { bucket });
+  } catch (error) {
+    logger.error("object_store_unavailable", {
+      bucket,
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

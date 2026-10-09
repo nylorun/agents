@@ -10,6 +10,7 @@
  * advance instead of settling it.
  */
 import { randomUUID } from "node:crypto";
+import { sleep } from "../retry.js";
 import type { Session, TenantContext } from "./context.js";
 import { command } from "./commands.js";
 import { AdvanceAbort, type AdvanceAbortKind } from "./worker.js";
@@ -19,10 +20,43 @@ export interface WorkState {
   readonly running: Map<string, AbortController>;
   /** The turn each running advance belongs to, by session id (`null`: none). */
   readonly runningTurns: Map<string, string | null>;
+  /** Called once when the last running advance ends (`endAdvance`), then forgotten. */
+  readonly idleWaiters: Set<() => void>;
 }
 
 export function createWorkState(): WorkState {
-  return { running: new Map(), runningTurns: new Map() };
+  return { running: new Map(), runningTurns: new Map(), idleWaiters: new Set() };
+}
+
+/**
+ * Advance `id`'s end on this process: forgets its controller (unless a later advance of the
+ * session replaced it) and, when it was the last, settles every `idle` wait.
+ */
+export function endAdvance(work: WorkState, id: string, controller: AbortController): void {
+  if (work.running.get(id) !== controller) return;
+  work.running.delete(id);
+  work.runningTurns.delete(id);
+  if (work.running.size > 0) return;
+  for (const waiter of work.idleWaiters) waiter();
+  work.idleWaiters.clear();
+}
+
+/** Resolves once no advance runs on this process, or after `timeoutMs`, whichever is first. */
+async function idle(work: WorkState, timeoutMs: number): Promise<void> {
+  if (work.running.size === 0) return;
+  const timer = new AbortController();
+  let settle!: () => void;
+  const ended = new Promise<void>((resolve) => (settle = resolve));
+  work.idleWaiters.add(settle);
+  try {
+    await Promise.race([
+      ended,
+      sleep(Math.max(0, timeoutMs), timer.signal),
+    ]);
+  } finally {
+    timer.abort();
+    work.idleWaiters.delete(settle);
+  }
 }
 
 const MESSAGES: Record<AdvanceAbortKind, string> = {
@@ -86,9 +120,7 @@ export async function drain(
           }
         );
   }
-  const deadline = Date.now() + timeoutMs;
-  while (ctx.work.running.size > 0 && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  await idle(ctx.work, timeoutMs);
 }
 
 /** Abort every advance running on this process; closing the Tenant is a `shutdown`. */
@@ -109,9 +141,7 @@ export async function waitForIdle(
   ctx: TenantContext,
   timeoutMs: number
 ): Promise<string[]> {
-  const deadline = Date.now() + timeoutMs;
-  while (ctx.work.running.size > 0 && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  await idle(ctx.work, timeoutMs);
   const abandoned = [...ctx.work.running.keys()];
   if (abandoned.length > 0)
     ctx.config.logger.warn("tenant closed with advances still running", {

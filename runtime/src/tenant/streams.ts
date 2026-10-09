@@ -33,11 +33,8 @@ import {
 import type { ChangeHandlers, ChangeSource } from "../streams/relay/types.js";
 import type { DurableStreams } from "../streams/types.js";
 import type { TenantContext } from "./context.js";
-import {
-  checkSessionStreams,
-  currentBasin,
-  sleep,
-} from "./session-streams.js";
+import { retry } from "../retry.js";
+import { checkSessionStreams, currentBasin } from "./session-streams.js";
 
 export interface WireStreamsOptions {
   tenantId: string;
@@ -183,7 +180,11 @@ export async function wireStreams(
   /** Deletes a retired generation's basin, then forgets it. A failure retries on next open. */
   async function deleteRetired(generation: number): Promise<void> {
     try {
-      await withRetries(() => streams.deleteTenant(basinOf(tenantId, generation)), 5);
+      await retry(() => streams.deleteTenant(basinOf(tenantId, generation)), {
+        minMs: RETRY_MIN_MS,
+        maxMs: RETRY_MAX_MS,
+        attempts: 5,
+      });
       await store.tx((t) => t.forgetRetiredGeneration(generation));
       logger.info("retired stream basin deleted", { generation });
     } catch (error) {
@@ -287,19 +288,6 @@ export async function closeStreams(ctx: TenantContext): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-async function withRetries(task: () => Promise<void>, attempts: number): Promise<void> {
-  let delay = RETRY_MIN_MS;
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await task();
-    } catch (error) {
-      if (attempt >= attempts) throw error;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      delay = Math.min(delay * 2, RETRY_MAX_MS);
-    }
-  }
-}
-
 interface BasinKeeper {
   /** Runs `ensureTenant` unless the basin is ready (one attempt at a time); rejects on failure. */
   ensure(): Promise<void>;
@@ -359,18 +347,17 @@ function basinKeeper(
       repairing = true;
       ready = false;
       void (async () => {
-        let delay = RETRY_MIN_MS;
-        while (!signal.aborted) {
-          try {
-            await ensure();
-            repairedAt = Date.now();
-            break;
-          } catch (error) {
+        await retry(ensure, {
+          minMs: RETRY_MIN_MS,
+          maxMs: BASIN_RETRY_MAX_MS,
+          signal,
+          onError: (error) => {
             if (failures === 1 || failures % 10 === 0) onError(error);
-          }
-          await sleep(delay, signal);
-          delay = Math.min(delay * 2, BASIN_RETRY_MAX_MS);
-        }
+          },
+        }).then(
+          () => (repairedAt = Date.now()),
+          () => undefined,
+        );
         repairing = false;
       })();
     },
