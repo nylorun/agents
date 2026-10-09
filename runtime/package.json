@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/runtime",
-  "version": "0.22.0-beta",
+  "version": "0.23.0-beta",
   "description": "Nylorun Runtime: the agent execution Host on Postgres, Restate and S2, and model providers.",
   "type": "module",
   "license": "Apache-2.0",
