@@ -28,8 +28,8 @@ async function testStore() {
   const store = await createTestSessionStore();
   // Where committed wakes go (the outbox's delivery after commit).
   const scheduled: string[] = [];
-  store.deliverTo((id) => {
-    scheduled.push(id);
+  store.deliverTo((request) => {
+    if (request.kind === "wake") scheduled.push(request.sessionId);
   });
   return {
     store,
@@ -523,9 +523,8 @@ it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () 
   expect(effect?.status).toBe("completed");
   expect(effect?.outcome).toEqual({ value: "done" });
   expect(await woken()).toEqual(["wf-1"]);
-  expect(
-    (await store.tx((t) => t.pendingWakes(0, 10))).map((row) => row.wake)
-  ).toEqual([]);
+  // Delivered: its outbox row is gone.
+  expect(await store.tx((t) => t.pendingOutbox(0, 10))).toEqual([]);
 });
 
 it("an agent effect settles only from the linked turn it started, never an earlier one", async () => {

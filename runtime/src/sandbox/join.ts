@@ -167,6 +167,9 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
           const reason = "The sandbox's volume was replaced: its files are gone";
           await t.updateSandboxPod(sandboxId, { observed: "lost", reason, hostEpoch: epoch }, now);
           await t.sandboxEvent(sandboxId, "sandbox.lost", { reason });
+          // Its Sandbox is deleted; only a reset brings the sandbox back.
+          await t.signal({ type: "host.revoked", sandboxId, epoch });
+          await t.signalSandbox(sandboxId, { kind: "reconcile" });
           return { lost: epoch };
         }
         await t.updateSandboxPod(
@@ -183,16 +186,11 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
           if (pod.podUid !== undefined) await t.sandboxEvent(sandboxId, "sandbox.relaunched", { hostEpoch: epoch });
           else await t.sandboxEvent(sandboxId, "sandbox.running", { hostEpoch: epoch });
         }
+        // The previous host's connection (an older epoch) serves nothing more, on any process.
+        await t.signal({ type: "host.revoked", sandboxId, epoch });
         return epoch;
       });
-      if (typeof joined === "object") {
-        ctx.harness.revokeHost(sandboxId, joined.lost);
-        // Its Sandbox is deleted; only a reset brings the sandbox back.
-        await ctx.sandboxSignal(sandboxId, { kind: "reconcile" });
-        return refuse("the volume was replaced: the sandbox is lost");
-      }
-      // The previous host's connection (an older epoch) serves nothing more.
-      ctx.harness.revokeHost(sandboxId, joined);
+      if (typeof joined === "object") return refuse("the volume was replaced: the sandbox is lost");
       ctx.config.logger.info("sandbox host joined", { sandboxId, epoch: joined });
       return answerOf(await mintHostTokens(ctx, { sandboxId, epoch: joined, podUid }));
     },

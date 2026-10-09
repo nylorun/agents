@@ -148,14 +148,14 @@ export async function reconcileSandbox(
     if (Object.keys(finalPatch).length > 0)
       await t.updateSandboxPod(sandboxId, finalPatch, new Date().toISOString());
     for (const item of decision.events) await t.sandboxEvent(sandboxId, item.type, item.payload as never);
-    return { kind: "written" as const, epoch: epochMoved ? current.pod.hostEpoch + 1 : undefined };
+    if (epochMoved) await t.signal({ type: "host.revoked", sandboxId, epoch: finalPatch.hostEpoch! });
+    return { kind: "written" as const };
   });
   if (written.kind === "changed") return { retryAfterMs: 0 };
   if (written.kind === "removed") {
     await ctx.sandbox.removeSandbox(sandboxId).catch(() => undefined);
     return {};
   }
-  if (written.kind === "written" && written.epoch !== undefined) ctx.harness.revokeHost(sandboxId, written.epoch);
   return {
     ...(decision.retryAfterMs === undefined ? {} : { retryAfterMs: decision.retryAfterMs }),
     ...(decision.arm.length > 0 ? { arm: decision.arm } : {}),

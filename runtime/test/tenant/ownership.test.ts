@@ -324,7 +324,9 @@ function lossyExecution(
 async function outbox(runtime: Started) {
   const store = await openTestSessionStore(runtime);
   try {
-    return await store.tx((t) => t.pendingWakes(0, 100));
+    return (await store.tx((t) => t.pendingOutbox(0, 100))).flatMap(({ request }) =>
+      request.kind === "wake" ? [{ sessionId: request.sessionId, wake: request.wake }] : []
+    );
   } finally {
     await store.close();
   }

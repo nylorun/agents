@@ -87,9 +87,12 @@ export type AdvanceResult =
 /** A pod sandbox's timers. */
 export type SandboxTimer = "idle" | "ttl";
 
-/** What `DurableExecution.sandbox` asks for: a reconcile, or a timer. */
+/**
+ * What `DurableExecution.sandbox` asks for: a reconcile, or a timer. A reconcile's `key` merges
+ * repeated sends of one request (the outbox's `signal:<row id>`); without one, every send runs.
+ */
 export type SandboxSignal =
-  | { kind: "reconcile" }
+  | { kind: "reconcile"; key?: string }
   | { kind: "arm"; timer: SandboxTimer; at: number };
 
 /** Why `WorkerHandlers.sandbox` runs. */

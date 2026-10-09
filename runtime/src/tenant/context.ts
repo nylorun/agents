@@ -26,7 +26,7 @@ import type {
 } from "@nylorun/harness/run";
 import type { AgentManifest, JsonValue, SandboxManifest } from "@nylorun/core/define";
 import type { CredentialSelection } from "@nylorun/core/contracts";
-import type { SessionStore, StoredSession, Tx } from "../store/types.js";
+import type { OutboxRequest, SessionStore, StoredSession, Tx } from "../store/types.js";
 import type { FlowLimits } from "../core/limits.js";
 import type { ModelProvider } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
@@ -215,13 +215,18 @@ export interface TenantContext {
   /** How long an advance's ownership lease lasts; the heartbeat renews it. */
   readonly ownerLeaseMs: number;
   /**
-   * Seam: hand a wake to `DurableExecution.wake`, outside any tx. The store calls it after
-   * commit for the wakes business code wrote with `t.wake` (`SessionStore.deliverTo`); the
-   * sweep calls it for outbox rows left undelivered and for orphaned sessions. Resolves
-   * `true` once the execution accepted the wake, `false` while the Tenant is closing: the
-   * wake is not sent, and its outbox row stays for the next sweep.
+   * Seam: hand a wake to `DurableExecution.wake`, outside any tx: the sweep's orphan scan,
+   * and `send`. Resolves `true` once the execution accepted the wake, `false` while the
+   * Tenant is closing: the wake is not sent.
    */
   wake(sessionId: string, wake: Wake): Promise<boolean>;
+  /**
+   * Seam: hand an outbox request to Durable Session Execution (`wake` or `sandboxSignal`),
+   * outside any tx. The store calls it after commit for what business code wrote with
+   * `t.wake` and `t.signalSandbox` (`SessionStore.deliverTo`); the sweep calls it for rows
+   * left undelivered. `false` (the Tenant is closing) leaves the row for the next sweep.
+   */
+  send(request: OutboxRequest): Promise<boolean>;
   /**
    * Seam: abort the advance of a session running in this process, if any. With `turnId`, only
    * an advance of that turn (a cancel signal names the turn it cancelled).
@@ -233,10 +238,12 @@ export interface TenantContext {
    */
   readonly pods?: TenantPods;
   /**
-   * Seam: reconcile a pod sandbox, or arm one of its timers (`DurableExecution.sandbox`). Call
-   * it from `t.afterCommit`. Dropped while the Tenant is closing; the sweep re-sends reconciles.
+   * Seam: reconcile a pod sandbox, or arm one of its timers (`DurableExecution.sandbox`),
+   * outside any tx. What a transaction causes goes through `t.signalSandbox` instead, which
+   * writes it down; a direct call is best effort. `false` while the Tenant is closing (not
+   * sent); `true` without sandbox pods, where there is nothing to send.
    */
-  sandboxSignal(sandboxId: string, signal: SandboxSignal): Promise<void>;
+  sandboxSignal(sandboxId: string, signal: SandboxSignal): Promise<boolean>;
   /** This Tenant's execution invocations that need an operator, for Tenant status. */
   readonly stuckInvocations?: () => Promise<StuckInvocation[]>;
   /** Callbacks the Tenant sweep runs after its own steps (`sweep.ts`). */

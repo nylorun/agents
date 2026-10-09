@@ -134,6 +134,13 @@
       "when": 1791529391438,
       "tag": "0018_wake_outbox_retries",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791530515498,
+      "tag": "0019_sandbox_signal_outbox",
+      "breakpoints": true
     }
   ]
 }

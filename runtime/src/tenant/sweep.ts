@@ -4,31 +4,34 @@
  * and startup scan the Tenant runtime used to keep. It reconciles the Session Store with what
  * Durable Session Execution was asked to do; it never decides when a session advances:
  *
- * 1. **Wakes.** Wake outbox rows (`Tx.wake`) are delivered again and deleted: a delivery
- *    after commit that failed, or that a crash between the commit and the send cut off. The
- *    first pass on this process takes every row, so a previous process's are not left
- *    waiting; later passes take the rows older than `WAKE_GRACE_MS` (the database's clock)
- *    and those whose delivery after commit failed, batch after batch within
- *    `DRAIN_BUDGET_MS`. Each row carries the
- *    idempotency key it was first sent with, so a wake the execution did accept before the
- *    crash, or one still being sent after its commit, causes no second advance. Rows are
- *    delivered one by one: a row that fails is retried with backoff and parked after
- *    `MAX_WAKE_ATTEMPTS` (`deliverPendingWakes`), and no delivery fails the step.
+ * 1. **Outbox.** Outbox rows (`Tx.wake`, `Tx.signalSandbox`) are delivered again and deleted:
+ *    a delivery after commit that failed, or that a crash between the commit and the send cut
+ *    off. The first pass on this process takes every row, so a previous process's are not
+ *    left waiting; later passes take those whose delivery after commit failed and those older
+ *    than `OUTBOX_GRACE_MS` (the database's clock), batch after batch within
+ *    `DRAIN_BUDGET_MS`. Each row carries the idempotency key it was first sent with, so a
+ *    request the execution did accept before the crash, or one still being sent after its
+ *    commit, runs once. Rows are delivered one by one: a row that fails is retried with
+ *    backoff and parked after `MAX_OUTBOX_ATTEMPTS` (`deliverOutbox`), and no delivery fails
+ *    the step.
  * 2. **Linked agents.** Pending workflow `agent` effects whose linked turn already settled
- *    are completed and the workflow is woken (a crash between the two, or data written by an
- *    older Runtime).
+ *    are completed and the workflow is woken. A linked turn's settle does both in its own
+ *    transaction; this is the backstop for one that settle left pending, such as an effect
+ *    an older Runtime wrote.
  * 3. **Orphaned sessions.** On this process's first pass for the Tenant, then at most every
  *    `ORPHAN_SCAN_MS`: `running` or `runnable` sessions with no owner, or an owner whose lease
  *    expired, are woken with reason `recover`, page by page within `DRAIN_BUDGET_MS`; a scan
- *    the budget cut short goes on at the next pass. Neither a lost wake (step 1) nor a Worker that
- *    died mid-advance (the execution retries that advance, which takes over, §11.4) needs it:
- *    it is the backstop for what the execution itself lost or ended without an advance, such
- *    as an in-process execution's queue when its process stopped, an advance for a Tenant not
- *    open on its Worker, an invocation an operator killed, or Restate's state wiped (§17.11).
+ *    the budget cut short goes on at the next pass. Neither a lost wake (step 1) nor a Worker
+ *    that died mid-advance (the execution retries that advance, which takes over, §11.4)
+ *    needs it: it is the backstop for what the execution itself lost or ended without an
+ *    advance, such as an in-process execution's queue when its process stopped, an advance
+ *    for a Tenant not open on its Worker, an invocation an operator killed, Restate's state
+ *    wiped (§17.11), or a parked outbox row.
  * 4. **Sandboxes.** Idle sandboxes are stopped, records of compute no longer held are marked
  *    stopped, and sandboxes whose session or sandbox resource is gone are removed, by the
  *    workspace capability (`harness-api/workspace.ts`: here, or in the harness that serves
- *    workspaces). Idle MCP connections of the in-process harness are closed.
+ *    workspaces). Idle MCP connections of the in-process harness are closed. As often as the
+ *    orphan scan, pod sandboxes whose change stalled get a reconcile (`reconcileStalePods`).
  * 5. **Control signals.** Signals on the control bus older than `SIGNAL_RETENTION_MS` are
  *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
  * 6. **Hooks.** Callbacks registered with `ctx.onSweep`.
@@ -42,33 +45,40 @@ import {
   pendingAgentEffects,
   reconcilePendingAgentEffect,
 } from "../core/flow-host.js";
-import type { PendingWake } from "../store/types.js";
+import type { PendingRequest } from "../store/types.js";
 import type { TenantContext } from "./context.js";
 
 const BATCH = 100;
 /** How long a control signal is kept after it was written. */
 const SIGNAL_RETENTION_MS = 60 * 60 * 1000;
 /**
- * How old a wake outbox row is before the sweep delivers it, unless its delivery after commit
+ * How old an outbox row is before the sweep delivers it, unless its delivery after commit
  * already failed (then it is due at once): longer than that delivery can take with its
  * retries, so the sweep does not send again, and double the load on, an execution that is
  * only slow. Sending one twice is harmless either way (the idempotency key).
  */
-export const WAKE_GRACE_MS = 30_000;
-/** How often the orphan scan runs after the first pass of a Tenant opened on this process. */
+export const OUTBOX_GRACE_MS = 30_000;
+/**
+ * How often the orphan scan, and the stale pod sandbox check, run after the first pass of a
+ * Tenant opened on this process.
+ */
 export const ORPHAN_SCAN_MS = 60_000;
 /**
- * How long one pass may spend draining the wake outbox, and paging through orphaned sessions.
+ * How long one pass may spend draining the outbox, and paging through orphaned sessions.
  * A backlog is worked off over several passes rather than holding one (and with it the
  * Tenant's sweep object in the execution) for long.
  */
 export const DRAIN_BUDGET_MS = 2000;
 
 /**
- * Each open Tenant's sweep state on this process: when its last orphan scan finished, and the
- * last session id of one that ran out of budget, which the next pass goes on from.
+ * Each open Tenant's sweep state on this process: when its last orphan scan finished, the
+ * last session id of one that ran out of budget, which the next pass goes on from, and when
+ * the stale pod sandbox check last ran.
  */
-const passes = new WeakMap<TenantContext, { orphansAt?: number; orphansAfter?: string }>();
+const passes = new WeakMap<
+  TenantContext,
+  { orphansAt?: number; orphansAfter?: string; podsAt?: number }
+>();
 
 type Step = [name: string, run: () => Promise<unknown>];
 
@@ -82,11 +92,9 @@ export async function sweep(ctx: TenantContext): Promise<void> {
     pass.orphansAt === undefined ||
     pass.orphansAfter !== undefined ||
     now.getTime() - pass.orphansAt >= ORPHAN_SCAN_MS;
+  const checkPods = pass.podsAt === undefined || now.getTime() - pass.podsAt >= ORPHAN_SCAN_MS;
   const steps: Step[] = [
-    [
-      "wakes",
-      () => deliverPendingWakes(ctx, first ? 0 : WAKE_GRACE_MS),
-    ],
+    ["outbox", () => deliverOutbox(ctx, first ? 0 : OUTBOX_GRACE_MS)],
     ["linked", () => reconcileLinkedAgents(ctx)],
     ...(scanOrphans
       ? [
@@ -111,7 +119,17 @@ export async function sweep(ctx: TenantContext): Promise<void> {
             (await ctx.store.tx((t) => t.sandboxResource(id))) !== undefined,
         }),
     ],
-    ["pods", () => reconcileStalePods(ctx, now)],
+    ...(checkPods
+      ? [
+          [
+            "pods",
+            async () => {
+              await reconcileStalePods(ctx, now);
+              pass.podsAt = now.getTime();
+            },
+          ] satisfies Step,
+        ]
+      : []),
     // A harness elsewhere closes its own idle MCP connections.
     ["mcp", async () => ctx.mcp?.sweep()],
     [
@@ -137,33 +155,34 @@ export async function sweep(ctx: TenantContext): Promise<void> {
   if (failure) throw failure.error;
 }
 
-/** Failed deliveries after which the sweep parks a wake outbox row (`Tx.failWake`). */
-export const MAX_WAKE_ATTEMPTS = 10;
+/** Failed deliveries after which the sweep parks an outbox row (`Tx.failOutbox`). */
+export const MAX_OUTBOX_ATTEMPTS = 10;
 /** How long after its first failed delivery the sweep tries a row again; doubled each time. */
-const WAKE_RETRY_MS = 5000;
-const WAKE_RETRY_MAX_MS = 10 * 60_000;
+const RETRY_MS = 5000;
+const RETRY_MAX_MS = 10 * 60_000;
 
 /**
- * Deliver the wake outbox rows that are due (`Tx.pendingWakes`: older than `graceMs`, or
- * whose delivery failed), oldest first, batch after batch until none is left or `budgetMs` is
- * spent, and delete the delivered ones. Each row is
- * delivered on its own: one that fails (Restate refuses it, or a Runtime that does not know
- * its reason) is tried again later, with backoff, so it never holds back the rows behind it,
- * and after `MAX_WAKE_ATTEMPTS` failures it is parked: logged once, at error, and kept in the
- * outbox for an operator. Its session is still re-woken by the orphan scan while it is
- * runnable. A row the Tenant declines (it is closing) stays as it is, and ends the drain.
- * Never throws for a delivery; returns the ids of the rows delivered.
+ * Deliver the outbox rows that are due (`Tx.pendingOutbox`: older than `graceMs`, or whose
+ * delivery failed), oldest first, batch after batch until none is left or `budgetMs` is
+ * spent, and delete the delivered ones. Each row is delivered on its own: one that fails
+ * (Restate refuses it, or a Runtime that does not know a wake's reason) is tried again later,
+ * with backoff, so it never holds back the rows behind it, and after `MAX_OUTBOX_ATTEMPTS`
+ * failures it is parked: logged once, at error, and kept in the outbox for an operator. A
+ * parked wake's session is still re-woken by the orphan scan while it is runnable, and a
+ * parked sandbox signal's pod by the stale pod check. A row the Tenant declines (it is
+ * closing) stays as it is, and ends the drain. Never throws for a delivery; returns the rows
+ * delivered.
  */
-export async function deliverPendingWakes(
-  ctx: Pick<TenantContext, "store" | "wake" | "config">,
+export async function deliverOutbox(
+  ctx: Pick<TenantContext, "store" | "send" | "config">,
   graceMs = 0,
   budgetMs = DRAIN_BUDGET_MS
-): Promise<string[]> {
+): Promise<PendingRequest[]> {
   const deadline = Date.now() + budgetMs;
-  const delivered: string[] = [];
+  const delivered: PendingRequest[] = [];
   for (;;) {
-    const pending = await ctx.store.tx((t) => t.pendingWakes(graceMs, BATCH));
-    const batch: string[] = [];
+    const pending = await ctx.store.tx((t) => t.pendingOutbox(graceMs, BATCH));
+    const batch: PendingRequest[] = [];
     let done = pending.length < BATCH;
     try {
       for (const row of pending) {
@@ -173,17 +192,17 @@ export async function deliverPendingWakes(
         }
         let accepted: boolean;
         try {
-          accepted = await ctx.wake(row.sessionId, row.wake);
+          accepted = await ctx.send(row.request);
         } catch (error) {
           await failed(ctx, row, error);
           continue;
         }
-        if (accepted) batch.push(row.id);
+        if (accepted) batch.push(row);
         else done = true;
       }
     } finally {
       // Delivered ones go even when a later step fails, so they are not sent again.
-      if (batch.length > 0) await ctx.store.tx((t) => t.deleteWakes(batch));
+      if (batch.length > 0) await ctx.store.tx((t) => t.deleteOutbox(batch));
     }
     delivered.push(...batch);
     if (done) return delivered;
@@ -193,22 +212,24 @@ export async function deliverPendingWakes(
 /** Records a failed delivery of `row`: retried with backoff, parked after the last attempt. */
 async function failed(
   ctx: Pick<TenantContext, "store" | "config">,
-  row: PendingWake,
+  row: PendingRequest,
   error: unknown
 ): Promise<void> {
   const attempts = row.attempts + 1;
-  const park = attempts >= MAX_WAKE_ATTEMPTS;
-  const retryInMs = Math.min(WAKE_RETRY_MS * 2 ** (attempts - 1), WAKE_RETRY_MAX_MS);
-  await ctx.store.tx((t) => t.failWake(row.id, { retryInMs, park }));
+  const park = attempts >= MAX_OUTBOX_ATTEMPTS;
+  const retryInMs = Math.min(RETRY_MS * 2 ** (attempts - 1), RETRY_MAX_MS);
+  await ctx.store.tx((t) => t.failOutbox(row, { retryInMs, park }));
+  const { request } = row;
   const fields = {
-    wakeId: row.id,
-    sessionId: row.sessionId,
-    reason: row.wake.reason,
+    rowId: row.id,
+    ...(request.kind === "wake"
+      ? { sessionId: request.sessionId, reason: request.wake.reason }
+      : { sandboxId: request.sandboxId, signal: request.signal.kind }),
     attempts,
     message: error instanceof Error ? error.message : String(error),
   };
-  if (park) ctx.config.logger.error("wake outbox row parked: its delivery keeps failing", fields);
-  else ctx.config.logger.warn("wake delivery failed; the sweep tries it again", fields);
+  if (park) ctx.config.logger.error("outbox row parked: its delivery keeps failing", fields);
+  else ctx.config.logger.warn("outbox delivery failed; the sweep tries it again", fields);
 }
 
 /** Settle pending workflow `agent` effects whose linked turn already finished. */
@@ -255,9 +276,10 @@ const STALE_POD_MS = 60_000;
 /**
  * Pod sandboxes (F7.2) whose change has not finished (creating, deleting, an old volume still
  * to delete, an expiry not yet recorded), or that should run but whose engine is not connected,
- * and whose row has not moved for a minute: a reconcile the `Sandbox` object lost (a send
- * dropped while the Tenant closed) is sent again, and a pod or volume deleted outside the
- * Runtime is found.
+ * and whose row has not moved for a minute, get a reconcile: a pod or volume deleted outside
+ * the Runtime is found, and a change goes on whose reconcile the execution itself lost (its
+ * retry timer, an invocation an operator killed, Restate's state wiped) or whose outbox row
+ * was parked. A reconcile a commit asked for is never lost: it is in the outbox.
  */
 async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> {
   if (!ctx.pods) return;
