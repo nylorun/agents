@@ -4,8 +4,8 @@ import {
   StudioSignedOutError,
   createTenantClient,
   createTenantManagementClient,
+  decodeSegment,
   fetchHello,
-  studioFetch,
   tenantHref,
   tenantRuntimePath,
   tenantScope,
@@ -35,15 +35,13 @@ test("tenantScope maps /tenants/<id>/… to a router basename", () => {
   assert.equal(tenantRuntimePath("tn/1"), "/_studio/tenants/tn%2F1/runtime");
 });
 
-test("studioFetch is same-origin only and sends the session cookie", async () => {
-  const { calls, fetcher } = recorder();
-  await studioFetch("/_studio/hello", { method: "GET" }, fetcher);
-  assert.equal(calls[0].url, "/_studio/hello");
-  assert.equal(calls[0].init.credentials, "same-origin");
-  for (const path of ["https://evil.example/", "//evil.example/x", "_studio/x"])
-    assert.throws(() => studioFetch(path, undefined, fetcher), /same-origin/);
+test("decodeSegment decodes a path segment, or names nothing when it is malformed", () => {
+  assert.equal(decodeSegment("orders"), "orders");
+  assert.equal(decodeSegment("s%201"), "s 1");
+  assert.equal(decodeSegment("a%2Fb"), "a/b");
+  for (const segment of ["%E0", "%E0%A4%A", "%", "%zz", "s-%E0"])
+    assert.equal(decodeSegment(segment), undefined, segment);
 });
-
 test("createTenantManagementClient targets the Tenant proxy and carries no bearer", async () => {
   const { calls, fetcher } = recorder(() => Response.json({ configured: false }));
   const client = createTenantManagementClient("tn_1", { origin: "http://localhost:4170", fetcher });
@@ -76,7 +74,7 @@ test("createTenantClient strips the SDK bearer and targets the Tenant proxy", as
   for (const call of calls) assert.equal(new Headers(call.init?.headers).has("nylorun-tenant"), false);
 });
 
-test("fetchHello reports the installation's Tenant, or a missing session", async () => {
+test("fetchHello reports the installation's Tenant, or a missing session, same-origin with the session cookie", async () => {
   const signedOut = recorder(() => new Response("{}", { status: 401 }));
   await assert.rejects(fetchHello(signedOut.fetcher), StudioSignedOutError);
 
@@ -90,5 +88,7 @@ test("fetchHello reports the installation's Tenant, or a missing session", async
   const hello = await fetchHello(ok.fetcher);
   assert.deepEqual(hello.runtime, { compatible: true });
   assert.deepEqual(hello.tenant, tenant);
+  assert.equal(ok.calls.length, 1);
   assert.equal(ok.calls[0].url, "/_studio/hello");
+  assert.equal(ok.calls[0].init.credentials, "same-origin");
 });
