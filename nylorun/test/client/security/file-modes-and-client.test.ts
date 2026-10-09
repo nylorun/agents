@@ -7,8 +7,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { createClient } from "@nylorun/agents";
-import { readCredentials } from "../../src/project/credentials.js";
-import { linkedConnection } from "../../src/project/connection.js";
+import { linkedConnection, readCredentials } from "../../../src/client/project/connection.js";
 import { APPLICATION_KEY, link3, MANAGEMENT_KEY, project, writeProjectLink } from "../helpers/project.js";
 
 const roots: string[] = [];

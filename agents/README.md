@@ -128,7 +128,7 @@ const history = await session.history();
 ```
 
 ```sh
-eval "$(npx @nylorun/cli env)"
+eval "$(npx -p nylorun nylo env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 

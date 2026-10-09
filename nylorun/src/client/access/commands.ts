@@ -4,8 +4,8 @@
  * access policy, browser keys and revocations left the Runtime in protocol 7.)
  */
 import type { ManagementClient } from "@nylorun/admin";
-import { findProjectRoot } from "@nylorun/admin/project";
-import { CliError } from "../errors.js";
+import { findProjectRoot } from "@nylorun/core/project";
+import { CliError } from "../../errors.js";
 import { linkedConnection, managementClient } from "../project/connection.js";
 
 export const accessUsage = `nylo access signing-keys <list|rotate|revoke>

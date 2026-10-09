@@ -3,6 +3,5 @@
   "runtime": "0.22.0-beta",
   "agents": "0.19.1-beta",
   "admin": "0.14.1-beta",
-  "core": "0.19.0-beta",
-  "cli": "0.14.2-beta"
+  "core": "0.19.0-beta"
 }

@@ -19,12 +19,12 @@ holds their sessions in its **Tenant**, one per installation; this project
 attaches to its own local Tenant through a **Project link**. `src/main.ts`
 saves each agent in `agents/index.ts` to the Runtime (`client.saveAgent`) and
 exits; no code of yours runs during a session. The project depends only on
-`@nylorun/agents`; the two Nylorun tools run with `npx`:
+`@nylorun/agents`; the `nylorun` package's two commands run with `npx`:
 
 - `nylorun` sets up and runs this project's local Tenant (Runtime and Studio)
   and links the project to it.
-- `@nylorun/cli` (command `nylo`) talks to a Runtime: its Tenant's status,
-  reset and model provider.
+- `nylo` talks to a Runtime: its Tenant's status, reset and model provider
+  (`npx -p nylorun@beta nylo <command>`).
 
 ```sh
 npx nylorun@beta start  # this project's Tenant and the link; the first run pulls the images
@@ -43,7 +43,7 @@ The first `nylorun start` writes `.nylorun/link.json` and
 `MODEL_PROVIDER`, `MODEL` and `MODEL_PROVIDER_API_KEY` in `.env` (see
 `.env.example`). The key is stored in the Tenant vault, never back in `.env`.
 Without them, set the provider in Studio's Model provider screen, or with
-`npx @nylorun/cli configure`. Model calls use the Tenant's provider and may
+`npx -p nylorun@beta nylo configure`. Model calls use the Tenant's provider and may
 incur its usual charges.
 
 `npm run dev` runs `src/main.ts` with `tsx watch`: it saves the agents to the
@@ -74,7 +74,7 @@ runs no code of yours during a session.
 Export the linked Project environment:
 
 ```sh
-eval "$(npx @nylorun/cli@beta env)"
+eval "$(npx -p nylorun@beta nylo env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
@@ -86,8 +86,8 @@ there gives it a Tenant of its own, and `npx nylorun start --tenant <name>`
 links it to this project's Tenant instead.
 Keep `.nylorun/` private. The application key is derived from the Tenant's
 admin key when the project is linked. Ordinary
-shutdown/restart preserves completed session history; `npx @nylorun/cli reset
---all` empties the Tenant, and `npx nylorun reset` deletes all its data.
+shutdown/restart preserves completed session history; `npx -p nylorun nylo
+reset --all` empties the Tenant, and `npx nylorun reset` deletes all its data.
 `NYLORUN_IMPLEMENTATION_VERSION` (default `dev`) labels each saved
 definition.
 

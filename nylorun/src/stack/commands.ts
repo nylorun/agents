@@ -815,7 +815,7 @@ async function linkProject(
     if (set.length) deps.err(`Seeded the Tenant from .env: ${set.join(", ")}.`);
   } catch (error) {
     deps.err(
-      `Warning: could not seed the Tenant from .env (${error instanceof Error ? error.message : String(error)}). Set the model in Studio or with "npx @nylorun/cli configure".`,
+      `Warning: could not seed the Tenant from .env (${error instanceof Error ? error.message : String(error)}). Set the model in Studio or with "npx -p nylorun nylo configure".`,
     );
   }
 }

@@ -5,8 +5,9 @@ state-in/state-out; the optional **Runtime Host** owns sessions for the one
 **Tenant** of its installation.
 
 This repository contains core (definitions/contracts), harness (engine), agents
-(SDK), admin (Management API client), runtime (OSS Host), CLI, Studio and the project
-creator. Cloud lives in the private agents-api repository. Vocabulary:
+(SDK), admin (Management API client), runtime (OSS Host), nylorun (local Tenants and
+the `nylo` client), Studio and the project creator. Cloud lives in the private
+agents-api repository. Vocabulary:
 [runtime/src/CONTEXT.md](runtime/src/CONTEXT.md).
 
 The Runtime runs as a container next to Postgres (the Session Store), Restate
@@ -66,9 +67,12 @@ Projects that must not share agents, credentials or history run separate
 Tenants; `nylorun start --tenant <name>` (or `NYLORUN_TENANT`) attaches a
 checkout to an existing one. Outside a project, `nylorun start` runs the
 Tenant `default`.
-`@nylorun/cli`, command `nylo`, is the Runtime client for the linked
-installation (`nylo status|reset|access|configure|env|doctor`). Studio runs
-in the Tenant's containers as the `ghcr.io/nylorun/studio` image.
+The same package's second command, `nylo`, is the Runtime client for the
+linked installation (`nylo status|reset|access|configure|env|doctor`; run it
+with `npx -p nylorun nylo`): its `status` and `reset` go through the Management
+API, where `nylorun status|reset` act on the local Tenant's containers and
+volumes. Studio runs in the Tenant's containers as the `ghcr.io/nylorun/studio`
+image.
 
 ## Develop this repository
 
@@ -90,7 +94,7 @@ so sessions survive a source change; `npx nylorun down` stops it.
 Print the export lines for a linked Project:
 
 ```sh
-eval "$(npx @nylorun/cli env)"
+eval "$(npx -p nylorun nylo env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
@@ -100,8 +104,8 @@ eval "$(npx @nylorun/cli env)"
 | ----------------------------------------- | ----------------------------------------------------------------- |
 | [`@nylorun/core`](./core)                 | Shared definitions, contracts and manifest identity               |
 | [`@nylorun/harness`](./harness)           | Execution engine and checkpoints                                  |
-| [`nylorun`](./nylorun)                    | `npx nylorun start`: a project's local Tenant and its link        |
-| [`@nylorun/cli`](./cli)                   | Runtime client (`nylo`): status, reset, access, model provider    |
+| [`nylorun`](./nylorun)                    | `npx nylorun start`: a project's local Tenant and its link; `nylo`, the Runtime client: status, reset, access, model provider |
+| [`@nylorun/cli`](./cli)                   | Deprecated: runs nylorun's `nylo` for one more release            |
 | [`@nylorun/agents`](./agents)             | Session SDK and authoring: define agents and save them           |
 | [`@nylorun/admin`](./admin)               | Management API client: models, vaults, MCP server previews, signing keys, application keys |
 | [`@nylorun/runtime`](./runtime)           | Runtime Host and Tenant Runtime; the `ghcr.io/nylorun/runtime` image |
@@ -122,7 +126,7 @@ eval "$(npx @nylorun/cli env)"
 | [SECURITY.md](./SECURITY.md)                         | Vulnerability reports                           |
 | [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)           | Community standards                             |
 
-Package-level READMEs: [Harness](./harness/README.md) · [Runtime](./runtime/README.md) · [CLI](./cli/README.md) · [Admin](./admin/README.md) · [Studio](./studio/README.md) · [Examples](./examples/README.md)
+Package-level READMEs: [Harness](./harness/README.md) · [Runtime](./runtime/README.md) · [nylorun](./nylorun/README.md) · [Admin](./admin/README.md) · [Studio](./studio/README.md) · [Examples](./examples/README.md)
 
 ## License
 

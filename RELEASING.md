@@ -1,14 +1,16 @@
 # Releasing packages and images
 
-Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio and CLI; Runtime and Studio changes advance nylorun, which pins their images. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Merging a release PR (one that changes `.release/plan.json`) publishes it on npm's `beta` channel, with no approval. Moving `latest` is the one human step: an administrator clicks **Promote to latest**. Nothing else publishes on merge or tag push.
+Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio; Admin changes advance Studio and nylorun, whose `nylo` uses it; Runtime and Studio changes advance nylorun, which pins their images; nylorun changes advance the deprecated `@nylorun/cli`, which pins the nylorun whose `nylo` it runs. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Merging a release PR (one that changes `.release/plan.json`) publishes it on npm's `beta` channel, with no approval. Moving `latest` is the one human step: an administrator clicks **Promote to latest**. Nothing else publishes on merge or tag push.
 
 Coding agents release by following [the release skill](.claude/skills/release/SKILL.md).
 
 The creator's compatibility combination (`create-agent/compatibility.json`)
 pins exactly what a generated project or the examples install or depend on:
-Core, Harness, Agents, Admin, Runtime and CLI. Neither nylorun nor Studio is in
-it: developers run nylorun with `npx`, and Studio ships only as its image,
-which nylorun pins.
+Core, Harness, Agents, Admin and Runtime. Neither nylorun (with `nylo`) nor
+Studio is in it: developers run nylorun with `npx`, and Studio ships only as its
+image, which nylorun pins. Nor is the deprecated `@nylorun/cli`, which only runs
+nylorun's `nylo`. A protocol change needs a breaking bump of Core, Runtime,
+Agents and nylorun, the Runtime clients.
 
 A release publishes two kinds of artifact:
 
@@ -124,7 +126,7 @@ release plan controls publication.
 
 `release:check` validates the exact creator combination, using candidate tarballs
 for changed packages and registry versions for unchanged pins. It also exercises
-CLI commands and production assets. An unavailable unchanged pin blocks release.
+nylorun's commands, the deprecated `@nylorun/cli`, and production assets. An unavailable unchanged pin blocks release.
 It requires both image pins to equal the Runtime and Studio versions the plan
 publishes or keeps, and fails if `@nylorun/studio` is not private.
 Artifacts are saved under `.tmp/release-artifacts/` for inspection; a private

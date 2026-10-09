@@ -26,7 +26,7 @@ Optional integration variables are loaded from `.env`. Interior Design uses `OPE
 [`agents/release/analyst.ts`](./agents/release/analyst.ts) is a plain agent. The sandbox comes from the session, not the agent: open a session with `createSession({ agentId: "analyst", ownerUserId, sandbox: {} })`, or give every session in the Tenant one by setting its default (Studio opens sessions without naming a sandbox, so it uses the default):
 
 ```bash
-eval "$(npx @nylorun/cli env)"
+eval "$(npx nylo env)"
 # The Management API takes the project's management key, which `nylorun start` wrote beside its application key.
 NYLORUN_MANAGEMENT_KEY=$(node -p 'require("./.nylorun/credentials.json").managementKey')
 curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/sandbox" -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 9" -H "content-type: application/json" -d '{"default":"virtual"}'
@@ -282,4 +282,4 @@ The generated starter defaults to memory sessions. This examples recipe explicit
 
 ## Current release storage
 
-Sessions of the supported registry live in the examples' local Tenant: its Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx @nylorun/cli reset --all` empties the Tenant, and `npx nylorun reset` deletes the Tenant's data (containers and volumes). Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.
+Sessions of the supported registry live in the examples' local Tenant: its Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx nylo reset --all` empties the Tenant, and `npx nylorun reset` deletes the Tenant's data (containers and volumes). Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.

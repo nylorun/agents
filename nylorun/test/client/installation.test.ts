@@ -13,7 +13,7 @@ import {
   writeProjectLink,
 } from "./helpers/project.js";
 
-const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+const cli = fileURLToPath(new URL("../../dist/nylo.js", import.meta.url));
 const roots: string[] = [];
 const servers: { close(): void }[] = [];
 afterEach(async () => {

@@ -9,7 +9,7 @@ import {
   configureProvider,
   ConfigurationCancelled,
   installationId,
-} from "../src/model/configure.js";
+} from "../../src/client/model/configure.js";
 
 const { login, state } = vi.hoisted(() => ({
   login: vi.fn(),

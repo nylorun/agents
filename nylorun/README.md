@@ -1,7 +1,8 @@
 # nylorun
 
 Sets up and runs local Nylorun Tenants: the Runtime and Studio, in Docker
-Compose, one Tenant per project. It needs nothing in your project; run it with
+Compose, one Tenant per project. Its second command, `nylo`, is the Runtime
+client of the linked installation. It needs nothing in your project; run it with
 `npx` in the project's directory:
 
 ```sh
@@ -14,10 +15,13 @@ and S2, serving exactly that Tenant, and its name is the Tenant's name.
 `nylorun start` in a project creates the project's Tenant (the Runtime creates
 it on its first start) and links the project to it; anywhere else, it starts
 the Tenant `default`. Projects that must not share agents, credentials or
-history run separate Tenants. Agents, sessions and model providers belong to
-the Runtime client, [`@nylorun/cli`](../cli/README.md) (command `nylo`).
-Depends on `@nylorun/core` only among Nylorun packages and never imports
-`@nylorun/runtime`. Vocabulary: [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
+history run separate Tenants. The Tenant's status, data, signing keys and model
+provider over its APIs belong to the Runtime client, `nylo`
+([below](#the-runtime-client-nylo)), which works on a remote installation too.
+Depends on `@nylorun/core` and `@nylorun/admin` (for `nylo`) among Nylorun
+packages and never imports `@nylorun/runtime`; the `nylorun` command loads
+neither `nylo` nor `@nylorun/admin`. Vocabulary:
+[runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 Prerequisites, installed by the developer (nylorun never downloads them): Node
 24 or newer, and Docker with Compose v2 ([Docker
@@ -59,10 +63,13 @@ nylorun sandbox status [--tenant <name>] [--json]   # pods on a Kubernetes conte
 
 `up` and `down` are the Docker Compose spellings of `start` and `stop`: `down`
 stops the containers and keeps the volumes, so no Tenant data is lost. Removed
-commands exit 2 naming the replacement: `nylorun dev`, `nylorun configure`,
-`nylorun status --env`, `nylorun doctor sandbox` and the MCP OAuth `connect`
+commands exit 2 naming the replacement: `nylorun dev` and the MCP OAuth `connect`
 subcommand of `nylorun mcp` (protocol 10: add a key or a gateway credential to a
 vault instead, and preview the server with `nylorun mcp inspect`).
+`nylorun configure`, `nylorun status --env` and `nylorun doctor sandbox` exit 2
+naming `nylo configure`, `nylo env` and `nylo doctor sandbox`.
+`nylorun status` and `nylorun reset` are not `nylo status` and `nylo reset`: see
+[`status` and `reset`](#status-and-reset-nylorun-or-nylo).
 
 ## Tenants
 
@@ -350,7 +357,94 @@ its files and ports; the next start creates the Tenant anew (with a new id) and
 relinks the project. `nylorun delete <tenant> --yes` removes the Tenant's
 containers, volumes and Host root: the vault key (KEK) and all its data go with it.
 
+## The Runtime client: `nylo`
+
+`nylo` acts on the one Tenant of the linked installation: a local Tenant or any
+Runtime reachable by URL and key. Run it without installing, or in a project
+that has `nylorun` as a devDependency:
+
+```sh
+npx -p nylorun nylo status            # anywhere
+npx nylo status                       # in a project with nylorun installed
+```
+
+Outside such a project, `npx nylo` looks for an npm package named `nylo`, which
+is not this one: use `npx -p nylorun nylo`. The deprecated
+[`@nylorun/cli`](../cli/README.md) runs this `nylo` for one more release.
+
+```sh
+nylo status [--json]                  # the Tenant, its checks and counts
+nylo reset [--sessions|--sandboxes|--all] [--yes]
+nylo access signing-keys …            # the Tenant's signing keys: list, rotate, revoke
+nylo configure                        # set or replace the Tenant's model provider
+nylo env                              # export lines for the linked Project
+nylo doctor sandbox [--json]          # sandbox backend via the Management API
+```
+
+Every command acts on the linked installation: the [Project link and
+credentials](#the-project-link), or `NYLORUN_RUNTIME_URL` and
+`NYLORUN_SERVER_KEY` when the Project has no link. An installation serves one
+Tenant, so nothing selects it. `status`, `reset`, `access`, `configure` and
+`doctor` use the Management API with the Project's management key, or
+`NYLORUN_MANAGEMENT_KEY` (with `NYLORUN_RUNTIME_URL` when there is no link);
+`env` prints the Runtime URL and the application key, for the Runtime API:
+
+```sh
+eval "$(npx -p nylorun nylo env)"
+# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
+```
+
+`nylo` only reads the link, with `@nylorun/core/project`'s reader. It refuses a
+link from an older nylorun (format 0 to 2) and says to run `npx nylorun start`,
+which links the project again. `createClient` in `@nylorun/agents` reads the
+link (or the two variables) too, so the project's `npm run dev` and `npm start`
+need no Nylorun tool.
+
+Local Tenant commands (`up`, `down`, `start`, `stop`, `logs`, `studio`) exit 2
+naming `npx nylorun <command>`. `nylo tenant …` exits 2: `npx nylorun start`
+creates the project's Tenant and the link, and `nylo status|reset` replace
+`nylo tenant status|reset`. `nylo endpoints` was removed with Action endpoints
+(protocol 8: the Runtime runs no code of yours during a session) and exits 2.
+
+### `status` and `reset`: `nylorun` or `nylo`
+
+Both commands have a `status` and a `reset`, which act on different things:
+
+| | `nylorun` | `nylo` |
+| --- | --- | --- |
+| Acts on | the local Tenant on this machine (`--tenant`, `NYLORUN_TENANT` or the link), through Docker and `nylorun-operate` in its runtime container | the linked installation, local or remote, through the Management API with a management key |
+| `status` | the containers, endpoints and Runtime health, and the Tenant's state: it answers when the Tenant is stopped or not open, and says why | the open Tenant's checks, counts and sandbox backend (`GET /v1/tenant`); when the Tenant does not answer it fails and points at `nylorun status` |
+| `reset` | deletes all the Tenant's data: volumes, `tenant/` and the vault key; the next `start` creates it anew, with a new id, and relinks the project | clears the sessions (the default), the sandboxes or all the data (`--all`) after draining work in flight; the Tenant, its keys and the Project link are kept |
+
+`nylo reset --all` asks first; pass `--yes` when not in a terminal.
+`nylorun reset` asks too, or takes `--yes`.
+
+### `nylo configure`
+
+Lists the Tenant's model catalog (`GET /v1/tenant/models`), asks for a provider,
+a model and its sign-in (an API key, or the provider's OAuth), and sets the
+Tenant's model provider (`PUT /v1/tenant/model`). The sign-in flows come from
+`@earendil-works/pi-ai`, about 100 MB with its provider SDKs, which no other
+command needs, so it is not a dependency of nylorun and `npx nylorun` stays
+small. When it does not resolve beside nylorun, the first `nylo configure`
+installs the version nylorun was tested with, with npm and without install
+scripts, into `~/.nylorun/lib/pi-ai-<version>/` (under `NYLORUN_HOME` when that
+is set), and later runs reuse it. Studio's model settings, and `.env` at
+`nylorun start`, set the provider without it.
+
+### `nylo` exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Generic failure |
+| 2 | Usage error, or a moved or removed command |
+| 6 | No Runtime at the linked or local URL |
+| 130 / 143 | SIGINT / SIGTERM |
+
 ## Exit codes
+
+These are `nylorun`'s; [`nylo`'s](#nylo-exit-codes) are above.
 
 | Code | Meaning |
 | --- | --- |
@@ -376,5 +470,9 @@ containers, volumes and Host root: the vault key (KEK) and all its data go with 
 | Studio login expired | `nylorun studio` |
 | Which Studio is which | `nylorun ls` lists each Tenant's Studio URL; `nylorun studio --tenant <name>` opens one signed in |
 | `Tenant … was created by nylorun 0.5` (exit 3) | `nylorun reset --tenant <name>` (its data starts fresh) |
+| `nylo`: no Runtime answers, or the Tenant is not open | `npx nylorun start`, then `npx nylorun status`, which shows the cause and its `repair` |
+| `nylo`: no management key | `npx nylorun start` in the project writes one; elsewhere set `NYLORUN_MANAGEMENT_KEY` |
+| `nylo`: `403 key_role_mismatch` | The key belongs to the other API: a management key for the Management API, an application key for the Runtime API |
+| `nylo`: old Project link refused | `npx nylorun start` in the project |
 
 See [MIGRATION.md](../MIGRATION.md).

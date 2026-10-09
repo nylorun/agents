@@ -54,6 +54,8 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       await writeJson(join(directory, name, "package.json"), {
         name: packageName(name),
         version,
+        // The deprecated CLI pins the nylorun whose nylo it runs.
+        ...(name === "cli" ? { dependencies: { nylorun: "0.1.0-beta.1" } } : {}),
       });
     }
     await mkdir(join(directory, "runtime/src"), { recursive: true });
@@ -63,7 +65,6 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
     );
     await writeJson(join(directory, "create-agent/compatibility.json"), {
       core: "0.1.0-beta.1",
-      cli: "0.1.0-beta.1",
       harness: "0.10.0-beta.1",
       agents: "0.1.0-beta.1",
       admin: "0.1.0-beta.1",
@@ -102,15 +103,20 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
     assert.deepEqual(plan.packages, {
       runtime: "0.1.1-beta",
       nylorun: "0.1.1-beta",
+      cli: "0.1.1-beta",
       "create-agent": "0.1.1-beta",
     });
+    // The deprecated CLI follows nylorun, and pins the released one.
+    assert.deepEqual(
+      JSON.parse(await readFile(join(directory, "cli/package.json"), "utf8")).dependencies,
+      { nylorun: "0.1.1-beta" },
+    );
     assert.match(
       await readFile(join(directory, "runtime/src/version.ts"), "utf8"),
       /export const RUNTIME_VERSION = "0\.1\.1-beta";/,
     );
     assert.deepEqual(plan.compatibility, {
       core: "0.1.0-beta.1",
-      cli: "0.1.0-beta.1",
       harness: "0.10.0-beta.1",
       agents: "0.1.0-beta.1",
       admin: "0.1.0-beta.1",

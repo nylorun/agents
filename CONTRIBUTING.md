@@ -6,8 +6,8 @@
 | --------------- | ------------------------------------------------------- |
 | `core/`         | Shared definitions and contracts                        |
 | `harness/`      | Agent execution engine                                  |
-| `nylorun/`      | `nylorun`: sets up and runs local Tenants (Docker)      |
-| `cli/`          | `nylo`: the Runtime client (Tenants, Project link)      |
+| `nylorun/`      | `nylorun`: sets up and runs local Tenants (Docker); `nylo`: the Runtime client (`src/client/`) |
+| `cli/`          | Deprecated `@nylorun/cli`: runs nylorun's `nylo`        |
 | `runtime/`      | Runtime Host, execution and persistence (runtime image) |
 | `studio/`       | Studio server and dashboard (the `studio` image)        |
 | `create-agent/` | Starter, renderer, compatibility pins, and smoke tests  |
@@ -75,7 +75,7 @@ yourself; `npm run dev` then neither builds nor rebuilds that image.
 | `npm run dev:starter`                       | The same loop on a fresh starter preview under `.tmp/`                     |
 | `npx nylorun studio` (in `examples/`)       | A fresh Studio login on the examples Tenant                                |
 | `npx nylorun status` / `npx nylorun logs`   | The Tenant's services, endpoints and health; logs (`-f`, `<service>`)      |
-| `eval "$(npx nylo env)"` (in `examples/`)   | Export URL, key and Tenant for the linked Project                          |
+| `eval "$(npx nylo env)"` (in `examples/`)   | Export URL and key for the linked Project (`nylo` from the examples' nylorun) |
 | `npx nylorun down` / `npx nylorun reset`    | Stop the Tenant (volumes kept) / delete its containers, volumes and data   |
 | `npm run build`                             | Build all eight packages                                                   |
 | `npm test`                                  | Run package, tooling, and examples tests after setup (needs Docker)        |
@@ -193,7 +193,7 @@ See [RELEASING.md](./RELEASING.md) for administrators and
 | Missing/stale package build     | Stop development and run `npm run setup`                                                                                                                                        |
 | Occupied port                   | The first `nylorun start` picks free loopback ports and keeps them in `~/.nylorun/tenants/<name>/docker/.env`; edit that file, or free the port, if another service takes one later         |
 | Protocol `426`                  | Upgrade `nylorun` and run `nylorun up` (nylorun pins the Runtime image), or pin `@nylorun/agents` within the Runtime's protocol range                                          |
-| Quarantined Tenant              | `nylo tenant status` shows `code` and `repair` (`kek-missing`, `corrupt`, `schema-too-new`, `migration-failed`, `envelope-invalid`, `open-timeout`, `open-failed`)              |
+| Quarantined Tenant              | `npx nylorun status` shows `code` and `repair` (`kek-missing`, `corrupt`, `schema-too-new`, `migration-failed`, `envelope-invalid`, `open-timeout`, `open-failed`)              |
 | Model setup error               | Run `npx nylorun up`, then `npm run configure` (`nylo configure`), or replace the vault credential from Studio                                                                 |
 | Need Runtime / Studio logs      | `npx nylorun logs -f` (or `npx nylorun logs runtime`)                                                                                                                           |
 | Generated-file conflict         | Move the intended change into the template/recipe, then sync                                                                                                                    |

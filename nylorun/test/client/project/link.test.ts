@@ -1,9 +1,8 @@
 import { chmod, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { readLink } from "../../src/project/link.js";
-import { readCredentials } from "../../src/project/credentials.js";
-import { CliError } from "../../src/errors.js";
+import { readCredentials, readLink } from "../../../src/client/project/connection.js";
+import { CliError } from "../../../src/errors.js";
 import { HOST_ID, project, writeProjectLink } from "../helpers/project.js";
 
 const roots: string[] = [];

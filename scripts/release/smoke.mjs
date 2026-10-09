@@ -6,14 +6,16 @@
  *   public registry, with an empty npm config and cache and no publishing
  *   credentials in the environment. The creator installs the starter (only
  *   @nylorun/agents) and starts nothing.
- * - The published `nylorun` and `@nylorun/cli`, installed from the registry
- *   beside the project (what `npx` runs): `nylorun start` in the project
+ * - The published `nylorun` (with `nylo`) and the deprecated `@nylorun/cli`,
+ *   installed from the registry beside the project (what `npx` runs):
+ *   `nylorun start` in the project
  *   creates and starts its Tenant on the images it pins
  *   (`ghcr.io/nylorun/{runtime,studio}:<pin>`, pulled from GHCR, never built
  *   here), and links the project to it;
  *   the project's `npm run dev` saves its agent.
  * - Checks: the Tenant runs exactly the pinned images; `nylorun status` reports
- *   the linked Tenant open; `assistant` is saved; the login from
+ *   the linked Tenant open, and `nylo status` (also through `@nylorun/cli`)
+ *   reads it; `assistant` is saved; the login from
  *   `nylorun studio` lands on the Tenant and Studio proxies its API.
  *
  * Runs under `withStack` (scripts/lib/stack.mjs): a temporary NYLORUN_HOME and
@@ -100,7 +102,8 @@ export async function publicCreatorSmoke(versions, pins) {
   const project = join(temporary, "application");
   const tools = join(temporary, "tools");
   const nylorun = join(tools, "node_modules/nylorun/dist/cli.js");
-  const nylo = join(tools, "node_modules/@nylorun/cli/dist/cli.js");
+  const nylo = join(tools, "node_modules/nylorun/dist/nylo.js");
+  const deprecatedNylo = join(tools, "node_modules/@nylorun/cli/dist/cli.js");
   const npmrc = join(temporary, ".npmrc");
   try {
     await writeFile(npmrc, "");
@@ -175,8 +178,9 @@ export async function publicCreatorSmoke(versions, pins) {
           assert.equal(link.hostUrl, runtimeUrl);
           const { tenantId } = link;
           const key = credentials.applicationKey;
-          // The published nylo works on the link.
+          // The published nylo works on the link, and so does the deprecated package's.
           await stack.nylo(["status"], { cwd: project });
+          await stack.nylo(["status"], { cwd: project, entry: deprecatedNylo });
 
           // The published nylorun reports the Tenant (nylorun-operate status in the runtime container).
           const { tenant } = JSON.parse(

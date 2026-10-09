@@ -1,6 +1,6 @@
 import { release } from "node:os";
-import { findProjectRoot } from "@nylorun/admin/project";
-import { CliError } from "./errors.js";
+import { findProjectRoot } from "@nylorun/core/project";
+import { CliError } from "../errors.js";
 import { linkedConnection, managementClient } from "./project/connection.js";
 
 export type SandboxReport = {

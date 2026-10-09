@@ -580,20 +580,20 @@ assertNotRealHome(temporary);
 try {
   const artifacts = join(temporary, "artifacts");
   await mkdir(artifacts);
-  const packed = await packPackages(artifacts, ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli"]);
+  const packed = await packPackages(artifacts, ["core", "harness", "agents", "admin", "runtime", "nylorun"]);
 
   if (selected("I5")) await i5(temporary, packed);
 
   if (SCENARIOS.some((id) => id !== "I5" && selected(id))) {
-    // nylorun, the CLI and @nylorun/admin as a developer's npx installs them.
+    // nylorun (with nylo) and @nylorun/admin as a developer's npx installs them.
     const tools = join(temporary, "tools");
-    await installProject(tools, packed, ["core", "agents", "admin", "nylorun", "cli"]);
+    await installProject(tools, packed, ["core", "agents", "admin", "nylorun"]);
     const images = await ensureImages();
     await withStack(
       {
         name: "nylorun-acceptance",
         cli: join(tools, "node_modules/nylorun/dist/cli.js"),
-        nylo: join(tools, "node_modules/@nylorun/cli/dist/cli.js"),
+        nylo: join(tools, "node_modules/nylorun/dist/nylo.js"),
         images,
         startArgs: ["--no-studio"],
       },

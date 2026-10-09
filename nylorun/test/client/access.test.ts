@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManagementClient } from "@nylorun/admin";
-import { accessCommand } from "../src/access/commands.js";
-import { CliError } from "../src/errors.js";
+import { accessCommand } from "../../src/client/access/commands.js";
+import { CliError } from "../../src/errors.js";
 
 function stub() {
   const calls: [string, ...unknown[]][] = [];

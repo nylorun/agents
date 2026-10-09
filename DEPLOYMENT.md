@@ -10,7 +10,7 @@ endpoints** (the tools it serves) on the same machine or reachable from it. Voca
 ```sh
 npx nylorun start
 npm run build
-eval "$(npx @nylorun/cli env)"
+eval "$(npx -p nylorun nylo env)"
 npm start
 ```
 
@@ -23,7 +23,7 @@ the Project link. The Runtime runs no code of the application's during a session
 an agent's tools are HTTP tools and remote MCP servers, whose URLs must be
 reachable from the Runtime (the local Tenant's containers map `localhost` to
 this machine). `nylo env`
-(`npx @nylorun/cli env`) prints them for the Project that `nylorun start`
+(`npx -p nylorun nylo env`) prints them for the Project that `nylorun start`
 linked; a supervisor can set them directly instead. The application does not
 start the Tenant, Studio or a file watcher; start the Tenant first
 (`nylorun start`), under the same supervisor if you use one.
@@ -264,7 +264,7 @@ On the app server's machine:
 
 - Use an **application key**, never the admin key or a management key. On the
   Runtime's machine, `npx nylorun start` in the app's project starts the app's
-  installation and links it; `npx @nylorun/cli env` there prints the key
+  installation and links it; `npx -p nylorun nylo env` there prints the key
   (`NYLORUN_SERVER_KEY`, the application key `project`). Better, give the app
   server a key of its own: `npx nylorun key put app-server` prints one once.
   Keep the key in the app server's secret store.
@@ -299,7 +299,7 @@ A Runtime runs sessions' sandboxes on the in-process **virtual** backend: an
 emulated bash with a virtual filesystem, whose `/workspace` is kept under the
 Tenant's directory. It is not a VM or container boundary. Egress is limited to
 the exact hosts the session's sandbox allows, and a sandbox cannot name an
-image. `npx nylo doctor sandbox` reports the backend in use.
+image. `npx -p nylorun nylo doctor sandbox` reports the backend in use.
 
 ## Postgres for session events
 

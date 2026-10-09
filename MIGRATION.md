@@ -1,3 +1,42 @@
+# `nylo` ships in `nylorun`; `@nylorun/cli` is deprecated
+
+The Runtime client, `nylo`, moved into the `nylorun` package as its second command. One package
+now runs a project's local Tenant (`nylorun`) and talks to the linked installation (`nylo`). The
+commands, their flags, output and exit codes are unchanged; only the messages that named
+`@nylorun/cli`, "the CLI" or "the nylorun package" now name `nylo` and nylorun. `@nylorun/cli`
+stays for one release as a forwarder: its `nylo` prints one line on stderr and runs nylorun's, so
+`npx @nylorun/cli status` and `eval "$(npx @nylorun/cli env)"` keep working (stdout carries only
+the export lines). A later release removes it.
+
+| Before | Now |
+| --- | --- |
+| `npx @nylorun/cli <command>` | `npx -p nylorun nylo <command>`, or `npx nylo <command>` in a project with `nylorun` as a devDependency |
+| `eval "$(npx @nylorun/cli env)"` | `eval "$(npx -p nylorun nylo env)"` |
+| `@nylorun/cli` as a devDependency (for `nylo` in npm scripts) | `nylorun` as a devDependency; remove `@nylorun/cli` |
+| `nylorun configure`, `nylorun status --env`, `nylorun doctor sandbox` naming `npx @nylorun/cli …` | They exit 2 as before, naming `npx -p nylorun nylo configure`, `… env` and `… doctor sandbox` |
+| `@nylorun/admin/project` (a re-export of `@nylorun/core/project`) | Removed: import `@nylorun/core/project` |
+| `@nylorun/cli` in `create-agent/compatibility.json` | Removed: the creator pins Core, Harness, Agents, Admin and Runtime |
+
+Outside a project that installs `nylorun`, `npx nylo` looks for an npm package named `nylo`, which
+is not Nylorun's: use `npx -p nylorun nylo`.
+
+`nylorun status|reset` and `nylo status|reset` keep their meanings, which differ:
+
+- `nylorun status` reports the local Tenant from this machine: its containers, endpoints, Runtime
+  health and state, also when the Tenant is stopped or not open. `nylo status` asks the linked
+  installation, local or remote, through the Management API: the open Tenant's checks, counts and
+  sandbox backend.
+- `nylorun reset` deletes all the local Tenant's data (volumes, `tenant/` and the vault key); the
+  next start creates it anew. `nylo reset` clears the Tenant's sessions, sandboxes or all its data
+  (`--all`) through the Management API, and keeps the Tenant, its keys and the Project link.
+
+`nylo configure` signs in to a model provider with `@earendil-works/pi-ai`, about 100 MB with its
+provider SDKs. `nylorun` does not depend on it, so `npx nylorun` stays small: the first
+`nylo configure` installs the tested version into `~/.nylorun/lib/pi-ai-<version>/` with npm,
+without install scripts, unless it resolves beside nylorun. Studio's model settings and `.env` at
+`nylorun start` need no install. `nylorun` now depends on `@nylorun/admin` (about 150 kB) for
+`nylo`; the `nylorun` command loads neither.
+
 # Credentials for skills: two new vault credential kinds
 
 Vault credentials gain `environment_secret` and `environment_variable` (R2c), for skills whose

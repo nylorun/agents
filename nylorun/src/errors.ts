@@ -1,4 +1,4 @@
-/** Exit codes are part of the CLI contract; see cli/README.md. */
+/** Exit codes are part of both commands' contract; see nylorun/README.md ("Exit codes"). */
 export class CliError extends Error {
   constructor(
     message: string,

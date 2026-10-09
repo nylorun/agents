@@ -8,7 +8,7 @@
  *     --tools-url https://tunnel.example.com --tools-port 3000
  *
  * Use an installation made for this check (on the Runtime's machine, `npx
- * nylorun start` in a project made for it; `npx @nylorun/cli env` there
+ * nylorun start` in a project made for it; `npx -p nylorun nylo env` there
  * prints its application key, and `npx nylorun key put remote-check --management`
  * prints a management key): `--fixture-model` switches its Tenant's model calls
  * to the Runtime's deterministic fixture model through the Management API.

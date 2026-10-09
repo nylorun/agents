@@ -8,11 +8,13 @@ const impact = { none: 0, patch: 1, minor: 2, major: 3 };
 
 /**
  * The packages the creator pins in create-agent/compatibility.json: what a
- * generated project or the examples install (core, agents, cli, admin) and
- * the versions those depend on (harness, runtime). Neither nylorun nor Studio
- * is one: developers run nylorun with npx, and Studio ships only as
+ * generated project or the examples install (core, agents, admin) and the
+ * versions those depend on (harness, runtime). Neither nylorun (with `nylo`)
+ * nor Studio is one: developers run nylorun with npx, and Studio ships only as
  * `ghcr.io/nylorun/studio`, pinned by nylorun (`nylorun/package.json`
  * `nylorun.studio`), so a Studio release reaches developers through nylorun.
+ * The deprecated @nylorun/cli only runs nylorun's `nylo`, so it is not one
+ * either.
  */
 export const CREATOR_PINS = Object.freeze([
   "core",
@@ -20,7 +22,6 @@ export const CREATOR_PINS = Object.freeze([
   "agents",
   "admin",
   "runtime",
-  "cli",
 ]);
 const fullName = packageName;
 const core = (version) => {
@@ -125,7 +126,8 @@ function enforceProtocolReleaseRule(bumps, before, options = {}) {
       : options.releasedProtocol;
   if (!current || !released) return;
   if (protocolEquals(current, released)) return;
-  const required = ["core", "runtime", "agents", "cli"];
+  // The Runtime clients: the SDK (agents) and nylorun, whose `nylo` speaks the protocol.
+  const required = ["core", "runtime", "agents", "nylorun"];
   const missing = required.filter(
     (name) => !isBreakingBump(bumps.get(name), before[name]),
   );
@@ -186,11 +188,13 @@ export function planVersions(
   for (const [dependency, consumers] of [
     ["core", ["harness", "agents", "admin", "runtime", "nylorun"]],
     ["harness", ["runtime"]],
-    ["agents", ["studio", "cli"]],
-    ["admin", ["cli"]],
+    ["agents", ["studio"]],
+    ["admin", ["studio", "nylorun"]],
     // nylorun pins the Runtime and Studio images (nylorun.runtime, nylorun.studio).
     ["runtime", ["nylorun"]],
     ["studio", ["nylorun"]],
+    // The deprecated @nylorun/cli pins the nylorun whose `nylo` it runs.
+    ["nylorun", ["cli"]],
   ]) {
     if (versions[dependency] && versions[dependency] !== before[dependency])
       for (const name of consumers) {
@@ -218,7 +222,7 @@ export function planVersions(
     changesets.push({
       id: "release-creator-compatibility",
       summary:
-        "Update the tested Harness, SDK, Runtime, and CLI compatibility combination.",
+        "Update the tested Harness, SDK, Admin and Runtime compatibility combination.",
       releases: [{ name: fullName("create-agent"), type: "patch" }],
     });
   }

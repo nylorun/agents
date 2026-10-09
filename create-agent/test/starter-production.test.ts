@@ -14,7 +14,6 @@ const npm = "npm";
 
 const compatibility: Compatibility = {
   core: "0.4.0-beta",
-  cli: "0.2.1-beta",
   harness: "0.18.0-beta",
   agents: "0.5.0-beta",
   admin: "0.1.0-beta",
