@@ -9,7 +9,9 @@
  *    first pass on this process takes every row, so a previous process's are not left
  *    waiting; later passes take the rows older than `WAKE_GRACE_MS`. Each row carries the
  *    idempotency key it was first sent with, so a wake the execution did accept before the
- *    crash, or one still being sent after its commit, causes no second advance.
+ *    crash, or one still being sent after its commit, causes no second advance. Rows are
+ *    delivered one by one: a row that fails is retried with backoff and parked after
+ *    `MAX_WAKE_ATTEMPTS` (`deliverPendingWakes`), and no delivery fails the step.
  * 2. **Linked agents.** Pending workflow `agent` effects whose linked turn already settled
  *    are completed and the workflow is woken (a crash between the two, or data written by an
  *    older Runtime).
@@ -37,6 +39,7 @@ import {
   pendingAgentEffects,
   reconcilePendingAgentEffect,
 } from "../core/flow-host.js";
+import type { PendingWake } from "../store/types.js";
 import type { TenantContext } from "./context.js";
 
 const BATCH = 100;
@@ -119,25 +122,64 @@ export async function sweep(ctx: TenantContext): Promise<void> {
   if (failure) throw failure.error;
 }
 
+/** Failed deliveries after which the sweep parks a wake outbox row (`Tx.failWake`). */
+export const MAX_WAKE_ATTEMPTS = 10;
+/** How long after its first failed delivery the sweep tries a row again; doubled each time. */
+const WAKE_RETRY_MS = 5000;
+const WAKE_RETRY_MAX_MS = 10 * 60_000;
+
 /**
- * Deliver the wake outbox rows written before `before` (oldest first, one batch) and delete
- * the delivered ones. A row the Tenant declines (it is closing) stays. Returns the ids of the
- * rows delivered.
+ * Deliver the wake outbox rows written before `before` that are due (oldest first, one batch)
+ * and delete the delivered ones. Each row is delivered on its own: one that fails (Restate
+ * refuses it, or a Runtime that does not know its reason) is tried again later, with backoff,
+ * so it never holds back the rows behind it, and after `MAX_WAKE_ATTEMPTS` failures it is
+ * parked: logged once, at error, and kept in the outbox for an operator. Its session is still
+ * re-woken by the orphan scan while it is runnable. A row the Tenant declines (it is closing)
+ * stays as it is. Never throws for a delivery; returns the ids of the rows delivered.
  */
 export async function deliverPendingWakes(
-  ctx: Pick<TenantContext, "store" | "wake">,
+  ctx: Pick<TenantContext, "store" | "wake" | "config">,
   before = new Date()
 ): Promise<string[]> {
   const pending = await ctx.store.tx((t) => t.pendingWakes(before, BATCH));
   const delivered: string[] = [];
   try {
-    for (const row of pending)
-      if ((await ctx.wake(row.sessionId, row.wake)) !== false) delivered.push(row.id);
+    for (const row of pending) {
+      let accepted: boolean;
+      try {
+        accepted = await ctx.wake(row.sessionId, row.wake);
+      } catch (error) {
+        await failed(ctx, row, error);
+        continue;
+      }
+      if (accepted) delivered.push(row.id);
+    }
   } finally {
-    // Delivered ones go even when a later one fails, so they are not sent again.
+    // Delivered ones go even when a later step fails, so they are not sent again.
     if (delivered.length > 0) await ctx.store.tx((t) => t.deleteWakes(delivered));
   }
   return delivered;
+}
+
+/** Records a failed delivery of `row`: retried with backoff, parked after the last attempt. */
+async function failed(
+  ctx: Pick<TenantContext, "store" | "config">,
+  row: PendingWake,
+  error: unknown
+): Promise<void> {
+  const attempts = row.attempts + 1;
+  const park = attempts >= MAX_WAKE_ATTEMPTS;
+  const retryInMs = Math.min(WAKE_RETRY_MS * 2 ** (attempts - 1), WAKE_RETRY_MAX_MS);
+  await ctx.store.tx((t) => t.failWake(row.id, { retryInMs, park }));
+  const fields = {
+    wakeId: row.id,
+    sessionId: row.sessionId,
+    reason: row.wake.reason,
+    attempts,
+    message: error instanceof Error ? error.message : String(error),
+  };
+  if (park) ctx.config.logger.error("wake outbox row parked: its delivery keeps failing", fields);
+  else ctx.config.logger.warn("wake delivery failed; the sweep tries it again", fields);
 }
 
 /** Settle pending workflow `agent` effects whose linked turn already finished. */

@@ -1257,6 +1257,24 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect((await store.tx((t) => t.pendingWakes(later(), 10))).map((wake) => wake.sessionId)).toEqual(["s3"]);
       });
 
+      it("puts a failed wake behind the others until its retry, and never lists a parked one", async () => {
+        const store = await fresh();
+        const { deliver } = deliveries(() => false);
+        for (const id of ["s1", "s2", "s3"])
+          await store.tx((t) => t.wake(id, { reason: "recover" }, deliver));
+        const [first, second] = await store.tx((t) => t.pendingWakes(later(), 10));
+        await store.tx((t) => t.failWake(first!.id, { retryInMs: 60_000, park: false }));
+        await store.tx((t) => t.failWake(second!.id, { retryInMs: 0, park: false }));
+        // s1 waits for its retry; s2 is due again at once, by its retry time: after s3.
+        const due = await store.tx((t) => t.pendingWakes(later(), 10));
+        expect(due.map((wake) => [wake.sessionId, wake.attempts])).toEqual([
+          ["s3", 0],
+          ["s2", 1],
+        ]);
+        await store.tx((t) => t.failWake(second!.id, { retryInMs: 0, park: true }));
+        expect((await store.tx((t) => t.pendingWakes(later(), 10))).map((wake) => wake.sessionId)).toEqual(["s3"]);
+      });
+
       it("drops pending wakes with a sessions reset", async () => {
         const store = await fresh();
         await store.tx((t) => t.wake("s1", { reason: "message" }, () => false));

@@ -582,7 +582,9 @@ export const controlSignals = nylorun.table(
  * (`Tx.wake`), written in that transaction, so a commit never loses its wake. The row is
  * deleted once Durable Session Execution has accepted the wake; until then the Tenant sweep
  * delivers it again, with the same idempotency key (`dedupe_key`, or `wake:<id>` without
- * one). `created_at` is the insert's own clock (`clock_timestamp()`).
+ * one). `created_at` is the insert's own clock (`clock_timestamp()`). `attempts` counts the
+ * sweep's failed deliveries, `retry_at` is when it tries the row again, and a row
+ * `parked_at` is never tried again: it stays for an operator (`Tx.failWake`).
  */
 export const wakes = nylorun.table(
   "wakes",
@@ -594,6 +596,9 @@ export const wakes = nylorun.table(
     createdAt: timestamp({ withTimezone: true, mode: "date" })
       .notNull()
       .default(sql`clock_timestamp()`),
+    attempts: integer().notNull().default(0),
+    retryAt: timestamp({ withTimezone: true, mode: "date" }),
+    parkedAt: timestamp({ withTimezone: true, mode: "date" }),
   },
   (t) => [index("wakes_created_at").on(t.createdAt)],
 );

@@ -11,6 +11,7 @@ import { advance } from "../../src/tenant/advance.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import { createWorkState } from "../../src/tenant/scheduler.js";
 import {
+  MAX_WAKE_ATTEMPTS,
   ORPHAN_SCAN_MS,
   WAKE_GRACE_MS,
   deliverPendingWakes,
@@ -19,7 +20,7 @@ import {
   wakeOrphanedSessions,
 } from "../../src/tenant/sweep.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
-import { createTestSessionStore, dropTestTenant } from "../support/store.js";
+import { createTestSessionStore, dropTestTenant, testTenantPool } from "../support/store.js";
 import { inProcessToolGate } from "../../src/gates/tool-gate.js";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -70,6 +71,9 @@ const undelivered = (store: SessionStore, id: string, wake: Wake) =>
   store.tx((t) => t.wake(id, wake, () => false));
 const pending = (store: SessionStore) =>
   store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 100));
+/** Every wake outbox row, parked ones too, read directly. */
+const outboxRows = (store: SessionStore) =>
+  testTenantPool(store.tenantId)`SELECT id, attempts, parked_at FROM nylorun.wakes`;
 
 function session(id: string, fields: Record<string, unknown> = {}) {
   return { id, agentId: "bot", status: "idle", activeTurnId: null, ...fields };
@@ -263,18 +267,76 @@ describe("on the Postgres store", () => {
     expect((await pending(store)).map((row) => row.sessionId)).toEqual(["declined"]);
   });
 
-  it("deletes the wakes it delivered before one that fails", async () => {
+  it("delivers each wake on its own: one that fails is retried later and holds back none behind it", async () => {
     const store = await makeStore();
-    const { ctx } = contextOf(store, 1000, (id) => {
-      if (id === "s2") throw new Error("Restate unreachable");
+    const { ctx, wakes } = contextOf(store, 1000, (id) => {
+      if (id === "poison") throw new Error("Restate ingress 400: refused");
       return true;
     });
+    await undelivered(store, "poison", { reason: "message" });
     await undelivered(store, "s1", { reason: "message" });
-    await undelivered(store, "s2", { reason: "message" });
-    await expect(deliverPendingWakes(ctx, new Date(Date.now() + 1000))).rejects.toThrow(
-      "Restate unreachable"
+    await undelivered(store, "s2", { reason: "flow" });
+    const delivered = await deliverPendingWakes(ctx, new Date(Date.now() + 1000));
+    expect(delivered).toHaveLength(2);
+    expect(wakes.map((w) => w.id)).toEqual(["poison", "s1", "s2"]);
+    // Counted, and not due again until its retry: the next pass skips it.
+    const [left] = await store.tx((t) => t.pendingWakes(new Date(Date.now() + 60_000), 100));
+    expect(left).toBeUndefined();
+    wakes.length = 0;
+    expect(await deliverPendingWakes(ctx, new Date(Date.now() + 1000))).toEqual([]);
+    expect(wakes).toEqual([]);
+  });
+
+  it("parks a wake after MAX_WAKE_ATTEMPTS failed deliveries, logs it once at error and keeps it", async () => {
+    const store = await makeStore();
+    const logged: { level: string; message: string; fields: any }[] = [];
+    const logger = Object.fromEntries(
+      ["info", "warn", "error"].map((level) => [
+        level,
+        (message: string, fields: unknown) => logged.push({ level, message, fields }),
+      ])
     );
-    expect((await pending(store)).map((row) => row.sessionId)).toEqual(["s2"]);
+    const { ctx } = contextOf(store, 1000, () => {
+      throw new Error("Unknown wake reason: later");
+    });
+    (ctx as any).config = { logger };
+    await undelivered(store, "poison", { reason: "message" });
+    const [row] = await pending(store);
+    // The sweep failed it all but once already; each retry is due at once here.
+    for (let i = 1; i < MAX_WAKE_ATTEMPTS; i++)
+      await store.tx((t) => t.failWake(row!.id, { retryInMs: 0, park: false }));
+    expect((await pending(store))[0]!.attempts).toBe(MAX_WAKE_ATTEMPTS - 1);
+    await deliverPendingWakes(ctx, new Date(Date.now() + 1000));
+    expect(logged.filter((entry) => entry.level === "error")).toMatchObject([
+      {
+        message: "wake outbox row parked: its delivery keeps failing",
+        fields: { wakeId: row!.id, sessionId: "poison", attempts: MAX_WAKE_ATTEMPTS },
+      },
+    ]);
+    // Parked: never due again, never sent again, but kept.
+    expect(await pending(store)).toEqual([]);
+    await deliverPendingWakes(ctx, new Date(Date.now() + 1000));
+    expect(logged.filter((entry) => entry.level === "error")).toHaveLength(1);
+    expect(await outboxRows(store)).toMatchObject([
+      { id: row!.id, attempts: MAX_WAKE_ATTEMPTS, parked_at: expect.any(String) },
+    ]);
+  });
+
+  it("goes on with its other steps, and does not fail, when a wake cannot be delivered", async () => {
+    const store = await makeStore();
+    const { ctx, wakes } = contextOf(store, 1000, (_id, wake) => {
+      if (wake.reason === "message") throw new Error("Restate ingress 400: refused");
+      return true;
+    });
+    await undelivered(store, "poison", { reason: "message" });
+    await store.tx((t) =>
+      t.put("sessions", "orphan", session("orphan", { status: "runnable" }))
+    );
+    await sweep(ctx);
+    expect(wakes).toEqual([
+      { id: "poison", wake: expect.objectContaining({ reason: "message" }) },
+      { id: "orphan", wake: { reason: "recover" } },
+    ]);
   });
 
   it("delivers every outbox wake on its first pass, then only those older than the grace", async () => {

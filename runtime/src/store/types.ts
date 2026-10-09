@@ -409,6 +409,8 @@ export interface PendingWake {
   wake: OutboxWake;
   /** ISO time it was written. */
   createdAt: string;
+  /** The sweep's failed deliveries of it so far (`failWake`). */
+  attempts: number;
 }
 
 /**
@@ -527,10 +529,20 @@ export interface Tx {
    * twice still causes one advance.
    */
   wake(sessionId: string, wake: Wake, deliver: WakeDelivery): Promise<void>;
-  /** Outbox requests written before `before`, oldest first. */
+  /**
+   * Outbox requests written before `before` that are due: not parked, and not waiting for the
+   * retry a failed delivery set (`failWake`). Oldest first, a retried one by its retry time,
+   * so a request that keeps failing never holds the head of the queue.
+   */
   pendingWakes(before: Date, limit: number): Promise<PendingWake[]>;
   /** Deletes delivered outbox requests. */
   deleteWakes(ids: readonly string[]): Promise<void>;
+  /**
+   * Records a failed delivery of outbox request `id`: one more attempt, due again `retryInMs`
+   * from now (the database's clock). With `park` it is never due again: it stays in the
+   * outbox, with when it was parked, for an operator to send again or delete.
+   */
+  failWake(id: string, retry: { retryInMs: number; park: boolean }): Promise<void>;
 
   // --- ownership (§10.6) ---------------------------------------------------
 

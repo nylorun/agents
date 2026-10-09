@@ -545,17 +545,25 @@ class PostgresTx implements Tx {
 
   async pendingWakes(before: Date, limit: number): Promise<PendingWake[]> {
     this.check();
+    const dueAt = sql`coalesce(${wakes.retryAt}, ${wakes.createdAt})`;
     const rows = await this.db
       .select()
       .from(wakes)
-      .where(lt(wakes.createdAt, before))
-      .orderBy(wakes.createdAt, wakes.id)
+      .where(
+        and(
+          isNull(wakes.parkedAt),
+          lt(wakes.createdAt, before),
+          or(isNull(wakes.retryAt), lte(wakes.retryAt, sql`clock_timestamp()`)),
+        ),
+      )
+      .orderBy(dueAt, wakes.id)
       .limit(limit);
     return rows.map((row) => ({
       id: row.id,
       sessionId: row.sessionId,
       wake: outboxWake(row.id, row.reason as WakeReason, row.dedupeKey),
       createdAt: row.createdAt.toISOString(),
+      attempts: row.attempts,
     }));
   }
 
@@ -563,6 +571,19 @@ class PostgresTx implements Tx {
     this.check();
     if (ids.length === 0) return;
     await this.db.delete(wakes).where(inArray(wakes.id, [...ids]));
+  }
+
+  async failWake(id: string, retry: { retryInMs: number; park: boolean }): Promise<void> {
+    this.check();
+    const secs = Math.max(0, retry.retryInMs) / 1000;
+    await this.db
+      .update(wakes)
+      .set({
+        attempts: sql`${wakes.attempts} + 1`,
+        retryAt: sql`clock_timestamp() + make_interval(secs => ${secs})`,
+        ...(retry.park ? { parkedAt: sql`clock_timestamp()` } : {}),
+      })
+      .where(eq(wakes.id, id));
   }
 
   // --- ownership -----------------------------------------------------------
