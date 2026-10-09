@@ -91,7 +91,7 @@ export function virtualBackend(options: { readonly root: string }): SandboxBacke
           try {
             const result = await bash.exec(request.command, {
               cwd: request.cwd,
-              env: { ...ENV },
+              env: { ...(request.env ?? {}), ...ENV },
               replaceEnv: true,
               rawScript: true,
               signal: controller.signal,

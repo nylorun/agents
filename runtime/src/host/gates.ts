@@ -34,6 +34,7 @@ import { bindListener, headerValue, isAllowedRequestHost, sendRejected } from ".
 import type { EgressConfig, GatesConfig } from "./stack-config.js";
 import { startEgressGate, storeEgressSandboxes, type EgressGate, type StartEgressGateOptions } from "../gates/egress.js";
 import { verifyEgressToken, type EgressTokenKeyCache } from "../sandbox/egress-token.js";
+import { leafKeyPair } from "../keys/x509.js";
 
 /** Above the gate's 600 s provider request timeout and the loop's 630 s client timeout. */
 export const GATES_REQUEST_TIMEOUT_MS = 660_000;
@@ -244,6 +245,16 @@ export async function startEgress(options: StartEgressOptions): Promise<EgressGa
       return verifyEgressToken(vault.store, vault.tenantId, raw, publicKeys);
     },
     sandboxes: { live: async (sandboxId) => storeEgressSandboxes((await tenant.open()).store).live(sandboxId) },
+    credentials: {
+      bound: async (sandboxId, host) => (await tenant.open()).environmentSecretBound(sandboxId, host),
+      release: async (sandboxId, host) => (await tenant.open()).releaseEnvironmentSecret(sandboxId, host),
+      // A fresh key per connection, made here: keys signs its public half and never sees it.
+      async leaf(host) {
+        const pair = leafKeyPair();
+        const cert = await (await tenant.open()).keys().signEgressLeaf(host, pair.publicKey);
+        return { key: pair.privateKey, cert };
+      },
+    },
     ...options.gate,
   });
 }

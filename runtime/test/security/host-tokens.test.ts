@@ -5,6 +5,7 @@
  * older epoch, an egress token, a run token or a forged token is refused; a host connection
  * never takes another sandbox's or a non-pod session's work, nor claims its events.
  */
+import { X509Certificate } from "node:crypto";
 import { createChannel, type HarnessChannel } from "@nylorun/core/harness-api";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
@@ -130,10 +131,14 @@ describe("host tokens", { timeout: 60_000 }, () => {
     expect((await post(HOST_JOIN_PATH, { nope: 1 })).status).toBe(400);
     const joined = await post(HOST_JOIN_PATH, { sandboxId: "ht/a", podUid: fake.podUid(a), joinToken: fake.joinToken(a) });
     expect(joined.status).toBe(200);
-    const grant = (await joined.json()) as { hostToken: string; egressToken: string; epoch: number };
+    const grant = (await joined.json()) as { hostToken: string; egressToken: string; epoch: number; caCertificate: string };
     expect(grant.epoch).toBe(1);
+    // The egress CA (R2c): a CA certificate, never its key, the same on every answer.
+    expect(new X509Certificate(grant.caCertificate).ca).toBe(true);
+    expect(JSON.stringify(grant)).not.toContain("PRIVATE KEY");
     const renewed = await post(HOST_RENEW_PATH, {}, grant.hostToken);
     expect(renewed.status).toBe(200);
+    expect(((await renewed.clone().json()) as { caCertificate: string }).caCertificate).toBe(grant.caCertificate);
     // Neither the egress token nor the join token renews.
     expect((await post(HOST_RENEW_PATH, {}, grant.egressToken)).status).toBe(401);
     expect((await post(HOST_RENEW_PATH, {}, fake.joinToken(a))).status).toBe(401);

@@ -21,6 +21,8 @@
 // - the sandboxes container restarted (`docker restart`) right after a create;
 // - reset → a new, empty volume; PVC and pod deleted → `sandbox.lost`, turns refused
 //   (`sandbox_lost`) until a reset;
+// - credentials for skills (R2c): an `environment_secret` is `nylorun-managed` in the pod, and a
+//   public header-echo host it is bound to receives the real header through egress-gate;
 // - no pod mounts a host path; `nylorun sandbox disable` → kind pod is `sandbox_unavailable`.
 //
 // Needs kubectl, a context with agent-sandbox v1.0.5 or none, the workspace builds (`npm run
@@ -29,7 +31,7 @@
 // NYLORUN_SANDBOXES_IMAGE when set (CI), else built from this checkout. Only the named context
 // is touched; the namespace this suite creates is deleted.
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { run } from "../lib/repo.mjs";
 import { ensureImages, eventually, runtimeHeaders, withStack } from "../lib/stack.mjs";
@@ -102,6 +104,25 @@ http.createServer((req, res) => {
 }).listen(8080, "0.0.0.0");
 `;
 const STUB_ALIAS = "pods-model";
+
+/**
+ * Appended to every turn's command; runs only in a session with the probe credential (R2c). It
+ * prints the variable the pod sees, then asks a public header-echo service (the first that
+ * answers) what `Authorization` it received, and prints only its sha256: the real value never
+ * reaches the session.
+ */
+const ECHO_HOSTS = ["postman-echo.com", "httpbin.org"];
+const PROBE = String.raw`if [ -n "$PROBE_TOKEN" ]; then echo "PROBE_TOKEN=$PROBE_TOKEN"; python3 -c '
+import hashlib, json, urllib.request
+for url in ("https://postman-echo.com/headers", "https://httpbin.org/headers"):
+    try:
+        request = urllib.request.Request(url, headers={"Authorization": "Bearer nylorun-managed", "User-Agent": "nylorun-suite"})
+        echoed = {k.lower(): v for k, v in json.load(urllib.request.urlopen(request, timeout=20))["headers"].items()}
+        print("ECHO", hashlib.sha256(echoed["authorization"].encode()).hexdigest())
+        break
+    except Exception as error:
+        print("FAILED", url, type(error).__name__, error)
+'; fi`;
 
 /** kubectl on the named context only. */
 async function kubectl(args, { check = true, timeout = 120_000 } = {}) {
@@ -209,7 +230,7 @@ try {
       step("stub model on the Compose network");
       // The API server's service address: the pod's NetworkPolicy must keep commands from it.
       const blocked = "10.96.0.1/443";
-      const command = `hostname; echo pod > out.txt; (timeout 3 bash -c '</dev/tcp/${blocked}' && echo API-OPEN) || echo API-CLOSED`;
+      const command = `hostname; echo pod > out.txt; (timeout 3 bash -c '</dev/tcp/${blocked}' && echo API-OPEN) || echo API-CLOSED; ${PROBE}`;
       await docker([
         "run", "--detach", "--rm", "--name", stubName,
         "--network", stack.project, "--network-alias", STUB_ALIAS,
@@ -266,6 +287,37 @@ try {
       assert.match(first, /API-CLOSED/, "the API server is closed to the pod's commands");
       const file = await api("POST", "/v1/sessions/s1/sandbox/read", { path: "out.txt" });
       assert.match(JSON.stringify(file.body), /pod/);
+
+      step("credentials for skills: a sentinel in the pod, the real header at the bound host");
+      const secret = `nylorun-suite-${randomUUID()}`;
+      const vault = await api("POST", "/v1/tenant/vaults", {
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        name: "suite",
+        scope: "installation",
+      });
+      await api("POST", `/v1/tenant/vaults/${vault.body.id}/credentials`, {
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        name: "probe",
+        auth: { type: "environment_secret", secretName: "PROBE_TOKEN", secretValue: secret, allowedHosts: ECHO_HOSTS },
+      });
+      await api("PUT", "/v1/sandboxes/pods%2Fcreds", { kind: "pod", network: { allow: ECHO_HOSTS } });
+      await observed("pods/creds", "running", 420_000);
+      await until("its engine joins", async () => (await events("pods/creds")).includes("sandbox.running"), 300_000);
+      await api("PUT", "/v1/sessions/creds", {
+        requestId: randomUUID(),
+        agentId: "bot",
+        ownerUserId: "pods-suite",
+        sandbox: { id: "pods/creds" },
+        vaultIds: [vault.body.id],
+      });
+      const probed = await turn("creds");
+      assert.match(probed, /PROBE_TOKEN=nylorun-managed/, "the pod sees the sentinel");
+      const expected = createHash("sha256").update(`Bearer ${secret}`).digest("hex");
+      assert.ok(probed.includes(`ECHO ${expected}`), `the bound host received the real header: ${probed}`);
+      assert.ok(!JSON.stringify(await items("creds")).includes(secret), "no value in the session's history");
+      await api("POST", "/v1/sandboxes/pods%2Fcreds/stop");
 
       step("stop → suspended; the next turn resumes it on the same volume");
       await api("POST", "/v1/sandboxes/pods%2Fone/stop");

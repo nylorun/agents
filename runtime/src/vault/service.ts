@@ -74,13 +74,19 @@
  * credential is chosen.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { INSTALLATION_OWNER } from "@nylorun/core/contracts";
+import {
+  ENVIRONMENT_SECRET_DEFAULT_INJECT,
+  ENVIRONMENT_SECRET_SENTINEL,
+  INSTALLATION_OWNER,
+  renderInjectFormat,
+} from "@nylorun/core/contracts";
 import type {
   CreateCredentialRequest,
   CreateVaultRequest,
   CredentialIdentity,
   CredentialInfo,
   CredentialSelection,
+  EnvironmentSecretInject,
   HostModelProviderInfo,
   HostModelView,
   PutHostModelRequest,
@@ -91,6 +97,7 @@ import type {
 } from "@nylorun/core/contracts";
 import { canonical } from "../store/canonical.js";
 import type {
+  SessionDoc,
   SessionStore,
   Tx,
   VaultCredentialRow,
@@ -126,15 +133,27 @@ export type HostModelSecret = {
 type SecretPayload = {
   /** A `bearer` credential's token. */
   token?: string;
+  /** An `environment_secret`'s value (R2c). */
+  value?: string;
   /** A `headers` credential's map, names lower-cased. */
   headers?: Record<string, string>;
 };
 
-type UserCredentialRow = VaultCredentialRow & { type: "bearer" | "headers" };
+type UserCredentialRow = VaultCredentialRow & {
+  type: "bearer" | "headers" | "environment_secret" | "environment_variable";
+};
 
 /** A user credential's `bindingJson`: everything about it that is not secret. */
 type CredentialBinding = {
-  url: string;
+  /** A `bearer` or `headers` credential's server URL; absent for the environment kinds. */
+  url?: string;
+  /** An `environment_secret`'s variable, hosts and header (R2c); sealed into its AAD. */
+  secretName?: string;
+  allowedHosts?: string[];
+  inject?: EnvironmentSecretInject;
+  /** An `environment_variable`'s name and plain value (R2c): not a secret. */
+  variableName?: string;
+  variableValue?: string;
   via?: string;
   identity?: CredentialIdentity;
   /** A `headers` credential's names, lower-cased. */
@@ -274,13 +293,19 @@ export class VaultService {
         async () => {
           await this.vaultInfo(t, vaultId);
           const id = randomUUID();
-          const url = normalizeVaultUrl(body.auth.url);
           const type = body.auth.type;
-          const payload = payloadOf(body.auth);
-          const binding = bindingOf(url, payload, body.auth);
+          let payload: SecretPayload;
+          let binding: CredentialBinding;
+          if (body.auth.type === "environment_secret" || body.auth.type === "environment_variable") {
+            ({ payload, binding } = environmentCredential(body.auth));
+          } else {
+            const url = normalizeVaultUrl(body.auth.url);
+            payload = payloadOf(body.auth);
+            binding = bindingOf(url, payload, body.auth);
+          }
           const sealed = encryptSecret(
             kek,
-            credentialAad(vaultId, id, type, url),
+            credentialAad(vaultId, id, type, binding),
             Buffer.from(JSON.stringify(payload), "utf8"),
           );
           const row: UserCredentialRow = {
@@ -339,11 +364,21 @@ export class VaultService {
           if (row.type !== body.auth.type)
             throw new VaultError(409, "Credential type cannot change");
           const current = credentialBinding(row);
-          const next = payloadOf(body.auth);
-          const binding = bindingOf(current.url, next, {
-            via: body.auth.via === undefined ? current.via : body.auth.via,
-            identity: body.auth.identity === undefined ? current.identity : body.auth.identity,
-          });
+          let next: SecretPayload;
+          let binding: CredentialBinding;
+          if (body.auth.type === "environment_secret") {
+            next = { value: body.auth.secretValue };
+            binding = current;
+          } else if (body.auth.type === "environment_variable") {
+            next = {};
+            binding = { ...current, variableValue: body.auth.variableValue };
+          } else {
+            next = payloadOf(body.auth);
+            binding = bindingOf(current.url!, next, {
+              via: body.auth.via === undefined ? current.via : body.auth.via,
+              identity: body.auth.identity === undefined ? current.identity : body.auth.identity,
+            });
+          }
           const updated = await this.writePayload(
             t,
             kek,
@@ -429,6 +464,71 @@ export class VaultService {
       target: vaultIds.join(","),
       outcome: "attached",
     });
+  }
+
+  /**
+   * The variables a session's sandbox commands get (R2c, D50): each `environment_secret`'s name
+   * set to the sentinel, each `environment_variable`'s value, and each host a secret is bound to
+   * with that secret's credential id. `conflict` says why they are ambiguous: two credentials with one variable name, or two
+   * secrets bound to one host. Reads rows only; no plaintext. Run in the caller's transaction.
+   */
+  async sessionEnvironment(
+    t: Tx,
+    vaultIds: readonly string[],
+  ): Promise<{ environment: Record<string, string>; secretHosts: Record<string, string>; conflict?: string }> {
+    const environment: Record<string, string> = {};
+    const hosts = new Map<string, string>();
+    let conflict: string | undefined;
+    for (const vaultId of vaultIds)
+      for (const row of await t.credentialsForVault(vaultId)) {
+        if (row.type !== "environment_secret" && row.type !== "environment_variable") continue;
+        const binding = JSON.parse(row.bindingJson) as CredentialBinding;
+        const name = row.type === "environment_secret" ? binding.secretName! : binding.variableName!;
+        if (name in environment) conflict ??= `Two attached credentials set the variable ${name}`;
+        environment[name] = row.type === "environment_secret" ? ENVIRONMENT_SECRET_SENTINEL : binding.variableValue!;
+        for (const host of row.type === "environment_secret" ? binding.allowedHosts ?? [] : []) {
+          if (hosts.has(host) && hosts.get(host) !== row.id)
+            conflict ??= `Two attached environment_secret credentials are bound to ${host}`;
+          hosts.set(host, row.id);
+        }
+      }
+    return { environment, secretHosts: Object.fromEntries([...hosts].sort()), ...(conflict ? { conflict } : {}) };
+  }
+
+  /**
+   * The header egress-gate sets on a request from `sandboxId` to `host` (R2c, D50): the
+   * `environment_secret` bound to `host` among the vaults of the sessions using the sandbox, its
+   * value unsealed and rendered into its format. `none` when no secret is bound to the host;
+   * `refused` when two are, or the sealed value cannot be read. One query and one unseal per
+   * call; nothing is cached (E3). Plaintext exists only in the returned header.
+   */
+  async releaseEnvironmentSecret(input: {
+    sandboxId: string;
+    host: string;
+  }): Promise<
+    | { status: "none" }
+    | { status: "released"; header: string; value: string; credentialId: string }
+    | { status: "refused"; reason: "ambiguous" | "unreadable" }
+  > {
+    const found = await this.store.tx((t) => sandboxSecretsFor(t, input.sandboxId, input.host));
+    if (found.length === 0) return { status: "none" };
+    if (found.length > 1) return { status: "refused", reason: "ambiguous" };
+    const row = found[0]!;
+    let payload: SecretPayload;
+    try {
+      payload = readPayload(this.kek(), row);
+    } catch (error) {
+      if (!(error instanceof VaultCryptoError)) throw error;
+      return { status: "refused", reason: "unreadable" };
+    }
+    if (!payload.value) return { status: "refused", reason: "unreadable" };
+    const inject = credentialBinding(row).inject ?? ENVIRONMENT_SECRET_DEFAULT_INJECT;
+    return { status: "released", header: inject.header, value: renderInjectFormat(inject.format, payload.value), credentialId: row.id };
+  }
+
+  /** Whether any `environment_secret` of the sessions using `sandboxId` is bound to `host`. */
+  async environmentSecretBound(sandboxId: string, host: string): Promise<boolean> {
+    return (await this.store.tx((t) => sandboxSecretsFor(t, sandboxId, host))).length > 0;
   }
 
   // --- use ---------------------------------------------------------------------
@@ -709,7 +809,7 @@ export class VaultService {
   ): Promise<UserCredentialRow> {
     const sealed = encryptSecret(
       kek,
-      credentialAad(row.vaultId, row.id, row.type, bindingUrl(row)),
+      credentialAad(row.vaultId, row.id, row.type, binding),
       Buffer.from(JSON.stringify(payload), "utf8"),
     );
     const patch = { rotatedAt, bindingJson: JSON.stringify(binding), ...sealed };
@@ -908,7 +1008,16 @@ function credentialInfoOf(row: UserCredentialRow): CredentialInfo {
     vaultId: row.vaultId,
     name: row.name,
     type: row.type,
-    binding: { url: binding.url },
+    binding:
+      row.type === "environment_secret"
+        ? {
+            secretName: binding.secretName!,
+            allowedHosts: binding.allowedHosts!,
+            inject: binding.inject ?? { ...ENVIRONMENT_SECRET_DEFAULT_INJECT },
+          }
+        : row.type === "environment_variable"
+          ? { variableName: binding.variableName!, variableValue: binding.variableValue! }
+          : { url: binding.url! },
     ...(binding.headerNames === undefined ? {} : { headerNames: binding.headerNames }),
     ...(binding.via === undefined ? {} : { via: binding.via }),
     ...(binding.identity === undefined ? {} : { identity: binding.identity }),
@@ -918,7 +1027,7 @@ function credentialInfoOf(row: UserCredentialRow): CredentialInfo {
 }
 
 function readPayload(kek: Buffer, row: UserCredentialRow): SecretPayload {
-  const aad = credentialAad(row.vaultId, row.id, row.type, bindingUrl(row));
+  const aad = credentialAad(row.vaultId, row.id, row.type, credentialBinding(row));
   const plaintext = decryptSecret(
     kek,
     aad,
@@ -1129,19 +1238,72 @@ export function hostModelAad(provider: string, model: string): Buffer {
   );
 }
 
+/**
+ * What a user credential's ciphertext is bound to: its vault, id, type and URL; for an
+ * `environment_secret` (R2c) also its variable, hosts and header, so the value can never be sent
+ * anywhere else without a new seal.
+ */
 function credentialAad(
   vaultId: string,
   credentialId: string,
   type: string,
-  url: string | undefined,
+  binding: CredentialBinding,
 ): Buffer {
   return Buffer.from(
-    canonical({ vaultId, credentialId, type, url }),
+    canonical(
+      type === "environment_secret"
+        ? {
+            vaultId,
+            credentialId,
+            type,
+            secretName: binding.secretName,
+            allowedHosts: binding.allowedHosts,
+            inject: binding.inject ?? null,
+          }
+        : { vaultId, credentialId, type, url: binding.url },
+    ),
     "utf8",
   );
+}
+
+/** The sealed payload and unsealed binding of an environment credential (R2c). */
+function environmentCredential(
+  auth:
+    | { type: "environment_secret"; secretName: string; secretValue: string; allowedHosts: string[]; inject?: EnvironmentSecretInject }
+    | { type: "environment_variable"; variableName: string; variableValue: string },
+): { payload: SecretPayload; binding: CredentialBinding } {
+  if (auth.type === "environment_variable")
+    return { payload: {}, binding: { variableName: auth.variableName, variableValue: auth.variableValue } };
+  if (auth.inject) checkCredentialHeaders([auth.inject.header.toLowerCase()], undefined);
+  return {
+    payload: { value: auth.secretValue },
+    binding: {
+      secretName: auth.secretName,
+      allowedHosts: auth.allowedHosts.map((host) => host.toLowerCase()),
+      ...(auth.inject ? { inject: { header: auth.inject.header, format: auth.inject.format } } : {}),
+    },
+  };
 }
 
 function requestHash(body: unknown): string {
   const { requestId: _requestId, ...rest } = body as { requestId?: string };
   return canonical(rest);
+}
+
+/**
+ * The `environment_secret` credentials bound to `host` in the vaults of every session on the
+ * sandbox (R2c). A session between turns counts: it can run again, and what it started may
+ * still run. Session open keeps them to one owner and one credential per host.
+ */
+async function sandboxSecretsFor(t: Tx, sandboxId: string, host: string): Promise<UserCredentialRow[]> {
+  const lower = host.toLowerCase();
+  const vaultIds = new Set<string>();
+  for (const session of await t.sessionsOnSandbox<SessionDoc & { vaultIds?: readonly string[] }>(sandboxId))
+    for (const vaultId of session.vaultIds ?? []) vaultIds.add(vaultId);
+  const matches: UserCredentialRow[] = [];
+  for (const vaultId of vaultIds)
+    for (const row of await t.credentialsForVault(vaultId))
+      if (row.type === "environment_secret" && (credentialBinding(row as UserCredentialRow).allowedHosts ?? []).includes(lower))
+        matches.push(row as UserCredentialRow);
+  return matches;
 }

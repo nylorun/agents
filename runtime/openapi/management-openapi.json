@@ -97,6 +97,7 @@
               "definition_files_missing",
               "credential_rejected",
               "mcp_preview_failed",
+              "credential_conflict",
               "internal_error"
             ]
           },
@@ -2113,7 +2114,9 @@
             "type": "string",
             "enum": [
               "bearer",
-              "headers"
+              "headers",
+              "environment_secret",
+              "environment_variable"
             ]
           },
           "binding": {
@@ -2121,11 +2124,41 @@
             "properties": {
               "url": {
                 "type": "string"
+              },
+              "secretName": {
+                "type": "string"
+              },
+              "allowedHosts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "inject": {
+                "type": "object",
+                "properties": {
+                  "header": {
+                    "type": "string",
+                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                  },
+                  "format": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "header",
+                  "format"
+                ],
+                "additionalProperties": false
+              },
+              "variableName": {
+                "type": "string"
+              },
+              "variableValue": {
+                "type": "string"
               }
             },
-            "required": [
-              "url"
-            ],
             "additionalProperties": false
           },
           "headerNames": {
@@ -2269,6 +2302,85 @@
                   "headers"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "environment_secret"
+                    ]
+                  },
+                  "secretName": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "secretValue": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192
+                  },
+                  "allowedHosts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 32
+                  },
+                  "inject": {
+                    "type": "object",
+                    "properties": {
+                      "header": {
+                        "type": "string",
+                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                      },
+                      "format": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "header",
+                      "format"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "type",
+                  "secretName",
+                  "secretValue",
+                  "allowedHosts"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "environment_variable"
+                    ]
+                  },
+                  "variableName": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "variableValue": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192
+                  }
+                },
+                "required": [
+                  "type",
+                  "variableName",
+                  "variableValue"
+                ],
+                "additionalProperties": false
               }
             ]
           }
@@ -2302,7 +2414,9 @@
                   "type": "string",
                   "enum": [
                     "bearer",
-                    "headers"
+                    "headers",
+                    "environment_secret",
+                    "environment_variable"
                   ]
                 },
                 "binding": {
@@ -2310,11 +2424,41 @@
                   "properties": {
                     "url": {
                       "type": "string"
+                    },
+                    "secretName": {
+                      "type": "string"
+                    },
+                    "allowedHosts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "inject": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                        },
+                        "format": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "header",
+                        "format"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "variableName": {
+                      "type": "string"
+                    },
+                    "variableValue": {
+                      "type": "string"
                     }
                   },
-                  "required": [
-                    "url"
-                  ],
                   "additionalProperties": false
                 },
                 "headerNames": {
@@ -2461,6 +2605,48 @@
                 "required": [
                   "type",
                   "headers"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "environment_secret"
+                    ]
+                  },
+                  "secretValue": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192
+                  }
+                },
+                "required": [
+                  "type",
+                  "secretValue"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "environment_variable"
+                    ]
+                  },
+                  "variableValue": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192
+                  }
+                },
+                "required": [
+                  "type",
+                  "variableValue"
                 ],
                 "additionalProperties": false
               }

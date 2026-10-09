@@ -3,12 +3,15 @@
  * address refuses (the NetworkPolicy is in force), and its `local` backend runs commands in the
  * pod's workspace with the egress proxy and none of the engine's own variables.
  */
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
+import { rootCertificates } from "node:tls";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { localBackend } from "../../src/adapters/sandbox/local.js";
+import { podHost } from "../../src/harness/pod.js";
+import { createCertificateAuthority } from "../../src/keys/x509.js";
 import { awaitNetworkPolicy, blockedAddresses } from "../../src/sandbox/pods/network-gate.js";
 import { runSandboxTool } from "../../src/sandbox/tools.js";
 import { resolveNetwork } from "../../src/sandbox/policy.js";
@@ -89,5 +92,58 @@ describe("the local backend", () => {
     const slow = await run("bash", { command: "sleep 5; echo never", timeout: 0.3 });
     expect(slow).toMatchObject({ kind: "completed", output: { exitCode: 124, timedOut: true } });
     expect(await handle.readFile(join(workspace, "missing"))).toBeUndefined();
+  });
+});
+
+describe("credentials for skills in a pod (R2c)", () => {
+  it("gives every command the session's variables, and the proxy wins over them", async () => {
+    const workspace = await realpath(await mkdtemp(join(tmpdir(), "nylorun-local-")));
+    dirs.push(workspace);
+    const backend = localBackend({
+      workspace,
+      env: { PATH: process.env.PATH },
+      proxyEnv: () => ({ HTTPS_PROXY: "http://nylorun:tok@egress:4200" }),
+    });
+    const handle = await backend.open({ key: "k", cpus: 1, memoryMiB: 128, network: resolveNetwork(undefined) });
+    const result = await runSandboxTool(
+      handle,
+      "bash",
+      { command: "echo $GH_TOKEN $REGION $HTTPS_PROXY" },
+      new AbortController().signal,
+      () => undefined,
+      { GH_TOKEN: "nylorun-managed", REGION: "eu-west-1", HTTPS_PROXY: "http://elsewhere" },
+    );
+    expect(result).toMatchObject({
+      kind: "completed",
+      output: { exitCode: 0, stdout: "nylorun-managed eu-west-1 http://nylorun:tok@egress:4200\n" },
+    });
+  });
+
+  it("writes the public roots and the egress CA to a bundle every CLI is pointed at", async () => {
+    const root = await mkdtemp(join(tmpdir(), "nylorun-pod-"));
+    dirs.push(root);
+    const joinFile = join(root, "join");
+    await writeFile(joinFile, "join-token\n");
+    const ca = createCertificateAuthority({ commonName: "Nylorun egress CA (test)" }).certificate;
+    const answer = { hostToken: "h", egressToken: "e", epoch: 1, expiresAt: new Date(Date.now() + 900_000).toISOString(), caCertificate: ca };
+    const caBundleFile = join(root, "egress-ca-bundle.pem");
+    const host = podHost(
+      { sandboxId: "sbx_1", podUid: "uid-1", joinFile, httpUrl: "http://listener", egressProxy: "http://egress:4200", blocked: [] },
+      { info: () => undefined, warn: () => undefined },
+      { fetch: async () => new Response(JSON.stringify(answer)), caBundleFile },
+    );
+    try {
+      expect(host.proxyEnv()).toEqual({});
+      await host.token();
+      const bundle = await readFile(caBundleFile, "utf8");
+      expect(bundle.startsWith(rootCertificates[0]!)).toBe(true);
+      expect(bundle.trimEnd().endsWith(ca.trim())).toBe(true);
+      const env = host.proxyEnv();
+      for (const name of ["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO", "AWS_CA_BUNDLE"])
+        expect(env[name]).toBe(caBundleFile);
+      expect(env.HTTPS_PROXY).toBe("http://nylorun:e@egress:4200");
+    } finally {
+      host.stop();
+    }
   });
 });

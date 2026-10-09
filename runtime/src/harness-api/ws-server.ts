@@ -14,8 +14,8 @@
  * /nylorun/harness/v1/host/join` (`{ sandboxId, podUid, joinToken }`), renews it with `POST
  * .../host/renew` (`Authorization: Bearer <host token>`), and upgrades with the host token as
  * its bearer: that connection hosts its sandbox alone (`HarnessPeer.host`). Both answer
- * `{ hostToken, egressToken, sandboxId, epoch, expiresAt }`; every refusal is the same 401. The
- * harness token is never accepted as a host token, nor a host token anywhere but here.
+ * `{ hostToken, egressToken, sandboxId, epoch, expiresAt, caCertificate }` (the egress CA, R2c);
+ * every refusal is the same 401. The harness token is never accepted as a host token, nor a host token anywhere but here.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
