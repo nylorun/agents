@@ -294,7 +294,13 @@ describe.skipIf(!STACK_ENABLED)("Restate execution", () => {
 
   it("retries a send while its service is not registered yet, and delivers it once a Worker registers", async () => {
     const advanced: string[] = [];
-    const execution = createRestateExecution(options(8, "late", {}));
+    // Registered as a versioned deployment, without force, as a Host in a container does.
+    const base = options(8, "late", {});
+    const execution = createRestateExecution({
+      ...base,
+      workerAdvertisedUrl: `${base.workerAdvertisedUrl}/nylorun/0.0.0-test`,
+      forceRegistration: false,
+    });
     open.push(execution);
     const { tenantId, sessionId } = ids();
     // The ingress answers 404 until the services exist: the send keeps trying.

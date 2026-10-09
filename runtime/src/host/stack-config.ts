@@ -121,6 +121,12 @@ export interface StackEndpoints {
   restateIngressUrl?: string;
   restateAdminUrl?: string;
   workerUrl?: string;
+  /**
+   * The Worker deployment's version, from `NYLORUN_WORKER_VERSION` (default: the Runtime's
+   * version): the Worker registers `<NYLORUN_WORKER_URL>/nylorun/<version>` with Restate
+   * (`infra/execution.ts`, `workerDeployment`).
+   */
+  workerVersion?: string;
   s2Endpoint?: string;
   s2Token?: string;
   workspaceStoreUrl?: string;
@@ -576,6 +582,14 @@ export function parseStackConfig(
   if (restateAdminUrl) endpoints.restateAdminUrl = restateAdminUrl;
   const workerUrl = parseUrl(env, "NYLORUN_WORKER_URL", http);
   if (workerUrl) endpoints.workerUrl = workerUrl;
+  const workerVersion = read(env, "NYLORUN_WORKER_VERSION");
+  if (workerVersion !== undefined) {
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(workerVersion))
+      throw new StackConfigError(
+        "NYLORUN_WORKER_VERSION must be 1 to 64 letters, digits, `.`, `_` or `-` (it is a URL path segment)",
+      );
+    endpoints.workerVersion = workerVersion;
+  }
   const s2Endpoint = parseUrl(env, "NYLORUN_S2_ENDPOINT", http);
   if (s2Endpoint) endpoints.s2Endpoint = s2Endpoint;
   const s2Token = read(env, "NYLORUN_S2_TOKEN");

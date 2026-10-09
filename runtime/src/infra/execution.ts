@@ -8,8 +8,8 @@
  * - wakes, timers and sweep arming go through the ingress, so every process can
  *   call them;
  * - a Worker (a process running the loop service) serves the Restate endpoint on
- *   `0.0.0.0:9080` and registers `NYLORUN_WORKER_URL` with the admin API when
- *   `infra/workers.ts` starts it;
+ *   `0.0.0.0:9080` and registers it with the admin API when `infra/workers.ts` starts it,
+ *   as a versioned deployment (`workerDeployment`);
  * - with `NYLORUN_RESTATE_IDENTITY_KEY` the endpoint accepts only requests
  *   signed by the Restate server holding the matching private key.
  *
@@ -17,6 +17,7 @@
  * only unit tests and a local development Host use.
  */
 import { createRestateExecution } from "../adapters/execution/restate.js";
+import { RUNTIME_VERSION } from "../version.js";
 import { MemoryExecution } from "../execution/memory.js";
 import type { DurableExecution } from "../execution/types.js";
 import {
@@ -77,19 +78,42 @@ export function validateExecutionConfig(
     );
 }
 
+/**
+ * The deployment a Worker registers with Restate (§14.6): `<NYLORUN_WORKER_URL>/nylorun/<version>`,
+ * the version being `NYLORUN_WORKER_VERSION` or the Runtime's. Restate sends new invocations to
+ * the latest deployment of a service and keeps each running invocation on the deployment it
+ * started on, so during a rolling upgrade the Workers of one version share that version's
+ * deployment (behind one load-balanced `NYLORUN_WORKER_URL`) and the old one finishes what it
+ * started; the endpoint answers on any path, so an older deployment's URL still reaches it.
+ * `force` replaces a deployment already registered at the URL with different code: only
+ * outside a container (a development Host, whose code changes under one version). In a
+ * container Restate may refuse a registration that conflicts with the deployment there: a
+ * build whose code changed under the same version sets its own `NYLORUN_WORKER_VERSION`.
+ */
+export function workerDeployment(
+  config: Pick<StackConfig, "endpoints" | "listen">,
+): { url: string; force: boolean } | undefined {
+  const { workerUrl, workerVersion } = config.endpoints;
+  if (!workerUrl) return undefined;
+  const version = encodeURIComponent(workerVersion ?? RUNTIME_VERSION);
+  return { url: `${workerUrl.replace(/\/+$/, "")}/nylorun/${version}`, force: !config.listen };
+}
+
 export function createExecution(
-  config: Pick<StackConfig, "endpoints"> & { services?: RuntimeServices },
+  config: Pick<StackConfig, "endpoints" | "listen"> & { services?: RuntimeServices },
   options: CreateExecutionOptions = {},
 ): DurableExecution {
   validateExecutionConfig(config);
-  const { restateIngressUrl, restateAdminUrl, workerUrl, restateIdentityKeys } =
-    config.endpoints;
+  const { restateIngressUrl, restateAdminUrl, restateIdentityKeys } = config.endpoints;
   if (!restateIngressUrl || !restateAdminUrl) return new MemoryExecution();
+  const deployment = workerDeployment(config);
   return createRestateExecution({
     ingressUrl: restateIngressUrl,
     adminUrl: restateAdminUrl,
     workerListen: options.workerListen ?? { ...WORKER_LISTEN },
-    ...(workerUrl ? { workerAdvertisedUrl: workerUrl } : {}),
+    ...(deployment
+      ? { workerAdvertisedUrl: deployment.url, forceRegistration: deployment.force }
+      : {}),
     ...(restateIdentityKeys?.length ? { identityKeys: [...restateIdentityKeys] } : {}),
     ...(options.servicePrefix ? { servicePrefix: options.servicePrefix } : {}),
     ...(options.logger ? { logger: options.logger } : {}),

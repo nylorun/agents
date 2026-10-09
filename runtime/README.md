@@ -44,8 +44,9 @@ or deleted key stops authenticating at once. A database written by a Runtime tha
 database (`tenant_<id>` schemas), or by a pre-release build of one Tenant per database
 (`schema_version` tables), is refused: this release starts fresh on a new database. Restate runs one advance of a session at a time, delivers its wakes and holds
 its timers and the Tenant's sweep (Durable Session Execution), and journals no effect:
-checkpoints, effects, events and the wake outbox are the Session Store's, and a wake is
-written to the outbox in the transaction that causes it, so a commit never loses it; every session's events are relayed from the record to
+checkpoints, effects, events and the outbox are the Session Store's, and a wake or a pod
+sandbox's reconcile is written to the outbox in the transaction that causes it, so a commit
+never loses it ([src/CONTEXT.md](src/CONTEXT.md)); every session's events are relayed from the record to
 its own S2 stream, which history and SSE read (Durable Streams). One image runs every **service**,
 and `--service` picks what a process runs: `core` serves the Runtime API, the
 Management API and SSE and runs the stream relay, `loop` runs advances (the Worker), and
@@ -69,10 +70,21 @@ gateway ([DEPLOYMENT.md](../DEPLOYMENT.md#the-harness-agent-turns-mcp-servers-an
 
 The container is configured by its environment, which a local Tenant's Compose file
 sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
-`NYLORUN_RESTATE_ADMIN_URL`, `NYLORUN_WORKER_URL` and
+`NYLORUN_RESTATE_ADMIN_URL`, `NYLORUN_WORKER_URL`, `NYLORUN_WORKER_VERSION` and
 `NYLORUN_RESTATE_IDENTITY_KEY` (Restate), `NYLORUN_S2_ENDPOINT` and
 `NYLORUN_S2_TOKEN`, and in container mode `NYLORUN_LISTEN_HOST`,
 `NYLORUN_LISTEN_PORT`, `NYLORUN_ALLOWED_HOSTS` and `NYLORUN_PUBLIC_URL`.
+A Worker registers its Restate deployment at a versioned URL,
+`<NYLORUN_WORKER_URL>/nylorun/<version>`, where the version is `NYLORUN_WORKER_VERSION`
+(letters, digits, `.`, `_`, `-`) or, by default, the Runtime's own. In a container it never
+replaces a deployment already registered there (`force: false`): during a rolling upgrade
+the new version's Workers register next to the old ones, Restate sends new invocations to
+the new deployment and lets the old one finish what it started, and every Worker of one
+version shares its deployment through one load-balanced `NYLORUN_WORKER_URL`. A build that
+changes the Worker's code without changing the Runtime's version (an image built from a
+branch) sets its own `NYLORUN_WORKER_VERSION`: otherwise Restate may refuse its registration
+as a conflicting change to the deployment already there, and the Worker does not start. Outside a container (a development
+Host) the registration replaces the deployment at that URL.
 `NYLORUN_MANAGEMENT_KEY_FILE` names the bootstrap secret (below).
 `NYLORUN_IDENTITY_FILE` names the identity
 file, a YAML list of the trusted issuers whose JWTs the Runtime API accepts

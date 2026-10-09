@@ -9,7 +9,9 @@ import {
   executionKind,
   probeExecution,
   validateExecutionConfig,
+  workerDeployment,
 } from "../../src/infra/execution.js";
+import { RUNTIME_VERSION } from "../../src/version.js";
 import { createInfra } from "../../src/infra/index.js";
 import { createStreams, probeStreams, streamsKind } from "../../src/infra/streams.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
@@ -81,6 +83,20 @@ describe("createExecution", () => {
     );
     expect(execution).toBeInstanceOf(RestateExecution);
     expect((execution as RestateExecution).serviceNames.session).toBe("t_NylorunSession");
+  });
+
+  it("registers a versioned Worker deployment, forced only outside a container", () => {
+    const listen = { host: "0.0.0.0", port: 4000, allowedHosts: [] };
+    expect(workerDeployment({ endpoints: {} })).toBeUndefined();
+    // In a container (the local stack's Compose environment): the Runtime's version, no force.
+    expect(workerDeployment({ listen, endpoints: { workerUrl: "http://runtime:9080" } })).toEqual({
+      url: `http://runtime:9080/nylorun/${RUNTIME_VERSION}`,
+      force: false,
+    });
+    // A build of its own, and a development Host, whose code changes under one version.
+    expect(
+      workerDeployment({ endpoints: { workerUrl: "http://w:9080/", workerVersion: "0.22.0-abc123" } }),
+    ).toEqual({ url: "http://w:9080/nylorun/0.22.0-abc123", force: true });
   });
 
   it("names the missing variable when endpoints are incomplete", () => {

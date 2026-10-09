@@ -123,8 +123,8 @@ export interface RestateExecutionOptions {
   /**
    * Overwrite a deployment already registered at `workerAdvertisedUrl`, so a
    * restarted Worker with changed code takes effect. Default true, which suits
-   * a stable URL on a developer machine. Rolling upgrades should advertise a
-   * versioned URL instead (§14.6).
+   * a stable URL on a developer machine. A Host in a container advertises a
+   * versioned URL without it (`workerDeployment` in `infra/execution.ts`, §14.6).
    */
   forceRegistration?: boolean;
   /** How long `start` keeps retrying registration while Restate comes up. Default 60000. */

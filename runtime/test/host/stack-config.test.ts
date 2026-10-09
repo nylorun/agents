@@ -77,6 +77,9 @@ describe("parseServices", () => {
         [],
       ).keys,
     ).toEqual({ url: "http://keys:4200", token });
+    expect(() => parseStackConfig({ NYLORUN_WORKER_VERSION: "1.0/../admin" }, [])).toThrow(
+      /NYLORUN_WORKER_VERSION must be 1 to 64 letters/,
+    );
     expect(() => parseStackConfig({ NYLORUN_KEYS_URL: "http://keys:4200" }, [])).toThrow(
       /NYLORUN_GATES_TOKEN is required with NYLORUN_KEYS_URL/,
     );
@@ -141,6 +144,7 @@ describe("parseStackConfig", () => {
         NYLORUN_RESTATE_INGRESS_URL: "http://restate:8080",
         NYLORUN_RESTATE_ADMIN_URL: "http://restate:9070",
         NYLORUN_WORKER_URL: "http://runtime:9080",
+        NYLORUN_WORKER_VERSION: "0.22.0-rc.1",
         NYLORUN_S2_ENDPOINT: "http://s2:80",
         NYLORUN_S2_TOKEN: "ignored",
         NYLORUN_WORKSPACE_STORE_URL: "file:///workspaces",
@@ -173,6 +177,7 @@ describe("parseStackConfig", () => {
         restateIngressUrl: "http://restate:8080",
         restateAdminUrl: "http://restate:9070",
         workerUrl: "http://runtime:9080",
+        workerVersion: "0.22.0-rc.1",
         s2Endpoint: "http://s2:80",
         s2Token: "ignored",
         workspaceStoreUrl: "file:///workspaces",
