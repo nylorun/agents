@@ -17,6 +17,7 @@ const substrates = {
   runtime: [
     "just-bash",
     "@restatedev/restate-sdk",
+    "@restatedev/restate-sdk-clients",
     "@s2-dev/streamstore",
     // The stream relay's logical replication (adapters/replication/).
     "pg",

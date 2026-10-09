@@ -240,6 +240,77 @@ describe.skipIf(!STACK_ENABLED)("Restate execution", () => {
     })).toEqual([]);
   });
 
+  /** This run's invocations of `handler` on `service` (with the run's prefix) for `key`. */
+  async function invocations(service: string, handler: string, key: string): Promise<number> {
+    const response = await fetch(`${stackEndpoints().restate.adminUrl}/query`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({
+        query:
+          "SELECT id FROM sys_invocation " +
+          `WHERE target_service_name = '${service}' AND target_handler_name = '${handler}' ` +
+          `AND target_service_key = '${key}'`,
+      }),
+    });
+    expect(response.ok).toBe(true);
+    return ((await response.json()) as { rows: unknown[] }).rows.length;
+  }
+
+  it("sends a timer set, a sandbox timer and a keyed reconcile once however often they are sent", async () => {
+    const reconciles: string[] = [];
+    const fired: number[] = [];
+    const execution = await started(7, "idempotent", {
+      fire: async () => {
+        fired.push(Date.now());
+      },
+      sandbox: async (_tenantId, _sandboxId, trigger) => {
+        reconciles.push(trigger);
+        return {};
+      },
+    });
+    const names = execution.serviceNames;
+    const { tenantId } = ids();
+    const timerKey = `t-${randomUUID()}`;
+    const at = new Date(Date.now() + 500);
+    // Each sent twice, as the outbox does when the answer to the first send was lost.
+    for (let i = 0; i < 2; i++) {
+      await execution.timer(tenantId, timerKey, at);
+      await execution.sandbox(tenantId, "sb-keyed", { kind: "reconcile", key: "signal:row-1" });
+      await execution.sandbox(tenantId, "sb-keyed", { kind: "arm", timer: "ttl", at: Date.now() + 3_600_000 });
+      await execution.sandbox(tenantId, "sb-free", { kind: "reconcile" });
+    }
+    await eventually(() => expect(fired).toHaveLength(1));
+    await eventually(() => expect(reconciles).toHaveLength(3));
+    expect(await invocations(names.timer, "set", `${tenantId}:${timerKey}`)).toBe(1);
+    expect(await invocations(names.sandbox, "reconcile", `${tenantId}:sb-keyed`)).toBe(1);
+    expect(await invocations(names.sandbox, "reconcile", `${tenantId}:sb-free`)).toBe(2);
+    // The two arms had different times (`Date.now()` moved): each is its own.
+    expect(await invocations(names.sandbox, "arm", `${tenantId}:sb-keyed`)).toBe(2);
+    const fixed = Date.now() + 3_600_000;
+    await execution.sandbox(tenantId, "sb-arm", { kind: "arm", timer: "idle", at: fixed });
+    await execution.sandbox(tenantId, "sb-arm", { kind: "arm", timer: "idle", at: fixed });
+    expect(await invocations(names.sandbox, "arm", `${tenantId}:sb-arm`)).toBe(1);
+  });
+
+  it("retries a send while its service is not registered yet, and delivers it once a Worker registers", async () => {
+    const advanced: string[] = [];
+    const execution = createRestateExecution(options(8, "late", {}));
+    open.push(execution);
+    const { tenantId, sessionId } = ids();
+    // The ingress answers 404 until the services exist: the send keeps trying.
+    const sending = execution.wake(tenantId, sessionId, { reason: "message", dedupeKey: "late-1" });
+    await sleep(500);
+    await execution.start({
+      ...noop,
+      advance: async (_tenantId, id) => {
+        advanced.push(id);
+        return { status: "done" };
+      },
+    });
+    await sending;
+    await eventually(() => expect(advanced).toEqual([sessionId]));
+  });
+
   it("refuses registration when Restate does not sign with the configured identity key", async () => {
     const execution = createRestateExecution(
       options(6, "identity", {

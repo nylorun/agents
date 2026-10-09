@@ -426,7 +426,8 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     await until(async () => execution.sweeps, (n) => n > 0, "the first sweep pass");
     await openSession(runtime);
     await sendMessage(runtime);
-    expect(lost).toBe(true);
+    // The command is answered without waiting for its wake's send.
+    await until(async () => lost, (sent) => sent, "the message's wake sent");
     await until(() => view(runtime), (v) => v.status === "completed", "completed", 20_000);
     const store = await openTestSessionStore(runtime);
     try {
