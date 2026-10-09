@@ -120,6 +120,28 @@ describe("resolveConnection (C1)", () => {
     );
   });
 
+  it("never reads the project link for options or a complete environment", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "nylorun-conn-")));
+    try {
+      // A link that cannot be read (EISDIR here; EACCES for a root-owned file).
+      await mkdir(join(root, ".nylorun", "link.json"), { recursive: true });
+      expect(await resolveConnection({ url: URL, key: KEY, cwd: root })).toEqual({
+        url: URL,
+        key: KEY,
+        source: "options",
+      });
+      process.env.NYLORUN_RUNTIME_URL = URL;
+      process.env.NYLORUN_SERVER_KEY = KEY;
+      expect(await resolveConnection({ cwd: root })).toEqual({
+        url: URL,
+        key: KEY,
+        source: "environment",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("finds the project link from a nested directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "nylorun-conn-"));
     await writeProjectLink(root);
