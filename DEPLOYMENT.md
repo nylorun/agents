@@ -459,6 +459,9 @@ A session's MCP and HTTP tool credentials come from the session's attached vault
 - A **person's vault** (owner `ownerUserId`) holds that person's own keys, and attaches only to
   that person's sessions.
 
+A create request without `scope` makes a person's vault when it names `ownerUserId`, and an
+installation vault when it doesn't.
+
 Vault routes are the Management API's and take only a management key (protocol 8): an
 application key, alone or acting for a person, gets `403 key_role_mismatch`.
 

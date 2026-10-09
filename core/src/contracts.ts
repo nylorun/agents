@@ -985,14 +985,25 @@ const vaultWriteBase = {
 };
 /** The owner of every installation vault (`scope: "installation"`); a reserved subject. */
 export const INSTALLATION_OWNER = "installation";
+/**
+ * The scope a vault-create request asks for: `scope` when given; otherwise `user` when it names
+ * an `ownerUserId` and `installation` when it doesn't.
+ */
+export function vaultScopeOf(request: {
+  readonly scope?: "user" | "installation";
+  readonly ownerUserId?: string;
+}): "user" | "installation" {
+  return request.scope ?? (request.ownerUserId === undefined ? "installation" : "user");
+}
 export const CreateVaultRequestSchema = z
   .object({
     ...vaultWriteBase,
     name: z.string().min(1),
     /**
-     * `user` (the default): one person's vault, owned by `ownerUserId`. `installation`: the
-     * installation's own vault, owned by `installation`, which any session may attach;
-     * management keys only (the Management API).
+     * `user`: one person's vault, owned by `ownerUserId`. `installation`: the installation's own
+     * vault, owned by `installation`, which any session may attach; management keys only (the
+     * Management API). When absent, `user` if `ownerUserId` is given, else `installation`
+     * (`vaultScopeOf`).
      */
     scope: z.enum(["user", "installation"]).optional(),
     /** Required for a `user` vault; absent (or `installation`) for an installation vault. */
@@ -1001,7 +1012,7 @@ export const CreateVaultRequestSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if ((value.scope ?? "user") === "user") {
+    if (vaultScopeOf(value) === "user") {
       if (value.ownerUserId === undefined)
         ctx.addIssue({ code: "custom", path: ["ownerUserId"], message: "ownerUserId is required for a user vault" });
       else if (value.ownerUserId === INSTALLATION_OWNER)
