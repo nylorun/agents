@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/studio",
-  "version": "0.23.2-beta",
+  "version": "0.23.3-beta",
   "private": true,
   "description": "The Nylorun Studio server: the dashboard and trusted Runtime proxy that ghcr.io/nylorun/studio runs. Private; ships only as that image.",
   "type": "module",
@@ -35,7 +35,7 @@
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\""
   },
   "dependencies": {
-    "@nylorun/admin": "0.14.1-beta",
+    "@nylorun/admin": "0.15.0-beta",
     "@nylorun/agents": "0.19.1-beta"
   },
   "devDependencies": {

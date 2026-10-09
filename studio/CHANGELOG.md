@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.23.3-beta
+
+### Patch Changes
+
+- ef5fa01: **Studio: a malformed agent or session URL is "not found", not a crash.** A route segment that is no valid percent-encoding (`/tenants/<id>/agents/%E0`, reached by in-app or embedder navigation) threw a URIError while the dashboard rendered, and the error panel it left survived navigation. Studio now decodes route segments the way it already decodes the Tenant id, so such a URL shows "Agent not found" or "Session not found", and the outer error panel clears on the next route like the inner one does. Dead code is gone: the unused chat composer, the `textarea` and `skeleton` UI components, unused `sidebar`, `card`, `sheet` and `table` exports, and the old Studio discovery protocol module (`studio/src/protocol.ts`), which nothing served or read.
+- 2b67586: **Studio: create and rotate shell credentials.** The Credentials page's Add credential form gains **Secret** and **Variable** (R2c), for skills' CLIs in pod sandboxes. A secret takes the variable name the sandbox sees (as `nylorun-managed`), its allowed hosts, an optional header and format (default `Authorization: Bearer {value}`, with a preview of what requests carry) and its value; a variable takes a name and a visible value. Hosts are checked in the form, naming the entry the Runtime would refuse. Rotate replaces a secret's value; **Change value** edits a variable from its current value. The table shows a secret's variable and hosts and a variable's value; **Preview tools** stays on MCP credentials only.
+- Pin admin to the tested release.
+- Updated dependencies [554df94]
+- Updated dependencies [1345f61]
+  - @nylorun/admin@0.15.0-beta
+
 ## 0.23.2-beta
 
 ### Patch Changes
