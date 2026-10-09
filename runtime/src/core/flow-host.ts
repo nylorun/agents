@@ -34,7 +34,6 @@
  * - `flowInteractionOf(waits, workflowSessionId, interactionId): { id; kind } | undefined`
  * - `findInteractionOwner({ t, workflowSessionId, interactionId }): Promise<{ sessionId; path } | undefined>`
  * - `foreignInteractionConflict({ t, workflowSessionId, interactionId }): Promise<{ status: 409; message; ownerSessionId } | undefined>`
- * - `wakeForQueuedEffects({ t, workflowSessionId, turnId, limits }): Promise<boolean>`
  *
  * A wake carries the reason (`linked`, `flow`) and, where the cause has one, a dedupe key.
  * The store delivers it after commit, never inside `t`; one it does not deliver stays in the
@@ -53,9 +52,8 @@ import { createHash } from "node:crypto";
 import type { EffectOutcome } from "@nylorun/core/contracts";
 import { isVerdict, type JsonValue, type WorkflowManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
-import type { Wake } from "../execution/types.js";
 import type { EffectDoc, Tx } from "../store/types.js";
-import { mayDispatchMore, type FlowLimits } from "./limits.js";
+
 
 /** Deterministic agent session id: derive(workflowSessionId, path, …parts). */
 export function deriveSessionId(
@@ -250,11 +248,6 @@ export type FlowEffect = EffectDoc & {
   error?: string;
 };
 
-/** Writes the wake to the outbox, which delivers it after commit. */
-function requestWake(t: Tx, id: string, wake: Wake): Promise<void> {
-  return t.wake(id, wake);
-}
-
 /** Active agent turns + tool nodes in flight for one workflow turn. */
 export async function countActiveFlowWork(
   t: Tx,
@@ -383,7 +376,7 @@ export async function wakeLinkedWorkflow(input: {
 
   workflow.status = "runnable";
   await t.put("sessions", workflow.id, workflow);
-  await requestWake(t, workflow.id, {
+  await t.wake(workflow.id, {
     reason: "linked",
     dedupeKey: `linked:${link.turnId}:${link.effectId}`,
   });
@@ -672,42 +665,4 @@ export async function foreignInteractionConflict(input: {
     message: `Interaction belongs to session ${owner.sessionId}`,
     ownerSessionId: owner.sessionId,
   };
-}
-
-/**
- * When concurrency slots free, re-enter the workflow so queued effects can start
- * (status stays `queued` until the effect resolver dispatches them). Returns
- * true when a wake was scheduled.
- */
-export async function wakeForQueuedEffects(input: {
-  readonly t: Tx;
-  readonly workflowSessionId: string;
-  readonly turnId: string;
-  readonly limits: FlowLimits;
-}): Promise<boolean> {
-  const { t } = input;
-  if (
-    !mayDispatchMore(
-      await countActiveFlowWork(t, input.workflowSessionId, input.turnId),
-      input.limits
-    )
-  )
-    return false;
-  const queued = await t.effectsForTurn(
-    input.workflowSessionId,
-    input.turnId,
-    ["queued"]
-  );
-  if (queued.length === 0) return false;
-  const workflow = await t.lockSession<FlowHostSession>(
-    input.workflowSessionId
-  );
-  if (workflow && workflow.status === "waiting") {
-    workflow.status = "runnable";
-    await t.put("sessions", workflow.id, workflow);
-  }
-  await requestWake(t, input.workflowSessionId, {
-    reason: "flow",
-  });
-  return true;
 }

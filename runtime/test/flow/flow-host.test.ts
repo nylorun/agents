@@ -15,12 +15,10 @@ import {
   planCancelCascade,
   pendingAgentEffects,
   reconcilePendingAgentEffect,
-  wakeForQueuedEffects,
   wakeLinkedWorkflow,
   type FlowHostSession,
   type FlowLink,
 } from "../../src/core/flow-host.js";
-import { resolveFlowLimits } from "../../src/core/limits.js";
 import type { DocTable, SessionStore } from "../../src/store/types.js";
 import { createTestSessionStore } from "../support/store.js";
 
@@ -187,34 +185,6 @@ it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and tool nodes in 
   await put("effects", "agent-2", effect("agent-2", "agent", "pending", "turn-0"));
 
   expect(await store.tx((t) => countActiveFlowWork(t, "wf-1", "turn-1"))).toBe(2);
-});
-
-it("WF-L1: wakeForQueuedEffects schedules the workflow after commit when a slot frees", async () => {
-  const { store, put, get, woken } = await testStore();
-  await put("sessions", "wf-1", {
-    id: "wf-1",
-    status: "waiting",
-    activeTurnId: "turn-1",
-  });
-  await put("effects", "q", {
-    request: { effectId: "q", sessionId: "wf-1", turnId: "turn-1", kind: "tool" },
-    status: "queued",
-  });
-  const woke = await store.tx(async (t) => {
-    const result = await wakeForQueuedEffects({
-      t,
-      workflowSessionId: "wf-1",
-      turnId: "turn-1",
-      limits: resolveFlowLimits({ flow: { maxConcurrency: 1 } }),
-    });
-    expect(await woken()).toEqual([]);
-    return result;
-  });
-  expect(woke).toBe(true);
-  expect(await woken()).toEqual(["wf-1"]);
-  expect((await get<FlowHostSession>("sessions", "wf-1"))?.status).toBe(
-    "runnable"
-  );
 });
 
 it("PAR-R6: cancelSiblingWork lists the sibling agents to cancel", async () => {
