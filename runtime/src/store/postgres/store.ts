@@ -625,20 +625,18 @@ class PostgresTx implements Tx {
     const now = sql`clock_timestamp()`;
     const wake = DUE(wakes, graceMs);
     const signal = DUE(OUTBOX.sandbox, graceMs);
-    const [wakeRows, signalRows] = await Promise.all([
-      this.db
-        .select({ ...getTableColumns(wakes), dueSeconds: wake.dueSeconds })
-        .from(wakes)
-        .where(and(isNull(wakes.parkedAt), lte(wake.due, now)))
-        .orderBy(wake.due, wakes.id)
-        .limit(limit),
-      this.db
-        .select({ ...getTableColumns(sandboxSignals), dueSeconds: signal.dueSeconds })
-        .from(sandboxSignals)
-        .where(and(isNull(sandboxSignals.parkedAt), lte(signal.due, now)))
-        .orderBy(signal.due, sandboxSignals.id)
-        .limit(limit),
-    ]);
+    const wakeRows = await this.db
+      .select({ ...getTableColumns(wakes), dueSeconds: wake.dueSeconds })
+      .from(wakes)
+      .where(and(isNull(wakes.parkedAt), lte(wake.due, now)))
+      .orderBy(wake.due, wakes.id)
+      .limit(limit);
+    const signalRows = await this.db
+      .select({ ...getTableColumns(sandboxSignals), dueSeconds: signal.dueSeconds })
+      .from(sandboxSignals)
+      .where(and(isNull(sandboxSignals.parkedAt), lte(signal.due, now)))
+      .orderBy(signal.due, sandboxSignals.id)
+      .limit(limit);
     const rows = [
       ...wakeRows.map((row) => ({
         kind: "wake" as const,

@@ -82,8 +82,10 @@ the new version's Workers register next to the old ones, Restate sends new invoc
 the new deployment and lets the old one finish what it started, and every Worker of one
 version shares its deployment through one load-balanced `NYLORUN_WORKER_URL`. A build that
 changes the Worker's code without changing the Runtime's version (an image built from a
-branch) sets its own `NYLORUN_WORKER_VERSION`: otherwise Restate may refuse its registration
-as a conflicting change to the deployment already there, and the Worker does not start. Outside a container (a development
+branch) sets its own `NYLORUN_WORKER_VERSION`: without force Restate keeps the deployment it
+already has at a URL and does not discover the Worker again, so the changed code would run
+under the old deployment's registration, and a Worker whose services that deployment lacks
+refuses to start. Outside a container (a development
 Host) the registration replaces the deployment at that URL.
 `NYLORUN_MANAGEMENT_KEY_FILE` names the bootstrap secret (below).
 `NYLORUN_IDENTITY_FILE` names the identity

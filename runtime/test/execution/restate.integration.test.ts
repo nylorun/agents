@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import {
+  SEND_RETRY_MS,
   createRestateExecution,
   listStuckInvocations,
   type RestateExecution,
@@ -298,14 +299,15 @@ describe.skipIf(!STACK_ENABLED)("Restate execution", () => {
     const base = options(8, "late", {});
     const execution = createRestateExecution({
       ...base,
-      workerAdvertisedUrl: `${base.workerAdvertisedUrl}/nylorun/0.0.0-test`,
+      workerAdvertisedUrl: `${base.workerAdvertisedUrl}/nylorun/${RUN}`,
       forceRegistration: false,
     });
     open.push(execution);
     const { tenantId, sessionId } = ids();
     // The ingress answers 404 until the services exist: the send keeps trying.
     const sending = execution.wake(tenantId, sessionId, { reason: "message", dedupeKey: "late-1" });
-    await sleep(500);
+    await sleep(100);
+    const registering = Date.now();
     await execution.start({
       ...noop,
       advance: async (_tenantId, id) => {
@@ -313,8 +315,30 @@ describe.skipIf(!STACK_ENABLED)("Restate execution", () => {
         return { status: "done" };
       },
     });
+    // Registration takes well under the send's retry window (`SEND_RETRY_MS`).
+    expect(Date.now() - registering).toBeLessThan(SEND_RETRY_MS - 1000);
     await sending;
     await eventually(() => expect(advanced).toEqual([sessionId]));
+  });
+
+  it("refuses a registration without force at a URL another deployment holds", async () => {
+    const at = (name: string) => {
+      const base = options(9, name, { registrationTimeoutMs: 5000 });
+      return createRestateExecution({
+        ...base,
+        workerAdvertisedUrl: `${base.workerAdvertisedUrl}/nylorun/${RUN}`,
+        forceRegistration: false,
+      });
+    };
+    const first = at("held");
+    await first.start(noop);
+    await first.stop();
+    // The same services again: Restate answers with the deployment it has, which is fine.
+    const again = at("held");
+    await again.start(noop);
+    await again.stop();
+    // Other services at that URL: Restate keeps the old deployment, which serves none of them.
+    await expect(at("other").start(noop)).rejects.toThrow(/is registered with other services/);
   });
 
   it("refuses registration when Restate does not sign with the configured identity key", async () => {

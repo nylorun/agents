@@ -86,9 +86,10 @@ export function validateExecutionConfig(
  * deployment (behind one load-balanced `NYLORUN_WORKER_URL`) and the old one finishes what it
  * started; the endpoint answers on any path, so an older deployment's URL still reaches it.
  * `force` replaces a deployment already registered at the URL with different code: only
- * outside a container (a development Host, whose code changes under one version). In a
- * container Restate may refuse a registration that conflicts with the deployment there: a
- * build whose code changed under the same version sets its own `NYLORUN_WORKER_VERSION`.
+ * outside a container (a development Host, whose code changes under one version). Without
+ * it Restate keeps the deployment it already has at the URL, and a Worker whose services that
+ * deployment lacks refuses to start: a build whose code changed under the same version sets
+ * its own `NYLORUN_WORKER_VERSION`.
  */
 export function workerDeployment(
   config: Pick<StackConfig, "endpoints" | "listen">,

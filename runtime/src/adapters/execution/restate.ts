@@ -599,7 +599,7 @@ export class RestateExecution implements DurableExecution {
   /** Registers the Worker endpoint with the admin API, retrying until Restate is up. */
   private async register(uri: string): Promise<void> {
     const force = this.options.forceRegistration ?? true;
-    await retry(
+    const registered = await retry(
       async () => {
         const response = await fetch(`${this.adminUrl}/deployments`, {
           method: "POST",
@@ -607,10 +607,9 @@ export class RestateExecution implements DurableExecution {
           body: JSON.stringify({ uri, force }),
           signal: AbortSignal.timeout(30_000),
         });
-        if (response.ok) {
-          await response.body?.cancel();
-          return;
-        }
+        if (response.ok)
+          return ((await response.json().catch(() => ({}))) as { services?: { name?: string }[] })
+            .services;
         const text = await response.text().catch(() => "");
         const message = `Restate admin ${response.status} registering ${uri}: ${text}`;
         // Discovery failures (Restate cannot reach the endpoint yet) come back
@@ -623,7 +622,18 @@ export class RestateExecution implements DurableExecution {
         cause: error,
       });
     });
+    // Without `force`, Restate answers a URL already registered with the deployment it has
+    // there, without discovering the endpoint again: one with other services is refused here.
+    const names = new Set((registered ?? []).map((service) => service.name));
+    const missing = Object.values(this.names).filter((name) => !names.has(name));
+    if (registered && missing.length > 0)
+      throw new Error(
+        `Restate deployment registration failed: ${uri} is registered with other services ` +
+          `(missing ${missing.join(", ")}); register this Worker at a URL of its own ` +
+          "(NYLORUN_WORKER_VERSION)",
+      );
   }
+
 }
 
 // Handler maps for typed self-sends (the SDK types clients by handler map).
