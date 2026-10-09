@@ -12,7 +12,6 @@ import { afterEach, expect, it } from "vitest";
 import { synchronize } from "../src/sync.js";
 const compatibility = {
   core: "5",
-  cli: "6",
   harness: "1",
   agents: "4",
   admin: "7",

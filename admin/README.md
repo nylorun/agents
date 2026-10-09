@@ -46,9 +46,8 @@ When none resolves, or the Project link is from an older nylorun or does not
 validate (and nothing else names the Host root), or the linked Project's
 `credentials.json` does not validate, it throws `connection_missing` and lists
 what it tried. Only this local-Host step reads the Host root: `@nylorun/agents`
-takes the Runtime API's key from the Project or the environment only.
-`@nylorun/admin/project` re-exports `@nylorun/core/project`, the reader of the
-Project files, for tools that depend on this package (`nylo`). The first request checks the
+takes the Runtime API's key from the Project or the environment only. The
+Project files' reader is `@nylorun/core/project`. The first request checks the
 Host's `/health` and throws `incompatible_host` unless the Host serves protocol
 8 with the feature `management-api`.
 

@@ -211,8 +211,9 @@ jobs:
             examples/package-lock.json
       # Bundled npm is enough: these tests only run npm ci and npm install.
       - run: npm ci
-      # Workspaces run in flag order: keep dependency order. nylorun needs
-      # only core; the CLI needs agents (on core) and admin.
+      # Workspaces run in flag order: keep dependency order. nylorun (with
+      # nylo) needs core and admin, and agents for its tests; the deprecated
+      # CLI runs nylorun's nylo.
       - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace nylorun --workspace @nylorun/cli
       - name: nylorun and CLI tests
         run: npm test --workspace nylorun --workspace @nylorun/cli

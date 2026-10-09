@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
-import { printLinkedEnvExports } from "../../src/project/env.js";
+import { printLinkedEnvExports } from "../../../src/client/project/env.js";
 import { APPLICATION_KEY, link3, project, writeProjectLink } from "../helpers/project.js";
 
 const roots: string[] = [];

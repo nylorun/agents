@@ -4,7 +4,7 @@ import {
   PROTOCOL_FEATURES,
   PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
-import { doctorSandbox } from "../src/doctor.js";
+import { doctorSandbox } from "../../src/client/doctor.js";
 
 const servers: { close(): void }[] = [];
 const tenantHeaders: (string | string[] | undefined)[] = [];

@@ -3,8 +3,8 @@
  * API (the Project's management key).
  */
 import { createInterface } from "node:readline/promises";
-import { findProjectRoot } from "@nylorun/admin/project";
-import { CliError } from "../errors.js";
+import { findProjectRoot } from "@nylorun/core/project";
+import { CliError } from "../../errors.js";
 import { linkedConnection, managementClient } from "../project/connection.js";
 
 const projectRoot = () => findProjectRoot() ?? process.cwd();

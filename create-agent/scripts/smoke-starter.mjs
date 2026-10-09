@@ -7,8 +7,9 @@
  *   scaffolds the starter from the packed creator, installs it offline from
  *   the tarballs and builds it. Its only Nylorun dependencies are
  *   @nylorun/agents and @nylorun/core; it has no Nylorun devDependency.
- * - Installs nylorun (local Tenants) and @nylorun/cli (nylo, the Runtime client)
- *   from their tarballs into a separate tools directory, as `npx` would.
+ * - Installs nylorun (local Tenants, and nylo, the Runtime client) and the
+ *   deprecated @nylorun/cli from their tarballs into a separate tools
+ *   directory, as `npx` would; @nylorun/cli runs nylorun's nylo.
  * - Builds (or reuses, see scripts/lib/stack.mjs) the Runtime and Studio
  *   images and, under a temporary NYLORUN_HOME, runs `nylorun start` in the
  *   project with NYLORUN_TENANT naming the test Tenant (its containers and
@@ -27,6 +28,7 @@
  * The Tenant has no model at first (the starter's .env names none), so it is
  * checked as not configured before the fixture model is seeded.
  */
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile, rm, stat } from "node:fs/promises";
@@ -175,7 +177,16 @@ try {
     cwd: tools,
   });
   const nylorunBin = join(tools, "node_modules/nylorun/dist/cli.js");
-  const nyloBin = join(tools, "node_modules/@nylorun/cli/dist/cli.js");
+  const nyloBin = join(tools, "node_modules/nylorun/dist/nylo.js");
+  // The deprecated package says so on stderr and runs nylorun's nylo.
+  const deprecated = spawnSync(
+    process.execPath,
+    [join(tools, "node_modules/@nylorun/cli/dist/cli.js"), "--help"],
+    { encoding: "utf8" },
+  );
+  assert.equal(deprecated.status, 0, deprecated.stderr);
+  assert.match(deprecated.stdout, /^nylo <status\|reset/);
+  assert.match(deprecated.stderr, /^@nylorun\/cli is deprecated: nylo ships in nylorun\./);
 
   const images = await ensureImages();
   await withStack(

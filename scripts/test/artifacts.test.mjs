@@ -18,7 +18,7 @@ test(
         packages.map((name) => [name, "1.0.0-beta"]),
       );
       const compatibility = {
-        core: "1.0.0-beta", cli: "1.0.0-beta",
+        core: "1.0.0-beta",
         harness: "1.0.0-beta", agents: "1.0.0-beta",
         admin: "1.0.0-beta",
         runtime: "1.0.0-beta",

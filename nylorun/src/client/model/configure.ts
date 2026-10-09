@@ -7,24 +7,18 @@ import type {
   AuthInteraction,
   Credential,
   CredentialStore,
+  Model,
 } from "@earendil-works/pi-ai";
-import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import {
-  createProvider,
-  type Model,
-} from "@earendil-works/pi-ai";
-import {
-  stream,
-  streamSimple,
-} from "@earendil-works/pi-ai/api/openai-completions";
 import type { ManagementClient } from "@nylorun/admin";
-import { nylorunHome } from "@nylorun/admin/project";
+import { nylorunHome } from "@nylorun/core/project";
+import { CliError } from "../../errors.js";
+import { loadPiAi, type PiAi } from "./pi-ai.js";
 
-export class ConfigurationCancelled extends Error {
-  readonly exitCode: number;
+/** Exit 130 on SIGINT, 143 on SIGTERM. */
+export class ConfigurationCancelled extends CliError {
   constructor(readonly signal: "SIGINT" | "SIGTERM") {
-    super(`Provider configuration cancelled (${signal}).`);
-    this.exitCode = signal === "SIGINT" ? 130 : 143;
+    super(`Provider configuration cancelled (${signal}).`, signal === "SIGINT" ? 130 : 143);
+    this.name = "ConfigurationCancelled";
   }
 }
 
@@ -57,6 +51,7 @@ export type Selection = Readonly<{
  * Tenant API payload when provided (F2-4).
  */
 function modelsFor(
+  { builtinModels, createProvider, stream, streamSimple }: PiAi,
   selection: Selection,
   credentials: CredentialStore,
   catalog?: ModelCatalog,
@@ -174,6 +169,8 @@ export async function configureProvider(
   const signal = controller.signal;
   const forwardAbort = () => controller.abort(options.signal!.reason);
   options.signal?.throwIfAborted();
+  const ai = await loadPiAi();
+  options.signal?.throwIfAborted();
   let captured: Credential | undefined;
   const store: CredentialStore = {
     async read() {
@@ -191,7 +188,7 @@ export async function configureProvider(
       return next ?? captured;
     },
   };
-  const registry = modelsFor({ provider: "", model: "" }, store, options.catalog);
+  const registry = modelsFor(ai, { provider: "", model: "" }, store, options.catalog);
   const providers = registry.listProviders();
   const prompt = createInterface({
     input: options.input ?? process.stdin,
@@ -252,7 +249,7 @@ export async function configureProvider(
         model,
         custom: { baseUrl },
       };
-      const custom = modelsFor(selection, store, options.catalog);
+      const custom = modelsFor(ai, selection, store, options.catalog);
       if (!(await custom.models.checkAuth("custom", { signal })))
         await custom.models.login("custom", "api_key", interaction(), login);
       return {

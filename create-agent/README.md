@@ -42,17 +42,17 @@ Tenant (Runtime, Studio and their infrastructure in Docker, named after the
 directory; `--tenant` picks or shares another). It writes the Project link and the derived application credentials to
 gitignored `.nylorun/`, and seeds the model provider from `.env`
 (`MODEL_PROVIDER`, `MODEL`, `MODEL_PROVIDER_API_KEY`) into the Tenant vault.
-`@nylorun/cli` (command `nylo`) is the Runtime client: `nylo status`
-and `nylo reset` work on the linked Tenant. Studio or
-`npx @nylorun/cli configure` sets or replaces the provider.
+`nylo`, the Runtime client in the same `nylorun` package, works on the linked
+Tenant: `nylo status` and `nylo reset`. Studio or
+`npx -p nylorun nylo configure` sets or replaces the provider.
 `npm start` runs `node dist/src/main.js` with the same entry as development.
-Export the Project environment (`eval "$(npx @nylorun/cli env)"`) before a
+Export the Project environment (`eval "$(npx -p nylorun nylo env)"`) before a
 production start when there is no Project link. Tenant data, including the
 vault, lives in the Tenant's Docker volumes. Definitions have no model provider or
 `agent.run()`.
 
 `starter/` is the canonical template. `compatibility.json` pins core, harness,
-agents, admin, Runtime and CLI. `nylorun` pins the Runtime and Studio images
+agents, admin and Runtime. `nylorun` pins the Runtime and Studio images
 it runs (`nylorun/package.json` `nylorun`). The examples recipe adds local
 package dependencies. Run `npm run examples:sync` after template changes, then
 `npm install --prefix examples`. Sync preserves authored agents, tests,
@@ -63,7 +63,8 @@ remain outside that registry for later migration.
 
 `npm run test:starter` (`create-agent/scripts/smoke-starter.mjs`) packs the
 workspace, scaffolds the starter from the packed creator, installs `nylorun`
-and `@nylorun/cli` beside it (never into it), runs `nylorun start` in it and
+(and the deprecated `@nylorun/cli`, which it checks runs nylorun's `nylo`)
+beside it (never into it), runs `nylorun start` in it and
 `npm run dev` against a temporary local Tenant, then resets that Tenant,
 seeds the fixture model and runs one turn with the starter's assistant.
 

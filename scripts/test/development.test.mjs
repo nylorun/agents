@@ -26,11 +26,12 @@ test("options: --no-studio implies --no-open; unknown and repeated flags fail", 
 test("an edit rebuilds its dependents and the images built from it", () => {
   assert.deepEqual(rebuildPlan(["harness"]), { packages: ["harness", "runtime"], images: ["runtime"] });
   assert.deepEqual(rebuildPlan(["core"]), {
-    packages: ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli"],
+    packages: ["core", "harness", "agents", "admin", "runtime", "nylorun"],
     images: ["runtime", "studio"],
   });
-  assert.deepEqual(rebuildPlan(["agents"]), { packages: ["agents", "cli"], images: ["studio"] });
-  assert.deepEqual(rebuildPlan(["cli"]), { packages: ["cli"], images: [] });
+  assert.deepEqual(rebuildPlan(["agents"]), { packages: ["agents"], images: ["studio"] });
+  // nylorun's nylo uses admin.
+  assert.deepEqual(rebuildPlan(["admin"]), { packages: ["admin", "nylorun"], images: ["studio"] });
   assert.deepEqual(rebuildPlan(["nylorun"]), { packages: ["nylorun"], images: [] });
   assert.deepEqual(rebuildPlan(["studio"]), { packages: [], images: ["studio"] });
   assert.deepEqual(rebuildPlan(["studio"], { studio: false }), { packages: [], images: [] });
@@ -84,7 +85,7 @@ test(
     const controller = new AbortController();
     let app;
     try {
-      for (const name of ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli", "studio"])
+      for (const name of ["core", "harness", "agents", "admin", "runtime", "nylorun", "studio"])
         await mkdir(join(repo, name, "src"), { recursive: true });
       app = await develop(
         { studio: true, open: true, watch: true },
@@ -104,7 +105,6 @@ test(
         "build admin",
         "build runtime",
         "build nylorun",
-        "build cli",
         "images",
         "start",
         "studio open=true",
@@ -132,16 +132,16 @@ test(
 
       calls.length = 0;
       failing = true;
-      await writeFile(join(repo, "cli/src/cli.ts"), "export const broken = ;");
+      await writeFile(join(repo, "nylorun/src/cli.ts"), "export const broken = ;");
       await until(() => logs.some((line) => line.includes("were retained")));
-      assert.deepEqual(calls, ["build cli"]);
+      assert.deepEqual(calls, ["build nylorun"]);
       assert.equal(runners, 2, "the runner keeps running");
 
       calls.length = 0;
       failing = false;
-      await writeFile(join(repo, "cli/src/cli.ts"), "export const fixed = 1;");
+      await writeFile(join(repo, "nylorun/src/cli.ts"), "export const fixed = 1;");
       await until(() => runners === 3);
-      assert.deepEqual(calls, ["build cli", "runner"]);
+      assert.deepEqual(calls, ["build nylorun", "runner"]);
 
       controller.abort();
       assert.equal(await app.done, 0);

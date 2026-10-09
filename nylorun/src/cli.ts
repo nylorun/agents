@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import "./baseline.js";
 import { baselineEnv } from "./baseline.js";
+import { refuseNativeWindows, runCommand } from "./command.js";
 import { CliError } from "./errors.js";
 import {
   isStackCommand,
@@ -32,14 +33,18 @@ else (outside a project) the default Tenant; NYLORUN_HOME sets its Host root
 
 nylorun sets up and runs local Tenants. "nylorun start" in a project creates the
 project's Tenant and the Project link; anywhere else, it starts the default Tenant.
-Agents, sessions and model providers belong to the Runtime client: npx @nylorun/cli --help`;
+nylorun status and reset act on the local Tenant's containers and volumes on this machine.
+The package's other command, nylo, is the Runtime client of the linked installation: its
+status and reset go through the Management API, and it sets the model provider (nylo --help,
+or npx -p nylorun nylo --help).`;
 
-const CLIENT = "npx @nylorun/cli";
+/** `nylo`, the Runtime client (this package's second command), run without installing. */
+const CLIENT = "npx -p nylorun nylo";
 
-/** Commands that were removed, or moved to the Runtime client (`@nylorun/cli`, command `nylo`). */
+/** Commands that were removed, or that are the Runtime client's (`nylo`). */
 const MOVED_TO_CLIENT: Record<string, string> = {
   dev: "nylorun dev was removed: run `npx nylorun start` in your project (it creates the project's Tenant and the Project link), then your project's `npm run dev`.",
-  configure: `nylorun configure moved to the Runtime client: ${CLIENT} configure`,
+  configure: `nylorun configure is the Runtime client's: ${CLIENT} configure`,
   serve: "nylorun serve was removed. Use node dist/src/main.js with NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY.",
   runtime: "nylorun runtime was removed: the local Runtime runs in Docker Compose. Use nylorun up|down|status|logs.",
 };
@@ -53,16 +58,12 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h")
     return void console.log(usage);
-  if (process.platform === "win32")
-    throw new CliError(
-      "Nylorun does not run on native Windows. Use WSL2: install Node 24 and Docker (Docker Desktop's WSL integration) inside your WSL distribution and run nylorun there (https://learn.microsoft.com/windows/wsl/install).",
-      1,
-    );
+  refuseNativeWindows();
 
   const moved = MOVED_TO_CLIENT[command];
   if (moved) throw usageError(moved);
   if (command === "status" && args.includes("--env"))
-    throw usageError(`nylorun status --env moved to the Runtime client: ${CLIENT} env`);
+    throw usageError(`nylorun status --env is the Runtime client's: ${CLIENT} env`);
 
   if (command === "studio") {
     if (args.includes("--local-ui")) throw usageError(LOCAL_UI_REMOVED);
@@ -98,7 +99,7 @@ async function main() {
 
   if (command === "doctor") {
     if (args[0] === "sandbox")
-      throw usageError(`nylorun doctor sandbox moved to the Runtime client: ${CLIENT} doctor sandbox`);
+      throw usageError(`nylorun doctor sandbox is the Runtime client's: ${CLIENT} doctor sandbox`);
     if (args.some((option) => option !== "--json"))
       throw usageError("Usage: nylorun doctor [--json]");
     const { doctorStack } = await import("./doctor.js");
@@ -109,17 +110,4 @@ async function main() {
   throw usageError(usage);
 }
 
-async function finish(code: number): Promise<never> {
-  process.exitCode = code;
-  for (const stream of [process.stdout, process.stderr])
-    await new Promise<void>((resolve) => stream.write("", () => resolve()));
-  process.exit(code);
-}
-
-void main().then(
-  () => finish(process.exitCode === undefined ? 0 : Number(process.exitCode)),
-  (error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    return finish(error instanceof CliError ? error.exitCode : 1);
-  },
-);
+runCommand(main);

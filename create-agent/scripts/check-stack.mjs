@@ -4,7 +4,7 @@ import {starterFiles} from '../dist/scaffold.js';
 const pins=JSON.parse(await readFile(new URL('../compatibility.json',import.meta.url),'utf8'));
 const files=await starterFiles(pins);const p=JSON.parse(files['package.json']);
 assert.equal(p.dependencies['@nylorun/agents'],pins.agents);assert.equal(p.dependencies['@nylorun/cli'],undefined);
-// nylorun (local Tenants) and @nylorun/cli (the Runtime client) run with npx, never from the project.
+// nylorun (local Tenants, and nylo, the Runtime client) runs with npx, never from the project.
 assert.deepEqual(Object.keys(p.devDependencies).filter((name)=>name.includes('nylorun')),[]);
 assert.equal(p.dependencies['@nylorun/runtime'],undefined);assert.equal(p.devDependencies['@nylorun/runtime'],undefined);
 assert.equal(p.dependencies.hono,undefined);assert.equal(p.dependencies['@nylorun/harness'],undefined);

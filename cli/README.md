@@ -1,101 +1,26 @@
-# @nylorun/cli
+# @nylorun/cli (deprecated)
 
-The Runtime client, command `nylo`: it acts on the one Tenant of an
-installation, a local Tenant or any Runtime reachable by URL and key. Setting up
-and running local Tenants is [`nylorun`](../nylorun/README.md)'s job; the two
-packages are independent and never call each other. Depends on
-`@nylorun/agents` and `@nylorun/admin` only among Nylorun packages. Vocabulary:
-[runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
-
-```sh
-npx nylorun start                     # in the project: its Tenant and the Project link
-npx @nylorun/cli status               # the linked Tenant
-```
-
-## Commands
+`nylo`, the Runtime client, ships in [`nylorun`](../nylorun/README.md#the-runtime-client-nylo)
+beside the `nylorun` command. This package is kept for one release so that
+existing commands and scripts keep working: its `nylo` prints one line on
+stderr, then runs nylorun's `nylo` with the same arguments and exits with its
+code. stdout is `nylo`'s alone, so `eval` still works:
 
 ```sh
-nylo status [--json]                  # the Tenant, its checks and counts
-nylo reset [--sessions|--sandboxes|--all] [--yes]
-nylo access signing-keys …            # the Tenant's signing keys: list, rotate, revoke
-nylo configure                        # set or replace the Tenant's model provider
-nylo env                              # export lines for the linked Project
-nylo doctor sandbox [--json]          # sandbox backend via the Management API
-```
-
-Every command acts on the linked installation: the Project link and
-credentials (below), or `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY` when the
-Project has no link. An installation serves one Tenant, so nothing selects it.
-`status`, `reset`, `access`, `configure` and `doctor` use the Management API
-with the Project's management key, or `NYLORUN_MANAGEMENT_KEY` (with
-`NYLORUN_RUNTIME_URL` when there is no link); `env` prints the Runtime URL and
-the application key, for the Runtime API.
-
-Local Tenant commands (`up`, `down`, `start`, `stop`, `logs`, `studio`) exit 2
-naming `npx nylorun <command>`. `nylo tenant …` exits 2: `npx nylorun start`
-creates the project's Tenant and the link, and `nylo status|reset` replace
-`nylo tenant status|reset`. `nylo endpoints` was removed with Action endpoints
-and exits 2. `nylorun dev` was removed: run
-`npx nylorun start` once, then the project's own `npm run dev`
-(`tsx watch src/main.ts`).
-
-## `nylo status`
-
-Reads the Management API's status (`GET /v1/tenant`, with a management key) and
-prints the Tenant, the Runtime URL, the checks, the counts and the sandbox
-backend. When the Tenant is not open it does not answer; `nylo status` then
-fails and says to run `npx nylorun status`, which reports why from the
-Runtime's container (`nylorun-operate status`).
-
-## `nylo reset`
-
-Clears the Tenant's sessions (the default), its sandboxes, or all its data
-(`--all`), after draining work in flight. `--all` asks first; pass `--yes` when
-not in a terminal. The Project link and credentials are kept.
-
-## Project link
-
-`npx nylorun start` writes it; `nylo` only reads it. A **Project** stores only:
-
-- `.nylorun/link.json`: `{ format: 3, tenant, hostUrl, hostId, tenantId }`
-  (`tenant` is the local Tenant's name; `tenantId` is information)
-- `.nylorun/credentials.json` (0600): the application key `project` and the
-  management key `project-management`, with their ids (`applicationKey`,
-  `principalId`, `managementKey`, `managementPrincipalId`)
-- `.nylorun/.gitignore` containing `*`
-
-A link from an older nylorun (format 0 to 2): `nylo` refuses it and says to run
-`npx nylorun start`, which links the project again.
-
-`createClient` in `@nylorun/agents` reads the link (or the two variables), so the
-project's `npm run dev` and `npm start`, which save its agents, need no Nylorun tool.
-`nylo endpoints` was removed with Action endpoints (protocol 8): the Runtime runs no code
-of yours during a session.
-
-```sh
+npx @nylorun/cli status
 eval "$(npx @nylorun/cli env)"
-# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
-## Exit codes
+Run nylorun's `nylo` instead:
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Success |
-| 1 | Generic failure |
-| 2 | Usage error, or a moved or removed command |
-| 6 | No Runtime at the linked or local URL |
-| 130 / 143 | SIGINT / SIGTERM |
+```sh
+npx -p nylorun nylo status
+eval "$(npx -p nylorun nylo env)"
+```
 
-## Troubleshooting
-
-| Symptom | What to do |
-| --- | --- |
-| No Runtime answers | `npx nylorun start`, then `npx nylorun status` |
-| Tenant not open | `npx nylorun status` shows the cause and its `repair` |
-| No management key | `npx nylorun start` in the project writes one; elsewhere set `NYLORUN_MANAGEMENT_KEY` |
-| `403 key_role_mismatch` | The key belongs to the other API: a management key for the Management API, an application key for the Runtime API |
-| Old Project link refused | `npx nylorun start` in the project |
-| `426` from the Runtime | Upgrade the CLI, or pin a matching older set |
-
-See [MIGRATION.md](../MIGRATION.md).
+or add `nylorun` as a devDependency and run `nylo` there (`npx nylo` in the
+project; outside it, `npx nylo` looks for an unrelated npm package named
+`nylo`). The commands, their output and their exit codes are the same:
+[nylorun/README.md](../nylorun/README.md#the-runtime-client-nylo) documents
+them. This package depends on `nylorun` only, at the version released with it,
+and a later release removes it. See [MIGRATION.md](../MIGRATION.md).

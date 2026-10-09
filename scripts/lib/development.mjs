@@ -2,7 +2,7 @@
  * `npm run dev`: the contributor loop on a local Tenant (Docker Compose).
  *
  * 1. Build the host-side packages the examples application runs on (core,
- *    harness, agents, admin, runtime, nylorun, cli).
+ *    harness, agents, admin, runtime, nylorun).
  * 2. Build the Runtime and Studio images from this checkout
  *    (`nylorun-runtime:dev`, `nylorun-studio:dev`; NYLORUN_RUNTIME_IMAGE /
  *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` examples/' Tenant
@@ -48,8 +48,7 @@ export const HOST_PACKAGES = {
   agents: ["core"],
   admin: ["core"],
   runtime: ["core", "harness"],
-  nylorun: ["core"],
-  cli: ["agents", "admin"],
+  nylorun: ["core", "admin"],
 };
 
 /** The packages each image is built from (see runtime/Dockerfile, studio/Dockerfile). */
@@ -66,7 +65,6 @@ const WATCHED = {
   admin: ["src"],
   runtime: ["src"],
   nylorun: ["src"],
-  cli: ["src"],
   studio: ["src", "web"],
 };
 
@@ -289,7 +287,7 @@ export async function develop(
       void close(1);
     });
     log(
-      "[dev] Watching core, harness, agents, admin, runtime, nylorun, cli" +
+      "[dev] Watching core, harness, agents, admin, runtime, nylorun" +
         (options.studio ? " and studio" : "") +
         ". Ctrl-C stops the examples runner; `npx nylorun stop` (in examples/) stops the Tenant.",
     );

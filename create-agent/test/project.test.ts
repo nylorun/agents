@@ -5,7 +5,6 @@ import type { Compatibility, CreatorDependencies } from "../src/contracts.js";
 
 const compatibility: Compatibility = {
   core: "0.1.0-beta.1",
-  cli: "0.1.0-beta.1",
   harness: "1.2.3",
   agents: "2.3.4",
   admin: "0.1.0-beta",
