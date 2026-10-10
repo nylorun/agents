@@ -9,7 +9,11 @@ import {
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { AppSidebar } from "@/components/app-sidebar";
-import { TenantSettings } from "@/components/tenant-settings";
+import {
+  SETTINGS_SECTIONS,
+  TenantSettings,
+  settingsSection as settingsSectionOf,
+} from "@/components/tenant-settings";
 import { TenantOverview } from "@/components/tenant-overview";
 import { ViewErrorBoundary } from "@/components/view-error-boundary";
 import { AgentManifestPanel } from "@/components/agent-manifest-panel";
@@ -432,6 +436,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const agent = connection.agents.find((a) => a.id === agentId);
   const settingsActive = location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/") || location.pathname === "/vault";
+  const settingsSection = settingsSectionOf(location.pathname);
   return (
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
@@ -439,13 +444,15 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         tenant={tenant}
         activeAgentId={agentId}
         activeSessionId={sessionId}
-        settingsActive={settingsActive}
+        settingsSection={settingsSection}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
           <SidebarTrigger />
           <strong>
-            {settingsActive ? "Tenant settings" : (agent?.name ?? "Nylorun Studio")}
+            {settingsSection
+              ? SETTINGS_SECTIONS[settingsSection]
+              : (agent?.name ?? "Nylorun Studio")}
           </strong>
           {embedded() ? null : (
             <Badge variant="outline" title={tenant.id}>
@@ -480,8 +487,10 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
           ) : location.pathname === "/vault" ? (
             <Navigate to={`/settings/credentials${location.search}${location.hash}`} replace />
+          ) : settingsSection ? (
+            <TenantSettings tenant={tenant} section={settingsSection} />
           ) : settingsActive ? (
-            <TenantSettings tenant={tenant} />
+            <Navigate to="/settings/overview" replace />
           ) : agentId && sessionId ? (
             // Any session opens, also one whose agent is not registered (a
             // flow's embedded agent); the session says which agent it runs.

@@ -81,8 +81,10 @@ the browser.
 Studio lists registered agents and sessions, sends text, displays completed
 assistant responses and tool inputs/results, restores history, observes
 canonical SSE events, and cancels a turn. Each session shows chat beside an
-**Events** inspector and an optional Agent Manifest tab. **Tenant settings** groups
-Overview, Models and Credentials. Credentials lists installation vaults and
+**Events** inspector and an optional Agent Manifest tab. The sidebar's header
+shows the Tenant and the Runtime's status; selecting the Tenant opens its
+Overview. **Models** and **Credentials** have their own sidebar entries, and the
+Agents heading counts the registered agents. Credentials lists installation vaults and
 manages their URL-bound credentials through the Management API
 (`@nylorun/admin/client`, `/v1/tenant/vaults`): a Bearer token or a Headers map
 (name and value rows), with an optional gateway URL (`via`) and identity header,

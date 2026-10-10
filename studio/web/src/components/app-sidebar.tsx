@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Activity,
   Bot,
+  Building2,
   ChevronRight,
   CirclePlus,
-  Database,
+  Cpu,
   GitBranch,
+  KeyRound,
   LoaderCircle,
-  ServerOff,
-  Settings,
 } from "lucide-react";
 import type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
@@ -23,7 +22,6 @@ import {
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -35,13 +33,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-  SidebarSeparator,
 } from "@/components/ui/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 function agentPath(agentId: string): string {
   return "/agents/" + encodeURIComponent(agentId);
@@ -174,57 +166,80 @@ function AgentNavigation({
     </Collapsible>
   );
 }
-function ConnectionIndicator({
-  connection,
-}: Readonly<{ connection: Connection }>) {
-  const running = connection.status === "Running";
-  const className = running
+function statusDotClass(status: Connection["status"]): string {
+  return status === "Running"
     ? "bg-emerald-500"
-    : connection.status === "Connecting"
+    : status === "Connecting"
       ? "bg-amber-500"
       : "bg-muted-foreground";
-  const indicator = (
-    <div className="flex items-center gap-2">
-      <span className={"size-2 shrink-0 rounded-full " + className} />
-      {connection.status === "Connecting" ? (
-        <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
-      ) : running ? (
-        <Activity className="size-3.5 shrink-0" />
-      ) : (
-        <ServerOff className="size-3.5 shrink-0" />
-      )}
-      <span className="group-data-[collapsible=icon]:hidden">
-        {connection.status}
-      </span>
-    </div>
-  );
-  if (connection.url === undefined) return indicator;
+}
+/** The Tenant and its Runtime status; opens the Tenant overview. */
+function TenantNavigation({
+  connection,
+  tenant,
+  active,
+}: Readonly<{
+  connection: Connection;
+  tenant?: StudioTenantInfo;
+  active: boolean;
+}>) {
+  // Embedded, the app owns the Tenant's name too (Studio §8.7).
+  const named = tenant !== undefined && !embedded();
+  const title = named ? tenant.name : "Runtime";
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>{indicator}</TooltipTrigger>
-      <TooltipContent side="right">{connection.url}</TooltipContent>
-    </Tooltip>
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        size="lg"
+        asChild
+        isActive={active}
+        tooltip={title + " · " + connection.status}
+      >
+        <Link to="/settings/overview" title={tenant?.id}>
+          <div className="relative flex aspect-square size-8 items-center justify-center rounded-lg border bg-background">
+            <Building2 className="size-4" />
+            <span
+              className={
+                "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-sidebar " +
+                statusDotClass(connection.status)
+              }
+            />
+          </div>
+          <div className="grid flex-1 text-left text-sm leading-tight">
+            <span className="truncate font-medium">{title}</span>
+            <span className="flex min-w-0 items-center gap-1.5 text-xs text-sidebar-foreground/70">
+              {named ? (
+                <span className="truncate font-mono">
+                  {shortTenantId(tenant.id)}
+                </span>
+              ) : null}
+              {named ? <span aria-hidden>·</span> : null}
+              <span className="flex shrink-0 items-center gap-1" role="status">
+                {connection.status === "Connecting" ? (
+                  <LoaderCircle className="size-3 animate-spin" />
+                ) : null}
+                {connection.status}
+              </span>
+            </span>
+          </div>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
+export type SettingsSection = "overview" | "models" | "credentials";
 export function AppSidebar({
   connection,
   tenant,
   activeAgentId,
   activeSessionId,
-  settingsActive,
+  settingsSection,
 }: Readonly<{
   connection: Connection;
   tenant?: StudioTenantInfo;
   activeAgentId?: string;
   activeSessionId?: string;
-  settingsActive?: boolean;
+  settingsSection?: SettingsSection;
 }>) {
-  const availability =
-    connection.status === "Running"
-      ? connection.agents.length +
-        " agent" +
-        (connection.agents.length === 1 ? "" : "s")
-      : "Agent server unavailable";
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -252,26 +267,23 @@ export function AppSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
           )}
-          {tenant && !embedded() ? (
-            <SidebarMenuItem>
-              <div
-                className="px-2 py-1.5 text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden"
-                title={tenant.id}
-              >
-                <div className="truncate font-medium text-sidebar-foreground">
-                  {tenant.name}
-                </div>
-                <div className="truncate font-mono">
-                  {shortTenantId(tenant.id)}
-                </div>
-              </div>
-            </SidebarMenuItem>
-          ) : null}
+          <TenantNavigation
+            connection={connection}
+            tenant={tenant}
+            active={settingsSection === "overview"}
+          />
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Agents</SidebarGroupLabel>
+          <SidebarGroupLabel>
+            Agents
+            {connection.status === "Running" ? (
+              <span className="ml-1 tabular-nums">
+                ({connection.agents.length})
+              </span>
+            ) : null}
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {connection.agents.map((agent) => (
@@ -291,6 +303,13 @@ export function AppSidebar({
                   </span>
                 </SidebarMenuItem>
               ) : null}
+              {connection.status === "Offline" ? (
+                <SidebarMenuItem>
+                  <span className="block px-2 py-1 text-sm text-muted-foreground group-data-[collapsible=icon]:hidden">
+                    Agent server unavailable
+                  </span>
+                </SidebarMenuItem>
+              ) : null}
               {connection.status === "Connecting" ? (
                 <SidebarMenuItem>
                   <span className="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground">
@@ -303,17 +322,30 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
+          <SidebarGroupLabel>Settings</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={settingsActive}
-                  tooltip="Tenant settings"
+                  isActive={settingsSection === "models"}
+                  tooltip="Models"
                 >
-                  <Link to="/settings/overview">
-                    <Settings />
-                    <span>Tenant settings</span>
+                  <Link to="/settings/models">
+                    <Cpu />
+                    <span>Models</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={settingsSection === "credentials"}
+                  tooltip="Credentials"
+                >
+                  <Link to="/settings/credentials">
+                    <KeyRound />
+                    <span>Credentials</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -321,18 +353,6 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarSeparator />
-        <div className="flex flex-col gap-2 px-2 py-1.5 text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-0">
-          <div className="flex items-center gap-2">
-            <Database className="size-3.5 shrink-0" />
-            <span className="group-data-[collapsible=icon]:hidden">
-              {availability}
-            </span>
-          </div>
-          <ConnectionIndicator connection={connection} />
-        </div>
-      </SidebarFooter>
     </Sidebar>
   );
 }

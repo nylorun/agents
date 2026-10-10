@@ -481,7 +481,7 @@ Either kind may add:
 - **`identity: { header }`**: a header that carries the session owner's subject, for a gateway
   that keeps each person's accounts ([Reaching a person's accounts](#reaching-a-persons-accounts)).
 
-Add one on Studio's Credentials page (Tenant settings), with `@nylorun/admin`, or with
+Add one on Studio's Credentials page (in the sidebar), with `@nylorun/admin`, or with
 `POST /v1/tenant/vaults/{vaultId}/credentials` and a management key:
 
 ```ts
