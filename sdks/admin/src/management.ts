@@ -9,6 +9,8 @@ import {
   ModelCallExportPageSchema,
   type CreateCredentialRequest,
   type CreateVaultRequest,
+  type CredentialCoverage,
+  type CredentialCoverageRequest,
   type CredentialInfo,
   type HostModelCatalog,
   type HostModelView,
@@ -116,6 +118,13 @@ export interface ManagementVaults {
     ): Promise<CredentialInfo>;
     delete(vaultId: string, credentialId: string): Promise<{ id: string }>;
   };
+  /**
+   * Which credential each remote MCP server and HTTP tool of the saved agent `agentId` would get
+   * in a session that attaches `vaultIds` (default none), chosen as its calls choose one. A
+   * `missing` entry lists the vaults that hold one in `available`. Host feature
+   * `credential-coverage`.
+   */
+  coverage(request: Body<CredentialCoverageRequest>): Promise<CredentialCoverage>;
 }
 
 export interface ManagementMcp {
@@ -245,6 +254,7 @@ export class ManagementClient {
           call("POST", credential(vaultId, credentialId), withId(request)),
         delete: (vaultId, credentialId) => call("DELETE", credential(vaultId, credentialId)),
       },
+      coverage: (request) => call("POST", "/v1/tenant/credential-coverage", withId(request)),
     };
     this.mcp = {
       preview: (request) => call("POST", "/v1/tenant/mcp/preview", request),

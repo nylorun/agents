@@ -245,6 +245,8 @@ function tenantOperations(): Operation[] {
     { method: "DELETE", path: `${vault}/credentials/crd-missing` },
     // A tool preview (R2b C12): the body fails validation, so no server is called.
     { method: "POST", path: "/v1/tenant/mcp/preview", body: INVALID },
+    // Credential coverage: the body fails validation, so no definition or vault is read.
+    { method: "POST", path: "/v1/tenant/credential-coverage", body: INVALID },
     { method: "GET", path: "/v1/access/jwks" },
     { method: "GET", path: "/v1/me" },
     { method: "GET", path: "/v1/tenant/signing-keys" },

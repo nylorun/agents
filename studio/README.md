@@ -38,7 +38,7 @@ their sign-in, below.
    browser and prints only Studio's origin. Studio consumes the token, sets an
    `HttpOnly`, `SameSite=Strict` session cookie for 30 days and redirects to
    `next` or `/`.
-3. Every `/_studio/*` request needs that cookie (or an embedded session's
+3. Except for an existing public Runtime artifact capability download, every `/_studio/*` request needs that cookie (or an embedded session's
    bearer, or the loopback address). The dashboard's files carry no data and the `/` redirect names only
    the Tenant id, so they need none. The `Host` header must be `localhost` or
    `127.0.0.1` on the published port, or a host in
@@ -75,7 +75,7 @@ The dashboard calls the Runtime through
 `/_studio/tenants/<id>/runtime/…`, which the server forwards with Studio's key
 (`deriveStudioToken(adminKey)`, derived from the admin key in memory; role
 `studio`, which reaches the Runtime API and the Management API) and no
-`Nylorun-Tenant` header. No Runtime, admin or Tenant credential ever reaches
+`Nylorun-Tenant` header. No installation Runtime, admin or Tenant key ever reaches
 the browser.
 
 Studio lists the Tenant's sessions, sends text, displays completed
@@ -85,7 +85,8 @@ session (agent, owner, status), filtered to an agent from the table or from the
 agents listed under Sessions in the sidebar, with **New session** for a
 registered agent; `/tenants/<id>/sessions?agent=<agentId>` is the filtered list,
 and `/tenants/<id>/agents/<agentId>` opens it. Each session shows chat beside an
-**Events** inspector and an optional Agent Manifest tab. The sidebar's header
+**Events** inspector, an Artifacts tab and an optional Agent Manifest tab.
+**Sandboxes** and **Artifacts** sit under Sessions in the sidebar. The sidebar's header
 shows the Tenant and the Runtime's status; selecting the Tenant opens its
 Overview. **Models** and **Credentials** have their own entries at the bottom
 of the sidebar. Credentials lists installation vaults and
@@ -94,15 +95,47 @@ manages their URL-bound credentials through the Management API
 (name and value rows), with an optional gateway URL (`via`) and identity header,
 and **Preview tools** on each one lists the MCP server's tools behind its URL
 (`POST /v1/tenant/mcp/preview`). Overview and Models use it too;
-secret reads return metadata only. Attach vaults explicitly using `vaultIds` when
-creating a session with the SDK or API. Studio-created sessions attach none.
-A person's own keys go in their user vault, which only their sessions attach.
+secret reads return metadata only. **New session** on an agent whose MCP
+servers or HTTP tools take a credential opens a vault picker first. It lists the
+installation vaults, ticks the ones that hold the agent's credentials, and shows
+what each server and tool would get (`POST /v1/tenant/credential-coverage`):
+covered, no credential (an MCP server is called without one) or a call that would
+fail. Where several attached credentials match one URL, you pick one. The session
+starts with those `vaultIds` and `credentialSelections`. An agent that takes no
+credential, or a Runtime without the `credential-coverage` feature, starts its
+session at once. Studio manages no person's vault: a person's own keys go in their
+user vault, which only their sessions attach, through the SDK or API.
 
 Settings links use `/tenants/<id>/settings/overview`, `/settings/models` and
 `/settings/credentials` under the same Tenant prefix. Legacy `/settings` and
 `/vault` links redirect to Models and Credentials respectively, including embeds.
-Token streaming, media, an approvals UI and a session vault selector are
-deferred.
+Token streaming, media and an approvals UI are deferred.
+
+## Sandboxes and artifacts
+
+The sidebar includes Sandboxes and Artifacts even before agents register.
+Sandbox rows open a resizable right-hand inspector (a sheet on narrow screens)
+with metadata, paged related sessions and manually refreshed lifecycle events.
+Session links open the dedicated session page; sandbox and artifact inspectors
+preserve their selection and tabs in the URL.
+
+Artifacts are browsable by session or known artifact ID. The inspector pins a
+numbered version and shows metadata, version history, bounded previews, exported
+folder files and changes between adjacent versions. Session artifact events and
+versioned message file parts open that exact version. Text previews stop at
+256 KiB; raster images at 10 MiB. HTML and SVG appear as escaped source.
+Downloads stream through the proxy as attachments using a 60-second capability
+minted by the existing Runtime API, including in embeds. No full-file browser
+buffer is used for downloads.
+
+Tenant-wide artifact browsing awaits the public paged artifact API described in
+[API_REQUIREMENTS.md](API_REQUIREMENTS.md). Studio never requests an unbounded
+tenant artifact list or accesses databases, Kubernetes or object storage.
+Uploads, deletion, sharing and sandbox lifecycle controls are deferred.
+
+Run `npm run check --workspace @nylorun/studio` for package and unit checks, and
+`npm run test:e2e --workspace @nylorun/studio` for public-API browser fixtures
+(requires Playwright Chromium).
 
 ## The image
 

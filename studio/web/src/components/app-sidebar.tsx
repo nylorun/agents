@@ -1,8 +1,10 @@
 import { Link } from "react-router-dom";
 import {
   Bot,
+  Box,
   Building2,
   Cpu,
+  Files,
   GitBranch,
   KeyRound,
   LoaderCircle,
@@ -115,6 +117,7 @@ export function AppSidebar({
   sessionsActive,
   activeAgentId,
   settingsSection,
+  resourceActive,
 }: Readonly<{
   connection: Connection;
   tenant?: StudioTenantInfo;
@@ -123,6 +126,7 @@ export function AppSidebar({
   /** The agent the session list is filtered on, or the open session's agent. */
   activeAgentId?: string;
   settingsSection?: SettingsSection;
+  resourceActive?: "sandboxes" | "artifacts";
 }>) {
   const agents = sessionAgents(connection);
   return (
@@ -211,6 +215,23 @@ export function AppSidebar({
                   ) : null}
                 </SidebarMenuSub>
               </SidebarMenuItem>
+              {(["sandboxes", "artifacts"] as const).map((resource) => {
+                const label = resource === "sandboxes" ? "Sandboxes" : "Artifacts";
+                return (
+                  <SidebarMenuItem key={resource}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={resourceActive === resource}
+                      tooltip={label}
+                    >
+                      <Link to={`/${resource}`}>
+                        {resource === "sandboxes" ? <Box /> : <Files />}
+                        <span>{label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

@@ -1435,6 +1435,92 @@ export const McpPreviewSchema = z
   })
   .strict();
 export type McpPreview = z.infer<typeof McpPreviewSchema>;
+/**
+ * `POST /v1/tenant/credential-coverage`: which vault credential each of a saved agent's remote
+ * MCP servers and HTTP tools would get in a session that attaches `vaultIds`, decided as the
+ * session's tool calls decide it (by URL, then by `credentialSelections`). It reads no secret and
+ * calls no server. The attachment is checked as a session's is, so a vault the session could not
+ * attach is the same error here.
+ */
+export const CredentialCoverageRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    /** A saved agent or flow agent. */
+    agentId: z.string().min(1),
+    /**
+     * The session's owner: a person's vaults attach only to their own sessions, and theirs are
+     * listed among `available`. Default: no person (only installation vaults attach).
+     */
+    ownerUserId: z.string().min(1).optional(),
+    /** The vaults the session would attach (`vaultIds`). Default: none. */
+    vaultIds: z.array(z.string().min(1)).optional(),
+    /** The session's `credentialSelections`. */
+    credentialSelections: z.array(CredentialSelectionSchema).optional(),
+  })
+  .strict();
+export type CredentialCoverageRequest = z.infer<typeof CredentialCoverageRequestSchema>;
+/** A credential coverage names: where it is, never its value. */
+export const CoverageCredentialSchema = z
+  .object({
+    vaultId: z.string(),
+    vaultName: z.string(),
+    credentialId: z.string(),
+    credentialName: z.string(),
+    /** Where the credential sends the requests instead of the URL (a gateway). */
+    via: z.string().optional(),
+  })
+  .strict();
+export type CoverageCredential = z.infer<typeof CoverageCredentialSchema>;
+/**
+ * What a session would send for one URL an agent declares:
+ * - `covered`: one credential of the attached vaults (`credential`);
+ * - `missing`: none of the attached vaults holds one: an MCP server is called without a
+ *   credential (a public server needs none), an HTTP tool fails with `http.credential`;
+ * - `ambiguous`: several do and no selection names one: the call is refused;
+ * - `selection_mismatch`: the selection for `serverName` names a credential that is not for
+ *   this URL: the call is refused.
+ */
+export const COVERAGE_STATUSES = ["covered", "missing", "ambiguous", "selection_mismatch"] as const;
+export type CoverageStatus = (typeof COVERAGE_STATUSES)[number];
+/** One remote MCP server or HTTP tool credential an agent declares. */
+export const CredentialCoverageEntrySchema = z
+  .object({
+    kind: z.enum(["mcp", "http"]),
+    /** The agent that declares it: absent for the agent itself, else a subagent or a flow's agent. */
+    agentId: z.string().optional(),
+    /** A flow's HTTP stage or HTTP verifier: its stage key. */
+    stage: z.string().optional(),
+    /** The MCP server's name, or the HTTP tool's (or stage's) name. */
+    name: z.string(),
+    /** What a credential selection names: the server's name, or the HTTP tool's `credential`. */
+    serverName: z.string(),
+    /** The URL a credential must be bound to, as the vault compares it. */
+    url: z.string(),
+    /** True when the call fails without a credential (an HTTP tool's `credential`). */
+    required: z.boolean(),
+    status: z.enum(COVERAGE_STATUSES),
+    /** The credential the session would send, when `covered`. */
+    credential: CoverageCredentialSchema.optional(),
+    /** The attached vaults' credentials for the URL. */
+    matches: z.array(CoverageCredentialSchema),
+    /** Credentials for the URL in vaults the session could attach and does not. */
+    available: z.array(CoverageCredentialSchema),
+    /** What the session would do, in a sentence. */
+    message: z.string(),
+  })
+  .strict();
+export type CredentialCoverageEntry = z.infer<typeof CredentialCoverageEntrySchema>;
+export const CredentialCoverageSchema = z
+  .object({
+    agentId: z.string(),
+    vaultIds: z.array(z.string()),
+    /** True when every entry is `covered`. */
+    complete: z.boolean(),
+    /** One per declared MCP server and HTTP tool credential: the agent's, then its agents'. */
+    entries: z.array(CredentialCoverageEntrySchema),
+  })
+  .strict();
+export type CredentialCoverage = z.infer<typeof CredentialCoverageSchema>;
 const commandBase = {
   requestId: RequestIdSchema,
   idempotencyKey: IdempotencyKeySchema,

@@ -3,11 +3,16 @@ import {
   BrowserRouter,
   Routes,
   Route,
+  Link,
   Navigate,
   useLocation,
   useNavigate,
+  useSearchParams,
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
+import { Sandboxes } from "@/components/sandboxes";
+import { Artifacts, SessionArtifacts } from "@/components/artifacts";
+import { artifactReferences } from "@/resources/artifacts";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
   SETTINGS_SECTIONS,
@@ -65,10 +70,13 @@ import {
 } from "@/proxy-client";
 import { AGENT_FILTER, sessionsPath } from "@/session-list";
 import {
+  STUDIO_OWNER,
   asStudioDefinition,
   definitionForSession,
   isNewSessionState,
+  newSessionCredentials,
 } from "@/session-open";
+import { NewSessionProvider } from "@/components/new-session";
 import type {
   AgentManifest,
   Connection,
@@ -336,7 +344,9 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
   // embedder's `navigate`) renders it again.
   return (
     <ViewErrorBoundary resetKey={location.pathname}>
-      <Workspace tenant={tenant} />
+      <NewSessionProvider tenantId={tenant.id}>
+        <Workspace tenant={tenant} />
+      </NewSessionProvider>
     </ViewErrorBoundary>
   );
 }
@@ -362,7 +372,6 @@ function OpenTenant({ tenant }: { tenant: StudioTenantInfo }) {
 }
 
 function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
-  const navigate = useNavigate();
   const location = useLocation();
   const embedStatus = useEmbedStatus();
   const match = location.pathname.match(
@@ -432,6 +441,12 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
     return () => window.clearInterval(timer);
   }, [waiting, refresh]);
   const agent = connection.agents.find((a) => a.id === agentId);
+  const resourceActive =
+    location.pathname === "/sandboxes"
+      ? "sandboxes"
+      : location.pathname === "/artifacts"
+        ? "artifacts"
+        : undefined;
   const settingsActive = location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/") || location.pathname === "/vault";
   const settingsSection = settingsSectionOf(location.pathname);
@@ -446,16 +461,21 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         sessionsActive={sessionList || sessionId !== undefined}
         activeAgentId={sessionList ? agentFilter : agentId}
         settingsSection={settingsSection}
+        resourceActive={resourceActive}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
           <SidebarTrigger />
           <strong>
-            {settingsSection
-              ? SETTINGS_SECTIONS[settingsSection]
-              : sessionList
-                ? "Sessions"
-                : (agent?.name ?? "Nylorun Studio")}
+            {resourceActive === "sandboxes"
+              ? "Sandboxes"
+              : resourceActive === "artifacts"
+                ? "Artifacts"
+                : settingsSection
+                  ? SETTINGS_SECTIONS[settingsSection]
+                  : sessionList
+                    ? "Sessions"
+                    : (agent?.name ?? "Nylorun Studio")}
           </strong>
           {embedded() ? null : (
             <Badge variant="outline" title={tenant.id}>
@@ -490,6 +510,10 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
           ) : location.pathname === "/vault" ? (
             <Navigate to={`/settings/credentials${location.search}${location.hash}`} replace />
+          ) : resourceActive === "sandboxes" ? (
+            <Sandboxes tenantId={tenant.id} />
+          ) : resourceActive === "artifacts" ? (
+            <Artifacts tenantId={tenant.id} />
           ) : settingsSection ? (
             <TenantSettings tenant={tenant} section={settingsSection} />
           ) : settingsActive ? (
@@ -560,6 +584,7 @@ function SessionRedirect({
   sessionId: string;
 }) {
   const navigate = useNavigate();
+  const { search, hash } = useLocation();
   const [problem, setProblem] = useState<string | undefined>();
   useEffect(() => {
     const abort = new AbortController();
@@ -570,7 +595,7 @@ function SessionRedirect({
         if (abort.signal.aborted) return;
         if (!view.agentId) return setProblem("not-found");
         void navigate(
-          `/agents/${encodeURIComponent(view.agentId)}/sessions/${encodeURIComponent(sessionId)}`,
+          `/agents/${encodeURIComponent(view.agentId)}/sessions/${encodeURIComponent(sessionId)}${search}${hash}`,
           { replace: true },
         );
       })
@@ -580,7 +605,7 @@ function SessionRedirect({
         setProblem(cause instanceof Error ? cause.message : String(cause));
       });
     return () => abort.abort();
-  }, [tenantId, sessionId, navigate]);
+  }, [tenantId, sessionId, navigate, search, hash]);
   if (problem === undefined)
     return <p className="p-8 text-muted-foreground">Opening the session…</p>;
   return (
@@ -627,6 +652,8 @@ function SessionWorkspace({
 }) {
   const location = useLocation();
   const create = isNewSessionState(location.state);
+  // The vaults Studio's "New session" picked, kept from the first render of this session.
+  const [credentials] = useState(() => newSessionCredentials(location.state));
   const routeAgent = agents.find((a) => a.id === routeAgentId);
   const routeAgentKnown = routeAgent !== undefined;
   const [load, setLoad] = useState<SessionLoad>({ kind: "loading" });
@@ -646,7 +673,8 @@ function SessionWorkspace({
         await sdk.createSession({
           id: sessionId,
           agentId: routeAgentId,
-          ownerUserId: "local-developer",
+          ownerUserId: STUDIO_OWNER,
+          ...credentials,
         });
         if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: routeAgentId });
       }
@@ -713,7 +741,7 @@ function SessionView({
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "events" | "manifest" | "tree" | "iterations"
+    "events" | "manifest" | "tree" | "iterations" | "artifacts"
   >(isWorkflow ? "tree" : "events");
   const [selectedEvent, setSelectedEvent] = useState<StudioEvent | undefined>();
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -722,6 +750,30 @@ function SessionView({
     IterationRecord | undefined
   >();
   const workflowLink = lookupWorkflowLink(sessionId);
+  const [sessionQuery, setSessionQuery] = useSearchParams();
+  const [sandboxId, setSandboxId] = useState<string | undefined>();
+  useEffect(() => {
+    const tab = sessionQuery.get("inspector");
+    setActiveTab(
+      tab === "artifacts" ||
+        tab === "events" ||
+        tab === "manifest" ||
+        (isWorkflow && (tab === "tree" || tab === "iterations"))
+        ? tab
+        : isWorkflow
+          ? "tree"
+          : "events",
+    );
+  }, [sessionQuery, isWorkflow]);
+  function openArtifact(id: string, version: number) {
+    const query = new URLSearchParams(sessionQuery);
+    query.set("inspector", "artifacts");
+    query.set("artifact", id);
+    query.set("artifactVersion", String(version));
+    query.set("artifactTab", "preview");
+    query.delete("artifactFile");
+    setSessionQuery(query);
+  }
 
   useEffect(() => {
     if (!tenantId) {
@@ -746,6 +798,7 @@ function SessionView({
       }
       const inspect = await current.inspect(abort.signal);
       setStatus(inspect.status);
+      setSandboxId(typeof inspect.sandboxId === "string" ? inspect.sandboxId : undefined);
       await refresh();
       for await (const event of current.observe({
         cursor: history.cursor ?? undefined,
@@ -778,7 +831,7 @@ function SessionView({
     setDetailsOpen(false);
     setSelectedNode(undefined);
     setSelectedIteration(undefined);
-    setActiveTab(isWorkflow ? "tree" : "events");
+    setSandboxId(undefined);
   }, [sessionId, isWorkflow]);
 
   const busy =
@@ -819,8 +872,12 @@ function SessionView({
     setDetailsOpen(true);
   };
   const changeTab = (value: string): void => {
-    const nextTab = value as "events" | "manifest" | "tree" | "iterations";
+    const nextTab = value as
+      "events" | "manifest" | "tree" | "iterations" | "artifacts";
     setActiveTab(nextTab);
+    const query = new URLSearchParams(sessionQuery);
+    query.set("inspector", nextTab);
+    setSessionQuery(query);
     if (nextTab !== "events") setDetailsOpen(false);
   };
   const showDetails =
@@ -859,6 +916,19 @@ function SessionView({
             <span className="truncate font-mono text-xs text-muted-foreground">
               {sessionId}
             </span>
+            {sandboxId ? (
+              <Link
+                className="ml-auto truncate text-xs underline"
+                to={`/sandboxes?${new URLSearchParams({ selected: sandboxId })}`}
+                title={sandboxId}
+              >
+                Sandbox: {sandboxId}
+              </Link>
+            ) : (
+              <span className="ml-auto text-xs text-muted-foreground">
+                Sandbox: None
+              </span>
+            )}
             {busy && status !== "loading" && (
               <Button
                 className="ml-auto"
@@ -878,6 +948,26 @@ function SessionView({
           <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
             {chatEvents.map((event) => {
               const payload = event.payload as Record<string, unknown>;
+              const references = artifactReferences(event);
+              const referenceLinks = references.map((ref) => (
+                <Button
+                  key={`${ref.artifactId}:${ref.version}`}
+                  size="sm"
+                  variant="outline"
+                  className="m-1 max-w-full whitespace-normal break-all"
+                  onClick={() => openArtifact(ref.artifactId, ref.version)}
+                >
+                  {ref.name} · v{ref.version}
+                </Button>
+              ));
+              if (event.type.startsWith("artifact.") && references.length)
+                return (
+                  <div key={event.eventId} className="rounded border p-3">
+                    <p className="text-xs text-muted-foreground">Artifact</p>
+                    {referenceLinks}
+                  </div>
+                );
+
               if (event.type === "command.message")
                 return (
                   <article
@@ -886,6 +976,17 @@ function SessionView({
                   >
                     <p className="mb-1 text-xs text-muted-foreground">You</p>
                     {String(payload.content ?? "")}
+                    {Array.isArray(payload.parts)
+                      ? payload.parts.map((part, i) =>
+                          typeof part === "object" &&
+                          part !== null &&
+                          part.type === "text" ? (
+                            <p key={i}>{String(part.text)}</p>
+                          ) : null,
+                        )
+                      : null}
+                    {referenceLinks}
+
                   </article>
                 );
               if (event.type === "turn.completed")
@@ -1011,7 +1112,7 @@ function SessionView({
           className="flex h-full min-h-0 flex-col overflow-hidden"
         >
           <div className="flex h-12 shrink-0 items-end border-b bg-background px-4">
-            <TabsPrimitive.List className="flex h-full items-end gap-5">
+            <TabsPrimitive.List className="flex h-full items-end gap-5 overflow-x-auto">
               {workflowManifest ? (
                 <>
                   <TabsPrimitive.Trigger
@@ -1033,6 +1134,9 @@ function SessionView({
                 className={tabTrigger}
               >
                 Events
+              </TabsPrimitive.Trigger>
+              <TabsPrimitive.Trigger value="artifacts" className={tabTrigger}>
+                Artifacts
               </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger
                 value="manifest"
@@ -1089,6 +1193,13 @@ function SessionView({
               events={events}
               selected={selectedEvent}
               onSelect={openEvent}
+            />
+          </TabsPrimitive.Content>
+          <TabsPrimitive.Content value="artifacts" className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none">
+            <SessionArtifacts
+              tenantId={tenantId}
+              sessionId={sessionId}
+              revision={events.filter(e => e.type.startsWith("artifact.")).map(e => e.eventId).join("|")}
             />
           </TabsPrimitive.Content>
           <TabsPrimitive.Content

@@ -26,7 +26,7 @@ Reference: `/openapi/runtime.json` (alias `/openapi.json`).
 _Avoid_: "Tenant API" for the whole surface (say which API), "SDK API" or "application API".
 
 **Management API**: The Tenant's routes for operators, `/v1/tenant/*` (status, seed and
-reset, models, usage and budgets, vaults, MCP server previews, signing keys, sandbox and
+reset, models, usage and budgets, vaults and credential coverage, MCP server previews, signing keys, sandbox and
 artifact settings, application keys) (protocol 8; its routes' credentials are `management`, `RouteAccess` in
 `api/http/define.ts`). It takes management
 keys only: an application key,
@@ -189,7 +189,10 @@ no OAuth client and asks no credential resolver (protocol 10, D49): a person's o
 their user vault, the installation's in its vaults. A credential is a `bearer` token or a
 `headers` map; its **via** sends the server's requests elsewhere (an MCP gateway) while the manifest's
 URL still picks it, and its **identity header** carries the session owner's subject (none for an
-`installation` session). A `401` is the tool error `credential_rejected` (R2b C1, C2). A server
+`installation` session). A `401` is the tool error `credential_rejected` (R2b C1, C2). **Credential
+coverage** (`POST /v1/tenant/credential-coverage`, `VaultService.coverage`, `vault/coverage.ts`)
+answers ahead of a session what each URL an agent names would get from given vaults, decided as a
+call decides it, with no secret read. A server
 that takes only a person's OAuth sign-in is reached through an **MCP gateway**; the operator's
 guide, with recipes, is "MCP servers and HTTP tools" in DEPLOYMENT.md (R2b C5).
 _Avoid_: "MCP OAuth connect" and "credential resolver" (both removed in protocol 10), "broker"

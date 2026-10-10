@@ -293,7 +293,7 @@ Tenant's own, set by `nylorun start` from the project's `.env` or in Studio.
 
 Installation vaults hold the installation's own credentials, such as shared tool keys and MCP
 gateway keys. Any session may attach one (`vaultIds` when the session is created). Create them on
-Studio's **Credentials** page (Tenant settings), or through the Management API with a management
+Studio's **Credentials** page (in the sidebar), or through the Management API with a management
 key:
 
 ```ts

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Bot, ChevronDown, GitBranch, LoaderCircle, Plus } from "lucide-react";
 import type { Connection } from "@/studio-types";
-import { NEW_SESSION } from "@/session-open";
+import { useStartSession } from "@/components/new-session";
 import {
   sessionAgents,
   sessionPath,
@@ -67,17 +67,12 @@ function NewSessionButton({
   agents,
   agentFilter,
 }: Readonly<{ agents: readonly SessionAgent[]; agentFilter?: string }>) {
-  const navigate = useNavigate();
-  const start = (agentId: string): void => {
-    void navigate(sessionPath(agentId, crypto.randomUUID()), {
-      state: NEW_SESSION,
-    });
-  };
+  const start = useStartSession();
   const registered = agents.filter((agent) => agent.registered);
   const filtered = registered.find((agent) => agent.id === agentFilter);
   if (filtered)
     return (
-      <Button size="sm" onClick={() => start(filtered.id)}>
+      <Button size="sm" onClick={() => start(filtered)}>
         <Plus />
         New session
       </Button>
@@ -93,7 +88,7 @@ function NewSessionButton({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {registered.map((agent) => (
-          <DropdownMenuItem key={agent.id} onSelect={() => start(agent.id)}>
+          <DropdownMenuItem key={agent.id} onSelect={() => start(agent)}>
             <AgentName agent={agent} />
           </DropdownMenuItem>
         ))}
