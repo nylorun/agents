@@ -443,6 +443,7 @@ no change to its manifest. For each server:
 3. **Set its tools** in the agent's manifest: which are enabled, which need approval, which are
    deferred ([Tools, results and errors](#tools-results-and-errors)).
 4. **Attach the vault** to the sessions that need it: `vaultIds` when your app server opens one.
+   Check first that the vaults cover the agent ([Checking an agent's credentials](#checking-an-agents-credentials)).
 
 Upgrading from protocol 9, which had an MCP OAuth connect and a credential resolver:
 [MIGRATION.md](./MIGRATION.md#mcp-credentials-from-vaults-only-protocol-10).
@@ -634,6 +635,33 @@ Some servers take a client id and secret that must be exchanged for a short-live
 Atlas and Google service accounts, PayPal). A vault credential is a static header and the Runtime
 refreshes nothing, so reach these through a gateway or a proxy that does the exchange, with a
 `via` credential as above.
+
+### Checking an agent's credentials
+
+Before you open sessions, ask what a session of a saved agent would send with the vaults you
+will attach:
+
+```ts
+const coverage = await admin.vaults.coverage({ agentId: "triage", vaultIds: [toolsVaultId] });
+for (const entry of coverage.entries) console.log(entry.status, entry.name, entry.message);
+```
+
+`POST /v1/tenant/credential-coverage` (Host feature `credential-coverage`) lists every remote MCP
+server and every HTTP tool `credential` the agent declares: its own, its subagents' and a flow's
+stages and agents. For each one, the vault decides as a call would (the same URL comparison and
+the same `credentialSelections` rule):
+
+| `status` | A session would |
+| --- | --- |
+| `covered` | Send `credential` (its vault, its name and its `via`) |
+| `missing` | Call an MCP server without a credential, which only a public server accepts, or fail an HTTP tool with `http.credential`. `available` lists the vaults the session could attach that hold one |
+| `ambiguous` | Refuse each call: several attached credentials are bound to the URL. Pick one with `credentialSelections` |
+| `selection_mismatch` | Refuse each call: the selection names a credential not bound to the URL |
+
+`complete` is true when every entry is `covered`. Pass `ownerUserId` to check a person's session:
+their vaults may be attached and are listed in `available`. The attachment is checked as a session
+PUT checks it, so another person's vault is `403` here too. Nothing reads a secret or calls a
+server. Studio's **New session** runs this check for its vault picker.
 
 ### Previewing a server
 

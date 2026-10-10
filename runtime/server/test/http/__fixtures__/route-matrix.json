@@ -3816,6 +3816,76 @@
       "message": "A management key acts as itself, never for a subject"
     }
   },
+  "POST /v1/tenant/credential-coverage": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
   "GET /v1/access/jwks": {
     "none": {
       "status": 200,

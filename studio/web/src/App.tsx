@@ -64,11 +64,13 @@ import {
   tenantScope,
 } from "@/proxy-client";
 import {
-  NEW_SESSION,
+  STUDIO_OWNER,
   asStudioDefinition,
   definitionForSession,
   isNewSessionState,
+  newSessionCredentials,
 } from "@/session-open";
+import { NewSessionProvider, useStartSession } from "@/components/new-session";
 import type {
   AgentManifest,
   Connection,
@@ -336,7 +338,9 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
   // embedder's `navigate`) renders it again.
   return (
     <ViewErrorBoundary resetKey={location.pathname}>
-      <Workspace tenant={tenant} />
+      <NewSessionProvider tenantId={tenant.id}>
+        <Workspace tenant={tenant} />
+      </NewSessionProvider>
     </ViewErrorBoundary>
   );
 }
@@ -361,8 +365,13 @@ function OpenTenant({ tenant }: { tenant: StudioTenantInfo }) {
   );
 }
 
+/** An agent card's "New session": through the vault picker when its tools take credentials. */
+function NewSessionButton({ agent }: { agent: StudioDefinition }) {
+  const startSession = useStartSession();
+  return <Button onClick={() => startSession(agent)}>New session</Button>;
+}
+
 function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
-  const navigate = useNavigate();
   const location = useLocation();
   const embedStatus = useEmbedStatus();
   const match = location.pathname.match(
@@ -540,16 +549,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
                           .map((t) => t.name)
                           .join(", ") || "Text agent"}
                   </p>
-                  <Button
-                    onClick={() =>
-                      void navigate(
-                        `/agents/${encodeURIComponent(a.id)}/sessions/${crypto.randomUUID()}`,
-                        { state: NEW_SESSION },
-                      )
-                    }
-                  >
-                    New session
-                  </Button>
+                  <NewSessionButton agent={a} />
                 </section>
               ))}
             </section>
@@ -657,6 +657,8 @@ function SessionWorkspace({
 }) {
   const location = useLocation();
   const create = isNewSessionState(location.state);
+  // The vaults Studio's "New session" picked, kept from the first render of this session.
+  const [credentials] = useState(() => newSessionCredentials(location.state));
   const routeAgent = agents.find((a) => a.id === routeAgentId);
   const routeAgentKnown = routeAgent !== undefined;
   const [load, setLoad] = useState<SessionLoad>({ kind: "loading" });
@@ -676,7 +678,8 @@ function SessionWorkspace({
         await sdk.createSession({
           id: sessionId,
           agentId: routeAgentId,
-          ownerUserId: "local-developer",
+          ownerUserId: STUDIO_OWNER,
+          ...credentials,
         });
         if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: routeAgentId });
       }

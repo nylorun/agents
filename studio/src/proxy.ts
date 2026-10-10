@@ -4,6 +4,8 @@ import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
 const LOCAL_OWNER = "local-developer";
 /** The Management API's vaults (protocol 8): Studio's key acts as itself there. */
 const VAULTS = "/v1/tenant/vaults";
+/** What an agent's tools would get from the vaults a new session attaches. */
+const COVERAGE = "/v1/tenant/credential-coverage";
 
 function isVaultRead(method: string, path: string): boolean {
   return (
@@ -16,13 +18,16 @@ function isVaultRead(method: string, path: string): boolean {
 }
 
 /**
- * Vault writes, and a preview of the tools behind a credential's URL (`POST
- * /v1/tenant/mcp/preview`, R2b C12): it sends the installation vault's credential.
+ * Vault writes, a preview of the tools behind a credential's URL (`POST
+ * /v1/tenant/mcp/preview`, R2b C12): it sends the installation vault's credential, and a
+ * check of an agent's credentials against installation vaults (`POST
+ * /v1/tenant/credential-coverage`), which reads no secret.
  */
 function isVaultWrite(method: string, path: string): boolean {
   return (
     (method === "POST" &&
       (path === "/v1/tenant/mcp/preview" ||
+        path === COVERAGE ||
         /^\/v1\/tenant\/vaults$/.test(path) ||
         /^\/v1\/tenant\/vaults\/[^/]+\/credentials$/.test(path) ||
         /^\/v1\/tenant\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path))) ||
@@ -155,6 +160,9 @@ export async function proxyRuntime(
     } else if (vaultWrite && path === VAULTS && method === "POST") {
       if (value.scope !== "installation" || value.ownerUserId !== undefined)
         return fail(400, "Studio creates installation vaults only");
+    } else if (path === COVERAGE) {
+      if (value.ownerUserId !== undefined)
+        return fail(400, "Studio checks installation vaults only");
     } else if (!tenantWrite && !vaultWrite && method === "PUT")
       value.ownerUserId = LOCAL_OWNER;
     else if (

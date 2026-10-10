@@ -11,15 +11,20 @@ import { z } from "zod";
 import {
   CreateCredentialRequestSchema,
   CreateVaultRequestSchema,
+  CredentialCoverageRequestSchema,
   RotateCredentialRequestSchema,
 } from "@nylorun/core/contracts";
+import type { AgentManifest, WorkflowManifest } from "@nylorun/core/define";
 import {
   CreateCredentialRequest,
   CreateVaultRequest,
+  CredentialCoverage,
+  CredentialCoverageRequest,
   CredentialInfo,
   DeletedResponse,
   ListCredentialsResponse,
   ListVaultsResponse,
+  Rejected,
   RotateCredentialRequest,
   VaultInfo,
 } from "../../components.js";
@@ -27,6 +32,7 @@ import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
+import { fail } from "../../../tenant/http.js";
 
 /** The Management API's vault routes (`/v1/tenant/vaults`): a management key. */
 const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
@@ -234,4 +240,41 @@ function vaultRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: RouteA
 
 export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
   vaultRoutesAt(api, "/v1/tenant/vaults", MANAGEMENT);
+  coverageRoute(api);
+}
+
+/**
+ * `POST /v1/tenant/credential-coverage`: what a session of a saved agent would send for each URL
+ * it names, with the vaults it would attach. A dry run of the session's attachment check and of
+ * each call's credential choice (`VaultService.coverage`); no secret is read.
+ */
+function coverageRoute(api: OpenAPIHono<TenantEnv>): void {
+  tenantRoute(
+    api,
+    MANAGEMENT,
+    {
+      method: "post",
+      path: "/v1/tenant/credential-coverage",
+      tags: ["Vaults"],
+      summary: "Check an agent's credentials against vaults",
+      description:
+        "For each remote MCP server and each HTTP tool with a `credential` that the saved agent `agentId` declares (its own, its agents used as tools' and a flow's), the credential a session that attaches `vaultIds` would send, chosen as a call chooses it: the attached vaults' credentials bound to the URL, then `credentialSelections`. `missing` names the vaults the session could attach that hold one (`available`). The attachment is checked as a session's is: a vault of another person than `ownerUserId` is `403`. No secret is read and no server is called.",
+      request: { body: body(CredentialCoverageRequest) },
+      responses: {
+        200: json(CredentialCoverage, "One entry per declared URL"),
+        400: json(Rejected, "A duplicate vault id, the host vault, or a selection outside the vaults"),
+        403: json(Rejected, "A vault of another person than `ownerUserId`"),
+        404: json(Rejected, "No such agent, or no such vault"),
+      },
+    },
+    async (c) => {
+      const request = CredentialCoverageRequestSchema.parse(await readJson(c.req.raw));
+      const tenant = c.env.tenant;
+      const definition =
+        (await tenant.store.tx((t) =>
+          t.get<{ manifest: AgentManifest | WorkflowManifest }>("definitions", request.agentId),
+        )) ?? fail(404, "Definition not found");
+      return jsonResponse(200, await tenant.vault.coverage(definition.manifest, request));
+    },
+  );
 }

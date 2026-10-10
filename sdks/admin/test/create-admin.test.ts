@@ -90,6 +90,44 @@ describe("the Management API client", () => {
     }
   });
 
+  it("checks an agent's credential coverage with a request id", async () => {
+    const coverage = {
+      agentId: "triage",
+      vaultIds: ["v1"],
+      complete: true,
+      entries: [
+        {
+          kind: "mcp",
+          name: "linear",
+          serverName: "linear",
+          url: "https://mcp.linear.app/mcp",
+          required: false,
+          status: "covered",
+          credential: { vaultId: "v1", vaultName: "tools", credentialId: "c1", credentialName: "linear" },
+          matches: [{ vaultId: "v1", vaultName: "tools", credentialId: "c1", credentialName: "linear" }],
+          available: [],
+          message: "Sends 'linear' from vault 'tools'.",
+        },
+      ],
+    };
+    const bodies: Record<string, unknown>[] = [];
+    const server = await startStubServer((request, response, text) => {
+      if (request.url === "/health") return sendJson(response, 200, healthBody());
+      expect(request.headers.authorization).toBe(`Bearer ${MANAGEMENT_KEY}`);
+      expect(request.url).toBe("/v1/tenant/credential-coverage");
+      expect(request.method).toBe("POST");
+      bodies.push(JSON.parse(text) as Record<string, unknown>);
+      sendJson(response, 200, coverage);
+    });
+    try {
+      const admin = createAdmin({ url: server.url, key: MANAGEMENT_KEY });
+      await expect(admin.vaults.coverage({ agentId: "triage", vaultIds: ["v1"] })).resolves.toEqual(coverage);
+      expect(bodies).toEqual([{ requestId: expect.any(String), agentId: "triage", vaultIds: ["v1"] }]);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("throws AdminError with a registry code on rejected responses", async () => {
     const server = await startStubServer((request, response) => {
       if (request.url === "/health") return sendJson(response, 200, healthBody());

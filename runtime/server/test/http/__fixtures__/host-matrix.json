@@ -92,7 +92,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -160,7 +161,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -228,7 +230,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -296,7 +299,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -364,7 +368,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -432,7 +437,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -500,7 +506,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -568,7 +575,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -636,7 +644,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -704,7 +713,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -772,7 +782,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -840,7 +851,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -941,7 +953,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -1009,7 +1022,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -1077,7 +1091,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -1145,7 +1160,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -1213,7 +1229,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -1281,7 +1298,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },
@@ -1349,7 +1367,8 @@
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
-          "calls-export"
+          "calls-export",
+          "credential-coverage"
         ]
       }
     },

@@ -22,7 +22,8 @@
         "sandbox-pods",
         "trusted-issuers",
         "session-reads",
-        "calls-export"
+        "calls-export",
+        "credential-coverage"
       ]
     },
     "description": "For operators: the Tenant's models, vaults, signing keys, settings and application keys, at `/v1/tenant/*` on the Tenant's URL, through `@nylorun/admin`. Every operation takes a management key, acting as itself: never for a subject and never from a browser. Management keys are issued only on the Tenant's machine (`nylorun key put <id> --management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`."
@@ -2657,6 +2658,223 @@
           "requestId",
           "idempotencyKey",
           "auth"
+        ],
+        "additionalProperties": false
+      },
+      "CredentialCoverage": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "vaultIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "mcp",
+                    "http"
+                  ]
+                },
+                "agentId": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "serverName": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "covered",
+                    "missing",
+                    "ambiguous",
+                    "selection_mismatch"
+                  ]
+                },
+                "credential": {
+                  "type": "object",
+                  "properties": {
+                    "vaultId": {
+                      "type": "string"
+                    },
+                    "vaultName": {
+                      "type": "string"
+                    },
+                    "credentialId": {
+                      "type": "string"
+                    },
+                    "credentialName": {
+                      "type": "string"
+                    },
+                    "via": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "vaultId",
+                    "vaultName",
+                    "credentialId",
+                    "credentialName"
+                  ],
+                  "additionalProperties": false
+                },
+                "matches": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "vaultId": {
+                        "type": "string"
+                      },
+                      "vaultName": {
+                        "type": "string"
+                      },
+                      "credentialId": {
+                        "type": "string"
+                      },
+                      "credentialName": {
+                        "type": "string"
+                      },
+                      "via": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "vaultId",
+                      "vaultName",
+                      "credentialId",
+                      "credentialName"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "available": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "vaultId": {
+                        "type": "string"
+                      },
+                      "vaultName": {
+                        "type": "string"
+                      },
+                      "credentialId": {
+                        "type": "string"
+                      },
+                      "credentialName": {
+                        "type": "string"
+                      },
+                      "via": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "vaultId",
+                      "vaultName",
+                      "credentialId",
+                      "credentialName"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "name",
+                "serverName",
+                "url",
+                "required",
+                "status",
+                "matches",
+                "available",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "agentId",
+          "vaultIds",
+          "complete",
+          "entries"
+        ],
+        "additionalProperties": false
+      },
+      "CredentialCoverageRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ownerUserId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "vaultIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "credentialSelections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "serverName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "credentialId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "serverName",
+                "credentialId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "agentId"
         ],
         "additionalProperties": false
       },
@@ -6012,6 +6230,118 @@
           },
           "404": {
             "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenant/credential-coverage": {
+      "post": {
+        "tags": [
+          "Vaults"
+        ],
+        "summary": "Check an agent's credentials against vaults",
+        "description": "For each remote MCP server and each HTTP tool with a `credential` that the saved agent `agentId` declares (its own, its agents used as tools' and a flow's), the credential a session that attaches `vaultIds` would send, chosen as a call chooses it: the attached vaults' credentials bound to the URL, then `credentialSelections`. `missing` names the vaults the session could attach that hold one (`available`). The attachment is checked as a session's is: a vault of another person than `ownerUserId` is `403`. No secret is read and no server is called.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `10`"
+            },
+            "required": true,
+            "description": "The protocol version, `10`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialCoverageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One entry per declared URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialCoverage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A duplicate vault id, the host vault, or a selection outside the vaults",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A vault of another person than `ownerUserId`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such agent, or no such vault",
             "content": {
               "application/json": {
                 "schema": {
