@@ -295,11 +295,20 @@ backups, Helm charts or upgrade automation.
 
 ## Sandboxes
 
-A Runtime runs sessions' sandboxes on the in-process **virtual** backend: an
-emulated bash with a virtual filesystem, whose `/workspace` is kept under the
-Tenant's directory. It is not a VM or container boundary. Egress is limited to
-the exact hosts the session's sandbox allows, and a sandbox cannot name an
-image. `npx -p nylorun nylo doctor sandbox` reports the backend in use.
+A session gets no sandbox unless it asks for one or the operator sets a Tenant
+default. A sandbox that is not a pod sandbox runs on the **virtual** backend:
+an emulated bash with a virtual filesystem, whose `/workspace` is kept under
+the Tenant's directory. The backend runs in the `harness` container with
+the session's turns (in the `runtime` container with
+`NYLORUN_HARNESS=in-process`). It is not a VM or container boundary. Egress is
+limited to the exact hosts the session's sandbox allows, and a virtual sandbox
+cannot name an image. `npx -p nylorun nylo doctor sandbox` reports the backend
+in use.
+
+**Pod sandboxes** (preview) are sandbox resources of kind `pod` on a
+Kubernetes cluster, after `npx nylorun sandbox enable --context <name>`. They
+take an `image`, and the turns of sessions attached to one run in its pod. The
+Runtime itself still runs in Compose.
 
 ## Postgres for session events
 
