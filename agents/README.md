@@ -18,8 +18,8 @@ const client = createClient();
 for (const agent of agents) await client.saveAgent(agent);
 ```
 
-The Runtime runs each agent from its manifest and the files saved with it (skills), and
-never calls your code during a session. Your services are reached as tools: [HTTP
+The Runtime runs each agent entirely from its manifest and the files saved with it
+(skills), so a session needs nothing from your process. Your services are reached as tools: [HTTP
 tools](#http-tools) and remote MCP servers. `saveAgent` refuses, before sending anything, an
 agent with a tool that would run your code (`tool({ run })`) or a flow agent with a tool
 stage: make it an `http()` tool or serve it from a remote MCP server. `tool({ run })` still
