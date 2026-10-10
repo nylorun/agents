@@ -56,7 +56,7 @@ jobs:
   # checks on the pinned toolchain. Includes test:tooling, i.e. the Linux leg of
   # the supervisor and release tooling tests (see `macos`). The runtime and
   # examples tests keep every Tenant in the test stack's Postgres
-  # (runtime/test/stack/compose.yaml).
+  # (runtime/server/test/stack/compose.yaml).
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -211,17 +211,18 @@ jobs:
             examples/package-lock.json
       # Bundled npm is enough: these tests only run npm ci and npm install.
       - run: npm ci
-      # Workspaces run in flag order: keep dependency order. nylorun needs
-      # only core; the CLI needs agents (on core) and admin.
+      # Workspaces run in flag order: keep dependency order. nylorun (with
+      # nylo) needs core and admin, and agents for its tests; the deprecated
+      # CLI runs nylorun's nylo.
       - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace nylorun --workspace @nylorun/cli
       - name: nylorun and CLI tests
         run: npm test --workspace nylorun --workspace @nylorun/cli
       - name: Supervisor and release tooling
         run: node --test scripts/test/processes.test.mjs scripts/test/development.test.mjs scripts/test/release.test.mjs scripts/test/version-policy.test.mjs scripts/test/pins.test.mjs
   # Runtime integration tests against the Docker test stack (Postgres 17,
-  # Restate, s2-lite, RustFS) in runtime/test/stack/compose.yaml, with test
+  # Restate, s2-lite, RustFS) in runtime/server/test/stack/compose.yaml, with test
   # Tenants in Postgres. They include the architecture §17 failure suite
-  # (runtime/test/failure/README.md), which recreates the stack's Restate, and
+  # (runtime/server/test/failure/README.md), which recreates the stack's Restate, and
   # the BlobStore conformance suite against the stack's RustFS. Then the runtime unit suite
   # with the gates over HTTP (NYLORUN_TEST_MODEL_GATE=http).
   integration:
@@ -258,7 +259,7 @@ jobs:
         run: npm test --workspace @nylorun/runtime
       - name: Test stack logs
         if: failure()
-        run: docker compose -f runtime/test/stack/compose.yaml logs --no-color
+        run: docker compose -f runtime/server/test/stack/compose.yaml logs --no-color
       - name: Stop the test stack
         if: always()
         run: npm run test:stack:down --workspace @nylorun/runtime
@@ -351,7 +352,7 @@ jobs:
       NYLORUN_SANDBOXES_IMAGE: nylorun-sandboxes:ci
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: sandboxes/go.mod
           cache-dependency-path: sandboxes/go.sum
@@ -376,7 +377,7 @@ jobs:
         with:
           sandboxes: "true"
       - name: kind cluster
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           version: v0.33.0
           cluster_name: nylorun

@@ -22,7 +22,6 @@ const versions = {
 };
 const pins = {
   core: versions.core,
-  cli: versions.cli,
   harness: versions.harness,
   agents: versions.agents,
   admin: versions.admin,
@@ -47,6 +46,7 @@ test("the migration computes the approved package targets and exact pins", () =>
   );
   assert.deepEqual(plan.packages, {
     nylorun: "0.1.1-beta",
+    cli: "0.1.1-beta",
     harness: "0.11.0-beta",
     runtime: "0.1.1-beta",
     studio: "0.4.0-beta",
@@ -129,26 +129,47 @@ test("a Harness release also advances Runtime and pins the canonical contracts t
 });
 
 
-test("a Studio release advances nylorun, which pins its image, and the creator", () => {
+test("a Studio release advances nylorun, which pins its image, the deprecated CLI and the creator", () => {
   const { plan, changesets } = planVersions(versions, pins, [intent("studio", "minor")]);
   assert.deepEqual(plan.packages, {
     nylorun: "0.1.1-beta",
+    cli: "0.1.1-beta",
     studio: "0.4.0-beta",
     "create-agent": "0.1.1-beta",
   });
   assert.ok(changesets.some((item) => item.id === "release-nylorun-studio"));
+  assert.ok(changesets.some((item) => item.id === "release-cli-nylorun"));
   // Neither nylorun nor Studio is a creator pin: the generated project installs neither.
   assert.deepEqual(plan.compatibility, pins);
 });
 
-test("a Runtime release advances nylorun, which pins its image, and not the CLI", () => {
+test("a Runtime release advances nylorun, which pins its image, and the CLI, which pins nylorun", () => {
   const { plan } = planVersions(versions, pins, [intent("runtime")]);
   assert.equal(plan.packages.nylorun, "0.1.1-beta");
-  assert.equal(plan.packages.cli, undefined);
+  assert.equal(plan.packages.cli, "0.1.1-beta");
+  assert.equal(plan.compatibility.cli, undefined);
 });
 
-test("the creator pins exactly core, harness, agents, admin, runtime and cli", () => {
-  assert.deepEqual([...CREATOR_PINS], ["core", "harness", "agents", "admin", "runtime", "cli"]);
+test("an Admin release advances Studio and nylorun, which depend on it, and not the SDK", () => {
+  const { plan, changesets } = planVersions(versions, pins, [intent("admin", "minor")]);
+  assert.deepEqual(plan.packages, {
+    admin: "0.2.0-beta",
+    studio: "0.3.1-beta",
+    nylorun: "0.1.1-beta",
+    cli: "0.1.1-beta",
+    "create-agent": "0.1.1-beta",
+  });
+  assert.ok(changesets.some((item) => item.id === "release-studio-admin"));
+  assert.ok(changesets.some((item) => item.id === "release-nylorun-admin"));
+  assert.equal(plan.compatibility.admin, "0.2.0-beta");
+});
+
+test("the creator pins exactly core, harness, agents, admin and runtime", () => {
+  assert.deepEqual([...CREATOR_PINS], ["core", "harness", "agents", "admin", "runtime"]);
+  assert.throws(
+    () => planVersions(versions, { ...pins, cli: versions.cli }, [intent("runtime")]),
+    /exactly the valid creator pins/,
+  );
   assert.throws(
     () => planVersions(versions, { ...pins, studio: versions.studio }, [intent("runtime")]),
     /exactly the valid creator pins/,
@@ -167,9 +188,10 @@ test("core releases propagate to both hosts and SDK without coupling engine rele
   const engine = planVersions(versions, pins, [intent("harness")]).plan;
   assert.equal(engine.packages.agents, undefined);
   assert.equal(engine.packages.studio, undefined);
-  assert.equal(engine.packages.cli, undefined);
   assert.ok(engine.packages.runtime);
   assert.ok(engine.packages.nylorun);
+  // The deprecated CLI follows the nylorun it pins.
+  assert.ok(engine.packages.cli);
 });
 
 const protocolV1 = {
@@ -200,14 +222,14 @@ export const HOST_PROTOCOL: ProtocolRange = {
   assert.equal(isBreakingBump("minor", "1.0.0"), false);
 });
 
-test("D1: protocol change without breaking bumps for core/runtime/agents/cli fails", () => {
+test("D1: protocol change without breaking bumps for core/runtime/agents/nylorun fails", () => {
   assert.throws(
     () =>
       planVersions(versions, pins, [intent("harness", "minor")], {
         currentProtocol: protocolV2,
         releasedProtocol: protocolV1,
       }),
-    /PROTOCOL_VERSION or HOST_PROTOCOL changed.*core, runtime, agents, cli/,
+    /PROTOCOL_VERSION or HOST_PROTOCOL changed.*core, runtime, agents, nylorun/,
   );
 });
 
@@ -221,7 +243,7 @@ test("D1: protocol change with only patch intent fails", () => {
           intent("core", "patch"),
           intent("runtime", "patch"),
           intent("agents", "patch"),
-          intent("cli", "patch"),
+          intent("nylorun", "patch"),
         ],
         { currentProtocol: protocolV2, releasedProtocol: protocolV1 },
       ),
@@ -229,7 +251,7 @@ test("D1: protocol change with only patch intent fails", () => {
   );
 });
 
-test("D1: protocol change with pre-1.0 minor bumps for core/runtime/agents/cli passes", () => {
+test("D1: protocol change with pre-1.0 minor bumps for core/runtime/agents/nylorun passes", () => {
   const { plan } = planVersions(
     versions,
     pins,
@@ -237,14 +259,14 @@ test("D1: protocol change with pre-1.0 minor bumps for core/runtime/agents/cli p
       intent("core", "minor"),
       intent("runtime", "minor"),
       intent("agents", "minor"),
-      intent("cli", "minor"),
+      intent("nylorun", "minor"),
     ],
     { currentProtocol: protocolV2, releasedProtocol: protocolV1 },
   );
   assert.equal(plan.packages.core, "0.2.0-beta");
   assert.equal(plan.packages.runtime, "0.2.0-beta");
   assert.equal(plan.packages.agents, "0.2.0-beta");
-  assert.equal(plan.packages.cli, "0.2.0-beta");
+  assert.equal(plan.packages.nylorun, "0.2.0-beta");
 });
 
 test("D1: protocol change after 1.0 requires major bumps", () => {
@@ -261,7 +283,6 @@ test("D1: protocol change after 1.0 requires major bumps", () => {
   };
   const stablePins = {
     core: "1.0.0",
-    cli: "1.0.0",
     harness: "1.0.0",
     agents: "1.0.0",
     admin: "1.0.0",
@@ -276,7 +297,7 @@ test("D1: protocol change after 1.0 requires major bumps", () => {
           intent("core", "minor"),
           intent("runtime", "minor"),
           intent("agents", "minor"),
-          intent("cli", "minor"),
+          intent("nylorun", "minor"),
         ],
         { currentProtocol: protocolV2, releasedProtocol: protocolV1 },
       ),
@@ -289,7 +310,7 @@ test("D1: protocol change after 1.0 requires major bumps", () => {
       intent("core", "major"),
       intent("runtime", "major"),
       intent("agents", "major"),
-      intent("cli", "major"),
+      intent("nylorun", "major"),
     ],
     { currentProtocol: protocolV2, releasedProtocol: protocolV1 },
   );

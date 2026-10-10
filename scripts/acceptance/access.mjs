@@ -6,7 +6,7 @@
  *
  * Images: see scripts/lib/stack.mjs (built from this checkout, or named by
  * NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE). Needs the workspace builds of
- * @nylorun/core, @nylorun/agents, @nylorun/admin, nylorun and @nylorun/cli.
+ * @nylorun/core, @nylorun/agents, @nylorun/admin and nylorun.
  *
  * A1  three subjects (admin, builder, member) on one Tenant, each acting
  *     through `app.as(...)`: a session with the person's vault (created with the

@@ -7,8 +7,7 @@ import {
   writeJson,
   node,
   npm,
-  verifyToolchain,
-} from "./lib/repo.mjs";
+  verifyToolchain, packagePath } from "./lib/repo.mjs";
 import {
   developmentOptions,
   develop,
@@ -22,12 +21,12 @@ import {
  */
 export async function renderPreview({ repo = root } = {}) {
   const { starterFiles } = await import(
-    pathToFileURL(join(repo, "create-agent/dist/scaffold.js")).href
+    pathToFileURL(join(repo, "cli/create-agent/dist/scaffold.js")).href
   );
   await mkdir(join(repo, ".tmp"), { recursive: true });
   const project = await mkdtemp(join(repo, ".tmp/starter-"));
   const compatibility = await readJson(
-    join(repo, "create-agent/compatibility.json"),
+    join(repo, "cli/create-agent/compatibility.json"),
   );
   for (const [path, content] of Object.entries(
     await starterFiles(compatibility),
@@ -36,7 +35,7 @@ export async function renderPreview({ repo = root } = {}) {
     await writeFile(join(project, path), content);
   }
   const manifest = await readJson(join(project, "package.json"));
-  const local = (name) => `file:${join(repo, name).replaceAll("\\", "/")}`;
+  const local = (name) => `file:${join(repo, packagePath(name)).replaceAll("\\", "/")}`;
   for (const name of ["core", "agents"])
     manifest.dependencies[`@nylorun/${name}`] = local(name);
   await writeJson(join(project, "package.json"), manifest);

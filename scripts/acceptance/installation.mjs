@@ -37,7 +37,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProcessGroup } from "../lib/processes.mjs";
-import { npm, packageName, root } from "../lib/repo.mjs";
+import { npm, packageName, root, packagePath } from "../lib/repo.mjs";
 import {
   ensureImages,
   eventually,
@@ -82,7 +82,7 @@ async function packPackages(destination, names) {
   for (const name of names) {
     const result = JSON.parse(
       await npm(["pack", "--ignore-scripts", "--json", "--pack-destination", destination], {
-        cwd: join(root, name),
+        cwd: join(root, packagePath(name)),
         capture: true,
       }),
     );
@@ -413,7 +413,8 @@ async function i9(url, stack, temporary) {
 // ── I7: the Tenant outlives the installing Project's node_modules ──
 async function i7(url, stack, packed, temporary) {
   const project = join(temporary, "project-i7");
-  await installProject(project, packed, ["core", "nylorun"]);
+  // nylorun depends on @nylorun/admin (for nylo); a release PR's admin is not on npm yet.
+  await installProject(project, packed, ["core", "admin", "nylorun"]);
   const projectCli = join(project, "node_modules/nylorun/dist/cli.js");
   const { stdout } = await stack.nylorun(["status", "--json"], { echo: false, entry: projectCli });
   assert.equal(JSON.parse(stdout).runtime.healthy, true);
@@ -540,7 +541,7 @@ async function i4(stack) {
   pass("I4", "a Tenant restart restores sessions and agents");
 
   // The Runtime records the migrations it applied in Drizzle's journal,
-  // nylorun.__drizzle_migrations (runtime/src/store/postgres/migrate.ts). A migration this
+  // nylorun.__drizzle_migrations (runtime/server/src/store/postgres/migrate.ts). A migration this
   // Runtime does not ship is one a newer Runtime applied.
   assert.equal(
     await stack.psql(`SELECT count(*) > 0 FROM nylorun.__drizzle_migrations`),
@@ -580,20 +581,20 @@ assertNotRealHome(temporary);
 try {
   const artifacts = join(temporary, "artifacts");
   await mkdir(artifacts);
-  const packed = await packPackages(artifacts, ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli"]);
+  const packed = await packPackages(artifacts, ["core", "harness", "agents", "admin", "runtime", "nylorun"]);
 
   if (selected("I5")) await i5(temporary, packed);
 
   if (SCENARIOS.some((id) => id !== "I5" && selected(id))) {
-    // nylorun, the CLI and @nylorun/admin as a developer's npx installs them.
+    // nylorun (with nylo) and @nylorun/admin as a developer's npx installs them.
     const tools = join(temporary, "tools");
-    await installProject(tools, packed, ["core", "agents", "admin", "nylorun", "cli"]);
+    await installProject(tools, packed, ["core", "agents", "admin", "nylorun"]);
     const images = await ensureImages();
     await withStack(
       {
         name: "nylorun-acceptance",
         cli: join(tools, "node_modules/nylorun/dist/cli.js"),
-        nylo: join(tools, "node_modules/@nylorun/cli/dist/cli.js"),
+        nylo: join(tools, "node_modules/nylorun/dist/nylo.js"),
         images,
         startArgs: ["--no-studio"],
       },

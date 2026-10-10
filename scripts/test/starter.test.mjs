@@ -12,7 +12,7 @@ test("starter previews resolve local packages and never overwrite an earlier pre
     const manifest = await readJson(join(first, "package.json"));
     assert.equal(
       manifest.dependencies["@nylorun/agents"],
-      `file:${join(root, "agents").replaceAll("\\", "/")}`,
+      `file:${join(root, "sdks/agents").replaceAll("\\", "/")}`,
     );
     // nylorun and the CLI run from the workspace, never from the project.
     assert.deepEqual(

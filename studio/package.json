@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/studio",
-  "version": "0.23.1-beta",
+  "version": "0.23.3-beta",
   "private": true,
   "description": "The Nylorun Studio server: the dashboard and trusted Runtime proxy that ghcr.io/nylorun/studio runs. Private; ships only as that image.",
   "type": "module",
@@ -35,22 +35,22 @@
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\""
   },
   "dependencies": {
-    "@nylorun/admin": "0.14.0-beta",
-    "@nylorun/agents": "0.19.0-beta"
+    "@nylorun/admin": "0.15.0-beta",
+    "@nylorun/agents": "0.19.1-beta"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^26.5.0",
+    "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "@vitejs/plugin-react": "^6.1.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.23",
-    "lucide-react": "^1.49.0",
+    "lucide-react": "^1.52.0",
     "playwright": "^1.63.0",
-    "radix-ui": "^1.6.7",
+    "radix-ui": "^1.7.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-resizable-panels": "^4.14.1",
@@ -59,6 +59,6 @@
     "tailwindcss": "^4.3.3",
     "tw-animate-css": "^1.4.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vite": "^8.3.1"
+    "vite": "^8.3.3"
   }
 }

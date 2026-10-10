@@ -30,7 +30,7 @@
               "-g",
               "--",
               "/nylo/node",
-              "/nylo/app/runtime/dist/host/main.js",
+              "/nylo/app/runtime/server/dist/host/main.js",
               "--service",
               "harness"
             ],

@@ -1,7 +1,7 @@
 # Self-host example: Keycloak and oauth2-proxy
 
 A small team's installation on one machine, with no Nylorun account and nothing in the path that
-belongs to Nylorun. It shows each front door of [SELF_HOSTING.md](../../SELF_HOSTING.md):
+belongs to Nylorun. It shows each front door of [SELF_HOSTING.md](../../guides/SELF_HOSTING.md):
 
 - people sign in with **Keycloak**, and their access tokens call the Runtime directly (a trusted
   issuer in [`identity.yaml`](./identity.yaml));
@@ -83,7 +83,7 @@ subject: `u:<their Keycloak sub>` with this example's identity file), as a `bear
 credential bound to the server's URL; only their sessions attach it. A server that needs each person's sign-in goes through an MCP gateway: one
 credential in an installation vault with the gateway's key, `via` and an identity header, which
 the Runtime fills with the session owner's subject. See "Reaching a person's accounts" in
-[DEPLOYMENT.md](../../DEPLOYMENT.md#reaching-a-persons-accounts). This example adds neither.
+[DEPLOYMENT.md](../../guides/DEPLOYMENT.md#reaching-a-persons-accounts). This example adds neither.
 
 ## Clean up
 

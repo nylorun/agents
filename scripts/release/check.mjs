@@ -38,11 +38,11 @@ try {
         .map(([name, artifact]) => [name, artifact.path]),
     ),
   );
-  await node("create-agent/scripts/check-stack.mjs");
-  await node("create-agent/scripts/smoke-starter.mjs", [], {
+  await node("cli/create-agent/scripts/check-stack.mjs");
+  await node("cli/create-agent/scripts/smoke-starter.mjs", [], {
     env: { ...process.env, NYLORUN_STACK_TARBALLS: input },
   });
-  await node("create-agent/scripts/check-example-assets.mjs");
+  await node("cli/create-agent/scripts/check-example-assets.mjs");
   console.log(
     `Exact release combination passed. Verified artifacts: ${directory}`,
   );

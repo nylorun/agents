@@ -53,6 +53,7 @@ import {
 import {
   StudioSignedOutError,
   createTenantClient,
+  decodeSegment,
   fetchHello,
   tenantHref,
   tenantScope,
@@ -92,8 +93,6 @@ function hashOf(definition: object): string | undefined {
 function studioClient(tenantId: string) {
   return createTenantClient(tenantId);
 }
-
-void STUDIO_VERSION;
 
 type BootState =
   | { kind: "booting" }
@@ -197,6 +196,7 @@ function EmbedRouteSync({ basename }: { basename: string }) {
 }
 
 function StudioRoot({ tenantId }: { tenantId?: string }) {
+  const location = useLocation();
   const [boot, setBoot] = useState<BootState>({ kind: "booting" });
   const [attempt, setAttempt] = useState(0);
   const embedStatus = useEmbedStatus();
@@ -329,8 +329,10 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
       </StatusScreen>
     );
   }
+  // A failed Workspace takes its sidebar with it: the next route (back, or an
+  // embedder's `navigate`) renders it again.
   return (
-    <ViewErrorBoundary>
+    <ViewErrorBoundary resetKey={location.pathname}>
       <Workspace tenant={tenant} />
     </ViewErrorBoundary>
   );
@@ -363,8 +365,18 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
     /^\/agents\/([^/]+)(?:\/sessions\/([^/]+))?/,
   );
   const sessionOnly = location.pathname.match(/^\/sessions\/([^/]+)\/?$/);
-  const agentId = match?.[1] ? decodeURIComponent(match[1]) : undefined;
-  const sessionId = match?.[2] ? decodeURIComponent(match[2]) : undefined;
+  const agentId = match?.[1] ? decodeSegment(match[1]) : undefined;
+  const sessionId = match?.[2] ? decodeSegment(match[2]) : undefined;
+  const redirectSessionId = sessionOnly?.[1] ? decodeSegment(sessionOnly[1]) : undefined;
+  // A segment that is no valid percent-encoding (`%E0`) names no agent or
+  // session: the view says "not found" instead of throwing a URIError.
+  const sessionSegment = match?.[2] ?? sessionOnly?.[1];
+  const notFound: RouteNotFoundProps | undefined =
+    sessionSegment && (sessionId ?? redirectSessionId) === undefined
+      ? { what: "session", segment: sessionSegment }
+      : match?.[1] && agentId === undefined
+        ? { what: "agent", segment: match[1] }
+        : undefined;
   const [connection, setConnection] = useState<Connection>({
     status: "Connecting",
     agents: [],
@@ -462,11 +474,10 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
           )}
           {/* One broken view shows an error panel; the sidebar and header stay. */}
           <ViewErrorBoundary resetKey={location.pathname}>
-            {sessionOnly ? (
-              <SessionRedirect
-                tenantId={tenant.id}
-                sessionId={decodeURIComponent(sessionOnly[1]!)}
-              />
+            {notFound ? (
+              <RouteNotFound {...notFound} />
+            ) : redirectSessionId !== undefined ? (
+              <SessionRedirect tenantId={tenant.id} sessionId={redirectSessionId} />
             ) : location.pathname === "/settings" ? (
               <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
             ) : location.pathname === "/vault" ? (
@@ -525,6 +536,22 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
 function NewSessionButton({ agent }: { agent: StudioDefinition }) {
   const startSession = useStartSession();
   return <Button onClick={() => startSession(agent)}>New session</Button>;
+}
+
+type RouteNotFoundProps = { what: "agent" | "session"; segment: string };
+
+/** A route segment that names nothing (it does not decode). */
+function RouteNotFound({ what, segment }: RouteNotFoundProps) {
+  return (
+    <section className="mx-auto w-full max-w-3xl flex-1 p-8">
+      <h1 className="text-2xl font-semibold">
+        {what === "agent" ? "Agent not found" : "Session not found"}
+      </h1>
+      <p className="mt-2 text-muted-foreground">
+        This Tenant has no {what} <code className={code}>{segment}</code>.
+      </p>
+    </section>
+  );
 }
 
 /**

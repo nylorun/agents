@@ -1,128 +1,130 @@
-# Nylorun Agents
+<div align="center">
 
-Observable, portable, composable TypeScript agent execution. Harness is
-state-in/state-out; the optional **Runtime Host** owns sessions for the one
-**Tenant** of its installation.
+# Nylorun
 
-This repository contains core (definitions/contracts), harness (engine), agents
-(SDK), admin (Management API client), runtime (OSS Host), CLI, Studio and the project
-creator. Cloud lives in the private agents-api repository. Vocabulary:
-[runtime/src/CONTEXT.md](runtime/src/CONTEXT.md).
+**Build AI agents. Run them on a durable, self-hosted Runtime.**
 
-The Runtime runs as a container next to Postgres (the Session Store), Restate
-(Durable Session Execution) and S2 (Durable Streams, `s2-lite` locally). Studio,
-the dashboard, runs beside them. Each installation has its own database and
-serves one Tenant. On a developer machine `nylorun start` runs all five with
-Docker Compose: one local Tenant per project, or the default Tenant outside a
-project.
+[![CI](https://github.com/nylorun/agents/actions/workflows/ci.yml/badge.svg)](https://github.com/nylorun/agents/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-0b0b0b)](./LICENSE)
 
-For the core-runtime beta, start with [the SDK](agents/README.md),
-[Runtime Host](runtime/README.md), and [host contract](harness/HOST_CONTRACT.md).
+[Docs](https://docs.nylorun.com/docs) ·
+[Quickstart](#quickstart) ·
+[API reference](https://docs.nylorun.com/reference/runtime) ·
+[Examples](./examples)
 
-> **Experimental beta.** Public APIs may change before 1.0. Prefer the `@beta`
-> dist-tag for installs until then.
+</div>
 
-## Quick start
+> [!WARNING]
+> **Beta.** APIs, protocols and on-disk formats change before 1.0. Upgrade every
+> Nylorun package together, and read
+> [Compatibility](https://docs.nylorun.com/docs/compatibility) before you skip a
+> release.
 
-Install the prerequisites once: Node.js 24 or newer, and Docker with Compose v2
-([Docker Desktop](https://docs.docker.com/get-started/get-docker/),
-[OrbStack](https://orbstack.dev) or [Colima](https://github.com/abiosoft/colima)).
-The local Runtime and Studio run in Docker Compose. Nylorun runs on
-macOS and Linux; on Windows, use [WSL2](https://learn.microsoft.com/windows/wsl/install) with Docker
-Desktop's WSL integration (native Windows is not supported).
+## Quickstart
 
 ```sh
-node --version             # 24 or newer
-docker compose version     # v2
+npx nylorun up
 ```
 
-Create a local agent project:
+This starts a Runtime and Studio on your machine and prints their URLs. Check
+it with `npx nylorun status`; stop it with `npx nylorun down` (volumes stay).
 
-```sh
-npm create @nylorun/agent@beta my-agent
-```
+Requires Node.js 24, Docker Compose v2, and a model key if you call a provider.
+On Windows, use WSL2 and keep the project on the Linux filesystem.
 
-The creator installs the project's dependencies and prints the next steps. If
-a prerequisite is missing, it says what to set up; nothing is downloaded for
-you. Then:
+Next:
 
-```sh
-cd my-agent
-npx nylorun@beta start   # this project's Tenant (Docker) and the link in .nylorun/
-npm run dev              # tsx watch src/main.ts
-```
+- [**Studio**](https://docs.nylorun.com/docs/run/studio): chat with agents and inspect sessions.
+- [**Agents SDK**](https://docs.nylorun.com/docs/build): define an agent and give it tools.
 
-`--yes` (after `--`) accepts npm install prompts.
+## How it works
 
-The generated app depends on `@nylorun/agents` alone; the two tools run with
-`npx`. `nylorun` sets up and runs the project's local **Tenant**: its
-Runtime, Studio and services in Docker Compose, under
-`~/.nylorun/tenants/<name>/`, named after the project directory
-(`nylorun start|stop|status|logs|studio|reset`, `nylorun ls` and
-`nylorun delete <tenant>`; `nylorun doctor` checks the prerequisites).
-`nylorun start` writes the **Project link** under `.nylorun/` and seeds the
-model provider from `.env` into the Tenant's vault (or set it in Studio).
-Projects that must not share agents, credentials or history run separate
-Tenants; `nylorun start --tenant <name>` (or `NYLORUN_TENANT`) attaches a
-checkout to an existing one. Outside a project, `nylorun start` runs the
-Tenant `default`.
-`@nylorun/cli`, command `nylo`, is the Runtime client for the linked
-installation (`nylo status|reset|access|configure|env|doctor`). Studio runs
-in the Tenant's containers as the `ghcr.io/nylorun/studio` image.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./.github/assets/how-it-works-dark.png">
+    <img alt="Clients (CLI, Agents SDK, Admin SDK, Studio, HTTP) call the Runtime API and Management API. Inside the Runtime: sessions, a store on Postgres, artifacts on RustFS, sandboxes on Kubernetes, durable execution on Restate and durable streams on S2. Calls to model providers, MCP servers, HTTP tools and the web leave through the gateway, which holds the keys." src="./.github/assets/how-it-works-light.png" width="720">
+  </picture>
+</p>
 
-## Develop this repository
+Nylorun is an open-source runtime for AI agents.
 
-Requires **Node 24** and **npm 11**. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+- **Agents are declarative.** Define them with the
+  [Agents SDK](https://docs.nylorun.com/docs/build) from instructions,
+  [tools](https://docs.nylorun.com/docs/build/tools) and
+  [MCP servers](https://docs.nylorun.com/docs/build/mcp), and compose in one
+  line: `.pipe(researcher, analyst)`. Publish your agent and start a session
+  with the Runtime.
+- **The Runtime is a Docker Compose stack**: `runtime`, `gateway`, `harness`,
+  `studio`, `postgres`, `restate`, `s2-lite` and `rustfs`. Start it with
+  `npx nylorun up`; use it from Studio, the CLI, the SDKs or HTTP.
+
+One installation is one **Tenant**, with its own database, Studio and data.
+See [Concepts](https://docs.nylorun.com/docs/concepts) for the vocabulary.
+
+## Documentation
+
+The guides live at **[docs.nylorun.com](https://docs.nylorun.com/docs)**.
+
+| Section | Start with |
+| --- | --- |
+| **Get started** | [Quickstart](https://docs.nylorun.com/docs) · [Concepts](https://docs.nylorun.com/docs/concepts) · [Your project](https://docs.nylorun.com/docs/project) |
+| **Build** | [Agent](https://docs.nylorun.com/docs/build/agent) · [Tools](https://docs.nylorun.com/docs/build/tools) · [MCP](https://docs.nylorun.com/docs/build/mcp) · [Flow agents](https://docs.nylorun.com/docs/build/flows) · [Serve your users](https://docs.nylorun.com/docs/build#serve-your-users) |
+| **Run** | [Sessions](https://docs.nylorun.com/docs/run/sessions) · [Models](https://docs.nylorun.com/docs/run/models) · [Sandboxes](https://docs.nylorun.com/docs/run/sandboxes) · [CLI](https://docs.nylorun.com/docs/run/cli) |
+| **Deploy** | [Docker Compose](https://docs.nylorun.com/docs/deploy/vm) · [Kubernetes](https://docs.nylorun.com/docs/deploy/kubernetes) · [Nylorun Cloud](https://docs.nylorun.com/docs/deploy/cloud) |
+| **Reference** | [Runtime API](https://docs.nylorun.com/reference/runtime) · [Management API](https://docs.nylorun.com/reference/management) · OpenAPI: [runtime](https://docs.nylorun.com/openapi/runtime.json), [management](https://docs.nylorun.com/openapi/management.json) |
+| **More** | [Compatibility](https://docs.nylorun.com/docs/compatibility) · [Troubleshooting](https://docs.nylorun.com/docs/troubleshooting) · [Use with AI agents](https://docs.nylorun.com/docs/ai-agents) |
+
+Using a coding agent? Point it at [`llms.txt`](https://docs.nylorun.com/llms.txt);
+every page is also available as Markdown by appending `.md` to its URL.
+
+## Packages
+
+| Package | Folder | Role |
+| --- | --- | --- |
+| [`@nylorun/agents`](https://www.npmjs.com/package/@nylorun/agents) | [`sdks/agents`](./sdks/agents) | Agents SDK: define agents, save them, open sessions; AG-UI and A2A handlers |
+| [`@nylorun/admin`](https://www.npmjs.com/package/@nylorun/admin) | [`sdks/admin`](./sdks/admin) | Admin SDK for the Management API: models, vaults, signing keys, application keys |
+| [`nylorun`](https://www.npmjs.com/package/nylorun) | [`cli/nylorun`](./cli/nylorun) | Runs the local Runtime (`up`, `down`, `status`, `logs`, `studio`, `key`); `nylo`, the Runtime client |
+| [`@nylorun/cli`](https://www.npmjs.com/package/@nylorun/cli) | [`cli/legacy`](./cli/legacy) | Deprecated: runs nylorun's `nylo` for one more release |
+| [`@nylorun/create-agent`](https://www.npmjs.com/package/@nylorun/create-agent) | [`cli/create-agent`](./cli/create-agent) | `npm create @nylorun/agent`: project scaffolding and compatibility pins |
+| [`@nylorun/runtime`](https://www.npmjs.com/package/@nylorun/runtime) | [`runtime/server`](./runtime/server) | The Runtime; also the `ghcr.io/nylorun/runtime` image |
+| [`@nylorun/harness`](https://www.npmjs.com/package/@nylorun/harness) | [`runtime/harness`](./runtime/harness) | Execution engine and checkpoints |
+| [`@nylorun/core`](https://www.npmjs.com/package/@nylorun/core) | [`core`](./core) | Shared definitions, contracts and manifest identity |
+| `ghcr.io/nylorun/studio` (image only) | [`studio`](./studio) | The dashboard |
+| `ghcr.io/nylorun/sandboxes` (image only) | [`sandboxes`](./sandboxes) | Go service that runs pod sandboxes on Kubernetes |
+| Not published | [`examples`](./examples) | Capability demos on the generated project shell |
+
+## Self-hosting
+
+Everything here runs without a Nylorun account. The Runtime verifies and
+enforces; it never signs people in. Your identity provider and secret store
+plug in.
+
+- [DEPLOYMENT.md](./guides/DEPLOYMENT.md): the Tenant's containers, reverse proxy and Postgres
+- [SELF_HOSTING.md](./guides/SELF_HOSTING.md): your own identity provider and secrets
+- [MIGRATION.md](./guides/MIGRATION.md): breaking changes between beta protocols
+
+## Contributing
+
+Requires Node 24 and npm 11.
 
 ```sh
 git clone https://github.com/nylorun/agents.git
 cd agents
-npm run setup
-npm run dev
+npm run setup   # install both lockfiles and build the packages
+npm run dev     # build the Runtime and Studio images, run the examples' Tenant
 ```
 
-`npm run setup` installs both lockfiles and builds packages. `npm run dev`
-builds the Runtime and Studio images from your checkout, runs the examples'
-Tenant on them (`nylorun start`), and runs the examples on that Tenant, rebuilding
-packages and images as you edit. The Tenant keeps running after you stop `dev`,
-so sessions survive a source change; `npx nylorun down` stops it.
+`npm run dev` rebuilds packages and images as you edit. The Tenant keeps running
+after you stop it, so sessions survive a source change; `npx nylorun down`
+stops it. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for checks and workflow and
+[RELEASING.md](./guides/RELEASING.md) for publishing. The domain vocabulary is in
+[runtime/server/src/CONTEXT.md](./runtime/server/src/CONTEXT.md).
 
-Print the export lines for a linked Project:
+## Community
 
-```sh
-eval "$(npx @nylorun/cli env)"
-# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
-```
-
-## Packages
-
-| Package                                   | Role                                                              |
-| ----------------------------------------- | ----------------------------------------------------------------- |
-| [`@nylorun/core`](./core)                 | Shared definitions, contracts and manifest identity               |
-| [`@nylorun/harness`](./harness)           | Execution engine and checkpoints                                  |
-| [`nylorun`](./nylorun)                    | `npx nylorun start`: a project's local Tenant and its link        |
-| [`@nylorun/cli`](./cli)                   | Runtime client (`nylo`): status, reset, access, model provider    |
-| [`@nylorun/agents`](./agents)             | Session SDK and authoring: define agents and save them           |
-| [`@nylorun/admin`](./admin)               | Management API client: models, vaults, MCP server previews, signing keys, application keys |
-| [`@nylorun/runtime`](./runtime)           | Runtime Host and Tenant Runtime; the `ghcr.io/nylorun/runtime` image |
-| [`@nylorun/studio`](./studio)             | Dashboard and trusted proxy; the `ghcr.io/nylorun/studio` image   |
-| [`@nylorun/create-agent`](./create-agent) | Project scaffolding, compatibility pins, and examples sync        |
-| [`examples`](./examples)                  | Authored capability demonstrations on the generated project shell |
-
-## Documentation
-
-| Doc                                                  | Audience                                        |
-| ---------------------------------------------------- | ----------------------------------------------- |
-| [CONTRIBUTING.md](./CONTRIBUTING.md)                 | Contributors — setup, checks, workflow          |
-| [RELEASING.md](./RELEASING.md)                       | Maintainers — version, publish, dist-tags       |
-| [MIGRATION.md](./MIGRATION.md)                       | Breaking beta migration (incl. Runtime V1)      |
-| [DEPLOYMENT.md](./DEPLOYMENT.md)                     | Application hosting                             |
-| [SELF_HOSTING.md](./SELF_HOSTING.md)                 | Teams — your own identity provider and secrets  |
-| [agents/README.md](./agents/README.md)               | Authoring agents against a Tenant               |
-| [SECURITY.md](./SECURITY.md)                         | Vulnerability reports                           |
-| [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)           | Community standards                             |
-
-Package-level READMEs: [Harness](./harness/README.md) · [Runtime](./runtime/README.md) · [CLI](./cli/README.md) · [Admin](./admin/README.md) · [Studio](./studio/README.md) · [Examples](./examples/README.md)
+- [GitHub issues](https://github.com/nylorun/agents/issues) for bugs and requests
+- [SECURITY.md](./.github/SECURITY.md) to report a vulnerability privately
+- [CODE_OF_CONDUCT.md](./.github/CODE_OF_CONDUCT.md)
 
 ## License
 

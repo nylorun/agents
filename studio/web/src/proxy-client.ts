@@ -41,18 +41,25 @@ export function tenantRuntimePath(tenantId: string): string {
   return `/_studio/tenants/${encodeURIComponent(tenantId)}/runtime`;
 }
 
+/**
+ * One path segment, decoded; undefined when it is no valid percent-encoding
+ * (`%E0`), so a malformed route names nothing instead of throwing a URIError.
+ */
+export function decodeSegment(segment: string): string | undefined {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Tenant scope from a dashboard path: `/tenants/<id>/…` → router basename. */
 export function tenantScope(
   pathname: string,
 ): Readonly<{ tenantId: string; basename: string }> | undefined {
   const match = /^\/tenants\/([^/]+)/u.exec(pathname);
   if (!match) return undefined;
-  let tenantId: string;
-  try {
-    tenantId = decodeURIComponent(match[1]!);
-  } catch {
-    return undefined;
-  }
+  const tenantId = decodeSegment(match[1]!);
   return tenantId ? { tenantId, basename: `/tenants/${match[1]}` } : undefined;
 }
 
@@ -67,7 +74,7 @@ function sessionFetch(): StudioFetch {
 }
 
 /** Same-origin fetch with the session. Accepts only absolute paths. */
-export function studioFetch(
+function studioFetch(
   path: string,
   init?: RequestInit,
   fetcher: StudioFetch = sessionFetch(),

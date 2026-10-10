@@ -239,6 +239,28 @@ test("a session id nobody created is not found, and is not created", async () =>
   });
 });
 
+test("an agent or session segment that does not decode is not found, and the next route opens", async () => {
+  await withStudio(async ({ page, puts }) => {
+    // The server answers 400 for an undecodable path, so only in-app
+    // navigation (a link, an embedder's `navigate`) reaches one.
+    const visit = (path: string) =>
+      page.evaluate((url) => {
+        history.pushState(null, "", url);
+        dispatchEvent(new PopStateEvent("popstate"));
+      }, `/tenants/${TENANT}${path}`);
+    await visit("/agents/%E0");
+    await page.getByRole("heading", { name: "Agent not found" }).waitFor();
+    await visit(`/agents/${AGENT}/sessions/%E0`);
+    await page.getByRole("heading", { name: "Session not found" }).waitFor();
+    await visit("/sessions/%E0%A4%A");
+    await page.getByText("This Tenant has no session %E0%A4%A.").waitFor();
+    assert.equal(await page.getByText("Something went wrong in this view").count(), 0);
+    await visit(`/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
+    assert.deepEqual(puts, []);
+  });
+});
+
 test("New session creates the session for the local developer", async () => {
   await withStudio(async ({ page, puts }) => {
     await page.getByRole("button", { name: "New session" }).first().click();

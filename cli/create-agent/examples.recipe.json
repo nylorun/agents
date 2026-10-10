@@ -1,0 +1,24 @@
+{
+  "name": "nylorun-harness-examples",
+  "dependencies": {
+    "@nylorun/harness": "file:../runtime/harness",
+    "@nylorun/runtime": "file:../runtime/server",
+    "zod-from-json-schema": "^0.5.6",
+    "@nylorun/agents": "file:../sdks/agents",
+    "@nylorun/core": "file:../core"
+  },
+  "devDependencies": {
+    "nylorun": "file:../cli/nylorun",
+    "@nylorun/admin": "file:../sdks/admin",
+    "vitest": "^4.1.11",
+    "@ag-ui/client": "1.0.0",
+    "postgres": "^3.4.9"
+  },
+  "scripts": {
+    "configure": "nylo configure",
+    "test": "vitest run",
+    "codex:preflight": "node scripts/codex-preflight.mjs",
+    "ag-ui": "tsx --env-file-if-exists=.env src/ag-ui/server.ts"
+  },
+  "index": "// CLI loads the supported registry directly.\nexport { agents } from \"../agents/index.js\";\n"
+}

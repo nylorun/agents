@@ -2,7 +2,7 @@
  * `npm run dev`: the contributor loop on a local Tenant (Docker Compose).
  *
  * 1. Build the host-side packages the examples application runs on (core,
- *    harness, agents, admin, runtime, nylorun, cli).
+ *    harness, agents, admin, runtime, nylorun).
  * 2. Build the Runtime and Studio images from this checkout
  *    (`nylorun-runtime:dev`, `nylorun-studio:dev`; NYLORUN_RUNTIME_IMAGE /
  *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` examples/' Tenant
@@ -22,7 +22,7 @@ import { existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { watch } from "chokidar";
 import { ProcessGroup } from "./processes.mjs";
-import { npmCli, root } from "./repo.mjs";
+import { npmCli, packagePath, root } from "./repo.mjs";
 import { buildImage, ensureImages } from "./stack.mjs";
 
 export function developmentOptions(args) {
@@ -48,8 +48,7 @@ export const HOST_PACKAGES = {
   agents: ["core"],
   admin: ["core"],
   runtime: ["core", "harness"],
-  nylorun: ["core"],
-  cli: ["agents", "admin"],
+  nylorun: ["core", "admin"],
 };
 
 /** The packages each image is built from (see runtime/Dockerfile, studio/Dockerfile). */
@@ -66,7 +65,6 @@ const WATCHED = {
   admin: ["src"],
   runtime: ["src"],
   nylorun: ["src"],
-  cli: ["src"],
   studio: ["src", "web"],
 };
 
@@ -88,8 +86,12 @@ export function rebuildPlan(changed, { studio = true } = {}) {
 
 /** The package a changed path belongs to, or undefined for anything unwatched. */
 export function packageOf(repo, path) {
-  const [name, directory] = relative(repo, path).split(sep);
-  if (!WATCHED[name]?.includes(directory)) return undefined;
+  const parts = relative(repo, path).split(sep);
+  const name = Object.keys(WATCHED).find((name) => {
+    const prefix = packagePath(name).split("/");
+    return prefix.every((part, i) => parts[i] === part) && WATCHED[name].includes(parts[prefix.length]);
+  });
+  if (!name) return undefined;
   if (/[/\\](dist|node_modules)[/\\]/.test(path)) return undefined;
   return name;
 }
@@ -99,7 +101,7 @@ export function packageOf(repo, path) {
  * (local Tenants). `develop` takes these as a parameter so tests can replace them.
  */
 export function workspaceCommands({ repo = root, project = join(repo, "examples"), env = process.env } = {}) {
-  const nylorun = join(repo, "nylorun/dist/cli.js");
+  const nylorun = join(repo, packagePath("nylorun"), "dist/cli.js");
   const images = { runtime: "nylorun-runtime:dev", studio: "nylorun-studio:dev" };
   const stackEnv = () => ({
     ...env,
@@ -109,7 +111,7 @@ export function workspaceCommands({ repo = root, project = join(repo, "examples"
   return {
     async buildPackage(group, name) {
       const child = group.start(`${name}:build`, process.execPath, [npmCli(), "run", "build"], {
-        cwd: join(repo, name),
+        cwd: join(repo, packagePath(name)),
       });
       if ((await child.exit) !== 0) throw new Error(`${name} failed to build.`);
     },
@@ -260,7 +262,7 @@ export async function develop(
 
     const directories = Object.entries(WATCHED)
       .filter(([name]) => name !== "studio" || options.studio)
-      .flatMap(([name, dirs]) => dirs.map((dir) => join(repo, name, dir)))
+      .flatMap(([name, dirs]) => dirs.map((dir) => join(repo, packagePath(name), dir)))
       .filter((dir) => existsSync(dir));
     watcher = watch(directories, { ignoreInitial: true, ...watchOptions });
     watcher.on("all", (_event, path) => {
@@ -289,7 +291,7 @@ export async function develop(
       void close(1);
     });
     log(
-      "[dev] Watching core, harness, agents, admin, runtime, nylorun, cli" +
+      "[dev] Watching core, harness, agents, admin, runtime, nylorun" +
         (options.studio ? " and studio" : "") +
         ". Ctrl-C stops the examples runner; `npx nylorun stop` (in examples/) stops the Tenant.",
     );

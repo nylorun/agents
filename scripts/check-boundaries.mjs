@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { packagePath } from "./lib/repo.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const allowed = {
   core: [],
@@ -9,14 +10,17 @@ const allowed = {
   admin: ["core"],
   runtime: ["core", "harness"],
   studio: ["agents", "admin"],
-  nylorun: ["core"],
-  cli: ["agents", "admin"],
+  // nylorun: the local Tenants (`nylorun`) and the Runtime client (`nylo`, through admin).
+  nylorun: ["core", "admin"],
+  // The deprecated @nylorun/cli depends on nylorun only, and runs its `nylo`.
+  cli: [],
 };
 // Substrate SDKs (sandbox, durable execution, streams) stay behind adapter contracts.
 const substrates = {
   runtime: [
     "just-bash",
     "@restatedev/restate-sdk",
+    "@restatedev/restate-sdk-clients",
     "@s2-dev/streamstore",
     // The stream relay's logical replication (adapters/replication/).
     "pg",
@@ -93,7 +97,7 @@ const files = (dir) =>
   );
 export function checkBoundaries(name) {
   const pkg = JSON.parse(
-    readFileSync(join(root, name, "package.json"), "utf8")
+    readFileSync(join(root, packagePath(name), "package.json"), "utf8")
   );
   for (const dependency of Object.keys({
     ...pkg.dependencies,
@@ -111,7 +115,7 @@ export function checkBoundaries(name) {
     "dist",
     ...(name === "studio" ? ["web/src"] : []),
   ])
-    for (const path of files(join(root, name, directory))) {
+    for (const path of files(join(root, packagePath(name), directory))) {
       if (!/\.(?:ts|tsx|js)$/.test(path)) continue;
       const source = readFileSync(path, "utf8");
       for (const match of source.matchAll(
@@ -133,15 +137,15 @@ export function checkBoundaries(name) {
       }
       for (const substrate of substrates[name] ?? []) {
         const pattern = new RegExp(`(?:from\\s*|import\\s*\\()["']${substrate}(?:/[^"']*)?["']`);
-        if (pattern.test(source) && !/[\\/]adapters[\\/]/.test(path.slice(join(root, name).length)))
+        if (pattern.test(source) && !/[\\/]adapters[\\/]/.test(path.slice(join(root, packagePath(name)).length)))
           throw new Error(`${path} imports ${substrate}; only adapters/ may import substrate SDKs`);
       }
-      const relative = path.slice(join(root, name).length + 1).split(/[\\/]/);
+      const relative = path.slice(join(root, packagePath(name)).length + 1).split(/[\\/]/);
       if (relative[0] === "src")
         for (const rule of moduleImports[name] ?? []) {
           if (relative[1] !== rule.dir || rule.except.includes(relative.slice(1).join("/"))) continue;
           for (const match of source.matchAll(/(?:from\s*|import\s*\()["'](\.\.?\/[^"']+)["']/g)) {
-            const target = join(dirname(path), match[1]).slice(join(root, name, "src").length + 1);
+            const target = join(dirname(path), match[1]).slice(join(root, packagePath(name), "src").length + 1);
             const top = target.split(/[\\/]/)[0];
             if (rule.forbidden.includes(top))
               throw new Error(`${path} imports ${match[1]}; ${rule.dir}/ must not import ${top}/`);
@@ -155,7 +159,7 @@ export function checkBoundaries(name) {
         for (const rule of restrictedModules[name] ?? []) {
           if (rule.importers.includes(relative[1])) continue;
           for (const match of source.matchAll(/(?:from\s*|import\s*\()["'](\.\.?\/[^"']+)["']/g)) {
-            const target = join(dirname(path), match[1]).slice(join(root, name, "src").length + 1).split(/[\\/]/).join("/");
+            const target = join(dirname(path), match[1]).slice(join(root, packagePath(name), "src").length + 1).split(/[\\/]/).join("/");
             if (rule.modules.includes(target))
               throw new Error(`${path} imports ${match[1]}; only ${rule.importers.join(", ")} may (the Model Gate)`);
           }
@@ -171,7 +175,7 @@ export function checkBoundaries(name) {
       }
       const store = storeDriver[name];
       if (store) {
-        const [, ...rest] = path.slice(join(root, name).length).split(/[\\/]/).slice(1);
+        const [, ...rest] = path.slice(join(root, packagePath(name)).length).split(/[\\/]/).slice(1);
         const within = store.dir.every((part, index) => rest[index] === part);
         const imports = (packages) =>
           new RegExp(`(?:from\\s*|import\\s*\\()["'](?:${packages.join("|")})(?:/[^"']*)?["']`).test(source);
@@ -183,7 +187,7 @@ export function checkBoundaries(name) {
       const http = httpFramework[name];
       if (http) {
         const pattern = new RegExp(`(?:from\\s*|import\\s*\\()["'](?:${http.packages.join("|")})(?:/[^"']*)?["']`);
-        const [, top] = path.slice(join(root, name).length).split(/[\\/]/).slice(1);
+        const [, top] = path.slice(join(root, packagePath(name)).length).split(/[\\/]/).slice(1);
         if (pattern.test(source) && !http.dirs.includes(top))
           throw new Error(`${path} imports the HTTP framework; only ${http.dirs.join("/ and ")}/ may`);
       }
@@ -199,7 +203,7 @@ export function checkBoundaries(name) {
   // The nylorun package owns `nylorun`; the Runtime is a library and an image, with no bin.
   if (name === "runtime" && pkg.bin !== undefined)
     throw new Error("Runtime must have no bin: the nylorun package owns nylorun, and the Runtime runs as the ghcr.io/nylorun/runtime image");
-  // One package per command: nylorun (setup) and @nylorun/cli (nylo) never share a bin.
+  // nylorun owns its command (and `nylo`); no other package declares the nylorun bin.
   if (name !== "nylorun" && pkg.bin?.nylorun !== undefined)
     throw new Error(`${name} must not declare the nylorun bin: the nylorun package owns it`);
   // Studio ships only as the ghcr.io/nylorun/studio image, never to npm.

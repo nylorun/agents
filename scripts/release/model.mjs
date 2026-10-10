@@ -5,7 +5,7 @@ import applyReleasePlan from "@changesets/apply-release-plan";
 import readChangesets from "@changesets/read";
 import { readConfig } from "@changesets/config";
 import { getPackages } from "@manypkg/get-packages";
-import { root, packages, readJson, writeJson, run } from "../lib/repo.mjs";
+import { root, packages, readJson, writeJson, run, packagePath } from "../lib/repo.mjs";
 import { syncImagePins } from "./pins.mjs";
 import { CREATOR_PINS, planVersions } from "./version-policy.mjs";
 
@@ -26,12 +26,12 @@ export async function prepareVersions(repo) {
     await Promise.all(
       packages.map(async (name) => [
         name,
-        (await readJson(join(repo, name, "package.json"))).version,
+        (await readJson(join(repo, packagePath(name), "package.json"))).version,
       ]),
     ),
   );
   const compatibility = await readJson(
-    join(repo, "create-agent/compatibility.json"),
+    join(repo, "cli/create-agent/compatibility.json"),
   );
   let legacy;
   try {
@@ -57,7 +57,7 @@ export async function prepareVersions(repo) {
     // Resolve @changesets/cli/changelog from the repo root when needed.
     root,
   );
-  const runtimeManifestPath = join(repo, "runtime/package.json");
+  const runtimeManifestPath = join(repo, "runtime/server/package.json");
   const runtimeManifest = await readJson(runtimeManifestPath);
   if (runtimeManifest.dependencies?.["@nylorun/harness"]) {
     runtimeManifest.dependencies["@nylorun/harness"] =
@@ -65,7 +65,7 @@ export async function prepareVersions(repo) {
     await writeJson(runtimeManifestPath, runtimeManifest);
   }
   for (const name of packages) {
-    const path = join(repo, name, "package.json");
+    const path = join(repo, packagePath(name), "package.json");
     const manifest = await readJson(path);
     for (const dependency of ["core", "harness", "agents", "runtime"]) {
       if (manifest.dependencies?.[`@nylorun/${dependency}`])
@@ -81,13 +81,13 @@ export async function prepareVersions(repo) {
     await rm(join(repo, ".changeset/pre.json"));
   }
   await writeJson(
-    join(repo, "create-agent/compatibility.json"),
+    join(repo, "cli/create-agent/compatibility.json"),
     calculated.plan.compatibility,
   );
   // Runtime advertises its package version via RUNTIME_VERSION; CLI refuses mismatched hosts.
   const runtimeVersion = calculated.plan.packages.runtime;
   if (runtimeVersion) {
-    const versionPath = join(repo, "runtime/src/version.ts");
+    const versionPath = join(repo, "runtime/server/src/version.ts");
     const current = await readFile(versionPath, "utf8");
     const next = current.replace(
       /export const RUNTIME_VERSION = "[^"]+";/,
@@ -95,7 +95,7 @@ export async function prepareVersions(repo) {
     );
     if (next === current)
       throw new Error(
-        `Could not update RUNTIME_VERSION to ${runtimeVersion} in runtime/src/version.ts`,
+        `Could not update RUNTIME_VERSION to ${runtimeVersion} in runtime/server/src/version.ts`,
       );
     await writeFile(versionPath, next);
   }
@@ -130,10 +130,10 @@ export async function validatePlan(plan, repo) {
       throw new Error(`Invalid release package/version: ${name}`);
     if (semver.prerelease(version)?.join(".") !== "beta")
       throw new Error(`Version ${version} does not match channel beta.`);
-    if ((await readJson(join(repo, name, "package.json"))).version !== version)
+    if ((await readJson(join(repo, packagePath(name), "package.json"))).version !== version)
       throw new Error(`Release version differs from ${name}/package.json.`);
   }
-  const actual = await readJson(join(repo, "create-agent/compatibility.json"));
+  const actual = await readJson(join(repo, "cli/create-agent/compatibility.json"));
   for (const name of CREATOR_PINS) {
     const version = plan.compatibility?.[name];
     if (
@@ -144,7 +144,7 @@ export async function validatePlan(plan, repo) {
       throw new Error(`Invalid compatibility pin for ${name}.`);
   }
   for (const name of packages) {
-    const manifest = await readJson(join(repo, name, "package.json"));
+    const manifest = await readJson(join(repo, packagePath(name), "package.json"));
     for (const [dependency, version] of Object.entries(manifest.dependencies ?? {})) {
       if (dependency.startsWith("@nylorun/") && version !== plan.compatibility[dependency.slice(9)])
         throw new Error(`${name}'s ${dependency} dependency must match its compatibility pin.`);
@@ -158,7 +158,7 @@ export async function validatePlan(plan, repo) {
 
 export async function releaseNotes(repo, name, version) {
   const lines = (
-    await readFile(join(repo, name, "CHANGELOG.md"), "utf8")
+    await readFile(join(repo, packagePath(name), "CHANGELOG.md"), "utf8")
   ).split("\n");
   const start = lines.findIndex(
     (line) => line === `## ${version}` || line.startsWith(`## [${version}]`),

@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join, basename, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { root, packages, packageName, npm, readJson, writeJson } from "../lib/repo.mjs";
+import { root, packages, packageName, npm, readJson, writeJson, packagePath } from "../lib/repo.mjs";
 import { validatePlan } from "./model.mjs";
 import { isImageOnly } from "./pins.mjs";
 
@@ -18,7 +18,7 @@ export async function shippedVersion(plan, name, repo = root) {
   return (
     plan.packages[name] ??
     plan.compatibility[name] ??
-    (await readJson(join(repo, name, "package.json"))).version
+    (await readJson(join(repo, packagePath(name), "package.json"))).version
   );
 }
 export async function packRelease(directory, plan, repo = root) {
@@ -44,7 +44,7 @@ export async function packRelease(directory, plan, repo = root) {
           "--pack-destination",
           directory,
         ],
-        { cwd: candidate ? join(repo, name) : directory, capture: true },
+        { cwd: candidate ? join(repo, packagePath(name)) : directory, capture: true },
       ),
     )[0];
     if (result.name !== packageName(name) || result.version !== version)

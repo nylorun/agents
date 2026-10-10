@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, mkdir, writeFile, rm, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { packageName, packages, writeJson } from "../lib/repo.mjs";
+import { packageName, packagePath, packages, writeJson } from "../lib/repo.mjs";
 import { packRelease, readArtifacts } from "../release/artifacts.mjs";
 import { CREATOR_PINS } from "../release/version-policy.mjs";
 
@@ -18,25 +18,25 @@ test(
         packages.map((name) => [name, "1.0.0-beta"]),
       );
       const compatibility = {
-        core: "1.0.0-beta", cli: "1.0.0-beta",
+        core: "1.0.0-beta",
         harness: "1.0.0-beta", agents: "1.0.0-beta",
         admin: "1.0.0-beta",
         runtime: "1.0.0-beta",
       };
       for (const name of packages) {
-        await mkdir(join(repo, name), { recursive: true });
-        await writeJson(join(repo, name, "package.json"), {
+        await mkdir(join(repo, packagePath(name)), { recursive: true });
+        await writeJson(join(repo, packagePath(name), "package.json"), {
           name: packageName(name),
           version: versions[name],
           files: ["index.js"],
         });
         await writeFile(
-          join(repo, name, "index.js"),
+          join(repo, packagePath(name), "index.js"),
           "export const fixture = true;",
         );
       }
       await writeJson(
-        join(repo, "create-agent/compatibility.json"),
+        join(repo, "cli/create-agent/compatibility.json"),
         compatibility,
       );
       const plan = {
@@ -72,17 +72,17 @@ test(
         CREATOR_PINS.map((name) => [name, version]),
       );
       for (const name of packages) {
-        await mkdir(join(repo, name), { recursive: true });
-        await writeJson(join(repo, name, "package.json"), {
+        await mkdir(join(repo, packagePath(name)), { recursive: true });
+        await writeJson(join(repo, packagePath(name), "package.json"), {
           name: packageName(name),
           version,
           files: ["index.js"],
           ...(name === "studio" ? { private: true } : {}),
         });
-        await writeFile(join(repo, name, "index.js"), "export {};");
+        await writeFile(join(repo, packagePath(name), "index.js"), "export {};");
       }
       await writeJson(
-        join(repo, "create-agent/compatibility.json"),
+        join(repo, "cli/create-agent/compatibility.json"),
         compatibility,
       );
       const plan = {

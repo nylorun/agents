@@ -21,7 +21,7 @@ env:
 # Order: validate → images (ghcr.io/nylorun/runtime, studio and sandboxes) → publish
 # (npm, beta only). No step waits for approval: moving `latest` is a separate
 # workflow, Promote to latest (promote.yml). nylorun names its image pins
-# (nylorun/package.json nylorun.runtime and nylorun.studio), so both images
+# (cli/nylorun/package.json nylorun.runtime and nylorun.studio), so both images
 # exist before nylorun reaches npm.
 jobs:
   validate:

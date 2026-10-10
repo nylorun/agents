@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { packagePath } from "../lib/repo.mjs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,11 +27,12 @@ test("options: --no-studio implies --no-open; unknown and repeated flags fail", 
 test("an edit rebuilds its dependents and the images built from it", () => {
   assert.deepEqual(rebuildPlan(["harness"]), { packages: ["harness", "runtime"], images: ["runtime"] });
   assert.deepEqual(rebuildPlan(["core"]), {
-    packages: ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli"],
+    packages: ["core", "harness", "agents", "admin", "runtime", "nylorun"],
     images: ["runtime", "studio"],
   });
-  assert.deepEqual(rebuildPlan(["agents"]), { packages: ["agents", "cli"], images: ["studio"] });
-  assert.deepEqual(rebuildPlan(["cli"]), { packages: ["cli"], images: [] });
+  assert.deepEqual(rebuildPlan(["agents"]), { packages: ["agents"], images: ["studio"] });
+  // nylorun's nylo uses admin.
+  assert.deepEqual(rebuildPlan(["admin"]), { packages: ["admin", "nylorun"], images: ["studio"] });
   assert.deepEqual(rebuildPlan(["nylorun"]), { packages: ["nylorun"], images: [] });
   assert.deepEqual(rebuildPlan(["studio"]), { packages: [], images: ["studio"] });
   assert.deepEqual(rebuildPlan(["studio"], { studio: false }), { packages: [], images: [] });
@@ -38,11 +40,11 @@ test("an edit rebuilds its dependents and the images built from it", () => {
 
 test("only package sources are watched", () => {
   const repo = "/repo";
-  assert.equal(packageOf(repo, "/repo/harness/src/engine.ts"), "harness");
+  assert.equal(packageOf(repo, "/repo/runtime/harness/src/engine.ts"), "harness");
   assert.equal(packageOf(repo, "/repo/studio/web/app.tsx"), "studio");
   assert.equal(packageOf(repo, "/repo/studio/src/server.ts"), "studio");
-  assert.equal(packageOf(repo, "/repo/runtime/test/x.test.ts"), undefined);
-  assert.equal(packageOf(repo, "/repo/harness/dist/index.js"), undefined);
+  assert.equal(packageOf(repo, "/repo/runtime/server/test/x.test.ts"), undefined);
+  assert.equal(packageOf(repo, "/repo/runtime/harness/dist/index.js"), undefined);
   assert.equal(packageOf(repo, "/repo/examples/src/main.ts"), undefined);
 });
 
@@ -84,8 +86,8 @@ test(
     const controller = new AbortController();
     let app;
     try {
-      for (const name of ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli", "studio"])
-        await mkdir(join(repo, name, "src"), { recursive: true });
+      for (const name of ["core", "harness", "agents", "admin", "runtime", "nylorun", "studio"])
+        await mkdir(join(repo, packagePath(name), "src"), { recursive: true });
       app = await develop(
         { studio: true, open: true, watch: true },
         {
@@ -104,7 +106,6 @@ test(
         "build admin",
         "build runtime",
         "build nylorun",
-        "build cli",
         "images",
         "start",
         "studio open=true",
@@ -120,7 +121,7 @@ test(
       };
 
       calls.length = 0;
-      await writeFile(join(repo, "harness/src/engine.ts"), "export {};");
+      await writeFile(join(repo, "runtime/harness/src/engine.ts"), "export {};");
       await until(() => runners === 2);
       assert.deepEqual(calls, [
         "build harness",
@@ -132,16 +133,16 @@ test(
 
       calls.length = 0;
       failing = true;
-      await writeFile(join(repo, "cli/src/cli.ts"), "export const broken = ;");
+      await writeFile(join(repo, "cli/nylorun/src/cli.ts"), "export const broken = ;");
       await until(() => logs.some((line) => line.includes("were retained")));
-      assert.deepEqual(calls, ["build cli"]);
+      assert.deepEqual(calls, ["build nylorun"]);
       assert.equal(runners, 2, "the runner keeps running");
 
       calls.length = 0;
       failing = false;
-      await writeFile(join(repo, "cli/src/cli.ts"), "export const fixed = 1;");
+      await writeFile(join(repo, "cli/nylorun/src/cli.ts"), "export const fixed = 1;");
       await until(() => runners === 3);
-      assert.deepEqual(calls, ["build cli", "runner"]);
+      assert.deepEqual(calls, ["build nylorun", "runner"]);
 
       controller.abort();
       assert.equal(await app.done, 0);

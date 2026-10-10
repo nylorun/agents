@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { root, npm, packageName, run } from "./lib/repo.mjs";
+import { root, npm, packageName, run, packagePath } from "./lib/repo.mjs";
 const temporary = await mkdtemp(join(tmpdir(), "nylorun-isolated-"));
 try {
   const packed = {};
@@ -10,7 +10,7 @@ try {
     const result = JSON.parse(
       await npm(
         ["pack", "--ignore-scripts", "--json", "--pack-destination", temporary],
-        { cwd: join(root, name), capture: true }
+        { cwd: join(root, packagePath(name)), capture: true }
       )
     );
     packed[name] = join(temporary, result[0].filename);

@@ -5,7 +5,7 @@
  */
 export const REMOVED_CAPABILITY_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   hooks:
-    "hooks were removed: the Runtime no longer calls your code during a session. Use an HTTP tool, approval on a tool, or a loop verifier instead (see MIGRATION.md)",
+    "hooks were removed: the Runtime runs agents from their manifests alone. Use an HTTP tool, approval on a tool, or a loop verifier instead (see MIGRATION.md)",
   beforeModelCall: "beforeModelCall was removed with hooks (see MIGRATION.md)",
   afterModelCall: "afterModelCall was removed with hooks (see MIGRATION.md)",
   model: "A capability must not include model; the Runtime owns model resolution",

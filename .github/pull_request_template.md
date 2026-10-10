@@ -12,4 +12,4 @@ See [contributor commands](../CONTRIBUTING.md).
 Describe public API changes and generated-shell effects. Add a Changeset for
 package releases; explain when this is repository-only. Release PRs should include
 versions, changelogs, compatibility pins, generated files, both lockfiles, and the
-release plan. See [releasing](../RELEASING.md).
+release plan. See [releasing](../guides/RELEASING.md).

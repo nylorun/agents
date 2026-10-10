@@ -26,7 +26,7 @@ Optional integration variables are loaded from `.env`. Interior Design uses `OPE
 [`agents/release/analyst.ts`](./agents/release/analyst.ts) is a plain agent. The sandbox comes from the session, not the agent: open a session with `createSession({ agentId: "analyst", ownerUserId, sandbox: {} })`, or give every session in the Tenant one by setting its default (Studio opens sessions without naming a sandbox, so it uses the default):
 
 ```bash
-eval "$(npx @nylorun/cli env)"
+eval "$(npx nylo env)"
 # The Management API takes the project's management key, which `nylorun start` wrote beside its application key.
 NYLORUN_MANAGEMENT_KEY=$(node -p 'require("./.nylorun/credentials.json").managementKey')
 curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/sandbox" -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 9" -H "content-type: application/json" -d '{"default":"virtual"}'
@@ -109,10 +109,10 @@ platform too; save the agent with the deployed URL once from a deploy step
 
 A page can also call the Runtime itself, with the JWT your identity provider
 gave the person, when the Runtime trusts that provider in its identity file
-([Trusted issuers](../DEPLOYMENT.md#trusted-issuers)). Nylorun mints no token and
+([Trusted issuers](../guides/DEPLOYMENT.md#trusted-issuers)). Nylorun mints no token and
 ships no browser client: send the token as `Authorization: Bearer <token>`
 through a reverse proxy that answers CORS
-([DEPLOYMENT.md](../DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)).
+([DEPLOYMENT.md](../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)).
 
 Rules for a web backend:
 
@@ -126,12 +126,12 @@ Rules for a web backend:
   (`client.as`), so people only reach their own threads, and any `Nylorun-*`
   header a browser sends is ignored.
 - Per-user keys (a user's GitHub token) go in that person's user vault, which
-  only their sessions attach ([Credentials](../DEPLOYMENT.md#credentials)).
+  only their sessions attach ([Credentials](../guides/DEPLOYMENT.md#credentials)).
   Accounts that need the person's sign-in (their Drive) go through an MCP gateway
-  ([Reaching a person's accounts](../DEPLOYMENT.md#reaching-a-persons-accounts)).
+  ([Reaching a person's accounts](../guides/DEPLOYMENT.md#reaching-a-persons-accounts)).
   Shared tool keys go in an installation vault.
 - The Runtime stays off the network: see
-  [Serving people through an app server](../DEPLOYMENT.md#serving-people-through-an-app-server).
+  [Serving people through an app server](../guides/DEPLOYMENT.md#serving-people-through-an-app-server).
 
 ## Tests
 
@@ -147,7 +147,7 @@ npm run test:stack:up --workspace @nylorun/runtime
 
 ## Generated shell and authored examples
 
-The creator owns the shell files listed in `.scaffold-manifest.json`, including `src/index.ts`, `tsconfig.json`, and `package.json`. Change their source in `create-agent/starter/` or `create-agent/examples.recipe.json`, then run `npm run examples:sync` from the repository root. Sync never changes the authored `agents/` tree, tests, other scripts, credentials, model selection, or application data. CI rejects shell drift and incompatible integrations.
+The creator owns the shell files listed in `.scaffold-manifest.json`, including `src/index.ts`, `tsconfig.json`, and `package.json`. Change their source in `cli/create-agent/starter/` or `cli/create-agent/examples.recipe.json`, then run `npm run examples:sync` from the repository root. Sync never changes the authored `agents/` tree, tests, other scripts, credentials, model selection, or application data. CI rejects shell drift and incompatible integrations.
 
 ## Try every agent in Studio
 
@@ -260,7 +260,7 @@ Drop another `*.ts` file in that folder to add a tool without changing agent cod
 service serves it at `/<tool name>` once restarted. Code Mode loads the same catalog and hides
 those native schemas; the model writes a program against `await tools.name(args)` instead.
 
-For the underlying agent and capability model, read the concise [Harness README](../harness/README.md).
+For the underlying agent and capability model, read the concise [Harness README](../runtime/harness/README.md).
 For the browser-side protocol, read the [Studio README](../studio/README.md).
 
 ## Records, secrets, and cleanup
@@ -282,4 +282,4 @@ The generated starter defaults to memory sessions. This examples recipe explicit
 
 ## Current release storage
 
-Sessions of the supported registry live in the examples' local Tenant: its Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx @nylorun/cli reset --all` empties the Tenant, and `npx nylorun reset` deletes the Tenant's data (containers and volumes). Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.
+Sessions of the supported registry live in the examples' local Tenant: its Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx nylo reset --all` empties the Tenant, and `npx nylorun reset` deletes the Tenant's data (containers and volumes). Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.

@@ -9,7 +9,7 @@
 //
 // 1. A stub model on the Tenant's network; session A (an agent with a sandbox) runs bash, and
 //    session B (another agent) answers once.
-// 2. The harness service is stopped, and runtime/test/redteam/harness.mjs runs in a container
+// 2. The harness service is stopped, and runtime/server/test/redteam/harness.mjs runs in a container
 //    of the harness service's own definition (image, user, environment, mounts, network):
 //    `docker compose run --rm --no-deps -T --entrypoint node harness --input-type=module -`.
 //    Every check must be refused: the stores and Restate, other secrets and keys, mounts
@@ -32,7 +32,7 @@ import { root, run } from "./lib/repo.mjs";
 import { ensureImages, eventually, runtimeGet, runtimeHeaders, withStack } from "./lib/stack.mjs";
 import { startStubModel } from "./lib/stub-model.mjs";
 
-const SUITE = join(root, "runtime", "test", "redteam", "harness.mjs");
+const SUITE = join(root, "runtime", "server", "test", "redteam", "harness.mjs");
 
 async function request(runtimeUrl, tenant, path, { method = "GET", body } = {}) {
   // `/v1/tenant/*` is the Management API: it takes the management key.

@@ -1,0 +1,723 @@
+import { describe, expect, it } from "vitest";
+import {
+  parseServices,
+  parseStackConfig,
+  StackConfigError,
+} from "../../src/host/stack-config.js";
+import { isAllowedRequestHost } from "../../src/host/http.js";
+
+describe("parseServices", () => {
+  const services = (...names: string[]) => new Set(names);
+
+  it("defaults to core and loop", () => {
+    expect(parseServices([])).toEqual({ services: services("core", "loop") });
+  });
+
+  it("accepts --service <list> and --service=<list>", () => {
+    expect(parseServices(["--service", "core,loop"])).toEqual({
+      services: services("core", "loop"),
+    });
+    expect(parseServices(["--service=loop"])).toEqual({ services: services("loop") });
+    expect(parseServices(["--service", " core "])).toEqual({ services: services("core") });
+  });
+
+  it("maps the deprecated --role to services", () => {
+    expect(parseServices(["--role", "api"])).toEqual({
+      services: services("core"),
+      deprecatedRole: "api",
+    });
+    expect(parseServices(["--role=worker"])).toEqual({
+      services: services("loop"),
+      deprecatedRole: "worker",
+    });
+    expect(parseServices(["--role", "all"])).toEqual({
+      services: services("core", "loop"),
+      deprecatedRole: "all",
+    });
+  });
+
+  it("runs keys with gates (F4.2), and never with core or loop", () => {
+    expect(parseServices(["--service", "gates,keys"])).toEqual({ services: services("gates", "keys") });
+    expect(() => parseServices(["--service", "core,keys"])).toThrow(/may not share a process/);
+  });
+
+  it("runs egress with gates and keys (F7.2), and never with core or loop", () => {
+    expect(parseServices(["--service", "gates,keys,egress"])).toEqual({
+      services: services("gates", "keys", "egress"),
+    });
+    expect(parseServices(["--service", "egress"])).toEqual({ services: services("egress") });
+    expect(() => parseServices(["--service", "core,egress"])).toThrow(/may not share a process/);
+  });
+
+  it("parses egress-gate's listener, by default 0.0.0.0:4200", () => {
+    const gateway = { NYLORUN_GATES_TOKEN: "a".repeat(64), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" };
+    expect(parseStackConfig(gateway, ["--service", "gates,keys,egress"]).egress).toEqual({
+      listen: { host: "0.0.0.0", port: 4200 },
+    });
+    expect(parseStackConfig(gateway, ["--service", "gates,keys"]).egress).toBeUndefined();
+    expect(
+      parseStackConfig({ NYLORUN_EGRESS_LISTEN_HOST: "127.0.0.1", NYLORUN_EGRESS_LISTEN_PORT: "4299" }, [
+        "--service",
+        "egress",
+      ]),
+    ).toMatchObject({ egress: { listen: { host: "127.0.0.1", port: 4299 } } });
+    expect(() =>
+      parseStackConfig({ NYLORUN_EGRESS_LISTEN_PORT: "http" }, ["--service", "egress"]),
+    ).toThrow(/NYLORUN_EGRESS_LISTEN_PORT must be a port number/);
+  });
+
+  it("reads the keys service's URL, defaulting to the gateway's", () => {
+    const token = "ab".repeat(32);
+    expect(
+      parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100", NYLORUN_GATES_TOKEN: token }, []).keys,
+    ).toEqual({ url: "http://gateway:4100", token });
+    expect(
+      parseStackConfig(
+        { NYLORUN_GATES_URL: "http://gateway:4100", NYLORUN_KEYS_URL: "http://keys:4200/", NYLORUN_GATES_TOKEN: token },
+        [],
+      ).keys,
+    ).toEqual({ url: "http://keys:4200", token });
+    expect(() => parseStackConfig({ NYLORUN_WORKER_VERSION: "1.0/../admin" }, [])).toThrow(
+      /NYLORUN_WORKER_VERSION must be 1 to 64 letters/,
+    );
+    expect(() => parseStackConfig({ NYLORUN_KEYS_URL: "http://keys:4200" }, [])).toThrow(
+      /NYLORUN_GATES_TOKEN is required with NYLORUN_KEYS_URL/,
+    );
+  });
+
+  it("runs gates alone: never in a process with core or loop", () => {
+    expect(parseServices(["--service", "gates"])).toEqual({ services: services("gates") });
+    expect(() => parseServices(["--service", "core,gates"])).toThrow(
+      /core and loop may not share a process with gates/,
+    );
+    expect(() => parseServices(["--service", "loop,gates"])).toThrow(/separate processes/);
+  });
+
+  it("rejects unknown, later, empty and repeated services", () => {
+    expect(() => parseServices(["--service", "db"])).toThrow(/Unknown service db/);
+    expect(() => parseServices(["--service", "all"])).toThrow(/use --service core,loop/);
+    expect(() => parseServices(["--service", "sandboxes"])).toThrow(/not in this release/);
+    expect(() => parseServices(["--service", "core,,loop"])).toThrow(/empty entry/);
+    expect(() => parseServices(["--service", "core,core"])).toThrow(/twice/);
+  });
+
+  it("rejects missing values, repeats, both flags and unknown arguments", () => {
+    expect(() => parseServices(["--role", "db"])).toThrow(StackConfigError);
+    expect(() => parseServices(["--role"])).toThrow(/requires a value/);
+    expect(() => parseServices(["--service"])).toThrow(/requires a value/);
+    expect(() => parseServices(["--service", "--x"])).toThrow(/requires a value/);
+    expect(() => parseServices(["--role", "api", "--role", "all"])).toThrow(/once/);
+    expect(() => parseServices(["--service", "core", "--service", "loop"])).toThrow(/once/);
+    expect(() => parseServices(["--service", "core", "--role", "api"])).toThrow(
+      /only --service/,
+    );
+    expect(() => parseServices(["--port", "1"])).toThrow(/Unknown argument/);
+    expect(() => parseServices(["--services=core"])).toThrow(/Unknown argument/);
+  });
+});
+
+/** A process that runs only core: it serves the API listener and needs no gate. */
+const CORE = ["--service", "core"];
+
+describe("parseStackConfig", () => {
+  it("is local mode with no endpoints for a bare environment", () => {
+    const config = parseStackConfig(
+      { NYLORUN_HOME: "/home/u/.nylorun", PATH: "/usr/bin" },
+      [],
+    );
+    expect(config).toEqual({
+      services: new Set(["core", "loop"]),
+      endpoints: {},
+      tenant: { name: "default" },
+    });
+  });
+
+  it("parses the Compose runtime service environment", () => {
+    const config = parseStackConfig(
+      {
+        NYLORUN_HOME: "/nylorun",
+        NYLORUN_LISTEN_HOST: "0.0.0.0",
+        NYLORUN_LISTEN_PORT: "4000",
+        NYLORUN_ALLOWED_HOSTS:
+          "runtime:4000, localhost:8787,127.0.0.1:8787 ,",
+        NYLORUN_DATABASE_URL: "postgres://nylorun:pw@postgres:5432/nylorun",
+        NYLORUN_RESTATE_INGRESS_URL: "http://restate:8080",
+        NYLORUN_RESTATE_ADMIN_URL: "http://restate:9070",
+        NYLORUN_WORKER_URL: "http://runtime:9080",
+        NYLORUN_WORKER_VERSION: "0.22.0-rc.1",
+        NYLORUN_S2_ENDPOINT: "http://s2:80",
+        NYLORUN_S2_TOKEN: "ignored",
+        NYLORUN_WORKSPACE_STORE_URL: "file:///workspaces",
+        NYLORUN_GATES_URL: "http://gateway:4100",
+        NYLORUN_KEYS_URL: "http://gateway:4100",
+        NYLORUN_GATES_TOKEN: "ab".repeat(32),
+        NYLORUN_PACKING: "combined",
+      },
+      ["--service", "core,loop"],
+    );
+    expect(config).toEqual({
+      services: new Set(["core", "loop"]),
+      modelGate: { url: "http://gateway:4100", token: "ab".repeat(32) },
+      keys: { url: "http://gateway:4100", token: "ab".repeat(32) },
+      packing: "combined",
+      listen: {
+        host: "0.0.0.0",
+        port: 4000,
+        allowedHosts: [
+          "runtime:4000",
+          "localhost:8787",
+          "127.0.0.1:8787",
+          "localhost:4000",
+          "127.0.0.1:4000",
+          "[::1]:4000",
+        ],
+      },
+      endpoints: {
+        databaseUrl: "postgres://nylorun:pw@postgres:5432/nylorun",
+        restateIngressUrl: "http://restate:8080",
+        restateAdminUrl: "http://restate:9070",
+        workerUrl: "http://runtime:9080",
+        workerVersion: "0.22.0-rc.1",
+        s2Endpoint: "http://s2:80",
+        s2Token: "ignored",
+        workspaceStoreUrl: "file:///workspaces",
+      },
+      tenant: { name: "default" },
+    });
+  });
+
+  it("defaults container mode to 0.0.0.0:4000 when only the allowlist is set", () => {
+    const config = parseStackConfig(
+      { NYLORUN_ALLOWED_HOSTS: "RUNTIME:4000" },
+      CORE,
+    );
+    expect(config.listen?.host).toBe("0.0.0.0");
+    expect(config.listen?.port).toBe(4000);
+    expect(config.listen?.allowedHosts).toContain("runtime:4000");
+  });
+
+  it("requires an allowlist for a non-loopback listen host", () => {
+    expect(() =>
+      parseStackConfig({ NYLORUN_LISTEN_HOST: "0.0.0.0" }, []),
+    ).toThrow(/NYLORUN_ALLOWED_HOSTS is required/);
+    expect(() =>
+      parseStackConfig({ NYLORUN_LISTEN_PORT: "4000" }, []),
+    ).toThrow(/NYLORUN_ALLOWED_HOSTS is required/);
+  });
+
+  it("allows a loopback listen host without an explicit allowlist", () => {
+    const config = parseStackConfig(
+      { NYLORUN_LISTEN_HOST: "127.0.0.1", NYLORUN_LISTEN_PORT: "4100" },
+      CORE,
+    );
+    expect(config.listen).toEqual({
+      host: "127.0.0.1",
+      port: 4100,
+      allowedHosts: ["localhost:4100", "127.0.0.1:4100", "[::1]:4100"],
+    });
+  });
+
+  it("rejects malformed ports and allowlist entries", () => {
+    for (const port of ["0", "65536", "80a", "-1"]) {
+      expect(() =>
+        parseStackConfig(
+          { NYLORUN_LISTEN_PORT: port, NYLORUN_ALLOWED_HOSTS: "runtime:4000" },
+          CORE,
+        ),
+      ).toThrow(/NYLORUN_LISTEN_PORT/);
+    }
+    for (const entry of ["runtime", "http://runtime:4000", "::1:4000", "a b:1", "runtime:0"]) {
+      expect(() =>
+        parseStackConfig({ NYLORUN_ALLOWED_HOSTS: entry }, CORE),
+      ).toThrow(/NYLORUN_ALLOWED_HOSTS/);
+    }
+    expect(
+      parseStackConfig({ NYLORUN_ALLOWED_HOSTS: "[::1]:8787" }, CORE).listen
+        ?.allowedHosts[0],
+    ).toBe("[::1]:8787");
+  });
+
+  it("validates endpoint URLs and names the variable", () => {
+    expect(() =>
+      parseStackConfig({ NYLORUN_DATABASE_URL: "http://postgres:5432" }, []),
+    ).toThrow(/NYLORUN_DATABASE_URL must use postgres or postgresql/);
+    expect(() =>
+      parseStackConfig({ NYLORUN_RESTATE_INGRESS_URL: "restate:8080x" }, []),
+    ).toThrow(/NYLORUN_RESTATE_INGRESS_URL/);
+    expect(() =>
+      parseStackConfig({ NYLORUN_S2_ENDPOINT: "not a url" }, []),
+    ).toThrow(/NYLORUN_S2_ENDPOINT is not a valid URL/);
+    expect(
+      parseStackConfig({ NYLORUN_DATABASE_URL: "postgresql://x@db/y" }, [])
+        .endpoints.databaseUrl,
+    ).toBe("postgresql://x@db/y");
+  });
+
+  it("parses the public URL and Restate identity keys", () => {
+    const key = "publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv";
+    const config = parseStackConfig(
+      {
+        NYLORUN_PUBLIC_URL: "http://localhost:8787/",
+        NYLORUN_RESTATE_IDENTITY_KEY: `${key}, ${key.replace("C", "D")} ,`,
+      },
+      [],
+    );
+    expect(config.publicUrl).toBe("http://localhost:8787");
+    expect(config.endpoints.restateIdentityKeys).toEqual([
+      key,
+      key.replace("C", "D"),
+    ]);
+    expect(() =>
+      parseStackConfig({ NYLORUN_PUBLIC_URL: "localhost:8787" }, []),
+    ).toThrow(/NYLORUN_PUBLIC_URL must use http or https/);
+    for (const bad of ["publickeyv1_0OIl", "CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv", "publickeyv1_"])
+      expect(() =>
+        parseStackConfig({ NYLORUN_RESTATE_IDENTITY_KEY: bad }, []),
+      ).toThrow(/NYLORUN_RESTATE_IDENTITY_KEY must be publickeyv1_/);
+  });
+
+  it("treats blank values as unset", () => {
+    expect(
+      parseStackConfig(
+        {
+          NYLORUN_LISTEN_HOST: " ",
+          NYLORUN_DATABASE_URL: "",
+          NYLORUN_PUBLIC_URL: "",
+          NYLORUN_RESTATE_IDENTITY_KEY: " , ",
+        },
+        [],
+      ),
+    ).toEqual({
+      services: new Set(["core", "loop"]),
+      endpoints: {},
+      tenant: { name: "default" },
+    });
+  });
+});
+
+describe("parseStackConfig for --service gates", () => {
+  const token = "ab".repeat(32);
+  const gateway = {
+    // The image sets these for the API; a gates process ignores them.
+    NYLORUN_LISTEN_HOST: "0.0.0.0",
+    NYLORUN_LISTEN_PORT: "4000",
+    NYLORUN_DATABASE_URL: "postgres://nylorun:pw@postgres:5432/nylorun",
+    NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100",
+    NYLORUN_GATES_TOKEN: token,
+  };
+
+  it("parses the gate's listener and token, and no API listener", () => {
+    expect(parseStackConfig(gateway, ["--service", "gates"])).toEqual({
+      services: new Set(["gates"]),
+      gates: {
+        listen: {
+          host: "0.0.0.0",
+          port: 4100,
+          allowedHosts: ["gateway:4100", "localhost:4100", "127.0.0.1:4100", "[::1]:4100"],
+        },
+        token,
+      },
+      endpoints: { databaseUrl: "postgres://nylorun:pw@postgres:5432/nylorun" },
+    });
+  });
+
+  it("requires a token of at least 32 bytes as hex, and Host values off loopback", () => {
+    const without = (name: string) => ({ ...gateway, [name]: undefined });
+    expect(() => parseStackConfig(without("NYLORUN_GATES_TOKEN"), ["--service", "gates"])).toThrow(
+      /NYLORUN_GATES_TOKEN is required/,
+    );
+    expect(() =>
+      parseStackConfig({ ...gateway, NYLORUN_GATES_TOKEN: "short" }, ["--service", "gates"]),
+    ).toThrow(/at least 32 bytes/);
+    expect(() =>
+      parseStackConfig(without("NYLORUN_GATES_ALLOWED_HOSTS"), ["--service", "gates"]),
+    ).toThrow(/NYLORUN_GATES_ALLOWED_HOSTS is required/);
+    expect(
+      parseStackConfig(
+        { ...without("NYLORUN_GATES_ALLOWED_HOSTS"), NYLORUN_GATES_LISTEN_HOST: "127.0.0.1", NYLORUN_GATES_LISTEN_PORT: "4555" },
+        ["--service", "gates"],
+      ).gates?.listen,
+    ).toEqual({
+      host: "127.0.0.1",
+      port: 4555,
+      allowedHosts: ["localhost:4555", "127.0.0.1:4555", "[::1]:4555"],
+    });
+  });
+
+  it("leaves the gate's listener to gates processes", () => {
+    expect(
+      parseStackConfig({ NYLORUN_GATES_LISTEN_HOST: "bad host" }, ["--service", "core,loop"]).gates,
+    ).toBeUndefined();
+  });
+
+  it("names the removed credential resolver's variables instead of failing, and treats empty as unset", () => {
+    // Protocol 10: the Host logs `resolver_removed` and ignores them, on any service.
+    const resolver = { NYLORUN_RESOLVER_TOKEN: "resolver-token", NYLORUN_RESOLVER_TIMEOUT: "5" };
+    const config = parseStackConfig({ ...gateway, ...resolver }, ["--service", "gates,keys"]);
+    expect(config.removedResolverVariables).toEqual(["NYLORUN_RESOLVER_TIMEOUT", "NYLORUN_RESOLVER_TOKEN"]);
+    expect(config.gates).not.toHaveProperty("resolver");
+    expect(parseStackConfig({ ...resolver }, ["--service", "core,loop"]).removedResolverVariables).toHaveLength(2);
+    // Compose's `${NYLORUN_RESOLVER_TOKEN:-}` passes empty strings when unset.
+    expect(
+      parseStackConfig({ ...gateway, NYLORUN_RESOLVER_TOKEN: "" }, ["--service", "gates"]),
+    ).not.toHaveProperty("removedResolverVariables");
+  });
+});
+
+describe("parseStackConfig: where the loop reaches the gate", () => {
+  const token = "ab".repeat(32);
+
+  it("reads NYLORUN_GATES_URL and the token for a process that runs loop or core", () => {
+    expect(
+      parseStackConfig(
+        { NYLORUN_GATES_URL: "http://gateway:4100/", NYLORUN_GATES_TOKEN: token },
+        ["--service", "core,loop"],
+      ).modelGate,
+    ).toEqual({ url: "http://gateway:4100", token });
+    // core reaches the Tool Gate too: it closes MCP connections outside a run (F4.1).
+    expect(
+      parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100", NYLORUN_GATES_TOKEN: token }, [
+        "--service",
+        "core",
+      ]).modelGate,
+    ).toEqual({ url: "http://gateway:4100", token });
+  });
+
+  it("is required for loop in a container, and only for loop", () => {
+    const container = { NYLORUN_LISTEN_HOST: "127.0.0.1" };
+    expect(() => parseStackConfig(container, ["--service", "core,loop"])).toThrow(
+      /NYLORUN_GATES_URL is required for the loop service in a container/,
+    );
+    expect(() => parseStackConfig(container, ["--service", "loop"])).toThrow(/gateway container/);
+    expect(parseStackConfig(container, ["--service", "core"]).modelGate).toBeUndefined();
+    // Outside a container (a development Host, tests) the loop may call the model itself.
+    expect(parseStackConfig({}, ["--service", "core,loop"]).modelGate).toBeUndefined();
+    expect(() => parseStackConfig({ NYLORUN_PACKING: "huge" }, [])).toThrow(/combined or split/);
+  });
+
+  it("requires the token with the URL, and the URL with the token", () => {
+    expect(() =>
+      parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100" }, []),
+    ).toThrow(/NYLORUN_GATES_TOKEN is required with NYLORUN_GATES_URL/);
+    expect(() => parseStackConfig({ NYLORUN_GATES_TOKEN: token }, [])).toThrow(
+      /without NYLORUN_GATES_URL/,
+    );
+    expect(() =>
+      parseStackConfig({ NYLORUN_GATES_URL: "ftp://gateway", NYLORUN_GATES_TOKEN: token }, []),
+    ).toThrow(/NYLORUN_GATES_URL must use http or https/);
+  });
+});
+
+describe("isAllowedRequestHost with an explicit allowlist", () => {
+  const allowedHosts = ["runtime:4000", "localhost:8787", "127.0.0.1:8787"];
+
+  it("accepts exactly the listed Host headers, case-insensitively", () => {
+    for (const host of ["runtime:4000", "LOCALHOST:8787", "127.0.0.1:8787"]) {
+      expect(
+        isAllowedRequestHost(host, { port: 4000, host: "0.0.0.0", allowedHosts }),
+        host,
+      ).toBe(true);
+    }
+  });
+
+  it("replaces the loopback rule: loopback forms of the listen port need listing", () => {
+    for (const host of [
+      "localhost:4000",
+      "127.0.0.1:4000",
+      "0.0.0.0:4000",
+      "runtime:8787",
+      "evil.example:8787",
+      "runtime",
+    ]) {
+      expect(
+        isAllowedRequestHost(host, { port: 4000, host: "0.0.0.0", allowedHosts }),
+        host,
+      ).toBe(false);
+    }
+    expect(
+      isAllowedRequestHost(undefined, { port: 4000, host: "0.0.0.0", allowedHosts }),
+    ).toBe(false);
+  });
+
+  it("keeps the loopback rule when no allowlist is given", () => {
+    expect(isAllowedRequestHost("localhost:4000", { port: 4000, host: "127.0.0.1" })).toBe(true);
+    expect(isAllowedRequestHost("runtime:4000", { port: 4000, host: "127.0.0.1" })).toBe(false);
+  });
+});
+
+describe("NYLORUN_BROWSER_ACCESS (protocol 7)", () => {
+  it("is gone: browsers need no toggle, and an old value changes nothing", () => {
+    for (const value of ["on", "off", "yes"])
+      expect(parseStackConfig({ NYLORUN_BROWSER_ACCESS: value }, [])).not.toHaveProperty("browserAccess");
+  });
+});
+
+const HARNESS_TOKEN = "ab".repeat(32);
+
+describe("NYLORUN_HARNESS (F6.2)", () => {
+  it("runs the harness in process by default", () => {
+    expect(parseStackConfig({}, []).harnessMode).toBeUndefined();
+    expect(parseStackConfig({ NYLORUN_HARNESS: "in-process" }, [])).toMatchObject({ harnessMode: "in-process" });
+    expect(parseStackConfig({}, []).harnessListener).toBeUndefined();
+    expect(() => parseStackConfig({ NYLORUN_HARNESS: "elsewhere" }, [])).toThrow(StackConfigError);
+  });
+
+  it("starts the Harness API listener for remote harnesses, with its own credential", () => {
+    const stack = parseStackConfig(
+      {
+        NYLORUN_HARNESS: "remote",
+        NYLORUN_HARNESS_TOKEN: HARNESS_TOKEN,
+        NYLORUN_HARNESS_ALLOWED_HOSTS: "runtime:4200",
+      },
+      []
+    );
+    expect(stack.harnessListener).toEqual({
+      listen: {
+        host: "0.0.0.0",
+        port: 4200,
+        allowedHosts: ["runtime:4200", "localhost:4200", "127.0.0.1:4200", "[::1]:4200"],
+      },
+      token: HARNESS_TOKEN,
+    });
+    expect(() => parseStackConfig({ NYLORUN_HARNESS: "remote", NYLORUN_HARNESS_ALLOWED_HOSTS: "runtime:4200" }, [])).toThrow(
+      /NYLORUN_HARNESS_TOKEN is required/
+    );
+    expect(() => parseStackConfig({ NYLORUN_HARNESS: "remote", NYLORUN_HARNESS_TOKEN: HARNESS_TOKEN }, [])).toThrow(
+      /NYLORUN_HARNESS_ALLOWED_HOSTS is required/
+    );
+    expect(() =>
+      parseStackConfig(
+        { NYLORUN_HARNESS: "remote", NYLORUN_HARNESS_TOKEN: "short", NYLORUN_HARNESS_LISTEN_HOST: "127.0.0.1" },
+        []
+      )
+    ).toThrow(/at least 32 bytes/);
+  });
+});
+
+describe("--service harness", () => {
+  const base = {
+    NYLORUN_HARNESS_URL: "ws://runtime:4200/nylorun/harness/v1",
+    NYLORUN_HARNESS_TOKEN: HARNESS_TOKEN,
+    NYLORUN_GATES_URL: "http://gateway:4100",
+  };
+
+  it("runs alone, and reads where core and the gates are", () => {
+    expect(parseStackConfig(base, ["--service", "harness"]).harness).toEqual({
+      url: base.NYLORUN_HARNESS_URL,
+      token: HARNESS_TOKEN,
+      gatesUrl: "http://gateway:4100",
+      root: "/harness",
+      healthPort: 4300,
+    });
+    expect(() => parseServices(["--service", "harness,core"])).toThrow(/may not share a process/);
+    expect(() => parseServices(["--service", "harness,gates"])).toThrow(/may not share a process/);
+  });
+
+  it.each([
+    ["NYLORUN_DATABASE_URL", "postgres://postgres@postgres:5432/nylorun"],
+    ["NYLORUN_GATES_TOKEN", "cd".repeat(32)],
+    ["NYLORUN_KEYS_URL", "http://gateway:4100"],
+    ["NYLORUN_RESTATE_INGRESS_URL", "http://restate:8080"],
+    ["NYLORUN_RESTATE_ADMIN_URL", "http://restate:9070"],
+  ])("refuses to start with %s set", (name, value) => {
+    expect(() => parseStackConfig({ ...base, [name]: value }, ["--service", "harness"])).toThrow(
+      new RegExp(`refuses to start with ${name}`)
+    );
+  });
+
+  it("requires its URL, token and the gates", () => {
+    for (const name of ["NYLORUN_HARNESS_URL", "NYLORUN_HARNESS_TOKEN", "NYLORUN_GATES_URL"]) {
+      const env: Record<string, string> = { ...base };
+      delete env[name];
+      expect(() => parseStackConfig(env, ["--service", "harness"])).toThrow(new RegExp(`${name} is required`));
+    }
+    expect(() =>
+      parseStackConfig({ ...base, NYLORUN_HARNESS_URL: "http://runtime:4200" }, ["--service", "harness"])
+    ).toThrow(/NYLORUN_HARNESS_URL must use ws or wss/);
+  });
+});
+
+describe("sandbox pods (F7.2)", () => {
+  const pod = {
+    NYLORUN_SANDBOX_KIND: "pod",
+    NYLORUN_HARNESS_URL: "http://192.168.65.254:47321",
+    NYLORUN_GATES_URL: "http://192.168.65.254:47322",
+    NYLORUN_EGRESS_PROXY: "http://192.168.65.254:47323",
+    NYLORUN_SANDBOX_ID: "team/a",
+    NYLORUN_POD_UID: "9b2f6c1e-0000-4000-8000-000000000001",
+    NYLORUN_SANDBOX_JOIN_FILE: "/run/nylorun/join/token",
+  };
+
+  it("runs a pod's engine without a harness token: it joins with its join file", () => {
+    expect(parseStackConfig(pod, ["--service", "harness"]).harness).toEqual({
+      url: "ws://192.168.65.254:47321/nylorun/harness/v1",
+      pod: {
+        sandboxId: "team/a",
+        podUid: pod.NYLORUN_POD_UID,
+        joinFile: "/run/nylorun/join/token",
+        httpUrl: "http://192.168.65.254:47321",
+        egressProxy: "http://192.168.65.254:47323",
+        blocked: [{ host: "10.96.0.1", port: 443 }],
+      },
+      gatesUrl: "http://192.168.65.254:47322",
+      root: "/harness",
+      healthPort: 4300,
+    });
+    expect(() =>
+      parseStackConfig({ ...pod, NYLORUN_HARNESS_TOKEN: HARNESS_TOKEN }, ["--service", "harness"]),
+    ).toThrow(/holds no NYLORUN_HARNESS_TOKEN/);
+    const { NYLORUN_POD_UID: _uid, ...missing } = pod;
+    expect(() => parseStackConfig(missing, ["--service", "harness"])).toThrow(/NYLORUN_POD_UID is required/);
+  });
+
+  it("starts the Harness API listener for pods, with or without a harness token", () => {
+    const stack = parseStackConfig(
+      {
+        NYLORUN_SANDBOXES_URL: "http://sandboxes:4300",
+        NYLORUN_SANDBOXES_TOKEN: "ef".repeat(32),
+        NYLORUN_SANDBOX_HARNESS_IMAGE: "ghcr.io/nylorun/runtime:0.15.2",
+        NYLORUN_HARNESS_LISTEN_HOST: "0.0.0.0",
+        NYLORUN_HARNESS_LISTEN_PORT: "4200",
+        NYLORUN_HARNESS_ALLOWED_HOSTS: "192.168.65.254:47321",
+      },
+      [],
+    );
+    expect(stack.sandboxes).toEqual({
+      url: "http://sandboxes:4300",
+      token: "ef".repeat(32),
+      harnessImage: "ghcr.io/nylorun/runtime:0.15.2",
+    });
+    expect(stack.harnessMode).toBeUndefined();
+    expect(stack.harnessListener?.token).toBeUndefined();
+    expect(stack.harnessListener?.listen.allowedHosts).toContain("192.168.65.254:47321");
+    expect(() =>
+      parseStackConfig({ NYLORUN_SANDBOXES_URL: "http://sandboxes:4300", NYLORUN_SANDBOXES_TOKEN: "ef".repeat(32) }, []),
+    ).toThrow(/NYLORUN_SANDBOX_HARNESS_IMAGE is required/);
+  });
+});
+
+describe("NYLORUN_ADMIN_LISTEN_*", () => {
+  it("is not read: the operator listener is gone (protocol 8)", () => {
+    const config = parseStackConfig(
+      {
+        NYLORUN_LISTEN_HOST: "0.0.0.0",
+        NYLORUN_LISTEN_PORT: "4000",
+        NYLORUN_ALLOWED_HOSTS: "runtime:4000",
+        NYLORUN_ADMIN_LISTEN_PORT: "4000",
+        NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4000",
+      },
+      CORE
+    );
+    expect(config).not.toHaveProperty("operator");
+    expect(config.listen?.port).toBe(4000);
+  });
+});
+
+describe("NYLORUN_ENDPOINT_*", () => {
+  it("is absent by default and carries each setting when set", () => {
+    expect(parseStackConfig({}, []).delivery).toBeUndefined();
+    expect(
+      parseStackConfig(
+        {
+          NYLORUN_ENDPOINT_LOOPBACK: "docker-host",
+          NYLORUN_ENDPOINT_PRIVATE: "refuse",
+          NYLORUN_ENDPOINT_HTTP: "refuse",
+        },
+        [],
+      ).delivery,
+    ).toEqual({ loopback: "docker-host", privateAddresses: "refuse", allowHttp: false });
+    expect(parseStackConfig({ NYLORUN_ENDPOINT_HTTP: "allow" }, []).delivery).toEqual({ allowHttp: true });
+  });
+
+  it("rejects anything else, naming the variable", () => {
+    expect(() => parseStackConfig({ NYLORUN_ENDPOINT_LOOPBACK: "host" }, [])).toThrow(/NYLORUN_ENDPOINT_LOOPBACK/);
+    expect(() => parseStackConfig({ NYLORUN_ENDPOINT_PRIVATE: "no" }, [])).toThrow(/NYLORUN_ENDPOINT_PRIVATE/);
+    expect(() => parseStackConfig({ NYLORUN_ENDPOINT_HTTP: "no" }, [])).toThrow(StackConfigError);
+  });
+});
+
+describe("the Host's Tenant", () => {
+  it("defaults to a new id and the name default", () => {
+    expect(parseStackConfig({}, []).tenant).toEqual({ name: "default" });
+    // The gates service creates no Tenant.
+    const gates = { NYLORUN_GATES_TOKEN: "ab".repeat(32), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" };
+    expect(parseStackConfig(gates, ["--service", "gates"]).tenant).toBeUndefined();
+  });
+
+  it("reads NYLORUN_TENANT_ID and NYLORUN_TENANT_NAME, and ignores NYLORUN_DERIVED_PRINCIPALS (protocol 7)", () => {
+    expect(
+      parseStackConfig(
+        {
+          NYLORUN_TENANT_ID: "tn_0123456789abcdefghjkmnpqrs",
+          NYLORUN_TENANT_NAME: "my-app",
+          NYLORUN_DERIVED_PRINCIPALS: "project, backend,project",
+        },
+        [],
+      ).tenant,
+    ).toEqual({
+      id: "tn_0123456789abcdefghjkmnpqrs",
+      name: "my-app",
+    });
+  });
+
+  it("reads NYLORUN_IDENTITY_FILE, and an empty value as none", () => {
+    expect(
+      parseStackConfig({ NYLORUN_IDENTITY_FILE: " /nylorun/identity.yaml " }, []).tenant?.identityFile,
+    ).toBe("/nylorun/identity.yaml");
+    expect(parseStackConfig({ NYLORUN_IDENTITY_FILE: "" }, []).tenant).not.toHaveProperty("identityFile");
+  });
+
+  it("rejects a malformed Tenant id, naming the variable", () => {
+    expect(() => parseStackConfig({ NYLORUN_TENANT_ID: "tn_nope" }, [])).toThrow(/NYLORUN_TENANT_ID/);
+  });
+});
+
+describe("NYLORUN_OBJECT_STORE_*", () => {
+  const store = {
+    NYLORUN_OBJECT_STORE_ENDPOINT: "http://rustfs:9000/",
+    NYLORUN_OBJECT_STORE_ACCESS_KEY: "nylorun",
+    NYLORUN_OBJECT_STORE_SECRET_KEY: "s".repeat(64),
+  };
+
+  it("is absent without an endpoint, so the Tenant keeps blobs on disk", () => {
+    expect(parseStackConfig({}, []).objectStore).toBeUndefined();
+  });
+
+  it("reads the endpoint and credential, with the default bucket and region, in every service", () => {
+    const expected = {
+      endpoint: "http://rustfs:9000",
+      bucket: "nylorun",
+      region: "us-east-1",
+      accessKeyId: "nylorun",
+      secretAccessKey: "s".repeat(64),
+    };
+    expect(parseStackConfig(store, []).objectStore).toEqual(expected);
+    expect(
+      parseStackConfig(
+        { ...store, NYLORUN_GATES_TOKEN: "a".repeat(64), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" },
+        ["--service", "gates,keys"],
+      ).objectStore,
+    ).toEqual(expected);
+    expect(
+      parseStackConfig(
+        { ...store, NYLORUN_OBJECT_STORE_BUCKET: "artifacts", NYLORUN_OBJECT_STORE_REGION: "eu-west-1" },
+        [],
+      ).objectStore,
+    ).toMatchObject({ bucket: "artifacts", region: "eu-west-1" });
+  });
+
+  it("requires the credential with the endpoint, and the endpoint with the credential", () => {
+    expect(() =>
+      parseStackConfig({ NYLORUN_OBJECT_STORE_ENDPOINT: "http://rustfs:9000" }, []),
+    ).toThrow(/NYLORUN_OBJECT_STORE_ACCESS_KEY and NYLORUN_OBJECT_STORE_SECRET_KEY are required/);
+    expect(() => parseStackConfig({ NYLORUN_OBJECT_STORE_SECRET_KEY: "x" }, [])).toThrow(
+      /without NYLORUN_OBJECT_STORE_ENDPOINT/,
+    );
+    expect(() =>
+      parseStackConfig({ ...store, NYLORUN_OBJECT_STORE_ENDPOINT: "s3://bucket" }, []),
+    ).toThrow(/NYLORUN_OBJECT_STORE_ENDPOINT must use http or https/);
+    expect(() =>
+      parseStackConfig({ ...store, NYLORUN_OBJECT_STORE_BUCKET: "Bad_Bucket" }, []),
+    ).toThrow(/NYLORUN_OBJECT_STORE_BUCKET/);
+  });
+});

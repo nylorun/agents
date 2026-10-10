@@ -40,10 +40,12 @@ const DOCKERFILES = {
   sandboxes: "sandboxes/Dockerfile",
 };
 
-/** The workspace CLI (`npm run build` first). */
-/** The workspace `nylorun` (local Tenants); `@nylorun/cli` is the Runtime client, `nylo`. */
-export const WORKSPACE_CLI = join(root, "nylorun", "dist", "cli.js");
-export const WORKSPACE_NYLO = join(root, "cli", "dist", "cli.js");
+/**
+ * The workspace `nylorun` (local Tenants) and `nylo` (the Runtime client), both from the
+ * nylorun package (`npm run build` first).
+ */
+export const WORKSPACE_CLI = join(root, "cli", "nylorun", "dist", "cli.js");
+export const WORKSPACE_NYLO = join(root, "cli", "nylorun", "dist", "nylo.js");
 
 /** The image id for `tag`, or undefined when Docker has no such image. */
 export async function imageId(tag) {

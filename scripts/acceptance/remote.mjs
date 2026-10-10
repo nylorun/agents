@@ -8,7 +8,7 @@
  *     --tools-url https://tunnel.example.com --tools-port 3000
  *
  * Use an installation made for this check (on the Runtime's machine, `npx
- * nylorun start` in a project made for it; `npx @nylorun/cli env` there
+ * nylorun start` in a project made for it; `npx -p nylorun nylo env` there
  * prints its application key, and `npx nylorun key put remote-check --management`
  * prints a management key): `--fixture-model` switches its Tenant's model calls
  * to the Runtime's deterministic fixture model through the Management API.
@@ -85,7 +85,7 @@ function pass(id, message) {
 }
 const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`;
 
-/** The handler's session id for a person's thread (`sessionIdFor` in agents/src/ag-ui/handler.ts). */
+/** The handler's session id for a person's thread (`sessionIdFor` in sdks/agents/src/ag-ui/handler.ts). */
 const sessionOf = (subject, agentId, threadId) =>
   createHash("sha256").update(`${subject}\u0000${agentId}\u0000${threadId}`).digest("hex").slice(0, 32);
 

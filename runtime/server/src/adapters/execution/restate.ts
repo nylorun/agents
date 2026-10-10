@@ -1,0 +1,766 @@
+/**
+ * Durable Session Execution on Restate (architecture §12.3).
+ *
+ * The only module that imports the Restate SDK. It serves four virtual
+ * objects on the Worker endpoint, all named with `servicePrefix`:
+ *
+ * - `<prefix>NylorunSession`, key `<tenantId>:<sessionId>`. Its exclusive
+ *   `advance` handler calls `WorkerHandlers.advance`. It makes no `ctx.run`,
+ *   keeps no state and uses no awakeables: the only journal entry it can write
+ *   is the delayed self-send after a `busy` result. Restate's one invocation
+ *   per key at a time is the "one advance per key" guarantee.
+ * - `<prefix>NylorunTenant`, key `<tenantId>`. `arm`, `sweep` and `disarm`
+ *   keep one self-re-arming sweep chain per Tenant. The chain's generation is
+ *   kept in the object's state, so arming is idempotent and a disarmed or
+ *   replaced chain dies at its next link. The state is rebuildable: a Host
+ *   re-arms its Tenant's sweep when it opens it, at every start (§14.8).
+ * - `<prefix>NylorunTimer`, key `<tenantId>:<timer key>`. `set` records the
+ *   latest time and sends a delayed `fire`; a `fire` for an older time is a
+ *   no-op, which is how setting a key again replaces it.
+ * - `<prefix>NylorunSandbox`, key `<tenantId>:<sandboxId>` (F7.2). Its
+ *   exclusive handlers serialize a pod sandbox's reconciles and timers:
+ *   `reconcile` calls `WorkerHandlers.sandbox`; `arm` records a timer's latest
+ *   time (`idle`, `ttl`, or the reconcile's own `retry`) and sends a delayed
+ *   `fire`; a `fire` for an older time is a no-op, as the timer object's.
+ *   What a run answers arms its timers and its retry.
+ *
+ * Wakes, sandbox reconciles, timers and sweep arming go through the ingress as one-way
+ * sends (`@restatedev/restate-sdk-clients`), so an API node can call them without ever
+ * calling `start`. Every send carries an idempotency key, which the client's retries need: a
+ * wake's dedupe key (the outbox gives every committed wake one), a reconcile's outbox key, a
+ * timer's `<key>@<at>`, a sandbox timer's `<timer>@<at>`, or one made for the call. A send
+ * repeated after its answer was lost therefore starts no second invocation.
+ *
+ * What Restate owns and what the Session Store owns, and where the two overlap on purpose,
+ * is said once, under "Durable Session Execution" in `src/CONTEXT.md`.
+ */
+import { randomUUID } from "node:crypto";
+import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
+import * as restate from "@restatedev/restate-sdk";
+import * as clients from "@restatedev/restate-sdk-clients";
+import { retry } from "../../retry.js";
+import {
+  DEFAULT_STOP_GRACE_MS,
+  WAKE_REASONS,
+  parseSessionKey,
+  sessionKey,
+  settleWithin,
+  type AdvanceResult,
+  type DurableExecution,
+  type SandboxResult,
+  type SandboxSignal,
+  type SandboxTrigger,
+  type StuckInvocation,
+  type Wake,
+  type WakeReason,
+  type WorkerHandlers,
+} from "../../execution/types.js";
+
+const HOUR_MS = 60 * 60 * 1000;
+/**
+ * How long one send through the ingress keeps retrying while the ingress is unreachable,
+ * overloaded, or answers 404 because a just-registered service has not reached it yet. The
+ * outbox's grace (`OUTBOX_GRACE_MS` in `tenant/sweep.ts`) is longer.
+ */
+export const SEND_RETRY_MS = 10_000;
+
+export interface RestateTimeouts {
+  /**
+   * How long an invocation may run without journal progress before Restate
+   * asks it to suspend. An advance makes no journal entries while it runs, so
+   * this must exceed the longest segment. Default one hour.
+   */
+  inactivityMs?: number;
+  /** How long after the inactivity timeout Restate aborts the attempt. Default one hour. */
+  abortMs?: number;
+}
+
+/**
+ * Retries of a handler that throws (an infrastructure error). After
+ * `maxAttempts` the invocation is paused, never killed, and shows up in
+ * `listStuckInvocations` until an operator resumes it.
+ */
+export interface RestateRetry {
+  /** Default 100. */
+  initialIntervalMs?: number;
+  /** Default 30000. */
+  maxIntervalMs?: number;
+  /** Default 2. */
+  exponentiationFactor?: number;
+  /** Attempts, including the first, before pausing. Default 70. */
+  maxAttempts?: number;
+}
+
+export interface RestateExecutionOptions {
+  /** Restate ingress, e.g. `http://restate:8080`. */
+  ingressUrl: string;
+  /** Restate admin API, e.g. `http://restate:9070`. Needed by `start`. */
+  adminUrl: string;
+  /** Where `start` serves the Worker endpoint (HTTP/2 cleartext). */
+  workerListen?: { host: string; port: number };
+  /** The endpoint URL Restate calls, registered by `start`. */
+  workerAdvertisedUrl?: string;
+  /**
+   * Prepended to every service name, so several Runtimes (or test runs) can
+   * share one Restate server without taking each other's invocations.
+   * Letters, digits and `_` only. Default "".
+   */
+  servicePrefix?: string;
+  /**
+   * Request identity public keys (`publickeyv1_...`). When given, the Worker
+   * endpoint accepts only requests signed by a Restate server holding the
+   * matching private key.
+   */
+  identityKeys?: string[];
+  timeouts?: RestateTimeouts;
+  retry?: RestateRetry;
+  /** Delay between sweep passes of one Tenant. Default 5000. */
+  sweepIntervalMs?: number;
+  /**
+   * How long wakes with a `dedupeKey` are remembered. Default and minimum
+   * 24 hours (§12.3).
+   */
+  dedupeRetentionMs?: number;
+  /**
+   * Overwrite a deployment already registered at `workerAdvertisedUrl`, so a
+   * restarted Worker with changed code takes effect. Default true, which suits
+   * a stable URL on a developer machine. A Host in a container advertises a
+   * versioned URL without it (`workerDeployment` in `infra/execution.ts`, §14.6).
+   */
+  forceRegistration?: boolean;
+  /** How long `start` keeps retrying registration while Restate comes up. Default 60000. */
+  registrationTimeoutMs?: number;
+  /**
+   * How long `stop` waits for running handlers after aborting them; the ones still running
+   * then are abandoned and their attempts end with the dropped connections, so Restate
+   * retries them. Default `DEFAULT_STOP_GRACE_MS`.
+   */
+  stopGraceMs?: number;
+  /** Replaces the SDK's console logging. */
+  logger?: (level: string, message: string) => void;
+}
+
+/** A Restate invocation that needs an operator: paused, or retrying after failures. */
+export type { StuckInvocation };
+
+interface WakeInput {
+  reason?: WakeReason;
+}
+interface SweepInput {
+  generation: number;
+}
+interface SweepState {
+  generation: number;
+  /** When the chain last scheduled its next link (Restate's clock). */
+  beatAt: number;
+}
+interface TimerInput {
+  at: number;
+}
+/** A sandbox timer: one of the pod's, or the reconcile's own retry. */
+type SandboxTimerName = "idle" | "ttl" | "retry";
+interface SandboxTimerInput {
+  timer: SandboxTimerName;
+  at: number;
+}
+
+export function createRestateExecution(
+  options: RestateExecutionOptions,
+): RestateExecution {
+  return new RestateExecution(options);
+}
+
+export class RestateExecution implements DurableExecution {
+  private handlers?: WorkerHandlers;
+  private stopping = false;
+  private server?: Http2Server;
+  private readonly sessions = new Set<ServerHttp2Session>();
+  private readonly controllers = new Set<AbortController>();
+  private readonly inflight = new Set<Promise<unknown>>();
+  private readonly names: {
+    session: string;
+    tenant: string;
+    timer: string;
+    sandbox: string;
+  };
+  private readonly ingressUrl: string;
+  private readonly ingress: clients.Ingress;
+  private readonly adminUrl: string;
+  private readonly sweepIntervalMs: number;
+
+  constructor(private readonly options: RestateExecutionOptions) {
+    const prefix = options.servicePrefix ?? "";
+    if (!/^[A-Za-z0-9_]*$/.test(prefix))
+      throw new Error(`Invalid Restate service prefix: ${prefix}`);
+    this.names = {
+      session: `${prefix}NylorunSession`,
+      tenant: `${prefix}NylorunTenant`,
+      timer: `${prefix}NylorunTimer`,
+      sandbox: `${prefix}NylorunSandbox`,
+    };
+    this.ingressUrl = options.ingressUrl.replace(/\/+$/, "");
+    this.ingress = clients.connect({
+      url: this.ingressUrl,
+      retry: {
+        maxAttempts: false,
+        maxDuration: SEND_RETRY_MS,
+        initialInterval: 100,
+        maxInterval: 2000,
+        // A just-registered service can take a moment to reach the ingress.
+        shouldRetry: (failure) =>
+          clients.defaultShouldRetry(failure) ||
+          (failure.kind === "response" && failure.status === 404),
+      },
+    });
+    this.adminUrl = options.adminUrl.replace(/\/+$/, "");
+    this.sweepIntervalMs = options.sweepIntervalMs ?? 5000;
+  }
+
+  /** Service names this execution registers, for diagnostics and tests. */
+  get serviceNames(): {
+    session: string;
+    tenant: string;
+    timer: string;
+    sandbox: string;
+  } {
+    return { ...this.names };
+  }
+
+  async wake(tenantId: string, sessionId: string, wake: Wake): Promise<void> {
+    if (!WAKE_REASONS.includes(wake.reason))
+      throw new Error(`Unknown wake reason: ${String(wake.reason)}`);
+    await this.send(
+      this.names.session,
+      sessionKey(tenantId, sessionId),
+      "advance",
+      { reason: wake.reason } satisfies WakeInput,
+      wake.dedupeKey ?? randomUUID(),
+    );
+  }
+
+  async sandbox(tenantId: string, sandboxId: string, signal: SandboxSignal): Promise<void> {
+    const key = sessionKey(tenantId, sandboxId);
+    if (signal.kind === "reconcile")
+      await this.send(this.names.sandbox, key, "reconcile", {}, signal.key ?? randomUUID());
+    else
+      await this.send(
+        this.names.sandbox,
+        key,
+        "arm",
+        { timer: signal.timer, at: signal.at } satisfies SandboxTimerInput,
+        // Arming a timer for the same time again changes nothing.
+        `${signal.timer}@${signal.at}`,
+      );
+  }
+
+  async timer(tenantId: string, key: string, at: Date): Promise<void> {
+    const ms = at.getTime();
+    await this.send(
+      this.names.timer,
+      sessionKey(tenantId, key),
+      "set",
+      { at: ms } satisfies TimerInput,
+      `${key}@${ms}`,
+    );
+  }
+
+  async armSweep(tenantId: string): Promise<void> {
+    // A key of its own: a later arm (a Host opening the Tenant again) must still run.
+    await this.send(this.names.tenant, tenantKey(tenantId), "arm", {}, randomUUID());
+  }
+
+  async disarmSweep(tenantId: string): Promise<void> {
+    await this.send(this.names.tenant, tenantKey(tenantId), "disarm", {}, randomUUID());
+  }
+
+  /**
+   * Readiness: the admin API (`/health`), which `start` registers with, and the
+   * ingress (`/restate/health`), which every wake, timer and sweep goes
+   * through, both answer.
+   */
+  async probe(signal: AbortSignal): Promise<void> {
+    await Promise.all(
+      [`${this.adminUrl}/health`, `${this.ingressUrl}/restate/health`].map(
+        async (url) => {
+          const response = await fetch(url, { signal });
+          await response.body?.cancel();
+          if (!response.ok)
+            throw new Error(`Restate health ${response.status} at ${url}`);
+        },
+      ),
+    );
+  }
+
+  /** This Runtime's paused or backing-off invocations for `tenantId` (Tenant status). */
+  stuckInvocations(tenantId: string): Promise<StuckInvocation[]> {
+    return listStuckInvocations({
+      adminUrl: this.adminUrl,
+      servicePrefix: this.options.servicePrefix ?? "",
+      tenantId,
+    });
+  }
+
+  async start(handlers: WorkerHandlers): Promise<void> {
+    if (this.handlers) throw new Error("DurableExecution already started");
+    const { workerListen, workerAdvertisedUrl } = this.options;
+    if (!workerListen || !workerAdvertisedUrl)
+      throw new Error("Restate execution needs workerListen and workerAdvertisedUrl to start");
+    this.handlers = handlers;
+    this.stopping = false;
+    const server = createServer(
+      restate.createEndpointHandler({
+        services: this.definitions(),
+        ...(this.options.identityKeys?.length
+          ? { identityKeys: this.options.identityKeys }
+          : {}),
+        ...(this.options.logger ? { logger: sdkLogger(this.options.logger) } : {}),
+      }),
+    );
+    server.on("session", (session) => {
+      this.sessions.add(session);
+      session.once("close", () => this.sessions.delete(session));
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(workerListen.port, workerListen.host, () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+    this.server = server;
+    try {
+      await this.register(workerAdvertisedUrl);
+    } catch (error) {
+      await this.stop();
+      throw error;
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.stopping = true;
+    for (const controller of this.controllers)
+      controller.abort(new Error("Worker stopping"));
+    const abandoned = await settleWithin(
+      this.inflight,
+      this.options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS,
+    );
+    if (abandoned > 0)
+      this.options.logger?.(
+        "warn",
+        `Worker stopped with ${abandoned} handler(s) still running; abandoned`,
+      );
+    this.handlers = undefined;
+    const server = this.server;
+    this.server = undefined;
+    if (!server) return;
+    // Let Restate read the responses already written, then drop the
+    // connections it keeps open so `close` can finish.
+    const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const session of this.sessions) session.close();
+    const timeout = setTimeout(() => {
+      for (const session of this.sessions) session.destroy();
+    }, 2000);
+    await closed;
+    clearTimeout(timeout);
+  }
+
+  private definitions() {
+    const names = this.names;
+    const serviceOptions = this.serviceOptions();
+
+    const session = restate.object({
+      name: names.session,
+      handlers: {
+        advance: async (ctx: restate.ObjectContext, _wake?: WakeInput) => {
+          const { tenantId, sessionId } = parseSessionKey(ctx.key);
+          const result = await this.runAborted<AdvanceResult>(
+            ctx.request().attemptCompletedSignal,
+            (handlers, signal) => handlers.advance(tenantId, sessionId, signal),
+          );
+          if (result.status === "busy")
+            ctx
+              .objectSendClient<SessionObject>({ name: names.session }, ctx.key)
+              .advance(
+                { reason: "recover" },
+                restate.rpc.sendOpts({ delay: Math.max(0, result.retryAfterMs) }),
+              );
+        },
+      },
+      options: {
+        ...serviceOptions,
+        idempotencyRetention: Math.max(
+          this.options.dedupeRetentionMs ?? 24 * HOUR_MS,
+          24 * HOUR_MS,
+        ),
+      },
+    });
+
+    const tenant = restate.object({
+      name: names.tenant,
+      handlers: {
+        arm: async (ctx: restate.ObjectContext) => {
+          const now = await ctx.date.now();
+          const state = await ctx.get<SweepState>("sweep");
+          // An armed chain that beat recently is alive; a stale one was lost
+          // (killed or purged invocation) and is replaced.
+          if (state && now - state.beatAt < this.staleSweepMs()) return;
+          const generation = (state?.generation ?? 0) + 1;
+          ctx.set<SweepState>("sweep", { generation, beatAt: now });
+          ctx
+            .objectSendClient<TenantObject>({ name: names.tenant }, ctx.key)
+            .sweep({ generation });
+        },
+        sweep: async (ctx: restate.ObjectContext, input: SweepInput) => {
+          const state = await ctx.get<SweepState>("sweep");
+          if (!state || state.generation !== input.generation) return;
+          await this.runTracked((handlers) =>
+            handlers.sweep(ctx.key),
+          );
+          ctx.set<SweepState>("sweep", {
+            generation: input.generation,
+            beatAt: await ctx.date.now(),
+          });
+          ctx
+            .objectSendClient<TenantObject>({ name: names.tenant }, ctx.key)
+            .sweep(
+              { generation: input.generation },
+              restate.rpc.sendOpts({ delay: this.sweepIntervalMs }),
+            );
+        },
+        disarm: async (ctx: restate.ObjectContext) => {
+          ctx.clear("sweep");
+        },
+      },
+      options: serviceOptions,
+    });
+
+    const timer = restate.object({
+      name: names.timer,
+      handlers: {
+        set: async (ctx: restate.ObjectContext, input: TimerInput) => {
+          ctx.set<number>("at", input.at);
+          const now = await ctx.date.now();
+          ctx
+            .objectSendClient<TimerObject>({ name: names.timer }, ctx.key)
+            .fire(input, restate.rpc.sendOpts({ delay: Math.max(0, input.at - now) }));
+        },
+        fire: async (ctx: restate.ObjectContext, input: TimerInput) => {
+          if ((await ctx.get<number>("at")) !== input.at) return;
+          const { tenantId, sessionId: key } = parseSessionKey(ctx.key);
+          await this.runTracked((handlers) => {
+            if (!handlers.fire)
+              throw new Error("WorkerHandlers.fire is required for timers");
+            return handlers.fire(tenantId, key);
+          });
+          ctx.clear("at");
+        },
+      },
+      options: serviceOptions,
+    });
+
+    /** Sets a sandbox timer: the latest time wins; `fire` checks it. */
+    const armSandbox = async (ctx: restate.ObjectContext, input: SandboxTimerInput) => {
+      ctx.set<number>(`at:${input.timer}`, input.at);
+      const now = await ctx.date.now();
+      ctx
+        .objectSendClient<SandboxObject>({ name: names.sandbox }, ctx.key)
+        .fire(input, restate.rpc.sendOpts({ delay: Math.max(0, input.at - now) }));
+    };
+    const runSandbox = async (ctx: restate.ObjectContext, trigger: SandboxTrigger) => {
+      const { tenantId, sessionId: sandboxId } = parseSessionKey(ctx.key);
+      const result = await this.runAborted<SandboxResult>(
+        ctx.request().attemptCompletedSignal,
+        (handlers, signal) => {
+          if (!handlers.sandbox)
+            throw new Error("WorkerHandlers.sandbox is required for sandbox reconciles");
+          return handlers.sandbox(tenantId, sandboxId, trigger, signal);
+        },
+      );
+      for (const item of result.arm ?? []) await armSandbox(ctx, item);
+      if (result.retryAfterMs !== undefined)
+        await armSandbox(ctx, {
+          timer: "retry",
+          at: (await ctx.date.now()) + Math.max(0, result.retryAfterMs),
+        });
+    };
+    const sandbox = restate.object({
+      name: names.sandbox,
+      handlers: {
+        reconcile: async (ctx: restate.ObjectContext) => {
+          await runSandbox(ctx, "reconcile");
+        },
+        arm: async (ctx: restate.ObjectContext, input: SandboxTimerInput) => {
+          await armSandbox(ctx, input);
+        },
+        fire: async (ctx: restate.ObjectContext, input: SandboxTimerInput) => {
+          if ((await ctx.get<number>(`at:${input.timer}`)) !== input.at) return;
+          ctx.clear(`at:${input.timer}`);
+          await runSandbox(ctx, input.timer === "retry" ? "reconcile" : input.timer);
+        },
+      },
+      options: serviceOptions,
+    });
+
+    return [session, tenant, timer, sandbox];
+  }
+
+  /**
+   * Runs a Worker handler with a signal aborted by `stop` or by the end of the Restate
+   * attempt (`advance` and `reconcile`).
+   */
+  private async runAborted<T>(
+    attemptDone: AbortSignal,
+    fn: (handlers: WorkerHandlers, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const onAttemptDone = () =>
+      controller.abort(new Error("Restate attempt ended"));
+    if (attemptDone.aborted) onAttemptDone();
+    else attemptDone.addEventListener("abort", onAttemptDone, { once: true });
+    this.controllers.add(controller);
+    try {
+      return await this.runTracked((handlers) =>
+        fn(handlers, controller.signal),
+      );
+    } finally {
+      this.controllers.delete(controller);
+      attemptDone.removeEventListener("abort", onAttemptDone);
+    }
+  }
+
+  /** Runs a Worker handler so that `stop` waits for it. Refuses once stopping; Restate retries. */
+  private runTracked<T>(
+    fn: (handlers: WorkerHandlers) => Promise<T>,
+  ): Promise<T> {
+    const handlers = this.handlers;
+    if (!handlers || this.stopping)
+      return Promise.reject(new Error("Worker is stopping"));
+    const run = fn(handlers);
+    this.inflight.add(run);
+    void run.then(
+      () => this.inflight.delete(run),
+      () => this.inflight.delete(run),
+    );
+    return run;
+  }
+
+  private staleSweepMs(): number {
+    return Math.max(this.sweepIntervalMs * 3, 60_000);
+  }
+
+  private serviceOptions(): restate.ObjectOptions {
+    const timeouts = this.options.timeouts ?? {};
+    const retry = this.options.retry ?? {};
+    return {
+      inactivityTimeout: timeouts.inactivityMs ?? HOUR_MS,
+      abortTimeout: timeouts.abortMs ?? HOUR_MS,
+      retryPolicy: {
+        initialInterval: retry.initialIntervalMs ?? 100,
+        maxInterval: retry.maxIntervalMs ?? 30_000,
+        exponentiationFactor: retry.exponentiationFactor ?? 2,
+        maxAttempts: retry.maxAttempts ?? 70,
+        onMaxAttempts: "pause",
+      },
+    };
+  }
+
+  /**
+   * One-way send through the ingress (`@restatedev/restate-sdk-clients`). Every send carries
+   * an idempotency key, so the client's retries (`SEND_RETRY_MS`), and a send repeated after
+   * its answer was lost, start one invocation: the request's own key where it has one (an
+   * outbox row's, a timer's time), or one made for this call.
+   */
+  private async send(
+    service: string,
+    key: string,
+    handler: string,
+    body: unknown,
+    idempotencyKey: string,
+  ): Promise<void> {
+    try {
+      await this.ingress.send({
+        service,
+        handler,
+        key,
+        parameter: body,
+        opts: clients.SendOpts.from({ idempotencyKey, timeout: 10_000 }),
+      });
+    } catch (error) {
+      const message =
+        error instanceof clients.HttpCallError
+          ? `Restate ingress ${error.status}: ${error.responseText}`
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      throw new Error(`Restate send to ${service}/${handler} failed: ${message}`, { cause: error });
+    }
+  }
+
+  /** Registers the Worker endpoint with the admin API, retrying until Restate is up. */
+  private async register(uri: string): Promise<void> {
+    const force = this.options.forceRegistration ?? true;
+    const registered = await retry(
+      async () => {
+        const response = await fetch(`${this.adminUrl}/deployments`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ uri, force }),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (response.ok)
+          return ((await response.json().catch(() => ({}))) as { services?: { name?: string }[] })
+            .services;
+        const text = await response.text().catch(() => "");
+        const message = `Restate admin ${response.status} registering ${uri}: ${text}`;
+        // Discovery failures (Restate cannot reach the endpoint yet) come back
+        // as 4xx/5xx; keep trying until the deadline.
+        throw new Error(message);
+      },
+      { minMs: 100, maxMs: 2000, deadlineMs: this.options.registrationTimeoutMs ?? 60_000 },
+    ).catch((error: unknown) => {
+      throw new Error(`Restate deployment registration failed: ${(error as Error).message}`, {
+        cause: error,
+      });
+    });
+    // Without `force`, Restate answers a URL already registered with the deployment it has
+    // there, without discovering the endpoint again: one with other services is refused here.
+    const names = new Set((registered ?? []).map((service) => service.name));
+    const missing = Object.values(this.names).filter((name) => !names.has(name));
+    if (registered && missing.length > 0)
+      throw new Error(
+        `Restate deployment registration failed: ${uri} is registered with other services ` +
+          `(missing ${missing.join(", ")}); register this Worker at a URL of its own ` +
+          "(NYLORUN_WORKER_VERSION)",
+      );
+  }
+
+}
+
+// Handler maps for typed self-sends (the SDK types clients by handler map).
+type SessionObject = { advance: (ctx: restate.ObjectContext, wake?: WakeInput) => Promise<void> };
+type TenantObject = { sweep: (ctx: restate.ObjectContext, input: SweepInput) => Promise<void> };
+type TimerObject = { fire: (ctx: restate.ObjectContext, input: TimerInput) => Promise<void> };
+type SandboxObject = {
+  fire: (ctx: restate.ObjectContext, input: SandboxTimerInput) => Promise<void>;
+};
+
+/**
+ * Lists invocations of this Runtime's services that need an operator: paused
+ * after exhausting retries, or backing off after a failure. Reads Restate's
+ * SQL introspection (`POST /query` on the admin API).
+ */
+export async function listStuckInvocations(options: {
+  adminUrl: string;
+  servicePrefix?: string;
+  tenantId?: string;
+  limit?: number;
+}): Promise<StuckInvocation[]> {
+  const prefix = options.servicePrefix ?? "";
+  if (!/^[A-Za-z0-9_]*$/.test(prefix))
+    throw new Error(`Invalid Restate service prefix: ${prefix}`);
+  const services = ["NylorunSession", "NylorunTenant", "NylorunTimer", "NylorunSandbox"].map(
+    (name) => `'${prefix}${name}'`,
+  );
+  const clauses = [
+    `target_service_name IN (${services.join(", ")})`,
+    `status IN ('paused', 'backing-off')`,
+  ];
+  if (options.tenantId !== undefined) {
+    const tenant = sqlString(options.tenantId);
+    clauses.push(
+      `(target_service_key = ${tenant} OR starts_with(target_service_key, ${sqlString(`${options.tenantId}:`)}))`,
+    );
+  }
+  const limit = Math.max(1, Math.min(options.limit ?? 100, 1000));
+  const rows = await query(
+    options.adminUrl,
+    "SELECT id, status, target_service_name, target_handler_name, target_service_key, " +
+      "retry_count, last_failure, modified_at FROM sys_invocation " +
+      `WHERE ${clauses.join(" AND ")} ORDER BY modified_at LIMIT ${limit}`,
+  );
+  // Restate 1.7 clears `last_failure` and `retry_count` when it pauses an
+  // invocation; the failure is kept on the journal's `Paused` event.
+  const paused = rows.filter((row) => row.status === "paused").map((row) => String(row.id));
+  const pausedFailures = new Map<string, string>();
+  if (paused.length > 0) {
+    const events = await query(
+      options.adminUrl,
+      "SELECT id, appended_at, event_json FROM sys_journal_events " +
+        `WHERE event_type = 'Paused' AND id IN (${paused.map(sqlString).join(", ")}) ` +
+        "ORDER BY appended_at",
+    );
+    for (const event of events) {
+      const message = pausedFailure(event.event_json);
+      if (message !== undefined) pausedFailures.set(String(event.id), message);
+    }
+  }
+  return rows.map((row) => {
+    const id = String(row.id);
+    const key = String(row.target_service_key ?? "");
+    const colon = key.indexOf(":");
+    const lastFailure =
+      row.last_failure == null ? pausedFailures.get(id) : String(row.last_failure);
+    const modifiedAt = row.modified_at == null ? undefined : String(row.modified_at);
+    return {
+      id,
+      status: String(row.status),
+      service: String(row.target_service_name).slice(prefix.length),
+      handler: String(row.target_handler_name),
+      key,
+      ...(key ? { tenantId: colon > 0 ? key.slice(0, colon) : key } : {}),
+      retryCount: Number(row.retry_count ?? 0),
+      ...(lastFailure !== undefined ? { lastFailure } : {}),
+      ...(modifiedAt !== undefined ? { modifiedAt } : {}),
+    };
+  });
+}
+
+async function query(adminUrl: string, sql: string): Promise<Record<string, unknown>[]> {
+  const response = await fetch(`${adminUrl.replace(/\/+$/, "")}/query`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ query: sql }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok)
+    throw new Error(
+      `Restate query ${response.status}: ${await response.text().catch(() => "")}`,
+    );
+  return ((await response.json()) as { rows: Record<string, unknown>[] }).rows;
+}
+
+function pausedFailure(eventJson: unknown): string | undefined {
+  try {
+    const event = JSON.parse(String(eventJson)) as {
+      last_failure?: { error_code?: number; error_message?: string };
+    };
+    const failure = event.last_failure;
+    if (!failure?.error_message) return undefined;
+    return failure.error_code === undefined
+      ? failure.error_message
+      : `[${failure.error_code}] ${failure.error_message}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function tenantKey(tenantId: string): string {
+  if (!tenantId || tenantId.includes(":"))
+    throw new Error(`Invalid tenant id: ${tenantId}`);
+  return tenantId;
+}
+
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function sdkLogger(
+  log: (level: string, message: string) => void,
+): restate.LoggerTransport {
+  return (meta, message, ...rest) => {
+    const parts = [message, ...rest].map((part) =>
+      part instanceof Error ? part.stack ?? part.message : String(part),
+    );
+    log(meta.level, parts.join(" "));
+  };
+}
