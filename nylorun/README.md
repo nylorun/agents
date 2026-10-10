@@ -404,7 +404,7 @@ Local Tenant commands (`up`, `down`, `start`, `stop`, `logs`, `studio`) exit 2
 naming `npx nylorun <command>`. `nylo tenant …` exits 2: `npx nylorun start`
 creates the project's Tenant and the link, and `nylo status|reset` replace
 `nylo tenant status|reset`. `nylo endpoints` was removed with Action endpoints
-(protocol 8: the Runtime runs no code of yours during a session) and exits 2.
+(protocol 8: the Runtime runs agents from their manifests alone) and exits 2.
 
 ### `status` and `reset`: `nylorun` or `nylo`
 

@@ -18,8 +18,9 @@ Agent definitions live in `agents/`. The **Runtime** runs your agents and
 holds their sessions in its **Tenant**, one per installation; this project
 attaches to its own local Tenant through a **Project link**. `src/main.ts`
 saves each agent in `agents/index.ts` to the Runtime (`client.saveAgent`) and
-exits; no code of yours runs during a session. The project depends only on
-`@nylorun/agents`; the `nylorun` package's two commands run with `npx`:
+exits; from then on the Runtime runs them from what was saved. The project
+depends only on `@nylorun/agents`; the `nylorun` package's two commands run
+with `npx`:
 
 - `nylorun` sets up and runs this project's local Tenant (Runtime and Studio)
   and links the project to it.
@@ -69,7 +70,7 @@ The assistant has no tools yet. A tool is an `http()` tool, a request the
 Runtime makes to a service of yours (see the comment in
 `agents/assistant/agent.ts`), a remote MCP server, or another agent used as a
 tool. A code tool (`tool({ run })`) is refused when it is saved: the Runtime
-runs no code of yours during a session.
+runs agents from their manifests alone.
 
 Export the linked Project environment:
 

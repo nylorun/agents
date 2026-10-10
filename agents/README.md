@@ -243,9 +243,9 @@ session like any agent: put it in `export const agents`, `saveAgent(flowAgent)`,
 (`kind: "workflow"`, `workflowSchemaVersion: 3`) that embeds the agents it runs, so one
 document and one manifest hash cover the whole flow; its agents are not listed on their own.
 
-A flow runs no code of yours: the first stage gets the flow's input, and every later stage
-gets the previous stage's output. So each agent returns, through its `.output()` schema,
-what the next stage needs.
+A flow passes data between its stages itself: the first stage gets the flow's input, and
+every later stage gets the previous stage's output. So each agent returns, through its
+`.output()` schema, what the next stage needs.
 
 ```ts
 import { Agent, VerdictSchema, http } from "@nylorun/agents";
@@ -374,8 +374,8 @@ nested flow agent's id in front of its own agents'. Control stages add nothing, 
 wrapping a step in `.loop()` or moving it between cases keeps its session. An agent
 may appear once per flow; use it again under a new id with `writer.withId("final-writer")`
 (`flow.duplicate-leaf`). A code tool stage (`.pipe(tool({ run }))`) runs only in the local
-engine: the Runtime runs no code of yours, so `saveAgent` refuses a flow agent with one. Use
-an HTTP stage instead.
+engine: the Runtime runs flows from their manifests alone, so `saveAgent` refuses a flow
+agent with one. Use an HTTP stage instead.
 
 The agents in a flow share one sandbox: open the flow's session with it,
 `createSession({ …, sandbox: { … } })`, and every agent in the flow uses it. Share it
