@@ -146,7 +146,7 @@ commit for the `stack`, `smoke-starter`, `smoke-dev` and `acceptance` jobs. `che
 their tests, and `integration` runs the Runtime's integration tests against it
 (`npm run test:stack:up --workspace @nylorun/runtime`, then
 `NYLORUN_TEST_STACK=1 npm run test:integration --workspace @nylorun/runtime`).
-Releases publish both images; see [RELEASING.md](./RELEASING.md).
+Releases publish both images; see [RELEASING.md](./guides/RELEASING.md).
 
 ## Generated examples and dependencies
 
@@ -183,8 +183,8 @@ To run the full tier on a branch before merging, use
 reverted or fixed forward before the next release, which needs the full suite
 to pass.
 
-See [RELEASING.md](./RELEASING.md) for administrators and
-[DEPLOYMENT.md](./DEPLOYMENT.md) for application hosting.
+See [RELEASING.md](./guides/RELEASING.md) for administrators and
+[DEPLOYMENT.md](./guides/DEPLOYMENT.md) for application hosting.
 
 | Problem                         | Action                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -200,4 +200,4 @@ See [RELEASING.md](./RELEASING.md) for administrators and
 | Interrupted release preparation | Inspect the diff; do not blindly rerun or discard it                                                                                                                            |
 
 Contributions are licensed under [Apache-2.0](./LICENSE); no CLA is required.
-Report vulnerabilities through [SECURITY.md](./SECURITY.md), not public issues.
+Report vulnerabilities through [SECURITY.md](./.github/SECURITY.md), not public issues.

@@ -38,7 +38,7 @@ const linked = await createClient();
 await linked.saveAgent(agent);
 // @ts-expect-error Approval is "always" or "never".
 http({ name: "x", input: z.object({}), url: "https://example.com", approval: "sometimes" });
-// @ts-expect-error Action handlers were removed: the Runtime runs no code of yours during a session.
+// @ts-expect-error Action handlers were removed: the Runtime runs agents from their manifests alone.
 void sdk.createActionHandler;
 // @ts-expect-error Action sandboxes went with them.
 void sdk.createActionSandbox;

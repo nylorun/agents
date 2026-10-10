@@ -2,7 +2,7 @@
 
 Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio; Admin changes advance Studio and nylorun, whose `nylo` uses it; Runtime and Studio changes advance nylorun, which pins their images; nylorun changes advance the deprecated `@nylorun/cli`, which pins the nylorun whose `nylo` it runs. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Merging a release PR (one that changes `.release/plan.json`) publishes it on npm's `beta` channel, with no approval. Moving `latest` is the one human step: an administrator clicks **Promote to latest**. Nothing else publishes on merge or tag push.
 
-Coding agents release by following [the release skill](.claude/skills/release/SKILL.md).
+Coding agents release by following [the release skill](../.claude/skills/release/SKILL.md).
 
 The creator's compatibility combination (`create-agent/compatibility.json`)
 pins exactly what a generated project or the examples install or depend on:
@@ -29,7 +29,7 @@ A release publishes two kinds of artifact:
 
 ## Administrator setup
 
-- Use the toolchain and setup in [CONTRIBUTING.md](./CONTRIBUTING.md).
+- Use the toolchain and setup in [CONTRIBUTING.md](../CONTRIBUTING.md).
 - Confirm npm organization access for every public `@nylorun` package, and
   that the organization owns the unscoped `nylorun` package (npm trusted
   publishing and `NPM_BOOTSTRAP_TOKEN` must cover it too).

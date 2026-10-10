@@ -510,7 +510,7 @@ tool error the model sees. What does not carry over:
   output, and `approval` is not supported on a flow stage yet.
 - The methods are `POST` (default), `PUT` and `PATCH`; the input is always the body.
 
-See [agents/README.md](./agents/README.md#http-tools).
+See [agents/README.md](../agents/README.md#http-tools).
 
 ## Skills are files the Runtime serves
 
@@ -606,7 +606,7 @@ tool stage without `http`);
 `saveAgent` refuses the same before sending:
 
 ```text
-Tool 'lookup_order' of agent 'assistant' runs your code, and the Runtime runs no code of yours during a session. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).
+Tool 'lookup_order' of agent 'assistant' runs your code, but the Runtime runs agents from their manifests alone. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).
 ```
 
 What to do:
@@ -686,7 +686,7 @@ What to do:
    Over HTTP, send the management key with `Nylorun-Protocol: 8`. The groups are
    `admin.tenant` (status, seed, reset), `admin.keys`, `admin.models` (catalog, providers,
    credentials, selection, usage, budgets), `admin.vaults`, `admin.signingKeys` and
-   `admin.settings` (sandbox, artifacts) ([admin/README.md](./admin/README.md)). `nylo status`,
+   `admin.settings` (sandbox, artifacts) ([admin/README.md](../admin/README.md)). `nylo status`,
    `reset`, `configure`, `doctor` and `access signing-keys` use the Project's management key, or
    `NYLORUN_MANAGEMENT_KEY`. `/v1/tenant/models` and `/v1/tenant/providers` no longer admit
    `agents:write` subjects: apps don't read the model catalog.
@@ -1512,7 +1512,7 @@ they report an older Host as `incompatible_host`.
 
 # Runtime Clients and Admin API (breaking beta)
 
-Vocabulary: [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
+Vocabulary: [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 > Runtime V1 (above) replaces this release's launcher, its global
 > `@nylorun/runtime` install and the `nylorun-studio` binary. The client
@@ -1718,7 +1718,7 @@ if a Tenant still has schema 3 turns in flight.
 
 # Runtime Tenants (breaking beta)
 
-Vocabulary: [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
+Vocabulary: [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 One **Runtime Host** process serves many isolated **Tenants**. A Project
 attaches through a **Project link** (`.nylorun/link.json` + `credentials.json`),
@@ -1831,7 +1831,7 @@ Keep credentials in gitignored `.nylorun/`; provider configuration uses `.env` o
 
 Explicit in-process engine execution remains available to host authors through `@nylorun/harness/run`; it is not loaded by the application SDK. OSS and Cloud consume the harness independently.
 
-The release workflow covers local text and ordinary tools. Advanced examples remain source references outside the default registry. Media, approvals UI, deployment recipes, and broad recovery/conformance gates remain for later releases. Subagents (agents used as tools, one level deep) ship with this branch; see [the SDK](agents/README.md).
+The release workflow covers local text and ordinary tools. Advanced examples remain source references outside the default registry. Media, approvals UI, deployment recipes, and broad recovery/conformance gates remain for later releases. Subagents (agents used as tools, one level deep) ship with this branch; see [the SDK](../agents/README.md).
 
 ## Execution API rename
 

@@ -18,8 +18,8 @@ const client = createClient();
 for (const agent of agents) await client.saveAgent(agent);
 ```
 
-The Runtime runs each agent from its manifest and the files saved with it (skills), and
-never calls your code during a session. Your services are reached as tools: [HTTP
+The Runtime runs each agent entirely from its manifest and the files saved with it
+(skills), so a session needs nothing from your process. Your services are reached as tools: [HTTP
 tools](#http-tools) and remote MCP servers. `saveAgent` refuses, before sending anything, an
 agent with a tool that would run your code (`tool({ run })`) or a flow agent with a tool
 stage: make it an `http()` tool or serve it from a remote MCP server. `tool({ run })` still
@@ -29,7 +29,7 @@ runs in the local engine (`@nylorun/harness/run`). `implementationVersion` defau
 `createClient()` finds the Runtime through the two `NYLORUN_*` variables or the Project link
 that `npx nylorun start` writes; with neither, it fails with `connection_missing` and names
 those steps. Action endpoints (`createActionHandler`), and before them `connectAgents` and
-executors, were removed; see [MIGRATION.md](../MIGRATION.md#action-endpoints-are-removed).
+executors, were removed; see [MIGRATION.md](../guides/MIGRATION.md#action-endpoints-are-removed).
 
 ## HTTP tools
 
@@ -170,7 +170,7 @@ Each key names a server; its `name` defaults to the key and, when given, must eq
 
 Set a server's tools one by one with `tools`, keyed by the server's own tool names, `"*"` for the rest: `{ "*": { enabled: false }, search_issues: { enabled: true }, create_issue: { enabled: true, approval: "always" } }` is an allowlist with one approval. When an agent's MCP tools would fill more than a tenth of the model's context window, the Runtime defers them: the model finds them with `tool_search` and runs them with `tool_call`. `deferred: true` or `false`, on a tool or on the server, decides instead. Either setting makes the manifest v6 (see MIGRATION.md).
 
-A manifest never carries a server's credential, and its `headers` hold no secret. The operator gives the server's URL a vault credential (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in), and the session's attached vaults supply it: [DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun mcp inspect` for listing a server's tools first. The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
+A manifest never carries a server's credential, and its `headers` hold no secret. The operator gives the server's URL a vault credential (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in), and the session's attached vaults supply it: [DEPLOYMENT.md](../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun mcp inspect` for listing a server's tools first. The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
 
 Give a session a sandbox when you open it. The agent declares nothing, so the same agent runs with or without one, in any Tenant:
 
@@ -243,9 +243,9 @@ session like any agent: put it in `export const agents`, `saveAgent(flowAgent)`,
 (`kind: "workflow"`, `workflowSchemaVersion: 3`) that embeds the agents it runs, so one
 document and one manifest hash cover the whole flow; its agents are not listed on their own.
 
-A flow runs no code of yours: the first stage gets the flow's input, and every later stage
-gets the previous stage's output. So each agent returns, through its `.output()` schema,
-what the next stage needs.
+A flow passes data between its stages itself: the first stage gets the flow's input, and
+every later stage gets the previous stage's output. So each agent returns, through its
+`.output()` schema, what the next stage needs.
 
 ```ts
 import { Agent, VerdictSchema, http } from "@nylorun/agents";
@@ -374,8 +374,8 @@ nested flow agent's id in front of its own agents'. Control stages add nothing, 
 wrapping a step in `.loop()` or moving it between cases keeps its session. An agent
 may appear once per flow; use it again under a new id with `writer.withId("final-writer")`
 (`flow.duplicate-leaf`). A code tool stage (`.pipe(tool({ run }))`) runs only in the local
-engine: the Runtime runs no code of yours, so `saveAgent` refuses a flow agent with one. Use
-an HTTP stage instead.
+engine: the Runtime runs flows from their manifests alone, so `saveAgent` refuses a flow
+agent with one. Use an HTTP stage instead.
 
 The agents in a flow share one sandbox: open the flow's session with it,
 `createSession({ …, sandbox: { … } })`, and every agent in the flow uses it. Share it
@@ -628,7 +628,7 @@ the installation's, created through the Management API with a management key
 (`admin.vaults.create({ scope: "installation", … })` in
 [`@nylorun/admin`](../admin/README.md)); a session attaches them with
 `vaultIds`, and a person's own keys go in their user vault
-([DEPLOYMENT.md](../DEPLOYMENT.md#credentials)). A subject is 1–200 visible ASCII
+([DEPLOYMENT.md](../guides/DEPLOYMENT.md#credentials)). A subject is 1–200 visible ASCII
 characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act
 for a subject.
@@ -644,7 +644,7 @@ and revoking them is management: `admin.signingKeys.list()`, `.rotate()`
 
 A web page or an app calls the Runtime directly with the JWT your identity
 provider gave the person: list the provider in the Runtime's identity file
-([Trusted issuers](../DEPLOYMENT.md#trusted-issuers)), and the Runtime takes the
+([Trusted issuers](../guides/DEPLOYMENT.md#trusted-issuers)), and the Runtime takes the
 token's subject, scopes, agents and sandbox grants from it. Nylorun mints no
 token and ships no browser client: use your provider's SDK for sign-in and send
 the token as `Authorization: Bearer <token>` with `Nylorun-Protocol`, through a

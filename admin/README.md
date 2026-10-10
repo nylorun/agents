@@ -54,7 +54,7 @@ Host's `/health` and throws `incompatible_host` unless the Host serves protocol
 Management keys are issued on the Tenant's machine only:
 `npx nylorun key put <id> --management` on a local Tenant, or
 `nylorun-operate keys put <id> --role management` inside the runtime container
-([SELF_HOSTING.md](../SELF_HOSTING.md#keys)). No API call creates one.
+([SELF_HOSTING.md](../guides/SELF_HOSTING.md#keys)). No API call creates one.
 
 ## The groups
 
@@ -103,7 +103,7 @@ own keys go in their vault (`admin.vaults.create({ name, ownerUserId })`).
 Listing and getting a credential return its header names, `via` and identity
 header, never a value; `credentials.rotate` replaces the token or the map. See
 "MCP servers and HTTP tools" in
-[DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools), with gateway
+[DEPLOYMENT.md](../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), with gateway
 recipes.
 
 `admin.mcp.preview` shows what that server offers with that credential, before

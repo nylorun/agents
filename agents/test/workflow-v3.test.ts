@@ -101,7 +101,7 @@ describe("saveAgent with a flow agent", () => {
     const desk = Agent({ id: "desk" }).pipe(Agent({ id: "writer" }).instructions("Write."), shout).build();
     const { client, puts } = recording();
     await expect(client.saveAgent(desk)).rejects.toThrow(
-      "The tool stage 'shout' of flow agent 'desk' runs your code, and the Runtime runs no code of yours during a session.",
+      "The tool stage 'shout' of flow agent 'desk' runs your code, but the Runtime runs agents from their manifests alone.",
     );
     expect(puts).toEqual([]);
   });

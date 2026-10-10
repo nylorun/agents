@@ -79,7 +79,7 @@ Prefer `input` / `output` / `run`. Legacy `inputSchema` / `execute` and tagged `
 Definitions must not import `@nylorun/runtime`.
 
 Local explicit engine execution retains middleware. Durable manifests reject middleware
-closures: a hosted agent is its manifest, and the Runtime never calls your code during a session.
+closures: a hosted agent is its manifest, and the Runtime runs it from that alone.
 
 ## Checkpoint / durability
 
@@ -87,4 +87,4 @@ closures: a hosted agent is its manifest, and the Runtime never calls your code 
 
 ## Client types
 
-The authoritative session/action wire schemas live in `/contracts` and do not import durable checkpoint types. Use `@nylorun/agents` for the session client and to save agents (`saveAgent`); the Runtime runs no code of yours during a session, so a tool there is an `http()` tool or a remote MCP server's. Historical root client types remain for deferred local tooling; they are not the new wire contract.
+The authoritative session/action wire schemas live in `/contracts` and do not import durable checkpoint types. Use `@nylorun/agents` for the session client and to save agents (`saveAgent`); the Runtime runs agents from their manifests alone, so a tool there is an `http()` tool or a remote MCP server's. Historical root client types remain for deferred local tooling; they are not the new wire contract.

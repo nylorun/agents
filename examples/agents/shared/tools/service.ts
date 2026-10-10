@@ -1,7 +1,7 @@
 import { http, type ToolDefinition } from "@nylorun/agents";
 
 /**
- * The examples' tools service: the Runtime runs no code of yours during a session, so a tool's
+ * The examples' tools service: the Runtime runs agents from their manifests alone, so a tool's
  * code runs here and the agent describes it with `http()`. The Runtime POSTs the tool's input as
  * JSON to `<TOOLS_URL>/<tool name>` and gives the model the JSON answer; any other status is a
  * failed call whose body the model reads. `src/tools/server.ts` serves it (root `npm run dev`

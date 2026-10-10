@@ -78,7 +78,7 @@ describe("http()", () => {
     expect(sent).toEqual(["PUT /v1/agents/orders"]);
     const note = tool({ name: "note", input: z.object({ text: z.string() }), run: async ({ text }) => text });
     await expect(client.saveAgent(Agent({ id: "notes" }).tools(refund, note).build())).rejects.toThrow(
-      "Tool 'note' of agent 'notes' runs your code, and the Runtime runs no code of yours during a session. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).",
+      "Tool 'note' of agent 'notes' runs your code, but the Runtime runs agents from their manifests alone. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).",
     );
     expect(sent).toEqual(["PUT /v1/agents/orders"]);
   });

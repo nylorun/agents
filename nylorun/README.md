@@ -184,7 +184,7 @@ replaced by the application key otherwise.
 
 Every Tenant serves the Runtime API, which takes **application keys**, and the
 Management API (`/v1/tenant/*`), which takes **management keys**
-([SELF_HOSTING.md](../SELF_HOSTING.md#keys)). `nylorun key` manages both on the
+([SELF_HOSTING.md](../guides/SELF_HOSTING.md#keys)). `nylorun key` manages both on the
 running Tenant through `nylorun-operate` in its runtime container, so only this
 machine can issue a management key.
 
@@ -206,7 +206,7 @@ credential, a `bearer` token or a `headers` map, with `via` and an identity
 header when an MCP gateway holds each person's sign-in. Add it on Studio's
 Credentials page or with `@nylorun/admin` (no `nylorun` command adds one); the
 whole flow, with gateway recipes, is in
-[DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools).
+[DEPLOYMENT.md](../guides/DEPLOYMENT.md#mcp-servers-and-http-tools).
 
 `nylorun mcp inspect <url>` shows what a remote MCP server offers before an
 agent names it, through the running Tenant's Management API
@@ -404,7 +404,7 @@ Local Tenant commands (`up`, `down`, `start`, `stop`, `logs`, `studio`) exit 2
 naming `npx nylorun <command>`. `nylo tenant …` exits 2: `npx nylorun start`
 creates the project's Tenant and the link, and `nylo status|reset` replace
 `nylo tenant status|reset`. `nylo endpoints` was removed with Action endpoints
-(protocol 8: the Runtime runs no code of yours during a session) and exits 2.
+(protocol 8: the Runtime runs agents from their manifests alone) and exits 2.
 
 ### `status` and `reset`: `nylorun` or `nylo`
 
@@ -475,4 +475,4 @@ These are `nylorun`'s; [`nylo`'s](#nylo-exit-codes) are above.
 | `nylo`: `403 key_role_mismatch` | The key belongs to the other API: a management key for the Management API, an application key for the Runtime API |
 | `nylo`: old Project link refused | `npx nylorun start` in the project |
 
-See [MIGRATION.md](../MIGRATION.md).
+See [MIGRATION.md](../guides/MIGRATION.md).

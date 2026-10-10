@@ -5,7 +5,7 @@ runs for a project (the Runtime, its gateway and harness, Studio, Postgres, Rest
 s2-lite and RustFS, as Docker Compose project `nylorun-<tenant>`), an installation that
 serves that one **Tenant**, and the services the application's agents call as
 tools (HTTP tools and remote MCP servers) on the same machine or reachable from it. Vocabulary:
-[runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
+[runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 ```sh
 npx nylorun start
@@ -51,17 +51,17 @@ To run an installation for a team with your own identity provider and secret
 store, read [SELF_HOSTING.md](./SELF_HOSTING.md): the front doors, application
 and management keys, the identity file, credentials, Studio behind a sign-in proxy, CORS,
 private addresses and backups, with a runnable stack in
-[examples/self-host](./examples/self-host/README.md).
+[examples/self-host](../examples/self-host/README.md).
 
 ## Serving people through an app server
 
 To put agents in front of people, run your own **app server** (vocabulary in
-[CONTEXT.md](./runtime/src/CONTEXT.md)): it signs people in, holds an
+[CONTEXT.md](../runtime/src/CONTEXT.md)): it signs people in, holds an
 application key, and calls the Runtime API for each person with
 `client.as(subject, { scopes })` or the AG-UI handler
-([agents/README.md](./agents/README.md#acting-for-a-person-app-servers); a
+([agents/README.md](../agents/README.md#acting-for-a-person-app-servers); a
 complete web backend is in
-[examples](./examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
+[examples](../examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
 enforces the scopes and each subject's ownership of sessions itself. Vaults
 are the installation's: operators manage them through the Management API with a
 management key, and the app server attaches them to sessions by id (`vaultIds`)
@@ -653,7 +653,7 @@ it to choose which tools to enable, and whether a server is large enough to defe
 ### Tools, results and errors
 
 Set an MCP server's tools in the agent's manifest, keyed by the server's own tool names, with `"*"`
-for the rest ([agents/README.md](./agents/README.md)):
+for the rest ([agents/README.md](../agents/README.md)):
 
 ```ts
 Agent({ id: "triage" }).mcp({

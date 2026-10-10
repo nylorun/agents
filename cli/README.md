@@ -23,4 +23,4 @@ project; outside it, `npx nylo` looks for an unrelated npm package named
 `nylo`). The commands, their output and their exit codes are the same:
 [nylorun/README.md](../nylorun/README.md#the-runtime-client-nylo) documents
 them. This package depends on `nylorun` only, at the version released with it,
-and a later release removes it. See [MIGRATION.md](../MIGRATION.md).
+and a later release removes it. See [MIGRATION.md](../guides/MIGRATION.md).

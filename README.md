@@ -28,7 +28,8 @@ Nylorun is an open-source runtime for AI agents.
   [Agents SDK](https://docs.nylorun.com/docs/build) from instructions,
   [tools](https://docs.nylorun.com/docs/build/tools) and
   [MCP servers](https://docs.nylorun.com/docs/build/mcp), and compose in one
-  line: `.pipe(researcher, analyst)`. The Runtime never calls your code.
+  line: `.pipe(researcher, analyst)`. Publish your agent and start a session
+  with the Runtime.
 - **The Runtime is a Docker Compose stack**: `runtime`, `gateway`, `harness`,
   `studio`, `postgres`, `restate`, `s2-lite` and `rustfs`. Start it with
   `npx nylorun up`; use it from Studio, the CLI, the SDKs or HTTP.
@@ -100,9 +101,9 @@ Everything here runs without a Nylorun account. The Runtime verifies and
 enforces; it never signs people in. Your identity provider and secret store
 plug in.
 
-- [DEPLOYMENT.md](./DEPLOYMENT.md): the Tenant's containers, reverse proxy and Postgres
-- [SELF_HOSTING.md](./SELF_HOSTING.md): your own identity provider and secrets
-- [MIGRATION.md](./MIGRATION.md): breaking changes between beta protocols
+- [DEPLOYMENT.md](./guides/DEPLOYMENT.md): the Tenant's containers, reverse proxy and Postgres
+- [SELF_HOSTING.md](./guides/SELF_HOSTING.md): your own identity provider and secrets
+- [MIGRATION.md](./guides/MIGRATION.md): breaking changes between beta protocols
 
 ## Contributing
 
@@ -118,14 +119,14 @@ npm run dev     # build the Runtime and Studio images, run the examples' Tenant
 `npm run dev` rebuilds packages and images as you edit. The Tenant keeps running
 after you stop it, so sessions survive a source change; `npx nylorun down`
 stops it. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for checks and workflow and
-[RELEASING.md](./RELEASING.md) for publishing. The domain vocabulary is in
+[RELEASING.md](./guides/RELEASING.md) for publishing. The domain vocabulary is in
 [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 
 ## Community
 
 - [GitHub issues](https://github.com/nylorun/agents/issues) for bugs and requests
-- [SECURITY.md](./SECURITY.md) to report a vulnerability privately
-- [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
+- [SECURITY.md](./.github/SECURITY.md) to report a vulnerability privately
+- [CODE_OF_CONDUCT.md](./.github/CODE_OF_CONDUCT.md)
 
 ## License
 
