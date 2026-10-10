@@ -338,8 +338,10 @@ lets pods reach only three ports on the Docker host, and adds the `sandboxes`
 service to the Tenant: the one container holding the cluster credentials
 (`<Host root>/sandboxes/`). On kind under Linux, pass `--host-address 172.17.0.1`.
 `nylorun sandbox disable` removes the service (`--delete-namespace` also deletes
-the namespace and every sandbox in it). Sessions keep using the virtual backend
-in this release.
+the namespace and every sandbox in it). A sandbox resource of kind `pod`
+(`PUT /v1/sandboxes/{id}` with `kind: "pod"` and an `image`) is then a pod on
+that cluster, and the turns of sessions attached to it run in the pod. Other
+sessions keep the virtual backend in the `harness` container.
 
 ## Host root
 
