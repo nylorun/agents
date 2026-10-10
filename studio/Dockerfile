@@ -21,20 +21,20 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=fals
 # Every workspace manifest, so npm ci can read the lockfile.
 COPY package.json package-lock.json ./
 COPY core/package.json core/
-COPY harness/package.json harness/
-COPY agents/package.json agents/
-COPY admin/package.json admin/
-COPY runtime/package.json runtime/
+COPY runtime/harness/package.json runtime/harness/
+COPY sdks/agents/package.json sdks/agents/
+COPY sdks/admin/package.json sdks/admin/
+COPY runtime/server/package.json runtime/server/
 COPY studio/package.json studio/
-COPY nylorun/package.json nylorun/
-COPY cli/package.json cli/
-COPY create-agent/package.json create-agent/
+COPY cli/nylorun/package.json cli/nylorun/
+COPY cli/legacy/package.json cli/legacy/
+COPY cli/create-agent/package.json cli/create-agent/
 RUN npm ci --ignore-scripts \
       -w @nylorun/core -w @nylorun/agents -w @nylorun/admin -w @nylorun/studio
 COPY scripts scripts
 COPY core core
-COPY agents agents
-COPY admin admin
+COPY sdks/agents sdks/agents
+COPY sdks/admin sdks/admin
 COPY studio studio
 RUN npm run build -w @nylorun/core \
  && npm run build -w @nylorun/agents \
@@ -46,13 +46,13 @@ WORKDIR /app
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
 COPY --from=build /repo/package.json /repo/package-lock.json ./
 COPY --from=build /repo/core/package.json core/
-COPY --from=build /repo/harness/package.json harness/
-COPY --from=build /repo/agents/package.json agents/
-COPY --from=build /repo/admin/package.json admin/
-COPY --from=build /repo/runtime/package.json runtime/
+COPY --from=build /repo/runtime/harness/package.json runtime/harness/
+COPY --from=build /repo/sdks/agents/package.json sdks/agents/
+COPY --from=build /repo/sdks/admin/package.json sdks/admin/
+COPY --from=build /repo/runtime/server/package.json runtime/server/
 COPY --from=build /repo/studio/package.json studio/
-COPY --from=build /repo/cli/package.json cli/
-COPY --from=build /repo/create-agent/package.json create-agent/
+COPY --from=build /repo/cli/legacy/package.json cli/legacy/
+COPY --from=build /repo/cli/create-agent/package.json cli/create-agent/
 RUN npm ci --omit=dev --ignore-scripts -w @nylorun/studio \
  && npm cache clean --force
 
@@ -62,10 +62,10 @@ ENV NODE_ENV=production PORT=3000
 COPY --from=deps /app/node_modules node_modules
 COPY --from=build /repo/core/package.json core/
 COPY --from=build /repo/core/dist core/dist
-COPY --from=build /repo/agents/package.json agents/
-COPY --from=build /repo/agents/dist agents/dist
-COPY --from=build /repo/admin/package.json admin/
-COPY --from=build /repo/admin/dist admin/dist
+COPY --from=build /repo/sdks/agents/package.json sdks/agents/
+COPY --from=build /repo/sdks/agents/dist sdks/agents/dist
+COPY --from=build /repo/sdks/admin/package.json sdks/admin/
+COPY --from=build /repo/sdks/admin/dist sdks/admin/dist
 COPY --from=build /repo/studio/package.json studio/
 COPY --from=build /repo/studio/dist studio/dist
 USER node

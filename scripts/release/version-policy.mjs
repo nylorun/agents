@@ -7,11 +7,11 @@ import { packageName, packages, root } from "../lib/repo.mjs";
 const impact = { none: 0, patch: 1, minor: 2, major: 3 };
 
 /**
- * The packages the creator pins in create-agent/compatibility.json: what a
+ * The packages the creator pins in cli/create-agent/compatibility.json: what a
  * generated project or the examples install (core, agents, admin) and the
  * versions those depend on (harness, runtime). Neither nylorun (with `nylo`)
  * nor Studio is one: developers run nylorun with npx, and Studio ships only as
- * `ghcr.io/nylorun/studio`, pinned by nylorun (`nylorun/package.json`
+ * `ghcr.io/nylorun/studio`, pinned by nylorun (`cli/nylorun/package.json`
  * `nylorun.studio`), so a Studio release reaches developers through nylorun.
  * The deprecated @nylorun/cli only runs nylorun's `nylo`, so it is not one
  * either.

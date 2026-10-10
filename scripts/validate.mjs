@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { root, packages, npm, script, node } from "./lib/repo.mjs";
+import { root, packages, npm, script, node, packagePath } from "./lib/repo.mjs";
 
 async function build() {
   for (const name of packages) await script("build", name);
@@ -27,19 +27,19 @@ try {
     await script("test:types", "create-agent");
     await tests();
     for (const name of packages)
-      await node(`${name}/scripts/check-package.mjs`, [], {
-        cwd: join(root, name),
+      await node(`${packagePath(name)}/scripts/check-package.mjs`, [], {
+        cwd: join(root, packagePath(name)),
       });
     await node("scripts/check-isolated.mjs");
-    await node("create-agent/scripts/examples.mjs", ["--check"]);
+    await node("cli/create-agent/scripts/examples.mjs", ["--check"]);
     await npm(["run", "check"], { cwd: join(root, "examples") });
     await npm(["run", "build"], { cwd: join(root, "examples") });
   }
   if (command === "stack") {
     if (!flags.includes("--built"))
       await npm(["run", "build"], { cwd: join(root, "examples") });
-    await node("create-agent/scripts/check-stack.mjs");
-    await node("create-agent/scripts/check-example-assets.mjs");
+    await node("cli/create-agent/scripts/check-stack.mjs");
+    await node("cli/create-agent/scripts/check-example-assets.mjs");
   }
 } catch (error) {
   console.error(error.message);

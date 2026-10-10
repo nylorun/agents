@@ -33,7 +33,7 @@ try {
   });
   await mkdir(join(root, ".release"), { recursive: true });
   await writeJson(join(root, ".release/plan.json"), plan);
-  await node("create-agent/scripts/examples.mjs", ["--check"]);
+  await node("cli/create-agent/scripts/examples.mjs", ["--check"]);
   console.log(
     "Release prepared. Review versions, changelogs, compatibility, generated files and both lockfiles; commit them in a release PR. Nothing was published.",
   );

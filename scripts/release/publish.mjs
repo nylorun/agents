@@ -1,7 +1,7 @@
 import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { packageName, root, readJson, run } from "../lib/repo.mjs";
+import { packageName, root, readJson, run, packagePath } from "../lib/repo.mjs";
 import { publicCreatorSmoke } from "./smoke.mjs";
 import {
   validatePlan,
@@ -86,11 +86,11 @@ try {
     // The images job pushed nylorun's pinned images (release:check verified
     // the pins against the plan); the public creator must run on them.
     const { runtime, studio } = (
-      await readJson(join(root, "nylorun/package.json"))
+      await readJson(join(root, "cli/nylorun/package.json"))
     ).nylorun;
     // The versions a developer's npx runs: this release's, or the kept ones.
     const shipped = async (name) =>
-      plan.packages[name] ?? (await readJson(join(root, name, "package.json"))).version;
+      plan.packages[name] ?? (await readJson(join(root, packagePath(name), "package.json"))).version;
     await publicCreatorSmoke(
       {
         creator: plan.packages["create-agent"],

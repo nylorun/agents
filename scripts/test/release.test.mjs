@@ -11,7 +11,7 @@ import {
   verifyReleaseCommit,
   releaseNotes,
 } from "../release/model.mjs";
-import { packageName, root, readJson, writeJson, run } from "../lib/repo.mjs";
+import { PACKAGE_PATHS, packageName, packagePath, root, readJson, writeJson, run } from "../lib/repo.mjs";
 
 test("a Runtime beta release advances creator and preserves unrelated compatibility pins", async () => {
   const directory = await mkdtemp(join(tmpdir(), "nylorun-release-test-"));
@@ -19,7 +19,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
     await writeJson(join(directory, "package.json"), {
       name: "fixture",
       private: true,
-      workspaces: ["core", "harness", "agents", "admin", "runtime", "studio", "nylorun", "cli", "create-agent"],
+      workspaces: Object.values(PACKAGE_PATHS),
     });
     // @manypkg/get-packages@3 NpmTool only treats a directory as an npm
     // workspace root when package-lock.json is present.
@@ -30,7 +30,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       packages: {
         "": {
           name: "fixture",
-          workspaces: ["core", "harness", "agents", "admin", "runtime", "studio", "nylorun", "cli", "create-agent"],
+          workspaces: Object.values(PACKAGE_PATHS),
         },
       },
     });
@@ -50,20 +50,20 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       nylorun: "0.1.0-beta.1",
       "create-agent": "0.1.0-beta.1",
     })) {
-      await mkdir(join(directory, name));
-      await writeJson(join(directory, name, "package.json"), {
+      await mkdir(join(directory, packagePath(name)), { recursive: true });
+      await writeJson(join(directory, packagePath(name), "package.json"), {
         name: packageName(name),
         version,
         // The deprecated CLI pins the nylorun whose nylo it runs.
         ...(name === "cli" ? { dependencies: { nylorun: "0.1.0-beta.1" } } : {}),
       });
     }
-    await mkdir(join(directory, "runtime/src"), { recursive: true });
+    await mkdir(join(directory, "runtime/server/src"), { recursive: true });
     await writeFile(
-      join(directory, "runtime/src/version.ts"),
+      join(directory, "runtime/server/src/version.ts"),
       'export const RUNTIME_VERSION = "0.1.0-beta.1";\n',
     );
-    await writeJson(join(directory, "create-agent/compatibility.json"), {
+    await writeJson(join(directory, "cli/create-agent/compatibility.json"), {
       core: "0.1.0-beta.1",
       harness: "0.10.0-beta.1",
       agents: "0.1.0-beta.1",
@@ -108,11 +108,11 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
     });
     // The deprecated CLI follows nylorun, and pins the released one.
     assert.deepEqual(
-      JSON.parse(await readFile(join(directory, "cli/package.json"), "utf8")).dependencies,
+      JSON.parse(await readFile(join(directory, "cli/legacy/package.json"), "utf8")).dependencies,
       { nylorun: "0.1.1-beta" },
     );
     assert.match(
-      await readFile(join(directory, "runtime/src/version.ts"), "utf8"),
+      await readFile(join(directory, "runtime/server/src/version.ts"), "utf8"),
       /export const RUNTIME_VERSION = "0\.1\.1-beta";/,
     );
     assert.deepEqual(plan.compatibility, {
@@ -124,13 +124,13 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
     });
     // nylorun's image pins: the released Runtime and the kept Studio.
     assert.deepEqual(
-      JSON.parse(await readFile(join(directory, "nylorun/package.json"), "utf8"))
+      JSON.parse(await readFile(join(directory, "cli/nylorun/package.json"), "utf8"))
         .nylorun,
       { runtime: "0.1.1-beta", studio: "0.3.0-beta.1" },
     );
     assert.match(
       await import("node:fs/promises").then(({ readFile }) =>
-        readFile(join(directory, "create-agent/CHANGELOG.md"), "utf8")
+        readFile(join(directory, "cli/create-agent/CHANGELOG.md"), "utf8")
       ),
       /compatibility/i
     );
@@ -174,7 +174,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
     );
     assert.equal(
       (
-        await readFile(join(directory, "runtime/CHANGELOG.md"), "utf8")
+        await readFile(join(directory, "runtime/server/CHANGELOG.md"), "utf8")
       ).includes("## 0.1.1-beta"),
       true
     );

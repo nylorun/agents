@@ -6,7 +6,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 
 /**
  * The process entries may read ambient process/OS state: the Host (`host/main.ts`) and the
- * operator command (`host/operate.ts`). Nothing else under runtime/src may.
+ * operator command (`host/operate.ts`). Nothing else under runtime/server/src may.
  */
 const AMBIENT_ALLOWLIST = new Set(["host/main.ts", "host/operate.ts"]);
 
@@ -42,14 +42,14 @@ function collectMatches(source, pattern) {
 }
 
 /**
- * Fail on ambient process/OS reads under runtime/src (except the process entries)
- * and on console.* under runtime/src/tenant and runtime/src/api.
+ * Fail on ambient process/OS reads under runtime/server/src (except the process entries)
+ * and on console.* under runtime/server/src/tenant and runtime/server/src/api.
  *
  * @param {{ runtimeSrc?: string }} [options]
  * @returns {{ ok: true } | { ok: false, violations: string[] }}
  */
 export function checkAmbient(options = {}) {
-  const runtimeSrc = options.runtimeSrc ?? join(root, "runtime", "src");
+  const runtimeSrc = options.runtimeSrc ?? join(root, "runtime", "server", "src");
   const violations = [];
 
   for (const path of walk(runtimeSrc)) {
@@ -70,7 +70,7 @@ export function checkAmbient(options = {}) {
     if (area === "tenant" || area === "api") {
       for (const match of collectMatches(source, CONSOLE_PATTERN)) {
         violations.push(
-          `${rel}:${match.line}: ${match.text} forbidden under runtime/src/${area}`,
+          `${rel}:${match.line}: ${match.text} forbidden under runtime/server/src/${area}`,
         );
       }
     }
@@ -81,7 +81,7 @@ export function checkAmbient(options = {}) {
 }
 
 export function formatAmbientReport(result) {
-  if (result.ok) return "ambient: runtime/src has no forbidden ambient or console reads.";
+  if (result.ok) return "ambient: runtime/server/src has no forbidden ambient or console reads.";
   return [
     "ambient: forbidden ambient environment or console usage:",
     ...result.violations.map((line) => `  ${line}`),

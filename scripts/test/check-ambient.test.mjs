@@ -15,7 +15,7 @@ function fixture(files) {
   return root;
 }
 
-test("passes when runtime/src has no ambient reads or tenant console", () => {
+test("passes when runtime/server/src has no ambient reads or tenant console", () => {
   const runtimeSrc = fixture({
     "host/main.ts": `import { homedir } from "node:os";\nprocess.env.NYLORUN_HOME;\nprocess.cwd();\nhomedir();\ntmpdir();\nconsole.log("ok");\n`,
     "host/config.ts": `export const hostId = "host_01";\n`,
@@ -82,7 +82,7 @@ test("allows ambient reads only in host/main.ts", () => {
   }
 });
 
-test("fails on console. under runtime/src/tenant", () => {
+test("fails on console. under runtime/server/src/tenant", () => {
   const runtimeSrc = fixture({
     "tenant/runtime.ts": `export function log(msg: string) {\n  console.warn(msg);\n}\n`,
     "core/runtime.ts": `console.log("host path may still use console until D12 elsewhere");\n`,

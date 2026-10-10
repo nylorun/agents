@@ -8,8 +8,8 @@ import {
   publicCreatorEnvironment,
 } from "../release/smoke.mjs";
 import { execFileSync } from "node:child_process";
-import { parse } from "../../create-agent/dist/arguments.js";
-import { createProject } from "../../create-agent/dist/project.js";
+import { parse } from "../../cli/create-agent/dist/arguments.js";
+import { createProject } from "../../cli/create-agent/dist/project.js";
 
 test("public installation subprocesses cannot inherit publication credentials", () => {
   const env = publicCreatorEnvironment({

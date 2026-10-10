@@ -220,7 +220,7 @@ func millicores(cpus float64) string {
 // EngineCommand runs the copied engine under tini as PID 1 (signals reach the whole group).
 var EngineCommand = []string{
 	"/nylo/tini-static", "-g", "--",
-	"/nylo/node", "/nylo/app/runtime/dist/host/main.js", "--service", "harness",
+	"/nylo/node", "/nylo/app/runtime/server/dist/host/main.js", "--service", "harness",
 }
 
 // Render is the Sandbox for spec (normalized) in namespace. The pod shape is decided here only.

@@ -56,7 +56,7 @@ jobs:
   # checks on the pinned toolchain. Includes test:tooling, i.e. the Linux leg of
   # the supervisor and release tooling tests (see `macos`). The runtime and
   # examples tests keep every Tenant in the test stack's Postgres
-  # (runtime/test/stack/compose.yaml).
+  # (runtime/server/test/stack/compose.yaml).
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -220,9 +220,9 @@ jobs:
       - name: Supervisor and release tooling
         run: node --test scripts/test/processes.test.mjs scripts/test/development.test.mjs scripts/test/release.test.mjs scripts/test/version-policy.test.mjs scripts/test/pins.test.mjs
   # Runtime integration tests against the Docker test stack (Postgres 17,
-  # Restate, s2-lite, RustFS) in runtime/test/stack/compose.yaml, with test
+  # Restate, s2-lite, RustFS) in runtime/server/test/stack/compose.yaml, with test
   # Tenants in Postgres. They include the architecture §17 failure suite
-  # (runtime/test/failure/README.md), which recreates the stack's Restate, and
+  # (runtime/server/test/failure/README.md), which recreates the stack's Restate, and
   # the BlobStore conformance suite against the stack's RustFS. Then the runtime unit suite
   # with the gates over HTTP (NYLORUN_TEST_MODEL_GATE=http).
   integration:
@@ -259,7 +259,7 @@ jobs:
         run: npm test --workspace @nylorun/runtime
       - name: Test stack logs
         if: failure()
-        run: docker compose -f runtime/test/stack/compose.yaml logs --no-color
+        run: docker compose -f runtime/server/test/stack/compose.yaml logs --no-color
       - name: Stop the test stack
         if: always()
         run: npm run test:stack:down --workspace @nylorun/runtime

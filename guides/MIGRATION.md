@@ -15,7 +15,7 @@ the export lines). A later release removes it.
 | `@nylorun/cli` as a devDependency (for `nylo` in npm scripts) | `nylorun` as a devDependency; remove `@nylorun/cli` |
 | `nylorun configure`, `nylorun status --env`, `nylorun doctor sandbox` naming `npx @nylorun/cli …` | They exit 2 as before, naming `npx -p nylorun nylo configure`, `… env` and `… doctor sandbox` |
 | `@nylorun/admin/project` (a re-export of `@nylorun/core/project`) | Removed: import `@nylorun/core/project` |
-| `@nylorun/cli` in `create-agent/compatibility.json` | Removed: the creator pins Core, Harness, Agents, Admin and Runtime |
+| `@nylorun/cli` in `cli/create-agent/compatibility.json` | Removed: the creator pins Core, Harness, Agents, Admin and Runtime |
 
 Outside a project that installs `nylorun`, `npx nylo` looks for an npm package named `nylo`, which
 is not Nylorun's: use `npx -p nylorun nylo`.
@@ -510,7 +510,7 @@ tool error the model sees. What does not carry over:
   output, and `approval` is not supported on a flow stage yet.
 - The methods are `POST` (default), `PUT` and `PATCH`; the input is always the body.
 
-See [agents/README.md](../agents/README.md#http-tools).
+See [sdks/agents/README.md](../sdks/agents/README.md#http-tools).
 
 ## Skills are files the Runtime serves
 
@@ -686,7 +686,7 @@ What to do:
    Over HTTP, send the management key with `Nylorun-Protocol: 8`. The groups are
    `admin.tenant` (status, seed, reset), `admin.keys`, `admin.models` (catalog, providers,
    credentials, selection, usage, budgets), `admin.vaults`, `admin.signingKeys` and
-   `admin.settings` (sandbox, artifacts) ([admin/README.md](../admin/README.md)). `nylo status`,
+   `admin.settings` (sandbox, artifacts) ([sdks/admin/README.md](../sdks/admin/README.md)). `nylo status`,
    `reset`, `configure`, `doctor` and `access signing-keys` use the Project's management key, or
    `NYLORUN_MANAGEMENT_KEY`. `/v1/tenant/models` and `/v1/tenant/providers` no longer admit
    `agents:write` subjects: apps don't read the model catalog.
@@ -1512,7 +1512,7 @@ they report an older Host as `incompatible_host`.
 
 # Runtime Clients and Admin API (breaking beta)
 
-Vocabulary: [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
+Vocabulary: [runtime/server/src/CONTEXT.md](../runtime/server/src/CONTEXT.md).
 
 > Runtime V1 (above) replaces this release's launcher, its global
 > `@nylorun/runtime` install and the `nylorun-studio` binary. The client
@@ -1718,7 +1718,7 @@ if a Tenant still has schema 3 turns in flight.
 
 # Runtime Tenants (breaking beta)
 
-Vocabulary: [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
+Vocabulary: [runtime/server/src/CONTEXT.md](../runtime/server/src/CONTEXT.md).
 
 One **Runtime Host** process serves many isolated **Tenants**. A Project
 attaches through a **Project link** (`.nylorun/link.json` + `credentials.json`),
@@ -1785,7 +1785,7 @@ Never delete names that start with `nylorun-tn_`.
 > `devDependencies`). Keep this section for the earlier define/contracts move.
 
 Cloud upgrades published packages from npm independently. Upgrade the tested
-package combination in `create-agent/compatibility.json`.
+package combination in `cli/create-agent/compatibility.json`.
 
 | Previous                                             | Replacement                                                                      |
 | ---------------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -1818,7 +1818,7 @@ No npm release or deployment is performed by this migration.
 > npm script at `nylorun-studio`. Keep the rest of this section only for
 > historical session-first / Tenants-era upgrades that already applied it.
 
-Upgrade the harness, SDK, Runtime, Studio, and creator as the tested compatible set in `create-agent/compatibility.json`. This migration changes public entry points and the session protocol.
+Upgrade the harness, SDK, Runtime, Studio, and creator as the tested compatible set in `cli/create-agent/compatibility.json`. This migration changes public entry points and the session protocol.
 
 1. Import `Agent` and `tool` from `@nylorun/agents`. Export `agents` from `agents/index.ts`. Keep model selection in Runtime configuration.
 2. Remove the starter's Hono application and old `Runtime` / `serveAgents` / `openSession` imports. Definitions no longer expose `agent.run()`.
@@ -1831,7 +1831,7 @@ Keep credentials in gitignored `.nylorun/`; provider configuration uses `.env` o
 
 Explicit in-process engine execution remains available to host authors through `@nylorun/harness/run`; it is not loaded by the application SDK. OSS and Cloud consume the harness independently.
 
-The release workflow covers local text and ordinary tools. Advanced examples remain source references outside the default registry. Media, approvals UI, deployment recipes, and broad recovery/conformance gates remain for later releases. Subagents (agents used as tools, one level deep) ship with this branch; see [the SDK](../agents/README.md).
+The release workflow covers local text and ordinary tools. Advanced examples remain source references outside the default registry. Media, approvals UI, deployment recipes, and broad recovery/conformance gates remain for later releases. Subagents (agents used as tools, one level deep) ship with this branch; see [the SDK](../sdks/agents/README.md).
 
 ## Execution API rename
 

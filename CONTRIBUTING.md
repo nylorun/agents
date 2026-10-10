@@ -2,17 +2,26 @@
 
 ## Repository map
 
-| Directory       | Responsibility                                          |
-| --------------- | ------------------------------------------------------- |
-| `core/`         | Shared definitions and contracts                        |
-| `harness/`      | Agent execution engine                                  |
-| `nylorun/`      | `nylorun`: sets up and runs local Tenants (Docker); `nylo`: the Runtime client (`src/client/`) |
-| `cli/`          | Deprecated `@nylorun/cli`: runs nylorun's `nylo`        |
-| `runtime/`      | Runtime Host, execution and persistence (runtime image) |
-| `studio/`       | Studio server and dashboard (the `studio` image)        |
-| `create-agent/` | Starter, renderer, compatibility pins, and smoke tests  |
-| `examples/`     | Generated application shell and authored demonstrations |
-| `scripts/`      | Repository development, validation, and release tooling |
+Directories follow the Docker images: `runtime/` builds `ghcr.io/nylorun/runtime`,
+`studio/` builds `ghcr.io/nylorun/studio` and `sandboxes/` builds `ghcr.io/nylorun/sandboxes`.
+`sdks/` and `cli/` hold the npm packages that ship no image.
+
+| Directory           | Responsibility                                                                 |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `core/`             | Shared definitions and contracts                                               |
+| `runtime/`          | The runtime image (`runtime/Dockerfile`): the `runtime`, `gateway` and `harness` containers |
+| `runtime/server/`   | `@nylorun/runtime`: Runtime Host, execution and persistence                    |
+| `runtime/harness/`  | `@nylorun/harness`: agent execution engine                                     |
+| `studio/`           | Studio server and dashboard (the `studio` image)                               |
+| `sandboxes/`        | The sandboxes service (Go, the `sandboxes` image)                              |
+| `sdks/agents/`      | `@nylorun/agents`: agent definitions and the session client                    |
+| `sdks/admin/`       | `@nylorun/admin`: the Management API client                                    |
+| `cli/nylorun/`      | `nylorun`: sets up and runs local Tenants (Docker); `nylo`: the Runtime client (`src/client/`) |
+| `cli/create-agent/` | Starter, renderer, compatibility pins, and smoke tests                         |
+| `cli/legacy/`       | Deprecated `@nylorun/cli`: runs nylorun's `nylo`                               |
+| `examples/`         | Generated application shell and authored demonstrations                        |
+| `scripts/`          | Repository development, validation, and release tooling                        |
+| `guides/`           | Deployment, self-hosting, migration and release guides                         |
 
 Harness and Runtime must not depend on each other. Studio depends on neither.
 Cross-package contracts are tested in the creator. Examples remains a separate
@@ -56,7 +65,7 @@ Agent edits in `examples/` restart the application through `tsx watch`; start a
 new session after definition changes. Stop development before changing
 dependencies, then rerun setup. The examples model provider lives in the
 Tenant's vault: run `npm run configure` (or replace it from Studio).
-Vocabulary: [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
+Vocabulary: [runtime/server/src/CONTEXT.md](./runtime/server/src/CONTEXT.md).
 
 To run the examples on another Tenant, set `NYLORUN_TENANT` (its Host root is
 `~/.nylorun/tenants/<name>/`), or `NYLORUN_HOME` (and `NYLORUN_COMPOSE_PROJECT`
@@ -101,7 +110,7 @@ package). CI uses `-- --built` on root checks after setup to avoid rebuilding.
 
 The Runtime's tests keep every Tenant in Postgres: each test file gets its own database,
 cloned from a template the run migrates, on the Docker test stack
-(`runtime/test/stack/compose.yaml`: Postgres, Restate, s2-lite). `npm test` in `runtime/`
+(`runtime/server/test/stack/compose.yaml`: Postgres, Restate, s2-lite). `npm test` in `runtime/server/`
 starts that stack when its Postgres does not answer, and leaves it running for the next
 run; the examples' tests use it too. Manage it yourself with
 `npm run test:stack:up --workspace @nylorun/runtime` and `npm run test:stack:down
@@ -110,8 +119,8 @@ instead of starting it, and the `NYLORUN_TEST_*_PORT` variables to move its port
 
 ### Adding a migration
 
-Drizzle defines the Session Store's tables in `runtime/src/store/postgres/schema.ts`, and
-drizzle-kit generates the migrations from it into `runtime/src/store/postgres/drizzle/`
+Drizzle defines the Session Store's tables in `runtime/server/src/store/postgres/schema.ts`, and
+drizzle-kit generates the migrations from it into `runtime/server/src/store/postgres/drizzle/`
 (SQL files, `meta/_journal.json`, and the snapshots drizzle-kit diffs against). The build
 copies the SQL files and the journal into `dist/`; the Host applies the missing ones at
 startup and refuses a database holding one it does not ship.
@@ -128,7 +137,7 @@ startup and refuses a database holding one it does not ship.
 
 `npm run db:studio --workspace @nylorun/runtime` opens Drizzle Studio on the database in
 `NYLORUN_DATABASE_URL` (a local Tenant's, or a test database on the test stack). drizzle-kit and
-`runtime/drizzle.config.ts` are for development only and are not published.
+`runtime/server/drizzle.config.ts` are for development only and are not published.
 
 The Runtime and Studio ship as the images `ghcr.io/nylorun/runtime` and
 `ghcr.io/nylorun/studio`, built from the repository root. To run your changes

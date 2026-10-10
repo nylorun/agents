@@ -1,0 +1,52 @@
+{
+  "name": "@nylorun/create-agent",
+  "version": "0.14.6-beta",
+  "description": "Create a local Nylorun Harness agent project.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nylorun/agents.git",
+    "directory": "cli/create-agent"
+  },
+  "homepage": "https://github.com/nylorun/agents",
+  "bugs": "https://github.com/nylorun/agents/issues",
+  "bin": {
+    "create-agent": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "compatibility.json",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && node ../../scripts/check-typescript-version.mjs && tsc -p tsconfig.json && node scripts/copy-compatibility.mjs",
+    "check": "npm run build && npm run test:types && npm test && node scripts/check-package.mjs",
+    "test": "vitest run",
+    "test:types": "tsc -p test/tsconfig.json",
+    "examples:sync": "npm run build && node scripts/examples.mjs",
+    "examples:check": "npm run build && node scripts/examples.mjs --check",
+    "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\"",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@nylorun/harness": "file:../../runtime/harness",
+    "@nylorun/runtime": "file:../../runtime/server",
+    "@types/node": "^26.6.4",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "^5.0.2",
+    "zod": "^4.6.5",
+    "@nylorun/core": "file:../../core",
+    "@nylorun/agents": "file:../../sdks/agents"
+  }
+}

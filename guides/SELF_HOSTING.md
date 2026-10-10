@@ -59,7 +59,7 @@ sessions, sandboxes and artifacts) for apps and people, and the **Management API
 
 **An app server** signs people in itself and calls the Runtime for each one:
 `client.as(subject, { scopes })` in `@nylorun/agents`
-([agents/README.md](../agents/README.md#acting-for-a-person-app-servers)), which sends
+([sdks/agents/README.md](../sdks/agents/README.md#acting-for-a-person-app-servers)), which sends
 `Nylorun-Subject` and `Nylorun-Scopes`. The key stays on the server. The server drops every
 `Nylorun-*` header its own clients send, and never forwards `Origin`: the Runtime refuses an
 application key sent with one (`403 origin_rejected`).
@@ -108,7 +108,7 @@ npx nylorun key rm app-server      # it stops working at once
 
 Add `--tenant <name>` outside the project the Tenant belongs to. From code, with a management
 key: `@nylorun/admin` (`admin.keys.put(id)`, `admin.keys.list()`, `admin.keys.delete(id)`;
-[admin/README.md](../admin/README.md)), or `PUT /v1/tenant/keys/{keyId}`, `GET /v1/tenant/keys`
+[sdks/admin/README.md](../sdks/admin/README.md)), or `PUT /v1/tenant/keys/{keyId}`, `GET /v1/tenant/keys`
 and `DELETE /v1/tenant/keys/{keyId}`. The Management API issues application keys only.
 
 **Management keys** are issued only on the Tenant's machine, so a leaked key can't mint

@@ -18,9 +18,9 @@
   },
   "dependencies": {
     "zod": "^4.6.5",
-    "@nylorun/agents": "file:../agents",
-    "@nylorun/harness": "file:../harness",
-    "@nylorun/runtime": "file:../runtime",
+    "@nylorun/agents": "file:../sdks/agents",
+    "@nylorun/harness": "file:../runtime/harness",
+    "@nylorun/runtime": "file:../runtime/server",
     "zod-from-json-schema": "^0.5.6",
     "@nylorun/core": "file:../core"
   },
@@ -28,8 +28,8 @@
     "@types/node": "^22.18.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "nylorun": "file:../nylorun",
-    "@nylorun/admin": "file:../admin",
+    "nylorun": "file:../cli/nylorun",
+    "@nylorun/admin": "file:../sdks/admin",
     "vitest": "^4.1.11",
     "@ag-ui/client": "1.0.0",
     "postgres": "^3.4.9"

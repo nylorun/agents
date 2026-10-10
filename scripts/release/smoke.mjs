@@ -95,7 +95,7 @@ export function composeServices(output) {
 /**
  * Create and start a project with the published creator, nylorun and CLI
  * `versions`. `pins` are the image versions this release ships
- * (nylorun/package.json `nylorun`); the published nylorun must pin the same.
+ * (cli/nylorun/package.json `nylorun`); the published nylorun must pin the same.
  */
 export async function publicCreatorSmoke(versions, pins) {
   const temporary = await mkdtemp(join(tmpdir(), "nylorun-published-"));

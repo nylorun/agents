@@ -7,11 +7,34 @@ import { spawn } from "node:child_process";
 export const root = fileURLToPath(new URL("../../", import.meta.url));
 export const packages = ["core", "harness", "agents", "admin", "runtime", "studio", "nylorun", "cli", "create-agent"];
 /**
- * The npm name of a workspace directory. Every package is `@nylorun/<dir>`
- * except `nylorun`, the unscoped local Tenant command (`npx nylorun start`).
+ * Where each package lives, relative to the repository root. Directories follow
+ * the Docker images: runtime/ is ghcr.io/nylorun/runtime (the server and the
+ * harness it runs), studio/ is ghcr.io/nylorun/studio; sdks/ and cli/ hold the
+ * npm-only packages.
+ */
+export const PACKAGE_PATHS = {
+  core: "core",
+  harness: "runtime/harness",
+  agents: "sdks/agents",
+  admin: "sdks/admin",
+  runtime: "runtime/server",
+  studio: "studio",
+  nylorun: "cli/nylorun",
+  cli: "cli/legacy",
+  "create-agent": "cli/create-agent",
+};
+/** The directory of a package, relative to the repository root. */
+export const packagePath = (name) => {
+  const path = PACKAGE_PATHS[name];
+  if (!path) throw new Error(`Unknown package: ${name}`);
+  return path;
+};
+/**
+ * The npm name of a package. Every package is `@nylorun/<name>` except
+ * `nylorun`, the unscoped local Tenant command (`npx nylorun start`).
  */
 export const packageName = (name) => (name === "nylorun" ? "nylorun" : `@nylorun/${name}`);
-/** The workspace directory of an npm name (the inverse of packageName). */
+/** The package of an npm name (the inverse of packageName); packagePath gives its directory. */
 export const packageDirectory = (npmName) =>
   npmName === "nylorun" ? "nylorun" : npmName.replace(/^@nylorun\//, "");
 export const readJson = async (path) =>
