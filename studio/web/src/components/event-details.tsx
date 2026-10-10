@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+import { artifactHref, artifactReferences } from "@/resources/artifacts";
 import { X } from "lucide-react";
 import dayjs from "dayjs";
 import { Button } from "@/components/ui/button";
@@ -54,6 +56,15 @@ export function EventDetails({
             <dt className="text-muted-foreground">Delivery</dt>
             <dd>{event.committed ? "History (/items)" : "Live SSE (/events)"}</dd>
           </dl>
+          {artifactReferences(event).map(ref => (
+            <Link
+              key={`${ref.artifactId}:${ref.version}`}
+              className="block break-all text-sm underline"
+              to={artifactHref(ref.artifactId, ref.version, event.sessionId)}
+            >
+              Open {ref.name} · v{ref.version}
+            </Link>
+          ))}
           <section className="min-w-0 max-w-full">
             <h3 className="text-sm font-medium">Payload</h3>
             <pre className="mt-2 w-full max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs leading-5">
