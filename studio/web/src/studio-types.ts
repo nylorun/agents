@@ -42,16 +42,17 @@ export type StudioDefinition = AgentDefinition | WorkflowDefinition;
 /** @deprecated Prefer StudioDefinition; kept for existing imports. */
 export type AgentManifest = StudioDefinition;
 
+/** One row of the Tenant's session list (`GET /v1/sessions`). */
 export type SessionSummary = {
   session: string;
+  agentId: string;
+  ownerUserId: string;
   status: string;
-  title?: string;
-  startedAt: number;
 };
 
 export type Connection = {
   status: "Connecting" | "Running" | "Offline";
   url?: string;
   agents: readonly StudioDefinition[];
-  sessionsByAgent: Record<string, SessionSummary[]>;
+  sessions: readonly SessionSummary[];
 };

@@ -61,8 +61,9 @@ async function withStudio(
 test("sandboxes work before agent registration: server paging, label navigation, events and sessions", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
+    // No agent is registered; the session list still lists the Tenant's sessions.
     await page
-      .getByRole("heading", { name: "Runtime tenant", exact: true })
+      .getByRole("heading", { name: "Sessions", exact: true })
       .waitFor();
     await page.getByRole("link", { name: "Sandboxes", exact: true }).click();
     await page.getByRole("button", { name: SANDBOX, exact: true }).waitFor();

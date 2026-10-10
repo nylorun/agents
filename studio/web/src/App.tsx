@@ -14,8 +14,13 @@ import { Sandboxes } from "@/components/sandboxes";
 import { Artifacts, SessionArtifacts } from "@/components/artifacts";
 import { artifactReferences } from "@/resources/artifacts";
 import { AppSidebar } from "@/components/app-sidebar";
-import { TenantSettings } from "@/components/tenant-settings";
+import {
+  SETTINGS_SECTIONS,
+  TenantSettings,
+  settingsSection as settingsSectionOf,
+} from "@/components/tenant-settings";
 import { TenantOverview } from "@/components/tenant-overview";
+import { SessionsTable } from "@/components/sessions-table";
 import { ViewErrorBoundary } from "@/components/view-error-boundary";
 import { AgentManifestPanel } from "@/components/agent-manifest-panel";
 import { EventDetails } from "@/components/event-details";
@@ -63,6 +68,7 @@ import {
   tenantHref,
   tenantScope,
 } from "@/proxy-client";
+import { AGENT_FILTER, sessionsPath } from "@/session-list";
 import {
   STUDIO_OWNER,
   asStudioDefinition,
@@ -70,7 +76,7 @@ import {
   isNewSessionState,
   newSessionCredentials,
 } from "@/session-open";
-import { NewSessionProvider, useStartSession } from "@/components/new-session";
+import { NewSessionProvider } from "@/components/new-session";
 import type {
   AgentManifest,
   Connection,
@@ -365,12 +371,6 @@ function OpenTenant({ tenant }: { tenant: StudioTenantInfo }) {
   );
 }
 
-/** An agent card's "New session": through the vault picker when its tools take credentials. */
-function NewSessionButton({ agent }: { agent: StudioDefinition }) {
-  const startSession = useStartSession();
-  return <Button onClick={() => startSession(agent)}>New session</Button>;
-}
-
 function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const location = useLocation();
   const embedStatus = useEmbedStatus();
@@ -393,7 +393,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const [connection, setConnection] = useState<Connection>({
     status: "Connecting",
     agents: [],
-    sessionsByAgent: {},
+    sessions: [],
   });
   const [error, setError] = useState("");
   const refresh = useCallback(async () => {
@@ -403,14 +403,6 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         client.listAgents(),
         client.listSessions(),
       ]);
-      const grouped: Connection["sessionsByAgent"] = {};
-      for (const s of sessions.sessions)
-        (grouped[s.agentId] ??= []).push({
-          session: s.id,
-          status: s.status,
-          title: s.id.slice(0, 8),
-          startedAt: 0,
-        });
       setConnection({
         status: "Running",
         url: "Runtime",
@@ -424,7 +416,12 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             manifestHash: hashOf(a),
           }),
         ),
-        sessionsByAgent: grouped,
+        sessions: sessions.sessions.map((s) => ({
+          session: s.id,
+          agentId: s.agentId,
+          ownerUserId: s.ownerUserId,
+          status: s.status,
+        })),
       });
       setError("");
     } catch (e) {
@@ -452,14 +449,18 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         : undefined;
   const settingsActive = location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/") || location.pathname === "/vault";
+  const settingsSection = settingsSectionOf(location.pathname);
+  const sessionList = /^\/(?:sessions\/?)?$/u.test(location.pathname);
+  const agentFilter =
+    new URLSearchParams(location.search).get(AGENT_FILTER) || undefined;
   return (
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         connection={connection}
         tenant={tenant}
-        activeAgentId={agentId}
-        activeSessionId={sessionId}
-        settingsActive={settingsActive}
+        sessionsActive={sessionList || sessionId !== undefined}
+        activeAgentId={sessionList ? agentFilter : agentId}
+        settingsSection={settingsSection}
         resourceActive={resourceActive}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
@@ -470,9 +471,11 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
               ? "Sandboxes"
               : resourceActive === "artifacts"
                 ? "Artifacts"
-                : settingsActive
-                  ? "Tenant settings"
-                  : (agent?.name ?? "Nylorun Studio")}
+                : settingsSection
+                  ? SETTINGS_SECTIONS[settingsSection]
+                  : sessionList
+                    ? "Sessions"
+                    : (agent?.name ?? "Nylorun Studio")}
           </strong>
           {embedded() ? null : (
             <Badge variant="outline" title={tenant.id}>
@@ -511,8 +514,10 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             <Sandboxes tenantId={tenant.id} />
           ) : resourceActive === "artifacts" ? (
             <Artifacts tenantId={tenant.id} />
+          ) : settingsSection ? (
+            <TenantSettings tenant={tenant} section={settingsSection} />
           ) : settingsActive ? (
-            <TenantSettings tenant={tenant} />
+            <Navigate to="/settings/overview" replace />
           ) : agentId && sessionId ? (
             // Any session opens, also one whose agent is not registered (a
             // flow's embedded agent); the session says which agent it runs.
@@ -528,31 +533,17 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
                 refresh={refresh}
               />
             )
-          ) : waiting ? (
-            <TenantOverview tenant={tenant} waitingForAgents />
+          ) : agentId ? (
+            // An agent's page is the session list filtered to it.
+            <Navigate to={sessionsPath(agentId)} replace />
+          ) : sessionList ? (
+            waiting && connection.sessions.length === 0 ? (
+              <TenantOverview tenant={tenant} waitingForAgents />
+            ) : (
+              <SessionsTable connection={connection} agentFilter={agentFilter} />
+            )
           ) : (
-            <section className="mx-auto w-full max-w-3xl flex-1 overflow-auto p-8">
-              <h1 className="text-2xl font-semibold">
-                {agent?.name ?? "Your local agents"}
-              </h1>
-              <p className="my-4 text-muted-foreground">
-                Start a session to chat and inspect session events.
-              </p>
-              {(agent ? [agent] : connection.agents).map((a) => (
-                <section key={a.id} className="mb-4 rounded-lg border p-4">
-                  <h2 className="font-medium">{a.name}</h2>
-                  <p className="my-2 text-sm text-muted-foreground">
-                    {a.kind === "workflow" || a.manifest.kind === "workflow"
-                      ? "Workflow"
-                      : a.manifest.capabilities
-                          ?.flatMap((c) => c.tools ?? [])
-                          .map((t) => t.name)
-                          .join(", ") || "Text agent"}
-                  </p>
-                  <NewSessionButton agent={a} />
-                </section>
-              ))}
-            </section>
+            <RouteNotFound what="page" segment={location.pathname} />
           )}
         </ViewErrorBoundary>
       </SidebarInset>
@@ -560,14 +551,18 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   );
 }
 
-type RouteNotFoundProps = { what: "agent" | "session"; segment: string };
+type RouteNotFoundProps = { what: "agent" | "session" | "page"; segment: string };
 
 /** A route segment that names nothing (it does not decode). */
 function RouteNotFound({ what, segment }: RouteNotFoundProps) {
   return (
     <section className="mx-auto w-full max-w-3xl flex-1 p-8">
       <h1 className="text-2xl font-semibold">
-        {what === "agent" ? "Agent not found" : "Session not found"}
+        {what === "agent"
+          ? "Agent not found"
+          : what === "session"
+            ? "Session not found"
+            : "Page not found"}
       </h1>
       <p className="mt-2 text-muted-foreground">
         This Tenant has no {what} <code className={code}>{segment}</code>.

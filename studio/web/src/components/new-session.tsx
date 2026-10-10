@@ -74,7 +74,8 @@ export function NewSessionProvider({
         .vaults.coverage({ agentId: agent.id })
         .then(
           (coverage) => {
-            if (coverage.entries.length === 0) open(agent);
+            // No entries (or a Runtime answering without them): nothing to pick.
+            if (!Array.isArray(coverage.entries) || coverage.entries.length === 0) open(agent);
             else setPending({ agent, coverage });
           },
           // A Runtime without credential coverage: the session starts with no vaults, as before.
