@@ -41,7 +41,11 @@ type KeyLike = Awaited<ReturnType<typeof importJWK>>;
 
 export interface SigningKeysOptions {
   tenantId: string;
-  /** The vault KEK, created on first use. Resolve it before opening a transaction. */
+  /**
+   * The vault KEK. The gateway's keys service only reads the file `nylorun start` wrote
+   * (`gates/tenant-vaults.ts`); an in-process Runtime may create it on first use. Resolve it
+   * before opening a transaction.
+   */
   kek(): Buffer;
 }
 
