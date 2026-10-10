@@ -24,7 +24,7 @@ Restate and S2: `nylorun start` runs them, as a local Tenant, on a developer mac
 package is a library with no bin; its Host entry is `@nylorun/runtime/server`
 (`dist/host/main.js`), which requires `NYLORUN_DATABASE_URL`. For tests and
 ephemeral embeds, use `startEphemeralRuntime()` from `@nylorun/runtime/core`.
-See [MIGRATION.md](../MIGRATION.md).
+See [MIGRATION.md](../guides/MIGRATION.md).
 
 A Runtime serves one **Tenant**: an installation is one Runtime with its own
 Postgres database, Restate and S2 basin, and two Tenants are two installations. No
@@ -66,7 +66,7 @@ core's process. A `harness` process needs `NYLORUN_HARNESS_URL`,
 `/harness`), answers `/health` on `127.0.0.1:4300`, and refuses to start with a
 database, Restate, keys or gates credential in its environment. A local Tenant
 runs it in the `harness` container, on a network with only the runtime and the
-gateway ([DEPLOYMENT.md](../DEPLOYMENT.md#the-harness-agent-turns-mcp-servers-and-workspaces)).
+gateway ([DEPLOYMENT.md](../guides/DEPLOYMENT.md#the-harness-agent-turns-mcp-servers-and-workspaces)).
 
 The container is configured by its environment, which a local Tenant's Compose file
 sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
@@ -91,7 +91,7 @@ Host) the registration replaces the deployment at that URL.
 `NYLORUN_IDENTITY_FILE` names the identity
 file, a YAML list of the trusted issuers whose JWTs the Runtime API accepts
 (Host feature `trusted-issuers`), read once at boot; a malformed file stops the
-boot ([DEPLOYMENT.md](../DEPLOYMENT.md#trusted-issuers)). A process that runs `loop` sends its model
+boot ([DEPLOYMENT.md](../guides/DEPLOYMENT.md#trusted-issuers)). A process that runs `loop` sends its model
 calls to the gate at `NYLORUN_GATES_URL`; in a container it refuses to start
 without it and `NYLORUN_GATES_TOKEN`. That token is core's credential: the gate
 accepts only it for vault writes and token signing. Model, HTTP tool and
@@ -106,7 +106,7 @@ never writes; it serves the database's one Tenant. A session's MCP servers and
 HTTP tools get their credentials from its attached vaults only: a `bearer` token
 or a `headers` map per URL, sent to an MCP gateway instead when it has `via`,
 with the session owner in its identity header
-([DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools)); the credential resolver is gone
+([DEPLOYMENT.md](../guides/DEPLOYMENT.md#mcp-servers-and-http-tools)); the credential resolver is gone
 (protocol 10), and a process that still sets a `NYLORUN_RESOLVER_*` variable logs
 `resolver_removed` and ignores it. With `egress`
 (`--service gates,keys,egress`, for pod sandboxes) the same process runs
@@ -169,7 +169,7 @@ with `415 unsupported_media_type`, except an artifact upload (`POST /v1/artifact
 presents a trusted issuer's token; keys (application and management)
 are refused from browsers before they are looked up. The Runtime sends no CORS headers, and answers
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
-([DEPLOYMENT.md](../DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
+([DEPLOYMENT.md](../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
 unsupported protocol → `426` before authentication, unless the request sends neither
 `Nylorun-Protocol` nor `Authorization` (the Host serves protocols 4 to 10; protocol 10 removes
 the MCP OAuth connect, the vault's `oauth` credentials and the credential resolver, and adds
@@ -260,7 +260,7 @@ stage) is refused. Your services are reached as tools: HTTP tools, POSTed from t
 so their URLs must be reachable from it, and remote MCP servers. The operator gives
 each URL a vault credential, previews an MCP server's tools (`nylorun mcp inspect`),
 and the manifest says which tools are enabled, need approval or are deferred
-([DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools)). Model gateway
+([DEPLOYMENT.md](../guides/DEPLOYMENT.md#mcp-servers-and-http-tools)). Model gateway
 and sandbox backend are Tenant configuration (vault / seed), not Host process
 env.
 

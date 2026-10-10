@@ -101,9 +101,9 @@ Everything here runs without a Nylorun account. The Runtime verifies and
 enforces; it never signs people in. Your identity provider and secret store
 plug in.
 
-- [DEPLOYMENT.md](./DEPLOYMENT.md): the Tenant's containers, reverse proxy and Postgres
-- [SELF_HOSTING.md](./SELF_HOSTING.md): your own identity provider and secrets
-- [MIGRATION.md](./MIGRATION.md): breaking changes between beta protocols
+- [DEPLOYMENT.md](./guides/DEPLOYMENT.md): the Tenant's containers, reverse proxy and Postgres
+- [SELF_HOSTING.md](./guides/SELF_HOSTING.md): your own identity provider and secrets
+- [MIGRATION.md](./guides/MIGRATION.md): breaking changes between beta protocols
 
 ## Contributing
 
@@ -119,14 +119,14 @@ npm run dev     # build the Runtime and Studio images, run the examples' Tenant
 `npm run dev` rebuilds packages and images as you edit. The Tenant keeps running
 after you stop it, so sessions survive a source change; `npx nylorun down`
 stops it. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for checks and workflow and
-[RELEASING.md](./RELEASING.md) for publishing. The domain vocabulary is in
+[RELEASING.md](./guides/RELEASING.md) for publishing. The domain vocabulary is in
 [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 
 ## Community
 
 - [GitHub issues](https://github.com/nylorun/agents/issues) for bugs and requests
-- [SECURITY.md](./SECURITY.md) to report a vulnerability privately
-- [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
+- [SECURITY.md](./.github/SECURITY.md) to report a vulnerability privately
+- [CODE_OF_CONDUCT.md](./.github/CODE_OF_CONDUCT.md)
 
 ## License
 

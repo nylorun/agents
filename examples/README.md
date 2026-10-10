@@ -109,10 +109,10 @@ platform too; save the agent with the deployed URL once from a deploy step
 
 A page can also call the Runtime itself, with the JWT your identity provider
 gave the person, when the Runtime trusts that provider in its identity file
-([Trusted issuers](../DEPLOYMENT.md#trusted-issuers)). Nylorun mints no token and
+([Trusted issuers](../guides/DEPLOYMENT.md#trusted-issuers)). Nylorun mints no token and
 ships no browser client: send the token as `Authorization: Bearer <token>`
 through a reverse proxy that answers CORS
-([DEPLOYMENT.md](../DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)).
+([DEPLOYMENT.md](../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)).
 
 Rules for a web backend:
 
@@ -126,12 +126,12 @@ Rules for a web backend:
   (`client.as`), so people only reach their own threads, and any `Nylorun-*`
   header a browser sends is ignored.
 - Per-user keys (a user's GitHub token) go in that person's user vault, which
-  only their sessions attach ([Credentials](../DEPLOYMENT.md#credentials)).
+  only their sessions attach ([Credentials](../guides/DEPLOYMENT.md#credentials)).
   Accounts that need the person's sign-in (their Drive) go through an MCP gateway
-  ([Reaching a person's accounts](../DEPLOYMENT.md#reaching-a-persons-accounts)).
+  ([Reaching a person's accounts](../guides/DEPLOYMENT.md#reaching-a-persons-accounts)).
   Shared tool keys go in an installation vault.
 - The Runtime stays off the network: see
-  [Serving people through an app server](../DEPLOYMENT.md#serving-people-through-an-app-server).
+  [Serving people through an app server](../guides/DEPLOYMENT.md#serving-people-through-an-app-server).
 
 ## Tests
 

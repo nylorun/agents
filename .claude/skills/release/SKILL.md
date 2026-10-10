@@ -8,7 +8,7 @@ description: Release the Nylorun npm packages and images on beta. Use when a rel
 You run the whole release. Merging the release PR publishes it on npm's
 `beta` channel through the **Publish reviewed release** workflow
 (`.github/workflows/publish.yml`), with no human step.
-[RELEASING.md](../../../RELEASING.md) is the reference: the versioning rules,
+[RELEASING.md](../../../guides/RELEASING.md) is the reference: the versioning rules,
 what each workflow job does, and the Recovery table.
 
 ## Beta release

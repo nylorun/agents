@@ -68,5 +68,5 @@ beside it (never into it), runs `nylorun start` in it and
 `npm run dev` against a temporary local Tenant, then resets that Tenant,
 seeds the fixture model and runs one turn with the starter's assistant.
 
-See [RELEASING](../RELEASING.md) for the Changesets beta workflow. Nothing is
+See [RELEASING](../guides/RELEASING.md) for the Changesets beta workflow. Nothing is
 published by the smoke check.
