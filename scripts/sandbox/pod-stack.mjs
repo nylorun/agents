@@ -14,16 +14,16 @@ import { tenantTokenIssuer } from "@nylorun/core/contracts";
 import { run } from "../lib/repo.mjs";
 import { ensureImages, runtimeHeaders, withStack } from "../lib/stack.mjs";
 
-/** `runtime/src/sandbox/egress-token.ts`. */
+/** `runtime/server/src/sandbox/egress-token.ts`. */
 export const EGRESS_TOKEN_TYP = "nylorun-egress+jwt";
 export const EGRESS_TOKEN_AUD = "nylorun-egress";
-/** `runtime/src/tenant/run-token.ts`. */
+/** `runtime/server/src/tenant/run-token.ts`. */
 export const RUN_TOKEN_TYP = "nylorun-run+jwt";
 export const RUN_TOKEN_AUD = "nylorun-gates";
-/** `runtime/src/tenant/host-token.ts`: the host token core mints at join (D42). */
+/** `runtime/server/src/tenant/host-token.ts`: the host token core mints at join (D42). */
 export const HOST_TOKEN_TYP = "nylorun-host+jwt";
 export const HOST_TOKEN_AUD = "nylorun-harness-api";
-/** `runtime/src/harness-api/ws-server.ts`: where a pod's engine exchanges its join token. */
+/** `runtime/server/src/harness-api/ws-server.ts`: where a pod's engine exchanges its join token. */
 export const HOST_JOIN_PATH = "/nylorun/harness/v1/host/join";
 /** Where the join Secret is mounted in a sandbox pod (`sandboxes/internal/driver`). */
 export const JOIN_TOKEN_FILE = "/run/nylorun/join/token";

@@ -1,6 +1,6 @@
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import { root, packages, readJson } from "../lib/repo.mjs";
+import { root, packages, readJson, packagePath } from "../lib/repo.mjs";
 import { promoteCandidates } from "./model.mjs";
 import { isImageOnly } from "./pins.mjs";
 import { registry } from "./registry.mjs";
@@ -19,7 +19,7 @@ try {
   const versions = {};
   for (const name of packages)
     if (!(await isImageOnly(root, name)))
-      versions[name] = (await readJson(join(root, name, "package.json"))).version;
+      versions[name] = (await readJson(join(root, packagePath(name), "package.json"))).version;
   await promoteCandidates(versions, registry, (message) => {
     messages.push(message);
     console.log(message);

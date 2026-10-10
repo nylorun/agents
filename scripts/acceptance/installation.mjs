@@ -37,7 +37,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProcessGroup } from "../lib/processes.mjs";
-import { npm, packageName, root } from "../lib/repo.mjs";
+import { npm, packageName, root, packagePath } from "../lib/repo.mjs";
 import {
   ensureImages,
   eventually,
@@ -82,7 +82,7 @@ async function packPackages(destination, names) {
   for (const name of names) {
     const result = JSON.parse(
       await npm(["pack", "--ignore-scripts", "--json", "--pack-destination", destination], {
-        cwd: join(root, name),
+        cwd: join(root, packagePath(name)),
         capture: true,
       }),
     );
@@ -541,7 +541,7 @@ async function i4(stack) {
   pass("I4", "a Tenant restart restores sessions and agents");
 
   // The Runtime records the migrations it applied in Drizzle's journal,
-  // nylorun.__drizzle_migrations (runtime/src/store/postgres/migrate.ts). A migration this
+  // nylorun.__drizzle_migrations (runtime/server/src/store/postgres/migrate.ts). A migration this
   // Runtime does not ship is one a newer Runtime applied.
   assert.equal(
     await stack.psql(`SELECT count(*) > 0 FROM nylorun.__drizzle_migrations`),

@@ -6,14 +6,14 @@
   "license": "Apache-2.0",
   "workspaces": [
     "core",
-    "harness",
-    "agents",
-    "admin",
-    "runtime",
+    "runtime/harness",
+    "sdks/agents",
+    "sdks/admin",
+    "runtime/server",
     "studio",
-    "nylorun",
-    "cli",
-    "create-agent"
+    "cli/nylorun",
+    "cli/legacy",
+    "cli/create-agent"
   ],
   "engines": {
     "node": "^24.0.0",
@@ -31,7 +31,7 @@
     "test:tooling": "node --test scripts/test/*.test.mjs",
     "test:dev": "node scripts/smoke-development.mjs",
     "test:setup": "node scripts/smoke-setup.mjs",
-    "test:starter": "node create-agent/scripts/smoke-starter.mjs",
+    "test:starter": "node cli/create-agent/scripts/smoke-starter.mjs",
     "test:acceptance": "node scripts/acceptance/installation.mjs",
     "test:acceptance:access": "node scripts/acceptance/access.mjs",
     "test:remote": "node scripts/acceptance/remote.mjs",

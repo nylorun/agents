@@ -5,7 +5,7 @@ runs for a project (the Runtime, its gateway and harness, Studio, Postgres, Rest
 s2-lite and RustFS, as Docker Compose project `nylorun-<tenant>`), an installation that
 serves that one **Tenant**, and the services the application's agents call as
 tools (HTTP tools and remote MCP servers) on the same machine or reachable from it. Vocabulary:
-[runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
+[runtime/server/src/CONTEXT.md](../runtime/server/src/CONTEXT.md).
 
 ```sh
 npx nylorun start
@@ -56,10 +56,10 @@ private addresses and backups, with a runnable stack in
 ## Serving people through an app server
 
 To put agents in front of people, run your own **app server** (vocabulary in
-[CONTEXT.md](../runtime/src/CONTEXT.md)): it signs people in, holds an
+[CONTEXT.md](../runtime/server/src/CONTEXT.md)): it signs people in, holds an
 application key, and calls the Runtime API for each person with
 `client.as(subject, { scopes })` or the AG-UI handler
-([agents/README.md](../agents/README.md#acting-for-a-person-app-servers); a
+([sdks/agents/README.md](../sdks/agents/README.md#acting-for-a-person-app-servers); a
 complete web backend is in
 [examples](../examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
 enforces the scopes and each subject's ownership of sessions itself. Vaults
@@ -573,7 +573,7 @@ X-User-Id: u_7c41
 - A `401` from the MCP gateway is `credential_rejected` to the model, and is not retried.
 
 **What is tested.** The Runtime's tests run this shape end to end against a fake MCP gateway
-(`runtime/test/r2b-exit.test.ts`): the key and the identity header reach `via`, the header is
+(`runtime/server/test/r2b-exit.test.ts`): the key and the identity header reach `via`, the header is
 absent for an installation session, and tools keep the manifest's server name. The vendor recipes
 below were written from each vendor's docs on 2026-10-07 and have **not** been tested. Check each
 one against the vendor's current docs before you rely on it.
@@ -653,7 +653,7 @@ it to choose which tools to enable, and whether a server is large enough to defe
 ### Tools, results and errors
 
 Set an MCP server's tools in the agent's manifest, keyed by the server's own tool names, with `"*"`
-for the rest ([agents/README.md](../agents/README.md)):
+for the rest ([sdks/agents/README.md](../sdks/agents/README.md)):
 
 ```ts
 Agent({ id: "triage" }).mcp({
@@ -803,7 +803,7 @@ Each release publishes the Runtime and Studio as multi-arch images
 | `ghcr.io/nylorun/runtime:<runtime version>` | `runtime/Dockerfile` (the `runtime`, `gateway` and `harness` containers) |
 | `ghcr.io/nylorun/studio:<studio version>` | `studio/Dockerfile` |
 
-`nylorun start` runs the versions its release pins (`nylorun/package.json`
+`nylorun start` runs the versions its release pins (`cli/nylorun/package.json`
 `nylorun.runtime` and `nylorun.studio`) beside the official Postgres, Restate,
 s2-lite and RustFS images. `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` replace
 the pinned images, for example with a local build. Tags are never moved, and

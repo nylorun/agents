@@ -33,7 +33,7 @@ import { ensureImages, eventually, runtimeGet, runtimeHeaders, studioSession, wi
 const scratch = await mkdtemp(join(tmpdir(), "nylorun-dev-smoke-"));
 const examples = join(scratch, "examples");
 const link = join(examples, ".nylorun");
-const edited = join(root, "nylorun/src/baseline.ts");
+const edited = join(root, "cli/nylorun/src/baseline.ts");
 const original = await readFile(edited, "utf8");
 const lines = [];
 const log = (line) => {

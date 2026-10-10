@@ -69,7 +69,7 @@ try {
   // Starter scripts: tsx watch on the linked Tenant, no serve, and no Studio
   // script (Studio runs in the Tenant's containers; `nylorun studio` opens it).
   const starterPkg = await readJson(
-    join(temporary, "create-agent/starter/package.json"),
+    join(temporary, "cli/create-agent/starter/package.json"),
   );
   assert.equal(starterPkg.scripts.dev, "tsx watch --env-file-if-exists=.env src/main.ts");
   assert.equal(starterPkg.scripts.studio, undefined);
@@ -84,7 +84,7 @@ try {
     "Clean-checkout setup passed; authored agents, tests, shell provenance, lockfiles, and local state are unchanged.",
   );
   const compatibility = await readJson(
-    join(temporary, "create-agent/compatibility.json"),
+    join(temporary, "cli/create-agent/compatibility.json"),
   );
   // Exercise one release independently of pending intents in the source PR.
   for (const file of await readdir(join(temporary, ".changeset"))) {

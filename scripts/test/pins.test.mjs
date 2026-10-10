@@ -11,7 +11,7 @@ import {
   syncImagePins,
 } from "../release/pins.mjs";
 import { imageRelease, registryHas } from "../release/images.mjs";
-import { readJson, writeJson } from "../lib/repo.mjs";
+import { packagePath, readJson, writeJson } from "../lib/repo.mjs";
 
 async function fixtureRepo({
   runtimeVersion = "0.9.0-beta",
@@ -21,8 +21,8 @@ async function fixtureRepo({
 }) {
   const root = await mkdtemp(join(tmpdir(), "nylorun-pins-"));
   for (const name of ["runtime", "studio", "nylorun"])
-    await mkdir(join(root, name), { recursive: true });
-  await writeJson(join(root, "runtime/package.json"), {
+    await mkdir(join(root, packagePath(name)), { recursive: true });
+  await writeJson(join(root, "runtime/server/package.json"), {
     name: "@nylorun/runtime",
     version: runtimeVersion,
   });
@@ -33,7 +33,7 @@ async function fixtureRepo({
   });
   const manifest = { name: "nylorun", version: "0.1.0-beta" };
   if (pins) manifest.nylorun = pins;
-  await writeJson(join(root, "nylorun/package.json"), manifest);
+  await writeJson(join(root, "cli/nylorun/package.json"), manifest);
   return root;
 }
 
@@ -96,7 +96,7 @@ test("assertRuntimePins checks the pins against the plan's published or kept ver
 test("syncImagePins writes nylorun.runtime and nylorun.studio and keeps other fields", () =>
   withRepo({ pins: { runtime: "0.8.0-beta", other: "x" } }, async (root) => {
     await syncImagePins(root, { runtime: "0.9.1-beta", studio: "0.4.1-beta" });
-    const cli = await readJson(join(root, "nylorun/package.json"));
+    const cli = await readJson(join(root, "cli/nylorun/package.json"));
     assert.deepEqual(cli.nylorun, {
       runtime: "0.9.1-beta",
       other: "x",

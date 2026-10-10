@@ -147,7 +147,7 @@ npm run test:stack:up --workspace @nylorun/runtime
 
 ## Generated shell and authored examples
 
-The creator owns the shell files listed in `.scaffold-manifest.json`, including `src/index.ts`, `tsconfig.json`, and `package.json`. Change their source in `create-agent/starter/` or `create-agent/examples.recipe.json`, then run `npm run examples:sync` from the repository root. Sync never changes the authored `agents/` tree, tests, other scripts, credentials, model selection, or application data. CI rejects shell drift and incompatible integrations.
+The creator owns the shell files listed in `.scaffold-manifest.json`, including `src/index.ts`, `tsconfig.json`, and `package.json`. Change their source in `cli/create-agent/starter/` or `cli/create-agent/examples.recipe.json`, then run `npm run examples:sync` from the repository root. Sync never changes the authored `agents/` tree, tests, other scripts, credentials, model selection, or application data. CI rejects shell drift and incompatible integrations.
 
 ## Try every agent in Studio
 
@@ -260,7 +260,7 @@ Drop another `*.ts` file in that folder to add a tool without changing agent cod
 service serves it at `/<tool name>` once restarted. Code Mode loads the same catalog and hides
 those native schemas; the model writes a program against `await tools.name(args)` instead.
 
-For the underlying agent and capability model, read the concise [Harness README](../harness/README.md).
+For the underlying agent and capability model, read the concise [Harness README](../runtime/harness/README.md).
 For the browser-side protocol, read the [Studio README](../studio/README.md).
 
 ## Records, secrets, and cleanup

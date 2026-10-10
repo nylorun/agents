@@ -85,7 +85,7 @@ function pass(id, message) {
 }
 const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`;
 
-/** The handler's session id for a person's thread (`sessionIdFor` in agents/src/ag-ui/handler.ts). */
+/** The handler's session id for a person's thread (`sessionIdFor` in sdks/agents/src/ag-ui/handler.ts). */
 const sessionOf = (subject, agentId, threadId) =>
   createHash("sha256").update(`${subject}\u0000${agentId}\u0000${threadId}`).digest("hex").slice(0, 32);
 

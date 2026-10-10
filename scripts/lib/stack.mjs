@@ -44,8 +44,8 @@ const DOCKERFILES = {
  * The workspace `nylorun` (local Tenants) and `nylo` (the Runtime client), both from the
  * nylorun package (`npm run build` first).
  */
-export const WORKSPACE_CLI = join(root, "nylorun", "dist", "cli.js");
-export const WORKSPACE_NYLO = join(root, "nylorun", "dist", "nylo.js");
+export const WORKSPACE_CLI = join(root, "cli", "nylorun", "dist", "cli.js");
+export const WORKSPACE_NYLO = join(root, "cli", "nylorun", "dist", "nylo.js");
 
 /** The image id for `tag`, or undefined when Docker has no such image. */
 export async function imageId(tag) {

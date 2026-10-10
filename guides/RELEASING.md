@@ -4,7 +4,7 @@ Packages have independent versions. Core changes advance its pinned engine/SDK/h
 
 Coding agents release by following [the release skill](../.claude/skills/release/SKILL.md).
 
-The creator's compatibility combination (`create-agent/compatibility.json`)
+The creator's compatibility combination (`cli/create-agent/compatibility.json`)
 pins exactly what a generated project or the examples install or depend on:
 Core, Harness, Agents, Admin and Runtime. Neither nylorun (with `nylo`) nor
 Studio is in it: developers run nylorun with `npx`, and Studio ships only as its
@@ -20,7 +20,7 @@ A release publishes two kinds of artifact:
 - **Container images** `ghcr.io/nylorun/runtime:<runtime version>` and
   `ghcr.io/nylorun/studio:<studio version>`, for `linux/amd64` and
   `linux/arm64`. `nylorun up` runs the images nylorun pins in
-  `nylorun/package.json`: `nylorun.runtime` and `nylorun.studio`.
+  `cli/nylorun/package.json`: `nylorun.runtime` and `nylorun.studio`.
 - **The sandboxes image** `ghcr.io/nylorun/sandboxes:<runtime version>`: the Go
   service in `sandboxes/` that `nylorun sandbox enable` adds to a Tenant. It has
   no package or pin of its own: it takes the Runtime's version and is built when
@@ -88,7 +88,7 @@ npm run release:prepare
 
 Preparation requires a clean branch. It applies Changesets, ensures a creator
 bump, updates the creator's compatibility pins, sets nylorun's image pins
-(`nylorun/package.json` `nylorun.runtime` and `nylorun.studio`) to the Runtime and
+(`cli/nylorun/package.json` `nylorun.runtime` and `nylorun.studio`) to the Runtime and
 Studio versions of this release, synchronizes examples, refreshes both
 lockfiles, and writes `.release/plan.json`. It does not commit, push, or
 publish.

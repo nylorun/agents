@@ -5,7 +5,7 @@ origin. It ships only as the `ghcr.io/nylorun/studio` image, which each local
 Tenant runs as its `studio` Compose service. This workspace package is private
 and is not published to npm. It depends only on `@nylorun/agents` and
 `@nylorun/admin` among Nylorun packages. Vocabulary:
-[runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
+[runtime/server/src/CONTEXT.md](../runtime/server/src/CONTEXT.md).
 
 ## Using Studio
 
@@ -116,7 +116,7 @@ The container entry is `dist/server-main.js`:
 | `NYLORUN_STUDIO_ALLOWED_HOSTS` | Extra `Host` values Studio serves behind a sign-in proxy, comma-separated, such as `studio.acme.dev` (default none). See [Studio behind a sign-in proxy](../guides/DEPLOYMENT.md#studio-behind-a-sign-in-proxy) |
 | `NYLORUN_STUDIO_SESSION_COOKIE` | The session cookie's name, `[A-Za-z0-9_-]+` (default `nylorun_studio_session`). `nylorun start` sets `nylorun_studio_<tenant>`: browsers share cookies across ports, so Studios on one host need their own |
 | `NYLORUN_STUDIO_FRAME_ANCESTORS` | Exact origins that may frame the dashboard (default none) |
-| `NYLORUN_STUDIO_ANALYTICS_ID` | Google Analytics measurement id for anonymous page views (default none: no analytics). `nylorun start` sets it unless telemetry is off; see [Telemetry](../nylorun/README.md#telemetry) |
+| `NYLORUN_STUDIO_ANALYTICS_ID` | Google Analytics measurement id for anonymous page views (default none: no analytics). `nylorun start` sets it unless telemetry is off; see [Telemetry](../cli/nylorun/README.md#telemetry) |
 
 `npm run build` type-checks and builds the server (`dist/*.js`) and the
 dashboard (`dist/web`). `startStudioServer()` is exported for tests.
