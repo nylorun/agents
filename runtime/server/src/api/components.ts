@@ -66,6 +66,8 @@ import {
   DeleteSandboxResponseSchema,
   ListSandboxEventsResponseSchema,
   ArtifactViewSchema,
+  ArtifactListItemSchema,
+  ArtifactPageSchema,
   ArtifactVersionViewSchema,
   ListArtifactsResponseSchema,
   UploadArtifactResponseSchema,
@@ -117,6 +119,11 @@ export const ListSandboxEventsResponse = named(
 );
 export const ArtifactVersionView = named("ArtifactVersionView", ArtifactVersionViewSchema);
 export const ArtifactView = named("ArtifactView", ArtifactViewSchema);
+export const ArtifactListItem = named("ArtifactListItem", ArtifactListItemSchema);
+export const ArtifactPage = named(
+  "ArtifactPage",
+  ArtifactPageSchema.extend({ artifacts: z.array(ArtifactListItem) }),
+);
 export const ListArtifactsResponse = named("ListArtifactsResponse", ListArtifactsResponseSchema);
 export const UploadArtifactResponse = named("UploadArtifactResponse", UploadArtifactResponseSchema);
 export const DefinitionFileView = named("DefinitionFileView", DefinitionFileViewSchema);

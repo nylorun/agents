@@ -17,6 +17,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import {
   ArtifactLabelsSchema,
+  ArtifactKindSchema,
   CreateArtifactLinkRequestSchema,
   PutTenantArtifactsRequestSchema,
   type FolderManifest,
@@ -26,6 +27,7 @@ import {
   ArtifactTree,
   ArtifactLink,
   ArtifactView,
+  ArtifactPage,
   CreateArtifactLinkRequest,
   DeleteArtifactResponse,
   ListArtifactsResponse,
@@ -55,12 +57,14 @@ import {
 } from "../../../artifacts/service.js";
 import type { ArtifactRow, ArtifactVersionRow } from "../../../store/types.js";
 import { accessOf } from "../../../tenant/auth.js";
+import { readAccess, readStoreOf } from "../../../reads/access.js";
 import type { TenantContext } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
+import { pageQuery, parseQuery } from "./reads.js";
 
 /** Reading and writing artifacts: whoever may use sessions, a person only in their own. */
 const OWN: RouteAccess = {
@@ -113,6 +117,15 @@ const labelQuery = z
   .union([z.string(), z.array(z.string())])
   .optional()
   .meta({ description: "`key=value`; repeat it for several labels" });
+const artifactPageQuery = pageQuery
+  .extend({
+    sessionId: z.string().optional().meta({
+      description: "Only artifacts belonging to this session; excludes Tenant-owned artifacts",
+    }),
+    kind: ArtifactKindSchema.optional(),
+    label: labelQuery,
+  })
+  .strict();
 
 /** `label=k=v`, repeated. */
 function labelsOf(values: readonly string[] | undefined): Record<string, string> | undefined {
@@ -395,14 +408,32 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/artifacts",
       tags: ["Artifacts"],
       summary: "List artifacts",
-      description: "Oldest first: of one session, or of every session the caller reaches (an application key: every artifact).",
+      description:
+        "Without limit, the existing metadata list, oldest first. Explicit limit (1–200) opts into metadata pages ordered by creation time and artifact ID descending, with an opaque nextCursor bound to the Tenant and filters. " +
+        "sessionId selects only that session's artifacts, excluding Tenant-owned artifacts. Paged reads support kind and repeated label=key=value equality filters. " +
+        "An application key as itself sees all artifacts, including Tenant-owned; a caller acting for a person sees only their sessions' artifacts of allowed agents. Authorization is checked on every page. " +
+        "Newer inserts appear on a fresh traversal, not in pages already passed.",
       request: {
-        query: z.object({ sessionId: z.string().optional().meta({ description: "Only this session's" }) }),
+        query: artifactPageQuery,
       },
-      responses: { 200: json(ListArtifactsResponse, "The artifacts") },
+      responses: {
+        200: json(z.union([ListArtifactsResponse, ArtifactPage]), "The artifacts; explicit limit opts into pagination"),
+      },
     },
     async (c) => {
       const sessionId = c.req.query("sessionId");
+      if (c.req.query("limit") !== undefined) {
+        const { limit, cursor, kind } = parseQuery(artifactPageQuery, c.req.query());
+        if (limit === undefined) return fail(400, "Pagination requires limit");
+        return jsonResponse(
+          200,
+          await readStoreOf(c.env.tenant).artifacts(
+            { sessionId, kind, labels: labelsOf(c.req.queries("label")) ?? {} },
+            { limit, cursor },
+            readAccess(c.get("scope")),
+          ),
+        );
+      }
       return jsonResponse(
         200,
         await listArtifacts(

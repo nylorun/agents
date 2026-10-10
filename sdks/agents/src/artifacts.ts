@@ -11,13 +11,16 @@
  *
  * Acting for a person (`client.as`, or a trusted issuer's token), only the artifacts of their own sessions.
  */
-import type {
-  ArtifactDiff,
-  ArtifactLink,
-  ArtifactTree,
-  ArtifactView,
-  DeleteArtifactResponse,
-  UploadArtifactResponse,
+import {
+  ArtifactPageSchema,
+  type ArtifactKind,
+  type ArtifactPage,
+  type ArtifactDiff,
+  type ArtifactLink,
+  type ArtifactTree,
+  type ArtifactView,
+  type DeleteArtifactResponse,
+  type UploadArtifactResponse,
 } from "@nylorun/core/contracts";
 import { segment, type Transport } from "./http.js";
 
@@ -32,6 +35,18 @@ export interface UploadArtifactOptions {
   /** The media type. Default: a `Blob`'s type, else what the name implies. */
   readonly contentType?: string;
   readonly labels?: Readonly<Record<string, string>>;
+  readonly signal?: AbortSignal;
+}
+
+export interface ArtifactPageOptions {
+  /** Only this session's artifacts; excludes Tenant-owned artifacts. */
+  readonly sessionId?: string;
+  readonly kind?: ArtifactKind;
+  /** Every label must match exactly. */
+  readonly labels?: Readonly<Record<string, string>>;
+  /** Default 50, from 1 to 200. */
+  readonly limit?: number;
+  readonly cursor?: string;
   readonly signal?: AbortSignal;
 }
 
@@ -107,6 +122,20 @@ export class ArtifactsClient {
       options.signal,
     );
     return reply.artifacts;
+  }
+
+  /** Newest first, with metadata only (Host feature `artifact-reads`). */
+  async page(options: ArtifactPageOptions = {}): Promise<ArtifactPage> {
+    await this.transport.requireFeature("artifact-reads", options.signal);
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    if (options.sessionId !== undefined) query.set("sessionId", options.sessionId);
+    if (options.kind !== undefined) query.set("kind", options.kind);
+    for (const [key, value] of Object.entries(options.labels ?? {}))
+      query.append("label", `${key}=${value}`);
+    return ArtifactPageSchema.parse(
+      await this.transport.json(`/v1/artifacts?${query}`, "GET", undefined, options.signal),
+    );
   }
 
   /** The artifact, with every version. */

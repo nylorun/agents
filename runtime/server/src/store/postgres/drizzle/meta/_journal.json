@@ -141,6 +141,13 @@
       "when": 1791530515498,
       "tag": "0019_sandbox_signal_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791613056955,
+      "tag": "0020_artifact_pages",
+      "breakpoints": true
     }
   ]
 }
