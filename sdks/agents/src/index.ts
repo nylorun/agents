@@ -99,6 +99,9 @@ export type {
   RestoreEnvironmentRequest,
   MessagePart,
   ArtifactView,
+  ArtifactKind,
+  ArtifactListItem,
+  ArtifactPage,
   ArtifactVersionView,
   ArtifactLink,
   UploadArtifactResponse,
@@ -113,6 +116,7 @@ export { ArtifactsClient } from "./artifacts.js";
 export { FilesClient, definitionFileHash } from "./files.js";
 export type {
   ArtifactBody,
+  ArtifactPageOptions,
   ArtifactLinkWithUrl,
   UploadArtifactOptions,
 } from "./artifacts.js";

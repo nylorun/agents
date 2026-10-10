@@ -162,6 +162,13 @@
       "when": 1791717547905,
       "tag": "0022_model_usage_timing",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791730977999,
+      "tag": "0023_artifact_pages",
+      "breakpoints": true
     }
   ]
 }
