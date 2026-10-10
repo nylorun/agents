@@ -571,6 +571,29 @@ refuse a larger upload with `413 limit_exceeded`, and nothing is stored. Acting 
 a person (`as()`, or a trusted issuer's token), a client reaches only the artifacts of that
 person's sessions, and an upload names one of them.
 
+Hosts advertising `artifact-reads` also support bounded metadata pages, newest
+first. `artifacts.page()` defaults to 50 rows (1–200), checks feature discovery,
+and returns `{ artifacts, nextCursor }`. Pass the same filters on every page:
+
+```ts
+const filters = { kind: "file" as const, labels: { team: "design" } };
+let cursor: string | undefined;
+do {
+  const page = await client.artifacts.page({ ...filters, cursor });
+  for (const artifact of page.artifacts) console.log(artifact.name, artifact.latestVersion);
+  cursor = page.nextCursor ?? undefined;
+} while (cursor);
+```
+
+Omit `sessionId` for all reachable artifacts, including Tenant-owned artifacts
+when using an application key as itself. With `sessionId`, only that session's
+artifacts are included; acting for a person also applies ownership and agent
+grants on every page. Every label must match exactly. Pages omit version histories
+and bytes: use `get()` and the existing version/download methods for those.
+Cursors bind to the Tenant and filters. Pages are independent reads; refresh from
+the beginning for newer artifacts. The existing unbounded `list()` keeps its
+oldest-first behavior and does not require `artifact-reads`.
+
 ### Outputs: folder artifacts
 
 At the end of each turn, the Runtime exports the files the agent wrote into

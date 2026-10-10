@@ -466,6 +466,7 @@ export const artifacts = nylorun.table(
   },
   (t) => [
     index("artifacts_session").on(t.sessionId, t.createdAt, t.id),
+    index("artifacts_creation_order").on(t.createdAt, t.id),
     check("artifacts_kind_check", sql`kind IN ('file', 'folder')`),
   ],
 );

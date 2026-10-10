@@ -81,6 +81,8 @@ export const OPTIONAL_HOST_FEATURES = [
   "session-reads",
   "calls-export",
   "credential-coverage",
+  /** Opt-in artifact metadata pages (`GET /v1/artifacts?limit=…`). */
+  "artifact-reads",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

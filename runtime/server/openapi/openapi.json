@@ -23,7 +23,8 @@
         "trusted-issuers",
         "session-reads",
         "calls-export",
-        "credential-coverage"
+        "credential-coverage",
+        "artifact-reads"
       ]
     },
     "description": "For developers: agents, sessions (with AG-UI and A2A), sandboxes and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -16016,6 +16017,79 @@
         ],
         "additionalProperties": false
       },
+      "ArtifactPage": {
+        "type": "object",
+        "properties": {
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactListItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "artifacts",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactListItem": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "folder"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "The latest version's media type"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "latestVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifactId",
+          "kind",
+          "name",
+          "contentType",
+          "latestVersion",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
       "ArtifactView": {
         "type": "object",
         "properties": {
@@ -21052,7 +21126,7 @@
           "Artifacts"
         ],
         "summary": "List artifacts",
-        "description": "Oldest first: of one session, or of every session the caller reaches (an application key: every artifact).",
+        "description": "Without limit, the existing metadata list, oldest first. Explicit limit (1–200) opts into metadata pages ordered by creation time and artifact ID descending, with an opaque nextCursor bound to the Tenant and filters. sessionId selects only that session's artifacts, excluding Tenant-owned artifacts. Paged reads support kind and repeated label=key=value equality filters. An application key as itself sees all artifacts, including Tenant-owned; a caller acting for a person sees only their sessions' artifacts of allowed agents. Authorization is checked on every page. Newer inserts appear on a fresh traversal, not in pages already passed.",
         "security": [
           {
             "applicationKey": []
@@ -21072,12 +21146,62 @@
         "parameters": [
           {
             "schema": {
-              "type": "string",
-              "description": "Only this session's"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
             },
             "required": false,
-            "description": "Only this session's",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only artifacts belonging to this session; excludes Tenant-owned artifacts"
+            },
+            "required": false,
+            "description": "Only artifacts belonging to this session; excludes Tenant-owned artifacts",
             "name": "sessionId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "file",
+                "folder"
+              ]
+            },
+            "required": false,
+            "name": "kind",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "`key=value`; repeat it for several labels"
+            },
+            "required": false,
+            "description": "`key=value`; repeat it for several labels",
+            "name": "label",
             "in": "query"
           },
           {
@@ -21113,11 +21237,18 @@
         ],
         "responses": {
           "200": {
-            "description": "The artifacts",
+            "description": "The artifacts; explicit limit opts into pagination",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListArtifactsResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ListArtifactsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactPage"
+                    }
+                  ]
                 }
               }
             }

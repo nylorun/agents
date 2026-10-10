@@ -16,6 +16,29 @@ const document = new OpenApiGeneratorV32(tenantApi().openAPIRegistry.definitions
 const operation = (method: string, path: string) =>
   (document.paths?.[path] as Record<string, any> | undefined)?.[method];
 
+it("documents opt-in artifact pages and legacy metadata with the same artifact access", () => {
+  const op = operation("get", "/v1/artifacts");
+  const parameters = Object.fromEntries(
+    op.parameters
+      .filter((p: { in: string }) => p.in === "query")
+      .map((p: { name: string }) => [p.name, p]),
+  );
+  expect(Object.keys(parameters).sort()).toEqual(["cursor", "kind", "label", "limit", "sessionId"]);
+  expect(parameters.limit).toMatchObject({ required: false, schema: { minimum: 1, maximum: 200 } });
+  expect(op.security).toEqual([{ applicationKey: [] }, { issuerToken: [] }]);
+  expect(op["x-nylorun-scopes"]).toEqual(["sessions:own"]);
+  expect(op.responses["200"].content["application/json"].schema.anyOf).toEqual([
+    { $ref: "#/components/schemas/ListArtifactsResponse" },
+    { $ref: "#/components/schemas/ArtifactPage" },
+  ]);
+  const schemas = document.components?.schemas as Record<string, any>;
+  expect(schemas.ArtifactPage.properties.artifacts.items).toEqual({
+    $ref: "#/components/schemas/ArtifactListItem",
+  });
+  expect(schemas.ArtifactListItem.properties.versions).toBeUndefined();
+  expect(schemas.ArtifactListItem.additionalProperties).toBe(false);
+});
+
 it("documents the session reads with the same privileged credentials as serving", () => {
   const access = {
     "/v1/sessions/{sessionId}/manifest": [["application", "subject"], ["agents:read", "agents:write"]],

@@ -1,4 +1,6 @@
 import type {
+  ArtifactKind,
+  ArtifactPage,
   ModelCallExportPage,
   ModelCallsPage,
   SandboxPage,
@@ -16,8 +18,14 @@ export type SessionFilters = {
   ownerUserId?: string;
 };
 export type PageOptions = { limit: number; cursor?: string };
+export type ArtifactFilters = {
+  sessionId?: string;
+  kind?: ArtifactKind;
+  labels: Record<string, string>;
+};
 /** Public projections only. No execution-state methods or mutable transactions. */
 export interface ReadStore {
+  artifacts(filters: ArtifactFilters, page: PageOptions, access: ReadAccess): Promise<ArtifactPage>;
   sessions(filters: SessionFilters, page: PageOptions, access: ReadAccess): Promise<SessionPage>;
   manifest(id: string, access: ReadAccess): Promise<SessionManifestView>;
   usage(id: string, turnId: string | undefined, access: ReadAccess): Promise<SessionUsageTotals>;

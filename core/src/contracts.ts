@@ -3348,6 +3348,14 @@ export const ListArtifactsResponseSchema = z
   .strict();
 export type ListArtifactsResponse = z.infer<typeof ListArtifactsResponseSchema>;
 
+/** Paged metadata only; read the artifact separately for its version history and bytes. */
+export const ArtifactListItemSchema = ArtifactViewSchema.omit({ versions: true });
+export type ArtifactListItem = z.infer<typeof ArtifactListItemSchema>;
+export const ArtifactPageSchema = z
+  .object({ artifacts: z.array(ArtifactListItemSchema), nextCursor: z.string().nullable() })
+  .strict();
+export type ArtifactPage = z.infer<typeof ArtifactPageSchema>;
+
 /** What an upload answers: the artifact, and the version the upload created. */
 export const UploadArtifactResponseSchema = z
   .object({ artifact: ArtifactViewSchema, version: ArtifactVersionViewSchema })

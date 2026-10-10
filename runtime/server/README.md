@@ -313,3 +313,46 @@ safe transaction order. Existing list/history
 requests without `limit` retain their response shapes. These are public APIs for Studio,
 CLI and custom clients; clients never need database access. See the
 [API contracts, authorization, SDK examples and Studio handoff](https://github.com/nylorun/agents/blob/main/runtime/docs/session-reads.md).
+
+## Artifact pages
+
+Hosts advertising `artifact-reads` accept `GET /v1/artifacts?limit=50`, returning
+`{ artifacts: ArtifactListItem[], nextCursor: string | null }`. An explicit `limit`
+of 1–200 opts into paging; without it the existing `{ artifacts: ArtifactView[] }`
+list remains oldest first. Pages order by `(createdAt DESC, artifactId DESC)` and
+contain metadata only: id, kind, name, current content type, latest version number,
+optional session and labels, and creation/update timestamps. Use the existing
+artifact detail, numbered version and download APIs for history and bytes.
+
+Paged reads accept equality filters `sessionId`, `kind=file|folder` and repeated
+`label=key=value` (all labels must match). `sessionId` includes only that session's
+artifacts, excluding Tenant-owned artifacts. An application key acting as itself
+sees every artifact; subjects and issuer tokens see only artifacts of their owned
+sessions and permitted agents. Missing or inaccessible session filters return 404.
+Management keys cannot use this Runtime API route.
+
+Send `nextCursor` as `cursor` with the same normalized filters until it is null.
+Cursors are bound to the Tenant, route and filters; invalid or mismatched cursors
+return 400 (`cursor_invalid` or `cursor_mismatch`). Each page reapplies current
+authorization and is an independent read: it is not a frozen snapshot. Newer
+inserts require a fresh traversal; deleted rows disappear and versions/metadata
+may change between pages. Creation time and ID remain the paging position.
+
+These pages reuse the separate bounded, read-only Drizzle pool (four connections,
+two-second statement timeout). Migration `0020_artifact_pages` adds only the
+creation-order index; the existing session index also serves session pages in
+reverse order. No data backfill, protocol bump or direct client database access is
+required. Studio can discover `artifact-reads` through `/health` before enabling
+a tenant-wide table; `@nylorun/agents` exposes the same API as `artifacts.page()`.
+
+[Recorded query plans](docs/artifact-pages-evidence.json) use a disposable local
+Postgres 17 fixture: the public SDK drained 10,006 artifacts in 201 pages of at
+most 50 rows, without gaps or duplicates, in 796 ms. First/deep page queries used
+backward index scans with a tuple index condition on the deep page (0.014/0.028 ms).
+These are fixture timings, not production throughput estimates. Reproduce after
+building dependencies with:
+
+```sh
+ARTIFACT_READS_EVIDENCE="$PWD/runtime/server/docs/artifact-pages-evidence.json" \
+  npm test --workspace @nylorun/runtime -- test/http/artifact-pages.test.ts
+```

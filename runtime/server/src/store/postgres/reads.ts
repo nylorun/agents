@@ -5,6 +5,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   gt,
   inArray,
   isNull,
@@ -22,13 +23,16 @@ import type {
   SessionManifestView,
   SessionUsageTotals,
 } from "@nylorun/core/contracts";
+import { isArtifactId } from "@nylorun/core/compatibility";
 import type { ReadAccess, ReadStore } from "../../reads/types.js";
 import { readCursor } from "../../reads/cursor.js";
 import { fail } from "../../tenant/http.js";
+import { artifactView } from "../../artifacts/service.js";
 import { sandboxWorkspaceKey } from "../../sandbox/records.js";
 import { database, driverError, type Transaction } from "./db.js";
 import { createPostgresReadClient, type PostgresClient } from "./connect.js";
 import {
+  artifacts,
   modelUsage,
   sandboxResources,
   sandboxes,
@@ -129,6 +133,52 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
   }
   return {
     close: () => pool.end({ timeout: 2 }),
+    artifacts: (filters, page, access) =>
+      read(async (tx) => {
+        if (filters.sessionId !== undefined) await requireSession(tx, filters.sessionId, access);
+        const cursor = readCursor(tenantId, "artifacts", {
+          sessionId: filters.sessionId ?? null,
+          kind: filters.kind ?? null,
+          labels: Object.entries(filters.labels).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+        });
+        const key = keyOf(cursor.decode(page.cursor), 2, true);
+        if (key && !isArtifactId(key[1]))
+          fail(400, "Invalid artifact cursor key", { code: "cursor_invalid" });
+        const rows = await tx
+          .select()
+          .from(artifacts)
+          .where(
+            and(
+              access.owner === undefined && access.agents === undefined
+                ? undefined
+                : exists(
+                    tx.select({ id: sessions.id })
+                      .from(sessions)
+                      .where(and(eq(sessions.id, artifacts.sessionId), accessWhere(access))),
+                  ),
+              filters.sessionId === undefined
+                ? undefined
+                : eq(artifacts.sessionId, filters.sessionId),
+              filters.kind === undefined ? undefined : eq(artifacts.kind, filters.kind),
+              // Labels are a flat string map serialized by JSON.stringify. Match its exact
+              // key/value pair: jsonb rejects NUL/unpaired surrogate escapes labels may hold.
+              ...Object.entries(filters.labels).map(
+                ([k, v]) =>
+                  sql`strpos(${artifacts.labelsJson}, ${JSON.stringify(k) + ":" + JSON.stringify(v)}) > 0`,
+              ),
+              key ? sql`(${artifacts.createdAt}, ${artifacts.id}) < (${key[0]}, ${key[1]})` : undefined,
+            ),
+          )
+          .orderBy(desc(artifacts.createdAt), desc(artifacts.id))
+          .limit(page.limit + 1);
+        const items = rows.slice(0, page.limit);
+        const last = items.at(-1);
+        return {
+          artifacts: items.map((row) => artifactView(row)),
+          nextCursor:
+            rows.length > page.limit && last ? cursor.encode([last.createdAt, last.id]) : null,
+        };
+      }),
     sessions: (filters, page, access) =>
       read(async (tx) => {
         const cursor = readCursor(tenantId, "sessions", filters);

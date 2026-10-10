@@ -1,0 +1,1 @@
+CREATE INDEX "artifacts_creation_order" ON "nylorun"."artifacts" USING btree ("created_at","id");
