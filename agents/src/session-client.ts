@@ -228,7 +228,7 @@ export class AgentsClient {
    * Registers the agent's definition (`PUT /v1/agents/{id}`), first uploading the skill files
    * it names that the Runtime does not hold. A definition with a tool that runs your code
    * (`tool({ run })`, a flow's tool stage) is refused before anything is sent: the Runtime runs
-   * no code of yours during a session. `implementationVersion` defaults to
+   * agents from their manifests alone. `implementationVersion` defaults to
    * `NYLORUN_IMPLEMENTATION_VERSION`, else `dev`.
    */
   async saveAgent(

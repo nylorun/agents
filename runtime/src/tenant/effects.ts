@@ -167,7 +167,7 @@ export async function resolveNewFlowEffect(
         value: {
           kind: "failed",
           code: "tool.unavailable",
-          message: `The tool stage '${request.key ?? request.path ?? ""}' runs your code, and the Runtime runs no code of yours during a session`,
+          message: `The tool stage '${request.key ?? request.path ?? ""}' runs your code, but the Runtime runs agents from their manifests alone`,
         },
       };
       await t.put("effects", request.effectId, { request, status: "completed", outcome });

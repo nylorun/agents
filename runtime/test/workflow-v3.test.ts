@@ -164,7 +164,7 @@ describe("workflow manifest v3, end to end", { timeout: 30_000 }, () => {
       body: JSON.stringify({ requestId: "put-desk", manifest: desk.manifest, implementationVersion: "v3" }),
     });
     expect(response.status).toBe(400);
-    expect(await response.text()).toMatch(/runs no code of yours during a session/);
+    expect(await response.text()).toMatch(/runs agents from their manifests alone/);
     expect((await client.listAgents()).agents).toEqual([]);
   });
 

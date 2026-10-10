@@ -1,5 +1,5 @@
 /**
- * R2 M6: the Runtime runs no code of yours during a session. A definition whose tools would run
+ * R2 M6: the Runtime runs agents from their manifests alone. A definition whose tools would run
  * the developer's code (no `http`, no `agent`, not a built-in) is refused at save, and so is a
  * flow agent with a `tool` stage.
  */
@@ -35,7 +35,7 @@ describe("code tools", () => {
       { name: "lookup", owner: "helper", kind: "tool" },
     ]);
     expect(codeToolRefusal(support.build().manifest)).toBe(
-      "Tool 'lookup' of agent 'helper' runs your code, and the Runtime runs no code of yours during a session. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).",
+      "Tool 'lookup' of agent 'helper' runs your code, but the Runtime runs agents from their manifests alone. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).",
     );
     const billing = Agent({ id: "billing" }).instructions("Refund.").tools(refund);
     expect(codeToolRefusal(billing.build().manifest)).toBeUndefined();

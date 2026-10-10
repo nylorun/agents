@@ -259,7 +259,7 @@ function unrunnableTool(request: HostEffect) {
   return {
     kind: "failed",
     code: "tool.unavailable",
-    message: `Tool '${request.toolName ?? ""}' runs your code, and the Runtime runs no code of yours during a session. Make it an http() tool or serve it from a remote MCP server.`,
+    message: `Tool '${request.toolName ?? ""}' runs your code, but the Runtime runs agents from their manifests alone. Make it an http() tool or serve it from a remote MCP server.`,
   };
 }
 

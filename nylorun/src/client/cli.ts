@@ -33,7 +33,7 @@ const TENANT_REMOVED = `nylo tenant was removed: an installation serves one Tena
 Run "npx nylorun start" in your project to create its Tenant and the Project link.
 Then use nylo status and nylo reset on the linked installation.`;
 
-const ENDPOINTS_REMOVED = `nylo endpoints was removed: the Runtime runs no code of yours during a session,
+const ENDPOINTS_REMOVED = `nylo endpoints was removed: the Runtime runs agents from their manifests alone,
 so there are no Action endpoints. An agent's tools are http() tools and remote MCP servers
 (see MIGRATION.md).`;
 

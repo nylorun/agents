@@ -2,7 +2,7 @@
  * Tools that would run the developer's code (track R2 M6): an agent tool with no `http` and no
  * `agent` that is not one of the Runtime's built-ins (sandbox tools, skill tools,
  * `save_artifact`, `read_artifact`), and a flow agent's `tool` stage without `http`. The
- * Runtime runs no code of yours during a session, so `PUT /v1/agents/:id` refuses a definition
+ * Runtime runs agents from their manifests alone, so `PUT /v1/agents/:id` refuses a definition
  * with one, and the SDK refuses it before sending. The local engine (`@nylorun/harness/run`)
  * still runs `tool({ run })`.
  */
@@ -70,5 +70,5 @@ export function codeToolRefusal(manifest: AgentManifest | WorkflowManifest): str
       ? `The tool stage '${first.name}' of flow agent '${first.owner}'`
       : `Tool '${first.name}' of agent '${first.owner}'`;
   const more = rest.length === 0 ? "" : ` (and ${rest.length} more)`;
-  return `${what}${more} runs your code, and the Runtime runs no code of yours during a session. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).`;
+  return `${what}${more} runs your code, but the Runtime runs agents from their manifests alone. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).`;
 }

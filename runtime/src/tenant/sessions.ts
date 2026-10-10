@@ -96,7 +96,7 @@ export async function putDefinition(
 ) {
   if (body.manifest.id !== agentId) fail(400, "Agent id mismatch");
   DefinitionDocumentSchema.parse(body.manifest);
-  // The Runtime runs no code of yours during a session (track R2): no tool may need it.
+  // The Runtime runs agents from their manifests alone (track R2): no tool may need it.
   const code = codeToolRefusal(body.manifest);
   if (code) fail(400, code);
   const declared = declaredSandboxes(body.manifest);
