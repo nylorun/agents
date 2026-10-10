@@ -78,14 +78,17 @@ The dashboard calls the Runtime through
 `Nylorun-Tenant` header. No Runtime, admin or Tenant credential ever reaches
 the browser.
 
-Studio lists registered agents and sessions, sends text, displays completed
+Studio lists the Tenant's sessions, sends text, displays completed
 assistant responses and tool inputs/results, restores history, observes
-canonical SSE events, and cancels a turn. Each session shows chat beside an
+canonical SSE events, and cancels a turn. **Sessions** is one table of every
+session (agent, owner, status), filtered to an agent from the table or from the
+agents listed under Sessions in the sidebar, with **New session** for a
+registered agent; `/tenants/<id>/sessions?agent=<agentId>` is the filtered list,
+and `/tenants/<id>/agents/<agentId>` opens it. Each session shows chat beside an
 **Events** inspector and an optional Agent Manifest tab. The sidebar's header
 shows the Tenant and the Runtime's status; selecting the Tenant opens its
 Overview. **Models** and **Credentials** have their own entries at the bottom
-of the sidebar, and the Agents heading counts the registered agents.
-Credentials lists installation vaults and
+of the sidebar. Credentials lists installation vaults and
 manages their URL-bound credentials through the Management API
 (`@nylorun/admin/client`, `/v1/tenant/vaults`): a Bearer token or a Headers map
 (name and value rows), with an optional gateway URL (`via`) and identity header,

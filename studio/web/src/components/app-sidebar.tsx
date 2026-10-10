@@ -1,24 +1,17 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   Bot,
   Building2,
-  ChevronRight,
-  CirclePlus,
   Cpu,
   GitBranch,
   KeyRound,
   LoaderCircle,
+  MessagesSquare,
 } from "lucide-react";
-import type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
+import type { Connection } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import { embedded } from "@/embed/index.ts";
-import { NEW_SESSION } from "@/session-open";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { sessionAgents, sessionsPath, type SessionAgent } from "@/session-list";
 import {
   Sidebar,
   SidebarContent,
@@ -28,7 +21,6 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -36,135 +28,24 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-function agentPath(agentId: string): string {
-  return "/agents/" + encodeURIComponent(agentId);
-}
-function sessionPath(agentId: string, sessionId: string): string {
-  return agentPath(agentId) + "/sessions/" + encodeURIComponent(sessionId);
-}
-function sessionTitle(session: SessionSummary): string {
-  const title = session.title?.replace(/\s+/gu, " ").trim();
-  return title ? title : "New session";
-}
-function SessionStatus({ status }: Readonly<{ status: string }>) {
-  if (status === "running")
-    return (
-      <LoaderCircle
-        className="ml-auto size-3.5 shrink-0 animate-spin text-muted-foreground"
-        aria-label="Running"
-      />
-    );
-  if (status === "waiting")
-    return (
-      <span
-        className="ml-auto size-1.5 shrink-0 rounded-full bg-amber-500"
-        aria-label="Waiting for input"
-      />
-    );
-  return (
-    <span
-      className="ml-auto size-1.5 shrink-0 rounded-full bg-muted-foreground"
-      aria-label="Idle"
-    />
-  );
-}
-
-function SessionItem({
-  session,
+/** One agent under Sessions: it filters the session list to that agent. */
+function AgentFilterItem({
+  agent,
   active,
-  agentId,
-}: Readonly<{
-  session: SessionSummary;
-  active: boolean;
-  agentId: string;
-}>) {
-  const title = sessionTitle(session);
+}: Readonly<{ agent: SessionAgent; active: boolean }>) {
+  const Icon = agent.workflow ? GitBranch : Bot;
   return (
     <SidebarMenuSubItem>
       <SidebarMenuSubButton asChild isActive={active} size="sm">
-        <Link to={sessionPath(agentId, session.session)} title={title}>
-          <span className="min-w-0 flex-1 truncate">{title}</span>
-          <SessionStatus status={session.status} />
+        <Link to={sessionsPath(agent.id)} title={agent.name}>
+          <Icon />
+          <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+          <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/70">
+            {agent.count}
+          </span>
         </Link>
       </SidebarMenuSubButton>
     </SidebarMenuSubItem>
-  );
-}
-function AgentNavigation({
-  agent,
-  sessions,
-  activeAgentId,
-  activeSessionId,
-}: Readonly<{
-  agent: AgentManifest;
-  sessions: readonly SessionSummary[];
-  activeAgentId?: string;
-  activeSessionId?: string;
-}>) {
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(true);
-  useEffect(() => {
-    if (agent.id === activeAgentId) setOpen(true);
-  }, [agent.id, activeAgentId]);
-  const displayedSessions =
-    activeAgentId === agent.id &&
-    activeSessionId !== undefined &&
-    !sessions.some((session) => session.session === activeSessionId)
-      ? [
-          { session: activeSessionId, status: "idle", startedAt: Date.now() },
-          ...sessions,
-        ]
-      : sessions;
-  const startSession = (): void => {
-    void navigate(sessionPath(agent.id, crypto.randomUUID()), {
-      state: NEW_SESSION,
-    });
-  };
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} asChild>
-      <SidebarMenuItem>
-        <SidebarMenuButton asChild isActive={agent.id === activeAgentId} tooltip={agent.name}>
-          <Link to={agentPath(agent.id)}>
-            {agent.kind === "workflow" || agent.manifest.kind === "workflow" ? (
-              <GitBranch />
-            ) : (
-              <Bot />
-            )}
-            <span>{agent.name}</span>
-          </Link>
-        </SidebarMenuButton>
-        <CollapsibleTrigger asChild>
-          <SidebarMenuAction className="data-[state=open]:rotate-90">
-            <ChevronRight />
-            <span className="sr-only">Toggle {agent.name} sessions</span>
-          </SidebarMenuAction>
-        </CollapsibleTrigger>
-        <SidebarMenuAction className="right-7" showOnHover onClick={startSession}>
-          <CirclePlus />
-          <span className="sr-only">New {agent.name} session</span>
-        </SidebarMenuAction>
-        <CollapsibleContent>
-          <SidebarMenuSub>
-            {displayedSessions.length === 0 ? (
-              <SidebarMenuSubItem>
-                <span className="block px-2 py-1 text-xs text-muted-foreground">
-                  No sessions yet
-                </span>
-              </SidebarMenuSubItem>
-            ) : (
-              displayedSessions.map((session) => (
-                <SessionItem
-                  key={session.session}
-                  session={session}
-                  active={session.session === activeSessionId}
-                  agentId={agent.id}
-                />
-              ))
-            )}
-          </SidebarMenuSub>
-        </CollapsibleContent>
-      </SidebarMenuItem>
-    </Collapsible>
   );
 }
 function statusDotClass(status: Connection["status"]): string {
@@ -231,16 +112,19 @@ export type SettingsSection = "overview" | "models" | "credentials";
 export function AppSidebar({
   connection,
   tenant,
+  sessionsActive,
   activeAgentId,
-  activeSessionId,
   settingsSection,
 }: Readonly<{
   connection: Connection;
   tenant?: StudioTenantInfo;
+  /** The session list or a session is open. */
+  sessionsActive?: boolean;
+  /** The agent the session list is filtered on, or the open session's agent. */
   activeAgentId?: string;
-  activeSessionId?: string;
   settingsSection?: SettingsSection;
 }>) {
+  const agents = sessionAgents(connection);
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -277,48 +161,56 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>
-            Agents
-            {connection.status === "Running" ? (
-              <span className="ml-1 tabular-nums">
-                ({connection.agents.length})
-              </span>
-            ) : null}
-          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {connection.agents.map((agent) => (
-                <AgentNavigation
-                  key={agent.id}
-                  agent={agent}
-                  sessions={connection.sessionsByAgent[agent.id] ?? []}
-                  activeAgentId={activeAgentId}
-                  activeSessionId={activeSessionId}
-                />
-              ))}
-              {connection.status === "Running" &&
-              connection.agents.length === 0 ? (
-                <SidebarMenuItem>
-                  <span className="block px-2 py-1 text-sm text-muted-foreground">
-                    None
-                  </span>
-                </SidebarMenuItem>
-              ) : null}
-              {connection.status === "Offline" ? (
-                <SidebarMenuItem>
-                  <span className="block px-2 py-1 text-sm text-muted-foreground group-data-[collapsible=icon]:hidden">
-                    Agent server unavailable
-                  </span>
-                </SidebarMenuItem>
-              ) : null}
-              {connection.status === "Connecting" ? (
-                <SidebarMenuItem>
-                  <span className="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground">
-                    <LoaderCircle className="size-4 animate-spin" />
-                    Discovering agents
-                  </span>
-                </SidebarMenuItem>
-              ) : null}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={sessionsActive && activeAgentId === undefined}
+                  tooltip="Sessions"
+                >
+                  <Link to={sessionsPath()}>
+                    <MessagesSquare />
+                    <span>Sessions</span>
+                    {connection.status === "Running" ? (
+                      <span className="tabular-nums text-sidebar-foreground/70">
+                        ({connection.sessions.length})
+                      </span>
+                    ) : null}
+                  </Link>
+                </SidebarMenuButton>
+                <SidebarMenuSub>
+                  {agents.map((agent) => (
+                    <AgentFilterItem
+                      key={agent.id}
+                      agent={agent}
+                      active={sessionsActive === true && agent.id === activeAgentId}
+                    />
+                  ))}
+                  {connection.status === "Running" && agents.length === 0 ? (
+                    <SidebarMenuSubItem>
+                      <span className="block px-2 py-1 text-xs text-muted-foreground">
+                        No agents yet
+                      </span>
+                    </SidebarMenuSubItem>
+                  ) : null}
+                  {connection.status === "Offline" ? (
+                    <SidebarMenuSubItem>
+                      <span className="block px-2 py-1 text-xs text-muted-foreground">
+                        Agent server unavailable
+                      </span>
+                    </SidebarMenuSubItem>
+                  ) : null}
+                  {connection.status === "Connecting" ? (
+                    <SidebarMenuSubItem>
+                      <span className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+                        <LoaderCircle className="size-3.5 animate-spin" />
+                        Discovering agents
+                      </span>
+                    </SidebarMenuSubItem>
+                  ) : null}
+                </SidebarMenuSub>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

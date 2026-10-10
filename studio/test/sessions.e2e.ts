@@ -261,9 +261,33 @@ test("an agent or session segment that does not decode is not found, and the nex
   });
 });
 
+test("the session list shows every session and filters on an agent, from the table and the sidebar", async () => {
+  await withStudio(async ({ page, studioUrl }) => {
+    const rows = (count: number) =>
+      page.waitForFunction((n) => document.querySelectorAll("tbody tr").length === n, count);
+    await page.getByRole("link", { name: ALICE_SESSION, exact: true }).waitFor();
+    await rows(3);
+    await page.getByRole("combobox").selectOption(FLOW);
+    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${FLOW}`);
+    await rows(1);
+    await page.getByRole("link", { name: FLOW_SESSION, exact: true }).waitFor();
+    // A flow's embedded agent, not registered, is a filter too.
+    await page.getByRole("link", { name: new RegExp(`^${CHILD_AGENT}`, "u") }).click();
+    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${CHILD_AGENT}`);
+    await page.getByRole("link", { name: CHILD_SESSION, exact: true }).waitFor();
+    await rows(1);
+    // An agent's page is its filtered list.
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}`);
+    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${AGENT}`);
+    await page.getByRole("link", { name: ALICE_SESSION, exact: true }).click();
+    await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
+  });
+});
+
 test("New session creates the session for the local developer", async () => {
   await withStudio(async ({ page, puts }) => {
-    await page.getByRole("button", { name: "New session" }).first().click();
+    await page.getByRole("button", { name: "New session" }).click();
+    await page.getByRole("menuitem", { name: "Orders" }).click();
     await page.getByRole("textbox", { name: "Message" }).waitFor();
     await page.waitForURL(new RegExp(`/agents/${AGENT}/sessions/[0-9a-f-]{36}$`, "u"));
     assert.equal(puts.length, 1);
@@ -275,7 +299,7 @@ test("New session creates the session for the local developer", async () => {
 test("a flow node in the Workflow tree opens its child session, whose agent is not registered", async () => {
   await withStudio(async ({ page, studioUrl, puts }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${FLOW}/sessions/${FLOW_SESSION}`);
-    await page.getByRole("link", { name: new RegExp(CHILD_AGENT, "u") }).first().click();
+    await page.getByRole("main").getByRole("link", { name: new RegExp(CHILD_AGENT, "u") }).first().click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${CHILD_AGENT}/sessions/${CHILD_SESSION}`);
     await page.locator("article", { hasText: "Route via Rotterdam." }).waitFor();
     // Back to the flow from the child.
