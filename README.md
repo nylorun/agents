@@ -28,7 +28,8 @@ Nylorun is an open-source runtime for AI agents.
   [Agents SDK](https://docs.nylorun.com/docs/build) from instructions,
   [tools](https://docs.nylorun.com/docs/build/tools) and
   [MCP servers](https://docs.nylorun.com/docs/build/mcp), and compose in one
-  line: `.pipe(researcher, analyst)`. The Runtime never calls your code.
+  line: `.pipe(researcher, analyst)`. Publish your agent and start a session
+  with the Runtime.
 - **The Runtime is a Docker Compose stack**: `runtime`, `gateway`, `harness`,
   `studio`, `postgres`, `restate`, `s2-lite` and `rustfs`. Start it with
   `npx nylorun up`; use it from Studio, the CLI, the SDKs or HTTP.
