@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Activity,
+  Box,
+  Files,
   Bot,
   ChevronRight,
   CirclePlus,
@@ -212,12 +214,14 @@ export function AppSidebar({
   activeAgentId,
   activeSessionId,
   settingsActive,
+  resourceActive,
 }: Readonly<{
   connection: Connection;
   tenant?: StudioTenantInfo;
   activeAgentId?: string;
   activeSessionId?: string;
   settingsActive?: boolean;
+  resourceActive?: "sandboxes" | "artifacts";
 }>) {
   const availability =
     connection.status === "Running"
@@ -305,6 +309,16 @@ export function AppSidebar({
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
+              {(["sandboxes", "artifacts"] as const).map(resource => (
+                <SidebarMenuItem key={resource}>
+                  <SidebarMenuButton asChild isActive={resourceActive === resource} tooltip={resource === "sandboxes" ? "Sandboxes" : "Artifacts"}>
+                    <Link to={`/${resource}`}>
+                      {resource === "sandboxes" ? <Box /> : <Files />}
+                      <span>{resource === "sandboxes" ? "Sandboxes" : "Artifacts"}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild

@@ -1038,6 +1038,20 @@ export async function startStudioServer(
       );
     }
 
+    // The existing public Runtime capability is the credential for a native
+    // download, including an embed whose bearer cannot be put on an <a>.
+    // Runtime verifies its signature, version, expiry and resource on every read.
+    const download = /^\/_studio\/tenants\/([^/]+)\/runtime\/v1\/artifact-links\/[^/]+$/.exec(pathname);
+    if (method === "GET" && download) {
+      const tenant = await tenantIdOrCause();
+      if (tenant.id === null) return fail(response, 503, tenant.message);
+      if (download[1] !== encodeURIComponent(tenant.id)) return fail(response, 404, "Unknown Tenant");
+      return proxyRuntime(request, response, {
+        origin, runtimeUrl, serverKey: studioKey,
+        prefix: `/_studio/tenants/${download[1]}/runtime`, allowedOrigins: sameOrigins,
+      });
+    }
+
     let session = sessionOf(request);
     if (session === undefined) {
       // No Studio session: a sign-in proxy's forwarded token may sign in.
