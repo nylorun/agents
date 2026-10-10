@@ -61,3 +61,13 @@ test("SD-I5: browser sources exclude the engine and the host", () => {
       );
   }
 });
+
+
+test("Studio sources use public clients, without database or infrastructure adapters", () => {
+  const forbidden = /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'](?:pg|postgres|drizzle-orm|@aws-sdk\/client-s3|@kubernetes\/client-node|minio)(?:["'/])/;
+  for (const dir of ["src", "web/src"])
+    for (const path of files(join(studioRoot, dir))) {
+      if (!/\.(?:ts|tsx)$/.test(path)) continue;
+      assert.equal(forbidden.test(readFileSync(path, "utf8")), false, `${path} must use the public APIs`);
+    }
+});
