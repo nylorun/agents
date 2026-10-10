@@ -21,6 +21,53 @@ export function isNewSessionState(state: unknown): boolean {
   );
 }
 
+/** Who owns the sessions Studio starts (its proxy sets the same owner). */
+export const STUDIO_OWNER = "local-developer";
+
+/** The vaults a new session attaches, and the credential it picks where several match. */
+export interface NewSessionCredentials {
+  readonly vaultIds?: readonly string[];
+  readonly credentialSelections?: readonly {
+    readonly serverName: string;
+    readonly credentialId: string;
+  }[];
+}
+
+/** `NEW_SESSION` with the vaults the session attaches, when it attaches any. */
+export function newSessionState(credentials: NewSessionCredentials = {}) {
+  const vaultIds = credentials.vaultIds ?? [];
+  const selections = credentials.credentialSelections ?? [];
+  return {
+    ...NEW_SESSION,
+    ...(vaultIds.length ? { vaultIds: [...vaultIds] } : {}),
+    ...(selections.length ? { credentialSelections: selections.map((item) => ({ ...item })) } : {}),
+  };
+}
+
+/** The vaults a `newSessionState` carries, read back from navigation state. */
+export function newSessionCredentials(state: unknown): NewSessionCredentials {
+  if (!isNewSessionState(state)) return {};
+  const { vaultIds, credentialSelections } = state as {
+    vaultIds?: unknown;
+    credentialSelections?: unknown;
+  };
+  const ids = Array.isArray(vaultIds)
+    ? vaultIds.filter((id): id is string => typeof id === "string" && id !== "")
+    : [];
+  const selections = Array.isArray(credentialSelections)
+    ? credentialSelections.flatMap((item: unknown) => {
+        const { serverName, credentialId } = (item ?? {}) as Record<string, unknown>;
+        return typeof serverName === "string" && typeof credentialId === "string"
+          ? [{ serverName, credentialId }]
+          : [];
+      })
+    : [];
+  return {
+    ...(ids.length ? { vaultIds: ids } : {}),
+    ...(selections.length ? { credentialSelections: selections } : {}),
+  };
+}
+
 /** A session's page that resolves its agent: what links to a child session use. */
 export function sessionHref(sessionId: string): string {
   return `/sessions/${encodeURIComponent(sessionId)}`;

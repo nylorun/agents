@@ -305,6 +305,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
       "GET /v1/tenant/vaults/{vaultId}/credentials/{credentialId}",
       "POST /v1/tenant/vaults/{vaultId}/credentials/{credentialId}",
       "DELETE /v1/tenant/vaults/{vaultId}/credentials/{credentialId}",
+      "POST /v1/tenant/credential-coverage",
     ],
   },
   {

@@ -45,6 +45,8 @@ import {
   RotateCredentialRequestSchema,
   McpPreviewRequestSchema,
   McpPreviewSchema,
+  CredentialCoverageRequestSchema,
+  CredentialCoverageSchema,
   DeletedResponseSchema,
   ListAgentsResponseSchema,
   ListPublicAgentsResponseSchema,
@@ -195,6 +197,11 @@ export const RotateCredentialRequest = named("RotateCredentialRequest", RotateCr
 export const DeletedResponse = named("DeletedResponse", DeletedResponseSchema);
 export const McpPreviewRequest = named("McpPreviewRequest", McpPreviewRequestSchema);
 export const McpPreview = named("McpPreview", McpPreviewSchema);
+export const CredentialCoverageRequest = named(
+  "CredentialCoverageRequest",
+  CredentialCoverageRequestSchema,
+);
+export const CredentialCoverage = named("CredentialCoverage", CredentialCoverageSchema);
 
 export const Jwks = named("Jwks", JwksSchema);
 export const SigningKeyList = named("SigningKeyList", SigningKeyListSchema);

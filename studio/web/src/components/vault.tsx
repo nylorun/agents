@@ -541,9 +541,10 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             {`await client.createSession({\n  agentId: "assistant",\n  ownerUserId: "developer",\n  vaultIds: [${JSON.stringify(selectedVault?.id ?? "vault-id")}],\n});`}
           </pre>
           <p>
-            Studio-created sessions do not attach vaults automatically. A
-            person's own keys go in their user vault, which only their sessions
-            attach. Model-provider credentials are managed in the Models tab.
+            Studio's New session lets you pick the vaults to attach, and shows
+            which of the agent's servers and tools each one covers. A person's
+            own keys go in their user vault, which only their sessions attach.
+            Model-provider credentials are managed in the Models tab.
           </p>
           <a
             className="text-primary underline underline-offset-4"

@@ -64,7 +64,7 @@ Management keys are issued on the Tenant's machine only:
 | `admin.tenant` | `status()`, `seed(request)`, `reset(request)` | `GET /v1/tenant`, `PUT /v1/tenant/config/seed`, `POST /v1/tenant/reset` |
 | `admin.keys` | `list()`, `put(id)`, `delete(id)` | `/v1/tenant/keys…` |
 | `admin.models` | `catalog()`, `providers()`, `get()`, `put(request)`, `select(request)`, `usage(query)`, `budgets.get()`, `budgets.put(request)` | `/v1/tenant/models`, `/providers`, `/model`, `/model/selection`, `/usage`, `/budgets` |
-| `admin.vaults` | `create`, `list(ownerUserId?)`, `get`, `delete`, `credentials.create`, `.list`, `.get`, `.rotate`, `.delete` | `/v1/tenant/vaults…` |
+| `admin.vaults` | `create`, `list(ownerUserId?)`, `get`, `delete`, `credentials.create`, `.list`, `.get`, `.rotate`, `.delete`, `coverage(request)` | `/v1/tenant/vaults…`, `POST /v1/tenant/credential-coverage` |
 | `admin.mcp` | `preview({ url, type?, name?, vaultId? })` | `POST /v1/tenant/mcp/preview` |
 | `admin.signingKeys` | `list()`, `rotate({ force? })`, `revoke(kid)` | `/v1/tenant/signing-keys…` |
 | `admin.settings` | `sandbox.get()`, `sandbox.put(request)`, `artifacts.get()`, `artifacts.put(request)` | `/v1/tenant/sandbox`, `/v1/tenant/artifacts` |
@@ -106,6 +106,18 @@ header, never a value; `credentials.rotate` replaces the token or the map. See
 "MCP servers and HTTP tools" in
 [DEPLOYMENT.md](../DEPLOYMENT.md#mcp-servers-and-http-tools), with gateway
 recipes.
+
+`admin.vaults.coverage` says what a session of a saved agent would send for each
+of its MCP servers and HTTP tool credentials with the vaults it attaches, before
+any session starts: `covered`, `missing` (with the vaults that hold one in
+`available`), `ambiguous` or `selection_mismatch`. It reads no secret and calls no
+server (Host feature `credential-coverage`).
+
+```ts
+const coverage = await admin.vaults.coverage({ agentId: "triage", vaultIds: [vault.id] });
+if (!coverage.complete)
+  for (const entry of coverage.entries) if (entry.status !== "covered") console.log(entry.name, entry.message);
+```
 
 `admin.mcp.preview` shows what that server offers with that credential, before
 an agent names it: the Runtime connects, lists the tools within 15 s and calls

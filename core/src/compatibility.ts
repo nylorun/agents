@@ -65,6 +65,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * (`NYLORUN_IDENTITY_FILE`) as bearers, from servers and from browsers alike, with the
  * issuer's subject, scopes (and the issuer-only `studio`), agents and sandbox grants; `GET
  * /v1/me` reports who any credential is.
+ * `credential-coverage`: `POST /v1/tenant/credential-coverage` (the Management API) says which
+ * vault credential each of a saved agent's MCP servers and HTTP tools would get in a session that
+ * attaches given vaults.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -77,6 +80,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "trusted-issuers",
   "session-reads",
   "calls-export",
+  "credential-coverage",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

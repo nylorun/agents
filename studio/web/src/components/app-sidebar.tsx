@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   Activity,
   Bot,
@@ -14,7 +14,7 @@ import {
 import type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import { embedded } from "@/embed/index.ts";
-import { NEW_SESSION } from "@/session-open";
+import { useStartSession } from "@/components/new-session";
 import {
   Collapsible,
   CollapsibleContent,
@@ -108,7 +108,6 @@ function AgentNavigation({
   activeAgentId?: string;
   activeSessionId?: string;
 }>) {
-  const navigate = useNavigate();
   const [open, setOpen] = useState(true);
   useEffect(() => {
     if (agent.id === activeAgentId) setOpen(true);
@@ -122,11 +121,8 @@ function AgentNavigation({
           ...sessions,
         ]
       : sessions;
-  const startSession = (): void => {
-    void navigate(sessionPath(agent.id, crypto.randomUUID()), {
-      state: NEW_SESSION,
-    });
-  };
+  const startNewSession = useStartSession();
+  const startSession = (): void => startNewSession(agent);
   return (
     <Collapsible open={open} onOpenChange={setOpen} asChild>
       <SidebarMenuItem>

@@ -22,7 +22,8 @@
         "sandbox-pods",
         "trusted-issuers",
         "session-reads",
-        "calls-export"
+        "calls-export",
+        "credential-coverage"
       ]
     },
     "description": "For developers: agents, sessions (with AG-UI and A2A), sandboxes and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."

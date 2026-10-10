@@ -30,6 +30,10 @@
  * // (R2b C12, `mcp/preview.ts`) for no session.
  * authorize(input: { sessionId?; vaultIds; credentialSelections; url; serverName? }): Promise<AuthorizeResult>
  *
+ * // Coverage: what `authorize` would decide for each URL a manifest names, in one transaction,
+ * // with no secret read and no audit row.
+ * coverage(manifest: AgentManifest | WorkflowManifest, request: CredentialCoverageRequest): Promise<CredentialCoverage>
+ *
  * // Host model credential: each opens its own transaction.
  * getHostModel(): Promise<HostModelView>
  * listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }>
@@ -76,8 +80,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { INSTALLATION_OWNER } from "@nylorun/core/contracts";
 import type {
+  CoverageCredential,
   CreateCredentialRequest,
   CreateVaultRequest,
+  CredentialCoverage,
+  CredentialCoverageEntry,
+  CredentialCoverageRequest,
   CredentialIdentity,
   CredentialInfo,
   CredentialSelection,
@@ -89,6 +97,7 @@ import type {
   SelectHostModelRequest,
   VaultInfo,
 } from "@nylorun/core/contracts";
+import type { AgentManifest, WorkflowManifest } from "@nylorun/core/define";
 import { canonical } from "../store/canonical.js";
 import type {
   SessionStore,
@@ -98,6 +107,7 @@ import type {
 } from "../store/types.js";
 import { decryptSecret, encryptSecret, VaultCryptoError } from "./crypto.js";
 import { VaultError } from "./error.js";
+import { credentialNeeds, type CredentialNeed } from "./coverage.js";
 import { checkCredentialHeaders } from "./headers.js";
 import { hostModelCatalog } from "../model/catalog.js";
 import { normalizeVaultUrl } from "./url.js";
@@ -566,6 +576,73 @@ export class VaultService {
     };
   }
 
+  // --- coverage --------------------------------------------------------------------
+
+  /**
+   * What a session of `request.ownerUserId` that attaches `request.vaultIds` would send for each
+   * URL `manifest` names (`credentialNeeds`), decided as `authorize` decides a call: the attached
+   * vaults' credentials bound to the URL, then the selection for the need's `serverName`. The
+   * attachment is checked as a session PUT checks it. Reads no secret, writes no audit row.
+   */
+  async coverage(
+    manifest: AgentManifest | WorkflowManifest,
+    request: CredentialCoverageRequest,
+  ): Promise<CredentialCoverage> {
+    const owner = request.ownerUserId ?? INSTALLATION_OWNER;
+    const vaultIds = request.vaultIds ?? [];
+    const selections = request.credentialSelections ?? [];
+    return this.store.tx(async (t) => {
+      await this.assertAttachment(t, owner, vaultIds, selections);
+      // The vaults this session may attach: its owner's, then the installation's.
+      const vaults = [
+        ...(owner === INSTALLATION_OWNER ? [] : await t.vaultsByOwner(owner)),
+        ...(await t.installationVaults()),
+      ];
+      const credentials: { vault: VaultRow; row: VaultCredentialRow; url?: string }[] = [];
+      for (const vault of vaults)
+        for (const row of await t.credentialsForVault(vault.id))
+          credentials.push({ vault, row, url: bindingUrl(row) });
+      const attached = new Set(vaultIds);
+      const entries = credentialNeeds(manifest).map((need): CredentialCoverageEntry => {
+        let url: string;
+        try {
+          url = normalizeVaultUrl(need.url);
+        } catch (error) {
+          if (!(error instanceof VaultError)) throw error;
+          return coverageEntry(need, need.url, "missing", [], [], undefined, error.message);
+        }
+        const bound = credentials.filter((item) => item.url === url);
+        const matches = bound
+          .filter((item) => attached.has(item.vault.id))
+          .sort((a, b) => a.row.id.localeCompare(b.row.id));
+        const available = bound.filter((item) => !attached.has(item.vault.id)).map(coverageCredential);
+        if (matches.length === 0)
+          return coverageEntry(need, url, "missing", [], available);
+        const chosen = choose(
+          matches.map((item) => item.row),
+          selections.find((item) => item.serverName === need.serverName),
+        );
+        const listed = matches.map(coverageCredential);
+        if (chosen.kind === "refused")
+          return coverageEntry(
+            need,
+            url,
+            chosen.reason === "ambiguous" ? "ambiguous" : "selection_mismatch",
+            listed,
+            available,
+          );
+        const credential = listed.find((item) => item.credentialId === chosen.row.id)!;
+        return coverageEntry(need, url, "covered", listed, available, credential);
+      });
+      return {
+        agentId: request.agentId,
+        vaultIds: [...vaultIds],
+        complete: entries.every((entry) => entry.status === "covered"),
+        entries,
+      };
+    });
+  }
+
   // --- host model ----------------------------------------------------------------
 
   async getHostModel(): Promise<HostModelView> {
@@ -883,6 +960,65 @@ function isUserCredential(row: VaultCredentialRow): row is UserCredentialRow {
 
 function bindingUrl(row: VaultCredentialRow): string | undefined {
   return (JSON.parse(row.bindingJson) as { url?: string }).url;
+}
+
+/** Where a credential is, for coverage: never its value. */
+function coverageCredential(item: { vault: VaultRow; row: VaultCredentialRow }): CoverageCredential {
+  const via = (JSON.parse(item.row.bindingJson) as { via?: string }).via;
+  return {
+    vaultId: item.vault.id,
+    vaultName: item.vault.name,
+    credentialId: item.row.id,
+    credentialName: item.row.name,
+    ...(via === undefined ? {} : { via }),
+  };
+}
+
+/** One coverage entry, with the sentence that says what the session would do. */
+function coverageEntry(
+  need: CredentialNeed,
+  url: string,
+  status: CredentialCoverageEntry["status"],
+  matches: CoverageCredential[],
+  available: CoverageCredential[],
+  credential?: CoverageCredential,
+  invalid?: string,
+): CredentialCoverageEntry {
+  const required = need.kind === "http";
+  const elsewhere = [...new Set(available.map((item) => `'${item.vaultName}'`))];
+  const attach =
+    elsewhere.length === 0
+      ? ""
+      : elsewhere.length === 1
+        ? ` Vault ${elsewhere[0]} holds one: attach it.`
+        : ` Vaults ${elsewhere.join(", ")} hold one: attach one of them.`;
+  const message =
+    invalid !== undefined
+      ? `No credential can be bound to this URL (${invalid}).`
+      : status === "covered"
+        ? `Sends '${credential!.credentialName}' from vault '${credential!.vaultName}'${credential!.via ? ` through ${credential!.via}` : ""}.`
+        : status === "missing"
+          ? (required
+              ? "No attached vault holds a credential for this URL: each call fails with http.credential."
+              : "No attached vault holds a credential for this URL: the server is called without one, which only a public server accepts.") +
+            attach
+          : status === "ambiguous"
+            ? `${matches.length} attached credentials are bound to this URL: select one for '${need.serverName}' (credentialSelections), or each call is refused.`
+            : `The credential selection for '${need.serverName}' names no attached credential bound to this URL: each call is refused.`;
+  return {
+    kind: need.kind,
+    ...(need.agentId === undefined ? {} : { agentId: need.agentId }),
+    ...(need.stage === undefined ? {} : { stage: need.stage }),
+    name: need.name,
+    serverName: need.serverName,
+    url,
+    required,
+    status,
+    ...(credential === undefined ? {} : { credential }),
+    matches,
+    available,
+    message,
+  };
 }
 
 function vaultInfoOf(row: VaultRow): VaultInfo {

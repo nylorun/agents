@@ -58,11 +58,13 @@ import {
   tenantScope,
 } from "@/proxy-client";
 import {
-  NEW_SESSION,
+  STUDIO_OWNER,
   asStudioDefinition,
   definitionForSession,
   isNewSessionState,
+  newSessionCredentials,
 } from "@/session-open";
+import { NewSessionProvider, useStartSession } from "@/components/new-session";
 import type {
   AgentManifest,
   Connection,
@@ -355,7 +357,6 @@ function OpenTenant({ tenant }: { tenant: StudioTenantInfo }) {
 }
 
 function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
-  const navigate = useNavigate();
   const location = useLocation();
   const embedStatus = useEmbedStatus();
   const match = location.pathname.match(
@@ -421,110 +422,109 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const settingsActive = location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/") || location.pathname === "/vault";
   return (
-    <SidebarProvider className="h-svh overflow-hidden">
-      <AppSidebar
-        connection={connection}
-        tenant={tenant}
-        activeAgentId={agentId}
-        activeSessionId={sessionId}
-        settingsActive={settingsActive}
-      />
-      <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
-          <SidebarTrigger />
-          <strong>
-            {settingsActive ? "Tenant settings" : (agent?.name ?? "Nylorun Studio")}
-          </strong>
-          {embedded() ? null : (
-            <Badge variant="outline" title={tenant.id}>
-              {tenant.name} · {shortTenantId(tenant.id)}
-            </Badge>
+    <NewSessionProvider tenantId={tenant.id}>
+      <SidebarProvider className="h-svh overflow-hidden">
+        <AppSidebar
+          connection={connection}
+          tenant={tenant}
+          activeAgentId={agentId}
+          activeSessionId={sessionId}
+          settingsActive={settingsActive}
+        />
+        <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
+          <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
+            <SidebarTrigger />
+            <strong>
+              {settingsActive ? "Tenant settings" : (agent?.name ?? "Nylorun Studio")}
+            </strong>
+            {embedded() ? null : (
+              <Badge variant="outline" title={tenant.id}>
+                {tenant.name} · {shortTenantId(tenant.id)}
+              </Badge>
+            )}
+            {embedStatus === "reconnecting" || embedStatus === "failed" ? (
+              <Badge variant="outline" role="status">
+                {embedStatus === "reconnecting" ? "Reconnecting…" : "Disconnected"}
+              </Badge>
+            ) : null}
+            <Button
+              className="ml-auto"
+              variant="outline"
+              onClick={() => void refresh()}
+            >
+              Refresh
+            </Button>
+          </header>
+          {error && (
+            <p role="alert" className="shrink-0 p-4 text-red-600">
+              {error}
+            </p>
           )}
-          {embedStatus === "reconnecting" || embedStatus === "failed" ? (
-            <Badge variant="outline" role="status">
-              {embedStatus === "reconnecting" ? "Reconnecting…" : "Disconnected"}
-            </Badge>
-          ) : null}
-          <Button
-            className="ml-auto"
-            variant="outline"
-            onClick={() => void refresh()}
-          >
-            Refresh
-          </Button>
-        </header>
-        {error && (
-          <p role="alert" className="shrink-0 p-4 text-red-600">
-            {error}
-          </p>
-        )}
-        {/* One broken view shows an error panel; the sidebar and header stay. */}
-        <ViewErrorBoundary resetKey={location.pathname}>
-          {sessionOnly ? (
-            <SessionRedirect
-              tenantId={tenant.id}
-              sessionId={decodeURIComponent(sessionOnly[1]!)}
-            />
-          ) : location.pathname === "/settings" ? (
-            <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
-          ) : location.pathname === "/vault" ? (
-            <Navigate to={`/settings/credentials${location.search}${location.hash}`} replace />
-          ) : settingsActive ? (
-            <TenantSettings tenant={tenant} />
-          ) : agentId && sessionId ? (
-            // Any session opens, also one whose agent is not registered (a
-            // flow's embedded agent); the session says which agent it runs.
-            connection.status === "Connecting" ? (
-              <p className="p-8 text-muted-foreground">Opening the session…</p>
-            ) : (
-              <SessionWorkspace
-                key={sessionId}
-                routeAgentId={agentId}
-                agents={connection.agents}
-                sessionId={sessionId}
+          {/* One broken view shows an error panel; the sidebar and header stay. */}
+          <ViewErrorBoundary resetKey={location.pathname}>
+            {sessionOnly ? (
+              <SessionRedirect
                 tenantId={tenant.id}
-                refresh={refresh}
+                sessionId={decodeURIComponent(sessionOnly[1]!)}
               />
-            )
-          ) : waiting ? (
-            <TenantOverview tenant={tenant} waitingForAgents />
-          ) : (
-            <section className="mx-auto w-full max-w-3xl flex-1 overflow-auto p-8">
-              <h1 className="text-2xl font-semibold">
-                {agent?.name ?? "Your local agents"}
-              </h1>
-              <p className="my-4 text-muted-foreground">
-                Start a session to chat and inspect session events.
-              </p>
-              {(agent ? [agent] : connection.agents).map((a) => (
-                <section key={a.id} className="mb-4 rounded-lg border p-4">
-                  <h2 className="font-medium">{a.name}</h2>
-                  <p className="my-2 text-sm text-muted-foreground">
-                    {a.kind === "workflow" || a.manifest.kind === "workflow"
-                      ? "Workflow"
-                      : a.manifest.capabilities
-                          ?.flatMap((c) => c.tools ?? [])
-                          .map((t) => t.name)
-                          .join(", ") || "Text agent"}
-                  </p>
-                  <Button
-                    onClick={() =>
-                      void navigate(
-                        `/agents/${encodeURIComponent(a.id)}/sessions/${crypto.randomUUID()}`,
-                        { state: NEW_SESSION },
-                      )
-                    }
-                  >
-                    New session
-                  </Button>
-                </section>
-              ))}
-            </section>
-          )}
-        </ViewErrorBoundary>
-      </SidebarInset>
-    </SidebarProvider>
+            ) : location.pathname === "/settings" ? (
+              <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
+            ) : location.pathname === "/vault" ? (
+              <Navigate to={`/settings/credentials${location.search}${location.hash}`} replace />
+            ) : settingsActive ? (
+              <TenantSettings tenant={tenant} />
+            ) : agentId && sessionId ? (
+              // Any session opens, also one whose agent is not registered (a
+              // flow's embedded agent); the session says which agent it runs.
+              connection.status === "Connecting" ? (
+                <p className="p-8 text-muted-foreground">Opening the session…</p>
+              ) : (
+                <SessionWorkspace
+                  key={sessionId}
+                  routeAgentId={agentId}
+                  agents={connection.agents}
+                  sessionId={sessionId}
+                  tenantId={tenant.id}
+                  refresh={refresh}
+                />
+              )
+            ) : waiting ? (
+              <TenantOverview tenant={tenant} waitingForAgents />
+            ) : (
+              <section className="mx-auto w-full max-w-3xl flex-1 overflow-auto p-8">
+                <h1 className="text-2xl font-semibold">
+                  {agent?.name ?? "Your local agents"}
+                </h1>
+                <p className="my-4 text-muted-foreground">
+                  Start a session to chat and inspect session events.
+                </p>
+                {(agent ? [agent] : connection.agents).map((a) => (
+                  <section key={a.id} className="mb-4 rounded-lg border p-4">
+                    <h2 className="font-medium">{a.name}</h2>
+                    <p className="my-2 text-sm text-muted-foreground">
+                      {a.kind === "workflow" || a.manifest.kind === "workflow"
+                        ? "Workflow"
+                        : a.manifest.capabilities
+                            ?.flatMap((c) => c.tools ?? [])
+                            .map((t) => t.name)
+                            .join(", ") || "Text agent"}
+                    </p>
+                    <NewSessionButton agent={a} />
+                  </section>
+                ))}
+              </section>
+            )}
+          </ViewErrorBoundary>
+        </SidebarInset>
+      </SidebarProvider>
+    </NewSessionProvider>
   );
+}
+
+/** An agent card's "New session": through the vault picker when its tools take credentials. */
+function NewSessionButton({ agent }: { agent: StudioDefinition }) {
+  const startSession = useStartSession();
+  return <Button onClick={() => startSession(agent)}>New session</Button>;
 }
 
 /**
@@ -607,6 +607,8 @@ function SessionWorkspace({
 }) {
   const location = useLocation();
   const create = isNewSessionState(location.state);
+  // The vaults Studio's "New session" picked, kept from the first render of this session.
+  const [credentials] = useState(() => newSessionCredentials(location.state));
   const routeAgent = agents.find((a) => a.id === routeAgentId);
   const routeAgentKnown = routeAgent !== undefined;
   const [load, setLoad] = useState<SessionLoad>({ kind: "loading" });
@@ -626,7 +628,8 @@ function SessionWorkspace({
         await sdk.createSession({
           id: sessionId,
           agentId: routeAgentId,
-          ownerUserId: "local-developer",
+          ownerUserId: STUDIO_OWNER,
+          ...credentials,
         });
         if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: routeAgentId });
       }

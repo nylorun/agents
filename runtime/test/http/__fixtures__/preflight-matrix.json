@@ -223,6 +223,10 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
+  "POST /v1/tenant/credential-coverage": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
   "GET /v1/access/jwks": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"

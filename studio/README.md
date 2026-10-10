@@ -88,15 +88,21 @@ manages their URL-bound credentials through the Management API
 (name and value rows), with an optional gateway URL (`via`) and identity header,
 and **Preview tools** on each one lists the MCP server's tools behind its URL
 (`POST /v1/tenant/mcp/preview`). Overview and Models use it too;
-secret reads return metadata only. Attach vaults explicitly using `vaultIds` when
-creating a session with the SDK or API. Studio-created sessions attach none.
-A person's own keys go in their user vault, which only their sessions attach.
+secret reads return metadata only. **New session** on an agent whose MCP
+servers or HTTP tools take a credential opens a vault picker first. It lists the
+installation vaults, ticks the ones that hold the agent's credentials, and shows
+what each server and tool would get (`POST /v1/tenant/credential-coverage`):
+covered, no credential (an MCP server is called without one) or a call that would
+fail. Where several attached credentials match one URL, you pick one. The session
+starts with those `vaultIds` and `credentialSelections`. An agent that takes no
+credential, or a Runtime without the `credential-coverage` feature, starts its
+session at once. Studio manages no person's vault: a person's own keys go in their
+user vault, which only their sessions attach, through the SDK or API.
 
 Settings links use `/tenants/<id>/settings/overview`, `/settings/models` and
 `/settings/credentials` under the same Tenant prefix. Legacy `/settings` and
 `/vault` links redirect to Models and Credentials respectively, including embeds.
-Token streaming, media, an approvals UI and a session vault selector are
-deferred.
+Token streaming, media and an approvals UI are deferred.
 
 ## The image
 
