@@ -267,7 +267,8 @@ test("the session list shows every session and filters on an agent, from the tab
       page.waitForFunction((n) => document.querySelectorAll("tbody tr").length === n, count);
     await page.getByRole("link", { name: ALICE_SESSION, exact: true }).waitFor();
     await rows(3);
-    await page.getByRole("combobox").selectOption(FLOW);
+    await page.getByRole("button", { name: "Filter by agent" }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Shipping/u }).click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${FLOW}`);
     await rows(1);
     await page.getByRole("link", { name: FLOW_SESSION, exact: true }).waitFor();

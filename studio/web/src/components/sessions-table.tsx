@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Bot, ChevronDown, GitBranch, LoaderCircle, Plus } from "lucide-react";
 import type { Connection } from "@/studio-types";
@@ -11,10 +12,12 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
   TableBody,
@@ -74,7 +77,7 @@ function NewSessionButton({
   const filtered = registered.find((agent) => agent.id === agentFilter);
   if (filtered)
     return (
-      <Button onClick={() => start(filtered.id)}>
+      <Button size="sm" onClick={() => start(filtered.id)}>
         <Plus />
         New session
       </Button>
@@ -82,7 +85,7 @@ function NewSessionButton({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button disabled={registered.length === 0}>
+        <Button size="sm" disabled={registered.length === 0}>
           <Plus />
           New session
           <ChevronDown />
@@ -111,47 +114,69 @@ export function SessionsTable({
     agentFilter === undefined
       ? connection.sessions
       : connection.sessions.filter((session) => session.agentId === agentFilter);
-  const filterKnown = agentFilter === undefined || byId.has(agentFilter);
+  const [filterOpen, setFilterOpen] = useState(false);
+  // One agent at a time: picking one closes the menu.
+  const filterOn = (agentId?: string): void => {
+    setFilterOpen(false);
+    void navigate(sessionsPath(agentId));
+  };
+  const filterLabel =
+    agentFilter === undefined
+      ? "All agents"
+      : (byId.get(agentFilter)?.name ?? agentFilter);
   return (
-    <section className="flex w-full flex-1 flex-col gap-6 overflow-auto p-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Sessions</h1>
-          <p className="mt-2 text-muted-foreground">
-            Every session in this Tenant. Open one to chat and inspect its
-            events.
-          </p>
-        </div>
+    <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-4">
+        <h1 className="text-sm font-medium">Sessions</h1>
+        <span className="text-xs text-muted-foreground">
+          {sessions.length} total
+        </span>
+        <DropdownMenu open={filterOpen} onOpenChange={setFilterOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto w-44 justify-between font-normal"
+              aria-label="Filter by agent"
+            >
+              <span className="truncate">{filterLabel}</span>
+              <ChevronDown className="size-4 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuCheckboxItem
+              checked={agentFilter === undefined}
+              onCheckedChange={() => filterOn()}
+            >
+              All agents
+              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                {connection.sessions.length}
+              </span>
+            </DropdownMenuCheckboxItem>
+            {agents.map((agent) => (
+              <DropdownMenuCheckboxItem
+                key={agent.id}
+                checked={agent.id === agentFilter}
+                onCheckedChange={() => filterOn(agent.id)}
+              >
+                <span className="truncate">{agent.name}</span>
+                <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                  {agent.count}
+                </span>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <NewSessionButton agents={agents} agentFilter={agentFilter} />
       </div>
-      <label className="flex flex-wrap items-center gap-3 text-sm">
-        <span className="text-muted-foreground">Agent</span>
-        <select
-          className="h-9 min-w-56 rounded-md border bg-transparent px-3"
-          value={agentFilter ?? ""}
-          onChange={(event) =>
-            void navigate(sessionsPath(event.target.value || undefined))
-          }
-        >
-          <option value="">All agents ({connection.sessions.length})</option>
-          {agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name} ({agent.count})
-            </option>
-          ))}
-          {filterKnown ? null : (
-            <option value={agentFilter}>{agentFilter} (0)</option>
-          )}
-        </select>
-      </label>
-      <div className="rounded-md border">
+      <ScrollArea className="min-h-0 flex-1">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-background">
             <TableRow>
               <TableHead>Session</TableHead>
-              <TableHead>Agent</TableHead>
-              <TableHead>Owner</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead className="w-64">Agent</TableHead>
+              <TableHead className="w-56">Owner</TableHead>
+              <TableHead className="w-32">Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -159,7 +184,7 @@ export function SessionsTable({
               <TableRow>
                 <TableCell
                   colSpan={4}
-                  className="h-24 text-center text-muted-foreground"
+                  className="h-28 text-center text-muted-foreground"
                 >
                   Loading sessions…
                 </TableCell>
@@ -168,7 +193,7 @@ export function SessionsTable({
               <TableRow>
                 <TableCell
                   colSpan={4}
-                  className="h-24 text-center text-muted-foreground"
+                  className="h-28 text-center text-muted-foreground"
                 >
                   {agentFilter === undefined
                     ? "No sessions yet."
@@ -197,7 +222,7 @@ export function SessionsTable({
                     <TableCell>
                       {agent ? <AgentName agent={agent} /> : session.agentId}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="max-w-0 truncate text-xs text-muted-foreground">
                       {session.ownerUserId}
                     </TableCell>
                     <TableCell>
@@ -209,7 +234,7 @@ export function SessionsTable({
             )}
           </TableBody>
         </Table>
-      </div>
+      </ScrollArea>
     </section>
   );
 }
