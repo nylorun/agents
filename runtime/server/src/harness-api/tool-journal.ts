@@ -50,6 +50,11 @@ export interface ToolRowFacts {
   attempts?: number;
   startedAt?: string;
   settledAt?: string;
+  /**
+   * The tool span's context (R7.4), `00-<trace>-<span>-01`: the Tool Gate reads it with the row
+   * and sends it as `traceparent`, and a harness hands it to a sandbox command as `TRACEPARENT`.
+   */
+  traceparent?: string;
 }
 
 export type ToolRow = EffectDoc &

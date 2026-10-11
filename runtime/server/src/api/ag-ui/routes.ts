@@ -55,6 +55,7 @@ import {
 import { putSession, sessionView } from "../../tenant/sessions.js";
 import { mayUseAgent } from "../../tenant/auth.js";
 import { environmentGrantsOf } from "../../tenant/environments.js";
+import type { TraceContext } from "../../traces/ids.js";
 
 const HEARTBEAT_MS = 15_000;
 const TERMINAL = new Set([
@@ -137,9 +138,10 @@ async function accepted(
   ctx: TenantContext,
   id: string,
   body: Parameters<typeof command>[2],
-  scope: AuthScope
+  scope: AuthScope,
+  trace?: TraceContext
 ): Promise<string | null> {
-  const result = (await command(ctx, id, body, scope)) as { cursor?: string | null };
+  const result = (await command(ctx, id, body, scope, trace ? { trace } : {})) as { cursor?: string | null };
   return result?.cursor ?? null;
 }
 
@@ -147,7 +149,8 @@ async function submit(
   ctx: TenantContext,
   id: string,
   input: RunAgentInput,
-  scope: AuthScope
+  scope: AuthScope,
+  trace?: TraceContext
 ): Promise<string | null> {
   if (input.resume?.length) {
     // The interaction's kind is on the session's pending view, not in its id.
@@ -215,7 +218,8 @@ async function submit(
       idempotencyKey: message.id,
       content: message.text,
     },
-    scope
+    scope,
+    trace
   );
 }
 
@@ -328,7 +332,9 @@ export async function startRun(
   agentId: string,
   caller: { subject: string; access: SessionAccess | undefined },
   body: unknown,
-  response: ServerResponse
+  response: ServerResponse,
+  /** The request's trace context (R7.4): the turn the run starts joins the caller's trace. */
+  trace?: TraceContext
 ): Promise<void> {
   const parsed = RunAgentInputSchema.safeParse(body);
   if (!parsed.success)
@@ -356,7 +362,7 @@ export async function startRun(
   const translator = new RunTranslator(input.threadId, input.runId);
   let cursor: string | null;
   try {
-    cursor = await submit(ctx, id, input, scope);
+    cursor = await submit(ctx, id, input, scope, trace);
   } catch (error) {
     // A busy session or a limit is a run that could not start, not a transport failure.
     if (error instanceof HttpError && (error.status === 409 || error.status === 429))

@@ -6,6 +6,9 @@
  * every call that runs has its row (`/calls/tool`) and its `tool.completed`.
  *
  * Core's own credential (previews, calls outside a run) is not checked: it names no run.
+ *
+ * The row it reads also holds the call's span context (`traceparent`, R7.4), which core wrote at
+ * the intent: the gate sends it on to the tool without ever holding the trace key.
  */
 import type { HostEffect } from "@nylorun/harness/run";
 import { mcpToolOf } from "../mcp/snapshot.js";
@@ -27,21 +30,22 @@ export type GateToolCall =
     }
   | { readonly kind: "http"; readonly tool: HttpToolRef; readonly input: unknown };
 
+/**
+ * What the journal says of a call: why it does not hold it, or that it does, with the call's span
+ * context from the row (R7.4), which the gate sends on as `traceparent`.
+ */
+export type JournalAnswer = { readonly refused: string } | { readonly refused?: undefined; readonly traceparent?: string };
+
 export interface JournalCheck {
-  /** Why the journal does not hold `call` under `key` for the run `claims` names; else undefined. */
-  refusal(
-    tenantId: string | undefined,
-    claims: RunClaims,
-    key: string,
-    call: GateToolCall,
-  ): Promise<string | undefined>;
+  /** Whether the journal holds `call` under `key` for the run `claims` names. */
+  check(tenantId: string | undefined, claims: RunClaims, key: string, call: GateToolCall): Promise<JournalAnswer>;
 }
 
 export function journalCheck(vaults: TenantVaults): JournalCheck {
   return {
-    async refusal(tenantId, claims, key, call) {
+    async check(tenantId, claims, key, call) {
       const store = (await vaults.open(tenantId)).store;
-      return store.tx(async (t) => {
+      const refusal = await store.tx(async (t): Promise<string | { traceparent?: string }> => {
         const row = await t.get<EffectDoc>("effects", key);
         if (!row) return `No journaled call has the effect id '${key}'`;
         const request = row.request as HostEffect;
@@ -58,7 +62,7 @@ export function journalCheck(vaults: TenantVaults): JournalCheck {
           if (canonical(expected) !== canonical(named)) return `Effect '${key}' calls another tool`;
           if (canonical(request.input ?? null) !== canonical(call.input ?? null))
             return `Effect '${key}' was journaled with other input`;
-          return undefined;
+          return held(row);
         }
         const session = await t.get<Session>("sessions", request.sessionId);
         const tool = mcpToolOf(session?.mcpSnapshot, request);
@@ -72,10 +76,17 @@ export function journalCheck(vaults: TenantVaults): JournalCheck {
           return `Effect '${key}' calls another tool`;
         if (canonical(argumentsOf(request.input)) !== canonical(call.arguments))
           return `Effect '${key}' was journaled with other input`;
-        return undefined;
+        return held(row);
       });
+      return typeof refusal === "string" ? { refused: refusal } : refusal;
     },
   };
+}
+
+/** A journaled call: its span context, when core recorded one (R7.4). */
+function held(row: EffectDoc): { traceparent?: string } {
+  const traceparent = (row as { traceparent?: unknown }).traceparent;
+  return typeof traceparent === "string" ? { traceparent } : {};
 }
 
 /** A tool call's input as `tools/call` arguments (`callMcpTool`): an object, else none. */

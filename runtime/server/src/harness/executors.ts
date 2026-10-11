@@ -49,15 +49,22 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
     // With the Tenant's fixture model on, the Model Gate answers it (R4.3), metered like any call.
     model: (effect, signal, run) =>
       invokeModel(options.model, effect, signal, { atGate: run.start.options.fixtureModel }),
-    tool(effect, signal, run) {
+    tool(effect, signal, run, call) {
       const routing = routingOf(run);
+      const traceparent = call?.traceparent;
       // A call at the Tool Gate outlives a shutdown there; a local one finishes and is recorded.
       const kinds = recovered(effect, run) ? (["cancel", "shutdown"] as const) : (["cancel"] as const);
       if (isHttpToolCall(routing.rootManifest, effect))
-        return callHttpTool(options.toolGate, effect, abortOn(signal, kinds));
+        return callHttpTool(options.toolGate, effect, abortOn(signal, kinds), traceparent);
+      // A sandbox command joins its call's span (R7.4): a CLI that reads TRACEPARENT traces under it.
       if (!mcpToolOf(routing.mcpSnapshot, effect))
-        return callSandboxTool(options.sandbox(), routing, effect, signal);
-      return callMcpTool(options.mcp, routing, effect, abortOn(signal, kinds));
+        return callSandboxTool(
+          options.sandbox(),
+          traceparent ? { ...routing, environment: { ...routing.environment, TRACEPARENT: traceparent } } : routing,
+          effect,
+          signal
+        );
+      return callMcpTool(options.mcp, routing, effect, abortOn(signal, kinds), traceparent);
     },
     recovers: {
       get model() {

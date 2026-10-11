@@ -126,9 +126,10 @@ it("journals a tool the harness declared, and records an undeclared one as unava
     context: { callId: `c${n}`, invocationId: `i${n}` },
   });
   const declared = intent("apply_patch", 1);
+  // With its span's context (R7.4), which the harness may hand to what it runs.
   await expect(
     acme.request("effect.intent", { runId: run.runId, effect: declared, requestHash: effectRequestHash(declared) })
-  ).resolves.toEqual({ status: "execute" });
+  ).resolves.toEqual({ status: "execute", traceparent: expect.stringMatching(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/) });
   // A Runtime token the harness's tool printed (its egress proxy, say): never recorded (HC14).
   const part = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
   const egress = `${part({ alg: "ES256", typ: "nylorun-egress+jwt" })}.${part({ sub: "env" })}.${"s".repeat(64)}`;

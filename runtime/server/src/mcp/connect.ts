@@ -43,6 +43,12 @@ export interface McpCallOptions extends McpRequestOptions {
    * joins it (F4.1), and the server gets it in `_meta` (R5.5).
    */
   readonly key?: string;
+  /**
+   * The call's span context (R7.4), sent as the `traceparent` header on the call's requests where
+   * this process holds the connection. A client of the gates service leaves it out: the gate reads
+   * it from the call's journal row.
+   */
+  readonly traceparent?: string;
 }
 
 /** A page of `tools/list`, as the MCP SDK returns it. */
@@ -255,18 +261,21 @@ interface Tracker {
   tooLarge?: boolean;
   /** A tool call's: aborted when its answer is lost or too large, so the call ends now. */
   readonly calling?: AbortController;
+  /** A tool call's span context (R7.4), sent as `traceparent` on its requests. */
+  readonly traceparent?: string;
   settled: boolean;
 }
 
 /** The operation a request of the transport's fetch belongs to. */
 const tracking = new AsyncLocalStorage<Tracker>();
 
-function tracked<T>(call: boolean, run: (tracker: Tracker) => Promise<T>): Promise<T> {
+function tracked<T>(call: boolean, run: (tracker: Tracker) => Promise<T>, traceparent?: string): Promise<T> {
   const tracker: Tracker = {
     secrets: new Set(),
     sent: false,
     settled: false,
     ...(call ? { calling: new AbortController() } : {}),
+    ...(traceparent ? { traceparent } : {}),
   };
   return tracking.run(tracker, () => run(tracker));
 }
@@ -317,7 +326,7 @@ export function sdkClient(client: Client, serverName: string): McpClient {
         } finally {
           tracker.settled = true;
         }
-      }),
+      }, options?.traceparent),
   };
 }
 
@@ -509,6 +518,7 @@ export async function callMcpTool(
       {
         ...(options.key === undefined ? {} : { key: options.key }),
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.traceparent === undefined ? {} : { traceparent: options.traceparent }),
       },
     );
   } catch (error) {
@@ -638,6 +648,8 @@ function authorizedFetch(
     if (result.status === "authorized")
       for (const [key, value] of Object.entries(result.headers)) headers.set(key, value);
     const tracker = tracking.getStore();
+    // The tool call's span (R7.4): per request, so a pooled connection carries each call's own.
+    if (tracker?.traceparent) headers.set("traceparent", tracker.traceparent);
     if (tracker && result.status === "authorized")
       for (const secret of credentialSecrets(result.headers, result.identity)) tracker.secrets.add(secret);
     const post = (init?.method ?? "GET").toUpperCase() === "POST";

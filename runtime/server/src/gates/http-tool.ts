@@ -85,6 +85,11 @@ export interface HttpToolCall {
   readonly effectId: string;
   readonly turnId: string;
   readonly input: unknown;
+  /**
+   * The call's span context (R7.4), sent as `traceparent`: in the gates service, from the call's
+   * journal row (`gates/journal.ts`); in process, from core's `execute` answer. Never a body field.
+   */
+  readonly traceparent?: string;
 }
 
 /** What `runHttpTool` reads of the Tenant: the session's pinned manifest and its credentials. */
@@ -281,6 +286,7 @@ export async function runHttpTool(
         [TURN_ID_HEADER]: call.turnId,
         [AGENT_ID_HEADER]: agentId ?? (session.manifest as AgentManifest).id,
         "idempotency-key": call.effectId,
+        ...(call.traceparent ? { traceparent: call.traceparent } : {}),
       },
       policy: options.policy,
       signal: options.signal,

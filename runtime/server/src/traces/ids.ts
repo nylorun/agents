@@ -92,3 +92,18 @@ export function traceContextOf(headers: {
 export function traceparentOf(traceId: string, spanId: string): string {
   return `00-${traceId}-${spanId}-01`;
 }
+
+/**
+ * The trace id of turn `turnId`: the one its message arrived with (`inbound`, R7.4), else
+ * derived. The same as `turnTraceOf` reads from the turn's `command.message`.
+ */
+export function turnTraceIdOf(
+  key: TraceKey,
+  ids: { tenantId: string; sessionId: string; turnId: string },
+  inbound?: { readonly traceparent: string },
+): string {
+  return (
+    (inbound ? parseTraceparent(inbound.traceparent)?.traceId : undefined) ??
+    traceIdOf(key, ids.tenantId, ids.sessionId, ids.turnId)
+  );
+}

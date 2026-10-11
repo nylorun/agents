@@ -10,7 +10,8 @@ import { z } from "zod";
 import { EventSchemas, MessageSchema, RunAgentInputSchema } from "@ag-ui/core/schemas";
 import type { TenantEnv } from "../http/app.js";
 import { readJson } from "../http/body.js";
-import { tenantRoute, type RouteAccess } from "../http/define.js";
+import { TraceHeaders, tenantRoute, type RouteAccess } from "../http/define.js";
+import { traceContextOf } from "../../traces/ids.js";
 import { jsonResponse } from "../http/respond.js";
 import { agUiCaller, cancelRun, reattachRun, startRun, threadMessages } from "./routes.js";
 import { sessionIdFor } from "./session-id.js";
@@ -73,6 +74,7 @@ export function agUiRoutes(api: OpenAPIHono<TenantEnv>): void {
           required: true,
           content: { "application/json": { schema: ref("AgUiRunAgentInput") } },
         },
+        headers: TraceHeaders,
       },
       responses: { 200: events("The run's events, from RUN_STARTED to its end") },
     },
@@ -85,6 +87,7 @@ export function agUiRoutes(api: OpenAPIHono<TenantEnv>): void {
         { subject, access },
         await readJson(c.req.raw),
         c.env.outgoing,
+        traceContextOf(c.req.raw.headers),
       );
       return RESPONSE_ALREADY_SENT;
     },

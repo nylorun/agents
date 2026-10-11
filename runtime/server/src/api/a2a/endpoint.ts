@@ -7,7 +7,8 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import type { TenantEnv } from "../http/app.js";
 import { readText } from "../http/body.js";
-import { tenantRoute } from "../http/define.js";
+import { TraceHeaders, tenantRoute } from "../http/define.js";
+import { traceContextOf } from "../../traces/ids.js";
 import { jsonResponse } from "../http/respond.js";
 import { a2aCall, a2aCard } from "./routes.js";
 
@@ -83,6 +84,7 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
           "A2A-Version": z.string().optional().meta({ description: "Or the `A2A-Version` header: `1.0`" }),
         }),
         body: { required: true, content: { "application/json": { schema: JsonRpcRequest } } },
+        headers: TraceHeaders,
       },
       responses: {
         200: {
@@ -94,6 +96,7 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const scope = c.get("scope");
       const version = c.env.incoming.headers["a2a-version"];
+      const trace = traceContextOf(c.req.raw.headers);
       return jsonResponse(
         200,
         await a2aCall(
@@ -103,6 +106,7 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
           {
             body: () => readText(c.req.raw),
             version: typeof version === "string" ? version : (c.req.query("A2A-Version") ?? null),
+            ...(trace ? { trace } : {}),
           },
           c.env.outgoing,
         ),

@@ -21,7 +21,12 @@ const serverHeaders = {
 
 interface Probe {
   url: string;
-  requests: { method?: string; authorization?: string | null; toolset?: string | null }[];
+  requests: {
+    method?: string;
+    authorization?: string | null;
+    toolset?: string | null;
+    traceparent?: string | null;
+  }[];
   failCalls: boolean;
   close(): Promise<void>;
   addTool(name: string): void;
@@ -59,7 +64,7 @@ async function probe(options: {
       return;
     }
     const body = await readBody(req);
-    requests.push({ method: body?.method, authorization, toolset });
+    requests.push({ method: body?.method, authorization, toolset, traceparent: header(req, "traceparent") });
     if (options.requiredToken && authorization !== `Bearer ${options.requiredToken}`) {
       res.writeHead(401);
       res.end();
@@ -278,8 +283,12 @@ it("discovers a remote MCP server with a bearer and calls it from the Runtime", 
       expect.objectContaining({
         authorization: `Bearer ${TOKEN}`,
         toolset: "issues",
+        // The call's span context (R7.4), on the call's own request only.
+        traceparent: expect.stringMatching(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/),
       }),
     ]);
+    for (const request of remote.requests.filter((item) => item.method !== "tools/call"))
+      expect(request.traceparent).toBeNull();
     // The Runtime made the call itself: the log has its result and no action.* events.
     const history = await (
       await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers: serverHeaders })

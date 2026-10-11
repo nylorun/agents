@@ -26,6 +26,14 @@ import {
 import { usesFixtureModel } from "../tenant/model-setting.js";
 import { sessionToolsOf, turnManifestOf } from "../tenant/session.js";
 import { bulkOutcomes } from "./record.js";
+import { traceKey } from "../traces/key.js";
+import {
+  traceparentOf,
+  turnSpanOf,
+  turnTraceIdOf,
+  type TraceContext,
+  type TraceKey,
+} from "../traces/ids.js";
 
 /** Segment rollover defaults (Model Calls §10), well inside the advance deadline. */
 const ROLLOVER_STEPS = 50;
@@ -52,6 +60,8 @@ export interface SegmentStart {
    * whether its new volume is still being seeded from a disk version (R2d step 3).
    */
   readonly pod?: { readonly id: string; readonly pod: SandboxPodState; readonly seeding?: boolean };
+  /** The turn's span context (R7.4): what `TurnStart.trace` hands the harness. */
+  readonly trace?: TraceContext;
 }
 
 /** The segment's starting transaction and fold. */
@@ -62,6 +72,8 @@ export async function startSegment(
   options: { harness?: boolean } = {}
 ): Promise<SegmentStart> {
   const id = lease.sessionId;
+  // Read before the transaction: the first read of the Tenant may create the key.
+  const key = options.harness ? await traceKey(ctx.store) : undefined;
   const started = await ownedTx<Omit<SegmentStart, "transcript" | "cursor">, Session>(
     ctx.store,
     id,
@@ -81,11 +93,13 @@ export async function startSegment(
       const resource = workspace.environmentId === undefined ? undefined : await t.environment(workspace.environmentId);
       const environment = await ctx.vault.environmentVariables(t, current.environmentId);
       const sandbox = Object.keys(environment).length > 0 ? { ...workspace, environment } : workspace;
+      const turnId = current.activeTurnId;
       return {
         current,
         fixtureModel,
         outcomes: current.checkpoint ? await bulkOutcomes(t, current, current.checkpoint) : [],
         sandbox,
+        ...(key && turnId ? { trace: turnContextOf(key, ctx.store.tenantId, current, turnId) } : {}),
         ...(resource?.pod
           ? { pod: { id: resource.id, pod: resource.pod, ...(resource.diskSeed ? { seeding: true } : {}) } }
           : {}),
@@ -136,6 +150,25 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
       ...(current.mcpSnapshot ? { mcpSnapshot: current.mcpSnapshot } : {}),
       sandbox: segment.sandbox,
     },
+    ...(segment.trace ? { trace: segment.trace } : {}),
+  };
+}
+
+/**
+ * The context of turn `turnId`'s span (R7.4): its trace (the caller's when its message carried a
+ * `traceparent`) and its span, as the trace projector derives them, with the caller's
+ * `tracestate`.
+ */
+function turnContextOf(
+  key: TraceKey,
+  tenantId: string,
+  s: Pick<Session, "id" | "turnTrace">,
+  turnId: string,
+): TraceContext {
+  const traceId = turnTraceIdOf(key, { tenantId, sessionId: s.id, turnId }, s.turnTrace);
+  return {
+    traceparent: traceparentOf(traceId, turnSpanOf(key, turnId)),
+    ...(s.turnTrace?.tracestate ? { tracestate: s.turnTrace.tracestate } : {}),
   };
 }
 

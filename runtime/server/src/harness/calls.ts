@@ -148,7 +148,9 @@ export async function callMcpTool(
   mcp: McpPool,
   routing: ToolRouting,
   request: HostEffect,
-  signal: AbortSignal
+  signal: AbortSignal,
+  /** The call's span context (R7.4), sent as `traceparent` where this process holds the connection. */
+  traceparent?: string
 ): Promise<unknown> {
   const tool = mcpToolOf(routing.mcpSnapshot, request);
   if (!tool)
@@ -162,6 +164,7 @@ export async function callMcpTool(
     args: request.input,
     manifest: routing.rootManifest,
     effectId: request.effectId,
+    ...(traceparent ? { traceparent } : {}),
     signal,
   });
 }
@@ -174,11 +177,19 @@ export async function callMcpTool(
 export async function callHttpTool(
   gate: Pick<ToolGate, "callHttp">,
   request: HostEffect,
-  signal: AbortSignal
+  signal: AbortSignal,
+  /** The call's span context (R7.4); the gates service reads its own from the journal. */
+  traceparent?: string
 ): Promise<unknown> {
   if (!gate.callHttp) throw new Error("This Runtime has no Tool Gate for HTTP tools");
   return gate.callHttp(
-    { tool: httpToolRefOf(request), effectId: request.effectId, turnId: request.turnId, input: request.input },
+    {
+      tool: httpToolRefOf(request),
+      effectId: request.effectId,
+      turnId: request.turnId,
+      input: request.input,
+      ...(traceparent ? { traceparent } : {}),
+    },
     signal
   );
 }
