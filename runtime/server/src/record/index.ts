@@ -10,8 +10,8 @@ export { buildEvent, InvalidEventError, type EventInput } from "./envelope.js";
 export { decodeCursor, encodeCursor } from "./cursor.js";
 export { appendEvent, type AppendInput, type RecordWriter } from "./append.js";
 export {
-  appendSandboxEvent,
-  buildSandboxEvent,
-  type SandboxAppendInput,
-  type SandboxRecordWriter,
-} from "./sandbox.js";
+  appendEnvironmentEvent,
+  buildEnvironmentEvent,
+  type EnvironmentAppendInput,
+  type EnvironmentRecordWriter,
+} from "./environment.js";

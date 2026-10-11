@@ -1,11 +1,9 @@
 /**
- * Shared sandboxes: one sandbox per owning session, attached via PutSession.sandbox =
- * { session }; keys use the owner id. A sandbox is either declared by the definition (an agent
- * capability or a workflow's `sandbox`) or chosen when the session was opened and pinned on the
- * session record (`sandbox`).
+ * A session's sandbox: the one of the Environment it names (protocol 11), whose id keys the
+ * workspace, with the spec pinned when the session was opened (`Session.sandbox`). Definitions
+ * no longer declare one (Sandboxes v3); `sandboxSpecOf` still reads a pinned manifest's.
  */
 import {
-  canonical,
   type AgentManifest,
   type CapabilityManifest,
   type SandboxManifest,
@@ -16,11 +14,9 @@ export type SessionSandboxRef = {
   readonly id: string;
   readonly ownerUserId: string;
   readonly manifest: AgentManifest | WorkflowManifest | Record<string, unknown>;
-  /** Session whose id keys the sandbox. Absent means this session owns its own. */
-  readonly sandboxOwnerId?: string | null;
-  /** The sandbox resource the session is attached to; its id keys the workspace. */
-  readonly sandboxId?: string;
-  /** The sandbox chosen when the session was opened (or inherited from its owner), resolved. */
+  /** The Environment the session names; its id keys the workspace. */
+  readonly environmentId?: string;
+  /** The Environment's sandbox spec, pinned when the session was opened. */
   readonly sandbox?: SandboxManifest;
 };
 
@@ -70,15 +66,6 @@ export function declaredSandboxes(manifest: unknown, into: string[] = []): strin
   return into;
 }
 
-export function sandboxSpecsEqual(
-  a: SandboxManifest | undefined,
-  b: SandboxManifest | undefined
-): boolean {
-  if (a === undefined && b === undefined) return true;
-  if (a === undefined || b === undefined) return false;
-  return canonical(a) === canonical(b);
-}
-
 /** Synthetic capability so SandboxManager.run can use a workflow (or shared) spec. */
 export function capabilityForSandbox(sandbox: SandboxManifest): CapabilityManifest {
   return {
@@ -90,44 +77,17 @@ export function capabilityForSandbox(sandbox: SandboxManifest): CapabilityManife
 }
 
 /**
- * Resolve the session id that keys the sandbox. Walks one hop via sandboxOwnerId;
- * cycles fall back to the starting session.
- */
-export function owningSandboxSessionId(
-  session: SessionSandboxRef,
-  lookup: (id: string) => SessionSandboxRef | undefined
-): string {
-  const seen = new Set<string>();
-  let current: SessionSandboxRef | undefined = session;
-  while (current) {
-    if (seen.has(current.id)) return session.id;
-    seen.add(current.id);
-    const ownerId = current.sandboxOwnerId;
-    if (!ownerId || ownerId === current.id) return current.id;
-    current = lookup(ownerId);
-  }
-  return session.id;
-}
-
-/**
- * The workspace a session's sandbox tools run in: the owning session (one hop through
- * `sandboxOwnerId`, whose log records the workspace's events) and, when that session is
- * attached to a sandbox resource, the resource's id, which keys the workspace.
+ * The workspace a session's sandbox tools run in: the session, whose log records the
+ * workspace's events, and its Environment, whose id keys the workspace.
  */
 export function sandboxWorkspaceOf(
   session: SessionSandboxRef,
-  lookup: (id: string) => SessionSandboxRef | undefined
-): { readonly ownerId: string; readonly sandboxId?: string } {
-  const ownerId = owningSandboxSessionId(session, lookup);
-  const owner = ownerId === session.id ? session : lookup(ownerId) ?? session;
-  return owner.sandboxId === undefined ? { ownerId } : { ownerId, sandboxId: owner.sandboxId };
+): { readonly ownerId: string; readonly environmentId?: string } {
+  return session.environmentId === undefined
+    ? { ownerId: session.id }
+    : { ownerId: session.id, environmentId: session.environmentId };
 }
 
-export function sessionHasSandbox(
-  session: SessionSandboxRef,
-  lookup: (id: string) => SessionSandboxRef | undefined
-): boolean {
-  const ownerId = owningSandboxSessionId(session, lookup);
-  const owner = ownerId === session.id ? session : lookup(ownerId) ?? session;
-  return sessionSandboxSpec(owner) !== undefined || sessionSandboxSpec(session) !== undefined;
+export function sessionHasSandbox(session: SessionSandboxRef): boolean {
+  return sessionSandboxSpec(session) !== undefined;
 }

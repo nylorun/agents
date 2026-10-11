@@ -83,7 +83,7 @@ export type AdvanceResult =
   | { status: "busy"; retryAfterMs: number };
 
 /** A pod sandbox's timers. */
-export type SandboxTimer = "idle" | "ttl";
+export type SandboxTimer = "idle";
 
 /**
  * What `DurableExecution.sandbox` asks for: a reconcile, or a timer. A reconcile's `key` merges

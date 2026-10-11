@@ -1,7 +1,7 @@
 /**
  * A remote MCP server's tools before an agent names it (`POST /v1/tenant/mcp/preview`, R2b C12,
  * the Management API): a management key (or Studio's key, acting as itself), as the vault routes
- * take. The keys service runs it (`Keys.previewMcp`), since it sends an installation vault's
+ * take. The keys service runs it (`Keys.previewMcp`), since it sends an Environment's
  * credential; this process never reads the plaintext.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -30,7 +30,7 @@ export function mcpRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["MCP servers"],
       summary: "Preview an MCP server's tools",
       description:
-        "Connects to the remote MCP server at `url` with the installation vault's credential for that URL (its headers and `via`; never an identity header), under the Host's address policy, lists its tools within 15 s and closes the connection. It never calls a tool. Each tool comes with the name the model would call it (`modelName`, made with `name`), its annotations and its input schema's size. A server that answers `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any: it needs a person's sign-in, so reach it through a gateway (`via`), or with a key. No credential value is in the answer.",
+        "Connects to the remote MCP server at `url` with the credential for that URL in the vault of `environmentId`, if given (its headers and `via`; never an identity header), under the Host's address policy, lists its tools within 15 s and closes the connection. It never calls a tool. Each tool comes with the name the model would call it (`modelName`, made with `name`), its annotations and its input schema's size. A server that answers `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any: it needs a person's sign-in, so reach it through a gateway (`via`), or with a key. No credential value is in the answer.",
       request: {
         body: { required: true, content: { "application/json": { schema: McpPreviewRequest } } },
       },
@@ -38,7 +38,7 @@ export function mcpRoutes(api: OpenAPIHono<TenantEnv>): void {
         200: json(McpPreview, "The server's tools, or that it needs a credential (`authRequired`)"),
         409: json(
           Rejected,
-          "Several installation vaults hold a credential for the URL (name one with `vaultId`), or the one there cannot be used",
+          "The Environment's credential for the URL cannot be used",
         ),
         502: json(
           Rejected,

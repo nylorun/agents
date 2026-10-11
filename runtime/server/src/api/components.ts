@@ -14,7 +14,7 @@ import {
   SessionUsageTotalsSchema,
   ModelCallsPageSchema,
   ModelCallExportPageSchema,
-  SandboxPageSchema,
+  EnvironmentPageSchema,
   JwksSchema,
   SigningKeyListSchema,
   SigningKeyViewSchema,
@@ -31,18 +31,14 @@ import {
   ModelUsageTotalsSchema,
   ModelBudgetsSchema,
   PutModelBudgetsRequestSchema,
-  PutTenantSandboxRequestSchema,
+  PutTenantEnvironmentsRequestSchema,
   ListProvidersResponseSchema,
   HostModelViewSchema,
   PutHostModelRequestSchema,
   SelectHostModelRequestSchema,
-  CreateVaultRequestSchema,
-  VaultInfoSchema,
-  ListVaultsResponseSchema,
-  CreateCredentialRequestSchema,
-  CredentialInfoSchema,
-  ListCredentialsResponseSchema,
-  RotateCredentialRequestSchema,
+  PutEnvironmentSecretRequestSchema,
+  EnvironmentSecretViewSchema,
+  ListEnvironmentSecretsResponseSchema,
   McpPreviewRequestSchema,
   McpPreviewSchema,
   CredentialCoverageRequestSchema,
@@ -60,11 +56,11 @@ import {
   StreamClosedFrameSchema,
   AcceptedResponseSchema,
   SandboxToolOutcomeSchema,
-  PutSandboxRequestSchema,
-  SandboxViewSchema,
-  ListSandboxesResponseSchema,
-  DeleteSandboxResponseSchema,
-  ListSandboxEventsResponseSchema,
+  PutEnvironmentRequestSchema,
+  EnvironmentViewSchema,
+  ListEnvironmentsResponseSchema,
+  DeleteEnvironmentResponseSchema,
+  ListEnvironmentEventsResponseSchema,
   ArtifactViewSchema,
   ArtifactVersionViewSchema,
   ListArtifactsResponseSchema,
@@ -107,13 +103,13 @@ export const DeleteOperatorKeyResponse = named(
 );
 
 export const SandboxToolOutcome = named("SandboxToolOutcome", SandboxToolOutcomeSchema);
-export const PutSandboxRequest = named("PutSandboxRequest", PutSandboxRequestSchema);
-export const SandboxView = named("SandboxView", SandboxViewSchema);
-export const ListSandboxesResponse = named("ListSandboxesResponse", ListSandboxesResponseSchema);
-export const DeleteSandboxResponse = named("DeleteSandboxResponse", DeleteSandboxResponseSchema);
-export const ListSandboxEventsResponse = named(
-  "ListSandboxEventsResponse",
-  ListSandboxEventsResponseSchema,
+export const PutEnvironmentRequest = named("PutEnvironmentRequest", PutEnvironmentRequestSchema);
+export const EnvironmentView = named("EnvironmentView", EnvironmentViewSchema);
+export const ListEnvironmentsResponse = named("ListEnvironmentsResponse", ListEnvironmentsResponseSchema);
+export const DeleteEnvironmentResponse = named("DeleteEnvironmentResponse", DeleteEnvironmentResponseSchema);
+export const ListEnvironmentEventsResponse = named(
+  "ListEnvironmentEventsResponse",
+  ListEnvironmentEventsResponseSchema,
 );
 export const ArtifactVersionView = named("ArtifactVersionView", ArtifactVersionViewSchema);
 export const ArtifactView = named("ArtifactView", ArtifactViewSchema);
@@ -148,7 +144,7 @@ export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSch
 export const SessionView = named("SessionView", SessionViewSchema);
 export const LiveEvent = named("LiveEvent", LiveEventSchema);
 
-/** `sandbox.state` → `SandboxStateEvent`. */
+/** `environment.state` → `EnvironmentStateEvent`. */
 export function eventComponentName(type: EventType): string {
   return `${type
     .split(/[._]/)
@@ -182,18 +178,17 @@ export const TenantSandboxView = named("TenantSandboxView", TenantSandboxViewSch
 export const ModelUsageTotals = named("ModelUsageTotals", ModelUsageTotalsSchema);
 export const ModelBudgets = named("ModelBudgets", ModelBudgetsSchema);
 export const PutModelBudgetsRequest = named("PutModelBudgetsRequest", PutModelBudgetsRequestSchema);
-export const PutTenantSandboxRequest = named("PutTenantSandboxRequest", PutTenantSandboxRequestSchema);
+export const PutTenantEnvironmentsRequest = named("PutTenantEnvironmentsRequest", PutTenantEnvironmentsRequestSchema);
 export const ListProvidersResponse = named("ListProvidersResponse", ListProvidersResponseSchema);
 export const HostModelView = named("HostModelView", HostModelViewSchema);
 export const PutHostModelRequest = named("PutHostModelRequest", PutHostModelRequestSchema);
 export const SelectHostModelRequest = named("SelectHostModelRequest", SelectHostModelRequestSchema);
-export const CreateVaultRequest = named("CreateVaultRequest", CreateVaultRequestSchema);
-export const VaultInfo = named("VaultInfo", VaultInfoSchema);
-export const ListVaultsResponse = named("ListVaultsResponse", ListVaultsResponseSchema);
-export const CreateCredentialRequest = named("CreateCredentialRequest", CreateCredentialRequestSchema);
-export const CredentialInfo = named("CredentialInfo", CredentialInfoSchema);
-export const ListCredentialsResponse = named("ListCredentialsResponse", ListCredentialsResponseSchema);
-export const RotateCredentialRequest = named("RotateCredentialRequest", RotateCredentialRequestSchema);
+export const PutEnvironmentSecretRequest = named("PutEnvironmentSecretRequest", PutEnvironmentSecretRequestSchema);
+export const EnvironmentSecretView = named("EnvironmentSecretView", EnvironmentSecretViewSchema);
+export const ListEnvironmentSecretsResponse = named(
+  "ListEnvironmentSecretsResponse",
+  ListEnvironmentSecretsResponseSchema,
+);
 export const DeletedResponse = named("DeletedResponse", DeletedResponseSchema);
 export const McpPreviewRequest = named("McpPreviewRequest", McpPreviewRequestSchema);
 export const McpPreview = named("McpPreview", McpPreviewSchema);
@@ -216,5 +211,8 @@ export const HistoryPage = named("HistoryPage", HistoryPageSchema.extend({ items
 export const SessionUsageTotals = named("SessionUsageTotals", SessionUsageTotalsSchema);
 export const ModelCallsPage = named("ModelCallsPage", ModelCallsPageSchema.extend({ calls: z.array(ModelCall) }));
 export const ModelCallExportPage = named("ModelCallExportPage", ModelCallExportPageSchema.extend({ calls: z.array(ModelCall) }));
-export const SandboxPage = named("SandboxPage", SandboxPageSchema.extend({ sandboxes: z.array(SandboxView) }));
+export const EnvironmentPage = named(
+  "EnvironmentPage",
+  EnvironmentPageSchema.extend({ environments: z.array(EnvironmentView) }),
+);
 export const MeResponse = named("MeResponse", MeResponseSchema);

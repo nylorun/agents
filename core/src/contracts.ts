@@ -2825,6 +2825,11 @@ export const SessionViewSchema = z
       .object({ id: z.string(), version: z.number().int().positive() })
       .strict()
       .nullable(),
+    /**
+     * Why the session takes no new turn, when it is closed: `protocol_11` for a session opened
+     * before protocol 11 (a new turn is `409 session_closed`; its history stays readable).
+     */
+    closedReason: z.string().optional(),
     mcpSnapshot: z.record(z.string(), z.unknown()).nullable(),
     mcpDiagnostics: z.array(z.record(z.string(), z.unknown())),
     /** What the session waits on: interactions, approvals, timers. */

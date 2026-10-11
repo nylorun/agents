@@ -17,11 +17,12 @@
 import { randomBytes } from "node:crypto";
 import type { SandboxPodPatch } from "../../store/types.js";
 import type { TenantContext } from "../../tenant/context.js";
-import { readSandboxConfig } from "../tenant-config.js";
+import { effectiveSandboxConfig, readSandboxConfig } from "../tenant-config.js";
+import { podSandboxSpecOf } from "../resolve.js";
 import { sha256Hex } from "../join.js";
 import type { PodStatus } from "./client.js";
 import { decide, type PodRow, type PodTimer, type PodTrigger } from "./lifecycle.js";
-import { podLifecycleConfig, podSpecOf, type PodSandboxSpec } from "./spec.js";
+import { podLifecycleConfig, podSpecOf } from "./spec.js";
 
 /** What a reconcile asks of the `Sandbox` object next. */
 export interface SandboxReconcileResult {
@@ -37,10 +38,10 @@ export async function reconcileSandbox(
   const pods = ctx.pods;
   if (!pods || ctx.closed) return {};
   const read = await ctx.store.tx(async (t) => {
-    const row = await t.sandboxResource(sandboxId);
+    const row = await t.environment(sandboxId);
     if (!row || row.kind !== "pod" || !row.pod) return undefined;
     const config = await readSandboxConfig(t);
-    const busy = (await t.sessionsOnSandbox(sandboxId)).some(
+    const busy = (await t.sessionsOnEnvironment(sandboxId)).some(
       (session) => (session as { activeTurnId?: string | null }).activeTurnId != null,
     );
     return { row: row as PodRow, config, busy };
@@ -59,7 +60,7 @@ export async function reconcileSandbox(
       return undefined;
     }
   };
-  const lifecycle = podLifecycleConfig(config);
+  const lifecycle = podLifecycleConfig(config, row.recipe);
   const decision = decide({
     row,
     config: lifecycle,
@@ -83,9 +84,9 @@ export async function reconcileSandbox(
     joinToken = randomBytes(32).toString("base64url");
     rev += 1;
     const recorded = await ctx.store.tx(async (t) => {
-      const current = await t.sandboxResource(sandboxId, { lock: true });
+      const current = await t.environment(sandboxId, { lock: true });
       if (!unchanged(current?.pod)) return false;
-      await t.updateSandboxPod(
+      await t.updateEnvironmentPod(
         sandboxId,
         { joinTokenHash: sha256Hex(joinToken!), rev },
         new Date().toISOString(),
@@ -111,8 +112,8 @@ export async function reconcileSandbox(
   }
   if (decision.apply) {
     const spec = podSpecOf({
-      sandboxId,
-      spec: row.spec as PodSandboxSpec,
+      environmentId: sandboxId,
+      spec: podSandboxSpecOf(row.applied, effectiveSandboxConfig(config).limits.idle),
       pod: { ...row.pod, rev },
       config,
       mode: decision.apply.mode,
@@ -133,11 +134,11 @@ export async function reconcileSandbox(
   }
 
   const written = await ctx.store.tx(async (t) => {
-    const current = await t.sandboxResource(sandboxId, { lock: true });
+    const current = await t.environment(sandboxId, { lock: true });
     if (!current?.pod) return { kind: "gone" as const };
     if (!unchanged(current.pod)) return { kind: "changed" as const };
     if (decision.removeRow) {
-      await t.deleteSandboxResource(sandboxId);
+      await t.deleteEnvironment(sandboxId);
       return { kind: "removed" as const };
     }
     const epochMoved = patch.hostEpoch !== undefined && patch.hostEpoch !== null;
@@ -146,8 +147,8 @@ export async function reconcileSandbox(
       ...(epochMoved ? { hostEpoch: current.pod.hostEpoch + 1 } : {}),
     };
     if (Object.keys(finalPatch).length > 0)
-      await t.updateSandboxPod(sandboxId, finalPatch, new Date().toISOString());
-    for (const item of decision.events) await t.sandboxEvent(sandboxId, item.type, item.payload as never);
+      await t.updateEnvironmentPod(sandboxId, finalPatch, new Date().toISOString());
+    for (const item of decision.events) await t.environmentEvent(sandboxId, item.type, item.payload as never);
     if (epochMoved) await t.signal({ type: "host.revoked", sandboxId, epoch: finalPatch.hostEpoch! });
     return { kind: "written" as const };
   });

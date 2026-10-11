@@ -14,14 +14,14 @@ import { declaredRoute, pathSegments, routeNotFound, type RouteAccess } from "./
 import { jsonResponse, rejectionOf } from "./respond.js";
 import { accessRoutes } from "./routes/access.js";
 import { meRoutes } from "./routes/me.js";
-import { sandboxRoutes } from "./routes/sandboxes.js";
+import { environmentRoutes } from "./routes/environments.js";
 import { artifactRoutes } from "./routes/artifacts.js";
 import { readRoutes } from "./routes/reads.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { fileRoutes } from "./routes/files.js";
 import { keyRoutes } from "./routes/keys.js";
 import { tenantRoutes } from "./routes/tenant.js";
-import { vaultRoutes } from "./routes/vaults.js";
+import { coverageRoutes } from "./routes/coverage.js";
 import { mcpRoutes } from "./routes/mcp.js";
 
 export type TenantBindings = NodeBindings & { readonly tenant: TenantContext };
@@ -64,11 +64,11 @@ function build(): OpenAPIHono<TenantEnv> {
   });
   sessionRoutes(api);
   fileRoutes(api);
-  sandboxRoutes(api);
+  environmentRoutes(api);
   artifactRoutes(api);
   tenantRoutes(api);
   keyRoutes(api);
-  vaultRoutes(api);
+  coverageRoutes(api);
   mcpRoutes(api);
   accessRoutes(api);
   meRoutes(api);

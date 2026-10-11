@@ -36,16 +36,11 @@ import type { AuthorizeResult } from "../vault/service.js";
 import { sessionCredentials, type McpCredentialRequest } from "../vault/sources.js";
 import { isRemoteMcpCall } from "../harness/calls.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
-import {
-  owningSandboxSessionId,
-  sandboxSpecOf,
-  sessionSandboxSpec,
-} from "../sandbox/share.js";
+import { sandboxSpecOf } from "../sandbox/share.js";
 import { withPlatformTools, withSandboxCapability } from "../sandbox/session-sandbox.js";
 import {
   loadSession,
   ownedSession,
-  sandboxLookup,
   sessionOf,
   type Lease,
   type Session,
@@ -224,16 +219,8 @@ export async function resolveNewFlowEffect(
     await ownedSession(t, lease, workflow.id);
     if (exists) return;
     const definition = leafDefinition(workflow, body, request);
-    const lookup = await sandboxLookup(t, workflow.sandboxOwnerId);
-    const sandboxOwnerId =
-      sessionSandboxSpec(workflow) || workflow.sandboxOwnerId
-        ? owningSandboxSessionId(workflow, lookup)
-        : undefined;
-    // A sandbox chosen when the tree was opened reaches every agent in it, with its tools.
-    const inherited = inheritedSandbox(
-      sandboxOwnerId === undefined ? undefined : lookup(sandboxOwnerId) ?? workflow,
-      definition
-    );
+    // The tree's Environment reaches every agent in it: its sandbox, with its tools, and its vault.
+    const inherited = inheritedSandbox(workflow, definition);
     // Without one, an agent with MCP or HTTP tools still reads its stored results (R2b C11).
     const pinned = inherited?.manifest ? inherited : platformTools(definition.manifest);
     const created: Session = {
@@ -250,14 +237,18 @@ export async function resolveNewFlowEffect(
         requestId: `flow-put-${request.effectId}`,
         agentId: body.agentId,
         ownerUserId: workflow.ownerUserId,
-        ...(sandboxOwnerId ? { sandbox: { session: sandboxOwnerId } } : {}),
+        ...(workflow.environmentId === undefined ? {} : { environment: workflow.environmentId }),
       },
-      vaultIds: workflow.vaultIds,
-      credentialSelections: workflow.credentialSelections,
-      ...(sandboxOwnerId ? { sandboxOwnerId } : {}),
-      ...(inherited
-        ? { sandbox: inherited.spec, sandboxSource: "shared" as const }
-        : {}),
+      flowRootId: workflow.flowRootId ?? workflow.id,
+      ...(workflow.environmentId === undefined
+        ? {}
+        : {
+            environmentId: workflow.environmentId,
+            ...(workflow.environmentVersion === undefined
+              ? {}
+              : { environmentVersion: workflow.environmentVersion }),
+          }),
+      ...(inherited ? { sandbox: inherited.spec } : {}),
     };
     await t.put("sessions", agentSessionId, created);
   });
@@ -352,7 +343,7 @@ function platformTools(
 
 /**
  * The credential of an MCP server or HTTP tool request made on behalf of a session: from its
- * attached vaults (`vault/sources.ts`).
+ * Environment's vault (`vault/sources.ts`).
  */
 export async function authorize(
   ctx: TenantContext,

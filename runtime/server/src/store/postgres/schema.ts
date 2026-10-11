@@ -142,15 +142,15 @@ export const sessions = nylorun.table(
     ownerExpiresAt: timestamp({ withTimezone: true, mode: "date" }),
     /** The session owner (`ownerUserId`), not the lease column `owner`. */
     ownerUserId: field("->>'ownerUserId'"),
-    /** The sandbox resource the session is attached to (`sandbox: { id }`). */
-    sandboxId: field("->>'sandboxId'"),
+    /** The Environment the session names (`environment`, protocol 11). */
+    environmentId: field("->>'environmentId'"),
   },
   (t) => [
     index("sessions_created").on(t.createdAt.desc().nullsLast(), t.id.desc().nullsFirst()),
     index("sessions_status").on(t.status, t.ownerExpiresAt),
     index("sessions_agent").on(t.agentId),
     index("sessions_owner_user").on(t.ownerUserId),
-    index("sessions_sandbox").on(t.sandboxId),
+    index("sessions_environment").on(t.environmentId),
   ],
 );
 
@@ -196,25 +196,93 @@ export const principals = nylorun.table("principals", {
   createdAt: text().notNull(),
 });
 
+/**
+ * An Environment (D55, protocol 11): its id, kind, labels, the recipe the app asked for and the
+ * recipe its compute runs (`applied`, copied from `recipe` when a stopped pod is asked to run),
+ * the owner guard, and when it was last used. Kind `pod` adds the pod's lifecycle columns.
+ * Sessions name it by id (the session body's `environmentId`). Not the `sandboxes` document
+ * table, which holds the virtual backend's compute records, keyed by workspace key.
+ */
+export const environments = nylorun.table(
+  "environments",
+  {
+    id: textC().primaryKey(),
+    kind: text({ enum: ["virtual", "pod", "none"] }).notNull(),
+    /** `{ key: value }`, filtered through `nylorun.doc(labels)`. */
+    labels: jsonText().notNull(),
+    /** What the app asked for (`EnvironmentRecipe`), resolved against the Tenant's limits. */
+    recipe: jsonText().notNull(),
+    /** The recipe the current pod or workspace runs. */
+    applied: jsonText().notNull(),
+    version: integer().notNull().default(1),
+    appliedVersion: integer().notNull().default(1),
+    /** The owner guard: only this owner's sessions may name the Environment. */
+    ownerUserId: text(),
+    /** A turn's end, a recipe change, a secret write, a stop or a reset (`lifecycle.deleteAfter`). */
+    lastUsedAt: timestamp({ withTimezone: true, mode: "string" }).notNull().defaultNow(),
+    createdAt: textC().notNull(),
+    updatedAt: textC().notNull(),
+    // Kind `pod` (F7.2, D34): null otherwise. `tenant/environments.ts` and the `Sandbox`
+    // object's reconcile (`sandbox/pods/reconcile.ts`) are the only writers.
+    /** The agent-sandbox Sandbox's name, `sbx-<16 base32>-g<volume_gen>` (`podName`). */
+    k8sName: textC(),
+    /** Bumped by every reset: a new Sandbox on a new volume. */
+    volumeGen: integer().notNull().default(0),
+    /** `running`, `suspended` or `deleted`. */
+    desired: text({ enum: ["running", "suspended", "deleted"] }),
+    /** `creating`, `running`, `suspended`, `lost`, `failed` or `deleting`. */
+    observed: text({ enum: ["creating", "running", "suspended", "lost", "failed", "deleting"] }),
+    /** The UID of the pod that last joined. */
+    podUid: text(),
+    /**
+     * Bumped by every join (`host.join`), relaunch, loss and reset: host and egress tokens carry
+     * it (`epc`), and one of an older epoch is refused (egress-gate reads it too).
+     */
+    hostEpoch: integer().notNull().default(0),
+    /** sha256 (hex) of the incarnation's join token; the token itself is never stored. */
+    joinTokenHash: text(),
+    /** Bumped by every change the Runtime asks of the pod: the sandboxes service's `opId`. */
+    rev: integer().notNull().default(0),
+    /** When a turn last ended on it, for the idle timer. */
+    lastActiveAt: timestamp({ withTimezone: true }),
+    /** When the current incarnation was asked to run, for the ready deadline. */
+    startedAt: timestamp({ withTimezone: true }),
+    /** Why it failed or was lost. */
+    reason: text(),
+    /** An earlier incarnation's Sandbox still to delete (after a reset or a loss). */
+    retiring: textC(),
+    /**
+     * The id the engine keeps on the volume (`/harness/volume-id`), recorded at the first join:
+     * a join with another one means the volume was replaced (its files are gone), so `lost`.
+     */
+    volumeId: text(),
+  },
+  (t) => [check("environments_kind_check", sql`${t.kind} IN ('virtual', 'pod', 'none')`)],
+);
+
+/**
+ * A vault (D56): the host model's (`id = 'host'`), or one Environment's, created and deleted with
+ * it (`environment_id`, unique, deleted with the Environment's row). No other vault exists.
+ */
 export const vaults = nylorun.table(
   "vaults",
   {
     id: textC().primaryKey(),
     name: text().notNull(),
-    ownerUserId: text().notNull(),
     /** JSON text, or null. */
     metadataJson: text(),
     createdAt: textC().notNull(),
-    /**
-     * `user`: one person's (owner `ownerUserId`); `installation`: the installation's own,
-     * attachable to any session (owner `installation`); `host`: the model vault, never attached.
-     */
-    scope: text({ enum: ["user", "installation", "host"] }).notNull().default("user"),
+    /** The Environment the vault belongs to; null only for the host vault. */
+    environmentId: textC(),
   },
   (t) => [
-    index("vaults_owner").on(t.ownerUserId, t.createdAt, t.id),
-    uniqueIndex("vaults_one_host").on(t.scope).where(sql`scope = 'host'`),
-    check("vaults_scope_check", sql`scope IN ('user', 'installation', 'host')`),
+    uniqueIndex("vaults_environment").on(t.environmentId),
+    foreignKey({
+      name: "vaults_environment_id_fkey",
+      columns: [t.environmentId],
+      foreignColumns: [environments.id],
+    }).onDelete("cascade"),
+    check("vaults_owner_check", sql`(${t.id} = 'host') = (${t.environmentId} IS NULL)`),
   ],
 );
 
@@ -243,6 +311,7 @@ export const vaultCredentials = nylorun.table(
       foreignColumns: [vaults.id],
     }).onDelete("cascade"),
     index("vault_credentials_vault").on(t.vaultId, t.createdAt, t.id),
+    uniqueIndex("vault_credentials_name").on(t.vaultId, t.name),
   ],
 );
 
@@ -388,61 +457,6 @@ export const toolCrossings = nylorun.table(
   },
   (t) => [index("tool_crossings_settled").on(t.settledAt)],
 );
-
-/**
- * A sandbox resource (blueprint D39, F7.1): its id, kind, the spec resolved against the
- * Tenant's limits when it was created, and the developer's labels. Sessions attach to it by id
- * (the session body's `sandboxId`). Not the `sandboxes` document table, which holds the virtual
- * backend's compute records, keyed by workspace key.
- */
-export const sandboxResources = nylorun.table("sandbox_resources", {
-  id: textC().primaryKey(),
-  kind: text({ enum: ["virtual", "pod"] }).notNull(),
-  /** The resolved `SandboxManifest`. */
-  spec: jsonText().notNull(),
-  /** `{ key: value }`, filtered through `nylorun.doc(labels)`. */
-  labels: jsonText().notNull(),
-  createdAt: textC().notNull(),
-  updatedAt: textC().notNull(),
-  // Kind `pod` (F7.2, D34): null for a virtual sandbox. `tenant/sandboxes.ts` and the
-  // `Sandbox` object's reconcile (`sandbox/pods/reconcile.ts`) are the only writers.
-  /** The agent-sandbox Sandbox's name, `sbx-<16 base32>-g<volume_gen>` (`podName`). */
-  k8sName: textC(),
-  /** Bumped by every reset: a new Sandbox on a new volume. */
-  volumeGen: integer().notNull().default(0),
-  /** `running`, `suspended` or `deleted`. */
-  desired: text({ enum: ["running", "suspended", "deleted"] }),
-  /** `creating`, `running`, `suspended`, `expired`, `lost`, `failed` or `deleting`. */
-  observed: text({
-    enum: ["creating", "running", "suspended", "expired", "lost", "failed", "deleting"],
-  }),
-  /** The UID of the pod that last joined. */
-  podUid: text(),
-  /**
-   * Bumped by every join (`host.join`), relaunch, loss and reset: host and egress tokens carry
-   * it (`epc`), and one of an older epoch is refused (egress-gate reads it too).
-   */
-  hostEpoch: integer().notNull().default(0),
-  /** sha256 (hex) of the incarnation's join token; the token itself is never stored. */
-  joinTokenHash: text(),
-  /** Bumped by every change the Runtime asks of the pod: the sandboxes service's `opId`. */
-  rev: integer().notNull().default(0),
-  /** When a turn last ended on it, for the idle timer. */
-  lastActiveAt: timestamp({ withTimezone: true }),
-  /** When its TTL passes (`createdAt + lifecycle.ttl`). */
-  expiresAt: timestamp({ withTimezone: true }),
-  /** When the current incarnation was asked to run, for the ready deadline. */
-  startedAt: timestamp({ withTimezone: true }),
-  /** Why it failed or was lost. */
-  reason: text(),
-  /** An earlier incarnation's Sandbox still to delete (after a reset or a loss). */
-  retiring: textC(),
-  /**
-   * The id the engine keeps on the volume (`/harness/volume-id`), recorded at the first join:
-   * a join with another one means the volume was replaced (its files are gone), so `lost`.
-   */
-  volumeId: text(),
-});
 
 /**
  * Artifacts (blueprint D35, F8.1 and F8.2): an id, a name and numbered versions. The bytes are in
@@ -641,19 +655,19 @@ export const sandboxSignals = nylorun.table(
 // nylorun_streams: the record
 
 /**
- * Each sandbox's lifecycle stream (`nylorun.sandbox-event/1`), numbered from 0 per sandbox id.
- * Written only by the record module; not published to the stream relay.
+ * Each Environment's lifecycle stream (`nylorun.environment-event/1`), numbered from 0 per
+ * Environment id. Written only by the record module; not published to the stream relay.
  */
-export const sandboxEvents = nylorunStreams.table(
-  "sandbox_events",
+export const environmentEvents = nylorunStreams.table(
+  "environment_events",
   {
-    sandboxId: textC().notNull(),
+    environmentId: textC().notNull(),
     seq: bigint({ mode: "number" }).notNull(),
     type: text().notNull(),
     body: jsonText().notNull(),
     committedAt: timestamp({ withTimezone: true, mode: "string" }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ name: "sandbox_events_pkey", columns: [t.sandboxId, t.seq] })],
+  (t) => [primaryKey({ name: "environment_events_pkey", columns: [t.environmentId, t.seq] })],
 );
 
 /** Each session's log head: the next seq and the basin generation its events go to. */
@@ -699,7 +713,7 @@ export type SigningKeyRow = typeof signingKeys.$inferSelect;
 export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
-export type SandboxResourceRow = typeof sandboxResources.$inferSelect;
+export type EnvironmentRowColumns = typeof environments.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;
 export type DefinitionFileRow = typeof definitionFiles.$inferSelect;

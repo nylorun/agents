@@ -43,7 +43,8 @@ export function rejectionOf(error: unknown): Rejection {
           (error as Error | undefined)?.message === "Invalid cursor"
         ? 400
         : 500;
-  const rejection = error instanceof HttpError ? error.rejection : {};
+  const rejection =
+    error instanceof HttpError || error instanceof VaultError ? error.rejection : {};
   return {
     status,
     body: {

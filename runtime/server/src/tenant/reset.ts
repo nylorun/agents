@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { ResetScope, SessionStore } from "../store/types.js";
 import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { TenantPaths } from "./types.js";
-import { detachAllSessions } from "./sandboxes.js";
+import { detachAllSessions } from "./environments.js";
 import type { BlobStore } from "../blob/index.js";
 import { contentKey } from "../artifacts/folders.js";
 
@@ -62,7 +62,7 @@ export async function resetTenant(
   scope: ResetScope,
 ): Promise<void> {
   const clearSessions = scope === "sessions" || scope === "all";
-  const clearSandboxes = scope === "sandboxes" || scope === "all";
+  const clearSandboxes = scope === "environments" || scope === "all";
   const clearAll = scope === "all";
 
   if (clearSandboxes) {
@@ -71,7 +71,7 @@ export async function resetTenant(
 
   // The artifacts the reset deletes: their rows go in its transaction, their bytes after it.
   const blobKeys = await ctx.store.tx(async (t) => {
-    // Sandbox resources outlive their sessions: a sessions reset only detaches them.
+    // Environments outlive their sessions: a sessions reset only detaches them.
     if (clearSessions && !clearSandboxes) await detachAllSessions(t);
     const scoped = clearAll ? "all" : "sessions";
     const keys = clearSessions ? await t.artifactBlobKeys(scoped) : [];

@@ -1,16 +1,17 @@
 /**
  * Placement (F7.2, D38): where a session's harness runs, checked when the session opens and
  * never downgraded afterwards. The Tenant maps harness ids (`nylorun`, or `*` for the rest) to
- * the hosts they may run on (`sandbox.config` `placement`): `harness-container` (the Runtime's
- * harness: in process, or the harness container) and `sandbox` (the engine in a pod sandbox).
+ * the hosts they may run on (`environments.config` `placement`): `harness-container` (the
+ * Runtime's harness: in process, or the harness container) and `sandbox` (the engine in a pod).
  * Default: both.
  *
- * A session attached to a pod sandbox runs on `sandbox`; every other session on
- * `harness-container`. A host the Tenant does not allow is `409 placement_refused`. A pod
- * sandbox needs sandbox pods: without a cluster (`nylorun sandbox enable`), or with the
- * sandboxes service not ready, it is `409 sandbox_unavailable`.
+ * A session on a pod Environment runs on `sandbox`; every other session (a virtual or `none`
+ * Environment, or none) on `harness-container` (D52). A host the Tenant does not allow is
+ * `409 placement_refused`. A pod Environment needs sandbox pods: without a cluster (`nylorun
+ * sandbox enable`), or with the sandboxes service not ready, it is `409 environment_unavailable`.
  */
-import type { SandboxPlacementHost, TenantSandboxConfig } from "@nylorun/core/contracts";
+import type { EnvironmentKind, PlacementHost as SandboxPlacementHost } from "@nylorun/core/contracts";
+import type { TenantSandboxConfig } from "./tenant-config.js";
 import type { TenantPods } from "../tenant/context.js";
 import { fail } from "../tenant/http.js";
 
@@ -32,7 +33,7 @@ export function placementOf(
 export const ENABLE_PODS = "run `nylorun sandbox enable --context <name>` to give this Tenant a cluster";
 
 /** Refuses a session whose sandbox needs a host the Tenant does not allow. */
-export function checkPlacement(config: TenantSandboxConfig, kind: "virtual" | "pod" | undefined): void {
+export function checkPlacement(config: TenantSandboxConfig, kind: EnvironmentKind | undefined): void {
   const host: SandboxPlacementHost = kind === "pod" ? "sandbox" : "harness-container";
   const allowed = placementOf(config);
   if (!allowed.includes(host))
@@ -40,7 +41,7 @@ export function checkPlacement(config: TenantSandboxConfig, kind: "virtual" | "p
       409,
       kind === "pod"
         ? `This Tenant does not let the ${HARNESS_ID} harness run in a sandbox pod (placement allows ${allowed.join(", ")}).`
-        : `This Tenant runs the ${HARNESS_ID} harness only in sandbox pods (placement allows ${allowed.join(", ")}): attach a pod sandbox with sandbox: { id }.`,
+        : `This Tenant runs the ${HARNESS_ID} harness only in sandbox pods (placement allows ${allowed.join(", ")}): open the session on a pod Environment.`,
       { code: "placement_refused", details: { harness: HARNESS_ID, host, allowed: [...allowed] } },
     );
 }
@@ -57,15 +58,15 @@ export async function podsReady(pods: TenantPods): Promise<boolean> {
   return answer;
 }
 
-/** Refuses a pod sandbox without sandbox pods, or with the sandboxes service down. */
+/** Refuses a pod Environment without sandbox pods, or with the sandboxes service down. */
 export async function requirePods(pods: TenantPods | undefined, what: string): Promise<TenantPods> {
   if (!pods)
     return fail(409, `${what} needs sandbox pods, and this Runtime has no cluster: ${ENABLE_PODS}.`, {
-      code: "sandbox_unavailable",
+      code: "environment_unavailable",
     });
   if (!(await podsReady(pods)))
     fail(409, `${what} needs sandbox pods, and the sandboxes service is not ready. Check \`nylorun sandbox status\`.`, {
-      code: "sandbox_unavailable",
+      code: "environment_unavailable",
       details: { retryAfterSeconds: 5 },
     }, { "retry-after": "5" });
   return pods;

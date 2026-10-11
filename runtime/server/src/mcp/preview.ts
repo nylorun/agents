@@ -3,14 +3,13 @@
  * `nylorun mcp inspect`, Studio's Credentials page). It runs where plaintext credentials live:
  * the keys service (`keys/keys.ts`, `previewMcp`), in the gateway or in process.
  *
- * One connection: `initialize` and `tools/list` with the installation vault's credential for the
+ * One connection: `initialize` and `tools/list` with the Environment's credential for the
  * URL (its headers, and its `via`), under the Host's address policy, within 15 s; then it closes.
  * It never calls a tool, and sends no identity header: no person asked. A server that answers
  * `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any,
  * read under the same policy. No credential value sent is in the answer (`scrubValues`, C8).
  */
 import {
-  INSTALLATION_OWNER,
   McpPreviewRequestSchema,
   type McpPreview,
   type McpPreviewRequest,
@@ -41,7 +40,7 @@ const RESOURCE_METADATA_MAX_BYTES = 64 * 1024;
 const GENERIC_LABELS = new Set(["mcp", "www", "api"]);
 
 export interface McpPreviewOptions {
-  readonly vault: Pick<VaultService, "authorize" | "getVault" | "listVaults">;
+  readonly vault: Pick<VaultService, "authorize" | "listEnvironmentSecrets">;
   /** The Host's address policy for developer URLs (`TenantConfig.delivery`). */
   readonly policy: OutboundPolicy;
   /** Default `MCP_PREVIEW_TIMEOUT_MS`. */
@@ -154,30 +153,22 @@ export async function previewMcpServer(
 }
 
 /**
- * The installation vault credential for the URL: from `vaultId`, else from every installation
- * vault. None is a preview without one; two or more without `vaultId` is a refusal that names
- * them.
+ * The credential of Environment `environmentId`'s vault for the URL; none without an
+ * Environment (a preview without a credential). An Environment that does not exist is a 404.
  */
 async function credentialFor(
   vault: McpPreviewOptions["vault"],
   request: McpPreviewRequest,
 ): Promise<AuthorizeResult> {
-  let vaultIds: string[];
-  if (request.vaultId !== undefined) {
-    const found = await vault.getVault(request.vaultId);
-    if (found.ownerUserId !== INSTALLATION_OWNER)
-      throw new VaultError(400, "A preview uses an installation vault's credential: no person asked for it");
-    vaultIds = [found.id];
-  } else
-    vaultIds = (await vault.listVaults(undefined, { installation: true })).map((found) => found.id);
-  if (vaultIds.length === 0) return { status: "unauthenticated", url: request.url, headers: {} };
-  const result = await vault.authorize({ vaultIds, credentialSelections: [], url: request.url });
+  if (request.environmentId === undefined)
+    return { status: "unauthenticated", url: request.url, headers: {} };
+  // The 404 of a missing Environment, before any request leaves.
+  await vault.listEnvironmentSecrets(request.environmentId);
+  const result = await vault.authorize({ environmentId: request.environmentId, url: request.url });
   if (result.status !== "refused") return result;
   throw new HttpError(
     409,
-    result.reason === "ambiguous"
-      ? "Several installation vaults hold a credential for this URL: name one with vaultId"
-      : `The installation vault's credential for this URL cannot be used (${result.reason})`,
+    `Environment ${request.environmentId}'s credential for this URL cannot be used (${result.reason})`,
     { code: "request_rejected", details: { reason: result.reason, credentialIds: result.credentialIds } },
   );
 }

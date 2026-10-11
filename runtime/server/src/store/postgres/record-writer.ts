@@ -5,25 +5,25 @@
  * run in the store's transaction under the caller's session row lock.
  */
 import { eq, sql } from "drizzle-orm";
-import type { RecordWriter, SandboxRecordWriter } from "../../record/index.js";
+import type { RecordWriter, EnvironmentRecordWriter } from "../../record/index.js";
 import type { Transaction } from "./db.js";
-import { sandboxEvents, sessionEvents, sessionLogHeads, tenant } from "./schema.js";
+import { environmentEvents, sessionEvents, sessionLogHeads, tenant } from "./schema.js";
 
 /**
- * The sandbox stream writer of transaction `db` (`record/sandbox.ts`): the only inserts into
- * `sandbox_events`. The caller holds the sandbox row's lock, which orders its events.
+ * The Environment stream writer of transaction `db` (`record/environment.ts`): the only inserts
+ * into `environment_events`. The caller holds the Environment row's lock, which orders its events.
  */
-export function postgresSandboxRecordWriter(db: Transaction): SandboxRecordWriter {
+export function postgresEnvironmentRecordWriter(db: Transaction): EnvironmentRecordWriter {
   return {
-    async nextSeq(sandboxId) {
+    async nextSeq(environmentId) {
       const [row] = await db
-        .select({ next: sql<number>`coalesce(max(${sandboxEvents.seq}) + 1, 0)`.mapWith(Number) })
-        .from(sandboxEvents)
-        .where(eq(sandboxEvents.sandboxId, sandboxId));
+        .select({ next: sql<number>`coalesce(max(${environmentEvents.seq}) + 1, 0)`.mapWith(Number) })
+        .from(environmentEvents)
+        .where(eq(environmentEvents.environmentId, environmentId));
       return row?.next ?? 0;
     },
     async insert(row) {
-      await db.insert(sandboxEvents).values(row);
+      await db.insert(environmentEvents).values(row);
     },
   };
 }

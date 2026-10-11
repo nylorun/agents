@@ -73,7 +73,7 @@ export interface SandboxSessionRef {
    * The sandbox resource the owning session is attached to. Its workspace is keyed by this id,
    * so every session attached to it shares the files; absent, the workspace is the session's.
    */
-  readonly sandboxId?: string;
+  readonly environmentId?: string;
   /** Variables every command of the call gets (R2c): secret names set to the sentinel, plain values. */
   readonly environment?: Readonly<Record<string, string>>;
   /**
@@ -93,7 +93,7 @@ export interface SandboxEventMeta {
 
 interface Live {
   readonly sessionId: string;
-  readonly sandboxId?: string;
+  readonly environmentId?: string;
   readonly backend: SandboxBackend;
   handle?: SandboxHandle;
   idleMs: number;
@@ -112,7 +112,7 @@ export interface SandboxSweepOptions {
   /** Whether a session still exists; sandboxes of deleted sessions are removed. */
   readonly sessionExists: (sessionId: string) => boolean | Promise<boolean>;
   /** Whether a sandbox resource still exists. Default: every one does. */
-  readonly sandboxExists?: (sandboxId: string) => boolean | Promise<boolean>;
+  readonly sandboxExists?: (environmentId: string) => boolean | Promise<boolean>;
 }
 
 export interface SandboxManagerOptions {
@@ -142,7 +142,7 @@ export interface SandboxManagerOptions {
 }
 
 /** The session events a sandbox writes. */
-export type SandboxEventType = "sandbox.state" | "sandbox.exec";
+export type SandboxEventType = "environment.state" | "environment.exec";
 
 const READ_TOOLS = new Set<SandboxToolName>(["read", "grep", "glob"]);
 
@@ -232,15 +232,15 @@ export class SandboxManager {
     return sessionWorkspaceKey(this.options.scope, sessionId);
   }
 
-  /** The workspace key of sandbox resource `sandboxId` (`sandboxWorkspaceKey`). */
-  sandboxKeyOf(sandboxId: string): string {
-    return sandboxWorkspaceKey(this.options.scope, sandboxId);
+  /** The workspace key of sandbox resource `environmentId` (`sandboxWorkspaceKey`). */
+  sandboxKeyOf(environmentId: string): string {
+    return sandboxWorkspaceKey(this.options.scope, environmentId);
   }
 
   private keyFor(session: SandboxSessionRef): string {
-    return session.sandboxId === undefined
+    return session.environmentId === undefined
       ? this.keyOf(session.id)
-      : this.sandboxKeyOf(session.sandboxId);
+      : this.sandboxKeyOf(session.environmentId);
   }
 
   async report(): Promise<SandboxSelectionReport & { readonly defaultImage: string }> {
@@ -409,7 +409,7 @@ export class SandboxManager {
     if (!live) {
       live = {
         sessionId: session.id,
-        ...(session.sandboxId === undefined ? {} : { sandboxId: session.sandboxId }),
+        ...(session.environmentId === undefined ? {} : { environmentId: session.environmentId }),
         backend,
         idleMs: idleMsOf(capability.sandbox),
         active: 0,
@@ -458,7 +458,7 @@ export class SandboxManager {
         await this.options.emit(
           session.id,
           session.activeTurnId,
-          "sandbox.state",
+          "environment.state",
           { state: "stopped", backend: live.backend.name, error: message },
           { record, ...claimOf(session) }
         );
@@ -488,7 +488,7 @@ export class SandboxManager {
       await this.options.emit(
         session.id,
         session.activeTurnId,
-        "sandbox.exec",
+        "environment.exec",
         {
           tool: toolName,
           ...report,
@@ -556,7 +556,7 @@ export class SandboxManager {
     await this.options.emit(
       session.id,
       session.activeTurnId,
-      "sandbox.state",
+      "environment.state",
       { state: "creating", ...payload, ...(existing ? { reattach: true } : {}) },
       { record: creating, ...claimOf(session) }
     );
@@ -567,7 +567,7 @@ export class SandboxManager {
     await this.options.emit(
       session.id,
       session.activeTurnId,
-      "sandbox.state",
+      "environment.state",
       {
         state: "running",
         ...payload,
@@ -591,7 +591,7 @@ export class SandboxManager {
       await this.options.emit(
         live.sessionId,
         null,
-        "sandbox.state",
+        "environment.state",
         { state: "stopped", backend: live.backend.name },
         { record }
       );
@@ -611,7 +611,7 @@ export class SandboxManager {
     const record: SandboxRecord = {
       key,
       sessionId,
-      ...(live.sandboxId === undefined ? {} : { sandboxId: live.sandboxId }),
+      ...(live.environmentId === undefined ? {} : { environmentId: live.environmentId }),
       backend: live.backend.name,
       image: image ?? existing?.image ?? "",
       state,
@@ -628,11 +628,11 @@ export class SandboxManager {
   }
 
   /**
-   * Deletes sandbox resource `sandboxId`'s workspace, its files and its compute record, after
+   * Deletes sandbox resource `environmentId`'s workspace, its files and its compute record, after
    * any command queued on it. Called once the resource is deleted.
    */
-  async removeSandbox(sandboxId: string): Promise<void> {
-    await this.remove(this.sandboxKeyOf(sandboxId));
+  async removeSandbox(environmentId: string): Promise<void> {
+    await this.remove(this.sandboxKeyOf(environmentId));
   }
 
   /** Deletes the workspace `key`, its files and its record, after any command queued on it. */
@@ -654,7 +654,7 @@ export class SandboxManager {
    */
   async reconcile(
     sessionExists: (sessionId: string) => boolean | Promise<boolean>,
-    sandboxExists: (sandboxId: string) => boolean | Promise<boolean>
+    sandboxExists: (environmentId: string) => boolean | Promise<boolean>
   ): Promise<void> {
     const { backend } = await this.ready;
     if (!backend) return;
@@ -662,9 +662,9 @@ export class SandboxManager {
       const record = await this.options.records.get(key);
       if (record) {
         const kept =
-          record.sandboxId === undefined
+          record.environmentId === undefined
             ? await sessionExists(record.sessionId)
-            : await sandboxExists(record.sandboxId);
+            : await sandboxExists(record.environmentId);
         if (kept) continue;
       }
       await this.remove(key);

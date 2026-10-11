@@ -40,15 +40,15 @@ export interface TenantVault {
   session(sessionId: string): Promise<Session | undefined>;
   /**
    * The authorization of one request to a session's remote MCP server or HTTP tool: its
-   * credential from the session's attached vaults.
+   * credential from the vault of the session's Environment.
    */
   authorizeMcp(sessionId: string, request: McpCredentialRequest): Promise<AuthorizeResult>;
   /** Vault writes and token signing with the Tenant's vault key (the keys service, F4.2). */
   keys(): Keys;
-  /** Whether a live session on the sandbox has an `environment_secret` bound to `host` (R2c). */
-  environmentSecretBound(sandboxId: string, host: string): Promise<boolean>;
+  /** Whether the Environment's vault has an `environment_secret` bound to `host` (R2c). */
+  environmentSecretBound(environmentId: string, host: string): Promise<boolean>;
   /** The header an `environment_secret` sets on one request to `host` (R2c). */
-  releaseEnvironmentSecret(sandboxId: string, host: string): ReturnType<VaultService["releaseEnvironmentSecret"]>;
+  releaseEnvironmentSecret(environmentId: string, host: string): ReturnType<VaultService["releaseEnvironmentSecret"]>;
 }
 
 export interface TenantVaults {
@@ -116,8 +116,8 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       authorizeMcp: (sessionId, request) =>
         authorizeSessionMcp(credentials, session, sessionId, request),
       keys: () => keys,
-      environmentSecretBound: (sandboxId, host) => credentials.environmentSecretBound(sandboxId, host),
-      releaseEnvironmentSecret: (sandboxId, host) => credentials.releaseEnvironmentSecret({ sandboxId, host }),
+      environmentSecretBound: (environmentId, host) => credentials.environmentSecretBound(environmentId, host),
+      releaseEnvironmentSecret: (environmentId, host) => credentials.releaseEnvironmentSecret({ environmentId, host }),
     };
   }
 
@@ -160,9 +160,9 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
 }
 
 /**
- * A request to a session's remote MCP server, authorized from the session's attached vaults:
- * what the loop does in its own process (`tenant/effects.ts` `authorize`). The vaults come from
- * the session row.
+ * A request to a session's remote MCP server, authorized from its Environment's vault: what the
+ * loop does in its own process (`tenant/effects.ts` `authorize`). The Environment comes from the
+ * session row.
  */
 export async function authorizeSessionMcp(
   vault: Pick<VaultService, "authorize">,

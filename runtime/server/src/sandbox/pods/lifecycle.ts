@@ -1,5 +1,5 @@
 /**
- * A pod sandbox's lifecycle (blueprint D34, D36), as one pure decision: from the row, the
+ * A pod Environment's lifecycle (blueprint D34, D36), as one pure decision: from the row, the
  * Tenant's lifecycle settings, the Sandbox's status as the sandboxes service sees it and the
  * clock, what to ask of the service, what to write to the row, which events to record, and
  * when to look again. `reconcile.ts` gathers the facts, carries the decision out and runs it
@@ -12,26 +12,23 @@
  * - **Every change** the Runtime asks for bumps `rev`; the `PUT` carries `opId =
  *   <name>.r<rev>`, so a repeated apply is a no-op at the service, and a Sandbox whose `opId`
  *   is not the row's is applied again.
- * - **Idle** (`trigger: idle`): no turn on an attached session, and none ended within the
- *   Tenant's `limits.idle` → `Suspended` (`sandbox.suspended`, reason `idle`). The volume is
- *   kept; the next turn start asks for `Running` again.
- * - **TTL**: the Sandbox carries `shutdownTime = createdAt + lifecycle.ttl` and the Tenant's
- *   `onExpiry` as its `shutdownPolicy`. Once it passes, the sandbox is `expired`
- *   (`sandbox.expired`), its host epoch moves (its tokens stop working) and turns are refused
- *   (`sandbox_expired`); with `onExpiry: delete` it is deleted. A `PUT` with a longer TTL moves
- *   `expiresAt`, and the next apply revives it with the later `shutdownTime`.
+ * - **Idle** (`trigger: idle`): no turn on a session that names it, and none ended within its
+ *   `lifecycle.idle` (at most the Tenant's `limits.idle`) → `Suspended` (`environment.suspended`,
+ *   reason `idle`). The volume is kept; the next turn start asks for `Running` again.
  * - **Lost**: an incarnation that has run (a pod joined) whose Sandbox is gone or whose volume
- *   is missing is `lost` (`sandbox.lost`): its host epoch moves, its Sandbox is deleted, and
- *   only a reset brings the sandbox back. agent-sandbox recreates a deleted claim empty, so the
- *   engine's join also checks the id it keeps on the volume (`join.ts`): a new volume is lost
- *   too. A pod replaced on the same volume is not lost: the new pod's join bumps the epoch
- *   (`sandbox.relaunched`).
+ *   is missing is `lost` (`environment.lost`): its host epoch moves, its Sandbox is deleted, and
+ *   only a reset brings the Environment back. agent-sandbox recreates a deleted claim empty, so
+ *   the engine's join also checks the id it keeps on the volume (`join.ts`): a new volume is
+ *   lost too. A pod replaced on the same volume is not lost: the new pod's join bumps the epoch
+ *   (`environment.relaunched`).
  * - **Delete** (`desired: deleted`): the Sandbox is deleted, and the row once it is gone.
- * - **Reset** (`tenant/sandboxes.ts`) bumps the volume generation: a new name, so a new
+ * - **Reset** (`tenant/environments.ts`) bumps the volume generation: a new name, so a new
  *   Sandbox and volume; the old name is `retiring` and deleted here.
+ *
+ * An unused Environment is deleted by the Tenant sweep (`lifecycle.deleteAfter`), not here.
  */
-import type { SandboxEventPayload, SandboxEventType } from "@nylorun/core/contracts";
-import type { SandboxPodPatch, SandboxPodState, SandboxResource } from "../../store/types.js";
+import type { EnvironmentEventPayload, EnvironmentEventType } from "@nylorun/core/contracts";
+import type { Environment, SandboxPodPatch, SandboxPodState } from "../../store/types.js";
 import type { PodStatus } from "./client.js";
 
 /** A pod not ready this long after it was asked to run has failed. */
@@ -41,17 +38,16 @@ export const POLL_MS = 2_000;
 /** How soon to look again when the sandboxes service does not answer. */
 export const UNREACHABLE_RETRY_MS = 5_000;
 
-/** The Tenant's lifecycle settings (D36), read each time a decision is made. */
+/** The lifecycle settings (D36), read each time a decision is made. */
 export interface PodLifecycleConfig {
-  readonly onExpiry: "retain" | "delete";
   readonly idleMs: number;
 }
 
-/** Why the decision is made: a reconcile, or one of the sandbox's timers firing. */
-export type PodTrigger = "reconcile" | "idle" | "ttl";
-export type PodTimer = "idle" | "ttl";
+/** Why the decision is made: a reconcile, or the idle timer firing. */
+export type PodTrigger = "reconcile" | "idle";
+export type PodTimer = "idle";
 
-export type PodRow = SandboxResource & { readonly pod: SandboxPodState };
+export type PodRow = Environment & { readonly pod: SandboxPodState };
 
 export interface PodFacts {
   readonly row: PodRow;
@@ -60,15 +56,15 @@ export interface PodFacts {
   readonly status: PodStatus | undefined;
   /** The retiring Sandbox's status, when the row names one. */
   readonly retiring?: PodStatus | undefined;
-  /** A session attached to the sandbox has a turn running. */
+  /** A session that names the Environment has a turn running. */
   readonly busy: boolean;
   readonly now: number;
   readonly trigger: PodTrigger;
 }
 
-export interface PodEvent<T extends SandboxEventType = SandboxEventType> {
+export interface PodEvent<T extends EnvironmentEventType = EnvironmentEventType> {
   readonly type: T;
-  readonly payload: SandboxEventPayload<T>;
+  readonly payload: EnvironmentEventPayload<T>;
 }
 
 export interface PodDecision {
@@ -78,7 +74,7 @@ export interface PodDecision {
   readonly delete: readonly string[];
   readonly patch: SandboxPodPatch;
   readonly events: readonly PodEvent[];
-  /** The Sandbox is gone and the sandbox deleted: remove the row. */
+  /** The Sandbox is gone and the Environment deleted: remove the row. */
   readonly removeRow?: true;
   /** Look again this soon. */
   readonly retryAfterMs?: number;
@@ -96,7 +92,7 @@ function gone(status: PodStatus): boolean {
   return !status.exists && !status.podPhase && status.volume === "missing";
 }
 
-const event = <T extends SandboxEventType>(type: T, payload: SandboxEventPayload<T>): PodEvent =>
+const event = <T extends EnvironmentEventType>(type: T, payload: EnvironmentEventPayload<T>): PodEvent =>
   ({ type, payload }) as PodEvent;
 
 export function decide(facts: PodFacts): PodDecision {
@@ -150,23 +146,6 @@ export function decide(facts: PodFacts): PodDecision {
     return done();
   }
 
-  const expiresAt = pod.expiresAt === undefined ? undefined : Date.parse(pod.expiresAt);
-  if (expiresAt !== undefined && now >= expiresAt) {
-    if (pod.observed !== "expired") {
-      patch.observed = "expired";
-      patch.hostEpoch = pod.hostEpoch + 1;
-      events.push(event("sandbox.expired", { onExpiry: facts.config.onExpiry }));
-    }
-    if (facts.config.onExpiry === "delete") {
-      patch.desired = "deleted";
-      patch.rev = pod.rev + 1;
-      if (status.exists && !status.deleting) deletes.push(pod.k8sName);
-      again(POLL_MS);
-    }
-    return done();
-  }
-  if (expiresAt !== undefined) arm.push({ timer: "ttl", at: expiresAt });
-
   let desired = pod.desired;
   let rev = pod.rev;
   if (facts.trigger === "idle" && desired === "running" && !facts.busy) {
@@ -178,28 +157,28 @@ export function decide(facts: PodFacts): PodDecision {
       patch.desired = desired;
       patch.rev = rev;
       patch.hostEpoch = pod.hostEpoch + 1;
-      events.push(event("sandbox.suspended", { reason: "idle" }));
+      events.push(event("environment.suspended", { reason: "idle" }));
     } else arm.push({ timer: "idle", at: due });
   }
 
   // An incarnation a pod has joined, whose Sandbox or volume is gone: lost.
   if (pod.podUid !== undefined && (!status.exists || status.deleting || status.volume === "missing")) {
     const reason = !status.exists
-      ? "The sandbox's pod and volume were deleted outside the Runtime"
+      ? "The Environment's pod and volume were deleted outside the Runtime"
       : status.deleting
-        ? "The sandbox is being deleted outside the Runtime"
-        : "The sandbox's volume is gone";
+        ? "The Environment's pod is being deleted outside the Runtime"
+        : "The Environment's volume is gone";
     patch.observed = "lost";
     patch.reason = reason;
     patch.hostEpoch = (patch.hostEpoch ?? pod.hostEpoch) + 1;
-    events.push(event("sandbox.lost", { reason }));
+    events.push(event("environment.lost", { reason }));
     if (status.exists && !status.deleting) deletes.push(pod.k8sName);
     if (status.exists) again(POLL_MS);
     return done();
   }
 
   if (status.deleting) {
-    // The previous incarnation of this name is still going (a sandbox deleted and created again).
+    // The previous incarnation of this name is still going (an Environment deleted and created again).
     again(POLL_MS);
     return done();
   }
@@ -214,7 +193,7 @@ export function decide(facts: PodFacts): PodDecision {
       patch.startedAt = new Date(now).toISOString();
       patch.reason = null;
     }
-    // A pod started by this apply (a create, a resume) is the sandbox's first, not a relaunch.
+    // A pod started by this apply (a create, a resume) is the Environment's first, not a relaunch.
     if (desired === "running" && pod.podUid !== undefined) patch.podUid = null;
     again(POLL_MS);
     return done({
@@ -238,7 +217,7 @@ export function decide(facts: PodFacts): PodDecision {
         `The pod was not ready within ${READY_DEADLINE_MS / 60_000} minutes`;
       patch.observed = "failed";
       patch.reason = reason;
-      events.push(event("sandbox.failed", { reason }));
+      events.push(event("environment.failed", { reason }));
       return done();
     }
     if (pod.observed !== "creating") patch.observed = "creating";

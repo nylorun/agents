@@ -32,8 +32,8 @@
  * which check failed.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { isSandboxId } from "@nylorun/core/contracts";
-import type { SandboxResource } from "../store/types.js";
+import { isEnvironmentId } from "@nylorun/core/contracts";
+import type { Environment } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
 import {
   mintHostTokens,
@@ -127,7 +127,7 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
     async join(request) {
       const { sandboxId, podUid, joinToken, volumeId } = request;
       if (
-        !isSandboxId(sandboxId) ||
+        !isEnvironmentId(sandboxId) ||
         typeof podUid !== "string" ||
         !POD_UID.test(podUid) ||
         typeof joinToken !== "string" ||
@@ -139,18 +139,17 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
       const pods = ctx.pods;
       if (!pods) return refuse("this Runtime has no sandbox pods");
       const hash = sha256Hex(joinToken);
-      const usable = (row: SandboxResource | undefined) => {
+      const usable = (row: Environment | undefined) => {
         const pod = row?.pod;
         if (!row || row.kind !== "pod" || !pod) return refuse("no such pod sandbox");
         if (!pod.joinTokenHash || !sameHash(pod.joinTokenHash, hash)) return refuse("join token mismatch");
         if (pod.desired === "deleted") return refuse("the sandbox was deleted");
         // A pod being stopped joins nothing: its sandbox runs again only when asked to.
         if (pod.desired !== "running") return refuse("the sandbox is stopped");
-        if (pod.observed === "lost" || pod.observed === "expired")
-          return refuse(`the sandbox is ${pod.observed}`);
+        if (pod.observed === "lost") return refuse("the sandbox is lost");
         return pod;
       };
-      const readRow = () => ctx.store.tx((t) => t.sandboxResource(sandboxId));
+      const readRow = () => ctx.store.tx((t) => t.environment(sandboxId));
       const before = usable(await readRow());
       let current: string | undefined;
       try {
@@ -164,7 +163,7 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
       }
       if (current !== podUid) refuse("the pod is not the sandbox's current pod");
       const joined = await ctx.store.tx(async (t) => {
-        const row = await t.sandboxResource(sandboxId, { lock: true });
+        const row = await t.environment(sandboxId, { lock: true });
         const pod = usable(row);
         if (pod.k8sName !== before.k8sName) refuse("the sandbox was reset during the join");
         const epoch = pod.hostEpoch + 1;
@@ -172,14 +171,14 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
         if (pod.volumeId !== undefined && volumeId !== pod.volumeId) {
           // A new, empty volume under the same Sandbox: the sandbox's files are gone.
           const reason = "The sandbox's volume was replaced: its files are gone";
-          await t.updateSandboxPod(sandboxId, { observed: "lost", reason, hostEpoch: epoch }, now);
-          await t.sandboxEvent(sandboxId, "sandbox.lost", { reason });
+          await t.updateEnvironmentPod(sandboxId, { observed: "lost", reason, hostEpoch: epoch }, now);
+          await t.environmentEvent(sandboxId, "environment.lost", { reason });
           // Its Sandbox is deleted; only a reset brings the sandbox back.
           await t.signal({ type: "host.revoked", sandboxId, epoch });
           await t.signalSandbox(sandboxId, { kind: "reconcile" });
           return { lost: epoch };
         }
-        await t.updateSandboxPod(
+        await t.updateEnvironmentPod(
           sandboxId,
           {
             hostEpoch: epoch,
@@ -190,8 +189,8 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
           now,
         );
         if (pod.podUid !== podUid) {
-          if (pod.podUid !== undefined) await t.sandboxEvent(sandboxId, "sandbox.relaunched", { hostEpoch: epoch });
-          else await t.sandboxEvent(sandboxId, "sandbox.running", { hostEpoch: epoch });
+          if (pod.podUid !== undefined) await t.environmentEvent(sandboxId, "environment.relaunched", { hostEpoch: epoch });
+          else await t.environmentEvent(sandboxId, "environment.running", { hostEpoch: epoch });
         }
         // The previous host's connection (an older epoch) serves nothing more, on any process.
         await t.signal({ type: "host.revoked", sandboxId, epoch });

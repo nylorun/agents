@@ -124,7 +124,7 @@ export function routingOf(run: HarnessRun): ToolRouting {
     rootManifest: routing.rootManifest as AgentManifest,
     ...(routing.mcpSnapshot ? { mcpSnapshot: routing.mcpSnapshot as McpSnapshot } : {}),
     sandboxOwnerId: routing.sandbox?.ownerId ?? run.grant.sessionId,
-    ...(routing.sandbox?.sandboxId === undefined ? {} : { sandboxId: routing.sandbox.sandboxId }),
+    ...(routing.sandbox?.environmentId === undefined ? {} : { environmentId: routing.sandbox.environmentId }),
     ...(routing.sandbox?.environment === undefined ? {} : { environment: routing.sandbox.environment }),
     activeTurnId: run.grant.turnId,
     claim: run.runId,

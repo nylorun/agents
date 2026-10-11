@@ -43,7 +43,7 @@ import {
 } from "./context.js";
 import { fail } from "./http.js";
 import { accessOf } from "./auth.js";
-import { checkSandboxTurn } from "./sandboxes.js";
+import { checkEnvironmentTurn } from "./environments.js";
 import { rebaseSessionState, turnManifestOf, variantStore } from "./session.js";
 import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
@@ -147,7 +147,7 @@ export async function command(
           fail(409, "Session has active or unresolved work");
         // Every turn start on a sandbox: it exists, the token's grants reach it, and no other
         // session's turn holds it.
-        await checkSandboxTurn(t, s, scope, ctx);
+        await checkEnvironmentTurn(t, s, scope, ctx);
         s.turnStartState = s.state;
         // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
         if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };

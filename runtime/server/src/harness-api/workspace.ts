@@ -15,7 +15,7 @@
  * - **Pod sandboxes** (F7.2, `withPodWorkspaces`): a session attached to a pod sandbox has its
  *   workspace in the pod, served by the sandbox's engine (its host connection). Its tool calls,
  *   listings and reads go there whatever serves the other workspaces; with the pod stopped or
- *   starting they are `409 sandbox_unavailable`.
+ *   starting they are `409 environment_unavailable`.
  */
 import { HarnessApiError, type CoreMethod, type WorkspaceRecord } from "@nylorun/core/harness-api";
 import type { CapabilityManifest, SandboxToolName } from "@nylorun/core/define";
@@ -61,8 +61,8 @@ export interface WorkspacePort {
   report(): Promise<WorkspaceReport>;
   /** One Tenant sweep pass: stop idle workspaces, remove those whose owner is gone. */
   sweep(options: { now?: number; sessionExists: Exists; sandboxExists: Exists }): Promise<void>;
-  /** Deletes sandbox resource `sandboxId`'s workspace (the resource was deleted). */
-  removeSandbox(sandboxId: string): Promise<void>;
+  /** Deletes sandbox resource `environmentId`'s workspace (the resource was deleted). */
+  removeSandbox(environmentId: string): Promise<void>;
   /** Deletes every workspace with its files (a sandboxes reset). */
   removeAll(): Promise<void>;
   close(): Promise<void>;
@@ -79,7 +79,7 @@ export function localWorkspace(manager: SandboxManager): WorkspacePort {
       manager.readBytes(session, capability, path, maxBytes, signal),
     report: () => manager.report(),
     sweep: (options) => manager.sweep(options),
-    removeSandbox: (sandboxId) => manager.removeSandbox(sandboxId),
+    removeSandbox: (environmentId) => manager.removeSandbox(environmentId),
     removeAll: () => manager.reconcile(() => false, () => false),
     close: () => manager.close(),
   };
@@ -107,7 +107,7 @@ export interface RemoteWorkspaceOptions {
 function sessionOf(session: SandboxSessionRef) {
   return {
     ownerId: session.id,
-    ...(session.sandboxId === undefined ? {} : { sandboxId: session.sandboxId }),
+    ...(session.environmentId === undefined ? {} : { environmentId: session.environmentId }),
     activeTurnId: session.activeTurnId,
   };
 }
@@ -119,7 +119,7 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
   const unavailable = (error: NoWorkspaceHarness): never =>
     error.pod === undefined
       ? fail(503, error.message, { code: "request_rejected" })
-      : fail(409, error.message, { code: "sandbox_unavailable" });
+      : fail(409, error.message, { code: "environment_unavailable" });
   /** The harness's answer, or `undefined` when none serves workspaces. */
   const ask = async <M extends CoreMethod>(
     method: M,
@@ -140,9 +140,9 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
     const gone: string[] = [];
     for (const record of workspaces) {
       const kept =
-        record.sandboxId === undefined
+        record.environmentId === undefined
           ? await sessionExists(record.sessionId)
-          : await sandboxExists(record.sandboxId);
+          : await sandboxExists(record.environmentId);
       if (!kept) gone.push(record.key);
     }
     if (gone.length > 0) await ask("workspace.remove", { keys: gone });
@@ -237,12 +237,12 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
       };
     },
     sweep: (pass) => sweep(pass.sessionExists, pass.sandboxExists, pass.now),
-    async removeSandbox(sandboxId) {
+    async removeSandbox(environmentId) {
       // With no harness connected, the next sweep removes it: its resource is gone.
-      await ask("workspace.remove", { sandboxIds: [sandboxId] });
+      await ask("workspace.remove", { environmentIds: [environmentId] });
       await store.tx(async (t) => {
         for (const row of await t.listSandboxes<WorkspaceRecord>())
-          if (row.sandboxId === sandboxId) await t.delete("sandboxes", row.key);
+          if (row.environmentId === environmentId) await t.delete("sandboxes", row.key);
       });
     },
     async removeAll() {
@@ -259,12 +259,12 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
 export function withPodWorkspaces(
   base: WorkspacePort,
   options: Omit<RemoteWorkspaceOptions, "pod"> & {
-    readonly isPod: (sandboxId: string) => Promise<boolean>;
+    readonly isPod: (environmentId: string) => Promise<boolean>;
   }
 ): WorkspacePort {
   const routed = async (session: SandboxSessionRef): Promise<WorkspacePort> =>
-    session.sandboxId !== undefined && (await options.isPod(session.sandboxId))
-      ? remoteWorkspace({ ...options, pod: session.sandboxId })
+    session.environmentId !== undefined && (await options.isPod(session.environmentId))
+      ? remoteWorkspace({ ...options, pod: session.environmentId })
       : base;
   return {
     ...base,

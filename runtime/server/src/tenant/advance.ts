@@ -73,7 +73,7 @@ import { dropRunGrant, grantRun, type RunOf } from "./run-grants.js";
 import { startHeartbeat } from "../harness-api/renew.js";
 import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/start.js";
 import type { RunEnd } from "../harness-api/server.js";
-import { touchPodSandbox } from "./sandboxes.js";
+import { touchEnvironment } from "./environments.js";
 import {
   AdvanceAbort,
   AdvanceDeadlineError,
@@ -217,27 +217,27 @@ export async function advance(
           message: error instanceof Error ? error.message : String(error),
         })
       );
-    // A pod sandbox's idle time counts from the end of each segment (D34).
-    if (placed.pod !== undefined) await touchPodSandbox(ctx, placed.pod);
+    // The Environment was used: `deleteAfter`, and a pod's idle time (D34), count from the end
+    // of each segment.
+    if (placed.environment !== undefined) await touchEnvironment(ctx, placed.environment);
   }
   return result;
 }
 
-/** Where the segment ran: the pod sandbox whose engine took it, if any. */
+/** Where the segment ran: the Environment of its session, if any. */
 interface Placed {
-  pod?: string;
+  environment?: string;
 }
 
-/** Why a pod sandbox cannot run a segment, or undefined when it can. */
+/** Why a pod Environment cannot run a segment, or undefined when it can. */
 function podUnusable(ctx: TenantContext, segment: SegmentStart): string | undefined {
   const pod = segment.pod;
   if (!pod) return undefined;
-  if (!ctx.pods) return `Sandbox ${pod.id} is a pod sandbox, and this Runtime has no sandbox pods`;
+  if (!ctx.pods) return `Environment ${pod.id} is a pod Environment, and this Runtime has no sandbox pods`;
   const state = pod.pod;
-  if (state.desired === "deleted") return `Sandbox ${pod.id} was deleted`;
-  if (state.observed === "lost") return `Sandbox ${pod.id} was lost: ${state.reason ?? "its volume is gone"}`;
-  if (state.observed === "expired") return `Sandbox ${pod.id} expired`;
-  if (state.observed === "failed") return `Sandbox ${pod.id} failed to start: ${state.reason ?? "its pod was not ready"}`;
+  if (state.desired === "deleted") return `Environment ${pod.id} was deleted`;
+  if (state.observed === "lost") return `Environment ${pod.id} was lost: ${state.reason ?? "its volume is gone"}`;
+  if (state.observed === "failed") return `Environment ${pod.id} failed to start: ${state.reason ?? "its pod was not ready"}`;
   return undefined;
 }
 
@@ -330,11 +330,11 @@ async function runRemoteSegment(
   let end: RunEnd | undefined;
   try {
     const segment = await startSegment(ctx, lease, { harness: true });
-    // A pod sandbox's segment runs in its pod (F7.2), or fails when the pod cannot run it.
+    // A pod Environment's segment runs in its pod (F7.2), or fails when the pod cannot run it.
     const unusable = podUnusable(ctx, segment);
     if (unusable) throw new Error(unusable);
     const pod = segment.pod?.id;
-    if (pod !== undefined) placed.pod = pod;
+    if (started.environmentId !== undefined) placed.environment = started.environmentId;
     end = await ctx.harness.offer({
       lease,
       start: buildTurnStart(ctx, segment),
