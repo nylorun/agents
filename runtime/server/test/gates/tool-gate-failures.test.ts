@@ -14,7 +14,7 @@ import { Agent } from "@nylorun/core/define";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { callMcpTool } from "../../src/mcp/connect.js";
 import { createMcpHandler } from "../../src/gates/mcp-handler.js";
-import { httpToolGate } from "../../src/gates/tool-client.js";
+import { GateCallLost, httpToolGate } from "../../src/gates/tool-client.js";
 import { MCP_CONNECT_PATH, TOOL_CALLS_PATH, type McpAnswer } from "../../src/gates/tool-contract.js";
 import type { TenantVaults } from "../../src/gates/tenant-vaults.js";
 
@@ -176,29 +176,19 @@ describe("the loop's client of the gate", () => {
     });
   });
 
-  it("gives mcp.lost to the model only for a tool that is safe to call again", async () => {
+  it("gives mcp.lost to the model for every tool: it may have run, and the model decides (R5)", async () => {
     const connection = await gate({ lookup: failure("mcp.lost", { retryable: true }) as never });
-    await expect(callMcpTool(connection.client, "lookup", {})).rejects.toThrow("mcp.lost happened");
-    expect(await callMcpTool(connection.client, "lookup", {}, { retrySafe: true })).toMatchObject({
+    expect(await callMcpTool(connection.client, "lookup", {})).toMatchObject({
       kind: "failed",
       code: "mcp.lost",
       retryable: true,
     });
   });
 
-  it("leaves a call lost with a gateway restart uncertain, even for a read-only tool", async () => {
+  it("throws GateCallLost for a call another gateway process holds, so it is sent again (R5.3)", async () => {
     const connection = await gate({
-      charge: {
-        ok: false,
-        error: {
-          uncertain: true,
-          message: "The gateway stopped while this tool call ran; the call may have reached its server, so it is not run again",
-        },
-      },
+      charge: { ok: false, error: { uncertain: true, message: "Another gateway process is running this tool call" } },
     });
-    for (const retrySafe of [false, true])
-      await expect(callMcpTool(connection.client, "charge", {}, { retrySafe })).rejects.toThrow(
-        "the call may have run; it is not sent again",
-      );
+    await expect(callMcpTool(connection.client, "charge", {})).rejects.toBeInstanceOf(GateCallLost);
   });
 });

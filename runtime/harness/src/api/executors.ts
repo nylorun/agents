@@ -31,6 +31,12 @@ export interface HarnessExecutors {
   /** Stops a recoverable tool call at its gate after a user cancel. Never rejects. */
   cancelAtGate?(effect: HostEffect, run: HarnessRun): Promise<void>;
   /**
+   * True when `error` says the hop to the tool call's gate lost its answer (R5.3): sending the
+   * call again with the same key joins it, collects its answer, or runs it again. The harness
+   * then asks core first (`effect.intent`), which counts the send and stops at its cap.
+   */
+  resends?(effect: HostEffect, error: unknown, run: HarnessRun): boolean;
+  /**
    * Readies the session's MCP servers before an agent's segment runs (F6.2): discovers their
    * tools the first time, reconnects them after. `record` keeps what it found in the session
    * (`session.mcp`; the first snapshot recorded wins) and answers the session's snapshot and

@@ -21,7 +21,8 @@
         "trusted-issuers",
         "session-reads",
         "calls-export",
-        "credential-coverage"
+        "credential-coverage",
+        "tool-calls"
       ]
     },
     "description": "For developers: agents, sessions (with AG-UI and A2A), Environments and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -11831,6 +11832,35 @@
                 "type": "string",
                 "minLength": 1
               },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "mcp",
+                  "http",
+                  "sandbox",
+                  "platform"
+                ]
+              },
+              "server": {
+                "type": "string",
+                "minLength": 1
+              },
+              "attempts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              },
               "output": {},
               "error": {
                 "type": "object",
@@ -17244,6 +17274,149 @@
           "usage"
         ],
         "additionalProperties": false
+      },
+      "ToolCallsPage": {
+        "type": "object",
+        "properties": {
+          "calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolCall"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "calls",
+          "nextCursor",
+          "asOf"
+        ],
+        "additionalProperties": false
+      },
+      "ToolCall": {
+        "type": "object",
+        "properties": {
+          "effectId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "callId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capabilityId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "mcp",
+              "http",
+              "sandbox",
+              "platform",
+              null
+            ]
+          },
+          "server": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invoking",
+              "completed",
+              "failed",
+              "cancelled",
+              "uncertain"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "input": {},
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "settledAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "required": [
+          "effectId",
+          "turnId",
+          "callId",
+          "capabilityId",
+          "toolName",
+          "kind",
+          "server",
+          "status",
+          "attempts",
+          "error",
+          "startedAt",
+          "settledAt",
+          "durationMs"
+        ],
+        "additionalProperties": false
       }
     },
     "parameters": {}
@@ -19126,6 +19299,142 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ModelCallsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{sessionId}/calls/tool": {
+      "get": {
+        "tags": [
+          "Sessions API"
+        ],
+        "summary": "Page a session's tool calls",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "turnId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Each tool call in the order it was first sent, with its status and sends",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolCallsPage"
                 }
               }
             }

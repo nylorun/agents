@@ -54,7 +54,14 @@ export interface McpHandler {
   /** One `tools/call`; the raw `CallToolResult` on success. */
   call(
     tenantId: string | undefined,
-    request: { server: McpServerRef; effectId: string; name: string; arguments: Record<string, unknown> },
+    request: {
+      server: McpServerRef;
+      effectId: string;
+      name: string;
+      arguments: Record<string, unknown>;
+      /** The call's `Idempotency-Key`, sent to the server in `_meta` (R5.5). */
+      key?: string;
+    },
     signal: AbortSignal,
   ): Promise<McpAnswer<Record<string, unknown>>>;
   close(server: McpServerRef): Promise<void>;
@@ -196,7 +203,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
    */
   async function callOnce(
     tenantId: string | undefined,
-    request: { server: McpServerRef; name: string; arguments: Record<string, unknown> },
+    request: { server: McpServerRef; name: string; arguments: Record<string, unknown>; key?: string },
     signal: AbortSignal,
   ) {
     for (let attempt = 0; ; attempt += 1) {
@@ -205,7 +212,10 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
           tenantId,
           request.server,
           (entry) =>
-            entry.connection.client.callTool({ name: request.name, arguments: request.arguments }, { signal }),
+            entry.connection.client.callTool(
+              { name: request.name, arguments: request.arguments },
+              { signal, ...(request.key === undefined ? {} : { key: request.key }) },
+            ),
           true,
         );
       } catch (error) {

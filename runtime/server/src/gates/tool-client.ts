@@ -8,10 +8,12 @@
  * Failures keep the meaning they had in the loop's own process:
  * - An MCP request that fails throws, so the pool reports a diagnostic. A tool call's coded
  *   failure (R2b C7) throws the `McpCallFailed` the loop's own call would have, which becomes a
- *   failed outcome the model sees. Only the hop's failures and a call lost with the gateway leave
- *   it `uncertain`.
- * - An HTTP tool call throws only for the hop, or a call lost with the gateway: its own failures
- *   are outcomes.
+ *   failed outcome the model sees.
+ * - An HTTP tool call throws only for the hop: its own failures are outcomes.
+ * - A hop that lost the answer (the gate unreachable, the connection lost, a `5xx`, or a call
+ *   another gateway process holds) throws `GateCallLost`: sending the call again with the same
+ *   key joins it, collects its answer, or runs it again (R5.3). A gate's refusal (`4xx`) throws
+ *   a plain error.
  *
  * Credentials (F5): a session's MCP requests and keyed cancels carry its run token, read per
  * request from the advance's grant, and leave the session out of the body: the gate takes it
@@ -46,6 +48,15 @@ import {
 import type { ToolGate } from "./tool-gate.js";
 import type { HttpOutcome, HttpToolCall } from "./http-tool.js";
 import type { RunTokens } from "../tenant/run-grants.js";
+
+/**
+ * A keyed call whose answer the hop lost (R5.3): the gate never got it, the connection broke,
+ * the gate answered `5xx`, or another gateway process holds the call. Sending it again with the
+ * same key is safe: the gate joins the call, answers it from its crossing, or runs it again.
+ */
+export class GateCallLost extends Error {
+  override readonly name = "GateCallLost";
+}
 
 /** How long a close or a cancel may take; neither changes an outcome. */
 const SHORT_TIMEOUT_MS = 2_000;
@@ -177,8 +188,7 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
 
   /**
    * The answer of an MCP or HTTP tool request, or a throw: a coded MCP failure (`McpCallFailed`),
-   * or one the pool and `resolveEffect` read as before, the call's fate unknown and the effect
-   * `uncertain`.
+   * a lost hop (`GateCallLost`, sent again), or a gate's refusal.
    */
   async function answer<T>(
     path: string,
@@ -191,8 +201,9 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
       ...(scope.bearer ? { bearer: scope.bearer } : {}),
     });
     if (result.kind === "aborted") throw result.reason ?? new Error("aborted");
-    if (result.kind !== "answer") throw new Error(result.message);
+    if (result.kind !== "answer") throw new GateCallLost(result.message);
     const parsed = parse(result.text) as McpAnswer<T> | { error?: { message?: string } } | undefined;
+    if (result.status >= 500) throw new GateCallLost(gateRefusal(result.status, parsed));
     if (result.status !== 200 || !parsed || !("ok" in parsed))
       throw new Error(gateRefusal(result.status, parsed));
     if (parsed.ok) return parsed;
@@ -289,11 +300,11 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
 
 /** An MCP failure the gate reported, as the loop's own MCP code would have thrown it. */
 function mcpError(error: McpGateError): Error {
-  // Coded (R2b C7): the model sees it. A call lost with the gateway never is.
-  if (error.failure && !error.uncertain) return McpCallFailed.from(error.failure);
-  const thrown = new Error(
-    error.uncertain ? `${error.message} (the call may have run; it is not sent again)` : error.message,
-  ) as Error & { code?: number; credentialIds?: readonly string[] };
+  // Held by another gateway process: send it again (R5.3).
+  if (error.uncertain) return new GateCallLost(error.message);
+  // Coded (R2b C7): the model sees it.
+  if (error.failure) return McpCallFailed.from(error.failure);
+  const thrown = new Error(error.message) as Error & { code?: number; credentialIds?: readonly string[] };
   if (error.code !== undefined) thrown.code = error.code;
   if (error.credentialIds !== undefined) thrown.credentialIds = error.credentialIds;
   return thrown;

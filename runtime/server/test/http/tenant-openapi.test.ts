@@ -21,6 +21,7 @@ it("documents the session reads with the same privileged credentials as serving"
     "/v1/sessions/{sessionId}/manifest": [["application", "subject"], ["agents:read", "agents:write"]],
     "/v1/sessions/{sessionId}/usage": [["application"], "never"],
     "/v1/sessions/{sessionId}/calls/model": [["application"], "never"],
+    "/v1/sessions/{sessionId}/calls/tool": [["application"], "never"],
     "/v1/tenant/calls/model": [["management"], "never"],
   } as const;
   for (const [path, [credentials, scopes]] of Object.entries(access)) {

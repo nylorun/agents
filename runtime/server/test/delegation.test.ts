@@ -363,7 +363,14 @@ it("fences a delegated agent's work when the session is cancelled", async () => 
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect((await session(runtime)).status).toBe("cancelled");
     const history = await items(runtime);
-    expect(history.some((item) => item.type === "tool.completed")).toBe(false);
+    // The held call ends cancelled (R5.1); its late answer is never journaled.
+    const completed = history.filter((item) => item.type === "tool.completed");
+    expect(completed).toHaveLength(1);
+    expect(completed[0]!.payload).toMatchObject({
+      toolName: "search_orders",
+      status: "cancelled",
+      error: { code: "tool.cancelled" },
+    });
     expect(JSON.stringify(history)).not.toContain("late");
   } finally {
     await runtime.close();

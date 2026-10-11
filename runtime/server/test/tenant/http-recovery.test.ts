@@ -3,8 +3,8 @@
  * remote MCP call is (`mcp-recovery.test.ts`). Through the Tool Gate the call outlives the Worker
  * that sent it: the next advance re-sends it under the same key and joins it, so the service
  * gets one request. Made in the Worker's own process, a call its dead owner left running may
- * have reached the service: it is `uncertain` and never sent again. A flow's HTTP stage is
- * recovered the same way.
+ * have reached the service: it is sent again with the same key (R5.3, at least once), so a
+ * service that dedupes on the key acts once. A flow's HTTP stage is recovered the same way.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -141,7 +141,7 @@ describe.each<[string, Kind]>([
     expect(service.keys()).toHaveLength(1);
   });
 
-  it("marks a call its dead owner made in process uncertain, and never sends it again", async () => {
+  it("sends a call its dead owner made in process again, with the same key (R5.3)", async () => {
     // In process even when the suite runs the gates over HTTP (the integration job).
     vi.stubEnv("NYLORUN_TEST_MODEL_GATE", "");
     const service = await heldService();
@@ -159,11 +159,18 @@ describe.each<[string, Kind]>([
     } finally {
       await other.close();
     }
-    await workerOf(runtime).advance("s1", new AbortController().signal);
-    expect(await status(runtime)).toBe("uncertain");
-    expect(await types(runtime)).toContain("effect.uncertain");
+    const next = workerOf(runtime).advance("s1", new AbortController().signal);
+    await vi.waitFor(() => expect(service.keys()).toHaveLength(2));
     service.release();
+    expect(await next).toEqual({ status: "done" });
     await stale;
-    expect(service.keys()).toHaveLength(1);
+    expect(await status(runtime)).toBe("completed");
+    expect(await types(runtime)).not.toContain("effect.uncertain");
+    const [key, again] = service.keys();
+    expect(again).toBe(key);
+    const calls = (await (await fetch(`${runtime.url}/v1/sessions/s1/calls/tool`, { headers })).json()) as {
+      calls: { status: string; attempts: number; kind: string }[];
+    };
+    expect(calls.calls).toEqual([expect.objectContaining({ status: "completed", attempts: 2, kind: "http" })]);
   });
 });

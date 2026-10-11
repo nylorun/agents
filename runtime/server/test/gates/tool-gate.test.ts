@@ -208,9 +208,17 @@ describe("a session's MCP requests under its run token (F5)", () => {
     const { server, authorizeMcp, release } = await gate();
     release();
     const mine = await runs.run("mcp-a", { manifest: agent.manifest });
+    const key = "turn-1:0:tool:a";
+    await runs.journal("mcp-a", {
+      effectId: key,
+      capabilityId,
+      toolName: "github__echo",
+      input: {},
+      mcp: { serverName: "github", serverToolName: "echo" },
+    });
     const tools = httpToolGate({ url: server.url, token, runTokens: runs.grants });
     const connection = await tools.openMcp!({ sessionId: "mcp-a", capabilityId, serverName: "github" });
-    expect(await connection.client.callTool({ name: "echo", arguments: {} })).toBeDefined();
+    expect(await connection.client.callTool({ name: "echo", arguments: {} }, { key })).toBeDefined();
     expect(authorizeMcp).toHaveBeenCalledWith("mcp-a", expect.anything());
     expect(mine.claims.sessionId).toBe("mcp-a");
   });
@@ -254,12 +262,20 @@ describe("a session's MCP requests under its run token (F5)", () => {
     const mine = await runs.run("mcp-e", { manifest: agent.manifest });
     const theirs = await runs.run("mcp-f", { manifest: agent.manifest });
     const key = "turn-1:0:tool:e";
+    await runs.journal("mcp-e", {
+      effectId: key,
+      capabilityId,
+      toolName: "github__echo",
+      input: {},
+      mcp: { serverName: "github", serverToolName: "echo" },
+    });
     const call = { server: { capabilityId, serverName: "github" }, effectId: key, name: "echo", arguments: {} };
     const running = send(held.server.url, TOOL_CALLS_PATH, mine.token, call, key);
     await vi.waitFor(() => expect(held.calls()).toBe(1));
-    // Another session's re-send under the same key hashes differently: it never joins.
+    // Another session's re-send under the same key is not its journaled call: it never joins.
     const joined = await send(held.server.url, TOOL_CALLS_PATH, theirs.token, call, key);
     expect(joined.status).toBe(409);
+    expect(await joined.json()).toMatchObject({ error: { code: "effect_not_journaled" } });
     const cancelPath = `${TOOL_CALLS_PATH}/${encodeURIComponent(key)}/cancel`;
     const forbidden = await send(held.server.url, cancelPath, theirs.token, undefined);
     expect(forbidden.status).toBe(403);
@@ -329,6 +345,12 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
     const { server, authorizeMcp } = await gate();
     const agent = billing(target.url);
     const grant = await runs.run("http-a", { manifest: agent.manifest });
+    await runs.journal("http-a", {
+      effectId: "turn-x:0:tool:1",
+      capabilityId: capabilityOf(agent),
+      toolName: "refund",
+      input: { id: "A-1" },
+    });
     const tools = httpToolGate({ url: server.url, token, runTokens: runs.grants });
     const outcome = await tools.callHttp!(
       {
@@ -375,7 +397,11 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
       });
     expect((await send(mine.token, body("http-c"))).status).toBe(403);
     expect((await send(token, body(undefined))).status).toBe(400);
-    expect(await (await send(mine.token, body(undefined, "nope"))).json()).toEqual({
+    // A run's call needs its key, and its journal row (R5.6).
+    const unkeyed = await send(mine.token, body(undefined, "nope"));
+    expect(unkeyed.status).toBe(400);
+    expect(await unkeyed.json()).toMatchObject({ error: { code: "key_required" } });
+    expect(await (await send(token, body("http-b", "nope"))).json()).toEqual({
       ok: true,
       result: { kind: "failed", code: "http.undeclared", message: "'nope' is not an HTTP tool of the session" },
     });

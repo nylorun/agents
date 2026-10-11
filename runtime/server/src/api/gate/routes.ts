@@ -35,6 +35,7 @@ import { InflightConflict, InflightStale, type InflightCalls } from "../../gates
 import type { ModelGateOutcome } from "../../gates/model-gate.js";
 import type { McpHandler } from "../../gates/mcp-handler.js";
 import type { ToolCalls } from "../../gates/tool-calls.js";
+import type { GateToolCall, JournalCheck } from "../../gates/journal.js";
 import type { HttpOutcome, HttpToolCall } from "../../gates/http-tool.js";
 import type { Keys } from "../../keys/keys.js";
 import type { McpServerRef } from "../../mcp/pool.js";
@@ -85,6 +86,11 @@ export interface GatesAppOptions {
   };
   /** Keyed MCP and HTTP tool calls, which outlive their client and run once (F4.1 G3). */
   readonly toolCalls?: ToolCalls;
+  /**
+   * The journal check (R5.6): a run's tool call must be keyed, and journaled as sent. Without
+   * it the gate sends what it is asked to.
+   */
+  readonly journal?: JournalCheck;
   /** The keys service's operations (F4.2). Without it the keys route answers 404. */
   readonly keys?: () => Promise<Keys>;
   /** Logs the keys service's requests and refused credentials. */
@@ -236,6 +242,26 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
     return claims ? { sessionId: claims.sessionId, epoch: claims.epoch } : undefined;
   };
 
+  /**
+   * Under a run token, the 400 or 409 for a tool call the effect journal does not hold, running,
+   * as sent (R5.6); undefined when it does, or under core's credential.
+   */
+  const unjournaled = async (
+    c: Context<GateEnv>,
+    tenantId: string | undefined,
+    key: string | undefined,
+    call: GateToolCall,
+  ): Promise<Response | undefined> => {
+    const claims = c.get("run");
+    if (!claims || !options.journal) return undefined;
+    if (!key)
+      return c.json(gateError("key_required", "A run's tool call needs its effect id as its Idempotency-Key"), 400);
+    const refused = await options.journal.refusal(tenantId, claims, key, call);
+    if (refused === undefined) return undefined;
+    logger.warn("gate_call_unjournaled", { route: c.req.path, session: claims.sessionId, effect: key, reason: refused });
+    return c.json(gateError("effect_not_journaled", refused), 409);
+  };
+
   /** 409 for a keyed re-send the in-flight map refused, or undefined. */
   const refusedJoin = (c: Context, error: unknown): Response | undefined => {
     if (error instanceof InflightStale) return c.json(gateError("run_stale", error.message), 409);
@@ -285,6 +311,13 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
       const body = { ...request.body, server: server.server };
       const signal = c.req.raw.signal;
       const key = c.req.header("idempotency-key");
+      const refused = await unjournaled(c, request.tenantId, key, {
+        kind: "mcp",
+        server: body.server,
+        name: body.name,
+        arguments: body.arguments,
+      });
+      if (refused) return refused;
       try {
         // Keyed: the call runs under its own signal, once, and outlives this request (G3). The
         // hash covers the session, so a re-send joins only its own session's call.
@@ -295,7 +328,7 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
                   request.tenantId,
                   key,
                   createHash("sha256").update(canonical(body)).digest("hex"),
-                  (own) => mcp.call(request.tenantId, body, own),
+                  (own) => mcp.call(request.tenantId, { ...body, key }, own),
                   ownerOf(c),
                 ),
                 signal,
@@ -327,6 +360,8 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
       };
       const signal = c.req.raw.signal;
       const key = c.req.header("idempotency-key");
+      const refused = await unjournaled(c, request.tenantId, key, { kind: "http", tool: call.tool, input: call.input });
+      if (refused) return refused;
       try {
         // Keyed: runs once under its own signal and outlives this request, as an MCP call.
         const answer =

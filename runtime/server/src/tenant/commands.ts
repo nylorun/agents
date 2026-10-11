@@ -42,6 +42,7 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
+import { settleToolRow } from "../harness-api/tool-journal.js";
 import { accessOf } from "./auth.js";
 import { checkEnvironmentTurn } from "./environments.js";
 import { rebaseSessionState, turnManifestOf, variantStore } from "./session.js";
@@ -107,6 +108,15 @@ export async function command(
           cancelledTurnId,
           ["invoking"]
         )) {
+          // A tool call ends `cancelled` with its `tool.completed` (R5.1); it may have run.
+          if (effect.request.kind === "tool") {
+            await settleToolRow(t, s, effect, {
+              kind: "failed",
+              code: "tool.cancelled",
+              message: "The turn was cancelled while this call ran; it may have run.",
+            }, { cancelled: true });
+            continue;
+          }
           effect.status = "uncertain";
           effect.error =
             "Turn cancelled before model outcome was durably recorded";

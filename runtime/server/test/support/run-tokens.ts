@@ -33,6 +33,21 @@ export interface RunFixture {
   takeOver(sessionId: string): Promise<RunGrant>;
   /** Changes the session's body (a cancel, a new turn). */
   update(sessionId: string, patch: Partial<Session>): Promise<void>;
+  /**
+   * Journals a tool call of the session's active turn, `invoking`, as core does before a harness
+   * sends it (R5.6). With `mcp`, the session's snapshot gets the tool's record, so the gate can
+   * match the call to its server.
+   */
+  journal(
+    sessionId: string,
+    call: {
+      effectId: string;
+      capabilityId: string;
+      toolName: string;
+      input: unknown;
+      mcp?: { serverName: string; serverToolName: string };
+    },
+  ): Promise<void>;
 }
 
 export async function runFixture(tenantId = newTenantId()): Promise<RunFixture> {
@@ -88,6 +103,44 @@ export async function runFixture(tenantId = newTenantId()): Promise<RunFixture> 
       return mint(sessionId);
     },
     takeOver: (sessionId) => mint(sessionId),
+    async journal(sessionId, call) {
+      await store.tx(async (t) => {
+        const session = await t.get<Session>("sessions", sessionId);
+        if (!session) throw new Error(`No session ${sessionId}`);
+        await t.put("effects", call.effectId, {
+          request: {
+            kind: "tool",
+            effectId: call.effectId,
+            sessionId,
+            turnId: session.activeTurnId,
+            capabilityId: call.capabilityId,
+            toolName: call.toolName,
+            input: call.input,
+            context: {},
+          },
+          status: "invoking",
+        });
+        if (call.mcp) {
+          const tools = (session.mcpSnapshot as { mcpTools?: unknown[] } | undefined)?.mcpTools ?? [];
+          await t.put("sessions", sessionId, {
+            ...session,
+            mcpSnapshot: {
+              ...(session.mcpSnapshot as object | undefined),
+              mcpTools: [
+                ...tools,
+                {
+                  capabilityId: call.capabilityId,
+                  serverName: call.mcp.serverName,
+                  serverToolName: call.mcp.serverToolName,
+                  name: call.toolName,
+                  inputSchema: { type: "object" },
+                },
+              ],
+            },
+          });
+        }
+      });
+    },
     async update(sessionId, patch) {
       await store.tx(async (t) => {
         const current = await t.get<Session>("sessions", sessionId);

@@ -1704,12 +1704,31 @@ export const ContextCompactedPayloadSchema = z
     ...eventAgent,
   })
   .passthrough();
-/** `tool.completed`: a tool the Runtime ran (HTTP, MCP, sandbox, built-in). `error` for a tool error. */
+/** How a tool call ended (R5.1): the tool answered, the Runtime ended it, or a cancel did. */
+export const TOOL_CALL_STATUSES = ["completed", "failed", "cancelled"] as const;
+/** Where a tool call ran (R5.1): a remote MCP server, an HTTP tool, the sandbox, or core. */
+export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "platform"] as const;
+/**
+ * `tool.completed`: how one tool call ended, written once per call (R5.1). `status`
+ * `completed`: the tool answered, with its output or the tool error it reported (`error`).
+ * `failed`: the Runtime ended the call (`tool.disabled`, `tool.unavailable`, or
+ * `tool.interrupted` for a call a crash interrupted, which may have run). `cancelled`: the turn
+ * was cancelled while the call ran; it may have run. `attempts` above 1: the call was sent again
+ * after a crash, with the same key.
+ */
 export const ToolCompletedPayloadSchema = z
   .object({
     ...toolIds,
     capabilityId: z.string().min(1),
     toolName: z.string().min(1),
+    status: z.enum(TOOL_CALL_STATUSES).optional(),
+    kind: z.enum(TOOL_CALL_KINDS).optional(),
+    /** The MCP server, or the HTTP tool's capability. */
+    server: z.string().min(1).optional(),
+    /** How many times the call was sent: 0 when the Runtime refused it, above 1 after a crash re-sent it. */
+    attempts: z.number().int().nonnegative().optional(),
+    /** From the first send to the outcome; absent when the call never ran. */
+    durationMs: z.number().int().nonnegative().optional(),
     output: z.unknown().optional(),
     error: z
       .object({
@@ -3503,6 +3522,34 @@ export const ModelCallExportPageSchema = z
   })
   .strict();
 export type ModelCallExportPage = z.infer<typeof ModelCallExportPageSchema>;
+/**
+ * One tool call of a session (R5.2), read from the effect journal: what ran, with what input,
+ * how many sends, and how it ended. `invoking` while it runs. `uncertain` only for a call
+ * recorded before R5. The output is in the session's log (`tool.completed`).
+ */
+export const ToolCallSchema = z
+  .object({
+    effectId: z.string(),
+    turnId: z.string(),
+    callId: z.string().nullable(),
+    capabilityId: z.string().nullable(),
+    toolName: z.string().nullable(),
+    kind: z.enum(TOOL_CALL_KINDS).nullable(),
+    server: z.string().nullable(),
+    status: z.enum(["invoking", ...TOOL_CALL_STATUSES, "uncertain"]),
+    attempts: z.number().int().nonnegative(),
+    input: z.unknown(),
+    error: z.object({ code: z.string(), message: z.string() }).strict().nullable(),
+    startedAt: z.string().nullable(),
+    settledAt: z.string().nullable(),
+    durationMs: z.number().int().nonnegative().nullable(),
+  })
+  .strict();
+export type ToolCall = z.infer<typeof ToolCallSchema>;
+export const ToolCallsPageSchema = z
+  .object({ calls: z.array(ToolCallSchema), nextCursor: z.string().nullable(), asOf: z.string() })
+  .strict();
+export type ToolCallsPage = z.infer<typeof ToolCallsPageSchema>;
 export const EnvironmentPageSchema = z
   .object({ environments: z.array(EnvironmentViewSchema), nextCursor: z.string().nullable() })
   .strict();

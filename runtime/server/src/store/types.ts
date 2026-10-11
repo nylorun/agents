@@ -850,6 +850,11 @@ export interface Tx {
   toolCrossing(key: string): Promise<ToolCrossingRow | undefined>;
   /** Inserts the running call's row; false when a row with `key` already exists. */
   startToolCrossing(row: Pick<ToolCrossingRow, "key" | "hash" | "startedAt">): Promise<boolean>;
+  /**
+   * Starts a lost call's row again (R5.3): `startedAt` moves on, on a row with no answer and
+   * `hash`. False when the row is gone, settled, or another request's.
+   */
+  restartToolCrossing(row: Pick<ToolCrossingRow, "key" | "hash" | "startedAt">): Promise<boolean>;
   /** Records the call's answer. */
   settleToolCrossing(key: string, answer: unknown, settledAt: string): Promise<void>;
   /** Deletes rows that settled before `before`; returns how many. */

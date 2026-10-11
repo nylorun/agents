@@ -26,11 +26,6 @@ export interface McpToolRecord {
   readonly inputSchema: JsonObject;
   readonly outputSchema?: JsonObject;
   /**
-   * The server's hints that calling the tool again is safe (R2b C7, Q15): a call whose answer
-   * was lost after it was sent is then `mcp.lost` to the model, not `uncertain`.
-   */
-  readonly annotations?: { readonly readOnlyHint?: boolean; readonly idempotentHint?: boolean };
-  /**
    * Out of the model's tool list for the session's life (R2b C10): core decides it once, when it
    * records the snapshot (`pinDeferral`), so every model call of the session lists the same tools.
    */

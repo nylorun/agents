@@ -297,12 +297,10 @@ describe("errors the model can act on (R2b C7)", () => {
     expect(faulty.calls("lookup")).toBe(1);
   });
 
-  it("another tool's lost answer leaves the call uncertain, for an operator", async () => {
-    const result = await run("faulty", "faulty__charge");
-    expect(result.status).toBe("uncertain");
-    expect(seenByModel).toBeUndefined();
-    expect(result.completed).toEqual([]);
-    expect(result.history).toContain("effect.uncertain");
+  it("any other tool's lost answer is mcp.lost to the model too, and is not sent again (R5)", async () => {
+    const { model, event } = await failed("faulty__charge");
+    expect(model).toMatchObject({ kind: "failed", code: "mcp.lost" });
+    expect(event).toMatchObject({ code: "mcp.lost" });
     expect(faulty.calls("charge")).toBe(1);
   });
 

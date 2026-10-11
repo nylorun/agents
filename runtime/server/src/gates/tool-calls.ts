@@ -8,10 +8,14 @@
  * - The gate also writes a `tool_crossings` row before it calls the server, and the answer
  *   after. A re-send that finds the answer gets it. One that finds a row without an answer,
  *   for a call this gateway is not running, was lost with an earlier gateway (a restart mid
- *   call): it answers `uncertain`, because the call may have run, and is never run again.
+ *   call): it is started again under the same key (R5.3), so the tool sees the key twice and
+ *   a tool that honors it acts once. Core counts the sends and stops at its cap (R5.4).
+ * - A re-send that another gateway process started or settled between this one's read and its
+ *   write answers `{uncertain: true}`: not answered here, so the caller sends it again later.
  *
- * A cancel aborts the call and leaves its row without an answer. Settled rows are deleted a day
- * later (`prune`).
+ * A cancel aborts the call and settles its row as cancelled: it never runs again under its key.
+ * A shutdown leaves the row open, so the next gateway starts it again. Settled rows are deleted
+ * a day later (`prune`); a re-send after that runs the call again, which at least once allows.
  */
 import type { Logger } from "../tenant/types.js";
 import {
@@ -43,8 +47,9 @@ export interface ToolCalls {
     owner?: InflightOwner,
   ): Promise<ToolCallAnswer>;
   /**
-   * Aborts the call under `key`; it is never run again under that key. With `sessionId`, false
-   * when the running call is another session's (nothing is aborted).
+   * Aborts the call under `key` and settles its crossing as cancelled: it is never run again
+   * under that key. With `sessionId`, false when the running call is another session's (nothing
+   * is aborted).
    */
   cancel(key: string, sessionId?: string): boolean;
   /** Aborts every running call (gateway shutdown). */
@@ -60,12 +65,16 @@ export interface ToolCallsOptions {
   readonly now?: () => number;
 }
 
-const LOST: ToolCallAnswer = {
+const CANCELLED: ToolCallAnswer = {
+  ok: false,
+  error: { message: "The call was cancelled while it ran; it may have reached its server" },
+};
+
+const ELSEWHERE: ToolCallAnswer = {
   ok: false,
   error: {
     uncertain: true,
-    message:
-      "The gateway stopped while this tool call ran; the call may have reached its server, so it is not run again",
+    message: "Another gateway process is running this tool call; send it again",
   },
 };
 
@@ -77,23 +86,26 @@ export function createToolCalls(options: ToolCallsOptions): ToolCalls {
 
   return {
     async run(tenantId, key, hash, call, owner) {
-      if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(LOST), owner);
+      if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(ELSEWHERE), owner);
       const vault = await vaults.open(tenantId);
       const store = vault.store;
       const row = await store.tx((t) => t.toolCrossing(key));
       if (row) {
         if (row.hash !== hash) throw new InflightConflict(`A different request already ran under ${key}`);
         if (row.answer !== null && row.answer !== undefined) return row.answer as ToolCallAnswer;
-        // Started here a moment ago, or lost with an earlier gateway.
-        if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(LOST), owner);
-        return LOST;
+        // Started here a moment ago: join it.
+        if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(ELSEWHERE), owner);
+        // Otherwise it was lost with an earlier gateway: it starts again below (R5.3).
       }
       return inflight.run(key, hash, async (signal) => {
+        const startedAt = iso();
         const started = await store.tx((t) =>
-          t.startToolCrossing({ key, hash, startedAt: iso() }),
+          row
+            ? t.restartToolCrossing({ key, hash, startedAt })
+            : t.startToolCrossing({ key, hash, startedAt }),
         );
-        // Another gateway process wrote it between the read and now: never run it twice.
-        if (!started) return LOST;
+        // Another gateway process started or settled it between the read and now.
+        if (!started) return ELSEWHERE;
         const answer = await call(signal);
         // A cancel or a shutdown: the call may have reached the server; the row stays open.
         if (signal.aborted) throw signal.reason ?? new Error("aborted");
@@ -108,7 +120,19 @@ export function createToolCalls(options: ToolCallsOptions): ToolCalls {
         return answer;
       }, owner);
     },
-    cancel: (key, sessionId) => inflight.cancel(key, sessionId),
+    cancel(key, sessionId) {
+      if (!inflight.cancel(key, sessionId)) return false;
+      void vaults
+        .open(undefined)
+        .then((vault) => vault.store.tx((t) => t.settleToolCrossing(key, CANCELLED, iso())))
+        .catch((error: unknown) =>
+          logger.warn("tool_crossing_unsettled", {
+            effect: key,
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      return true;
+    },
     close: () => inflight.close(),
     async prune() {
       try {
