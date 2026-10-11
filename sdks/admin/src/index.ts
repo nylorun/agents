@@ -35,12 +35,11 @@ export {
   type ManagementSettings,
   type ManagementSigningKeys,
   type ManagementTenant,
-  type ManagementVaults,
 } from "./management.js";
 
 /**
  * The Management API client for the installation (`/v1/tenant/*`): `tenant`, `keys`
- * (application keys), `models`, `vaults`, `mcp`, `signingKeys` and `settings`, with a management key.
+ * (application keys), `models`, `coverage`, `mcp`, `signingKeys` and `settings`, with a management key.
  * `source` says where the connection came from.
  */
 export type Admin = AdminClient;

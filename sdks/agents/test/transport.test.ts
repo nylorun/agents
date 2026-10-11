@@ -141,8 +141,8 @@ describe("Transport headers and compatibility", () => {
               ? {}
               : {
                   protocol: {
-                    min: 11,
-                    max: 11,
+                    min: 12,
+                    max: 12,
                     features: [...PROTOCOL_FEATURES],
                   },
                 },
@@ -154,7 +154,7 @@ describe("Transport headers and compatibility", () => {
             JSON.stringify({
               status: "rejected",
               code: "protocol_unsupported",
-              protocol: { min: 11, max: 11, features: [...PROTOCOL_FEATURES] },
+              protocol: { min: 12, max: 12, features: [...PROTOCOL_FEATURES] },
             }),
             { status: 426, headers: { "content-type": "application/json" } },
           );

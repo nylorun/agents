@@ -79,19 +79,18 @@ export type {
   SessionUsageTotals,
   ModelCall,
   ModelCallsPage,
-  SandboxPage,
+  EnvironmentPage,
   LiveEvent,
   SessionEvent,
   SessionEventOf,
   EventType,
   SessionCommand,
-  CredentialInfo,
-  CredentialSelection,
-  VaultInfo,
   SubjectScope,
-  SandboxView,
-  SandboxEvent,
-  SandboxKind,
+  EnvironmentView,
+  EnvironmentEvent,
+  EnvironmentKind,
+  EnvironmentRecipe,
+  EnvironmentSecretView,
   MessagePart,
   ArtifactView,
   ArtifactVersionView,
@@ -119,10 +118,11 @@ export type {
   CreateSessionOptions,
   SessionSandbox,
   ForSessionOptions,
-  SandboxSpec,
-  SessionSandboxHandle,
+  EnvironmentRecipeInput,
+  EnvironmentSecretInput,
+  SessionEnvironmentHandle,
 } from "./client.js";
-export { SandboxesClient } from "./client.js";
+export { EnvironmentsClient, EnvironmentSecretsClient } from "./client.js";
 export { AccessClient } from "./access.js";
 export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";

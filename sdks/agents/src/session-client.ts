@@ -32,15 +32,13 @@ import {
   parseSubjectHeaders,
   type SubjectScope,
   type AcceptedResponse,
-  type CredentialSelection,
   type LiveEvent,
   type MessagePart,
-  type SandboxRequest,
   type SessionCommand,
 } from "@nylorun/core/contracts";
 import { SessionsReadClient } from "./reads.js";
 import { AccessClient } from "./access.js";
-import { SandboxesClient } from "./sandboxes.js";
+import { EnvironmentsClient } from "./environments.js";
 import { ArtifactsClient } from "./artifacts.js";
 import { FilesClient } from "./files.js";
 import { Transport, env, id, segment, type Destination } from "./http.js";
@@ -135,16 +133,12 @@ export interface CreateSessionOptions {
   ownerUserId: string;
   info?: Record<string, unknown>;
   requestId?: string;
-  vaultIds?: readonly string[];
-  credentialSelections?: readonly CredentialSelection[];
   /**
-   * The session's sandbox: omit for the Tenant default, `false` for none, `{ id }` to attach a
-   * sandbox resource (`client.sandboxes`, Host feature `sandboxes`), or an inline sandbox
-   * (`image`, `network.allow`, `resources`) checked against the Tenant's limits. `{ session }`
-   * shares another session's and is deprecated: use `client.sandboxes.forSession()` or
-   * `ensure()` and `{ id }`. Fixed once the session exists.
+   * The Environment the session runs in (`client.environments`): its sandbox, and its vault's
+   * credentials for the session's shell, MCP servers and HTTP tools. Omit for no sandbox and no
+   * credentials. Fixed once the session exists.
    */
-  sandbox?: SandboxRequest;
+  environment?: string;
 }
 export interface ActAsOptions {
   /** What the subject may do; the Runtime grants nothing else. Default `["sessions:own"]`. */
@@ -162,7 +156,7 @@ export class AgentsClient {
   /**
    * A client that acts for `subject`: every call sends `Nylorun-Subject` and
    * `Nylorun-Scopes`, and the Runtime limits it to the scopes and to the subject's own sessions
-   * and vaults (Host feature `subject-headers`). For app servers, which authenticate the person
+   * (Host feature `subject-headers`). For app servers, which authenticate the person
    * themselves and hold the key; nothing is minted, cached or refreshed.
    */
   as(subject: string, options: ActAsOptions = {}): AgentsClient {
@@ -185,11 +179,12 @@ export class AgentsClient {
     return new AccessClient(this.transport);
   }
   /**
-   * Sandboxes as a resource (Host feature `sandboxes`): `ensure` one by id, `list` them by
-   * label, `delete` one, or give a session its own with `forSession`.
+   * Environments (protocol 11): `put` one by id (create, find or change), write its `secrets`,
+   * `list` them by label, `stop`, `reset` or `delete` one, or give a session its own with
+   * `forSession`.
    */
-  get sandboxes(): SandboxesClient {
-    return new SandboxesClient(this.transport, (options) => this.createSession(options));
+  get environments(): EnvironmentsClient {
+    return new EnvironmentsClient(this.transport, (options) => this.createSession(options));
   }
   /** File artifacts: upload, list, download with Range, capability links (protocol 6). */
   get artifacts(): ArtifactsClient {
@@ -264,11 +259,7 @@ export class AgentsClient {
       agentId: options.agentId,
       ownerUserId: options.ownerUserId,
       ...(options.info ? { info: options.info } : {}),
-      ...(options.vaultIds ? { vaultIds: options.vaultIds } : {}),
-      ...(options.credentialSelections
-        ? { credentialSelections: options.credentialSelections }
-        : {}),
-      ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
+      ...(options.environment === undefined ? {} : { environment: options.environment }),
     });
     return this.session(sessionId);
   }
@@ -550,5 +541,10 @@ export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
 export type { Destination, IncompatibleReason } from "./http.js";
 export type { LiveEvent } from "@nylorun/core/contracts";
 export { AccessClient } from "./access.js";
-export { SandboxesClient } from "./sandboxes.js";
-export type { ForSessionOptions, SandboxSpec, SessionSandboxHandle } from "./sandboxes.js";
+export { EnvironmentSecretsClient, EnvironmentsClient } from "./environments.js";
+export type {
+  EnvironmentRecipeInput,
+  EnvironmentSecretInput,
+  ForSessionOptions,
+  SessionEnvironmentHandle,
+} from "./environments.js";
