@@ -96,7 +96,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -168,7 +169,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -240,7 +242,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -312,7 +315,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -384,7 +388,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -456,7 +461,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -528,7 +534,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -600,7 +607,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -672,7 +680,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -744,7 +753,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -816,7 +826,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -888,7 +899,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -993,7 +1005,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -1065,7 +1078,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -1137,7 +1151,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -1209,7 +1224,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -1281,7 +1297,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -1353,7 +1370,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },
@@ -1425,7 +1443,8 @@
           "environment-setup",
           "environment-disk-versions",
           "tool-policy",
-          "traces"
+          "traces",
+          "artifact-reads"
         ]
       }
     },

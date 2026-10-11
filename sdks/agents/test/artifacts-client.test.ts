@@ -4,19 +4,26 @@ import { createClient } from "../src/client.js";
 
 const URL_ = "http://127.0.0.1:8787";
 
-function fake() {
-  const calls: { url: string; method: string; headers: Headers; body: unknown }[] = [];
+function fake(features: readonly string[] = HOST_PROTOCOL.features) {
+  const calls: {
+    url: string;
+    method: string;
+    headers: Headers;
+    body: unknown;
+    signal: AbortSignal | null | undefined;
+  }[] = [];
   const client = createClient({
     url: URL_,
     key: "secret",
     fetch: async (url, init) => {
       if (String(url).endsWith("/health"))
-        return Response.json({ status: "ok", protocol: { ...HOST_PROTOCOL } });
+        return Response.json({ status: "ok", protocol: { ...HOST_PROTOCOL, features } });
       calls.push({
         url: String(url),
         method: init?.method ?? "GET",
         headers: new Headers(init?.headers),
         body: init?.body,
+        signal: init?.signal,
       });
       if (String(url).includes("/links"))
         return Response.json({
@@ -26,11 +33,44 @@ function fake() {
           expiresAt: "2026-10-03T00:00:00.000Z",
         });
       if (String(url).endsWith("/content")) return new Response("bytes");
+      if (new URL(String(url)).searchParams.has("limit"))
+        return Response.json({ artifacts: [], nextCursor: null });
       return Response.json({ artifacts: [], artifact: {}, version: {} }, { status: 201 });
     },
   });
   return { client, calls };
 }
+
+it("pages artifact metadata with default size, filters and cancellation, preserving legacy lists", async () => {
+  const { client, calls } = fake();
+  await client.artifacts.list();
+  expect(await client.artifacts.page()).toEqual({ artifacts: [], nextCursor: null });
+  const abort = new AbortController();
+  await client.artifacts.page({
+    limit: 2,
+    cursor: "opaque",
+    sessionId: "s 1",
+    kind: "folder",
+    labels: { team: "one", status: "a=b" },
+    signal: abort.signal,
+  });
+  expect(calls.map((call) => call.url)).toEqual([
+    `${URL_}/v1/artifacts`,
+    `${URL_}/v1/artifacts?limit=50`,
+    `${URL_}/v1/artifacts?limit=2&cursor=opaque&sessionId=s+1&kind=folder&label=team%3Done&label=status%3Da%3Db`,
+  ]);
+  expect(calls.every((call) => call.method === "GET" && call.body === undefined)).toBe(true);
+  expect(calls[2]!.signal).toBe(abort.signal);
+});
+
+it("refuses artifact paging on older Hosts before making a list request", async () => {
+  const { client, calls } = fake(
+    HOST_PROTOCOL.features.filter((feature) => feature !== "artifact-reads"),
+  );
+  await expect(client.artifacts.page()).rejects.toThrow(/artifact-reads/);
+  expect(calls).toEqual([]);
+  expect(await client.artifacts.list()).toEqual([]);
+});
 
 it("uploads with the file's type, names it in the query, and sends parts", async () => {
   const { client, calls } = fake();
