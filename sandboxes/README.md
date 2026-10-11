@@ -30,8 +30,10 @@ Image: `ghcr.io/nylorun/sandboxes:<runtime version>` (a change here needs a
 (`driver.Name`; `Name("shop", "sbx_01", 0)` is `sbx-ub6g5m7mvjlct6r7-g0`).
 
 PUT body: `opId`, `mode` (`Running`|`Suspended`), `image` (default `python:3.13-slim`),
-`harnessImage` (the Runtime image the engine is copied from), `command` (replaces the engine
-command, for diagnostics and the suite), `cpus`, `memoryMiB`, `storageGiB` (fixed once
+`entrypoint` (`engine`, the default: the engine copied from `harnessImage` runs; `image`: the
+image's own `ENTRYPOINT` and `CMD` run, a custom harness built into the image, with nothing
+copied in and no `harnessImage`), `harnessImage` (the Runtime image the engine is copied from),
+`command` (replaces the engine command, for diagnostics and the suite), `cpus`, `memoryMiB`, `storageGiB` (fixed once
 created), `stopGraceSeconds` (1–30, default 10), `shutdownTime` (RFC 3339),
 `shutdownPolicy` (`Retain`|`Delete`), `env`, `joinToken` (written to Secret `<name>-join`
 before the Sandbox is applied).

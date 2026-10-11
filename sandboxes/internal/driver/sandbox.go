@@ -80,6 +80,10 @@ type Spec struct {
 	Mode string `json:"mode"`
 	// Image is the workload image (default python:3.13-slim).
 	Image string `json:"image,omitempty"`
+	// Entrypoint is what the workload container runs: "engine" (the default), the Runtime's
+	// engine copied in from HarnessImage, or "image", the workload image's own ENTRYPOINT and
+	// CMD: a custom harness built into the image (track R4). With "image" nothing is copied in.
+	Entrypoint string `json:"entrypoint,omitempty"`
 	// HarnessImage is the Runtime image the engine is copied from (init container nylo-copy).
 	HarnessImage string `json:"harnessImage,omitempty"`
 	// Command replaces the engine command; without a harness image the engine is not copied.
@@ -137,8 +141,20 @@ func (s *Spec) Normalize() error {
 	if len(s.HarnessImage) > 512 || strings.ContainsAny(s.HarnessImage, " \t\n") {
 		return invalid("harnessImage is not an image reference")
 	}
-	if s.HarnessImage == "" && len(s.Command) == 0 {
-		return invalid("harnessImage is required unless command is given")
+	if s.Entrypoint == "" {
+		s.Entrypoint = EntrypointEngine
+	}
+	switch s.Entrypoint {
+	case EntrypointEngine:
+		if s.HarnessImage == "" && len(s.Command) == 0 {
+			return invalid("harnessImage is required unless command is given")
+		}
+	case EntrypointImage:
+		if s.HarnessImage != "" {
+			return invalid("harnessImage is not allowed with entrypoint image: the image is the harness")
+		}
+	default:
+		return invalid("entrypoint must be engine or image")
 	}
 	if len(s.Command) > 64 {
 		return invalid("command has more than 64 arguments")
@@ -217,6 +233,12 @@ func millicores(cpus float64) string {
 	return strconv.FormatInt(int64(cpus*1000+0.5), 10) + "m"
 }
 
+// The workload's entrypoints (Spec.Entrypoint).
+const (
+	EntrypointEngine = "engine"
+	EntrypointImage  = "image"
+)
+
 // EngineCommand runs the copied engine under tini as PID 1 (signals reach the whole group).
 var EngineCommand = []string{
 	"/nylo/tini-static", "-g", "--",
@@ -244,7 +266,11 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 		env = append(env, map[string]any{"name": key, "value": spec.Env[key]})
 	}
 
-	command := EngineCommand
+	// An image entrypoint leaves the command unset: Kubernetes runs the image's own.
+	var command []string
+	if spec.Entrypoint != EntrypointImage {
+		command = EngineCommand
+	}
 	if len(spec.Command) > 0 {
 		command = spec.Command
 	}
@@ -293,10 +319,9 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 			"volumeMounts": []any{map[string]any{"name": "nylo", "mountPath": "/nylo"}},
 		}}
 	}
-	podSpec["containers"] = []any{map[string]any{
+	workload := map[string]any{
 		"name":            "workload",
 		"image":           spec.Image,
-		"command":         strings2any(command),
 		"workingDir":      "/workspace",
 		"env":             env,
 		"securityContext": hardened(),
@@ -308,7 +333,11 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 			},
 		},
 		"volumeMounts": mounts,
-	}}
+	}
+	if command != nil {
+		workload["command"] = strings2any(command)
+	}
+	podSpec["containers"] = []any{workload}
 	podSpec["volumes"] = volumes
 
 	sandboxSpec := map[string]any{

@@ -10,7 +10,6 @@
 import { hashManifest, type AgentManifest } from "@nylorun/core/define";
 import type { HarnessExecutors, HarnessRun, McpRecorder, PreparedRun } from "@nylorun/harness/api";
 import type { DurableSessionTool } from "@nylorun/harness/run";
-import { toolFixtureModel } from "../core/provider.js";
 import type { ToolGate } from "../gates/tool-gate.js";
 import { GateCallLost } from "../gates/tool-client.js";
 import { serversOf, type McpPool } from "../mcp/pool.js";
@@ -38,9 +37,6 @@ export interface HarnessExecutorsOptions {
   readonly sandbox: () => SandboxManager;
 }
 
-/** The Tenant's model of the fixture-model setting. Stateless. */
-const fixture = toolFixtureModel();
-
 export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecutors {
   const recoversTools = options.toolGate.recovers === true;
   const atGate = (effect: Parameters<HarnessExecutors["tool"]>[0], run: HarnessRun) => {
@@ -50,8 +46,9 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
   const recovered = (effect: Parameters<HarnessExecutors["tool"]>[0], run: HarnessRun) =>
     recoversTools && atGate(effect, run);
   return {
+    // With the Tenant's fixture model on, the Model Gate answers it (R4.3), metered like any call.
     model: (effect, signal, run) =>
-      invokeModel(options.model, effect, signal, run.start.options.fixtureModel ? fixture : undefined),
+      invokeModel(options.model, effect, signal, { atGate: run.start.options.fixtureModel }),
     tool(effect, signal, run) {
       const routing = routingOf(run);
       // A call at the Tool Gate outlives a shutdown there; a local one finishes and is recorded.

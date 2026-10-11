@@ -23,7 +23,7 @@
     "node": "^22.14.0 || ^24.0.0 || >=26.0.0"
   },
   "scripts": {
-    "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json",
+    "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json && node scripts/harness-api-schema.mjs",
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\"",
     "check": "npm run build && npm test && node scripts/check-package.mjs",
     "test": "vitest run --passWithNoTests",
@@ -65,7 +65,8 @@
     "./harness-api": {
       "types": "./dist/harness-api/index.d.ts",
       "import": "./dist/harness-api/index.js"
-    }
+    },
+    "./harness-api/schema.json": "./dist/harness-api/harness-api.schema.json"
   },
   "peerDependencies": {
     "zod": "^4.6.5"

@@ -14,7 +14,12 @@ export interface PodSpec {
   readonly mode: "Running" | "Suspended";
   /** The workload image; the service defaults it to `python:3.13-slim`. */
   readonly image?: string;
-  /** The Runtime image the engine is copied from. */
+  /**
+   * What the workload runs: `engine` (default), our engine copied from `harnessImage`, or
+   * `image`, the image's own entrypoint, for a custom harness built into it (R4.4).
+   */
+  readonly entrypoint?: "engine" | "image";
+  /** The Runtime image the engine is copied from; not with `entrypoint: "image"`. */
   readonly harnessImage?: string;
   /** Replaces the engine command (diagnostics). */
   readonly command?: readonly string[];

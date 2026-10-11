@@ -118,3 +118,82 @@ describe("memory channel", () => {
     ).rejects.toMatchObject({ code: "invalid" });
   });
 });
+
+describe("published contract (R4.5)", () => {
+  it("derives effect ids from the turn and segment, and tells a segment's own", async () => {
+    const { effectIdOf, isEffectIdOf } = await import("../src/harness-api/index.js");
+    expect(effectIdOf("t1", 0, "model", "i1")).toBe("t1:0:model:i1");
+    expect(isEffectIdOf("t1:0:tool:c1", "t1", 0)).toBe(true);
+    expect(isEffectIdOf("t1:1:tool:c1", "t1", 0)).toBe(false);
+    expect(isEffectIdOf("t10:0:tool:c1", "t1", 0)).toBe(false);
+  });
+
+  it("accepts trace context on turn.start, and refuses a malformed traceparent", async () => {
+    const { TurnStartSchema } = await import("../src/harness-api/index.js");
+    const start = {
+      type: "turn.start",
+      engine: "agent",
+      manifest: {},
+      checkpoint: {},
+      outcomes: [],
+      transcript: { cursor: 0 },
+      options: { fixtureModel: false },
+      routing: { rootManifest: {} },
+    };
+    expect(TurnStartSchema.safeParse(start).success).toBe(true);
+    const traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+    expect(TurnStartSchema.safeParse({ ...start, trace: { traceparent } }).success).toBe(true);
+    expect(TurnStartSchema.safeParse({ ...start, trace: { traceparent: "nope" } }).success).toBe(false);
+  });
+
+  it("checks gate bodies and the pod join with the published schemas", async () => {
+    const { HostJoinRequestSchema, ModelCallBodySchema, ToolCallBodySchema } = await import(
+      "../src/harness-api/index.js"
+    );
+    expect(
+      ModelCallBodySchema.safeParse({ effectId: "t1:0:model:i1", invocationId: "i1", call: { prompt: [], tools: [] } })
+        .success
+    ).toBe(true);
+    // The gate takes the session from the run token: a body naming it is refused.
+    expect(
+      ModelCallBodySchema.safeParse({
+        effectId: "e",
+        invocationId: "i",
+        sessionId: "s1",
+        call: { prompt: [], tools: [] },
+      }).success
+    ).toBe(false);
+    expect(
+      ToolCallBodySchema.safeParse({
+        server: { capabilityId: "c", serverName: "docs" },
+        effectId: "e",
+        name: "search",
+        arguments: {},
+      }).success
+    ).toBe(true);
+    expect(HostJoinRequestSchema.safeParse({ sandboxId: "web", podUid: "abc-1", joinToken: "t" }).success).toBe(true);
+    expect(HostJoinRequestSchema.safeParse({ sandboxId: "web", podUid: "a b", joinToken: "t" }).success).toBe(false);
+  });
+
+  it("generates one JSON Schema document with every published schema and request", async () => {
+    const { harnessApiJsonSchema } = await import("../src/harness-api/index.js");
+    const document = harnessApiJsonSchema() as { $defs: Record<string, unknown>; title: string };
+    expect(document.title).toBe(`Nylorun Harness API ${HARNESS_API_VERSION}`);
+    for (const name of [
+      "TurnStart",
+      "TurnOutput",
+      "EffectIntent",
+      "ModelCallBody",
+      "ToolCallBody",
+      "HttpCallBody",
+      "McpSnapshot",
+      "TranscriptEntry",
+      "HostJoinRequest",
+      "HostJoinAnswer",
+      "hello.params",
+      "effect.intent.params",
+      "cancel.params",
+    ])
+      expect(document.$defs, name).toHaveProperty([name]);
+  });
+});

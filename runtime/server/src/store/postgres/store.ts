@@ -72,6 +72,7 @@ import type { Sql } from "postgres";
 import type {
   EventPayload,
   EventType,
+  EventWriter,
   LiveEvent,
   EnvironmentEvent,
   EnvironmentEventPayload,
@@ -566,6 +567,7 @@ class PostgresTx implements Tx {
     turnId: string | null,
     type: T,
     payload: EventPayload<T>,
+    writer?: EventWriter,
   ): Promise<SessionEventOf<T>> {
     this.check();
     const db = this.db;
@@ -584,6 +586,7 @@ class PostgresTx implements Tx {
       time: this.now(),
       type,
       payload,
+      ...(writer ? { writer } : {}),
     });
     this.events.push(event);
     this.generations.push(generation);

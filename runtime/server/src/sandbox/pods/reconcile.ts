@@ -119,6 +119,7 @@ export async function reconcileSandbox(
       config,
       mode: decision.apply.mode,
       harnessImage: pods.harnessImage,
+      harness: row.applied.harness,
       ...(joinToken ? { joinToken } : {}),
     });
     try {

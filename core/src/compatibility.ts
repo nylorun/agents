@@ -188,6 +188,11 @@ export const ERROR_CODES = [
    */
   "environment_owner_mismatch",
   /**
+   * The session's Environment now runs another harness than the one the session pinned when it
+   * opened (track R4): open a new session to run on it.
+   */
+  "harness_mismatch",
+  /**
    * The session is closed: it was opened before protocol 11 (its history stays readable), so
    * open a new session that names an Environment.
    */

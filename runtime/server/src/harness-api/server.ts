@@ -26,8 +26,11 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_HARNESS,
   HARNESS_API_VERSION,
   HARNESS_CLAIMS,
+  MAX_HARNESS_STATE_BYTES,
+  isHarnessId,
   HarnessApiError,
   type CoreMethod,
   type EffectIntent,
@@ -42,7 +45,7 @@ import {
   type TurnStart,
   type WorkspaceRecord,
 } from "@nylorun/core/harness-api";
-import { definitionFilesOf } from "@nylorun/core/contracts";
+import { definitionFilesOf, type EventWriter } from "@nylorun/core/contracts";
 import { isOwnershipLost } from "../store/ownership.js";
 import { ownedSession, type Lease, type TenantContext } from "../tenant/context.js";
 import {
@@ -65,6 +68,12 @@ import { beat, renewEveryMs, tokenOf } from "./renew.js";
 export interface HarnessPeer {
   /** For logs. */
   readonly name: string;
+  /**
+   * The harness id its credential is for (R4.1): `nylorun` for the harness token, a custom
+   * harness's id for its own token. Its `hello` must name it. Absent for an in-process
+   * harness, which may name any id; a pod's host is checked against its Environment's harness.
+   */
+  readonly harness?: string;
   /** A pod sandbox's engine (F7.2): the sandbox it hosts, at the host epoch of its token. */
   readonly host?: { readonly sandboxId: string; readonly epoch: number };
 }
@@ -86,6 +95,8 @@ export interface RunOffer {
    * only a harness that hosts no sandbox does.
    */
   readonly pod?: string;
+  /** The session's harness (R4.1): only a connection that said this id takes it. Default ours. */
+  readonly harness?: string;
   /** How long to wait for a harness to take it. Default the server's `offerWaitMs`. */
   readonly waitMs?: number;
 }
@@ -157,8 +168,12 @@ interface Connection {
   readonly peer: HarnessPeer;
   /** The pod sandbox it hosts, if any. */
   readonly host?: { readonly sandboxId: string; readonly epoch: number };
+  /** The harness id its `hello` named (R4.1); undefined until then, when it takes no run. */
+  harness?: string;
   /** Declared `workspace` in its `hello`. */
   workspace: boolean;
+  /** The tools it declared it runs itself (`capabilities.tools`, R4.2). */
+  tools?: ReadonlySet<string>;
   /** Sessions its workspace requests in flight act for, with how many each. */
   readonly claims: Map<string, number>;
   /** `workspace.sweep` and `workspace.remove` requests in flight: they may stop any workspace. */
@@ -179,6 +194,9 @@ interface Run {
   readonly outputs: Map<string, Promise<{ cursor?: number }>>;
   end(end: RunEnd): void;
 }
+
+/** What our harness said in `hello` before harness ids (R4.1): refused, with the new id. */
+const LEGACY_NAME = "@nylorun/harness";
 
 const OUTPUTS: readonly string[] = [
   "turn.completed",
@@ -205,8 +223,12 @@ export function createHarnessApiServer(
   const runs = new Map<string, Run>();
   let closed = false;
 
-  /** A harness may take a run: a pod sandbox's host its sandbox's runs, any other the rest. */
-  const takes = (connection: Connection, run: Run) => connection.host?.sandboxId === run.offer.pod;
+  /**
+   * A harness may take a run of its own harness id (R4.1): a pod sandbox's host its sandbox's
+   * runs, any other the rest.
+   */
+  const takes = (connection: Connection, run: Run) =>
+    connection.harness === (run.offer.harness ?? DEFAULT_HARNESS) && connection.host?.sandboxId === run.offer.pod;
 
   /** Hands queued runs to waiting harnesses that may take them, in order. */
   const match = () => {
@@ -235,18 +257,35 @@ export function createHarnessApiServer(
     return run;
   };
 
+  /** What a harness reports is its claim (R4.9): its harness id and, in a run, the run. */
+  const writerOf = (connection: Connection, runId?: string): EventWriter => ({
+    source: { kind: "harness", id: connection.harness ?? connection.peer.name },
+    evidence: "claimed",
+    ...(runId === undefined ? {} : { runId }),
+  });
+
   const scope = (run: Run) => ({
     ctx,
     lease: run.offer.lease,
     signal: run.offer.controller.signal,
+    ...(run.connection?.tools ? { nativeTools: run.connection.tools } : {}),
+    ...(run.connection ? { writer: writerOf(run.connection, run.grant.runId) } : {}),
   });
 
   const serve = (connection: Connection) =>
     async (method: string, params: unknown, signal: AbortSignal): Promise<unknown> => {
       const p = params as Record<string, unknown>;
       if (method === "hello") {
-        const { capabilities } = p as ParamsOf<"hello">;
+        const { api, name, capabilities } = p as ParamsOf<"hello">;
+        // R3's next version adds a window of supported versions; until then there is one.
+        if (api !== HARNESS_API_VERSION)
+          throw new HarnessApiError(
+            "invalid",
+            `unsupported Harness API version ${api}: this Runtime speaks ${HARNESS_API_VERSION}`
+          );
+        connection.harness = await harnessIdOf(connection, name);
         connection.workspace = capabilities.workspace !== undefined;
+        if (capabilities.tools?.length) connection.tools = new Set(capabilities.tools.map((tool) => tool.name));
         return {
           api: HARNESS_API_VERSION,
           tenantId: ctx.config.tenantId,
@@ -256,6 +295,8 @@ export function createHarnessApiServer(
         };
       }
       if (method === "event") return claim(connection, p as ParamsOf<"event">);
+      if (method === "lease" && connection.harness === undefined)
+        throw new HarnessApiError("invalid", "Say hello first: a harness leases runs of the id it names");
       if (method === "lease")
         return new Promise((resolve, reject) => {
           const entry: Waiting = { connection, resolve };
@@ -267,7 +308,11 @@ export function createHarnessApiServer(
           });
           match();
         });
-      if (OUTPUTS.includes(method)) return output(held(connection, String(p.runId), method), method, p);
+      if (OUTPUTS.includes(method)) {
+        const run = held(connection, String(p.runId), method);
+        if (connection.harness !== DEFAULT_HARNESS) checkCustomOutput(run, method, p);
+        return output(run, method, p);
+      }
       const run = held(connection, String(p.runId));
       switch (method) {
         case "lease.renew":
@@ -301,6 +346,34 @@ export function createHarnessApiServer(
     };
 
   /**
+   * The harness id a `hello` names (R4.1): a harness id, and the one the connection's credential
+   * is for. A pod's host must be its Environment's harness, so an image that is not the harness
+   * its recipe names never takes the Environment's runs.
+   */
+  const harnessIdOf = async (connection: Connection, name: string): Promise<string> => {
+    if (!isHarnessId(name))
+      throw new HarnessApiError(
+        "invalid",
+        name === LEGACY_NAME
+          ? `A harness names its harness id in hello: ours is ${DEFAULT_HARNESS}. Update the harness image (it said ${LEGACY_NAME}).`
+          : `hello.name ${JSON.stringify(name)} is not a harness id: lowercase letters, digits and dashes, starting with a letter`
+      );
+    const bound = connection.peer.harness;
+    if (bound !== undefined && bound !== name)
+      throw new HarnessApiError("invalid", `This credential is for the ${bound} harness, not ${name}`);
+    if (connection.host) {
+      const environment = await ctx.store.tx((t) => t.environment(connection.host!.sandboxId));
+      const expected = environment?.applied.harness ?? DEFAULT_HARNESS;
+      if (expected !== name)
+        throw new HarnessApiError(
+          "invalid",
+          `Environment ${connection.host.sandboxId} runs the ${expected} harness, and this pod says ${name}`
+        );
+    }
+    return name;
+  };
+
+  /**
    * A `sandbox.*` event the harness claims: for a run it holds (the run's session, or the
    * session owning its sandbox), or a session one of its workspace requests acts for. A
    * `sandbox.state` record becomes the workspace's `sandboxes` row. Claims are best effort, as
@@ -329,7 +402,7 @@ export function createHarnessApiServer(
     try {
       await ctx.store.tx(async (t) => {
         if (record) await t.put("sandboxes", record.key, record satisfies WorkspaceRecord);
-        await t.event(event.sessionId, event.turnId, event.type, event.payload as never);
+        await t.event(event.sessionId, event.turnId, event.type, event.payload as never, writerOf(connection, event.runId));
       });
     } catch (error) {
       ctx.config.logger.warn("harness event claim not recorded", {
@@ -365,7 +438,8 @@ export function createHarnessApiServer(
           current.id,
           run.grant.turnId,
           "mcp.discovered",
-          mcpDiscovered(current.mcpSnapshot, diagnostics)
+          mcpDiscovered(current.mcpSnapshot, diagnostics),
+          run.connection ? writerOf(run.connection, run.grant.runId) : undefined
         );
       } else if (diagnostics.length > 0) {
         const prior = [...(current.mcpDiagnostics ?? [])];
@@ -396,6 +470,26 @@ export function createHarnessApiServer(
     return { base64: Buffer.from(bytes).toString("base64") };
   };
 
+  /**
+   * A custom harness's output (R4.2): its state is its own, stored as sent and never read, so it
+   * must be JSON and at most `MAX_HARNESS_STATE_BYTES`; a larger one fails the turn, as an engine
+   * that threw would. It cannot pause for approvals in v2 (Q14): approvals read our engine's plan
+   * until R5 makes them core holds.
+   */
+  const checkCustomOutput = (run: Run, method: string, params: Record<string, unknown>) => {
+    if (method === "turn.paused")
+      throw new HarnessApiError("invalid", "A custom harness cannot pause for approvals in Harness API 2");
+    if (params.state === undefined || run.outputs.has(method)) return;
+    const bytes = Buffer.byteLength(JSON.stringify(params.state) ?? "");
+    if (bytes <= MAX_HARNESS_STATE_BYTES) return;
+    output(run, "turn.failed", {
+      runId: run.grant.runId,
+      status: "failed",
+      thrown: { code: "invalid", message: `The harness's state is ${bytes} bytes, over ${MAX_HARNESS_STATE_BYTES}` },
+    }).catch(() => undefined);
+    throw new HarnessApiError("invalid", `state over 256 KiB (${bytes} bytes): the turn failed`);
+  };
+
   const output = (run: Run, method: string, params: Record<string, unknown>) => {
     const known = run.outputs.get(method);
     if (known) return known;
@@ -420,7 +514,11 @@ export function createHarnessApiServer(
       return {
         connected: connections.size,
         workspace: [...connections].some(
-          (connection) => connection.workspace && !connection.host && !connection.channel.closed
+          (connection) =>
+            connection.workspace &&
+            !connection.host &&
+            connection.harness === DEFAULT_HARNESS &&
+            !connection.channel.closed
         ),
       };
     },
@@ -436,8 +534,14 @@ export function createHarnessApiServer(
     },
     async workspace(method, params, signal, target) {
       const pod = target?.pod;
+      // A pod's workspace is its host's, whatever harness it is; the others are ours (R4.1): a
+      // custom harness keeps its own workspaces and is sent none.
       const connection = [...connections].find(
-        (item) => item.workspace && !item.channel.closed && item.host?.sandboxId === pod
+        (item) =>
+          item.workspace &&
+          !item.channel.closed &&
+          item.host?.sandboxId === pod &&
+          (pod !== undefined || item.harness === DEFAULT_HARNESS)
       );
       if (!connection) throw new NoWorkspaceHarness(pod);
       const session = (params as { session?: { ownerId?: string } }).session?.ownerId;

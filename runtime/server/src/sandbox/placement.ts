@@ -3,20 +3,24 @@
  * never downgraded afterwards. The Tenant maps harness ids (`nylorun`, or `*` for the rest) to
  * the hosts they may run on (`environments.config` `placement`): `harness-container` (the
  * Runtime's harness: in process, or the harness container) and `sandbox` (the engine in a pod).
- * Default: both.
+ * Default: both. `"*": { hosts: [] }` refuses every harness the map does not name (R4.1).
  *
  * A session on a pod Environment runs on `sandbox`; every other session (a virtual or `none`
  * Environment, or none) on `harness-container` (D52). A host the Tenant does not allow is
  * `409 placement_refused`. A pod Environment needs sandbox pods: without a cluster (`nylorun
  * sandbox enable`), or with the sandboxes service not ready, it is `409 environment_unavailable`.
  */
-import type { EnvironmentKind, PlacementHost as SandboxPlacementHost } from "@nylorun/core/contracts";
+import {
+  DEFAULT_HARNESS,
+  type EnvironmentKind,
+  type PlacementHost as SandboxPlacementHost,
+} from "@nylorun/core/contracts";
 import type { TenantSandboxConfig } from "./tenant-config.js";
 import type { TenantPods } from "../tenant/context.js";
 import { fail } from "../tenant/http.js";
 
-/** The harness every session of this Runtime runs (blueprint D38). */
-export const HARNESS_ID = "nylorun";
+/** Our harness's id (blueprint D38): what a session runs unless its Environment names another. */
+export const HARNESS_ID = DEFAULT_HARNESS;
 
 export const DEFAULT_PLACEMENT: readonly SandboxPlacementHost[] = ["harness-container", "sandbox"];
 
@@ -32,18 +36,25 @@ export function placementOf(
 /** How to enable sandbox pods, for the messages that need them. */
 export const ENABLE_PODS = "run `nylorun sandbox enable --context <name>` to give this Tenant a cluster";
 
-/** Refuses a session whose sandbox needs a host the Tenant does not allow. */
-export function checkPlacement(config: TenantSandboxConfig, kind: EnvironmentKind | undefined): void {
+/** Refuses a session whose harness, on the host its Environment needs, the Tenant does not allow. */
+export function checkPlacement(
+  config: TenantSandboxConfig,
+  kind: EnvironmentKind | undefined,
+  harness: string = HARNESS_ID,
+): void {
   const host: SandboxPlacementHost = kind === "pod" ? "sandbox" : "harness-container";
-  const allowed = placementOf(config);
-  if (!allowed.includes(host))
-    fail(
-      409,
-      kind === "pod"
-        ? `This Tenant does not let the ${HARNESS_ID} harness run in a sandbox pod (placement allows ${allowed.join(", ")}).`
-        : `This Tenant runs the ${HARNESS_ID} harness only in sandbox pods (placement allows ${allowed.join(", ")}): open the session on a pod Environment.`,
-      { code: "placement_refused", details: { harness: HARNESS_ID, host, allowed: [...allowed] } },
-    );
+  const allowed = placementOf(config, harness);
+  if (allowed.includes(host)) return;
+  const where = allowed.length === 0 ? "it may run nowhere" : `placement allows ${allowed.join(", ")}`;
+  fail(
+    409,
+    allowed.length === 0
+      ? `This Tenant does not run the ${harness} harness (${where}).`
+      : kind === "pod"
+        ? `This Tenant does not let the ${harness} harness run in a sandbox pod (${where}).`
+        : `This Tenant runs the ${harness} harness only in sandbox pods (${where}): open the session on a pod Environment.`,
+    { code: "placement_refused", details: { harness, host, allowed: [...allowed] } },
+  );
 }
 
 const READY_CACHE_MS = 5_000;

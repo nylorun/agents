@@ -16,6 +16,7 @@ import type {
   RequestTypes,
   RunGrantSchema,
   RunRoutingSchema,
+  TraceContextSchema,
   TurnOutputSchema,
   TurnStartSchema,
   WorkspaceBytesCallSchema,
@@ -30,6 +31,12 @@ import type {
 } from "./schema.js";
 
 export const HARNESS_API_VERSION = 2;
+
+/** The capability id of the tools a harness declares and runs itself (`capabilities.tools`, R4.2). */
+export const HARNESS_TOOLS_CAPABILITY = "harness";
+
+/** The most state a custom harness may keep per session (R4.2): its serialized JSON, in bytes. */
+export const MAX_HARNESS_STATE_BYTES = 256 * 1024;
 
 /** Why core stopped a run. Matches the advance's abort kinds. */
 export const ABORT_REASONS = ["cancel", "shutdown", "deadline", "ownership.lost"] as const;
@@ -67,6 +74,9 @@ export type RunGrant = z.infer<typeof RunGrantSchema>;
 
 /** Where a harness sends the session's tool calls. */
 export type RunRouting = z.infer<typeof RunRoutingSchema>;
+
+/** W3C trace context a turn carries (R4.10). */
+export type TraceContext = z.infer<typeof TraceContextSchema>;
 
 /** What a run starts from: `turn.start` (message, continue, resume) or `approval.answer`. */
 export type TurnStart = z.infer<typeof TurnStartSchema>;

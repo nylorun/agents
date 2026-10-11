@@ -12,9 +12,13 @@ import {
   isEventType,
   type EventPayload,
   type EventType,
+  type EventWriter,
   type SessionEventOf,
 } from "@nylorun/core/contracts";
 import { encodeCursor } from "./cursor.js";
+
+/** Core's own writes: what an event says when its writer says nothing (R4.9). */
+export const CORE: EventWriter = { source: { kind: "core", id: "runtime" } };
 
 /** A write of an event the catalog does not describe: a bug in the writer. */
 export class InvalidEventError extends Error {
@@ -28,6 +32,8 @@ export class InvalidEventError extends Error {
 }
 
 export interface EventInput<T extends EventType> {
+  /** Who wrote it (R4.9); absent, core, observed. */
+  writer?: EventWriter;
   tenantId: string;
   sessionId: string;
   turnId: string | null;
@@ -43,15 +49,15 @@ export interface EventInput<T extends EventType> {
 export function buildEvent<T extends EventType>(input: EventInput<T>): SessionEventOf<T> {
   const type: string = input.type;
   if (!isEventType(type)) throw new InvalidEventError(type, "unknown type");
-  const entry: { source: string; version: number; visibility?: "public" | "internal" } =
-    EVENT_CATALOG[type];
+  const entry: { version: number; visibility?: "public" | "internal" } = EVENT_CATALOG[type];
+  const writer = input.writer ?? CORE;
   const event = JSON.parse(
     JSON.stringify({
       schema: EVENT_SCHEMA,
       eventId: randomUUID(),
       tenantId: input.tenantId,
       sessionId: input.sessionId,
-      runId: null,
+      runId: writer.runId ?? null,
       turnId: input.turnId,
       incarnation: 0,
       epoch: input.epoch,
@@ -59,8 +65,9 @@ export function buildEvent<T extends EventType>(input: EventInput<T>): SessionEv
       cursor: encodeCursor(input.sessionId, input.seq),
       time: input.time.toISOString(),
       schemaVersion: entry.version,
-      source: { kind: entry.source, id: "runtime" },
-      evidence: "observed",
+      source: writer.source,
+      evidence: writer.evidence ?? "observed",
+      ...(writer.principal ? { principal: writer.principal } : {}),
       visibility: entry.visibility ?? "public",
       retention: "full",
       type,

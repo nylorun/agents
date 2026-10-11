@@ -293,7 +293,7 @@ report("Harness API checks the Host", (await upgrade("/nylorun/harness/v1", { ..
 
 // 7. Runs this connection does not hold.
 const api = await harnessConnection();
-const hello = await api.request("hello", { api: 1, name: "redteam", version: "0", capabilities: {} });
+const hello = await api.request("hello", { api: 2, name: "nylorun", version: "0", capabilities: {} });
 const tenantId = hello.tenantId;
 const unheld = randomUUID();
 const intent = (runId, sessionId) => ({

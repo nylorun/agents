@@ -18,9 +18,10 @@ import { sandboxSpecOf } from "../sandbox/resolve.js";
 import { withPlatformTools, withSandboxCapability } from "../sandbox/session-sandbox.js";
 import { declaredSandboxes } from "../sandbox/share.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
-import { checkPlacement, requirePods } from "../sandbox/placement.js";
+import { HARNESS_ID, checkPlacement, requirePods } from "../sandbox/placement.js";
 import { openEnvironment, recordAttachment } from "./environments.js";
 import {
+  harnessOf,
   type Session,
   type SessionAccess,
   type TenantContext,
@@ -217,8 +218,14 @@ export async function putSession(
             opaque,
           });
     const config = await readSandboxConfig(t);
+    // The harness the session runs for its life (R4.1): its Environment's, else ours. A flow
+    // runs in core and our engine, whatever its Environment names.
+    const harness =
+      isWorkflowManifest(definition.manifest) || environment === undefined
+        ? HARNESS_ID
+        : environment.applied.harness;
     // Placement (D38, D52): where this session's harness may run, decided now and kept.
-    checkPlacement(config, environment?.kind);
+    checkPlacement(config, environment?.kind, harness);
     if (environment?.kind === "pod") await requirePods(ctx.pods, `Environment ${environment.id}`);
     const spec =
       environment === undefined || environment.kind === "none"
@@ -237,6 +244,7 @@ export async function putSession(
       status: "idle",
       activeTurnId: null,
       creation: body,
+      harness,
       ...(environment === undefined
         ? {}
         : { environmentId: environment.id, environmentVersion: environment.version }),
@@ -302,6 +310,7 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
       s.environmentId === undefined
         ? null
         : { id: s.environmentId, version: s.environmentVersion ?? 1 },
+    harness: harnessOf(s),
     ...(s.closedReason === undefined ? {} : { closedReason: s.closedReason }),
     mcpSnapshot: s.mcpSnapshot ?? null,
     mcpDiagnostics: s.mcpDiagnostics ?? [],

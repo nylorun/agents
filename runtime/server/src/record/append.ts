@@ -10,7 +10,7 @@
  * transaction (`store/postgres/record-writer.ts`): the database driver stays behind
  * `store/postgres/` (session-store.md §3), and this module decides what is written.
  */
-import type { EventPayload, EventType, LiveEvent, SessionEventOf } from "@nylorun/core/contracts";
+import type { EventPayload, EventType, EventWriter, LiveEvent, SessionEventOf } from "@nylorun/core/contracts";
 import { buildEvent } from "./envelope.js";
 
 /** The record's two statements, in the caller's transaction. */
@@ -40,6 +40,8 @@ export interface AppendInput<T extends EventType> {
   time: Date;
   type: T;
   payload: EventPayload<T>;
+  /** Who wrote it (R4.9). */
+  writer?: EventWriter;
 }
 
 /**
@@ -60,6 +62,7 @@ export async function appendEvent<T extends EventType>(
     time: input.time,
     type: input.type,
     payload: input.payload,
+    ...(input.writer ? { writer: input.writer } : {}),
   });
   await writer.insert({ sessionId: input.sessionId, seq, generation, type: input.type, body: event });
   return { event, generation };

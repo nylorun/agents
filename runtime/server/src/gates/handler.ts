@@ -1,14 +1,14 @@
 /**
  * Serves one model call in the gates service: opens the Tenant's vault (the database's one
- * Tenant; a call naming another is refused) and calls the model
- * through `inProcessModelGate`, the same code the loop ran before the gate, so outcomes,
+ * Tenant; a call naming another is refused) and calls the model (the fixture model while the
+ * Tenant's `model.fixture` is on, R4.3) through `inProcessModelGate`, the same code the loop ran before the gate, so outcomes,
  * retries, classification and redaction are unchanged. The meter records the call's usage in
  * the Tenant's ledger. Logs one line per call, never the prompt, the output or a credential.
  */
 import { classifyThrown } from "../model/classify.js";
 import type { Logger } from "../tenant/types.js";
 import type { BlobStore } from "../blob/index.js";
-import { callFiles, inProcessModelGate } from "./in-process.js";
+import { callFiles, inProcessModelGate, serve } from "./in-process.js";
 import { createMeter } from "./meter.js";
 import type { ModelCallSettings, ModelGate, ModelGateRequest } from "./model-gate.js";
 import { GateRefusal, type TenantVaults } from "./tenant-vaults.js";
@@ -52,7 +52,7 @@ export function createModelCallHandler(options: ModelCallHandlerOptions): ModelC
           ...(settings ? { settings } : {}),
           ...(blobs ? { files: callFiles(vault.store, blobs) } : {}),
         });
-        outcome = await meter.call(vault.store, call, () => gate.call(call, signal));
+        outcome = await meter.call(vault.store, call, () => serve(vault.store, gate, call, signal));
       } catch (error) {
         if (signal.aborted) {
           logger.info("model_call", { ...fields(request), ms: Date.now() - started, outcome: "aborted" });

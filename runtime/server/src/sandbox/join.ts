@@ -32,6 +32,7 @@
  * which check failed.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
+import type { HostJoinAnswer as PublishedJoinAnswer, HostJoinRequest } from "@nylorun/core/harness-api";
 import { isEnvironmentId } from "@nylorun/core/contracts";
 import type { Environment } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
@@ -54,32 +55,13 @@ import {
   type HostTokenKeyCache,
 } from "../tenant/host-token.js";
 
-export interface HostJoinRequest {
-  readonly sandboxId: string;
-  readonly podUid: string;
-  readonly joinToken: string;
-  /** The id the engine keeps on the volume (`/harness/volume-id`). */
-  readonly volumeId?: string;
-}
+export type { HostJoinRequest } from "@nylorun/core/harness-api";
 
-/** What `join` and `renew` answer. */
-export interface HostJoinAnswer {
-  readonly hostToken: string;
-  readonly egressToken: string;
-  readonly sandboxId: string;
-  readonly epoch: number;
-  /** ISO time the tokens expire. */
-  readonly expiresAt: string;
-  /** The egress CA certificate (PEM) the sandbox trusts (R2c). */
-  readonly caCertificate: string;
+/** What `join` and `renew` answer: the published answer, with our engine's setup plan typed. */
+export type HostJoinAnswer = Omit<PublishedJoinAnswer, "setup"> & {
   /** What to run and copy on a new disk before taking turns (`sandbox/setup.ts`); join only. */
   readonly setup?: SetupPlan;
-  /**
-   * The new volume starts from a disk version (R2d step 3): core writes it once the engine
-   * connects, so the engine runs no setup (the version holds what setup made). Join only.
-   */
-  readonly seeded?: true;
-}
+};
 
 /** A refused join, renewal or host connection. */
 export class HostAuthError extends Error {

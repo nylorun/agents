@@ -66,6 +66,7 @@ import type { SandboxSignal, Wake } from "../execution/types.js";
 import type {
   EventPayload,
   EventType,
+  EventWriter,
   LiveEvent,
   EnvironmentEvent,
   EnvironmentEventPayload,
@@ -560,6 +561,8 @@ export interface Tx {
     turnId: string | null,
     type: T,
     payload: EventPayload<T>,
+    /** Who wrote it (R4.9): absent, core, observed. */
+    writer?: EventWriter,
   ): Promise<SessionEventOf<T>>;
 
   // --- outbox (architecture §12.3) ------------------------------------------

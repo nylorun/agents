@@ -467,6 +467,11 @@ export async function main(): Promise<void> {
           const handle = resolved.kind === "open" ? resolved.handle : undefined;
           return handle?.attachHarness ? (channel, peer) => handle.attachHarness!(channel, peer) : undefined;
         },
+        // Custom harnesses connect with their own tokens (R4.1).
+        harnessOfToken: async (token) => {
+          const resolved = await module.resolve();
+          return resolved.kind === "open" ? resolved.handle.harnessOfToken?.(token) : undefined;
+        },
         logger,
       });
     await host.listen();

@@ -72,6 +72,17 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
       }
     }
     let checkpoint = start.checkpoint as DurableCheckpoint;
+    // The state is ours alone (R4.2): core never reads it. The turn's manifest is core's choice
+    // (the pin, or a variant a message named), and the state follows it.
+    if (
+      start.engine === "agent" &&
+      checkpoint.state &&
+      checkpoint.state.manifestHash !== checkpoint.manifestHash
+    )
+      checkpoint = {
+        ...checkpoint,
+        state: { ...checkpoint.state, manifestHash: checkpoint.manifestHash },
+      };
     if (start.engine === "agent" && checkpoint.state) {
       transcript = ctx.cache.get(sessionId, cursor) ?? (await read(ctx, run));
       checkpoint = { ...checkpoint, state: withTranscript(checkpoint.state, transcript) };

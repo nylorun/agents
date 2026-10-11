@@ -77,7 +77,7 @@ function connect(bearer: string): Promise<{ status: number; channel?: HarnessCha
 }
 
 const hello = (channel: HarnessChannel) =>
-  channel.request("hello", { api: 1, name: "probe", version: "0", capabilities: { workspace: { backends: ["local"] } } });
+  channel.request("hello", { api: 2, name: "nylorun", version: "0", capabilities: { workspace: { backends: ["local"] } } });
 
 beforeAll(async () => {
   fake = fakeSandboxes();

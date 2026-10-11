@@ -104,6 +104,36 @@ func TestRenderCommandWithoutEngine(t *testing.T) {
 	}
 }
 
+func TestRenderImageEntrypoint(t *testing.T) {
+	spec := driver.Spec{OpID: "op", Mode: "Running", Image: "ghcr.io/acme/mini-harness:0.1.0", Entrypoint: "image"}
+	if err := spec.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	o := driver.Render(namespace, "sbx-aaaaaaaaaaaaaaaa-g0", spec, urls)
+	if _, found, _ := unstructured.NestedSlice(o.Object, "spec", "podTemplate", "spec", "initContainers"); found {
+		t.Fatal("no engine is copied into a harness image")
+	}
+	containers, _, _ := unstructured.NestedSlice(o.Object, "spec", "podTemplate", "spec", "containers")
+	workload := containers[0].(map[string]any)
+	if _, found := workload["command"]; found {
+		t.Fatalf("the image's own entrypoint runs, got command %v", workload["command"])
+	}
+	for _, mount := range workload["volumeMounts"].([]any) {
+		if mount.(map[string]any)["mountPath"] == "/nylo" {
+			t.Fatal("no /nylo mount without the engine")
+		}
+	}
+	env := map[string]bool{}
+	for _, value := range workload["env"].([]any) {
+		env[value.(map[string]any)["name"].(string)] = true
+	}
+	for _, name := range []string{"NYLORUN_SANDBOX_JOIN_FILE", "NYLORUN_HARNESS_URL", "NYLORUN_GATES_URL", "NYLORUN_EGRESS_PROXY", "NYLORUN_POD_UID"} {
+		if !env[name] {
+			t.Errorf("a harness image gets %s like the engine", name)
+		}
+	}
+}
+
 func TestNormalizeRefuses(t *testing.T) {
 	cases := map[string]func(*driver.Spec){
 		"opId":           func(s *driver.Spec) { s.OpID = "" },
@@ -117,6 +147,10 @@ func TestNormalizeRefuses(t *testing.T) {
 		"reserved env":   func(s *driver.Spec) { s.Env = map[string]string{"NYLORUN_GATES_URL": "x"} },
 		"bad env":        func(s *driver.Spec) { s.Env = map[string]string{"A-B": "x"} },
 		"image":          func(s *driver.Spec) { s.Image = "a b" },
+		"entrypoint":     func(s *driver.Spec) { s.Entrypoint = "shell" },
+		"image and engine": func(s *driver.Spec) {
+			s.Entrypoint = "image"
+		},
 	}
 	for name, mutate := range cases {
 		spec := fullSpec()

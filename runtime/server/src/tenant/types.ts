@@ -127,6 +127,8 @@ export interface TenantHandle {
   attachHarness?(channel: HarnessChannel, peer: HarnessPeer): () => void;
   /** The Tenant's side of a sandbox pod's join (F7.2); absent without sandbox pods. */
   hostAuthority?(): HostAuthority | undefined;
+  /** The custom harness a per-harness token is for (R4.1), or undefined. */
+  harnessOfToken?(token: string): Promise<string | undefined>;
   /** The Tenant's harnesses (F6.2), for `/ready`. */
   harnessStatus?(): HarnessStatus;
 }

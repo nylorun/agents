@@ -1,4 +1,6 @@
 import type { HostEffect } from "@nylorun/harness/run";
+import type { RuntimeModelCall } from "../contracts.js";
+import { fixtureAnswer } from "../gates/fixture-model.js";
 /** Providers are runtime-owned; neither credentials nor model selection enter manifests. */
 export type ModelProvider = (
   effect: HostEffect,
@@ -36,45 +38,10 @@ export function gatewayModel(options: {
 }
 
 /**
- * Deterministic release fixture; still uses the real engine. With a `lookup_order` tool it looks
- * up the demo order through it once; without one it answers in text.
+ * The fixture model as a provider (`model: {kind: "fixture"}` in the Runtime's config). The Tenant
+ * setting `model.fixture` is answered by the Model Gate instead (R4.3); both answer the same way
+ * (`gates/fixture-model.ts`).
  */
 export function toolFixtureModel(): ModelProvider {
-  return async (effect) => {
-    const call = effect.input as import("@nylorun/harness/run").ModelCall;
-    const last = call.prompt.at(-1);
-    if (last?.kind === "tool-result")
-      return {
-        output: [
-          {
-            type: "text",
-            text: `Order lookup complete: ${last.content.map((part) => (part.type === "text" ? part.text : JSON.stringify(part))).join(" ")}`,
-          },
-        ],
-      };
-    const users = call.prompt.filter(
-      (p) => p.kind === "message" && p.role === "user",
-    );
-    if (users.length > 1)
-      return {
-        output: [
-          {
-            type: "text",
-            text: `I remember: ${users[0]!.content.map((part) => (part.type === "text" ? part.text : "")).join(" ")}`,
-          },
-        ],
-      };
-    if (!call.tools.some((tool) => tool.name === "lookup_order"))
-      return { output: [{ type: "text", text: "Hello from the fixture model." }] };
-    return {
-      output: [
-        {
-          type: "tool-call",
-          id: "fixture_lookup",
-          name: "lookup_order",
-          args: { orderId: "demo-123" },
-        },
-      ],
-    };
-  };
+  return async (effect, signal) => fixtureAnswer(effect.input as RuntimeModelCall, signal);
 }

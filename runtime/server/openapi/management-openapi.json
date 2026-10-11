@@ -96,6 +96,7 @@
               "placement_refused",
               "environment_lost",
               "environment_owner_mismatch",
+              "harness_mismatch",
               "session_closed",
               "issuer_unavailable",
               "definition_files_missing",
@@ -798,8 +799,7 @@
                               "harness-container",
                               "sandbox"
                             ]
-                          },
-                          "minItems": 1
+                          }
                         }
                       },
                       "required": [
@@ -1286,8 +1286,7 @@
                       "harness-container",
                       "sandbox"
                     ]
-                  },
-                  "minItems": 1
+                  }
                 }
               },
               "required": [
@@ -2584,6 +2583,9 @@
           "id": {
             "type": "string"
           },
+          "effectId": {
+            "type": "string"
+          },
           "sessionId": {
             "type": "string"
           },
@@ -2682,6 +2684,7 @@
         },
         "required": [
           "id",
+          "effectId",
           "sessionId",
           "turnId",
           "agentId",

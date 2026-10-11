@@ -4,7 +4,7 @@
  * rendered only by the sandboxes service.
  */
 import { parseSandboxDuration, parseSandboxSize, type SandboxManifest } from "@nylorun/core/define";
-import type { EnvironmentRecipe } from "@nylorun/core/contracts";
+import { DEFAULT_HARNESS, type EnvironmentRecipe } from "@nylorun/core/contracts";
 import type { TenantSandboxConfig } from "../tenant-config.js";
 import { memoryMiBOf } from "../policy.js";
 import type { SandboxPodState } from "../../store/types.js";
@@ -57,6 +57,11 @@ export interface PodSpecInput {
   readonly mode: "Running" | "Suspended";
   /** The Runtime image the engine is copied from. */
   readonly harnessImage: string;
+  /**
+   * The harness the pod runs (R4.4): ours, copied in from `harnessImage`, or a custom one, which
+   * is the workload image itself and runs as its entrypoint.
+   */
+  readonly harness?: string;
   /** The join token, when this apply rotates it. */
   readonly joinToken?: string;
 }
@@ -65,11 +70,13 @@ export function podSpecOf(input: PodSpecInput): PodSpec {
   const { spec, pod, config } = input;
   const lifecycle = podLifecycleConfig(config);
   const image = spec.image;
+  const ours = (input.harness ?? DEFAULT_HARNESS) === DEFAULT_HARNESS;
   return {
     opId: opIdOf(pod),
     mode: input.mode,
     ...(image ? { image } : {}),
-    harnessImage: input.harnessImage,
+    // A custom harness is its image: the pod runs the image's entrypoint, nothing copied in.
+    ...(ours ? { harnessImage: input.harnessImage } : { entrypoint: "image" as const }),
     cpus: spec.resources?.cpus ?? 1,
     memoryMiB: memoryMiBOf(spec),
     storageGiB: storageGiBOf(spec),

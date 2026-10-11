@@ -23,24 +23,24 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
-import { createChannel, type HarnessChannel } from "@nylorun/core/harness-api";
+import { DEFAULT_HARNESS, createChannel, type HarnessChannel } from "@nylorun/core/harness-api";
 import { WebSocketServer } from "ws";
 import {
   HARNESS_API_HEADER,
   HARNESS_API_PATH,
+  HARNESS_API_TRANSPORT,
   HARNESS_MAX_PAYLOAD,
-  wsPort,
-  type WsPortOptions,
-} from "../harness/ws-port.js";
+  HOST_JOIN_PATH,
+  HOST_RENEW_PATH,
+} from "@nylorun/core/harness-api";
+import { wsPort, type WsPortOptions } from "../harness/ws-port.js";
 import { tokenType } from "../tenant/jwt.js";
 import { HOST_TOKEN_TYP } from "../tenant/host-token.js";
 import { HostAuthError, type HostAuthority, type HostJoinRequest } from "../sandbox/join.js";
 import { parseSetupReport } from "../sandbox/setup.js";
 import type { HarnessPeer } from "./server.js";
 
-/** Where a pod's engine exchanges its join token, and renews its host token. */
-export const HOST_JOIN_PATH = `${HARNESS_API_PATH}/host/join`;
-export const HOST_RENEW_PATH = `${HARNESS_API_PATH}/host/renew`;
+export { HOST_JOIN_PATH, HOST_RENEW_PATH };
 /** Where a pod's engine reads its setup and reports it (R2d step 2, `sandbox/setup.ts`). */
 export const HOST_SETUP_PATH = `${HARNESS_API_PATH}/host/setup`;
 /** Where it reads its input files: `/{index}`, and a folder's file `/{index}/{path}`. */
@@ -62,6 +62,11 @@ export interface HarnessListenerOptions {
   readonly token?: string;
   /** The open Tenant's `attachHarness`, or undefined while there is none. */
   readonly attach: () => Promise<HarnessAttach | undefined>;
+  /**
+   * The custom harness a per-harness token is for (R4.1), or undefined. Absent, only the harness
+   * token and host tokens are accepted.
+   */
+  readonly harnessOfToken?: (token: string) => Promise<string | undefined>;
   /** The open Tenant's host authority (sandbox pods, F7.2), or undefined without one. */
   readonly hosts?: () => Promise<HostAuthority | undefined>;
   readonly logger: {
@@ -245,10 +250,12 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
     const bearer = bearerOf(request.headers.authorization);
     // A pod's host token (F7.2): checked against its sandbox before the upgrade.
     const hostToken = bearer !== undefined && options.hosts && tokenType(bearer) === HOST_TOKEN_TYP;
-    if (!hostToken && !bearerMatches(request.headers.authorization, options.token))
+    // The harness token is our harness's; any other is a custom harness's own, or refused (R4.1).
+    const ours = !hostToken && bearerMatches(request.headers.authorization, options.token);
+    if (!hostToken && !ours && (bearer === undefined || !options.harnessOfToken))
       return refuse(socket, 401, "Unauthorized", { "WWW-Authenticate": "Bearer" });
-    if (request.headers[HARNESS_API_HEADER] !== "1")
-      return refuse(socket, 426, "Upgrade Required", { [HARNESS_API_HEADER]: "1" });
+    if (request.headers[HARNESS_API_HEADER] !== HARNESS_API_TRANSPORT)
+      return refuse(socket, 426, "Upgrade Required", { [HARNESS_API_HEADER]: HARNESS_API_TRANSPORT });
     const host = hostToken
       ? options.hosts!().then(async (authority) => {
           if (!authority) return undefined;
@@ -256,15 +263,24 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
           return { sandboxId: claims.sandboxId, epoch: claims.epoch };
         })
       : Promise.resolve(undefined);
-    void Promise.all([options.attach(), host]).then(
-      ([attach, hosted]) => {
+    const harness: Promise<string | undefined> = hostToken
+      ? Promise.resolve(undefined)
+      : ours
+        ? Promise.resolve(DEFAULT_HARNESS)
+        : options.harnessOfToken!(bearer!).then((id) => {
+            if (id === undefined) throw new HostAuthError(401, "Unauthorized");
+            return id;
+          });
+    void Promise.all([options.attach(), host, harness]).then(
+      ([attach, hosted, harnessId]) => {
         if (!attach || closing || (hostToken && !hosted)) return refuse(socket, 503, "Service Unavailable");
         wss.handleUpgrade(request, socket, head, (ws) => {
           const peer = {
             name: hosted
               ? `sandbox ${hosted.sandboxId}@${request.socket.remoteAddress ?? "unknown"}`
-              : `harness@${request.socket.remoteAddress ?? "unknown"}`,
+              : `harness ${harnessId}@${request.socket.remoteAddress ?? "unknown"}`,
             ...(hosted ? { host: hosted } : {}),
+            ...(harnessId === undefined ? {} : { harness: harnessId }),
           };
           const channel = createChannel(wsPort(ws, { ...options.liveness, ping: true }), { validate: true });
           const detach = attach(channel, peer);

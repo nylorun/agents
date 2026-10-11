@@ -45,7 +45,7 @@ import {
   type DurableCheckpoint,
 } from "@nylorun/harness/run";
 import type { JsonValue } from "@nylorun/core/define";
-import type { LiveEvent } from "@nylorun/core/contracts";
+import type { EventWriter, LiveEvent } from "@nylorun/core/contracts";
 import {
   aggregateWaits,
   cancelSiblingWork,
@@ -58,7 +58,8 @@ import { isOwnershipLost, ownedTx } from "../store/ownership.js";
 import { endAdvance } from "./scheduler.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import type { ToolRowFacts } from "../harness-api/tool-journal.js";
-import type { Lease, Session, TenantContext } from "./context.js";
+import { harnessOf, type Lease, type Session, type TenantContext } from "./context.js";
+import { HARNESS_ID } from "../sandbox/placement.js";
 import { recoversModelCalls } from "./effects.js";
 import { slimModelEffects } from "./slim.js";
 import {
@@ -346,6 +347,8 @@ async function runRemoteSegment(
       transcript: segment.transcript,
       run,
       onTaken,
+      // Only a connection of the session's harness takes its runs (R4.1).
+      harness: harnessOf(segment.current),
       ...(pod === undefined ? {} : { pod, waitMs: POD_OFFER_WAIT_MS }),
     });
     if (end.kind === "unavailable") {
@@ -379,7 +382,9 @@ async function runRemoteSegment(
         result,
         recorded ? output.transcript ?? [] : [],
         signal,
-        segment.cursor
+        segment.cursor,
+        // The turn's end and its transcript are what the harness reported (R4.9).
+        { source: { kind: "harness", id: harnessOf(started) }, evidence: "claimed", runId: output.runId }
       );
     }
     end.reply(cursor === undefined ? {} : { cursor });
@@ -423,7 +428,8 @@ function resultOf(output: TurnOutput, segment: SegmentStart): SegmentResult {
       effectIds: output.effectIds ?? [],
     };
   let state = output.state;
-  if (state !== undefined && transcriptShadow())
+  // Our engine's transcript shadow (tests); another harness's state is stored as sent (R4.2).
+  if (state !== undefined && transcriptShadow() && ours(current))
     state = withTranscript(state, applyUpdates(segment.transcript, output.transcript ?? []));
   const checkpoint =
     state === undefined || isWorkflowManifest(current.manifest)
@@ -489,9 +495,10 @@ async function settleTurn(
   result: SegmentResult,
   updates: readonly TranscriptUpdate[],
   signal: AbortSignal,
-  cursor?: number
+  cursor?: number,
+  writer?: EventWriter
 ): Promise<number | undefined> {
-  const kept = await settle(ctx, lease, s, result, updates, cursor);
+  const kept = await settle(ctx, lease, s, result, updates, cursor, writer);
   if (result.status === "completed")
     await exportOutputs(ctx, lease.sessionId, s.activeTurnId, signal);
   return kept;
@@ -508,7 +515,9 @@ async function settle(
   s: Session,
   result: SegmentResult,
   updates: readonly TranscriptUpdate[] = [],
-  cursor?: number
+  cursor?: number,
+  /** Who reported the result (R4.9): the run's harness. */
+  writer?: EventWriter
 ): Promise<number | undefined> {
   const id = lease.sessionId;
   let kept: number | undefined;
@@ -562,8 +571,8 @@ async function settle(
       if (result.status === "yielded") {
         // The turn goes on in a new segment: same turn, next checkpoint, woken right away.
         const finished = result.checkpoint as DurableCheckpoint;
-        kept = (await recordTranscript(t, id, s.activeTurnId, current, updates)) ?? cursor;
-        current.state = leanState((result.result as any).state);
+        kept = (await recordTranscript(t, id, s.activeTurnId, current, updates, writer)) ?? cursor;
+        current.state = leanOf(current, (result.result as any).state);
         current.checkpoint = {
           ...finished,
           segment: finished.segment + 1,
@@ -584,15 +593,15 @@ async function settle(
       const flow = isWorkflowManifest(current.manifest);
       if (!flow) {
         if (result.status !== "failed") {
-          const last = await recordTranscript(t, id, s.activeTurnId, current, updates);
+          const last = await recordTranscript(t, id, s.activeTurnId, current, updates, writer);
           if (result.status !== "cancelled") kept = last ?? cursor;
         }
         current.state =
           result.status === "failed"
             ? current.turnStartState
-            : leanState((result.result as any).state);
+            : leanOf(current, (result.result as any).state);
       }
-      current.checkpoint = leanCheckpoint(result.checkpoint);
+      current.checkpoint = leanCheckpoint(current, result.checkpoint);
       current.status = result.status;
       current.waits =
         result.status === "paused" ? (result.result as any).pending : undefined;
@@ -654,7 +663,7 @@ async function settle(
               },
             }
           : {};
-      await t.event(id, s.activeTurnId, type, payload);
+      await t.event(id, s.activeTurnId, type, payload, writer);
       await t.put("sessions", id, current);
       await wakeWorkflowOf(ctx, t, current, s.activeTurnId, type, payload);
       return siblings;
@@ -749,11 +758,22 @@ async function settleFailure(
 }
 
 
-/** `checkpoint` with its engine state stored lean (`history.ts`). */
-function leanCheckpoint<T extends object | undefined>(checkpoint: T): T {
+/** Whether the session runs our harness, whose state core may store lean (R4.2). */
+const ours = (session: Session) => harnessOf(session) === HARNESS_ID;
+
+/**
+ * `state` as the session row stores it: our engine's without its transcript (`history.ts`);
+ * another harness's as it sent it, never read (R4.2).
+ */
+function leanOf<T>(session: Session, state: T): T {
+  return ours(session) ? leanState(state) : state;
+}
+
+/** `checkpoint` with its engine state stored lean (`leanOf`). */
+function leanCheckpoint<T extends object | undefined>(session: Session, checkpoint: T): T {
   const state = (checkpoint as { state?: unknown } | undefined)?.state;
   if (!checkpoint || !state) return checkpoint;
-  return { ...checkpoint, state: leanState(state) };
+  return { ...checkpoint, state: leanOf(session, state) };
 }
 
 /**
@@ -765,11 +785,12 @@ async function recordTranscript(
   id: string,
   turnId: string | null,
   s: Session,
-  updates: readonly TranscriptUpdate[]
+  updates: readonly TranscriptUpdate[],
+  writer?: EventWriter
 ): Promise<number | undefined> {
   let last: number | undefined;
   for (const update of updates) {
-    const event = await t.event(id, turnId, "transcript.updated", update);
+    const event = await t.event(id, turnId, "transcript.updated", update, writer);
     if (update.keep === 0) s.history = { from: s.history?.from ?? event.seq, snapshot: event.seq };
     last = event.seq;
   }

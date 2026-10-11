@@ -14,6 +14,7 @@ import {
 import { HarnessApiError } from "./errors.js";
 import { EffectOutcomeSchema } from "../contracts.js";
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
+import { McpSnapshotSchema } from "./mcp.js";
 
 const id = z.string().min(1).max(512);
 const runId = z.object({ runId: id });
@@ -41,7 +42,17 @@ export const FrameSchema = z.union([
   z.object({ t: z.literal("ping") }).strict(),
 ]);
 
-/** One effect the engine asks for: a `HostEffect`, by structure. Model intents carry no `input`. */
+/**
+ * One effect the engine asks for: a `HostEffect`, by structure. Model intents carry no `input`.
+ * `context` carries the ids the record derives its events from: a model effect's
+ * `invocationId` (the step), and a tool effect's `callId` (the model's tool call id) and
+ * `invocationId`; without them the call is journaled but no `tool.completed` is written. A
+ * tool effect may name its step (`stepId`), which shares one result budget among its calls.
+ *
+ * `requestHash` (`effectRequestHash`) covers the whole request: for a model effect, the intent
+ * with `input` set to its `ModelCall`, though the intent is sent without it. A replay that asks
+ * for the same id with another hash is `effect_drift`.
+ */
 export const EffectIntentSchema = z
   .object({
     effectId: id,
@@ -187,7 +198,8 @@ export const RunRoutingSchema = z
   .object({
     /** The session's pinned manifest: an effect's agent resolves against it. */
     rootManifest: document,
-    mcpSnapshot: z.unknown().optional(),
+    /** The session's MCP snapshot, once its first run recorded one (`session.mcp`). */
+    mcpSnapshot: McpSnapshotSchema.optional(),
     /** The session's sandbox: the session, and the Environment whose sandbox it is. */
     sandbox: z
       .object({
@@ -202,6 +214,47 @@ export const RunRoutingSchema = z
       })
       .strict()
       .optional(),
+  })
+  .strict();
+
+/**
+ * The fields of `TurnStart.checkpoint` a harness reads (R4.2); the rest are our engine's. An
+ * agent turn's `input` is the turn's message: a string, `{text, metadata?}`, `{content,
+ * metadata?}` with user content parts, `{kind: "continue"}` for the next segment of a yielded
+ * turn, or an approval or response event. Effect ids are prefixed `<turnId>:<segment>:`
+ * (`effectIdOf`), and every intent carries `manifestHash`. `state` is the harness's own, as its
+ * last output left it: core stores it unread (at most `MAX_HARNESS_STATE_BYTES` for a harness
+ * other than ours) and folds the transcript every segment, whatever the state holds. A model
+ * call's `executionId` is the session id.
+ */
+export const HarnessCheckpointSchema = z.looseObject({
+  sessionId: id,
+  turnId: id,
+  segment: z.number().int().min(0),
+  manifestHash: z.string(),
+  input: z.unknown().optional(),
+  state: z.unknown().optional(),
+});
+
+/** W3C trace context: `traceparent`, and `tracestate` when the trace carries one. */
+export const TraceContextSchema = z
+  .object({
+    traceparent: z.string().regex(/^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/),
+    tracestate: z.string().max(512).optional(),
+  })
+  .strict();
+
+/**
+ * A tool a harness runs itself (R4.2, Q3), declared in `hello`: the model may call it, and the
+ * harness journals each call as a `tool` effect of capability `harness` (`HARNESS_TOOLS_CAPABILITY`)
+ * with intent and outcome, like a sandbox tool, so the log records what really ran. It runs in
+ * the harness's own process or pod: the egress gate is its only control.
+ */
+export const NativeToolSchema = z
+  .object({
+    name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/),
+    description: z.string().max(4096).optional(),
+    inputSchema: z.record(z.string(), z.unknown()),
   })
   .strict();
 
@@ -223,16 +276,32 @@ export const TurnStartSchema = z
       .object({
         yieldAfter: z.object({ steps: z.number().optional(), ms: z.number().optional() }).strict().optional(),
         flowLimits: z.unknown().optional(),
+        /**
+         * Informational: the Tenant answers model calls with the fixture model. The Model Gate
+         * answers them itself (R4.3), so a harness calls the gate as for any model.
+         */
         fixtureModel: z.boolean(),
       })
       .strict(),
     routing: RunRoutingSchema,
+    /**
+     * The turn's trace context (R4.10), when the Runtime traces: a harness may send it as
+     * `traceparent` on its gate calls and as `TRACEPARENT` to the processes it starts, so its own
+     * spans join the turn's trace. The Runtime never ingests a harness's spans.
+     */
+    trace: TraceContextSchema.optional(),
   })
   .strict();
 
 /**
- * A segment's end. `state` is the agent's engine state without its transcript; `transcript`
- * edits the transcript the segment started from. `thrown` reports an engine that threw.
+ * A segment's end. `state` is the harness's state for the next segment (our engine's has no
+ * transcript); `transcript` edits the transcript the segment started from. `thrown` reports an
+ * engine that threw. The method follows the status: `completed` is `turn.completed`, `failed`
+ * and `cancelled` are `turn.failed` (after a cancel, report `cancelled`), `waiting` and
+ * `uncertain` are `turn.waiting` (an effect is pending or uncertain), `yielded` is `checkpoint`
+ * (the turn goes on in a new segment), `paused` is `turn.paused` (our engine only, in v2). An
+ * `execute` answer with `rejoin` re-sends a call its previous owner left running at a gate,
+ * same key and body, to join it or collect its outcome.
  */
 export const TurnOutputSchema = z
   .object({
@@ -288,7 +357,9 @@ export const harnessRequests = {
         api: z.number().int(),
         name: z.string(),
         version: z.string(),
-        capabilities: z.object({ workspace: z.unknown().optional() }).strict(),
+        capabilities: z
+          .object({ workspace: z.unknown().optional(), tools: z.array(NativeToolSchema).max(64).optional() })
+          .strict(),
       })
       .strict(),
     result: z
@@ -345,8 +416,8 @@ export const harnessRequests = {
     result: empty,
   },
   "session.mcp": {
-    params: runId.extend({ snapshot: z.unknown().optional(), diagnostics: z.array(z.unknown()) }).strict(),
-    result: z.object({ snapshot: z.unknown(), sessionTools: z.array(z.unknown()) }).strict(),
+    params: runId.extend({ snapshot: McpSnapshotSchema.optional(), diagnostics: z.array(z.unknown()) }).strict(),
+    result: z.object({ snapshot: McpSnapshotSchema.optional(), sessionTools: z.array(z.unknown()) }).strict(),
   },
   /**
    * A definition file's bytes, base64 (track R2 M4): one the run's definition names, for the

@@ -12,6 +12,7 @@
 import { fromWireOp, toWireAnswer, type WireDiskOp } from "../sandbox/disk-fs.js";
 import { join } from "node:path";
 import {
+  DEFAULT_HARNESS,
   HarnessApiError,
   type RequestHandler,
   type WorkspaceBytesCall,
@@ -70,7 +71,6 @@ export interface HarnessServiceOptions {
   /** Delete the workspaces on stop (an ephemeral Runtime's loopback harness). */
   readonly ephemeral?: boolean;
   readonly logger: HarnessClientOptions["logger"];
-  readonly name?: string;
   readonly version?: string;
   readonly onGrant?: HarnessOptions["onGrant"];
   readonly backoff?: HarnessClientOptions["backoff"];
@@ -217,7 +217,8 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     logger,
     executors,
     serve,
-    name: options.name ?? "harness",
+    // Our harness: its hello names our harness id (R4.1).
+    name: DEFAULT_HARNESS,
     ...(options.version ? { version: options.version } : {}),
     capabilities: { workspace: { backends: backends.map((backend) => backend.name) } },
     onHello(answer) {
