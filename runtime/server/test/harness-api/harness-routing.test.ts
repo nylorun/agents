@@ -152,3 +152,23 @@ it("runs a custom harness's image as the pod's entrypoint, and copies our engine
   expect(podSpecOf({ ...input, harness: "nylorun" })).toMatchObject({ harnessImage: "ghcr.io/nylorun/runtime:1" });
   expect(podSpecOf(input)).not.toHaveProperty("entrypoint");
 });
+
+it("never serves a custom harness's session from our harness's workspaces", async () => {
+  const runtime = await boot({ harness: "remote" });
+  cleanups.push(() => runtime.close());
+  const ours = attach(runtime);
+  const asked: string[] = [];
+  ours.handle(async (method, params) => {
+    // Sweeps and reports are ours to serve; a session's request is not.
+    if ((params as { session?: unknown }).session !== undefined) asked.push(method);
+    return { kind: "completed", output: { content: "ours" } };
+  });
+  await ours.request("hello", { ...hello("nylorun"), capabilities: { workspace: { backends: ["local"] } } });
+  expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "virtual", harness: "acme-mini" })).status).toBe(200);
+  await openSession(runtime, "s-ours");
+  expect((await openOn(runtime, "s-acme", "env-acme")).status).toBe(200);
+  const read = await call(runtime, "POST", "/v1/sessions/s-acme/sandbox/read", { path: "/workspace/note.txt" });
+  // No harness of acme-mini serves workspaces: the request is refused, never sent to ours.
+  expect(read.status).toBe(503);
+  expect(asked).toEqual([]);
+});

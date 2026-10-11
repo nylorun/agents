@@ -47,7 +47,7 @@ import {
 } from "@nylorun/core/harness-api";
 import { definitionFilesOf, type EventWriter } from "@nylorun/core/contracts";
 import { isOwnershipLost } from "../store/ownership.js";
-import { ownedSession, type Lease, type TenantContext } from "../tenant/context.js";
+import { harnessOf, ownedSession, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import {
   mcpDiscovered,
   pinDeferral,
@@ -534,17 +534,22 @@ export function createHarnessApiServer(
     },
     async workspace(method, params, signal, target) {
       const pod = target?.pod;
-      // A pod's workspace is its host's, whatever harness it is; the others are ours (R4.1): a
-      // custom harness keeps its own workspaces and is sent none.
+      const session = (params as { session?: { ownerId?: string } }).session?.ownerId;
+      // A pod's workspace is its host's, whatever harness it is. Any other session's is served
+      // by its own harness, if that harness serves workspaces: our harness's workspaces are not
+      // a custom harness's files (R4.1). Sweeps and removes go to ours.
+      const harness =
+        pod !== undefined || session === undefined
+          ? DEFAULT_HARNESS
+          : harnessOf((await ctx.store.tx((t) => t.get<Session>("sessions", session))) ?? {});
       const connection = [...connections].find(
         (item) =>
           item.workspace &&
           !item.channel.closed &&
           item.host?.sandboxId === pod &&
-          (pod !== undefined || item.harness === DEFAULT_HARNESS)
+          (pod !== undefined || item.harness === harness)
       );
       if (!connection) throw new NoWorkspaceHarness(pod);
-      const session = (params as { session?: { ownerId?: string } }).session?.ownerId;
       if (session) connection.claims.set(session, (connection.claims.get(session) ?? 0) + 1);
       else connection.sweeping += 1;
       try {
