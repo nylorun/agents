@@ -95,7 +95,7 @@ node conformance/dist/cli.js --runtime "$NYLORUN_RUNTIME_URL" --key "$NYLORUN_AP
   --manage-key "$NYLORUN_MANAGEMENT_KEY" --harness minimal --restart "docker restart harness-minimal"
 ```
 
-It turns the fixture model on for good, so point it at a Tenant for testing. This harness passes every required check; the workspace and MCP checks are not applicable, as it declares neither.
+Outside a checkout, `npx @nylorun/harness-conformance` takes the same options. It turns the fixture model on for good, so point it at a Tenant for testing. This harness passes every required check; the workspace and MCP checks are not applicable, as it declares neither.
 
 ## Tests
 

@@ -46,6 +46,7 @@ import {
 } from "@nylorun/harness/run";
 import type { JsonValue } from "@nylorun/core/define";
 import type { EventWriter, LiveEvent } from "@nylorun/core/contracts";
+import { redactTokens } from "../harness-api/redact.js";
 import {
   aggregateWaits,
   cancelSiblingWork,
@@ -363,7 +364,8 @@ async function runRemoteSegment(
     stopIfLeaving(signal);
     if (end.kind === "released")
       throw new SegmentStopped(end.reason === "ownership.lost" ? "ownership.lost" : "shutdown");
-    const { output } = end;
+    // A harness's output never carries the Runtime's own tokens into the record (R4).
+    const output = redactTokens(end.output);
     if (output.thrown) throw thrownError(output.thrown);
     const result = resultOf(output, segment);
     let cursor: number | undefined;

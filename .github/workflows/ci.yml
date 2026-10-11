@@ -414,6 +414,18 @@ jobs:
       - name: Pod sandboxes suite
         timeout-minutes: 35
         run: npm run test:sandboxes -- --context kind-nylorun --host-address 172.17.0.1
+      # R4: a custom harness as a pod's image (scripts/sandbox/harness-pod.mjs): the example
+      # harness runs as a pod Environment's own entrypoint and passes the harness conformance
+      # suite with the pod profile, beside our harness.
+      - name: Custom harness pod (conformance, pod profile)
+        timeout-minutes: 25
+        env:
+          NYLORUN_EXAMPLE_HARNESS_IMAGE: nylorun-example-harness:ci
+        run: |
+          npm run build --workspace @nylorun/harness-conformance
+          docker build --file examples/harness-minimal/Dockerfile --tag "$NYLORUN_EXAMPLE_HARNESS_IMAGE" .
+          kind load docker-image --name nylorun "$NYLORUN_EXAMPLE_HARNESS_IMAGE"
+          npm run test:sandboxes:harness -- --context kind-nylorun --host-address 172.17.0.1
       # F7.2 8c: the network invariant and the red-team from inside the sandbox namespace
       # (scripts/sandbox/pod-stack.mjs), each on a Tenant of its own with a joined pod sandbox.
       - name: Sandbox network invariant

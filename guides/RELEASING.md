@@ -9,14 +9,21 @@ pins exactly what a generated project or the examples install or depend on:
 Core, Harness, Agents, Admin and Runtime. Neither nylorun (with `nylo`) nor
 Studio is in it: developers run nylorun with `npx`, and Studio ships only as its
 image, which nylorun pins. Nor is the deprecated `@nylorun/cli`, which only runs
-nylorun's `nylo`. A protocol change needs a breaking bump of Core, Runtime,
-Agents and nylorun, the Runtime clients.
+nylorun's `nylo`. Nor is `@nylorun/harness-conformance` (`conformance/`), the
+harness conformance suite: a tool a harness author runs with `npx`, which
+depends on no other package here and which none depends on, so it releases only
+on its own changesets and publishes with the engines. A protocol change needs a
+breaking bump of Core, Runtime, Agents and nylorun, the Runtime clients.
 
 A release publishes two kinds of artifact:
 
 - **npm packages** under `@nylorun`, plus the unscoped `nylorun` (the local
-  Tenant command, `npx nylorun up`). A package marked `"private": true` is not
-  published to npm. Studio is one: it ships only as its image.
+  Tenant command, `npx nylorun up`). `scripts/lib/repo.mjs` lists them
+  (`packages`, and `PACKAGE_PATHS` for each one's directory); each is
+  `@nylorun/<key>` except `nylorun`, so `harness-conformance` (in
+  `conformance/`) is `@nylorun/harness-conformance`. A package marked
+  `"private": true` is not published to npm. Studio is one: it ships only as
+  its image.
 - **Container images** `ghcr.io/nylorun/runtime:<runtime version>` and
   `ghcr.io/nylorun/studio:<studio version>`, for `linux/amd64` and
   `linux/arm64`. `nylorun up` runs the images nylorun pins in
@@ -189,7 +196,8 @@ from the `release` environment.
 
 1. An administrator opens **Actions → Promote to latest → Run workflow** on
    `main`. This is the only human step of any release.
-2. It reads each npm package's version on `main` and checks that every one is
+2. It reads each npm package's version on `main` (skipping a package never
+   released yet, at `0.0.0` until its first beta release) and checks that every one is
    on npm, so a release still publishing (or failed) moves no tag. It then
    moves every `latest` tag and lists them in the summary.
 3. Check `npm view <package> dist-tags` for each package, and that a plain

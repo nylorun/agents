@@ -9,7 +9,7 @@ write another, in any language, from this page alone.
 This page is the reference, section by section, and then a guide to building one.
 [`examples/harness-minimal`](../examples/harness-minimal/README.md) is a complete harness of about
 800 lines that depends only on `ws` and `@nylorun/core/harness-api`. The conformance suite in
-[`conformance/`](../conformance/README.md) checks a harness against a live Runtime; each check names the section below that it enforces.
+[`conformance/`](../conformance/README.md) (`npx @nylorun/harness-conformance`) checks a harness against a live Runtime; each check names the section below that it enforces.
 
 The Harness API is southbound: from the Runtime down to a loop. It is not a northbound API for
 calling vendor agents, and it is not the Runtime API your app uses.
@@ -297,7 +297,14 @@ What a custom harness cannot do in v2:
    `NYLORUN_HARNESS_TOKEN`. Create an Environment with `harness: "minimal"`
    (`PUT /v1/environments/{id}`) and open sessions on it. Sessions on other Environments keep
    running ours.
-3. **Check it.** From a checkout of this repository:
+3. **Check it.** Run the conformance suite from npm:
+
+   ```bash
+   npx @nylorun/harness-conformance --runtime http://localhost:4000 --key "$NYLORUN_API_KEY" --manage-key "$NYLORUN_MANAGEMENT_KEY" --harness minimal
+   ```
+
+   Or, from a checkout of this repository (before its first release reaches npm, or to check
+   against unreleased changes):
 
    ```bash
    npm run build --workspace @nylorun/harness-conformance
