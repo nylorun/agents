@@ -9,12 +9,16 @@
  *   nylorun-operate keys list [--json]
  *   nylorun-operate keys put <id> [--role application|management] [--json]
  *   nylorun-operate keys rm <id> [--json]
+ *   nylorun-operate harness token put <id> [--json]
+ *   nylorun-operate harness token list [--json]
+ *   nylorun-operate harness token rm <id> [--json]
  *
  * `status` says whether the Tenant is open and, when it is not, why: from the database (no
  * Tenant yet, an old layout, a schema newer or older than this Runtime) and from the running
  * Host's `/ready` on this container's listen port. It needs no key, so it works when the Tenant
  * cannot open. `keys put` prints the new key once on stdout (with `--json`, the whole
- * response). Exit codes: 0 done (`status`: the Tenant is open), 1 refused (an id, a role),
+ * response). `harness token put` makes a custom harness's own token (R4.1), bound to its harness
+ * id, and prints it once; putting it again rotates it. Exit codes: 0 done (`status`: the Tenant is open), 1 refused (an id, a role),
  * 2 the Tenant cannot be opened (`status` still prints it), 64 usage.
  */
 import { pathToFileURL } from "node:url";
@@ -31,6 +35,8 @@ import { createPostgresSessionStore } from "../store/postgres/store.js";
 import { readTenantEnvelope } from "../store/postgres/tenant.js";
 import { openError, TenantOpenError } from "../tenant/cause.js";
 import { operatorKeys, type OperatorKeys } from "../tenant/operator-keys.js";
+import { deleteHarnessToken, listHarnessTokens, putHarnessToken } from "../tenant/harness-tokens.js";
+import type { SessionStore } from "../store/types.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { DEFAULT_CONTAINER_LISTEN_PORT } from "./stack-config.js";
 
@@ -42,7 +48,10 @@ const USAGE = `Usage:
   nylorun-operate status [--json]
   nylorun-operate keys list [--json]
   nylorun-operate keys put <id> [--role application|management] [--json]
-  nylorun-operate keys rm <id> [--json]`;
+  nylorun-operate keys rm <id> [--json]
+  nylorun-operate harness token put <id> [--json]
+  nylorun-operate harness token list [--json]
+  nylorun-operate harness token rm <id> [--json]`;
 
 export interface OperateIo {
   env: Readonly<Record<string, string | undefined>>;
@@ -82,13 +91,13 @@ export async function runOperate(argv: readonly string[], io: OperateIo): Promis
       if (argv.length > (json ? 2 : 1)) throw new Exit(EXIT_USAGE, USAGE);
       return await status(io, json);
     }
-    const command = parse(argv);
+    const command = argv[0] === "harness" ? harnessCommand(argv) : parse(argv);
     const url = io.env.NYLORUN_DATABASE_URL;
     if (!url) throw new Exit(EXIT_TENANT, "NYLORUN_DATABASE_URL is not set: run this inside the runtime container");
     const sql = createPostgresClient(url, { max: 1 });
     try {
-      const keys = operatorKeys(await openStore(sql));
-      return await command(keys, io);
+      const store = await openStore(sql);
+      return await command(operatorKeys(store), io, store);
     } finally {
       await sql.end({ timeout: 5 });
     }
@@ -102,7 +111,53 @@ export async function runOperate(argv: readonly string[], io: OperateIo): Promis
   }
 }
 
-type Command = (keys: OperatorKeys, io: OperateIo) => Promise<number>;
+type Command = (keys: OperatorKeys, io: OperateIo, store: SessionStore) => Promise<number>;
+
+/** `harness token put|list|rm` (R4.1). */
+function harnessCommand(argv: readonly string[]): Command {
+  const [, noun, verb, ...rest] = argv;
+  const json = rest.includes("--json");
+  const args = rest.filter((arg) => arg !== "--json");
+  if (noun !== "token") throw new Exit(EXIT_USAGE, USAGE);
+  switch (verb) {
+    case "list":
+      if (args.length > 0) throw new Exit(EXIT_USAGE, USAGE);
+      return async (_keys, io, store) => {
+        const tokens = await listHarnessTokens(store);
+        if (json) io.out(JSON.stringify({ tokens }));
+        else for (const token of tokens) io.out(`${token.id}\t${token.createdAt}`);
+        return 0;
+      };
+    case "put": {
+      const [id] = args;
+      if (!id || args.length !== 1) throw new Exit(EXIT_USAGE, USAGE);
+      return async (_keys, io, store) => {
+        const put = await putHarnessToken(store, id);
+        if ("reason" in put) throw new Exit(EXIT_REFUSED, put.message);
+        if (json) io.out(JSON.stringify(put));
+        else {
+          io.out(put.token);
+          io.err(
+            `${put.rotated ? "Rotated" : "Created"} the token of harness ${put.id}. It is shown this once: the harness connects with it as NYLORUN_HARNESS_TOKEN and must say ${put.id} in hello.`,
+          );
+        }
+        return 0;
+      };
+    }
+    case "rm": {
+      const [id] = args;
+      if (!id || args.length !== 1) throw new Exit(EXIT_USAGE, USAGE);
+      return async (_keys, io, store) => {
+        const deleted = await deleteHarnessToken(store, id);
+        if (json) io.out(JSON.stringify({ id, deleted }));
+        else io.err(deleted ? `Deleted the token of harness ${id}.` : `Harness ${id} has no token.`);
+        return 0;
+      };
+    }
+    default:
+      throw new Exit(EXIT_USAGE, USAGE);
+  }
+}
 
 function parse(argv: readonly string[]): Command {
   const [group, verb, ...rest] = argv;

@@ -73,3 +73,4 @@ export type {
 export type { InputEvent, TranscriptEntry } from "../types/transcript.js";
 export type { ToolResult } from "../types/tool.js";
 export { harnessApiJsonSchema, harnessApiSchemas } from "./json-schema.js";
+export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "../utils/harness-id.js";

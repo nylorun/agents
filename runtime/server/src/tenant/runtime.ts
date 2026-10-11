@@ -97,6 +97,7 @@ import {
   type WorkspacePort,
 } from "../harness-api/workspace.js";
 import { hostAuthority, type HostAuthority } from "../sandbox/join.js";
+import { harnessOfToken } from "./harness-tokens.js";
 import { reconcileSandbox } from "../sandbox/pods/reconcile.js";
 import type { TenantPods } from "./context.js";
 import { sandboxWorkspaceReader } from "../artifacts/workspace.js";
@@ -210,6 +211,11 @@ export class TenantRuntime implements TenantHandle {
   /** The Tenant's side of a sandbox pod's join (F7.2). */
   hostAuthority(): HostAuthority | undefined {
     return this.ctx.closing || this.ctx.closed ? undefined : this.hosts;
+  }
+
+  /** The custom harness a per-harness token is for (R4.1), or undefined. */
+  harnessOfToken(token: string): Promise<string | undefined> {
+    return harnessOfToken(this.ctx.store, token);
   }
 
   static async open(

@@ -59,6 +59,7 @@ function accessWhere(access: ReadAccess): SQL | undefined {
 function publicCall(row: ModelUsageRow): ModelCall {
   return {
     id: row.id,
+    effectId: row.effectKey,
     sessionId: row.sessionId,
     turnId: row.turnId,
     agentId: row.agentId,

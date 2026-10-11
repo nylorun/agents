@@ -57,7 +57,7 @@ import type { TurnOutput } from "@nylorun/core/harness-api";
 import { isOwnershipLost, ownedTx } from "../store/ownership.js";
 import { endAdvance } from "./scheduler.js";
 import type { EffectDoc, Tx } from "../store/types.js";
-import type { Lease, Session, TenantContext } from "./context.js";
+import { harnessOf, type Lease, type Session, type TenantContext } from "./context.js";
 import { recoversModelCalls } from "./effects.js";
 import { slimModelEffects } from "./slim.js";
 import {
@@ -343,6 +343,8 @@ async function runRemoteSegment(
       transcript: segment.transcript,
       run,
       onTaken,
+      // Only a connection of the session's harness takes its runs (R4.1).
+      harness: harnessOf(segment.current),
       ...(pod === undefined ? {} : { pod, waitMs: POD_OFFER_WAIT_MS }),
     });
     if (end.kind === "unavailable") {

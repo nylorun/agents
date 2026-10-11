@@ -9,8 +9,8 @@ import type {
   EnvironmentLifecycle,
   EnvironmentRecipe,
 } from "@nylorun/core/contracts";
+import { DEFAULT_HARNESS } from "@nylorun/core/contracts";
 import { parseSandboxDuration, type SandboxManifest } from "@nylorun/core/define";
-import { HARNESS_ID } from "./placement.js";
 import type { PodSandboxSpec } from "./pods/spec.js";
 import { memoryMiB, type EffectiveSandboxConfig } from "./tenant-config.js";
 
@@ -37,8 +37,10 @@ export function resolveRecipe(
   const { limits } = config;
   const errors: string[] = [];
   const pod = kind === "pod";
-  const harness = request.harness ?? HARNESS_ID;
-  if (harness !== HARNESS_ID) errors.push(`harness ${harness} is not available: only ${HARNESS_ID} is.`);
+  // Any harness id (R4.1): placement decides where it may run, when a session opens.
+  const harness = request.harness ?? DEFAULT_HARNESS;
+  if (pod && harness !== DEFAULT_HARNESS && request.image === undefined)
+    errors.push(`harness ${harness} needs image: a pod Environment runs its image as the harness.`);
   const lifecycle = request.lifecycle ?? {};
   const idle = lifecycle.idle === undefined ? undefined : parseSandboxDuration(lifecycle.idle);
   if (idle !== undefined && idle > (parseSandboxDuration(limits.idle) ?? Infinity))

@@ -15,6 +15,7 @@
  * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
  */
 import type { SessionHistory } from "./history.js";
+import { DEFAULT_HARNESS } from "@nylorun/core/contracts";
 import type {
   IssuerScope,
   SubjectScope,
@@ -93,6 +94,11 @@ export interface Session {
   environmentId?: string;
   /** The Environment's recipe version when the session opened (shown, never enforced). */
   environmentVersion?: number;
+  /**
+   * The harness that runs the session's turns (R4.1), pinned when it opened: its Environment's
+   * harness, else `nylorun`. Absent on a session opened before R4: ours (`harnessOf`).
+   */
+  harness?: string;
   /**
    * A flow agent's linked session: the session whose turn opened the flow tree. Its sessions
    * share the tree's Environment, and their turns nest in the root's, so they do not hold the
@@ -340,4 +346,9 @@ export interface TenantPods {
   readonly client: SandboxesClient;
   /** The Runtime image the pods copy the engine from (`NYLORUN_SANDBOX_HARNESS_IMAGE`). */
   readonly harnessImage: string;
+}
+
+/** The harness a session runs (R4.1): the one it pinned, else ours. */
+export function harnessOf(session: Pick<Session, "harness">): string {
+  return session.harness ?? DEFAULT_HARNESS;
 }

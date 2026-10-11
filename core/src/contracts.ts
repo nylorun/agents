@@ -29,6 +29,8 @@ import {
   httpUrlIssue,
 } from "./definition/http-tool.js";
 import { canonical } from "./utils/canonical.js";
+import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
+export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId };
 import { DEFINITION_FILE_MAX_BYTES, skillFilesIssue } from "./utils/definition-files.js";
 export type { AgentManifest } from "./types/manifest.js";
 export type { WorkflowManifest } from "./types/workflow.js";
@@ -701,8 +703,10 @@ export const EnvironmentLabelsSchema = z
   });
 export type EnvironmentLabels = z.infer<typeof EnvironmentLabelsSchema>;
 
-/** The harnesses an Environment's recipe may name. Only `nylorun` until track R4. */
-export const ENVIRONMENT_HARNESSES = ["nylorun"] as const;
+/** A harness id (track R4): what a harness names itself in `hello`. */
+export const HarnessIdSchema = z.string().regex(HARNESS_ID_PATTERN, {
+  message: "harness must be a harness id: lowercase letters, digits and dashes, starting with a letter",
+});
 
 /**
  * An Environment's lifecycle. `idle`: stop compute after this long without a turn, at most the
@@ -747,8 +751,14 @@ export const PutEnvironmentRequestSchema = z
       .object({ allowedHosts: z.array(hostPatternSchema).optional() })
       .strict()
       .optional(),
-    /** The harness that runs the Environment's sessions. Only `nylorun` until track R4. */
-    harness: z.enum(ENVIRONMENT_HARNESSES).optional(),
+    /**
+     * The harness that runs the Environment's sessions (track R4): `nylorun` (ours, the default)
+     * or the id of a custom harness. A pod Environment whose harness is not ours runs its
+     * `image` as the harness: the image's own entrypoint, with nothing copied in. Each session
+     * pins the harness when it opens; a session whose Environment's harness changed later fails
+     * its next turn with `harness_mismatch`.
+     */
+    harness: HarnessIdSchema.optional(),
     /**
      * The owner guard: when set, only sessions of this owner may name the Environment (checked
      * when a session opens and at every turn start). `null` clears it.
@@ -967,12 +977,13 @@ export const TenantEnvironmentsConfigSchema = z
      * Where each harness may run (blueprint D38), by harness id (`nylorun`, or `*` for the rest):
      * `harness-container` (the Runtime's harness) and `sandbox` (the engine in a pod).
      * Default `{ "*": { hosts: ["harness-container", "sandbox"] } }`. Checked when a session
-     * opens; a host left out is refused (`placement_refused`).
+     * opens; a host left out is refused (`placement_refused`). `"*": { hosts: [] }` refuses every
+     * harness the map does not name.
      */
     placement: z
       .record(
         z.string().min(1),
-        z.object({ hosts: z.array(z.enum(PLACEMENT_HOSTS)).min(1) }).strict(),
+        z.object({ hosts: z.array(z.enum(PLACEMENT_HOSTS)) }).strict(),
       )
       .optional(),
   })
@@ -2845,6 +2856,11 @@ export const SessionViewSchema = z
       .strict()
       .nullable(),
     /**
+     * The harness that runs the session's turns, pinned when it opened (track R4): its
+     * Environment's harness, else `nylorun`.
+     */
+    harness: z.string(),
+    /**
      * Why the session takes no new turn, when it is closed: `protocol_11` for a session opened
      * before protocol 11 (a new turn is `409 session_closed`; its history stays readable).
      */
@@ -3490,6 +3506,11 @@ export type SessionUsageTotals = z.infer<typeof SessionUsageTotalsSchema>;
 export const ModelCallSchema = z
   .object({
     id: z.string(),
+    /**
+     * The model effect the call served: the effect id its harness sent as `Idempotency-Key`
+     * (track R4), so a call is joined to the journal.
+     */
+    effectId: z.string(),
     sessionId: z.string(),
     turnId: z.string(),
     agentId: z.string(),

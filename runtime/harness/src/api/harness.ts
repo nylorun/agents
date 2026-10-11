@@ -6,6 +6,7 @@
  * every `renewEveryMs`; renewing stops once the run is aborted.
  */
 import {
+  DEFAULT_HARNESS,
   HARNESS_API_VERSION,
   type AbortReason,
   type HarnessChannel,
@@ -171,7 +172,7 @@ export function createHarness(options: HarnessOptions): Harness {
     async start() {
       const hello = await channel.request("hello", {
         api: HARNESS_API_VERSION,
-        name: options.name ?? "@nylorun/harness",
+        name: options.name ?? DEFAULT_HARNESS,
         version: options.version ?? "0",
         capabilities:
           options.capabilities?.workspace === undefined

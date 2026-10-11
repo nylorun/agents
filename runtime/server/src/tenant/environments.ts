@@ -14,8 +14,9 @@
  * - **A recipe that changes.** `PUT` on an existing id compares the fields sent: `kind` and
  *   `storage` are fixed (`409`), labels replace, and any other change writes the recipe and bumps
  *   `version`. A pod runs `applied`: image and resources reach it when it is next asked to run
- *   from stopped (`wantRunning`), so nothing swaps them mid-turn; network, harness and lifecycle
- *   apply at once. A virtual or `none` Environment applies every change at once.
+ *   from stopped (`wantRunning`), so nothing swaps them mid-turn; so does `harness`, which picks
+ *   what the pod runs (R4.4). Network and lifecycle apply at once. A virtual or `none`
+ *   Environment applies every change at once.
  * - **Access.** An application key reaches every Environment, and so does an application key
  *   acting for a subject (`Nylorun-Subject`), which needs `environments:write` to change one. A
  *   token caller reaches only the ids its grants match, and changes them only with
@@ -39,7 +40,7 @@ import {
   type EnvironmentView,
   type PutEnvironmentRequest,
 } from "@nylorun/core/contracts";
-import { parseSandboxDuration } from "@nylorun/core/define";
+import { isWorkflowManifest, parseSandboxDuration } from "@nylorun/core/define";
 import { canonical } from "../store/canonical.js";
 import type { Environment, SandboxPodState, Tx } from "../store/types.js";
 import { resolveRecipe, type RecipeRequest } from "../sandbox/resolve.js";
@@ -49,7 +50,7 @@ import { podName } from "../sandbox/pods/name.js";
 import { podLifecycleConfig } from "../sandbox/pods/spec.js";
 import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
-import { sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
+import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 
 /** The Environment grants that limit `scope`, or undefined when it reaches every Environment. */
@@ -255,18 +256,18 @@ export async function putEnvironment(
         const version = existing.version + 1;
         patch.recipe = recipe;
         patch.version = version;
+        // The harness is what a pod runs (R4.4): it changes with the pod, like its image.
         const compute = (r: typeof recipe) =>
-          canonical({ image: r.image ?? null, resources: r.resources ?? null });
+          canonical({ image: r.image ?? null, resources: r.resources ?? null, harness: r.harness });
         if (existing.kind !== "pod" || compute(recipe) === compute(existing.applied)) {
           // Nothing waits for a wake: apply all of it.
           patch.applied = recipe;
           patch.appliedVersion = version;
         } else
-          // Network, harness and lifecycle apply at once; image and resources at the next wake.
+          // Network and lifecycle apply at once; image, resources and harness at the next wake.
           patch.applied = {
             ...existing.applied,
             ...(recipe.network === undefined ? {} : { network: recipe.network }),
-            harness: recipe.harness,
             lifecycle: recipe.lifecycle,
           };
       }
@@ -642,6 +643,15 @@ export async function checkEnvironmentTurn(
   if (environment.ownerUserId !== undefined && environment.ownerUserId !== session.ownerUserId)
     fail(403, `Environment ${id} is for another owner's sessions (its ownerUserId guard).`, {
       code: "environment_owner_mismatch",
+    });
+  // The harness the turn would run on (R4.1, Q9): a pod about to wake runs its recipe's. A
+  // session never moves to another harness: its state is that harness's.
+  const waking = environment.pod !== undefined && (environment.pod.desired !== "running" || environment.pod.observed === "failed");
+  const runs = waking ? environment.recipe.harness : environment.applied.harness;
+  if (!isWorkflowManifest(session.manifest) && runs !== harnessOf(session))
+    fail(409, `Environment ${id} now runs the ${runs} harness, and this session runs ${harnessOf(session)}: open a new session to run on it.`, {
+      code: "harness_mismatch",
+      details: { harness: harnessOf(session), environmentHarness: runs },
     });
   if (environment.kind === "none") return;
   // A flow tree's sessions nest their turns in its root's: one holder.
