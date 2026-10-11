@@ -518,8 +518,9 @@ gateway in production, with no change to its manifest. For each server:
 1. **Write a credential** for its URL into the Environment ([Credentials](#credentials)), or none
    for a public server.
 2. **Preview its tools** with that credential ([Previewing a server](#previewing-a-server)).
-3. **Set its tools** in the agent's manifest: which are enabled, which need approval, which are
-   deferred ([Tools, results and errors](#tools-results-and-errors)).
+3. **Set its tools** in the agent's manifest: which are enabled and which are deferred
+   ([Tools, results and errors](#tools-results-and-errors)). Which calls wait for a person is the
+   Tenant's tool policy ([Tool policy](#tool-policy)).
 4. **Name the Environment** on the sessions that need it: `environment` when your app server
    opens one. Check first that it covers the agent
    ([Checking an agent's credentials](#checking-an-agents-credentials)).
@@ -771,7 +772,7 @@ Agent({ id: "triage" }).mcp({
     tools: {
       "*": { enabled: false }, // an allowlist: only the tools below
       search_issues: { enabled: true },
-      create_issue: { enabled: true, approval: "always" },
+      create_issue: { enabled: true },
     },
   },
 });
@@ -779,8 +780,8 @@ Agent({ id: "triage" }).mcp({
 
 - **Enabled.** A disabled tool never reaches the model and is never called. A key that names no
   tool the server lists is reported in `mcp.discovered` (`unknownTools`), not refused.
-- **Approval.** `approval: "always"` on a tool, on `"*"` or on the server pauses each call for
-  `session.approve()`.
+- **Approval.** Not a manifest setting: the Tenant's [tool policy](#tool-policy) decides which
+  calls wait for a person.
 - **Deferred.** When an agent's MCP tools would take more than a tenth of the model's context
   window, the Runtime leaves them out of the model's tool list and gives it `tool_search` and
   `tool_call`, with a note naming each server. `deferred: true` or `false` on a tool, on `"*"` or
@@ -815,6 +816,42 @@ tool's input schema, without running it. An HTTP tool's other failures are `http
 `http.timeout`, `http.refused`, `http.unreachable`, `http.lost`, `http.credential` and
 `http.too-large`. A `credential_rejected` error names the server (or the HTTP tool's
 `credential`), never a value.
+
+### Tool policy
+
+Which MCP and HTTP tool calls run, wait for a person, or are refused is the Tenant's tool
+policy: yours to set, with a management key, for every agent and every harness at once.
+
+```bash
+curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/tool-policy" \
+  -H "Authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "Content-Type: application/json" \
+  -d '{"rules": [
+        {"effect": "ask", "tool": "github__create_issue", "reason": "A person files issues"},
+        {"effect": "deny", "kind": "http", "tool": "refund_*", "when": {"amount": {"gt": 10000}}},
+        {"effect": "ask", "agent": "triage", "server": "github"}
+      ]}'
+```
+
+`admin.toolPolicy.get()` and `.put({ rules })` do the same from `@nylorun/admin`. A rule matches
+a call when every selector it sets matches: `tool` (the name the model calls it by, such as
+`github__create_issue`; `*` matches any run of characters), `server` (an MCP server's name),
+`kind` (`mcp` or `http`), `agent` (the agent that calls it), and `when` (fields of the input by
+dotted path, each tested with `equals`, `in`, `gt`, `gte`, `lt`, `lte` or `matches`). The
+strictest rule that matches decides, whatever their order; a call no rule matches runs.
+
+- **`deny`**: the call is never sent; the model gets `tool.denied`, with the rule's `reason`.
+- **`ask`**: the turn pauses with the call's tool, input and reason (`turn.paused`, and
+  `GET /v1/sessions/{id}/calls/tool` shows it `held`). An `approve` command on the session sends
+  that exact call; a refusal fails it to the model as `tool.denied`, unsent. Nothing holds a
+  process while it waits: an approval can come a day later, or after a Runtime restart. Studio
+  shows an approval card on the session.
+- **`allow`**: the call runs.
+
+The Runtime decides as it journals the call, before anything is sent, and the gateway runs only
+a call the journal holds running, so no harness can skip the policy. A policy that cannot be read
+refuses every call. Sandbox tools never cross the gateway: control their network side with the
+Environment's egress rules. A manifest no longer sets `approval`; a session pinned to one saved
+with `approval: "always"` keeps it as an ask.
 
 ## Credentials for skills
 

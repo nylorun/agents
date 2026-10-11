@@ -208,13 +208,6 @@ function childNode(child: unknown, build: Build): WorkflowNode {
       attach(build, node, { tool });
       return node;
     }
-    if (target.approval === "always")
-      build.diagnostics.push(
-        diagnostic(
-          "flow.approval-unsupported",
-          `HTTP stage '${tool.name}': approval on a flow stage is not supported yet`
-        )
-      );
     // The Runtime runs it through its Tool Gate: nothing is bound.
     return { tool: { ...node.tool, http: { ...target.http } } };
   }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -78,6 +78,8 @@ import {
   sessionEnvironmentId,
 } from "@/session-open";
 import { NewSessionProvider } from "@/components/new-session";
+import { ApprovalCard } from "@/components/approval-card";
+import { pendingApprovals } from "@/approvals";
 import type {
   AgentManifest,
   Connection,
@@ -840,6 +842,8 @@ function SessionView({
 
   const busy =
     sending || ["loading", "running", "runnable", "waiting"].includes(status);
+  // Tool calls the Tool Gate holds for a person (R5 step 2).
+  const approvals = useMemo(() => pendingApprovals(events), [events]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1064,7 +1068,20 @@ function SessionView({
                 );
               return null;
             })}
-            {["paused", "uncertain"].includes(status) && (
+            {status === "paused" &&
+              approvals.map((approval) => (
+                <ApprovalCard
+                  key={approval.id}
+                  approval={approval}
+                  answer={async (approved) => {
+                    await studioClient(tenantId)
+                      .session(sessionId)
+                      .approve(approval.id, approved, { idempotencyKey: crypto.randomUUID() });
+                    setStatus("running");
+                  }}
+                />
+              ))}
+            {["paused", "uncertain"].includes(status) && approvals.length === 0 && (
               <p className="rounded border p-3 text-sm">
                 This session needs attention. This release supports text and
                 ordinary tools; advanced waits and reconciliation are not

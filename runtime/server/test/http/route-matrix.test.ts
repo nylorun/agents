@@ -244,6 +244,8 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/tenant/usage?scope=agent&id=bot&period=month" },
     { method: "GET", path: "/v1/tenant/budgets" },
     { method: "PUT", path: "/v1/tenant/budgets", body: INVALID },
+    { method: "GET", path: "/v1/tenant/tool-policy" },
+    { method: "PUT", path: "/v1/tenant/tool-policy", body: INVALID },
     { method: "GET", path: "/v1/tenant/model" },
     { method: "PUT", path: "/v1/tenant/model", body: INVALID },
     { method: "PUT", path: "/v1/tenant/model/selection", body: INVALID },

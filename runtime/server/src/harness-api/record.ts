@@ -58,6 +58,7 @@ import {
 } from "../tenant/effects.js";
 import { assistantMessage, contextCompacted, modelFailed } from "../tenant/transcript.js";
 import { abortKind } from "../tenant/worker.js";
+import { toolCallDecision } from "../gates/policy.js";
 import type { Tx } from "../store/types.js";
 import {
   MAX_TOOL_ATTEMPTS,
@@ -155,12 +156,7 @@ export async function recordIntent(
     if (request.kind !== "model" && effectRequestHash(request) !== requestHash)
       throw new HarnessApiError("invalid", "The request hash does not match the request");
     if (flowHttp) {
-      await t.put("effects", request.effectId, {
-        request,
-        requestHash,
-        status: "invoking",
-        ...firstSend({ toolKind: "http" }),
-      });
+      const row: StoredEffect = { request, requestHash, status: "invoking", ...firstSend({ toolKind: "http" }) };
       await t.event(
         s.id,
         s.activeTurnId,
@@ -173,6 +169,9 @@ export async function recordIntent(
         },
         scope.writer
       );
+      const decided = await bypolicy(t, s, row, "http");
+      if (decided) return decided;
+      await t.put("effects", request.effectId, row);
       return { status: "execute" };
     }
     if (request.kind === "delegation") {
@@ -235,12 +234,19 @@ export async function recordIntent(
       );
       return { status: "completed", outcome };
     }
-    await t.put("effects", request.effectId, {
-      request: storedRequest(request),
+    const row: StoredEffect = {
+      // A model row keeps no prompt; a tool row its whole request.
+      request: storedRequest(request) as HostEffect,
       requestHash,
       status: "invoking",
       ...(request.kind === "tool" ? firstSend(toolKindOf(s, agentManifest, request)) : {}),
-    });
+    };
+    // The Tenant's tool policy decides an MCP or HTTP tool call as it is journaled (R5 step 2).
+    if (row.toolKind === "mcp" || row.toolKind === "http") {
+      const decided = await bypolicy(t, s, row, row.toolKind);
+      if (decided) return decided;
+    }
+    await t.put("effects", request.effectId, row);
     // `save_artifact` writes the Tenant's artifacts: core runs it, reading the file through the
     // workspace capability, wherever the sandbox is.
     if (request.kind === "tool" && isSaveArtifactCall(agentManifest, request)) return "save";
@@ -323,6 +329,38 @@ async function resend(t: Tx, s: Session, row: StoredEffect, rejoin: boolean): Pr
   row.attempts = attempts;
   await t.put("effects", row.request.effectId, row);
   return rejoin ? { status: "execute", rejoin: true } : { status: "execute" };
+}
+
+/**
+ * The Tenant's tool policy on a tool call being journaled (R5 step 2, `gates/policy.ts`), or
+ * undefined when it runs. `deny`: the call fails to the model as `tool.denied`, unsent. `ask`:
+ * the row waits as `held` and the effect is pending; the segment ends waiting, the turn pauses,
+ * and `approve` answers it (`tenant/commands.ts`). The Tool Gate refuses a row not `invoking`, so
+ * neither runs whichever harness sends it. Writes `row`.
+ */
+async function bypolicy(
+  t: Tx,
+  s: Session,
+  row: StoredEffect,
+  kind: "mcp" | "http",
+): Promise<IntentAnswer | undefined> {
+  const decision = await toolCallDecision(t, s, row.request as HostEffect, kind);
+  if (decision.effect === "allow") return undefined;
+  // Nothing was sent.
+  row.attempts = 0;
+  if (decision.effect === "deny") {
+    const outcome = await settleToolRow(t, s, row, {
+      kind: "failed",
+      code: "tool.denied",
+      message: decision.reason,
+      retryable: false,
+    });
+    return { status: "completed", outcome };
+  }
+  row.status = "held";
+  row.hold = { reason: decision.reason, at: new Date().toISOString() };
+  await t.put("effects", row.request.effectId, row);
+  return { status: "pending" };
 }
 
 /** The failed outcome of an MCP tool the turn's manifest disables (R2b C9). */

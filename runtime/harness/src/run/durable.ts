@@ -5,7 +5,7 @@ import type { ExecutionInput, ExecutionState, RunResult } from "../types/executi
 import type { JsonObject, JsonValue } from "@nylorun/core/define";
 import type { Implementations } from "@nylorun/core/define";
 import type { EffectOutcome } from "@nylorun/core/contracts";
-import type { AgentRef, ApprovalMode, ModelAdapter } from "@nylorun/core/define";
+import type { AgentRef, ModelAdapter } from "@nylorun/core/define";
 import type { DelegationHost } from "../loop/delegation.js";
 import type { AgentDefinition } from "../definition/agent-definition.js";
 import { AgentManifestSchema } from "@nylorun/core/contracts";
@@ -91,8 +91,6 @@ export interface DurableSessionTool {
   readonly description?: string;
   readonly inputSchema: JsonObject;
   readonly outputSchema?: JsonObject;
-  /** `always`: each call waits for approval (a remote MCP server's, or its tool's, `approval`). */
-  readonly approval?: ApprovalMode;
   /**
    * Not in the model's tool list (R2b C10): the model finds it with `tool_search` and runs it
    * with `tool_call`, which makes the call as this tool's own.
@@ -199,15 +197,13 @@ export async function runDurable(options: {
         readonly description?: string;
         readonly inputSchema: JsonObject;
         readonly outputSchema?: JsonObject;
-        readonly approval?: ApprovalMode;
       },
     ) => ({
       name: tool.name,
       ...(tool.description === undefined ? {} : { description: tool.description }),
       inputSchema: schemaFromJSON(tool.inputSchema),
       ...(tool.outputSchema ? { outputSchema: schemaFromJSON(tool.outputSchema) } : {}),
-      // Static approval: the engine asks before the call becomes an effect.
-      ...(tool.approval === "always" ? { approval: () => true } : {}),
+      // No approval here: the Tool Gate holds a call its policy asks a person about (R5 step 2).
       async execute(args: unknown, ctx: any) {
         const previous = patchTail;
         let release!: () => void;
@@ -270,6 +266,7 @@ export async function runDurable(options: {
       // HTTP tool keeps its target (the manifest's hash covers it) and runs as a host effect.
       for (const tool of capability.tools ?? [])
         if (tool.http)
+          // A pinned `approval` stays for the definition's hash; the Tool Gate holds the call.
           tools[tool.name] = withHttpTarget(hostedTool(capability.id, tool), {
             http: tool.http,
             ...(tool.approval === undefined ? {} : { approval: tool.approval }),
@@ -385,8 +382,8 @@ type HostedTool = (
  * `tool_call` (R2b C10): runs a deferred tool by name, as that tool's own call. It checks the
  * arguments against the tool's `inputSchema` first, so a mistake comes back to the model as a
  * failed result it can fix. The effect then names the tool, so the host routes it, shapes its
- * result and records `tool.completed` as for a direct call; a tool with approval waits for it
- * here, with the prompt a direct call would have.
+ * result and records `tool.completed` as for a direct call, and the Tool Gate holds it as it
+ * would a direct call.
  */
 function deferredToolCall(
   tool: DurableSessionTool,
@@ -398,19 +395,10 @@ function deferredToolCall(
     const name = (args as { name?: unknown } | undefined)?.name;
     return typeof name === "string" ? deferred.get(name) : undefined;
   };
-  const gated = [...deferred.values()].some((item) => item.approval === "always");
   return {
     name: tool.name,
     ...(tool.description === undefined ? {} : { description: tool.description }),
     inputSchema: schemaFromJSON(tool.inputSchema),
-    ...(gated
-      ? {
-          approval: (args: unknown) => {
-            const target = targetOf(args);
-            return target?.approval === "always" ? `Approve ${target.name}?` : undefined;
-          },
-        }
-      : {}),
     async execute(args: unknown, ctx: unknown) {
       const call = args as { name: string; arguments?: Record<string, unknown> };
       const target = targetOf(call);

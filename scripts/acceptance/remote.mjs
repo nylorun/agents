@@ -168,7 +168,8 @@ async function r1() {
 
 /**
  * The fixture model calls lookup_order on a turn's first step, then answers. The tool is an
- * HTTP tool of `service` (this machine), reached through the tunnel; each call waits for approval.
+ * HTTP tool of `service` (this machine), reached through the tunnel; the Tenant's tool policy
+ * holds each call for approval (R5 step 2).
  */
 function checkAgent(service) {
   return Agent({ id: "remote-check", name: "Remote check" })
@@ -178,7 +179,6 @@ function checkAgent(service) {
         {
           input: z.object({ orderId: z.string() }),
           output: z.object({ orderId: z.string(), status: z.string() }),
-          approval: "always",
         },
         `${toolsUrl}/lookup_order`,
       ),
@@ -214,6 +214,14 @@ async function main() {
   const idleStream = new AbortController();
   try {
     await client.saveAgent(agent);
+    // Each lookup waits for a person (R5 step 2): the Tenant's tool policy, with the management key.
+    const policy = await fetch(`${url}/v1/tenant/tool-policy`, {
+      method: "PUT",
+      headers: runtimeHeaders({ "content-type": "application/json" }, managementKey),
+      body: JSON.stringify({ rules: [{ effect: "ask", tool: "lookup_order", agent: "remote-check" }] }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    assert.ok(policy.ok, `setting the tool policy: ${policy.status} ${await policy.text()}`);
     const post = (body, signal) =>
       fetch(`${base}/remote-check`, {
         method: "POST",

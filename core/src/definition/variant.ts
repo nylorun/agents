@@ -46,8 +46,9 @@ function removeOnlySkills(
 
 /**
  * One tool setting, or the `"*"` entry, only tightened (R2b C9, Q18): `enabled` kept or set to
- * `false`, `approval` kept or set to `always`, `deferred` kept. Each level of a tool's resolution
- * (its entry, then `"*"`) either keeps its value or tightens it, so the tool does too.
+ * `false`, `approval` and `deferred` kept. Each level of a tool's resolution (its entry, then
+ * `"*"`) either keeps its value or tightens it, so the tool does too. A variant adds no
+ * approval: tool approvals are the Tenant's tool policy (R5 step 2).
  */
 function tightensSettings(
   prior: McpToolSettings | undefined,
@@ -55,14 +56,14 @@ function tightensSettings(
 ): boolean {
   return (
     (next.enabled === prior?.enabled || next.enabled === false) &&
-    (next.approval === prior?.approval || next.approval === "always") &&
+    next.approval === prior?.approval &&
     next.deferred === prior?.deferred
   );
 }
 
 /**
  * The servers of a turn variant: the pinned ones, the same but for their `tools` maps, where a
- * variant may only disable a tool or require its approval (R2b C9, Q18). An entry the pin has
+ * variant may only disable a tool (R2b C9, Q18). An entry the pin has
  * stays, since dropping one could widen.
  */
 function tightensServers(
@@ -87,7 +88,7 @@ function tightensServers(
 /**
  * Whether `candidate` is a valid turn-manifest variant of the session's pinned
  * manifest (`loops.md` §3.4). Setup (MCP, sandbox) is fixed, but a variant may disable an MCP
- * server's tools or require their approval (R2b C9, Q18);
+ * server's tools (R2b C9, Q18);
  * code-backed tools/skills/agents-as-tools are remove-only; plain data may change.
  */
 export function isVariantOf(

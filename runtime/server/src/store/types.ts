@@ -131,6 +131,8 @@ export type SessionStatus =
 export type EffectStatus =
   | "pending"
   | "invoking"
+  /** A tool call the Tool Gate held for a person's approval (R5 step 2): nothing was sent. */
+  | "held"
   | "completed"
   | "uncertain"
   | "queued"

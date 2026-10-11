@@ -111,7 +111,9 @@ Otherwise the session starts at once, without an Environment.
 Settings links use `/tenants/<id>/settings/overview`, `/settings/models` and
 `/settings/credentials` under the same Tenant prefix. Legacy `/settings` and
 `/vault` links redirect to Models and Credentials respectively, including embeds.
-Token streaming, media and an approvals UI are deferred.
+A session paused on a tool call the Tenant's tool policy holds shows an approval card with the
+tool, why it is held and its input, with **Approve** and **Deny**. Token streaming and media are
+deferred.
 
 ## Environments and artifacts
 

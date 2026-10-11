@@ -65,6 +65,7 @@ Management keys are issued on the Tenant's machine only:
 | `admin.models` | `catalog()`, `providers()`, `get()`, `put(request)`, `select(request)`, `usage(query)`, `budgets.get()`, `budgets.put(request)` | `/v1/tenant/models`, `/providers`, `/model`, `/model/selection`, `/usage`, `/budgets` |
 | `admin.coverage` | called directly: `admin.coverage({ agentId, environmentId? })` | `POST /v1/tenant/credential-coverage` |
 | `admin.mcp` | `preview({ url, type?, name?, environmentId? })` | `POST /v1/tenant/mcp/preview` |
+| `admin.toolPolicy` | `get()`, `put({ rules })`: which MCP and HTTP tool calls run, wait for a person (`ask`) or are refused (`deny`) | `/v1/tenant/tool-policy` |
 | `admin.signingKeys` | `list()`, `rotate({ force? })`, `revoke(kid)` | `/v1/tenant/signing-keys…` |
 | `admin.settings` | `sandbox.get()`, `sandbox.put(request)`, `artifacts.get()`, `artifacts.put(request)` | `/v1/tenant/sandbox`, `/v1/tenant/artifacts` |
 

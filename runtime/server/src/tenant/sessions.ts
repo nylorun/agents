@@ -10,7 +10,7 @@ import {
   type PutSessionRequest,
 } from "@nylorun/core/contracts";
 import { hashManifest } from "@nylorun/core/compatibility";
-import { codeToolRefusal, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
+import { approvalRefusal, codeToolRefusal, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
 import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
@@ -89,6 +89,9 @@ export async function putDefinition(
   // The Runtime runs agents from their manifests alone (track R2): no tool may need it.
   const code = codeToolRefusal(body.manifest);
   if (code) fail(400, code);
+  // Tool approvals are the Tenant's tool policy, decided at the Tool Gate (R5 step 2).
+  const approval = approvalRefusal(body.manifest);
+  if (approval) fail(400, approval);
   const declared = declaredSandboxes(body.manifest);
   if (declared.length > 0)
     fail(

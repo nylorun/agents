@@ -57,6 +57,7 @@ import type { TurnOutput } from "@nylorun/core/harness-api";
 import { isOwnershipLost, ownedTx } from "../store/ownership.js";
 import { endAdvance } from "./scheduler.js";
 import type { EffectDoc, Tx } from "../store/types.js";
+import type { ToolRowFacts } from "../harness-api/tool-journal.js";
 import { harnessOf, type Lease, type Session, type TenantContext } from "./context.js";
 import { HARNESS_ID } from "../sandbox/placement.js";
 import { recoversModelCalls } from "./effects.js";
@@ -534,6 +535,17 @@ async function settle(
       // A result can arrive during concurrent action persistence. Preserve the runnable marker.
       const resumeRequested = current.status === "runnable";
       if (result.status === "waiting" || result.status === "uncertain") {
+        // Tool calls the Tool Gate held for approval (R5 step 2): the turn pauses for a person.
+        const held = resumeRequested ? [] : await heldCalls(t, result.effectIds);
+        if (held.length > 0) {
+          current.status = "paused";
+          current.waits = held;
+          const payload = { interactions: held };
+          await t.event(id, s.activeTurnId, "turn.paused", payload);
+          await t.put("sessions", id, current);
+          await wakeWorkflowOf(ctx, t, current, s.activeTurnId, "turn.paused", payload);
+          return siblings;
+        }
         const linkedWaits = isWorkflowManifest(current.manifest)
           ? await aggregateWaits({ t, workflowSessionId: id })
           : [];
@@ -678,6 +690,37 @@ async function settle(
     }
   }
   return kept;
+}
+
+/**
+ * The approvals a waiting segment's held tool calls ask for (R5 step 2), as `turn.paused`
+ * interactions: each one's id is the call's effect id, which `approve` answers.
+ */
+async function heldCalls(t: Tx, effectIds: readonly string[]) {
+  const held = [];
+  for (const effectId of effectIds) {
+    const row = await t.get<EffectDoc & ToolRowFacts>("effects", effectId);
+    if (row?.status !== "held") continue;
+    const request = row.request;
+    const context = (request.context ?? {}) as { callId?: unknown; invocationId?: unknown };
+    const toolName = request.toolName ?? request.key ?? effectId;
+    const reason = row.hold?.reason ?? "The Tenant's tool policy asks a person about this call";
+    held.push({
+      invocationId: typeof context.invocationId === "string" ? context.invocationId : effectId,
+      ...(typeof context.callId === "string" ? { callId: context.callId } : {}),
+      interaction: {
+        id: effectId,
+        kind: "approval",
+        prompt: `Approve ${toolName}?`,
+        reason,
+        ...(row.server === undefined ? {} : { server: row.server }),
+        input: request.input ?? null,
+      },
+      status: "interaction",
+      toolName,
+    });
+  }
+  return held;
 }
 
 /** A segment threw: fail the turn, restore the turn-start state, wake a linked workflow. */

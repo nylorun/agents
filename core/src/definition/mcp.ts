@@ -1,6 +1,6 @@
 import type { CapabilityDeclaration } from "../types/middleware.js";
 import type { ApprovalMode, ManifestSchemaVersion, McpServerManifest } from "../types/manifest.js";
-import { APPROVAL_MODES } from "./http-tool.js";
+import { APPROVAL_REMOVED } from "./approval.js";
 
 type WithOptionalName<T> = T extends { readonly name: string }
   ? Omit<T, "name"> & { readonly name?: string }
@@ -41,9 +41,9 @@ export class McpError extends Error {
  * })
  * ```
  *
- * `tools` sets tools by the server's own names, with `"*"` for the rest: an allowlist, approval
- * per tool, deferral per tool (R2b C9, C10). `deferred` defers every tool of the server. Either
- * makes the manifest v6.
+ * `tools` sets tools by the server's own names, with `"*"` for the rest: an allowlist and
+ * deferral per tool (R2b C9, C10). `deferred` defers every tool of the server. Either makes the
+ * manifest v6. Whether a call waits for a person is the Tenant's tool policy (R5 step 2).
  *
  * ```ts
  * Agent({ id: "assistant" }).mcp({
@@ -53,7 +53,7 @@ export class McpError extends Error {
  *     tools: {
  *       "*": { enabled: false },
  *       search_issues: { enabled: true },
- *       create_issue: { enabled: true, approval: "always" },
+ *       create_issue: { enabled: true },
  *     },
  *   },
  * })
@@ -95,12 +95,14 @@ export function normalizeMcpServers(
     const server = isRecord(spec) && spec.name === undefined ? { ...spec, name: key } : spec;
     if (isRecord(server) && (server.type as string) === "stdio")
       throw new McpError("mcp.stdio", stdioMcpRefusal(key));
+    if (isRecord(server) && setsApproval(server))
+      throw new McpError("mcp.approval-removed", `MCP server '${key}': ${APPROVAL_REMOVED}`);
     if (!isMcpServer(server)) {
       throw new McpError(
         "mcp.invalid-server",
         `MCP server '${key}' is not a valid streamable-http or sse declaration` +
           (isRecord(server) && (server.tools !== undefined || server.deferred !== undefined)
-            ? ": deferred is a boolean, and tools maps tool names to { enabled?, approval?, deferred? }"
+            ? ": deferred is a boolean, and tools maps tool names to { enabled?, deferred? }"
             : "")
       );
     }
@@ -179,7 +181,6 @@ function freezeServer(server: McpServerManifest): McpServerManifest {
     ...(server.headers === undefined
       ? {}
       : { headers: Object.freeze({ ...server.headers }) }),
-    ...(server.approval === undefined ? {} : { approval: server.approval }),
     ...(server.deferred === undefined ? {} : { deferred: server.deferred }),
     ...(server.tools === undefined
       ? {}
@@ -190,7 +191,6 @@ function freezeServer(server: McpServerManifest): McpServerManifest {
                 name,
                 Object.freeze({
                   ...(settings.enabled === undefined ? {} : { enabled: settings.enabled }),
-                  ...(settings.approval === undefined ? {} : { approval: settings.approval }),
                   ...(settings.deferred === undefined ? {} : { deferred: settings.deferred }),
                 }),
               ])
@@ -207,14 +207,17 @@ function isMcpServer(value: unknown): value is McpServerManifest {
     return (
       typeof value.url === "string" &&
       value.url.length > 0 &&
-      (value.approval === undefined || isApprovalMode(value.approval)) &&
       (value.deferred === undefined || typeof value.deferred === "boolean") &&
       (value.tools === undefined || isToolSettingsMap(value.tools))
     );
   return false;
 }
 
-const isApprovalMode = (value: unknown) => (APPROVAL_MODES as readonly unknown[]).includes(value);
+/** A server, or one of its tools' settings, that sets `approval` (removed in R5 step 2). */
+function setsApproval(server: Record<string, unknown>): boolean {
+  if (server.approval !== undefined) return true;
+  return isRecord(server.tools) && Object.values(server.tools).some((settings) => isRecord(settings) && settings.approval !== undefined);
+}
 
 function isToolSettingsMap(value: unknown): boolean {
   if (!isRecord(value)) return false;
@@ -222,9 +225,8 @@ function isToolSettingsMap(value: unknown): boolean {
     ([name, settings]) =>
       name.length > 0 &&
       isRecord(settings) &&
-      Object.keys(settings).every((key) => key === "enabled" || key === "approval" || key === "deferred") &&
+      Object.keys(settings).every((key) => key === "enabled" || key === "deferred") &&
       (settings.enabled === undefined || typeof settings.enabled === "boolean") &&
-      (settings.approval === undefined || isApprovalMode(settings.approval)) &&
       (settings.deferred === undefined || typeof settings.deferred === "boolean")
   );
 }

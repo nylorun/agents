@@ -11,6 +11,7 @@ import type { AgentManifest } from "@nylorun/core/define";
 import { withPlatformTools } from "../src/sandbox/session-sandbox.js";
 import { startTestTenant } from "./support/tenant.js";
 import { startToolServer, type ToolServer } from "./support/tool-server.js";
+import { setToolPolicy } from "./support/tool-policy.js";
 
 /**
  * G3 / system-design.md §10 — client-only parity suite.
@@ -25,7 +26,7 @@ const APP = "workflow-parity-app-token-aaaaaa";
 type Kind = "agent" | "workflow";
 
 type Gates = {
-  /** When true, the model calls the tool that pauses for a human (`approval: "always"`). */
+  /** When true, the model calls the tool the Tenant's tool policy holds for a human (R5 step 2). */
   requireApproval: boolean;
   /** When true, the tool's service holds its answer until released (cancel / kill / redeploy). */
   holdRun: boolean;
@@ -99,7 +100,7 @@ async function startWorkService(gates: ReturnType<typeof createGates>) {
   return startToolServer({ work, approved_work: work });
 }
 
-/** `work`, and `approved_work`: the same call behind static approval. */
+/** `work`, and `approved_work`: the same call, which the Tenant's tool policy asks a person about. */
 function workTools(service: ToolServer) {
   const input = z.object({ note: z.string() });
   const output = z.object({ done: z.literal(true), note: z.string() });
@@ -109,7 +110,6 @@ function workTools(service: ToolServer) {
       description: "Do the parity work, once a human approves.",
       input,
       output,
-      approval: "always",
     }),
   ];
 }
@@ -316,6 +316,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         await client.saveAgent(buildDefinition(kind, service), {
           implementationVersion: "parity-v1",
         });
+        await setToolPolicy(first, [{ effect: "ask", tool: "approved_work" }]);
 
         const listed = await client.listAgents();
         const registered = listed.agents.find(

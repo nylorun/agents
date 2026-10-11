@@ -33,6 +33,10 @@ export const MAX_TOOL_ATTEMPTS = 3;
 
 /** A tool row's journal facts (R5), kept in its body. */
 export interface ToolRowFacts {
+  /** Why the Tool Gate held the call for approval, and since when (R5 step 2). */
+  hold?: { reason: string; at: string };
+  /** A person's approval of a held call (R5 step 2): the gate then sends it. */
+  approval?: { approved: true; at: string; by?: string };
   toolKind?: ToolCallKind;
   server?: string;
   attempts?: number;

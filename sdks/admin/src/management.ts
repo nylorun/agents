@@ -23,6 +23,7 @@ import {
   type OperatorKey,
   type PutHostModelRequest,
   type PutModelBudgetsRequest,
+  type PutToolPolicyRequest,
   type PutOperatorKeyResponse,
   type PutTenantArtifactsRequest,
   type PutTenantEnvironmentsRequest,
@@ -35,6 +36,7 @@ import {
   type TenantArtifactsView,
   type TenantSandboxView,
   type TenantStatus,
+  type ToolPolicy,
 } from "@nylorun/core/contracts";
 import { AdminError, rejection } from "./errors.js";
 
@@ -152,6 +154,15 @@ export class ManagementClient {
    */
   readonly coverage: (request: Body<CredentialCoverageRequest>) => Promise<CredentialCoverage>;
   readonly mcp: ManagementMcp;
+  /**
+   * The rules the Tool Gate applies to every MCP and HTTP tool call (R5 step 2): `deny` refuses
+   * a call, `ask` holds it until a person approves it on the session, `allow` runs it.
+   */
+  readonly toolPolicy: {
+    get(): Promise<ToolPolicy>;
+    /** Replaces every rule; an empty list allows every call. */
+    put(request: Body<PutToolPolicyRequest>): Promise<ToolPolicy>;
+  };
   readonly signingKeys: ManagementSigningKeys;
   readonly settings: ManagementSettings;
   readonly #key: string | undefined;
@@ -205,6 +216,10 @@ export class ManagementClient {
       },
     };
     this.coverage = (request) => call("POST", "/v1/tenant/credential-coverage", withId(request));
+    this.toolPolicy = {
+      get: () => call("GET", "/v1/tenant/tool-policy"),
+      put: (request) => call("PUT", "/v1/tenant/tool-policy", withId(request)),
+    };
     this.mcp = {
       preview: (request) => call("POST", "/v1/tenant/mcp/preview", request),
     };

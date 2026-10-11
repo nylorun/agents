@@ -33,6 +33,8 @@ import {
   ModelUsageTotalsSchema,
   ModelBudgetsSchema,
   PutModelBudgetsRequestSchema,
+  ToolPolicySchema,
+  PutToolPolicyRequestSchema,
   PutTenantEnvironmentsRequestSchema,
   ListProvidersResponseSchema,
   HostModelViewSchema,
@@ -188,6 +190,8 @@ export const TenantSandboxView = named("TenantSandboxView", TenantSandboxViewSch
 export const ModelUsageTotals = named("ModelUsageTotals", ModelUsageTotalsSchema);
 export const ModelBudgets = named("ModelBudgets", ModelBudgetsSchema);
 export const PutModelBudgetsRequest = named("PutModelBudgetsRequest", PutModelBudgetsRequestSchema);
+export const ToolPolicy = named("ToolPolicy", ToolPolicySchema);
+export const PutToolPolicyRequest = named("PutToolPolicyRequest", PutToolPolicyRequestSchema);
 export const PutTenantEnvironmentsRequest = named("PutTenantEnvironmentsRequest", PutTenantEnvironmentsRequestSchema);
 export const ListProvidersResponse = named("ListProvidersResponse", ListProvidersResponseSchema);
 export const HostModelView = named("HostModelView", HostModelViewSchema);

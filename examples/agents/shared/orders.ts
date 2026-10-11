@@ -20,15 +20,14 @@ export const lookupOrderCode = tool({
 
 /**
  * The tool an agent declares: the Runtime POSTs `{ orderId }` to `<url>/lookup_order` (default
- * TOOLS_URL, the tools service). `approval: "always"` makes each call wait for the person.
+ * TOOLS_URL, the tools service). Whether a call waits for a person is the Tenant's tool policy.
  */
-export function lookupOrder(options: { url?: string; approval?: "always" | "never" } = {}) {
+export function lookupOrder(options: { url?: string } = {}) {
   return http({
     name: "lookup_order",
     description,
     input,
     output,
     url: `${(options.url ?? TOOLS_URL).replace(/\/$/, "")}/lookup_order`,
-    ...(options.approval ? { approval: options.approval } : {}),
   });
 }
