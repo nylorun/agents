@@ -77,6 +77,7 @@ import { startHeartbeat } from "../harness-api/renew.js";
 import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/start.js";
 import type { RunEnd } from "../harness-api/server.js";
 import { touchEnvironment } from "./environments.js";
+import { endTurn, pauseTurn } from "./turn-timing.js";
 import {
   AdvanceAbort,
   AdvanceDeadlineError,
@@ -541,6 +542,7 @@ async function settle(
         const held = resumeRequested ? [] : await heldCalls(t, result.effectIds);
         if (held.length > 0) {
           current.status = "paused";
+          pauseTurn(current);
           current.waits = held;
           const payload = { interactions: held };
           await t.event(id, s.activeTurnId, "turn.paused", payload);
@@ -553,6 +555,7 @@ async function settle(
           : [];
         if (linkedWaits.length > 0 && !resumeRequested) {
           current.status = "paused";
+          pauseTurn(current);
           current.waits = linkedWaits;
         } else {
           current.status = resumeRequested
@@ -626,7 +629,10 @@ async function settle(
         });
         siblings.push(...cancelResult.agentSessionIds);
       }
-      if (result.status !== "paused") {
+      // The turn's span (R7.1): a pause starts its wait; an end, its duration and totals.
+      const ended = result.status === "paused" ? undefined : await endTurn(t, current, s.activeTurnId);
+      if (result.status === "paused") pauseTurn(current);
+      else {
         current.activeTurnId = null;
         if (s.activeTurnId) current.lastTurnId = s.activeTurnId;
         await slimModelEffects(t, id, s.activeTurnId);
@@ -638,7 +644,7 @@ async function settle(
         | "turn.cancelled";
       const payload =
         result.status === "completed"
-          ? { output: (result.result as any).output }
+          ? { output: (result.result as any).output, ...ended }
           : result.status === "paused"
           ? {
               interactions: ((result.result as any).pending ?? []).map(
@@ -663,8 +669,9 @@ async function settle(
                   ? { path: (result.result as any).error.path }
                   : {}),
               },
+              ...ended,
             }
-          : {};
+          : { ...ended };
       await t.event(id, s.activeTurnId, type, payload, writer);
       await t.put("sessions", id, current);
       await wakeWorkflowOf(ctx, t, current, s.activeTurnId, type, payload);
@@ -742,7 +749,7 @@ async function settleFailure(
     current.status = "failed";
     current.state = current.turnStartState;
     current.error = error instanceof Error ? error.message : String(error);
-    const payload = { message: current.error };
+    const payload = { message: current.error, ...(await endTurn(t, current, current.activeTurnId)) };
     await t.event(id, current.activeTurnId, "turn.failed", payload);
     await slimModelEffects(t, id, current.activeTurnId);
     if (current.activeTurnId) current.lastTurnId = current.activeTurnId;

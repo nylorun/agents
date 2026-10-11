@@ -129,7 +129,8 @@ export function historyOf(events: readonly LiveEvent[], contextId: string, taskI
         add(clientMessageId(event), "ROLE_USER", [valuePart(payload.value)]);
         break;
       case "message.assistant":
-        // Agents used as tools speak inside the turn; only the agent's own words are history.
+        // Agents used as tools speak inside the turn; only the agent's own words are history. A
+        // step that said nothing (`text: ""`, R7.1) is none.
         if (!payload.agent && typeof payload.text === "string" && payload.text.trim() !== "")
           add(event.eventId, "ROLE_AGENT", [{ text: payload.text }]);
         break;

@@ -1373,6 +1373,17 @@ class PostgresTx implements Tx {
     return inserted!;
   }
 
+  async modelUsageOf(effectKey: string): Promise<ModelUsageRow | undefined> {
+    this.check();
+    const [row] = await this.db
+      .select()
+      .from(modelUsage)
+      .where(and(eq(modelUsage.effectKey, effectKey), eq(modelUsage.duplicate, false)))
+      .orderBy(modelUsage.createdAt, modelUsage.id)
+      .limit(1);
+    return row;
+  }
+
   async modelUsageTotals(query: ModelUsageQuery): Promise<ModelUsageTotals> {
     this.check();
     const [row] = await this.db

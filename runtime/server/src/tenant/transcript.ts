@@ -25,7 +25,9 @@ const agentOf = (request: HostEffect) =>
 
 /**
  * `message.assistant` for a completed model effect: the step's text and tool calls. The
- * provider returns a `ModelCandidate` or a bare string; anything else writes no event.
+ * provider returns a `ModelCandidate` or a bare string. A step that said nothing (no text, no
+ * tool calls; a structured answer) is still one event, with `text: ""` (R7.1): every model call
+ * has its outcome row. Readers that build a conversation skip it (`isEmptyAssistantMessage`).
  */
 export function assistantMessage(request: HostEffect, value: unknown) {
   const invocationId = (request.context as { invocationId?: unknown })
@@ -49,7 +51,6 @@ export function assistantMessage(request: HostEffect, value: unknown) {
     )
       toolCalls.push({ callId: block.id, name: block.name, input: block.args });
   }
-  if (!text && toolCalls.length === 0) return undefined;
   const candidate = (typeof value === "object" && value !== null ? value : {}) as {
     finishReason?: unknown;
     usage?: unknown;
@@ -75,13 +76,14 @@ export function assistantMessage(request: HostEffect, value: unknown) {
 
 /**
  * `context.compacted` for a model effect that summarized history (Model Calls §8): the
- * engine replaced the older transcript with that summary.
+ * engine replaced the older transcript with that summary. A partial summary (one call of
+ * several) is marked `partial: true` (R7.1): only the last call's event replaced the history.
  */
 export function contextCompacted(request: HostEffect, value: unknown) {
   const compaction = (request.context as {
     compaction?: { trigger?: unknown; tokensBefore?: unknown; keptTokens?: unknown; partial?: unknown };
   } | null)?.compaction;
-  if (!compaction || compaction.partial || isModelFailureOutcome(value)) return undefined;
+  if (!compaction || isModelFailureOutcome(value)) return undefined;
   const summary =
     typeof value === "string"
       ? value
@@ -98,6 +100,7 @@ export function contextCompacted(request: HostEffect, value: unknown) {
     trigger: compaction.trigger === "overflow" ? ("overflow" as const) : ("threshold" as const),
     tokensBefore,
     tokensAfter: keptTokens + Math.ceil(summary.trim().length / 4),
+    ...(compaction.partial ? { partial: true as const } : {}),
     ...agentOf(request),
   };
 }
@@ -116,13 +119,83 @@ export function modelFailed(request: HostEffect, value: unknown) {
   };
 }
 
-/** What the journal knows of a tool call when it ends (R5.1), for its `tool.completed`. */
+/** A gate's own start and end of a call (R7.1). */
+export interface GateTimes {
+  readonly startedAt: string;
+  readonly endedAt: string;
+}
+
+/** What the usage ledger holds for a model call (R7.1): its `model_usage` row's columns. */
+export interface MeteredCall {
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly firstTokenMs: number | null;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly cachedTokens: number;
+  readonly costUsd: number;
+}
+
+/** From `startedAt` to `endedAt` in whole milliseconds; undefined unless both are times. */
+export function durationBetween(startedAt: string | undefined, endedAt: string | undefined): number | undefined {
+  const started = startedAt ? Date.parse(startedAt) : NaN;
+  const ended = endedAt ? Date.parse(endedAt) : NaN;
+  if (!Number.isFinite(started) || !Number.isFinite(ended)) return undefined;
+  return Math.max(0, Math.round(ended - started));
+}
+
+/**
+ * The timing a model call's outcome event carries (R7.1): its effect id, the journal's window
+ * (`startedAt` on the row to `settledAt`), and, when the gate metered the call (`metered`), the
+ * gate's own start and end, the first token's time and the metered usage.
+ */
+export function modelOutcomeFacts(
+  effectId: string,
+  window: { startedAt?: string; settledAt?: string },
+  metered: MeteredCall | undefined,
+) {
+  const durationMs = durationBetween(window.startedAt, window.settledAt);
+  return {
+    effectId,
+    ...(durationMs === undefined ? {} : { durationMs }),
+    ...(metered?.startedAt && metered.endedAt
+      ? { gate: { startedAt: metered.startedAt, endedAt: metered.endedAt } }
+      : {}),
+    ...(metered?.firstTokenMs !== null && metered?.firstTokenMs !== undefined
+      ? { firstTokenMs: metered.firstTokenMs }
+      : {}),
+    ...(metered
+      ? {
+          meteredUsage: {
+            inputTokens: metered.inputTokens,
+            outputTokens: metered.outputTokens,
+            totalTokens: metered.totalTokens,
+            ...(metered.cachedTokens > 0 ? { cachedTokens: metered.cachedTokens } : {}),
+            ...(metered.costUsd > 0 ? { costUsd: metered.costUsd } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/** What the Tenant's tool policy did with a call, when it did more than allow it (R7.1). */
+export interface ToolPolicyFact {
+  readonly decision: "ask" | "deny";
+  readonly reason: string;
+  readonly approvedBy?: string;
+}
+
+/** What the journal knows of a tool call when it ends (R5.1, R7.1), for its `tool.completed`. */
 export interface ToolCallFacts {
   readonly status: ToolCallStatus;
   readonly kind?: ToolCallKind;
   readonly server?: string;
   readonly attempts?: number;
   readonly durationMs?: number;
+  readonly effectId?: string;
+  readonly gate?: GateTimes;
+  readonly policy?: ToolPolicyFact;
 }
 
 /**
@@ -171,6 +244,9 @@ export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolC
           ...(facts.server === undefined ? {} : { server: facts.server }),
           ...(facts.attempts === undefined ? {} : { attempts: facts.attempts }),
           ...(facts.durationMs === undefined ? {} : { durationMs: facts.durationMs }),
+          ...(facts.effectId === undefined ? {} : { effectId: facts.effectId }),
+          ...(facts.gate === undefined ? {} : { gate: facts.gate }),
+          ...(facts.policy === undefined ? {} : { policy: facts.policy }),
         }
       : {}),
     ...result,

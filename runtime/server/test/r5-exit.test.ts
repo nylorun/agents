@@ -231,6 +231,11 @@ describe("the R5 exit", { timeout: 60_000 }, () => {
       error: null,
     });
     expect(service.requests().map((request) => request.key)).toEqual([row!.effectId]);
+    // Its span (R7.1): the effect id, and the Tool Gate's own start and end from its crossing.
+    expect(event!.effectId).toBe(row!.effectId);
+    const gate = event!.gate as { startedAt: string; endedAt: string };
+    expect(Date.parse(gate.endedAt)).toBeGreaterThanOrEqual(Date.parse(gate.startedAt));
+    expect(event!.policy).toBeUndefined();
   });
 
   it("sends a call whose gate hop lost the answer again, with the same key; the service acts once", async () => {
@@ -292,6 +297,15 @@ describe("the R5 exit", { timeout: 60_000 }, () => {
       expect.objectContaining({ status: "cancelled", error: expect.objectContaining({ code: "tool.cancelled" }) }),
     ]);
     expect((await toolCalls(runtime))[0]).toMatchObject({ status: "cancelled" });
+    // The cancelled turn's span (R7.1).
+    const items = (await (await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers })).json()) as {
+      items: { type: string; payload: Record<string, unknown> }[];
+    };
+    expect(items.items.find((item) => item.type === "turn.cancelled")?.payload).toMatchObject({
+      durationMs: expect.any(Number),
+      agentId: "bot",
+      totals: { steps: expect.any(Number), tokens: expect.any(Number), costUsd: expect.any(Number) },
+    });
   });
 
   it("fails a sandbox command a crash interrupted to the model, and never runs it again (Q2)", async () => {

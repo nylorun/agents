@@ -9656,6 +9656,9 @@
             "$ref": "#/components/schemas/NodeStartedEvent"
           },
           {
+            "$ref": "#/components/schemas/NodeCompletedEvent"
+          },
+          {
             "$ref": "#/components/schemas/NodeAgentEvent"
           },
           {
@@ -9706,6 +9709,7 @@
             "environment.attached": "#/components/schemas/EnvironmentAttachedEvent",
             "egress.connection": "#/components/schemas/EgressConnectionEvent",
             "node.started": "#/components/schemas/NodeStartedEvent",
+            "node.completed": "#/components/schemas/NodeCompletedEvent",
             "node.agent": "#/components/schemas/NodeAgentEvent",
             "loop.iteration": "#/components/schemas/LoopIterationEvent",
             "loop.verified": "#/components/schemas/LoopVerifiedEvent",
@@ -10566,7 +10570,41 @@
           "payload": {
             "type": "object",
             "properties": {
-              "output": {}
+              "output": {},
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pausedMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agentId": {
+                "type": "string"
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "tokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "costUsd": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "steps",
+                  "tokens",
+                  "costUsd"
+                ],
+                "additionalProperties": {}
+              }
             },
             "additionalProperties": {}
           }
@@ -10995,6 +11033,40 @@
               },
               "message": {
                 "type": "string"
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pausedMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agentId": {
+                "type": "string"
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "tokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "costUsd": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "steps",
+                  "tokens",
+                  "costUsd"
+                ],
+                "additionalProperties": {}
               }
             },
             "additionalProperties": {}
@@ -11183,6 +11255,40 @@
             "properties": {
               "reason": {
                 "type": "string"
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pausedMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agentId": {
+                "type": "string"
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "tokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "costUsd": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "steps",
+                  "tokens",
+                  "costUsd"
+                ],
+                "additionalProperties": {}
               }
             },
             "additionalProperties": {}
@@ -11423,6 +11529,65 @@
                   "additionalProperties": {}
                 }
               },
+              "effectId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "gate": {
+                "type": "object",
+                "properties": {
+                  "startedAt": {
+                    "type": "string"
+                  },
+                  "endedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "startedAt",
+                  "endedAt"
+                ],
+                "additionalProperties": {}
+              },
+              "firstTokenMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "meteredUsage": {
+                "type": "object",
+                "properties": {
+                  "inputTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "outputTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "totalTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "cachedTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "costUsd": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "inputTokens",
+                  "outputTokens",
+                  "totalTokens"
+                ],
+                "additionalProperties": {}
+              },
               "agent": {
                 "type": "object",
                 "properties": {
@@ -11648,6 +11813,65 @@
               },
               "retryable": {
                 "type": "boolean"
+              },
+              "effectId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "gate": {
+                "type": "object",
+                "properties": {
+                  "startedAt": {
+                    "type": "string"
+                  },
+                  "endedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "startedAt",
+                  "endedAt"
+                ],
+                "additionalProperties": {}
+              },
+              "firstTokenMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "meteredUsage": {
+                "type": "object",
+                "properties": {
+                  "inputTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "outputTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "totalTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "cachedTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "costUsd": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "inputTokens",
+                  "outputTokens",
+                  "totalTokens"
+                ],
+                "additionalProperties": {}
               },
               "agent": {
                 "type": "object",
@@ -11880,6 +12104,71 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "partial": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "effectId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "gate": {
+                "type": "object",
+                "properties": {
+                  "startedAt": {
+                    "type": "string"
+                  },
+                  "endedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "startedAt",
+                  "endedAt"
+                ],
+                "additionalProperties": {}
+              },
+              "firstTokenMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "meteredUsage": {
+                "type": "object",
+                "properties": {
+                  "inputTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "outputTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "totalTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "cachedTokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "costUsd": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "inputTokens",
+                  "outputTokens",
+                  "totalTokens"
+                ],
+                "additionalProperties": {}
+              },
               "agent": {
                 "type": "object",
                 "properties": {
@@ -12100,6 +12389,10 @@
                 "type": "string",
                 "minLength": 1
               },
+              "effectId": {
+                "type": "string",
+                "minLength": 1
+              },
               "capabilityId": {
                 "type": "string",
                 "minLength": 1
@@ -12136,6 +12429,45 @@
               "durationMs": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "gate": {
+                "type": "object",
+                "properties": {
+                  "startedAt": {
+                    "type": "string"
+                  },
+                  "endedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "startedAt",
+                  "endedAt"
+                ],
+                "additionalProperties": {}
+              },
+              "policy": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "ask",
+                      "deny"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "approvedBy": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "decision",
+                  "reason"
+                ],
+                "additionalProperties": {}
               },
               "output": {},
               "error": {
@@ -14152,6 +14484,242 @@
               "path",
               "kind",
               "key"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "NodeCompletedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "node.completed"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "iterations": {
+                "type": "string"
+              },
+              "effectId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "gate": {
+                "type": "object",
+                "properties": {
+                  "startedAt": {
+                    "type": "string"
+                  },
+                  "endedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "startedAt",
+                  "endedAt"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "key",
+              "effectId",
+              "status"
             ],
             "additionalProperties": {}
           }
@@ -20186,6 +20754,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/NodeStartedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NodeCompletedEvent"
                     },
                     {
                       "$ref": "#/components/schemas/NodeAgentEvent"

@@ -33,7 +33,8 @@ describe("event catalog", () => {
       expect(EVENT_SCHEMAS[type].shape.type.value).toBe(type);
     expect(EVENT_TYPES).toContain("environment.exec");
     expect(EVENT_TYPES).not.toContain("sandbox.exec");
-    expect(EVENT_TYPES).not.toContain("node.completed");
+    expect(EVENT_TYPES).toContain("node.completed");
+    expect(EVENT_TYPES).not.toContain("node.failed");
   });
 
   it("types a known event and keeps unknown payload fields", () => {

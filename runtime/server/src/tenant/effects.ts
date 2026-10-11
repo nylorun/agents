@@ -103,7 +103,7 @@ export function recoversModelCalls(ctx: TenantContext): boolean {
 
 type FlowStep =
   | { kind: "resolved"; resolution: EffectResolution }
-  | { kind: "agent"; workflow: Session };
+  | { kind: "agent"; workflow: Session; startedAt: string };
 
 /** Journal and dispatch a new flow effect (agent or tool node). */
 export async function resolveNewFlowEffect(
@@ -145,11 +145,14 @@ export async function resolveNewFlowEffect(
       request.sessionId,
       request.turnId
     );
+    // When the run journaled the effect (R7.1); a queued effect keeps it once dispatched.
+    const startedAt = (existing?.startedAt as string | undefined) ?? new Date().toISOString();
     if (!mayDispatchMore(active, ctx.flowLimits)) {
       if (!existing || existing.status !== "queued")
         await t.put("effects", request.effectId, {
           request,
           status: "queued",
+          startedAt,
         });
       return resolved({ status: "pending" });
     }
@@ -165,16 +168,29 @@ export async function resolveNewFlowEffect(
           message: `The tool stage '${request.key ?? request.path ?? ""}' runs your code, but the Runtime runs agents from their manifests alone`,
         },
       };
-      await t.put("effects", request.effectId, { request, status: "completed", outcome });
-      await t.event(workflow.id, workflow.activeTurnId, "node.started", {
+      await t.put("effects", request.effectId, {
+        request,
+        status: "completed",
+        outcome,
+        startedAt,
+        settledAt: startedAt,
+      });
+      const node = {
         path: request.path!,
         kind: "tool",
         key: request.key!,
         ...(request.iterations !== undefined ? { iterations: request.iterations } : {}),
+      };
+      await t.event(workflow.id, workflow.activeTurnId, "node.started", node);
+      // Nothing ran (R7.1): the stage's outcome row says so.
+      await t.event(workflow.id, workflow.activeTurnId, "node.completed", {
+        ...node,
+        effectId: request.effectId,
+        status: "failed",
       });
       return resolved({ status: "completed", outcome });
     }
-    return { kind: "agent", workflow };
+    return { kind: "agent", workflow, startedAt };
   });
   if (step.kind === "resolved") return step.resolution;
 
@@ -204,6 +220,7 @@ export async function resolveNewFlowEffect(
       request,
       status: "pending",
       agentSessionId,
+      startedAt: step.startedAt,
     });
     await t.put("links", agentSessionId, {
       workflowSessionId: workflow.id,

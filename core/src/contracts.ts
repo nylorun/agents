@@ -1884,8 +1884,48 @@ const toolIds = {
   invocationId: z.string().min(1),
 };
 /**
+ * When a gate served a call (R7.1): its own start and end, as it measured them. Absent when no
+ * gate measured the call (a fixture model, a sandbox or core-served tool, a call refused before
+ * it was sent).
+ */
+export const GateTimesSchema = z
+  .object({ startedAt: z.string(), endedAt: z.string() })
+  .passthrough();
+/**
+ * What the Model Gate's meter recorded for a model call (R7.1), from the usage ledger: the
+ * tokens and cost the Runtime counts, beside the `usage` the harness reported. `cachedTokens`
+ * and `costUsd` are absent when zero.
+ */
+export const MeteredUsageSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative(),
+    cachedTokens: z.number().int().nonnegative().optional(),
+    costUsd: z.number().nonnegative().optional(),
+  })
+  .passthrough();
+/**
+ * The timing of a model call's outcome (R7.1), on `message.assistant`, `model.failed` and
+ * `context.compacted`. `durationMs` is the journal's window, from the intent to the outcome;
+ * `gate`, `firstTokenMs` and `meteredUsage` are the meter's, absent when no gate metered the
+ * call.
+ */
+const modelOutcomeFacts = {
+  /** The model call's effect id. */
+  effectId: z.string().min(1).optional(),
+  /** From the intent to the outcome, as the journal saw them. */
+  durationMs: z.number().int().nonnegative().optional(),
+  gate: GateTimesSchema.optional(),
+  /** From the gate's start of the call to the provider's first stream event. */
+  firstTokenMs: z.number().int().nonnegative().optional(),
+  meteredUsage: MeteredUsageSchema.optional(),
+};
+/**
  * `message.assistant`: one completed model step. `invocationId` is the model call's.
- * `model`, `finishReason` and `usage` are present when the provider reported them.
+ * `model`, `finishReason` and `usage` are present when the provider reported them. A step that
+ * said nothing (no text, no tool calls, as a structured answer) has `text: ""` and no tool
+ * calls: it is in the log for its timing, and is never a message (`isEmptyAssistantMessage`).
  */
 export const AssistantMessagePayloadSchema = z
   .object({
@@ -1906,9 +1946,20 @@ export const AssistantMessagePayloadSchema = z
         })
         .passthrough()
     ),
+    ...modelOutcomeFacts,
     ...eventAgent,
   })
   .passthrough();
+/** True when a `message.assistant` said nothing: no text and no tool calls (R7.1). */
+export function isEmptyAssistantMessage(payload: {
+  readonly text?: unknown;
+  readonly toolCalls?: readonly unknown[];
+}): boolean {
+  return (
+    (typeof payload.text !== "string" || payload.text === "") &&
+    (payload.toolCalls?.length ?? 0) === 0
+  );
+}
 /**
  * `model.failed`: a model call that failed in a known way (Model Calls §6.4). The turn
  * then fails with `model.<code>`, or recovers.
@@ -1919,12 +1970,14 @@ export const ModelFailedPayloadSchema = z
     code: z.string().min(1),
     message: z.string(),
     retryable: z.boolean(),
+    ...modelOutcomeFacts,
     ...eventAgent,
   })
   .passthrough();
 /**
  * `context.compacted`: the engine summarized older history to fit the model's window
- * (Model Calls §8). Token counts are estimates.
+ * (Model Calls §8). Token counts are estimates. `partial: true`: one summary call of several,
+ * in the log for its timing; only the last one (without `partial`) replaced the history.
  */
 export const ContextCompactedPayloadSchema = z
   .object({
@@ -1932,6 +1985,8 @@ export const ContextCompactedPayloadSchema = z
     trigger: z.enum(["threshold", "overflow"]),
     tokensBefore: z.number().int().nonnegative(),
     tokensAfter: z.number().int().nonnegative(),
+    partial: z.literal(true).optional(),
+    ...modelOutcomeFacts,
     ...eventAgent,
   })
   .passthrough();
@@ -1940,9 +1995,21 @@ export const TOOL_CALL_STATUSES = ["completed", "failed", "cancelled"] as const;
 /** Where a tool call ran (R5.1): a remote MCP server, an HTTP tool, the sandbox, or core. */
 export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "platform"] as const;
 /**
+ * What the Tenant's tool policy did with a tool call (R5 step 2), when it did more than allow
+ * it: `deny` refused it unsent; `ask` held it for a person, who approved it (`approvedBy`, when
+ * known) or denied it.
+ */
+export const ToolPolicyFactSchema = z
+  .object({
+    decision: z.enum(["ask", "deny"]),
+    reason: z.string(),
+    approvedBy: z.string().optional(),
+  })
+  .passthrough();
+/**
  * `tool.completed`: how one tool call ended, written once per call (R5.1). `status`
  * `completed`: the tool answered, with its output or the tool error it reported (`error`).
- * `failed`: the Runtime ended the call (`tool.disabled`, `tool.unavailable`, or
+ * `failed`: the Runtime ended the call (`tool.disabled`, `tool.unavailable`, `tool.denied`, or
  * `tool.interrupted` for a call a crash interrupted, which may have run). `cancelled`: the turn
  * was cancelled while the call ran; it may have run. `attempts` above 1: the call was sent again
  * after a crash, with the same key.
@@ -1950,6 +2017,8 @@ export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "platform"] as const;
 export const ToolCompletedPayloadSchema = z
   .object({
     ...toolIds,
+    /** The tool call's effect id (R7.1). */
+    effectId: z.string().min(1).optional(),
     capabilityId: z.string().min(1),
     toolName: z.string().min(1),
     status: z.enum(TOOL_CALL_STATUSES).optional(),
@@ -1960,6 +2029,12 @@ export const ToolCompletedPayloadSchema = z
     attempts: z.number().int().nonnegative().optional(),
     /** From the first send to the outcome; absent when the call never ran. */
     durationMs: z.number().int().nonnegative().optional(),
+    /**
+     * The Tool Gate's own start and end of the call's last send (R7.1): an MCP or HTTP tool
+     * through the gateway. Absent for a sandbox or core-served tool.
+     */
+    gate: GateTimesSchema.optional(),
+    policy: ToolPolicyFactSchema.optional(),
     output: z.unknown().optional(),
     error: z
       .object({
@@ -1986,8 +2061,29 @@ export const ToolCompletedPayloadSchema = z
 export const EffectUncertainPayloadSchema = z
   .object({ effectId: z.string().min(1), message: z.string().optional() })
   .passthrough();
+/**
+ * How a turn that ended went (R7.1), on `turn.completed`, `turn.failed` and `turn.cancelled`:
+ * `durationMs` from the turn's start to its end, waits for a person included, so the turn's span
+ * holds every crossing in it; `pausedMs`, how much of that it waited paused; `totals` from the
+ * usage ledger (`steps`: the model calls the gate metered). Absent on a turn
+ * that started before the Runtime recorded them.
+ */
+const turnEndFacts = {
+  durationMs: z.number().int().nonnegative().optional(),
+  pausedMs: z.number().int().nonnegative().optional(),
+  /** The session's agent. */
+  agentId: z.string().optional(),
+  totals: z
+    .object({
+      steps: z.number().int().nonnegative(),
+      tokens: z.number().int().nonnegative(),
+      costUsd: z.number().nonnegative(),
+    })
+    .passthrough()
+    .optional(),
+};
 export const TurnCompletedPayloadSchema = z
-  .object({ output: z.unknown() })
+  .object({ output: z.unknown(), ...turnEndFacts })
   .passthrough();
 export const TurnPausedPayloadSchema = z
   .object({
@@ -2014,10 +2110,11 @@ export const TurnFailedPayloadSchema = z
       .passthrough()
       .optional(),
     message: z.string().optional(),
+    ...turnEndFacts,
   })
   .passthrough();
 export const TurnCancelledPayloadSchema = z
-  .object({ reason: z.string().optional() })
+  .object({ reason: z.string().optional(), ...turnEndFacts })
   .passthrough();
 /** Lifecycle of an agent used as a tool. `agent.delegationId` is the parent call's invocation. */
 export const DelegationPayloadSchema = z
@@ -2113,6 +2210,26 @@ export const NodeStartedPayloadSchema = z
     kind: z.string(),
     key: z.string(),
     iterations: z.string().optional(),
+  })
+  .passthrough();
+/**
+ * `node.completed`: a flow's HTTP stage or HTTP verifier ended, or a tool stage the Runtime
+ * refused to run (R7.1), named as its `node.started` names it. `status` reads as
+ * `tool.completed`'s: `completed` when the stage's server answered (an error answer included),
+ * `failed` when the Runtime ended it, `cancelled` when a cancel did. `gate` is the Tool Gate's
+ * own start and end of its last send.
+ */
+export const NodeCompletedPayloadSchema = z
+  .object({
+    path: z.string(),
+    kind: z.string(),
+    key: z.string(),
+    iterations: z.string().optional(),
+    effectId: z.string().min(1),
+    status: z.enum(TOOL_CALL_STATUSES),
+    /** From the first send to the outcome; absent when the stage never ran. */
+    durationMs: z.number().int().nonnegative().optional(),
+    gate: GateTimesSchema.optional(),
   })
   .passthrough();
 /** `node.agent`: a workflow node runs as a linked agent session. */
@@ -2312,6 +2429,7 @@ export const EVENT_CATALOG = {
   "environment.attached": { payload: EnvironmentAttachedPayloadSchema, source: "api", version: 1 },
   "egress.connection": { payload: EgressConnectionPayloadSchema, source: "egress-gate", version: 1 },
   "node.started": { payload: NodeStartedPayloadSchema, source: "loop", version: 1 },
+  "node.completed": { payload: NodeCompletedPayloadSchema, source: "loop", version: 1 },
   "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1 },
   "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1 },
   "loop.verified": { payload: LoopVerifiedPayloadSchema, source: "api", version: 1 },

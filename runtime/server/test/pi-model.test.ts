@@ -468,9 +468,13 @@ it("streams one code path and maps every usage counter", async () => {
     evidence: {
       extras: {
         producer: { provider: "custom", api: "openai-completions", model: "test-model" },
+        // The first stream event's time from the call (R7.1).
+        firstTokenMs: expect.any(Number),
       },
     },
   });
+  const extras = (result as { evidence: { extras: { firstTokenMs: number } } }).evidence.extras;
+  expect(extras.firstTokenMs).toBeGreaterThanOrEqual(0);
 });
 
 it("repairs a structured final answer instead of failing the call", async () => {

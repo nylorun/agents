@@ -2,6 +2,7 @@
  * How a tool row of the effect journal reads (R5.1, R5.2), from its body alone: shared by the
  * journal (`tool-journal.ts`) and the session reads (`/calls/tool`).
  */
+import { durationBetween } from "../tenant/transcript.js";
 
 /** The codes of a call the Runtime ended rather than the tool: its status is `failed`. */
 const RUNTIME_ENDED = new Set(["tool.disabled", "tool.unavailable", "tool.interrupted", "tool.denied"]);
@@ -30,8 +31,5 @@ export function toolCallStatus(
 
 /** From the first send to the outcome, or undefined when the call never ran or has not ended. */
 export function toolCallDuration(row: ToolRowState): number | undefined {
-  const started = row.startedAt ? Date.parse(row.startedAt) : NaN;
-  const settled = row.settledAt ? Date.parse(row.settledAt) : NaN;
-  if (!Number.isFinite(started) || !Number.isFinite(settled)) return undefined;
-  return Math.max(0, Math.round(settled - started));
+  return durationBetween(row.startedAt, row.settledAt);
 }

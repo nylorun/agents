@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL } from "../src/compatibility.js";
-import { parseTranscriptEvent, type LiveEvent } from "../src/contracts.js";
+import {
+  EVENT_SCHEMAS,
+  isEmptyAssistantMessage,
+  parseTranscriptEvent,
+  type LiveEvent,
+} from "../src/contracts.js";
 
 const event = (type: string, payload: unknown): LiveEvent => ({
   schema: "nylorun.event/2",
@@ -72,6 +77,77 @@ describe("parseTranscriptEvent", () => {
     );
     expect(ok?.type).toBe("tool.completed");
     expect(failed?.payload).toMatchObject({ error: { code: "sandbox.error" } });
+  });
+
+  it("types the timing of a model call's outcome, a tool call's and a turn's (R7.1)", () => {
+    const gate = { startedAt: "2026-10-11T00:00:00.100Z", endedAt: "2026-10-11T00:00:01.000Z" };
+    const assistant = parseTranscriptEvent(
+      event("message.assistant", {
+        invocationId: "inv_1",
+        text: "",
+        toolCalls: [],
+        effectId: "turn_1:0:model:1",
+        durationMs: 1200,
+        gate,
+        firstTokenMs: 300,
+        meteredUsage: { inputTokens: 10, outputTokens: 2, totalTokens: 12, costUsd: 0.001 },
+      })
+    );
+    expect(assistant?.payload).toMatchObject({ durationMs: 1200, gate, firstTokenMs: 300 });
+    if (assistant?.type !== "message.assistant") throw new Error("narrowing");
+    expect(isEmptyAssistantMessage(assistant.payload)).toBe(true);
+    expect(isEmptyAssistantMessage({ text: "", toolCalls: [{}] })).toBe(false);
+    expect(isEmptyAssistantMessage({ text: "hi", toolCalls: [] })).toBe(false);
+    expect(
+      parseTranscriptEvent(
+        event("context.compacted", { trigger: "threshold", tokensBefore: 9, tokensAfter: 3, partial: true })
+      )?.payload
+    ).toMatchObject({ partial: true });
+    expect(
+      parseTranscriptEvent(
+        event("tool.completed", {
+          callId: "call-1",
+          invocationId: "inv_2",
+          capabilityId: "mcp",
+          toolName: "send",
+          effectId: "turn_1:0:tool:1",
+          gate,
+          policy: { decision: "ask", reason: "sends mail", approvedBy: "app:ada" },
+          output: "sent",
+        })
+      )?.payload
+    ).toMatchObject({ policy: { decision: "ask" }, gate });
+    expect(
+      parseTranscriptEvent(
+        event("tool.completed", {
+          callId: "call-1",
+          invocationId: "inv_2",
+          capabilityId: "mcp",
+          toolName: "send",
+          policy: { decision: "allow", reason: "x" },
+        })
+      )
+    ).toBeUndefined();
+    const totals = { steps: 2, tokens: 30, costUsd: 0.01 };
+    for (const [type, payload] of [
+      ["turn.completed", { output: "ok" }],
+      ["turn.failed", { message: "boom" }],
+      ["turn.cancelled", {}],
+    ] as const)
+      expect(
+        parseTranscriptEvent(event(type, { ...payload, durationMs: 5, agentId: "bot", totals }))?.payload
+      ).toMatchObject({ durationMs: 5, agentId: "bot", totals });
+    expect(
+      EVENT_SCHEMAS["node.completed"].shape.payload.safeParse({
+        path: "fetch",
+        kind: "http",
+        key: "fetch",
+        effectId: "turn_1:0:tool:2",
+        status: "completed",
+        durationMs: 4,
+        gate,
+      }).success
+    ).toBe(true);
   });
 
   it("returns undefined for other types and malformed payloads", () => {

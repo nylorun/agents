@@ -228,7 +228,13 @@ describe("buildTask", () => {
           { invocationId: "i", interaction: { id: "q-1", kind: "response", prompt: "Which order?" }, status: "interaction" },
         ],
       },
-      events: [sent, event("message.assistant", turnId, { invocationId: "i", text: "Let me check.", toolCalls: [] }), paused],
+      events: [
+        sent,
+        // A step that said nothing is in the log for its timing (R7.1), not in the history.
+        event("message.assistant", turnId, { invocationId: "e", text: "", toolCalls: [], durationMs: 5 }),
+        event("message.assistant", turnId, { invocationId: "i", text: "Let me check.", toolCalls: [] }),
+        paused,
+      ],
     })!;
     expect(task.id).toBe(taskId);
     expect(task.status.state).toBe("TASK_STATE_INPUT_REQUIRED");

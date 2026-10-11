@@ -53,6 +53,7 @@ import type { EffectOutcome } from "@nylorun/core/contracts";
 import { isVerdict, type JsonValue, type WorkflowManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import type { EffectDoc, Tx } from "../store/types.js";
+import { resumeTurn, type TurnTiming } from "../tenant/turn-timing.js";
 
 
 /** Deterministic agent session id: derive(workflowSessionId, path, …parts). */
@@ -210,7 +211,7 @@ export type FlowHostSession = {
   /** The turn `status`, `lastOutput` and `error` describe, once it ended. */
   lastTurnId?: string;
   error?: string;
-};
+} & TurnTiming;
 
 /** How a linked agent turn ended. */
 export type LinkedTurnEnd = { readonly turnId: string } & (
@@ -372,6 +373,8 @@ export async function wakeLinkedWorkflow(input: {
 
   await settleAgentEffect({ t, effect, outcome });
 
+  // A workflow paused on its agents' interactions goes on (R7.1, `tenant/turn-timing.ts`).
+  resumeTurn(workflow);
   workflow.status = "runnable";
   await t.put("sessions", workflow.id, workflow);
   await t.wake(workflow.id, {
