@@ -7,6 +7,7 @@ import type {
   SessionPage,
   SessionListItem,
   SessionUsageTotals,
+  LiveEvent,
 } from "@nylorun/core/contracts";
 
 export type ReadAccess = { owner?: string; agents?: readonly string[] };
@@ -36,6 +37,11 @@ export interface ReadStore {
     page: PageOptions,
     access: ReadAccess,
   ): Promise<ToolCallsPage>;
+  /**
+   * One turn's events (R7.5), in log order: the session's rows whose `turnId` is `turnId`. Empty
+   * for a turn the session never had.
+   */
+  turnEvents(id: string, turnId: string, access: ReadAccess): Promise<LiveEvent[]>;
   environments(
     labels: Record<string, string>,
     page: PageOptions,

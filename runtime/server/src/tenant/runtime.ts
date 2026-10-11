@@ -102,6 +102,7 @@ import { reconcileSandbox } from "../sandbox/pods/reconcile.js";
 import type { TenantPods } from "./context.js";
 import { sandboxWorkspaceReader } from "../artifacts/workspace.js";
 import { readDefinitionFile } from "./definition-files.js";
+import type { TraceOptions } from "../traces/options.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -172,6 +173,8 @@ export type TenantOpenHooks = {
    * pods copy the engine from. Without it, kind `pod` is `environment_unavailable`.
    */
   pods?: TenantPods;
+  /** How the trace route makes spans (R7.5): the Host's `OTEL_*` resource and content opt-ins. */
+  traces?: TraceOptions;
 } & OpenedTenant;
 
 /** Default ownership lease of an advance; the heartbeat renews it every third. */
@@ -418,6 +421,7 @@ export class TenantRuntime implements TenantHandle {
         keys,
         blobs,
         workspaces: sandboxWorkspaceReader(sandbox),
+        ...(hooks.traces ? { traces: hooks.traces } : {}),
         ...(hooks.runGrants ? { runGrants: hooks.runGrants } : {}),
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,

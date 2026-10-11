@@ -91,6 +91,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `tool-policy` (R5 step 2): `GET`/`PUT /v1/tenant/tool-policy` (the Management API) sets which
  * MCP and HTTP tool calls run, wait for a person (`ask`: the turn pauses until `approve`) or are
  * refused (`deny`: `tool.denied`), for every harness; a manifest that sets `approval` is refused.
+ * `traces` (R7): `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans as OTLP JSON,
+ * the spans the Runtime posts to an OTLP collector when one is configured; a command or an AG-UI
+ * or A2A request sent with a `traceparent` joins the caller's trace.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -107,6 +110,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "environment-setup",
   "environment-disk-versions",
   "tool-policy",
+  "traces",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

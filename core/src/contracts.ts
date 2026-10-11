@@ -2152,6 +2152,14 @@ export const CommandMessagePayloadSchema = z
     parts: z.array(MessagePartSchema).optional(),
     /** The turn manifest the message carried, if any. */
     manifest: z.unknown().optional(),
+    /**
+     * The W3C trace context the message was sent with (R7.4): the turn's trace is the caller's,
+     * and its root span the child of the caller's span.
+     */
+    trace: z
+      .object({ traceparent: z.string(), tracestate: z.string().optional() })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 /** `command.approve`: an answer to an approval interaction. */

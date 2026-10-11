@@ -36,8 +36,14 @@
  * The Postgres, Restate and S2 endpoints are parsed and validated here;
  * `infra/*` builds the clients from them. So is the Object store (`NYLORUN_OBJECT_STORE_*`),
  * which every service may read; `host/main.ts` builds the `BlobStore` from it. So is who the Host's Tenant is when its database
- * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`).
+ * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`). So are traces (R7.2), for a
+ * process running core: where they go (`OTEL_EXPORTER_OTLP_ENDPOINT`, or
+ * `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, with `OTEL_EXPORTER_OTLP_HEADERS`), what they say of
+ * their source (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`) and which content they carry
+ * (`NYLORUN_TRACE_CONTENT`, or all of it with `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`).
  */
+import { DEFAULT_SERVICE_NAME, type TraceResource } from "../traces/otlp.js";
+import { TRACE_CONTENT_KINDS, type TraceContentKind } from "../traces/map.js";
 import { isTenantId } from "@nylorun/core/compatibility";
 import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-gate.js";
 
@@ -284,6 +290,22 @@ export interface StackConfig {
    * (the `fs` adapter, `TenantPaths.blobs`).
    */
   objectStore?: ObjectStoreConfig;
+  /**
+   * Present when the process runs core and an `OTEL_*` or `NYLORUN_TRACE_CONTENT` variable is set:
+   * how spans are made, for the trace projector and the trace route (R7.2, R7.5). `export` is
+   * present only with an endpoint (Q5): without one there is no replication slot and no cost.
+   */
+  traces?: TraceConfig;
+}
+
+/** Traces (R7.2), from the standard `OTEL_*` variables and `NYLORUN_TRACE_CONTENT`. */
+export interface TraceConfig {
+  /** `OTEL_SERVICE_NAME` (default `nylorun`) and `OTEL_RESOURCE_ATTRIBUTES`. */
+  resource: TraceResource;
+  /** The content kinds spans carry: none by default. */
+  content: TraceContentKind[];
+  /** Where the projector posts: the traces URL and `OTEL_EXPORTER_OTLP_HEADERS`. */
+  export?: { url: string; headers: Record<string, string> };
 }
 
 /** Where the Object store is and the credential for it (`NYLORUN_OBJECT_STORE_*`). */
@@ -616,6 +638,7 @@ export function parseStackConfig(
   const delivery = parseDelivery(env);
   const tenant = servesApi ? parseTenant(env) : undefined;
   const objectStore = parseObjectStore(env);
+  const traces = services.has("core") ? parseTraces(env) : undefined;
   const removedResolverVariables = Object.keys(env)
     .filter((name) => name.startsWith(REMOVED_RESOLVER_PREFIX) && read(env, name) !== undefined)
     .sort();
@@ -637,7 +660,60 @@ export function parseStackConfig(
     ...(delivery ? { delivery } : {}),
     ...(tenant ? { tenant } : {}),
     ...(objectStore ? { objectStore } : {}),
+    ...(traces ? { traces } : {}),
   };
+}
+
+/**
+ * `StackConfig.traces` (R7.2). The OTLP endpoint is the collector's base URL, to which
+ * `/v1/traces` is added; `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is the full URL and wins. Headers
+ * and resource attributes are `key=value` lists separated by commas, values percent-encoded (the
+ * OTel SDK environment specification).
+ */
+function parseTraces(env: EnvSnapshot): TraceConfig | undefined {
+  const traces = parseUrl(env, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ["http:", "https:"]);
+  const base = parseUrl(env, "OTEL_EXPORTER_OTLP_ENDPOINT", ["http:", "https:"]);
+  const url = traces ?? (base === undefined ? undefined : `${base.replace(/\/+$/, "")}/v1/traces`);
+  const resource = keyValues(env, "OTEL_RESOURCE_ATTRIBUTES");
+  const all = read(env, "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT")?.toLowerCase() === "true";
+  const content = new Set<TraceContentKind>(all ? TRACE_CONTENT_KINDS : []);
+  for (const kind of (read(env, "NYLORUN_TRACE_CONTENT") ?? "").split(",").map((part) => part.trim())) {
+    if (kind === "") continue;
+    if (!(TRACE_CONTENT_KINDS as readonly string[]).includes(kind))
+      throw new StackConfigError(
+        `NYLORUN_TRACE_CONTENT lists ${TRACE_CONTENT_KINDS.join(", ")}, not ${kind}`,
+      );
+    content.add(kind as TraceContentKind);
+  }
+  const serviceName = read(env, "OTEL_SERVICE_NAME") ?? resource["service.name"];
+  // Nothing set: the defaults (`service.name` nylorun, no content, no export).
+  if (url === undefined && serviceName === undefined && Object.keys(resource).length === 0 && content.size === 0)
+    return undefined;
+  return {
+    resource: {
+      serviceName: serviceName ?? DEFAULT_SERVICE_NAME,
+      attributes: resource,
+    },
+    content: TRACE_CONTENT_KINDS.filter((kind) => content.has(kind)),
+    ...(url ? { export: { url, headers: keyValues(env, "OTEL_EXPORTER_OTLP_HEADERS") } } : {}),
+  };
+}
+
+/** A `key=value,key=value` variable, values percent-decoded; a malformed one is refused. */
+function keyValues(env: EnvSnapshot, name: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pair of (read(env, name) ?? "").split(",")) {
+    if (pair.trim() === "") continue;
+    const at = pair.indexOf("=");
+    const key = at < 0 ? "" : pair.slice(0, at).trim();
+    if (key === "") throw new StackConfigError(`${name} must be key=value pairs separated by commas`);
+    try {
+      out[key] = decodeURIComponent(pair.slice(at + 1).trim());
+    } catch {
+      throw new StackConfigError(`${name} has a value that is not percent-encoded: ${key}`);
+    }
+  }
+  return out;
 }
 
 /** S3 bucket names: 3 to 63 lowercase letters, digits, dots and hyphens. */

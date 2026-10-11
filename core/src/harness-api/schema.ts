@@ -325,7 +325,17 @@ export const ReleaseReasonSchema = z.enum(["shutdown", "ownership.lost", "connec
 export const IntentAnswerSchema = z.union([
   z.object({ status: z.literal("completed"), outcome: EffectOutcomeSchema }).strict(),
   z.object({ status: z.enum(["pending", "uncertain"]) }).strict(),
-  z.object({ status: z.literal("execute"), rejoin: z.literal(true).optional() }).strict(),
+  z
+    .object({
+      status: z.literal("execute"),
+      rejoin: z.literal(true).optional(),
+      /**
+       * The call's span context (R7.4), for a tool call: a harness hands it on as `TRACEPARENT`
+       * to the command it runs, so the command's own spans join the call's.
+       */
+      traceparent: TraceContextSchema.shape.traceparent.optional(),
+    })
+    .strict(),
 ]);
 
 export const OutcomeAnswerSchema = z.union([

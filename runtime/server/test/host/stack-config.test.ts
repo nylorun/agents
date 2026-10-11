@@ -721,3 +721,46 @@ describe("NYLORUN_OBJECT_STORE_*", () => {
     ).toThrow(/NYLORUN_OBJECT_STORE_BUCKET/);
   });
 });
+
+describe("traces (R7.2)", () => {
+  it("export nothing without an endpoint, with no content and the default service name", () => {
+    expect(parseStackConfig({}, []).traces).toBeUndefined();
+    expect(parseStackConfig({ OTEL_SERVICE_NAME: "agents" }, []).traces).toEqual({
+      resource: { serviceName: "agents", attributes: {} },
+      content: [],
+    });
+    expect(parseStackConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://c:4318" }, ["--service", "loop"]).traces).toBeUndefined();
+  });
+
+  it("post to the endpoint's /v1/traces, or to the traces endpoint, with the headers", () => {
+    const traces = parseStackConfig(
+      {
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318/",
+        OTEL_EXPORTER_OTLP_HEADERS: "x-api-key=a%20b, x-team=core",
+        OTEL_SERVICE_NAME: "agents",
+        OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=prod,service.name=ignored",
+      },
+      [],
+    ).traces;
+    expect(traces).toEqual({
+      resource: { serviceName: "agents", attributes: { "deployment.environment": "prod", "service.name": "ignored" } },
+      content: [],
+      export: { url: "http://collector:4318/v1/traces", headers: { "x-api-key": "a b", "x-team": "core" } },
+    });
+    expect(
+      parseStackConfig(
+        { OTEL_EXPORTER_OTLP_ENDPOINT: "http://a:4318", OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://b/otlp/traces" },
+        [],
+      ).traces?.export?.url,
+    ).toBe("https://b/otlp/traces");
+  });
+
+  it("carry the content kinds opted in, or all of them with the GenAI switch", () => {
+    expect(parseStackConfig({ NYLORUN_TRACE_CONTENT: "errors, user" }, []).traces?.content).toEqual(["user", "errors"]);
+    expect(
+      parseStackConfig({ OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: "true" }, []).traces?.content,
+    ).toEqual(["user", "outputs", "tool-results", "errors"]);
+    expect(() => parseStackConfig({ NYLORUN_TRACE_CONTENT: "prompts" }, [])).toThrow(/NYLORUN_TRACE_CONTENT/);
+    expect(() => parseStackConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://c:4318", OTEL_EXPORTER_OTLP_HEADERS: "novalue" }, [])).toThrow(/OTEL_EXPORTER_OTLP_HEADERS/);
+  });
+});

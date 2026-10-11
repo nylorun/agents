@@ -1,13 +1,15 @@
 /**
  * Reads the record back for the stream relay (Durable Streams §7.2–7.3): a session's rows to
  * refill a gap in S2, every log head to reconcile after a fresh slot, and the Tenant's current
- * basin generation to tell obsolete rows apart.
+ * basin generation to tell obsolete rows apart. The trace projector reads a turn's start
+ * (`createPostgresTurnMessages`).
  *
  * The database holds one Tenant, so the record has no Tenant column: the reader is made for
  * that Tenant (`tenantId`), fills `RecordRow.tenantId` and `LogHead.tenantId` with it, and
  * reads nothing for any other id.
  */
-import { and, asc, eq, gt, gte, lt } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt, sql as sql_ } from "drizzle-orm";
+import type { LiveEvent } from "@nylorun/core/contracts";
 import type { Sql } from "postgres";
 import type { LogHead, RecordReader, RecordRow } from "../../streams/relay/types.js";
 import { database, driverError } from "./db.js";
@@ -79,5 +81,34 @@ export function createPostgresRecordReader(
       // A database whose Tenant row is not written yet is at generation 0.
       return row?.generation ?? 0;
     },
+  };
+}
+
+/**
+ * The trace projector's read of a turn's start (R7.2): the `command.message` that started turn
+ * `turnId` of `sessionId`, or undefined when the log has none. One session's rows, filtered on
+ * the turn id in the event (the record has no turn column; no index yet, R8).
+ */
+export function createPostgresTurnMessages(
+  sql: Sql,
+): (sessionId: string, turnId: string) => Promise<LiveEvent | undefined> {
+  const db = database(sql);
+  return async (sessionId, turnId) => {
+    const [row] = await db
+      .select({ body: sessionEvents.body })
+      .from(sessionEvents)
+      .where(
+        and(
+          eq(sessionEvents.sessionId, sessionId),
+          eq(sessionEvents.type, "command.message"),
+          sql_`${sessionEvents.body}->>'turnId' = ${turnId}`,
+        ),
+      )
+      .orderBy(asc(sessionEvents.seq))
+      .limit(1)
+      .catch((error: unknown) => {
+        throw driverError(error);
+      });
+    return row?.body as LiveEvent | undefined;
   };
 }
