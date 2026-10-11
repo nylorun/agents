@@ -7,6 +7,11 @@
  * checks run too: its connection is dropped mid-command and opened again, as a container restart
  * does.
  */
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
 import { afterEach, expect, it, vi } from "vitest";
 import { startHarnessListener } from "../../src/harness-api/ws-server.js";
 import { putHarnessToken } from "../../src/tenant/harness-tokens.js";
@@ -68,6 +73,29 @@ async function start(): Promise<{ runtime: Started; example: ReturnType<typeof r
   return { runtime, example, token };
 }
 
+/** A remote MCP server with one tool, `echo`, for the optional MCP check (HC17). */
+async function echoMcp(): Promise<string> {
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    if (req.method !== "POST") return void res.writeHead(405).end();
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const mcp = new McpServer({ name: "conformance", version: "0.0.0" });
+    mcp.registerTool("echo", { description: "Echoes its value.", inputSchema: { value: z.string() } }, async ({ value }) => ({
+      content: [{ type: "text", text: `echo ${value}` }],
+    }));
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await mcp.connect(transport);
+    res.on("close", () => {
+      void transport.close().catch(() => {});
+      void mcp.close().catch(() => {});
+    });
+    await transport.handleRequest(req, res, JSON.parse(Buffer.concat(chunks).toString()));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`;
+}
+
 const failures = (report: ConformanceReport) =>
   report.results.filter((result) => !result.ok).map((result) => `${result.id}: ${result.detail}`);
 
@@ -87,10 +115,12 @@ it("passes every required check, for our harness and for the example, side by si
   for (const id of ["HC01", "HC02", "HC03", "HC04", "HC05", "HC06", "HC09", "HC11", "HC12", "HC13", "HC14", "HC18", "HC19"])
     expect(status[id], id).toBe("pass");
 
-  // Ours serves workspaces, so its optional workspace check runs too.
-  const ours = await runConformance({ ...common, harness: "nylorun", workspace: true });
+  // Ours serves workspaces and remote MCP servers, so its optional checks run too.
+  // The model knows an MCP tool as `<server>__<tool>`.
+  const mcp = { url: await echoMcp(), tool: "conformance__echo", args: { value: "hi" } };
+  const ours = await runConformance({ ...common, harness: "nylorun", workspace: true, mcp });
   expect(failures(ours)).toEqual([]);
   const oursStatus = Object.fromEntries(ours.results.map((result) => [result.id, result.status]));
-  expect(oursStatus).toMatchObject({ HC07: "skipped", HC08: "skipped", HC16: "pass", HC17: "n/a" });
+  expect(oursStatus).toMatchObject({ HC07: "skipped", HC08: "skipped", HC16: "pass", HC17: "pass" });
   expect(ours.results.filter((result) => result.class === "required" && result.status === "pass")).toHaveLength(14 - 3 + 2);
 }, 300_000);

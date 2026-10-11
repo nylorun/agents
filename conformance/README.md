@@ -19,6 +19,9 @@ node conformance/dist/cli.js \
 
 `NYLORUN_RUNTIME_URL`, `NYLORUN_API_KEY` and `NYLORUN_MANAGEMENT_KEY` stand in for the first three options.
 
+`--mcp-tool` names the tool as the model sees it: `<server>__<tool>`, where the suite registers
+the server as `conformance` (so `conformance__echo` for a tool `echo`).
+
 **Use a Tenant for testing.** The suite turns on the Tenant's fixture model (`PUT /v1/tenant/config/seed {fixtureModel: true}`), which answers every model call at the Model Gate from a script. The setting is insert-if-absent and stays on. It also registers an agent and creates Environments and sessions whose ids start with a random `hc-…` prefix; it deletes the Environments when it is done.
 
 It prints a table, or with `--json` one line per check: `{id, ok, detail, section, status, class, ms}`, where `status` is `pass`, `fail`, `skipped` or `n/a`. It exits 0 when every check that applies passed, 1 when one failed, 2 on a usage error.

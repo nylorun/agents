@@ -58,6 +58,7 @@ import {
 } from "../tenant/effects.js";
 import { assistantMessage, contextCompacted, modelFailed } from "../tenant/transcript.js";
 import { abortKind } from "../tenant/worker.js";
+import { redactTokens } from "../record/redact.js";
 import { toolCallDecision } from "../gates/policy.js";
 import type { Tx } from "../store/types.js";
 import {
@@ -389,9 +390,10 @@ function unrunnableTool(request: HostEffect) {
 export async function recordOutcome(
   scope: RecordScope,
   effectId: string,
-  result: { value: unknown } | { error: string }
+  reported: { value: unknown } | { error: string }
 ): Promise<OutcomeAnswer> {
   const { ctx, lease, signal } = scope;
+  const result = "error" in reported ? { error: redactTokens(reported.error) } : reported;
   if ("error" in result) {
     return ctx.store.tx(async (t): Promise<OutcomeAnswer> => {
       const s = await t.assertEpoch<Session>(lease.sessionId, lease.epoch);
@@ -422,7 +424,8 @@ export async function recordOutcome(
       return { status: "uncertain" };
     });
   }
-  const value = await shaped(scope, effectId, result.value);
+  // What a harness reports never carries the Runtime's own tokens into the record (R4).
+  const value = await shaped(scope, effectId, redactTokens(result.value));
   return ctx.store.tx(async (t) => {
     const s = await t.assertEpoch<Session>(lease.sessionId, lease.epoch);
     const effect = await t.get<StoredEffect>("effects", effectId);

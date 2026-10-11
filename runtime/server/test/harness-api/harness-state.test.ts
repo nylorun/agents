@@ -108,7 +108,10 @@ it("journals a tool the harness declared, and records an undeclared one as unava
   const { runtime, acme } = await start();
   const leased = acme.request("lease", {});
   await message(runtime, 1);
-  const { run, input } = (await leased) as { run: { runId: string; sessionId: string; turnId: string }; input: TurnStart };
+  const { run, input } = (await leased) as {
+    run: { runId: string; sessionId: string; turnId: string; token?: string };
+    input: TurnStart;
+  };
   const checkpoint = input.checkpoint as { turnId: string; segment: number; manifestHash: string };
   const intent = (toolName: string, n: number): EffectIntent => ({
     effectId: `${checkpoint.turnId}:${checkpoint.segment}:tool:${n}:c${n}`,
@@ -126,10 +129,13 @@ it("journals a tool the harness declared, and records an undeclared one as unava
   await expect(
     acme.request("effect.intent", { runId: run.runId, effect: declared, requestHash: effectRequestHash(declared) })
   ).resolves.toEqual({ status: "execute" });
+  // A Runtime token the harness's tool printed (its egress proxy, say): never recorded (HC14).
+  const part = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const egress = `${part({ alg: "ES256", typ: "nylorun-egress+jwt" })}.${part({ sub: "env" })}.${"s".repeat(64)}`;
   await acme.request("effect.outcome", {
     runId: run.runId,
     effectId: declared.effectId,
-    value: { kind: "completed", output: "patched" },
+    value: { kind: "completed", output: `patched; HTTPS_PROXY=http://nylorun:${egress}@egress:3128` },
   });
   const other = intent("rm_rf", 2);
   await expect(
@@ -144,7 +150,10 @@ it("journals a tool the harness declared, and records an undeclared one as unava
   }[];
   const completed = items.filter((item) => item.type === "tool.completed").map((item) => item.payload);
   expect(completed).toEqual([
-    expect.objectContaining({ toolName: "apply_patch", output: "patched" }),
+    expect.objectContaining({
+      toolName: "apply_patch",
+      output: "patched; HTTPS_PROXY=http://nylorun:[nylorun token redacted]@egress:3128",
+    }),
     expect.objectContaining({ toolName: "rm_rf", error: expect.objectContaining({ code: "tool.unavailable" }) }),
   ]);
 });

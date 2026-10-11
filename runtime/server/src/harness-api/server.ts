@@ -62,6 +62,7 @@ import type { RunOf } from "../tenant/run-grants.js";
 import { abortKind } from "../tenant/worker.js";
 import { readDefinitionFile } from "../tenant/definition-files.js";
 import { recordIntent, recordOutcome } from "./record.js";
+import { redactTokens } from "../record/redact.js";
 import { beat, renewEveryMs, tokenOf } from "./renew.js";
 
 /** Who is on the other end of a connection. */
@@ -402,7 +403,13 @@ export function createHarnessApiServer(
     try {
       await ctx.store.tx(async (t) => {
         if (record) await t.put("sandboxes", record.key, record satisfies WorkspaceRecord);
-        await t.event(event.sessionId, event.turnId, event.type, event.payload as never, writerOf(connection, event.runId));
+        await t.event(
+          event.sessionId,
+          event.turnId,
+          event.type,
+          redactTokens(event.payload) as never,
+          writerOf(connection, event.runId)
+        );
       });
     } catch (error) {
       ctx.config.logger.warn("harness event claim not recorded", {
