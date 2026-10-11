@@ -42,7 +42,7 @@ Next:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./.github/assets/how-it-works-dark.png">
-    <img alt="Clients (CLI, Agents SDK, Admin SDK, Studio, HTTP) call the Runtime API and Management API. Inside the Runtime: sessions, a store on Postgres, artifacts on RustFS, sandboxes on Kubernetes, durable execution on Restate and durable streams on S2. Calls to model providers, MCP servers, HTTP tools and the web leave through the gateway, which holds the keys." src="./.github/assets/how-it-works-light.png" width="720">
+    <img alt="Clients (CLI, Agents SDK, Admin SDK, Studio, HTTP) call the Runtime API and Management API. Inside the Runtime: sessions, a store on Postgres, artifacts on RustFS, sandboxes (virtual, or pods on Kubernetes), durable execution on Restate and durable streams on S2. Calls to model providers, MCP servers, HTTP tools and the web leave through the gateway, which holds the keys." src="./.github/assets/how-it-works-light.png" width="720">
   </picture>
 </p>
 
@@ -70,7 +70,7 @@ The guides live at **[docs.nylorun.com](https://docs.nylorun.com/docs)**.
 | **Get started** | [Quickstart](https://docs.nylorun.com/docs) · [Concepts](https://docs.nylorun.com/docs/concepts) · [Your project](https://docs.nylorun.com/docs/project) |
 | **Build** | [Agent](https://docs.nylorun.com/docs/build/agent) · [Tools](https://docs.nylorun.com/docs/build/tools) · [MCP](https://docs.nylorun.com/docs/build/mcp) · [Flow agents](https://docs.nylorun.com/docs/build/flows) · [Serve your users](https://docs.nylorun.com/docs/build#serve-your-users) |
 | **Run** | [Sessions](https://docs.nylorun.com/docs/run/sessions) · [Models](https://docs.nylorun.com/docs/run/models) · [Sandboxes](https://docs.nylorun.com/docs/run/sandboxes) · [CLI](https://docs.nylorun.com/docs/run/cli) |
-| **Deploy** | [Docker Compose](https://docs.nylorun.com/docs/deploy/vm) · [Kubernetes](https://docs.nylorun.com/docs/deploy/kubernetes) · [Nylorun Cloud](https://docs.nylorun.com/docs/deploy/cloud) |
+| **Deploy** | [Docker Compose](https://docs.nylorun.com/docs/deploy/vm) · [Pod sandboxes on Kubernetes](https://docs.nylorun.com/docs/deploy/kubernetes) · [Nylorun Cloud](https://docs.nylorun.com/docs/deploy/cloud) |
 | **Reference** | [Runtime API](https://docs.nylorun.com/reference/runtime) · [Management API](https://docs.nylorun.com/reference/management) · OpenAPI: [runtime](https://docs.nylorun.com/openapi/runtime.json), [management](https://docs.nylorun.com/openapi/management.json) |
 | **More** | [Compatibility](https://docs.nylorun.com/docs/compatibility) · [Troubleshooting](https://docs.nylorun.com/docs/troubleshooting) · [Use with AI agents](https://docs.nylorun.com/docs/ai-agents) |
 

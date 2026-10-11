@@ -307,11 +307,13 @@ has no sandbox and no credentials. Upgrading from protocol 10, which had sandbox
 resources and vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start).
 
 - **Kind**, fixed when it is created: `virtual` (the default), an emulated bash
-  with a virtual filesystem in the harness container, whose `/workspace` is kept
-  under the Tenant's directory and which is not a VM or container boundary;
-  `pod`, a container with its own volume on the Tenant's cluster, once sandbox
-  pods are enabled (`nylorun sandbox enable`); or `none`, a vault and no
-  compute, for agents that use only remote MCP servers and HTTP tools.
+  with a virtual filesystem in the harness container (in the `runtime` container
+  with `NYLORUN_HARNESS=in-process`), whose `/workspace` is kept under the
+  Tenant's directory and which is not a VM or container boundary; `pod`, a
+  container with its own volume on the Tenant's cluster, once sandbox pods are
+  enabled (`nylorun sandbox enable`), where its sessions' turns run; or `none`,
+  a vault and no compute, for agents that use only remote MCP servers and HTTP
+  tools.
 - **Recipe**: `image`, `resources` and `storage` (pods only; `storage` is fixed),
   `network.allowedHosts`, `harness` and `lifecycle`. A `PUT` with a different
   recipe bumps its `version`. Network changes apply within seconds; a pod gets a

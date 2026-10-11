@@ -1,5 +1,6 @@
 /**
- * Virtual backend: an emulated bash with a virtual filesystem, running in the Runtime process.
+ * Virtual backend: an emulated bash with a virtual filesystem, running in the harness's process
+ * (the harness container, or the Runtime process with NYLORUN_HARNESS=in-process).
  * `/workspace` is backed by a host directory so files survive stop and Runtime restarts.
  * It is not a VM boundary; it exists so the first run and CI work on any machine.
  */
