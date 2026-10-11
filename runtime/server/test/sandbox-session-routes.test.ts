@@ -9,7 +9,7 @@ const serverHeaders = {
   "content-type": "application/json",
 };
 
-/** Agents declare no sandbox; sessions are opened with one. */
+/** Agents declare no sandbox; sessions are opened on an Environment with one. */
 const sandboxed = (id: string) => Agent({ id, name: id }).instructions("Work.").build();
 
 async function boot(modelProvider?: ModelProvider) {
@@ -22,6 +22,19 @@ async function boot(modelProvider?: ModelProvider) {
       (async () => ({ output: [{ type: "text", text: "ok" }] })),
     sandbox: { backend: "virtual" },
   });
+}
+
+async function putEnvironment(
+  runtime: { url: string },
+  id: string,
+  recipe: Record<string, unknown> = {}
+) {
+  const response = await fetch(`${runtime.url}/v1/environments/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: serverHeaders,
+    body: JSON.stringify(recipe),
+  });
+  expect(response.ok, await response.clone().text()).toBe(true);
 }
 
 async function putAgent(
@@ -40,13 +53,14 @@ async function putAgent(
   expect(response.ok, await response.clone().text()).toBe(true);
 }
 
-it("attaches PutSession.sandbox and keys the sandbox by the owning session", async () => {
+it("runs session sandbox tools in the workspace of the Environment the sessions name", async () => {
   const runtime = await boot();
   try {
     const owner = sandboxed("owner");
     const child = sandboxed("child");
     await putAgent(runtime, owner);
     await putAgent(runtime, child);
+    await putEnvironment(runtime, "work/shared");
 
     const ownerSession = await fetch(`${runtime.url}/v1/sessions/wf-1`, {
       method: "PUT",
@@ -55,10 +69,10 @@ it("attaches PutSession.sandbox and keys the sandbox by the owning session", asy
         requestId: "sess-owner",
         agentId: "owner",
         ownerUserId: "ada",
-        sandbox: {},
+        environment: "work/shared",
       }),
     });
-    expect(ownerSession.ok).toBe(true);
+    expect(ownerSession.ok, await ownerSession.clone().text()).toBe(true);
 
     const shared = await fetch(`${runtime.url}/v1/sessions/agent-1`, {
       method: "PUT",
@@ -67,12 +81,12 @@ it("attaches PutSession.sandbox and keys the sandbox by the owning session", asy
         requestId: "sess-child",
         agentId: "child",
         ownerUserId: "ada",
-        sandbox: { session: "wf-1" },
+        environment: "work/shared",
       }),
     });
     expect(shared.ok, await shared.clone().text()).toBe(true);
-    const view = (await shared.json()) as { sandboxOwnerId: string | null };
-    expect(view.sandboxOwnerId).toBe("wf-1");
+    const view = (await shared.json()) as { environment: unknown };
+    expect(view.environment).toEqual({ id: "work/shared", version: 1 });
 
     const write = await fetch(`${runtime.url}/v1/sessions/wf-1/sandbox/write`, {
       method: "POST",
@@ -116,16 +130,18 @@ it("refuses session sandbox tools while an agent turn is active", async () => {
   try {
     const owner = sandboxed("owner");
     await putAgent(runtime, owner);
-    await fetch(`${runtime.url}/v1/sessions/s1`, {
+    await putEnvironment(runtime, "busy/ws");
+    const opened = await fetch(`${runtime.url}/v1/sessions/s1`, {
       method: "PUT",
       headers: serverHeaders,
       body: JSON.stringify({
         requestId: "s1",
         agentId: "owner",
         ownerUserId: "ada",
-        sandbox: {},
+        environment: "busy/ws",
       }),
     });
+    expect(opened.ok, await opened.clone().text()).toBe(true);
     const message = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
       method: "POST",
       headers: serverHeaders,
@@ -159,7 +175,7 @@ it("refuses session sandbox tools while an agent turn is active", async () => {
   }
 });
 
-it("rejects PutSession.sandbox when the target has no sandbox or another owner", async () => {
+it("refuses a session on a missing Environment or one guarded for another owner, and tools without a sandbox", async () => {
   const runtime = await boot();
   try {
     await putAgent(runtime, sandboxed("owner"));
@@ -170,18 +186,31 @@ it("rejects PutSession.sandbox when the target has no sandbox or another owner",
         headers: serverHeaders,
         body: JSON.stringify({ requestId: id, ...body }),
       });
-    await put("wf-1", { agentId: "owner", ownerUserId: "ada", sandbox: {} });
-    await put("bare", { agentId: "owner", ownerUserId: "ada" });
+    await putEnvironment(runtime, "ada/ws", { ownerUserId: "ada" });
+    await putEnvironment(runtime, "plain/ws", { kind: "none" });
 
-    const inherits = await put("joins", { agentId: "other", ownerUserId: "ada", sandbox: { session: "wf-1" } });
-    expect(inherits.ok, await inherits.clone().text()).toBe(true);
+    const joins = await put("joins", { agentId: "other", ownerUserId: "ada", environment: "ada/ws" });
+    expect(joins.ok, await joins.clone().text()).toBe(true);
 
-    const none = await put("no-box", { agentId: "other", ownerUserId: "ada", sandbox: { session: "bare" } });
-    expect(none.status).toBe(400);
-    expect(await none.text()).toContain("Target session has no sandbox to share");
+    const missing = await put("no-env", { agentId: "other", ownerUserId: "ada", environment: "nowhere/ws" });
+    expect(missing.status).toBe(404);
 
-    const foreign = await put("bad-owner", { agentId: "owner", ownerUserId: "bob", sandbox: { session: "wf-1" } });
+    const foreign = await put("bad-owner", { agentId: "owner", ownerUserId: "bob", environment: "ada/ws" });
     expect(foreign.status).toBe(403);
+    expect(((await foreign.json()) as { code: string }).code).toBe("environment_owner_mismatch");
+
+    // A session with no sandbox has no sandbox tools: none named, or one of kind none.
+    await put("bare", { agentId: "owner", ownerUserId: "ada" });
+    await put("plain", { agentId: "owner", ownerUserId: "ada", environment: "plain/ws" });
+    for (const id of ["bare", "plain"]) {
+      const refused = await fetch(`${runtime.url}/v1/sessions/${id}/sandbox/bash`, {
+        method: "POST",
+        headers: serverHeaders,
+        body: JSON.stringify({ command: "echo hi" }),
+      });
+      expect(refused.status, id).toBe(404);
+      expect(await refused.text()).toContain("Session has no sandbox");
+    }
   } finally {
     await runtime.close();
   }

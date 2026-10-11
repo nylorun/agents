@@ -9,6 +9,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent } from "@nylorun/core/define";
 import {
   startEphemeralRuntime,
@@ -26,7 +27,7 @@ let rt: EphemeralRuntime;
 let issuer: TestIssuer;
 
 const app = {
-  "nylorun-protocol": "4",
+  "nylorun-protocol": String(PROTOCOL_VERSION),
   "nylorun-tenant": TENANT,
   authorization: `Bearer ${APPLICATION_KEY}`,
 };
@@ -163,7 +164,7 @@ describe("session events", () => {
   it("ends an issuer token's stream with the nylorun.closed frame when the token expires", async () => {
     const token = await issuer.sign(SUBJECT, "sessions:own", { ttlSeconds: 2 });
     const stream = await open("GET", "/v1/sessions/s2/events", {
-      "nylorun-protocol": "4",
+      "nylorun-protocol": String(PROTOCOL_VERSION),
       "nylorun-tenant": TENANT,
       authorization: `Bearer ${String(token)}`,
     });

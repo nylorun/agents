@@ -58,11 +58,12 @@ async function open(model: ModelProvider, rollover: { steps?: number; ms?: numbe
   await client.saveAgent(Agent({ id: "writer", name: "Writer" }).instructions("Write.").build(), {
     implementationVersion: "dev",
   });
+  await client.environments.put("env-s1", { kind: "virtual" });
   const session = await client.createSession({
     id: "s1",
     agentId: "writer",
     ownerUserId: "ada",
-    sandbox: {},
+    environment: "env-s1",
   });
   return { runtime, session };
 }

@@ -96,6 +96,25 @@ function credential(
   };
 }
 
+/** An Environment's row (`Tx.createEnvironment`) of kind virtual. */
+function environmentRow(id: string, fields: Record<string, unknown> = {}) {
+  const at = "2030-01-01T00:00:00.000Z";
+  const recipe = { harness: "nylorun", lifecycle: {} };
+  return {
+    id,
+    kind: "virtual" as const,
+    labels: {},
+    recipe,
+    applied: recipe,
+    version: 1,
+    appliedVersion: 1,
+    lastUsedAt: at,
+    createdAt: at,
+    updatedAt: at,
+    ...fields,
+  };
+}
+
 /** Every row of the store's record, in (session, seq) order. */
 async function recorded(store: SessionStore): Promise<RecordRow[]> {
   const record = store.record();
@@ -487,7 +506,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect((await recorded(store)).map((r) => [r.sessionId, r.seq, r.generation])).toEqual([
           ["s1", 0, 1],
         ]);
-        await store.tx((t) => t.reset("sandboxes"));
+        await store.tx((t) => t.reset("environments"));
         expect((await store.tx((t) => t.basinGenerations())).current).toBe(1);
         await store.tx((t) => t.forgetRetiredGeneration(0));
         expect(await store.tx((t) => t.basinGenerations())).toEqual({ current: 1, retired: [] });
@@ -939,29 +958,127 @@ export function storeContract(name: string, factory: StoreFactory): void {
       });
     });
 
-    describe("vault", () => {
-      it("stores vaults, one host vault, and lists user vaults by owner and installation vaults", async () => {
+    describe("Environments", () => {
+      const at = "2030-01-01T00:00:00.000Z";
+      const recipe = { harness: "nylorun", lifecycle: {} };
+      const environment = environmentRow;
+
+      it("creates an Environment once and within the limit, changes it, lists it by label", async () => {
+        const store = await fresh();
+        expect(await store.tx((t) => t.createEnvironment(environment("b/one", { labels: { team: "b" } }), 2))).toBe("created");
+        expect(await store.tx((t) => t.createEnvironment(environment("b/one"), 2))).toBe("exists");
+        expect(
+          await store.tx((t) => t.createEnvironment(environment("a/one", { labels: { team: "a", env: "dev" }, ownerUserId: "ada" }), 2)),
+        ).toBe("created");
+        expect(await store.tx((t) => t.createEnvironment(environment("c/one"), 2))).toBe("limit");
+        await store.tx(async (t) => {
+          expect((await t.listEnvironments()).map((row) => row.id)).toEqual(["a/one", "b/one"]);
+          expect((await t.listEnvironments({ labels: { team: "a" } })).map((row) => row.id)).toEqual(["a/one"]);
+          expect((await t.listEnvironments({ labels: { team: "a", env: "prod" } })).map((row) => row.id)).toEqual([]);
+          expect(await t.environment("a/one")).toMatchObject({ kind: "virtual", ownerUserId: "ada", recipe, version: 1 });
+          expect((await t.environment("b/one"))!.ownerUserId).toBeUndefined();
+          expect(await t.environment("c/one")).toBeUndefined();
+        });
+        const changed = { ...recipe, lifecycle: { deleteAfter: "1d" } };
+        await store.tx(async (t) => {
+          await t.environment("a/one", { lock: true });
+          await t.updateEnvironment(
+            "a/one",
+            { recipe: changed, version: 2, labels: { team: "z" }, ownerUserId: null, lastUsedAt: "2030-01-02T00:00:00.000Z" },
+            "2030-01-02T00:00:00.000Z",
+          );
+        });
+        expect(await store.tx((t) => t.environment("a/one"))).toMatchObject({
+          recipe: changed,
+          applied: recipe,
+          version: 2,
+          appliedVersion: 1,
+          labels: { team: "z" },
+          updatedAt: "2030-01-02T00:00:00.000Z",
+        });
+        expect((await store.tx((t) => t.environment("a/one")))!.ownerUserId).toBeUndefined();
+        expect(Date.parse((await store.tx((t) => t.environment("a/one")))!.lastUsedAt)).toBe(Date.parse("2030-01-02T00:00:00.000Z"));
+      });
+
+      it("keeps a pod's lifecycle columns, the sessions that name one and its lifecycle stream", async () => {
+        const store = await fresh();
+        const pod = { k8sName: "sbx-a-g0", volumeGen: 0, desired: "running" as const, observed: "creating" as const, hostEpoch: 0, rev: 1 };
+        await store.tx(async (t) => {
+          await t.createEnvironment(environment("p/one", { kind: "pod", pod }), 10);
+          await t.put("sessions", "s2", session("s2", { environmentId: "p/one" }));
+          await t.put("sessions", "s1", session("s1", { environmentId: "p/one" }));
+          await t.put("sessions", "s3", session("s3"));
+          await t.environmentEvent("p/one", "environment.created", { kind: "pod", labels: {} });
+          await t.environmentEvent("p/one", "environment.attached", { sessionId: "s1" });
+        });
+        await store.tx((t) => t.updateEnvironmentPod("p/one", { observed: "running", podUid: "uid-1", hostEpoch: 1 }, at));
+        await store.tx(async (t) => {
+          expect((await t.environment("p/one"))!.pod).toMatchObject({ k8sName: "sbx-a-g0", observed: "running", podUid: "uid-1", hostEpoch: 1, rev: 1 });
+          expect((await t.sessionsOnEnvironment("p/one")).map((row) => row.id)).toEqual(["s1", "s2"]);
+          const events = await t.environmentEvents("p/one");
+          expect(events.map((event) => [event.seq, event.type, event.environmentId])).toEqual([
+            [0, "environment.created", "p/one"],
+            [1, "environment.attached", "p/one"],
+          ]);
+          expect((await t.environmentEvents("p/one", { fromSeq: 1 })).map((event) => event.seq)).toEqual([1]);
+        });
+        await store.tx((t) => t.updateEnvironmentPod("p/one", { podUid: null }, at));
+        expect((await store.tx((t) => t.environment("p/one")))!.pod!.podUid).toBeUndefined();
+      });
+
+      it("gives an Environment one vault, deleted with it", async () => {
         const store = await fresh();
         await store.tx(async (t) => {
-          await t.insertVault({ id: "v2", name: "B", ownerUserId: "u1", metadataJson: null, createdAt: "2030-01-02T00:00:00.000Z", scope: "user" });
-          await t.insertVault({ id: "v1", name: "A", ownerUserId: "u1", metadataJson: '{"a":1}', createdAt: "2030-01-01T00:00:00.000Z", scope: "user" });
-          await t.insertVault({ id: "v3", name: "C", ownerUserId: "u2", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", scope: "user" });
-          await t.insertVault({ id: "host", name: "Host", ownerUserId: "u1", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", scope: "host" });
-          await t.insertVault({ id: "i2", name: "I2", ownerUserId: "installation", metadataJson: null, createdAt: "2030-01-02T00:00:00.000Z", scope: "installation" });
-          await t.insertVault({ id: "i1", name: "I1", ownerUserId: "installation", metadataJson: null, createdAt: "2030-01-02T00:00:00.000Z", scope: "installation" });
+          await t.createEnvironment(environment("e/one"), 10);
+          await t.insertVault({ id: "v1", name: "e/one", metadataJson: null, createdAt: at, environmentId: "e/one" });
+          await t.insertCredential(credential("c1", "v1", at));
         });
+        // A second vault for one Environment, or one for a missing Environment: refused.
         await expect(
-          store.tx((t) => t.insertVault({ id: "host2", name: "H", ownerUserId: "host", metadataJson: null, createdAt: "x", scope: "host" })),
+          store.tx((t) => t.insertVault({ id: "v2", name: "x", metadataJson: null, createdAt: at, environmentId: "e/one" })),
         ).rejects.toThrow();
         await expect(
-          store.tx((t) => t.insertVault({ id: "v1", name: "dup", ownerUserId: "u1", metadataJson: null, createdAt: "x", scope: "user" })),
+          store.tx((t) => t.insertVault({ id: "v3", name: "x", metadataJson: null, createdAt: at, environmentId: "e/missing" })),
+        ).rejects.toThrow();
+        await store.tx(async (t) => {
+          expect(await t.vaultOfEnvironment("e/one")).toEqual({ id: "v1", name: "e/one", metadataJson: null, createdAt: at, environmentId: "e/one" });
+          expect(await t.vaultOfEnvironment("e/missing")).toBeUndefined();
+          expect((await t.credentialByName("v1", "c1"))?.id).toBe("c1");
+          expect(await t.credentialByName("v1", "nope")).toBeUndefined();
+        });
+        // Names are unique per vault.
+        await expect(store.tx((t) => t.insertCredential(credential("c2", "v1", at, { name: "c1" })))).rejects.toThrow();
+        await store.tx((t) => t.deleteEnvironment("e/one"));
+        await store.tx(async (t) => {
+          expect(await t.environment("e/one")).toBeUndefined();
+          expect(await t.getVault("v1")).toBeUndefined();
+          expect(await t.getCredential("c1")).toBeUndefined();
+        });
+      });
+    });
+
+    describe("vault", () => {
+      it("stores one host vault, and an Environment's vaults by id", async () => {
+        const store = await fresh();
+        await store.tx(async (t) => {
+          await t.createEnvironment(environmentRow("e1"), 10);
+          await t.createEnvironment(environmentRow("e2"), 10);
+          await t.insertVault({ id: "host", name: "Host", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", environmentId: null });
+          await t.insertVault({ id: "v1", name: "A", metadataJson: '{"a":1}', createdAt: "2030-01-01T00:00:00.000Z", environmentId: "e1" });
+        });
+        // Only the host vault has no Environment, and ids are unique.
+        await expect(
+          store.tx((t) => t.insertVault({ id: "v2", name: "B", metadataJson: null, createdAt: "x", environmentId: null })),
+        ).rejects.toThrow();
+        await expect(
+          store.tx((t) => t.insertVault({ id: "host", name: "H", metadataJson: null, createdAt: "x", environmentId: "e2" })),
+        ).rejects.toThrow();
+        await expect(
+          store.tx((t) => t.insertVault({ id: "v1", name: "dup", metadataJson: null, createdAt: "x", environmentId: "e2" })),
         ).rejects.toThrow();
         await store.tx((t) => t.updateVaultMetadata("host", '{"activeProvider":"x"}'));
         await store.tx(async (t) => {
-          expect((await t.vaultsByOwner("u1")).map((v) => v.id)).toEqual(["v1", "v2"]);
-          expect((await t.vaultsByOwner("installation")).map((v) => v.id)).toEqual([]);
-          expect((await t.installationVaults()).map((v) => v.id)).toEqual(["i1", "i2"]);
-          expect(await t.getVault("v1")).toEqual({ id: "v1", name: "A", ownerUserId: "u1", metadataJson: '{"a":1}', createdAt: "2030-01-01T00:00:00.000Z", scope: "user" });
+          expect(await t.getVault("v1")).toEqual({ id: "v1", name: "A", metadataJson: '{"a":1}', createdAt: "2030-01-01T00:00:00.000Z", environmentId: "e1" });
           expect((await t.getVault("host"))!.metadataJson).toBe('{"activeProvider":"x"}');
           expect(await t.getVault("nope")).toBeUndefined();
         });
@@ -970,8 +1087,10 @@ export function storeContract(name: string, factory: StoreFactory): void {
       it("stores credentials with ciphertext columns, patches and deletes them", async () => {
         const store = await fresh();
         await store.tx(async (t) => {
-          await t.insertVault({ id: "v1", name: "A", ownerUserId: "u1", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", scope: "user" });
-          await t.insertVault({ id: "v2", name: "B", ownerUserId: "u1", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", scope: "user" });
+          await t.createEnvironment(environmentRow("e1"), 10);
+          await t.createEnvironment(environmentRow("e2"), 10);
+          await t.insertVault({ id: "v1", name: "A", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", environmentId: "e1" });
+          await t.insertVault({ id: "v2", name: "B", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", environmentId: "e2" });
           await t.insertCredential(credential("c2", "v1", "2030-01-02T00:00:00.000Z"));
           await t.insertCredential(credential("c1", "v1", "2030-01-02T00:00:00.000Z", { type: "model" }));
           await t.insertCredential(credential("c3", "v2", "2030-01-01T00:00:00.000Z"));
@@ -1059,8 +1178,10 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("sandboxes", "sb1", { key: "sb1" });
           await t.put("definitions", "agent-a", { manifest: { id: "agent-a" } });
           await t.insertPrincipal({ id: "pr_1", role: "application", tokenHash: "hp", idempotencyKey: null, createdAt: "x" });
-          await t.insertVault({ id: "host", name: "Host", ownerUserId: "host", metadataJson: null, createdAt: "x", scope: "host" });
-          await t.insertVault({ id: "v1", name: "A", ownerUserId: "u", metadataJson: null, createdAt: "x", scope: "user" });
+          await t.createEnvironment(environmentRow("e1"), 10);
+          await t.environmentEvent("e1", "environment.created", { kind: "virtual", labels: {} });
+          await t.insertVault({ id: "host", name: "Host", metadataJson: null, createdAt: "x", environmentId: null });
+          await t.insertVault({ id: "v1", name: "e1", metadataJson: null, createdAt: "x", environmentId: "e1" });
           await t.insertCredential(credential("hc", "host", "x", { type: "model" }));
           await t.insertCredential(credential("uc", "v1", "x"));
           await t.putSetting("k", "v");
@@ -1077,15 +1198,23 @@ export function storeContract(name: string, factory: StoreFactory): void {
             expect(await t.get(table as keyof typeof cleared, id)).toBeUndefined();
           expect(await t.listSandboxes()).toHaveLength(1);
           expect(await t.listDefinitions()).toHaveLength(1);
+          expect(await t.environment("e1")).toBeDefined();
+          expect(await t.getCredential("uc")).toBeDefined();
         });
       });
 
-      it("resets sandboxes", async () => {
+      it("resets Environments with their vaults, workspaces and streams", async () => {
         const store = await fresh();
         await populate(store);
-        await store.tx((t) => t.reset("sandboxes"));
+        await store.tx((t) => t.reset("environments"));
         await store.tx(async (t) => {
           expect(await t.listSandboxes()).toEqual([]);
+          expect(await t.listEnvironments()).toEqual([]);
+          expect(await t.environmentEvents("e1")).toEqual([]);
+          expect(await t.getVault("v1")).toBeUndefined();
+          expect(await t.getCredential("uc")).toBeUndefined();
+          expect(await t.getVault("host")).toBeDefined();
+          expect(await t.getCredential("hc")).toBeDefined();
           expect(await t.get("sessions", "s1")).toBeDefined();
         });
       });
@@ -1096,6 +1225,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx((t) => t.reset("all"));
         await store.tx(async (t) => {
           expect(await t.counts()).toEqual({ sessions: 0, runningSessions: 0, uncertainEffects: 0, sandboxes: 0, definitions: 0 });
+          expect(await t.listEnvironments()).toEqual([]);
           expect(await t.getVault("v1")).toBeUndefined();
           expect(await t.getCredential("uc")).toBeUndefined();
           expect(await t.getVault("host")).toBeDefined();
@@ -1273,7 +1403,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         ]);
       });
 
-      it("keeps a pod sandbox's reconcile and timer, a reconcile keyed by its row", async () => {
+      it("keeps a pod Environment's reconcile and timer, a reconcile keyed by its row", async () => {
         const store = await fresh();
         const { delivered, deliver } = deliveries(() => false);
         store.deliverTo(deliver);
@@ -1288,7 +1418,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
           { kind: "sandbox", sandboxId: "sb1", signal: { kind: "reconcile", key: `signal:${pending[0]!.id}` } },
           { kind: "sandbox", sandboxId: "sb1", signal: { kind: "arm", timer: "idle", at: 1_700_000_000_000 } },
         ]);
-        await store.tx((t) => t.reset("sandboxes"));
+        await store.tx((t) => t.reset("environments"));
         expect(await due(store)).toEqual([]);
       });
 

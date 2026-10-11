@@ -23,14 +23,12 @@ const DEFAULT_SCOPES: readonly SubjectScope[] = ["sessions:own"];
 /** Response headers passed back to the browser; nothing else of the Runtime's. */
 const PASSED_HEADERS = ["content-type", "cache-control", "x-accel-buffering"];
 
-/** Per-session parameters the host may add, such as the person's vault for MCP servers. */
+/** Per-session parameters the host may add, such as the person's Environment. */
 export interface AgUiSessionOptions {
   /** Set when the thread's session is created, on its first run; later runs keep them. */
   info?: Record<string, unknown>;
-  vaultIds?: readonly string[];
-  credentialSelections?: Parameters<
-    AgentsClient["createSession"]
-  >[0]["credentialSelections"];
+  /** The Environment the thread's session runs in: its sandbox and its vault's credentials. */
+  environment?: string;
 }
 
 export interface AgUiHandlerOptions {
@@ -44,7 +42,7 @@ export interface AgUiHandlerOptions {
   client?: AgentsClient | Promise<AgentsClient>;
   /** What each subject may do through this endpoint. Default `["sessions:own"]`. */
   scopes?: readonly SubjectScope[];
-  /** Optional per-session parameters, e.g. the person's vault for connected accounts. */
+  /** Optional per-session parameters, e.g. the person's Environment with their keys. */
   session?(
     subject: string,
     agentId: string

@@ -34,7 +34,7 @@ import { command } from "../../../tenant/commands.js";
 import { loadSession, sessionOf, type TenantContext } from "../../../tenant/context.js";
 import type { SessionAccess } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
-import { sandboxGrantsOf, sandboxRouteDeps } from "../../../tenant/sandboxes.js";
+import { environmentGrantsOf, sandboxRouteDeps } from "../../../tenant/environments.js";
 import { readHistory, requestCursor, streamHolderOf, streamSessionEvents } from "../../../tenant/session-streams.js";
 import {
   listAgentsPublic,
@@ -219,13 +219,13 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       // Agent code may trust `info`: only an app server sets it.
       if (scope.kind === "token" && request.info !== undefined)
         fail(403, "A token caller cannot set session info", { code: "scope_required" });
-      const grants = sandboxGrantsOf(scope);
+      const grants = environmentGrantsOf(scope);
       const session = await putSession(
         ctx,
         c.req.param("sessionId")!,
         request,
         accessOf(scope),
-        grants === undefined ? {} : { sandboxGrants: grants },
+        grants === undefined ? {} : { environmentGrants: grants },
       );
       return jsonResponse(200, await ctx.store.tx((t) => sessionView(t, session)));
     },

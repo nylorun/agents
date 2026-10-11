@@ -15,9 +15,9 @@
  *     # Optional, with their defaults:
  *     subject: "{sub}"                           # scalar claims only
  *     scopes: { claim: scope }                   # or { fixed: [sessions:own, agents:read] }
- *     allowedScopes: [agents:read, sessions:own, sandboxes:write]   # add studio to grant it
+ *     allowedScopes: [agents:read, sessions:own, environments:write]   # add studio to grant it
  *     agents: [support]                          # absent reaches every agent
- *     sandboxes: ["{org_id}/*"]                  # absent reaches no sandbox
+ *     environments: ["{org_id}/*"]               # absent reaches no Environment
  * ```
  */
 import { createPublicKey, type KeyObject } from "node:crypto";
@@ -25,8 +25,8 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import {
   ISSUER_SCOPES,
-  isSandboxGrant,
-  TOKEN_SANDBOX_GRANTS_MAX,
+  isEnvironmentGrant,
+  TOKEN_ENVIRONMENT_GRANTS_MAX,
   TOKEN_SCOPES,
   type IssuerScope,
 } from "@nylorun/core/contracts";
@@ -72,8 +72,8 @@ export interface TrustedIssuerConfig {
   readonly allowedScopes: readonly IssuerScope[];
   /** The agents its tokens reach; absent reaches all. */
   readonly agents?: readonly string[];
-  /** Sandbox grant templates, such as `{org_id}/*`; absent reaches no sandbox. */
-  readonly sandboxes?: readonly string[];
+  /** Environment grant templates, such as `{org_id}/*`; absent reaches no Environment. */
+  readonly environments?: readonly string[];
 }
 
 /** A malformed identity file: the message names the issuer and the field. */
@@ -175,15 +175,15 @@ const IssuerEntrySchema = z
       .default(DEFAULT_SCOPES),
     allowedScopes: z.array(IssuerScopeSchema).min(1).default([...DEFAULT_ALLOWED_SCOPES]),
     agents: z.array(z.string().min(1)).optional(),
-    sandboxes: z
+    environments: z
       .array(
-        template("a sandbox grant").refine(
+        template("an Environment grant").refine(
           // A rendered grant must be a grant: checked here with a sample value per claim.
-          (value) => isSandboxGrant(renderTemplate(value, () => "x")),
-          "must render to a sandbox id or a prefix ending in /*, as {org_id}/*",
+          (value) => isEnvironmentGrant(renderTemplate(value, () => "x")),
+          "must render to an Environment id or a prefix ending in /*, as {org_id}/*",
         ),
       )
-      .max(TOKEN_SANDBOX_GRANTS_MAX)
+      .max(TOKEN_ENVIRONMENT_GRANTS_MAX)
       .optional(),
   });
 
@@ -248,6 +248,15 @@ export function parseIdentityFile(
         ? (entry as { name: string }).name
         : `#${index + 1}`;
     const where = `issuer ${named}`;
+    // Protocol 11 renamed these (R2d Q11): refused, never read as no grants.
+    if (entry && typeof entry === "object" && "sandboxes" in entry)
+      return fail(`${where}: sandboxes: renamed environments in protocol 11`);
+    const scopesNamed = JSON.stringify([
+      (entry as { allowedScopes?: unknown } | null)?.allowedScopes,
+      (entry as { scopes?: unknown } | null)?.scopes,
+    ]);
+    if (scopesNamed.includes('"sandboxes:write"'))
+      return fail(`${where}: sandboxes:write: renamed environments:write in protocol 11`);
     const parsed = IssuerEntrySchema.safeParse(entry);
     if (!parsed.success) return fail(`${where}: ${issueText(parsed.error.issues)}`);
     ignored(where, unknownKeys(entry, ENTRY_KEYS));
@@ -282,7 +291,7 @@ export function parseIdentityFile(
       scopes: value.scopes,
       allowedScopes: [...new Set(value.allowedScopes)],
       ...(value.agents ? { agents: [...new Set(value.agents)] } : {}),
-      ...(value.sandboxes ? { sandboxes: value.sandboxes } : {}),
+      ...(value.environments ? { environments: value.environments } : {}),
     });
   });
   return issuers;

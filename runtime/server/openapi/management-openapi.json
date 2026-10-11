@@ -4,21 +4,19 @@
     "title": "Nylorun Management API",
     "version": "0.0.0",
     "x-nylorun-protocol": {
-      "min": 4,
-      "max": 10,
+      "min": 11,
+      "max": 11,
       "features": [
-        "runtime-tenants",
-        "admin-status",
         "studio-principal",
         "artifacts",
         "management-api",
         "resource-server",
+        "environments",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
         "ag-ui-endpoint",
         "a2a-endpoint",
-        "sandboxes",
         "sandbox-pods",
         "trusted-issuers",
         "session-reads",
@@ -88,12 +86,13 @@
               "request_rejected",
               "invalid_request",
               "subject_required",
-              "sandbox_not_granted",
-              "sandbox_busy",
-              "sandbox_unavailable",
+              "environment_not_granted",
+              "environment_busy",
+              "environment_unavailable",
               "placement_refused",
-              "sandbox_lost",
-              "sandbox_expired",
+              "environment_lost",
+              "environment_owner_mismatch",
+              "session_closed",
               "issuer_unavailable",
               "definition_files_missing",
               "credential_rejected",
@@ -622,7 +621,7 @@
             "type": "string",
             "enum": [
               "sessions",
-              "sandboxes",
+              "environments",
               "all"
             ]
           },
@@ -683,58 +682,6 @@
               "config": {
                 "type": "object",
                 "properties": {
-                  "default": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "none"
-                        ]
-                      },
-                      {
-                        "type": "string",
-                        "enum": [
-                          "virtual"
-                        ]
-                      },
-                      {
-                        "type": "object",
-                        "properties": {
-                          "image": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "network": {
-                            "type": "object",
-                            "properties": {
-                              "allow": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string"
-                                }
-                              }
-                            },
-                            "additionalProperties": false
-                          },
-                          "resources": {
-                            "type": "object",
-                            "properties": {
-                              "cpus": {
-                                "type": "integer",
-                                "minimum": 1,
-                                "maximum": 64
-                              },
-                              "memory": {
-                                "type": "string"
-                              }
-                            },
-                            "additionalProperties": false
-                          }
-                        },
-                        "additionalProperties": false
-                      }
-                    ]
-                  },
                   "limits": {
                     "type": "object",
                     "properties": {
@@ -775,13 +722,10 @@
                       "idle": {
                         "type": "string"
                       },
-                      "sandboxes": {
+                      "environments": {
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 100000
-                      },
-                      "ttl": {
-                        "type": "string"
                       }
                     },
                     "additionalProperties": false
@@ -789,13 +733,6 @@
                   "lifecycle": {
                     "type": "object",
                     "properties": {
-                      "onExpiry": {
-                        "type": "string",
-                        "enum": [
-                          "retain",
-                          "delete"
-                        ]
-                      },
                       "stopGrace": {
                         "type": "string"
                       }
@@ -1082,58 +1019,6 @@
           "config": {
             "type": "object",
             "properties": {
-              "default": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "enum": [
-                      "none"
-                    ]
-                  },
-                  {
-                    "type": "string",
-                    "enum": [
-                      "virtual"
-                    ]
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "image": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "network": {
-                        "type": "object",
-                        "properties": {
-                          "allow": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          }
-                        },
-                        "additionalProperties": false
-                      },
-                      "resources": {
-                        "type": "object",
-                        "properties": {
-                          "cpus": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "maximum": 64
-                          },
-                          "memory": {
-                            "type": "string"
-                          }
-                        },
-                        "additionalProperties": false
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                ]
-              },
               "limits": {
                 "type": "object",
                 "properties": {
@@ -1178,12 +1063,9 @@
                   "idle": {
                     "type": "string"
                   },
-                  "sandboxes": {
+                  "environments": {
                     "type": "integer",
                     "minimum": 0
-                  },
-                  "ttl": {
-                    "type": "string"
                   }
                 },
                 "required": [
@@ -1197,19 +1079,11 @@
               "lifecycle": {
                 "type": "object",
                 "properties": {
-                  "onExpiry": {
-                    "type": "string",
-                    "enum": [
-                      "retain",
-                      "delete"
-                    ]
-                  },
                   "stopGrace": {
                     "type": "string"
                   }
                 },
                 "required": [
-                  "onExpiry",
                   "stopGrace"
                 ],
                 "additionalProperties": false
@@ -1238,7 +1112,6 @@
               }
             },
             "required": [
-              "default",
               "limits"
             ],
             "additionalProperties": false
@@ -1294,61 +1167,9 @@
         ],
         "additionalProperties": false
       },
-      "PutTenantSandboxRequest": {
+      "PutTenantEnvironmentsRequest": {
         "type": "object",
         "properties": {
-          "default": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "none"
-                ]
-              },
-              {
-                "type": "string",
-                "enum": [
-                  "virtual"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "image": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "network": {
-                    "type": "object",
-                    "properties": {
-                      "allow": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "resources": {
-                    "type": "object",
-                    "properties": {
-                      "cpus": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 64
-                      },
-                      "memory": {
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                },
-                "additionalProperties": false
-              }
-            ]
-          },
           "limits": {
             "type": "object",
             "properties": {
@@ -1389,13 +1210,10 @@
               "idle": {
                 "type": "string"
               },
-              "sandboxes": {
+              "environments": {
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 100000
-              },
-              "ttl": {
-                "type": "string"
               }
             },
             "additionalProperties": false
@@ -1403,13 +1221,6 @@
           "lifecycle": {
             "type": "object",
             "properties": {
-              "onExpiry": {
-                "type": "string",
-                "enum": [
-                  "retain",
-                  "delete"
-                ]
-              },
               "stopGrace": {
                 "type": "string"
               }
@@ -1974,704 +1785,17 @@
         ],
         "additionalProperties": false
       },
-      "VaultInfo": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "ownerUserId": {
-            "type": "string"
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          },
-          "createdAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "ownerUserId",
-          "createdAt"
-        ],
-        "additionalProperties": false
-      },
-      "CreateVaultRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "idempotencyKey": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1
-          },
-          "scope": {
-            "type": "string",
-            "enum": [
-              "user",
-              "installation"
-            ]
-          },
-          "ownerUserId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "requestId",
-          "idempotencyKey",
-          "name"
-        ],
-        "additionalProperties": false
-      },
-      "ListVaultsResponse": {
-        "type": "object",
-        "properties": {
-          "vaults": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "ownerUserId": {
-                  "type": "string"
-                },
-                "metadata": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                },
-                "createdAt": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "id",
-                "name",
-                "ownerUserId",
-                "createdAt"
-              ],
-              "additionalProperties": false
-            }
-          }
-        },
-        "required": [
-          "vaults"
-        ],
-        "additionalProperties": false
-      },
-      "DeletedResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "additionalProperties": false
-      },
-      "CredentialInfo": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "vaultId": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "bearer",
-              "headers",
-              "environment_secret",
-              "environment_variable"
-            ]
-          },
-          "binding": {
-            "type": "object",
-            "properties": {
-              "url": {
-                "type": "string"
-              },
-              "secretName": {
-                "type": "string"
-              },
-              "allowedHosts": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "inject": {
-                "type": "object",
-                "properties": {
-                  "header": {
-                    "type": "string",
-                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                  },
-                  "format": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "header",
-                  "format"
-                ],
-                "additionalProperties": false
-              },
-              "variableName": {
-                "type": "string"
-              },
-              "variableValue": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          },
-          "headerNames": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "via": {
-            "type": "string"
-          },
-          "identity": {
-            "type": "object",
-            "properties": {
-              "header": {
-                "type": "string",
-                "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-              }
-            },
-            "required": [
-              "header"
-            ],
-            "additionalProperties": false
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "rotatedAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "vaultId",
-          "name",
-          "type",
-          "binding",
-          "createdAt"
-        ],
-        "additionalProperties": false
-      },
-      "CreateCredentialRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "idempotencyKey": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1
-          },
-          "auth": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "bearer"
-                    ]
-                  },
-                  "url": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "token": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "via": {
-                    "type": "string"
-                  },
-                  "identity": {
-                    "type": "object",
-                    "properties": {
-                      "header": {
-                        "type": "string",
-                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                      }
-                    },
-                    "required": [
-                      "header"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "type",
-                  "url",
-                  "token"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "headers"
-                    ]
-                  },
-                  "url": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "headers": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "via": {
-                    "type": "string"
-                  },
-                  "identity": {
-                    "type": "object",
-                    "properties": {
-                      "header": {
-                        "type": "string",
-                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                      }
-                    },
-                    "required": [
-                      "header"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "type",
-                  "url",
-                  "headers"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "environment_secret"
-                    ]
-                  },
-                  "secretName": {
-                    "type": "string",
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
-                  },
-                  "secretValue": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 8192
-                  },
-                  "allowedHosts": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    },
-                    "minItems": 1,
-                    "maxItems": 32
-                  },
-                  "inject": {
-                    "type": "object",
-                    "properties": {
-                      "header": {
-                        "type": "string",
-                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                      },
-                      "format": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "required": [
-                      "header",
-                      "format"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "type",
-                  "secretName",
-                  "secretValue",
-                  "allowedHosts"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "environment_variable"
-                    ]
-                  },
-                  "variableName": {
-                    "type": "string",
-                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
-                  },
-                  "variableValue": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 8192
-                  }
-                },
-                "required": [
-                  "type",
-                  "variableName",
-                  "variableValue"
-                ],
-                "additionalProperties": false
-              }
-            ]
-          }
-        },
-        "required": [
-          "requestId",
-          "idempotencyKey",
-          "name",
-          "auth"
-        ],
-        "additionalProperties": false
-      },
-      "ListCredentialsResponse": {
-        "type": "object",
-        "properties": {
-          "credentials": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "vaultId": {
-                  "type": "string"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "bearer",
-                    "headers",
-                    "environment_secret",
-                    "environment_variable"
-                  ]
-                },
-                "binding": {
-                  "type": "object",
-                  "properties": {
-                    "url": {
-                      "type": "string"
-                    },
-                    "secretName": {
-                      "type": "string"
-                    },
-                    "allowedHosts": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "inject": {
-                      "type": "object",
-                      "properties": {
-                        "header": {
-                          "type": "string",
-                          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                        },
-                        "format": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": [
-                        "header",
-                        "format"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "variableName": {
-                      "type": "string"
-                    },
-                    "variableValue": {
-                      "type": "string"
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "headerNames": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "via": {
-                  "type": "string"
-                },
-                "identity": {
-                  "type": "object",
-                  "properties": {
-                    "header": {
-                      "type": "string",
-                      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                    }
-                  },
-                  "required": [
-                    "header"
-                  ],
-                  "additionalProperties": false
-                },
-                "createdAt": {
-                  "type": "string"
-                },
-                "rotatedAt": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "id",
-                "vaultId",
-                "name",
-                "type",
-                "binding",
-                "createdAt"
-              ],
-              "additionalProperties": false
-            }
-          }
-        },
-        "required": [
-          "credentials"
-        ],
-        "additionalProperties": false
-      },
-      "RotateCredentialRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "idempotencyKey": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "auth": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "bearer"
-                    ]
-                  },
-                  "token": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "via": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "identity": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "properties": {
-                      "header": {
-                        "type": "string",
-                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                      }
-                    },
-                    "required": [
-                      "header"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "type",
-                  "token"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "headers"
-                    ]
-                  },
-                  "headers": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "via": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "identity": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "properties": {
-                      "header": {
-                        "type": "string",
-                        "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                      }
-                    },
-                    "required": [
-                      "header"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "type",
-                  "headers"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "environment_secret"
-                    ]
-                  },
-                  "secretValue": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 8192
-                  }
-                },
-                "required": [
-                  "type",
-                  "secretValue"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "environment_variable"
-                    ]
-                  },
-                  "variableValue": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 8192
-                  }
-                },
-                "required": [
-                  "type",
-                  "variableValue"
-                ],
-                "additionalProperties": false
-              }
-            ]
-          }
-        },
-        "required": [
-          "requestId",
-          "idempotencyKey",
-          "auth"
-        ],
-        "additionalProperties": false
-      },
       "CredentialCoverage": {
         "type": "object",
         "properties": {
           "agentId": {
             "type": "string"
           },
-          "vaultIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "environmentId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "complete": {
             "type": "boolean"
@@ -2710,24 +1834,16 @@
                   "type": "string",
                   "enum": [
                     "covered",
-                    "missing",
-                    "ambiguous",
-                    "selection_mismatch"
+                    "missing"
                   ]
                 },
                 "credential": {
                   "type": "object",
                   "properties": {
-                    "vaultId": {
+                    "environmentId": {
                       "type": "string"
                     },
-                    "vaultName": {
-                      "type": "string"
-                    },
-                    "credentialId": {
-                      "type": "string"
-                    },
-                    "credentialName": {
+                    "name": {
                       "type": "string"
                     },
                     "via": {
@@ -2735,72 +1851,10 @@
                     }
                   },
                   "required": [
-                    "vaultId",
-                    "vaultName",
-                    "credentialId",
-                    "credentialName"
+                    "environmentId",
+                    "name"
                   ],
                   "additionalProperties": false
-                },
-                "matches": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "vaultId": {
-                        "type": "string"
-                      },
-                      "vaultName": {
-                        "type": "string"
-                      },
-                      "credentialId": {
-                        "type": "string"
-                      },
-                      "credentialName": {
-                        "type": "string"
-                      },
-                      "via": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "vaultId",
-                      "vaultName",
-                      "credentialId",
-                      "credentialName"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "available": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "vaultId": {
-                        "type": "string"
-                      },
-                      "vaultName": {
-                        "type": "string"
-                      },
-                      "credentialId": {
-                        "type": "string"
-                      },
-                      "credentialName": {
-                        "type": "string"
-                      },
-                      "via": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "vaultId",
-                      "vaultName",
-                      "credentialId",
-                      "credentialName"
-                    ],
-                    "additionalProperties": false
-                  }
                 },
                 "message": {
                   "type": "string"
@@ -2813,8 +1867,6 @@
                 "url",
                 "required",
                 "status",
-                "matches",
-                "available",
                 "message"
               ],
               "additionalProperties": false
@@ -2823,7 +1875,7 @@
         },
         "required": [
           "agentId",
-          "vaultIds",
+          "environmentId",
           "complete",
           "entries"
         ],
@@ -2840,37 +1892,9 @@
             "type": "string",
             "minLength": 1
           },
-          "ownerUserId": {
+          "environmentId": {
             "type": "string",
-            "minLength": 1
-          },
-          "vaultIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "credentialSelections": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "serverName": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "credentialId": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "required": [
-                "serverName",
-                "credentialId"
-              ],
-              "additionalProperties": false
-            }
+            "description": "An Environment id, such as `user-42` or `users/alice/web`"
           }
         },
         "required": [
@@ -2999,9 +2023,9 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9_-]{1,64}$"
           },
-          "vaultId": {
+          "environmentId": {
             "type": "string",
-            "minLength": 1
+            "description": "An Environment id, such as `user-42` or `users/alice/web`"
           }
         },
         "required": [
@@ -3271,7 +2295,7 @@
                 "agents:read",
                 "agents:write",
                 "sessions:own",
-                "sandboxes:write",
+                "environments:write",
                 "studio"
               ]
             }
@@ -3293,12 +2317,12 @@
               }
             ]
           },
-          "sandboxes": {
+          "environments": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "A token caller's sandbox grants (empty reaches none); absent when no grant limits the caller"
+            "description": "A token caller's Environment grants (empty reaches none); absent when no grant limits the caller"
           },
           "via": {
             "type": "string",
@@ -3480,10 +2504,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3582,10 +2606,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3680,7 +2704,7 @@
           "Tenant"
         ],
         "summary": "Reset the Tenant",
-        "description": "Deletes its sessions, its sandboxes, or both, after draining or cancelling the turns in progress. The Tenant stays open.",
+        "description": "Deletes its sessions, its Environments (with their vaults), or both, after draining or cancelling the turns in progress. The Tenant stays open.",
         "security": [
           {
             "managementKey": []
@@ -3694,10 +2718,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3815,10 +2839,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -3950,10 +2974,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4062,10 +3086,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4165,10 +3189,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4259,10 +3283,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4360,10 +3384,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4461,10 +3485,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4560,10 +3584,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4671,10 +3695,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4820,10 +3844,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4940,10 +3964,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5041,10 +4065,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5141,10 +4165,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5233,1041 +4257,13 @@
         }
       }
     },
-    "/v1/tenant/vaults": {
-      "post": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Create a vault",
-        "description": "With `scope: \"installation\"` the installation's own vault, owned by `installation`, which any session may attach; or a vault of one person (`ownerUserId`), which only that person's sessions attach.",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `10`"
-            },
-            "required": true,
-            "description": "The protocol version, `10`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateVaultRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The vault",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VaultInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key was used for another vault"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "List vaults",
-        "description": "The installation vaults, after the vaults of `ownerUserId` when it names a person.",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "Also list this person's vaults"
-            },
-            "required": false,
-            "description": "Also list this person's vaults",
-            "name": "ownerUserId",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `10`"
-            },
-            "required": true,
-            "description": "The protocol version, `10`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The vaults",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListVaultsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/tenant/vaults/{vaultId}": {
-      "get": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Get a vault",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `10`"
-            },
-            "required": true,
-            "description": "The protocol version, `10`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The vault",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VaultInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Delete a vault and its credentials",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `10`"
-            },
-            "required": true,
-            "description": "The protocol version, `10`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeletedResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/tenant/vaults/{vaultId}/credentials": {
-      "post": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Add a credential",
-        "description": "A bearer token, bound to the URL a tool may send it to.",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `10`"
-            },
-            "required": true,
-            "description": "The protocol version, `10`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateCredentialRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The credential, without its secret",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CredentialInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "List a vault's credentials",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `10`"
-            },
-            "required": true,
-            "description": "The protocol version, `10`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The credentials, without their secrets",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListCredentialsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/tenant/vaults/{vaultId}/credentials/{credentialId}": {
-      "get": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Get a credential",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "credentialId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `10`"
-            },
-            "required": true,
-            "description": "The protocol version, `10`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The credential, without its secret",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CredentialInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Rotate a credential's secret",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "credentialId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `10`"
-            },
-            "required": true,
-            "description": "The protocol version, `10`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RotateCredentialRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The credential",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CredentialInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A credential's type cannot change"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Delete a credential",
-        "security": [
-          {
-            "managementKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "management"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "credentialId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `10`"
-            },
-            "required": true,
-            "description": "The protocol version, `10`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeletedResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/tenant/credential-coverage": {
       "post": {
         "tags": [
-          "Vaults"
+          "Credential coverage"
         ],
-        "summary": "Check an agent's credentials against vaults",
-        "description": "For each remote MCP server and each HTTP tool with a `credential` that the saved agent `agentId` declares (its own, its agents used as tools' and a flow's), the credential a session that attaches `vaultIds` would send, chosen as a call chooses it: the attached vaults' credentials bound to the URL, then `credentialSelections`. `missing` names the vaults the session could attach that hold one (`available`). The attachment is checked as a session's is: a vault of another person than `ownerUserId` is `403`. No secret is read and no server is called.",
+        "summary": "Check an agent's credentials against an Environment",
+        "description": "For each remote MCP server and each HTTP tool with a `credential` that the saved agent `agentId` declares (its own, its agents used as tools' and a flow's), the credential a session that names `environmentId` would send: the Environment's secret bound to the URL (`covered`), or none (`missing`). No secret is read and no server is called.",
         "security": [
           {
             "managementKey": []
@@ -6281,10 +4277,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6311,7 +4307,7 @@
             }
           },
           "400": {
-            "description": "A duplicate vault id, the host vault, or a selection outside the vaults",
+            "description": "Invalid headers, path, body or cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -6331,7 +4327,7 @@
             }
           },
           "403": {
-            "description": "A vault of another person than `ownerUserId`",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -6341,7 +4337,7 @@
             }
           },
           "404": {
-            "description": "No such agent, or no such vault",
+            "description": "No such agent, or no such Environment",
             "content": {
               "application/json": {
                 "schema": {
@@ -6379,7 +4375,7 @@
           "MCP servers"
         ],
         "summary": "Preview an MCP server's tools",
-        "description": "Connects to the remote MCP server at `url` with the installation vault's credential for that URL (its headers and `via`; never an identity header), under the Host's address policy, lists its tools within 15 s and closes the connection. It never calls a tool. Each tool comes with the name the model would call it (`modelName`, made with `name`), its annotations and its input schema's size. A server that answers `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any: it needs a person's sign-in, so reach it through a gateway (`via`), or with a key. No credential value is in the answer.",
+        "description": "Connects to the remote MCP server at `url` with the credential for that URL in the vault of `environmentId`, if given (its headers and `via`; never an identity header), under the Host's address policy, lists its tools within 15 s and closes the connection. It never calls a tool. Each tool comes with the name the model would call it (`modelName`, made with `name`), its annotations and its input schema's size. A server that answers `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any: it needs a person's sign-in, so reach it through a gateway (`via`), or with a key. No credential value is in the answer.",
         "security": [
           {
             "managementKey": []
@@ -6393,10 +4389,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6463,7 +4459,7 @@
             }
           },
           "409": {
-            "description": "Several installation vaults hold a credential for the URL (name one with `vaultId`), or the one there cannot be used",
+            "description": "The Environment's credential for the URL cannot be used",
             "content": {
               "application/json": {
                 "schema": {
@@ -6524,10 +4520,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6626,10 +4622,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6748,10 +4744,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6848,7 +4844,7 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Get the Tenant's sandbox configuration",
+        "summary": "Get the Tenant's sandbox backend and Environment settings",
         "security": [
           {
             "managementKey": []
@@ -6862,10 +4858,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6947,8 +4943,8 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Set the Tenant's sandbox configuration",
-        "description": "What a session gets when it names no sandbox, and the limits every session's sandbox must fit.",
+        "summary": "Set the Tenant's Environment settings",
+        "description": "The limits every Environment's recipe must fit, the pods' stop grace and where harnesses may run (Tenant setting `environments.config`).",
         "security": [
           {
             "managementKey": []
@@ -6962,10 +4958,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6975,7 +4971,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PutTenantSandboxRequest"
+                "$ref": "#/components/schemas/PutTenantEnvironmentsRequest"
               }
             }
           }
@@ -7073,10 +5069,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -7173,10 +5169,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -7281,12 +5277,12 @@
       "description": "Model providers, their credentials, the model the Tenant uses, what it spent, every model call for export, and the budgets that cap it. `admin.models`."
     },
     {
-      "name": "Vaults",
-      "description": "The installation's and each person's credentials for agents' tools: API keys, bound to the URL they are sent to. Sessions attach a vault by id. `admin.vaults`."
+      "name": "Credential coverage",
+      "description": "Which secret of an Environment each of an agent's MCP servers and HTTP tools would get, before a session opens. The secrets themselves are written on the Runtime API. `admin.coverage`."
     },
     {
       "name": "MCP servers",
-      "description": "See a remote MCP server's tools before an agent names it, with the installation vault's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`."
+      "description": "See a remote MCP server's tools before an agent names it, with an Environment's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`."
     },
     {
       "name": "Signing keys",
@@ -7294,7 +5290,7 @@
     },
     {
       "name": "Settings",
-      "description": "The Tenant's sandbox and artifact settings. `admin.settings`."
+      "description": "The Tenant's sandbox backend, Environment and artifact settings. `admin.settings`."
     }
   ]
 }

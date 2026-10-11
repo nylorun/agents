@@ -6,7 +6,7 @@ import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/agents";
 
 export const TENANT = "tn_00000000000000000000000001";
 export const SESSION = "s-resource";
-export const SANDBOX = "team/build";
+export const ENVIRONMENT = "team/build";
 const time = "2026-10-10T00:00:00.000Z";
 const html =
   "<h1>Report version 1</h1><script>window.previewExecuted=true</script>";
@@ -44,16 +44,32 @@ const entry = {
   contentType: "text/html",
   sha256: "b".repeat(64),
 };
-const sandbox = (id: string) => ({
+const environment = (id: string, fields: Record<string, unknown> = {}) => ({
   id,
   kind: "virtual",
   labels: { project: "build" },
-  spec: {},
+  recipe: {
+    resources: { cpus: 1, memory: "1024MiB" },
+    network: { allowedHosts: ["pypi.org"] },
+    harness: "nylorun",
+    lifecycle: { idle: "15m" },
+  },
+  version: 2,
+  appliedVersion: 2,
+  ownerUserId: null,
   state: "stopped",
+  lastUsedAt: time,
   sessions: [{ id: SESSION, activeTurnId: null }],
   createdAt: time,
   updatedAt: time,
+  ...fields,
 });
+const secret = {
+  name: "github",
+  type: "bearer",
+  binding: { url: "https://api.githubcopilot.com/mcp/" },
+  createdAt: time,
+};
 const summary = {
   id: SESSION,
   agentId: "external-agent",
@@ -111,43 +127,79 @@ export async function resourceRuntime() {
         protocol: {
           min: PROTOCOL_VERSION,
           max: PROTOCOL_VERSION,
-          features: [...PROTOCOL_FEATURES, "sandboxes", "session-reads"],
+          features: [...PROTOCOL_FEATURES, "session-reads"],
         },
       });
     if (path === "/v1/tenant")
       return send(200, { tenant: { id: TENANT, name: "Resource fixture" } });
     if (path === "/v1/agents") return send(200, { agents: [] });
-    if (path === "/v1/sandboxes")
+    if (path === "/v1/environments")
       return send(200, {
-        sandboxes: [
-          sandbox(url.searchParams.has("cursor") ? "z-last" : SANDBOX),
-        ],
-        nextCursor:
-          url.searchParams.has("cursor") || url.searchParams.has("label")
-            ? null
-            : "page2",
+        environments: url.searchParams.has("limit")
+          ? [environment(url.searchParams.has("cursor") ? "z-last" : ENVIRONMENT)]
+          : [environment(ENVIRONMENT)],
+        ...(url.searchParams.has("limit")
+          ? {
+              nextCursor:
+                url.searchParams.has("cursor") || url.searchParams.has("label")
+                  ? null
+                  : "page2",
+            }
+          : {}),
       });
-    if (path === "/v1/sandboxes/team%2Fbuild")
-      return send(200, sandbox(SANDBOX));
-    if (path === "/v1/sandboxes/team%2Fbuild/events") {
+    if (path === "/v1/environments/team%2Fbuild" && req.method === "GET")
+      return send(200, environment(ENVIRONMENT));
+    if (/^\/v1\/environments\/[^/]+$/.test(path) && req.method === "PUT") {
+      const body = JSON.parse(raw);
+      const id = decodeURIComponent(path.split("/")[3]!);
+      return send(
+        200,
+        environment(id, {
+          kind: body.kind ?? "virtual",
+          labels: body.labels ?? {},
+          ownerUserId: body.ownerUserId ?? null,
+          version: id === ENVIRONMENT ? 3 : 1,
+          appliedVersion: id === ENVIRONMENT ? 3 : 1,
+          sessions: [],
+        }),
+      );
+    }
+    if (/^\/v1\/environments\/[^/]+$/.test(path) && req.method === "DELETE")
+      return send(200, { id: decodeURIComponent(path.split("/")[3]!), deleted: true });
+    if (path === "/v1/environments/team%2Fbuild/secrets")
+      return send(200, { secrets: [secret] });
+    if (/^\/v1\/environments\/team%2Fbuild\/secrets\/[^/]+$/.test(path) && req.method === "PUT") {
+      const body = JSON.parse(raw);
+      return send(200, {
+        name: decodeURIComponent(path.split("/")[5]!),
+        type: body.type,
+        binding: body.url
+          ? { url: body.url }
+          : body.allowedHosts
+            ? { allowedHosts: body.allowedHosts }
+            : {},
+        createdAt: time,
+      });
+    }
+    if (path === "/v1/environments/team%2Fbuild/events") {
       const seq = refreshes++;
       return send(200, {
         events: [
           {
-            schema: "nylorun.sandbox-event/1",
-            eventId: `sb_${seq}`,
+            schema: "nylorun.environment-event/1",
+            eventId: `env_${seq}`,
             tenantId: TENANT,
-            sandboxId: SANDBOX,
+            environmentId: ENVIRONMENT,
             seq,
             time,
-            type: seq === 0 ? "sandbox.created" : "sandbox.suspended",
+            type: seq === 0 ? "environment.created" : "environment.attached",
             payload: {},
           },
         ],
       });
     }
-    if (path.startsWith("/v1/sandboxes/"))
-      return send(404, { code: "not_found", message: "Sandbox not found" });
+    if (path.startsWith("/v1/environments/"))
+      return send(404, { code: "not_found", message: "Environment not found" });
     if (path === "/v1/sessions")
       return send(
         200,
@@ -156,7 +208,7 @@ export async function resourceRuntime() {
               sessions: [
                 {
                   ...summary,
-                  sandboxId: SANDBOX,
+                  environmentId: ENVIRONMENT,
                   createdAt: time,
                   lastEventAt: time,
                   lastTurnId: "t1",
@@ -169,13 +221,9 @@ export async function resourceRuntime() {
     if (path === `/v1/sessions/${SESSION}`)
       return send(200, {
         ...summary,
-        sandboxId: SANDBOX,
         manifestHash: "h",
         implementationVersion: "1",
-        vaultIds: [],
-        credentialSelections: [],
-        sandboxOwnerId: null,
-        sandbox: { id: SANDBOX },
+        environment: { id: ENVIRONMENT, version: 2 },
         mcpSnapshot: null,
         mcpDiagnostics: [],
         uncertainEffects: [],
@@ -248,7 +296,6 @@ export async function resourceRuntime() {
       return send(404, { code: "not_found", message: "Artifact not found" });
     if (path === "/v1/tenant/providers" || path === "/v1/tenant/models")
       return send(200, { providers: [] });
-    if (path === "/v1/tenant/vaults") return send(200, { vaults: [] });
     if (path === "/v1/tenant/model") return send(200, { configured: false });
     return send(404, { code: "not_found", message: "Unknown fixture API" });
   });

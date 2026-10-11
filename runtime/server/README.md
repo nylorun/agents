@@ -4,7 +4,7 @@ The independent OSS **Runtime Host** consumes `@nylorun/harness/run` and
 `@nylorun/core/contracts`. Cloud installs published `@nylorun/harness` from npm
 and does not import this package. Every Tenant serves two APIs on one URL: the
 **Runtime API** for developers (agents, sessions with AG-UI and
-A2A, sandboxes, artifacts), whose client is `@nylorun/agents`, and the
+A2A, Environments and their secrets, artifacts), whose client is `@nylorun/agents`, and the
 **Management API** for operators (`/v1/tenant/*`), whose client is `@nylorun/admin`.
 Vocabulary: [src/CONTEXT.md](./src/CONTEXT.md).
 
@@ -45,7 +45,7 @@ database (`tenant_<id>` schemas), or by a pre-release build of one Tenant per da
 (`schema_version` tables), is refused: this release starts fresh on a new database. Restate runs one advance of a session at a time, delivers its wakes and holds
 its timers and the Tenant's sweep (Durable Session Execution), and journals no effect:
 checkpoints, effects, events and the outbox are the Session Store's, and a wake or a pod
-sandbox's reconcile is written to the outbox in the transaction that causes it, so a commit
+Environment's reconcile is written to the outbox in the transaction that causes it, so a commit
 never loses it ([src/CONTEXT.md](src/CONTEXT.md)); every session's events are relayed from the record to
 its own S2 stream, which history and SSE read (Durable Streams). One image runs every **service**,
 and `--service` picks what a process runs: `core` serves the Runtime API, the
@@ -103,7 +103,7 @@ is refused with `409 run_stale`. A `gates` process needs only
 (`NYLORUN_GATES_LISTEN_HOST`, `NYLORUN_GATES_LISTEN_PORT`, default 4100, and
 `NYLORUN_GATES_ALLOWED_HOSTS`) and the Host's `tenant/` directory, which it
 never writes; it serves the database's one Tenant. A session's MCP servers and
-HTTP tools get their credentials from its attached vaults only: a `bearer` token
+HTTP tools get their credentials from the vault of its Environment only: a `bearer` token
 or a `headers` map per URL, sent to an MCP gateway instead when it has `via`,
 with the session owner in its identity header
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools)); the credential resolver is gone
@@ -112,7 +112,7 @@ with the session owner in its identity header
 (`--service gates,keys,egress`, for pod sandboxes) the same process runs
 egress-gate on `NYLORUN_EGRESS_LISTEN_HOST`:`NYLORUN_EGRESS_LISTEN_PORT`
 (default `0.0.0.0:4200`): a CONNECT proxy that admits a pod's egress token and
-tunnels only to the hosts its sandbox spec allows, on 443 or 80, never to a
+tunnels only to the hosts its Environment allows (`network.allowedHosts`), on 443 or 80, never to a
 private address. `NYLORUN_PACKING` (`combined` or `split`) is logged at startup.
 
 The Host has one listener, which serves both APIs. Host work runs on the machine
@@ -171,7 +171,10 @@ are refused from browsers before they are looked up. The Runtime sends no CORS h
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
 unsupported protocol → `426` before authentication, unless the request sends neither
-`Nylorun-Protocol` nor `Authorization` (the Host serves protocols 4 to 10; protocol 10 removes
+`Nylorun-Protocol` nor `Authorization` (the Host serves protocol 11 only; protocol 11 replaces
+sandbox resources, the Tenant's default sandbox, inline sandboxes and user and installation
+vaults with Environments, each one sandbox and one vault, under `/v1/environments`, and
+removes the Management API's vault routes, so a protocol 10 client gets `426`; protocol 10 removes
 the MCP OAuth connect, the vault's `oauth` credentials and the credential resolver, and adds
 `headers` credentials, `via` and the identity header, manifest v6 and
 `POST /v1/tenant/mcp/preview`; protocol 9 makes the Runtime API an OAuth 2.1 resource server: a missing or rejected credential is `401
@@ -182,8 +185,7 @@ the Admin API, and those old paths answer `404` with no alias; protocol 7 remove
 derived principals, whose routes answer `404`; protocol 6 adds file and folder artifacts and message `parts`; at each turn's end the
 Runtime exports `/workspace/outputs` of the session's sandbox as a version of its
 `outputs` folder, read at `/v1/artifacts/{id}/versions/{n|latest}/tree`, `/files/{path}`,
-`/diff?from=` and `/zip`). Protocol 5 and later clients name no Tenant. A protocol 4 client's `Nylorun-Tenant` naming
-another Tenant (or malformed) and a Tenant that
+`/diff?from=` and `/zip`). Clients name no Tenant (since protocol 5). A Tenant that
 could not be opened → opaque `404` with identical body. A path or method no route serves is `404 Route not found`
 once the caller is known.
 
@@ -207,9 +209,9 @@ https://cdn.jsdelivr.net/npm/@nylorun/runtime@<version>/dist/management-openapi.
 
 Each document has described tags, in the order a developer uses them. The Runtime API's are
 grouped (`x-tagGroups`): Agents (Agents, Definition files), Sessions (Sessions API, AG-UI,
-A2A), Sandboxes, Artifacts and Service (health, readiness, `/v1/me`, the JWKS and the
+A2A), Environments, Artifacts and Service (health, readiness, `/v1/me`, the JWKS and the
 document; the `/openapi.json` alias is served but not listed). The Management API's are
-Tenant, Application keys, Models, Vaults, Signing keys and Settings. Each operation's
+Tenant, Application keys, Models, Credential coverage, MCP servers, Signing keys and Settings. Each operation's
 `security` says which credentials it takes (application key and trusted issuer's token in
 the Runtime API; management key in the Management API), and its
 `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields say
@@ -257,12 +259,14 @@ Save agents with `PUT /v1/agents/{agentId}` using the application principal (`sa
 in `@nylorun/agents`). The Runtime runs the agent from its manifest and never calls your
 code during a session: a definition with a tool that would (`tool({ run })`, a flow's tool
 stage) is refused. Your services are reached as tools: HTTP tools, POSTed from the Runtime,
-so their URLs must be reachable from it, and remote MCP servers. The operator gives
-each URL a vault credential, previews an MCP server's tools (`nylorun mcp inspect`),
+so their URLs must be reachable from it, and remote MCP servers. Each URL gets a
+credential in the vault of the Environment a session names (`PUT
+/v1/environments/{id}/secrets/{name}`), the operator previews an MCP server's tools
+(`nylorun mcp inspect --environment <id>`),
 and the manifest says which tools are enabled, need approval or are deferred
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools)). Model gateway
-and sandbox backend are Tenant configuration (vault / seed), not Host process
-env.
+and sandbox backend are Tenant configuration (the Tenant's own vault, Tenant
+settings and seed), not Host process env.
 
 ## Session behaviour
 
@@ -276,8 +280,9 @@ read from Durable Streams (S2). An advance owns its session through a lease with
 an epoch; a Worker that takes over after a crash marks in-flight effects
 `uncertain`. Vault ciphertext needs that Tenant's own KEK.
 
-Agents that declare `.use(sandbox())` get Runtime-executed sandbox tools. The
-Tenant owns each sandbox; backend names are prefixed `nylorun-<tenant-id>-`.
+A session that names an Environment of kind `virtual` or `pod` gets Runtime-executed
+sandbox tools; the agent declares nothing. The Tenant owns each Environment; backend
+names are prefixed `nylorun-<tenant-id>-`.
 
 ## Local Project workflow
 
@@ -307,7 +312,7 @@ Definitions have no `agent.run()`; applications use `@nylorun/agents`.
 ## Session reads
 
 Hosts advertising `session-reads` serve pinned session manifests, recorded usage, model-call
-pages and opt-in session/history/sandbox pagination. `calls-export` adds the Management API's
+pages and opt-in session/history/Environment pagination. `calls-export` adds the Management API's
 unfiltered, resumable model ledger export (`GET /v1/tenant/calls/model`, a management key) in
 safe transaction order. Existing list/history
 requests without `limit` retain their response shapes. These are public APIs for Studio,

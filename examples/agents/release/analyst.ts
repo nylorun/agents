@@ -2,8 +2,10 @@ import { Agent } from "@nylorun/agents";
 
 /**
  * A plain agent. Its computer (bash, read, write, edit, grep and glob on a persistent
- * workspace) comes from the session: open it with `createSession({ sandbox: {} })`, or set the
- * Tenant's default sandbox so every session gets one. The agent declares nothing.
+ * workspace) comes from the Environment its session is opened on:
+ * `client.environments.put(id, { kind: "virtual" })`, then
+ * `createSession({ agentId: "analyst", ownerUserId, environment: id })`. The agent declares
+ * nothing.
  */
 export const analyst = Agent({ id: "analyst", name: "Data analyst" })
   .instructions(

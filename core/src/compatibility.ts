@@ -1,6 +1,14 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 11: Environments (R2d, D55, D56), a fresh start. `/v1/environments/{id}` replaces
+ * `/v1/sandboxes`: an Environment is one sandbox (kind `virtual`, `pod` or `none`) with a recipe
+ * that can change and one vault, written on the Runtime API
+ * (`PUT /v1/environments/{id}/secrets/{name}`). Sessions name an `environment` or nothing; the
+ * session fields `sandbox`, `vaultIds` and `credentialSelections`, the Tenant's default sandbox,
+ * user and installation vaults and `/v1/tenant/vaults` are gone. Error codes, event types, the
+ * scope (`environments:write`) and identity-file grants (`environments`) say Environment. The
+ * Host accepts protocol 11 only: an older client is answered `426`.
  * Protocol 10: MCP credential custody leaves OSS (D49). The vault credential type `oauth`, the
  * MCP OAuth connect (`/v1/tenant/vaults/{vaultId}/oauth/start`, `/v1/oauth/callback`) and the
  * credential resolver are gone: a session's MCP servers and HTTP tools reach their credentials
@@ -23,7 +31,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -40,6 +48,13 @@ export const PROTOCOL_FEATURES = [
    * metadata at `/.well-known/oauth-protected-resource` when it has trusted issuers.
    */
   "resource-server",
+  /**
+   * Protocol 11: Environments (`/v1/environments/{id}`, kinds `virtual`, `pod` and `none`), each
+   * with one vault written on the Runtime API; sessions name an `environment`; token callers
+   * carry Environment grants checked at every turn start, and `environments:write` lets a
+   * subject create, change and delete the Environments it is granted.
+   */
+  "environments",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -53,21 +68,17 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * by subject headers. `a2a-endpoint`:
  * `POST /v1/a2a/agents/:agent` answers A2A 1.0 JSON-RPC for a subject, and
  * `GET /v1/a2a/agents/:agent/card` returns the agent's card without its interfaces.
- * `sandboxes`: sandboxes are a resource (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, kind `virtual`), a session attaches to one
- * with `sandbox: { id }`, a token caller (a trusted issuer's token) carries sandbox grants
- * checked at every turn start, and `sandboxes:write` lets a subject create and delete the
- * sandboxes it is granted.
- * `sandbox-pods`: kind `pod` runs as an agent-sandbox pod on the Tenant's cluster (`nylorun
- * sandbox enable`), with `POST /v1/sandboxes/{id}/stop` and `/reset`, a TTL
- * (`lifecycle.ttl`), lifecycle events (`sandbox.running`, `.suspended`, `.expired`,
- * `.relaunched`, `.lost`, `.reset`, `.failed`) and the Tenant's `placement`.
+ * `sandbox-pods`: Environments of kind `pod` run as agent-sandbox pods on the Tenant's cluster
+ * (`nylorun sandbox enable`), with `POST /v1/environments/{id}/stop` and `/reset`, lifecycle
+ * events (`environment.running`, `.suspended`, `.relaunched`, `.lost`, `.reset`, `.failed`) and
+ * the Tenant's `placement`.
  * `trusted-issuers`: the Tenant API accepts JWTs from the issuers of the Host's identity file
  * (`NYLORUN_IDENTITY_FILE`) as bearers, from servers and from browsers alike, with the
- * issuer's subject, scopes (and the issuer-only `studio`), agents and sandbox grants; `GET
+ * issuer's subject, scopes (and the issuer-only `studio`), agents and Environment grants; `GET
  * /v1/me` reports who any credential is.
  * `credential-coverage`: `POST /v1/tenant/credential-coverage` (the Management API) says which
- * vault credential each of a saved agent's MCP servers and HTTP tools would get in a session that
- * attaches given vaults.
+ * credential of an Environment's vault each of a saved agent's MCP servers and HTTP tools would
+ * get in a session that names that Environment.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -75,7 +86,6 @@ export const OPTIONAL_HOST_FEATURES = [
   "subject-headers",
   "ag-ui-endpoint",
   "a2a-endpoint",
-  "sandboxes",
   "sandbox-pods",
   "trusted-issuers",
   "session-reads",
@@ -89,16 +99,14 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 /**
- * What this Host serves. `runtime-tenants` (protocol 4 clients require it) and `admin-status`
- * (protocol 5 to 7 clients require it) are still advertised for the compatibility window, so
- * those clients keep reaching the Runtime API; protocol 8 clients require neither. The Admin
- * API itself is gone (protocol 8): `/v1/admin/*` is no route. `artifacts` (protocol 6 and
- * 7, required by their clients): file artifacts, capability links and message `parts`.
+ * What this Host serves: protocol 11 only (R2d Q3). Protocol 11 removed routes and session fields
+ * older clients send, so an older client is answered `426` naming the protocol it needs rather
+ * than a `404` or a `400` on a removed field.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
-  min: 4,
-  max: 10,
-  features: ["runtime-tenants", "admin-status", ...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
+  min: 11,
+  max: 11,
+  features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
 
@@ -148,18 +156,26 @@ export const ERROR_CODES = [
   "invalid_request",
   /** A route that acts for a person was called without one (`Nylorun-Subject`). */
   "subject_required",
-  /** A token caller's sandbox grants do not reach the sandbox (Host feature `sandboxes`). */
-  "sandbox_not_granted",
-  /** Another session's turn holds the sandbox: turns are serial per sandbox. */
-  "sandbox_busy",
-  /** The sandbox is gone, or its kind cannot run on this Runtime. */
-  "sandbox_unavailable",
-  /** The Tenant's placement keeps this session's harness off the host its sandbox needs. */
+  /** A token caller's Environment grants do not reach the Environment. */
+  "environment_not_granted",
+  /** Another session's turn holds the Environment: turns are serial per Environment. */
+  "environment_busy",
+  /** The Environment is gone, or its kind cannot run on this Runtime. */
+  "environment_unavailable",
+  /** The Tenant's placement keeps this session's harness off the host its Environment needs. */
   "placement_refused",
-  /** A pod sandbox's volume or node is gone: only `POST /v1/sandboxes/{id}/reset` brings it back. */
-  "sandbox_lost",
-  /** A pod sandbox passed its TTL: a `PUT` with a longer `lifecycle.ttl` revives it. */
-  "sandbox_expired",
+  /** A pod Environment's volume or node is gone: only `POST /v1/environments/{id}/reset` brings it back. */
+  "environment_lost",
+  /**
+   * The Environment names an owner (`ownerUserId`) other than the session's owner: `403` to an
+   * application key; a caller acting for a person gets the opaque `404`.
+   */
+  "environment_owner_mismatch",
+  /**
+   * The session is closed: it was opened before protocol 11 (its history stays readable), so
+   * open a new session that names an Environment.
+   */
+  "session_closed",
   /**
    * A trusted issuer's token names a key the Runtime has not seen, and the issuer's JWKS cannot
    * be fetched now (Host feature `trusted-issuers`): retry later. Keys already fetched keep working.
@@ -183,9 +199,9 @@ export const ERROR_CODES = [
    */
   "mcp_preview_failed",
   /**
-   * A session's shell credentials would be ambiguous (R2c, D50): `409`. Two attached
-   * `environment_secret` or `environment_variable` credentials share a variable name, two
-   * secrets are bound to one host, or the sandbox would serve secrets to sessions of two owners.
+   * An Environment's credentials would be ambiguous (R2c, D56): `409` at the secret write. Two
+   * `environment_secret` credentials would be bound to one host, or two `bearer` or `headers`
+   * credentials to one URL.
    */
   "credential_conflict",
   "internal_error",

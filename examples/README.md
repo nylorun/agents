@@ -23,19 +23,22 @@ Optional integration variables are loaded from `.env`. Interior Design uses `OPE
 
 ## Data analyst (sandbox)
 
-[`agents/release/analyst.ts`](./agents/release/analyst.ts) is a plain agent. The sandbox comes from the session, not the agent: open a session with `createSession({ agentId: "analyst", ownerUserId, sandbox: {} })`, or give every session in the Tenant one by setting its default (Studio opens sessions without naming a sandbox, so it uses the default):
+[`agents/release/analyst.ts`](./agents/release/analyst.ts) is a plain agent. The sandbox comes from the session's Environment, not the agent: create an Environment (one sandbox and one vault, with its own id) and open the session on it. A session opened on none has no sandbox.
 
-```bash
-eval "$(npx nylo env)"
-# The Management API takes the project's management key, which `nylorun start` wrote beside its application key.
-NYLORUN_MANAGEMENT_KEY=$(node -p 'require("./.nylorun/credentials.json").managementKey')
-curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/sandbox" -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 9" -H "content-type: application/json" -d '{"default":"virtual"}'
+```ts
+const client = await createClient();
+await client.environments.put("users/alice/analyst", { kind: "virtual" });
+await client.createSession({ agentId: "analyst", ownerUserId: "alice", environment: "users/alice/analyst" });
+// Or one Environment for one session, deleted with release():
+const { session, release } = await client.environments.forSession({
+  session: { agentId: "analyst", ownerUserId: "alice" },
+});
 ```
 
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`. The Runtime runs those tools itself in an emulated shell; it is not a VM boundary. `npx nylo doctor sandbox` reports its backend and the Tenant's sandbox configuration. Try in Studio:
+In Studio, pick the Environment when you start the session. The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`, kept with the Environment across its sessions. Kind `virtual` runs those tools in an emulated shell in the Runtime; it is not a VM boundary (kind `pod` runs them in a pod: `npx nylorun sandbox enable`). `npx nylo doctor sandbox` reports the backend and the Tenant's limits. Try in Studio:
 
 - `Create sales.csv with three regions and numbers, then total them with awk.`
-- `Download https://example.com with curl.` The request is blocked: a sandbox reaches only the hosts it asks for (`network.allow`), within the Tenant's ceiling.
+- `Download https://example.com with curl.` The request is blocked: a sandbox reaches only the hosts its Environment allows (`network.allowedHosts`), within the Tenant's ceiling.
 
 ## Repo brief: every piece in one flow
 
@@ -52,7 +55,7 @@ triage → switch ┬ repo:    map(researcher) → parallel(overview, risks) →
 - The **loop** runs the writer until the editor passes the brief, at most twice. The writer follows the `repo-brief` **skill** ([`skills/repo-brief`](./agents/repo-brief/skills/repo-brief/SKILL.md)): it writes `/workspace/brief.md` and runs the skill's `scripts/check.sh` in the session's sandbox, and it dates the brief with the `now` **HTTP tool**.
 - The last stage, `publish_brief`, is an **HTTP tool used as a flow stage**: the Runtime POSTs the brief to the tools service ([`publish.ts`](./agents/repo-brief/publish.ts)), which stands in for your CMS, and its answer is the flow's output.
 
-The writer's shell needs a sandbox, chosen when the session opens, as for the [data analyst](#data-analyst-sandbox): open the session with `sandbox: {}`, or set the Tenant's default. Then try `Brief me on modelcontextprotocol/typescript-sdk.` in Studio. [`test/repo-brief.test.ts`](./test/repo-brief.test.ts) runs the same turn against an in-process Runtime, with a stub model, a fake DeepWiki and the tools service.
+The writer's shell needs a sandbox, chosen when the session opens, as for the [data analyst](#data-analyst-sandbox): open the session on an Environment (`environment: <id>`; in Studio, pick one). Then try `Brief me on modelcontextprotocol/typescript-sdk.` in Studio. [`test/repo-brief.test.ts`](./test/repo-brief.test.ts) runs the same turn against an in-process Runtime, with a stub model, a fake DeepWiki and the tools service.
 
 ## An agent in your web app (AG-UI)
 
@@ -125,11 +128,12 @@ Rules for a web backend:
   AG-UI events and nothing else; the handler calls the Runtime as each person
   (`client.as`), so people only reach their own threads, and any `Nylorun-*`
   header a browser sends is ignored.
-- Per-user keys (a user's GitHub token) go in that person's user vault, which
-  only their sessions attach ([Credentials](../guides/DEPLOYMENT.md#credentials)).
+- Per-user keys (a user's GitHub token) go in that person's Environment
+  (`client.environments.secrets.put`), with `ownerUserId` set so only their
+  sessions may name it ([Credentials](../guides/DEPLOYMENT.md#credentials)).
   Accounts that need the person's sign-in (their Drive) go through an MCP gateway
   ([Reaching a person's accounts](../guides/DEPLOYMENT.md#reaching-a-persons-accounts)).
-  Shared tool keys go in an installation vault.
+  A shared tool key is a secret of each Environment that needs it.
 - The Runtime stays off the network: see
   [Serving people through an app server](../guides/DEPLOYMENT.md#serving-people-through-an-app-server).
 
@@ -160,7 +164,7 @@ The creator owns the shell files listed in `.scaffold-manifest.json`, including 
 | **Guardrails**      | `Publish the password is hunter2.`                                                              | The publish call is denied. The four policy surfaces are listed after this table.                                                                                   |
 | **Interactions**    | `Ask me what to name the note, then save it.`                                                   | Studio asks a question, then asks for approval before `write_note`.                                                                                                 |
 | **Remote MCP**      | `What does the README of modelcontextprotocol/typescript-sdk say about transports?`             | The Runtime connects to DeepWiki's public MCP server by URL and calls its tools; no process of yours serves them.                                                  |
-| **Repo brief**      | `Brief me on modelcontextprotocol/typescript-sdk.` (with a sandbox)                             | The flow tree shows triage, the repo case, one researcher per question, both reviews, the writer and editor, and `publish_brief`; the writer's `bash` call prints `ok`. |
+| **Repo brief**      | `Brief me on modelcontextprotocol/typescript-sdk.` (on an Environment)                          | The flow tree shows triage, the repo case, one researcher per question, both reviews, the writer and editor, and `publish_brief`; the writer's `bash` call prints `ok`. |
 | **Code Mode**       | `Calculate 100 / 4, convert that many celsius to fahrenheit, and include the current UTC time.` | One `run_code` call. The program uses `await tools.*` and returns one object (25 °C → 77 °F plus `iso`).                                                            |
 | **Subagents**       | `Ask the tool-use specialist to calculate 19 * 7.`                                              | A `tool-use` call runs that agent with a fresh context; the parent reports its answer. Studio shows the delegation and the child's own tool calls. The other agents are `instructions` (format-only) and `skills` (SKILL.md). |
 | **Coding Agent**    | `Add a goodbye function next to hello and show the file.`                                       | After Codex preflight and approval, `codex exec` runs in a temporary workspace.                                                                                     |
@@ -238,7 +242,7 @@ Capability modules stay small:
 - [notes](./agents/interactions/notes.ts) uses an ordinary JSONL service; `write_note` has an `approval`, so each write waits for a person.
 - [guardrails](./agents/guardrails/capability.ts) maps OpenAI-style input, output, tool-input, and tool-output checks onto middleware timing; middleware runs in the local engine only.
 - [skills](./agents/skills/agent.ts) is one `.skills(folder)` call: a SKILL.md catalog the Runtime serves with `load_skill`.
-- [codex](./agents/coding-agent/capability.ts) wraps a host runtime. For an isolated machine, open the session with a sandbox, as for [analyst](./agents/release/analyst.ts).
+- [codex](./agents/coding-agent/capability.ts) wraps a host runtime. For an isolated machine, open the session on an Environment, as for [analyst](./agents/release/analyst.ts).
 - [subagents](./agents/subagents/agent.ts) puts three example agents in `.subagents()`; each runs with a fresh context and returns only its answer.
 - [mcp](./agents/mcp/agent.ts) is one `.mcp({ deepwiki: { type: "streamable-http", url } })` call: a remote MCP server the Runtime reaches by URL.
 

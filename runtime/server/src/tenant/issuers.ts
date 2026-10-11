@@ -46,7 +46,7 @@ const JWKS_MAX_BYTES = 256 * 1024;
 const JWKS_MAX_KEYS = 64;
 const DEFAULT_REFETCH_MS = 60_000;
 const DEFAULT_MAX_AGE_MS = 10 * 60_000;
-/** A grant's claim value: one sandbox id segment, so a claim never widens the template. */
+/** A grant's claim value: one Environment id segment, so a claim never widens the template. */
 const GRANT_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export interface TrustedIssuersOptions {
@@ -334,7 +334,7 @@ export async function verifyIssuerToken(
   const subject = renderTemplate(config.subject, (claim) => scalarClaim(payload, claim));
   if (subject === undefined || !isSubject(subject) || RESERVED.has(subject))
     return rejected("issuer_token_subject");
-  const sandboxes = config.sandboxes?.flatMap((grant) => {
+  const environments = config.environments?.flatMap((grant) => {
     const rendered = renderTemplate(grant, (claim) => {
       const value = scalarClaim(payload, claim);
       return value !== undefined && GRANT_SEGMENT.test(value) ? value : undefined;
@@ -351,7 +351,7 @@ export async function verifyIssuerToken(
     subject,
     scopes: scopesOf(config, payload),
     agents: config.agents ? new Set(config.agents) : "*",
-    sandboxes: [...new Set(sandboxes ?? [])],
+    environments: [...new Set(environments ?? [])],
     expiresAt: payload.exp! * 1000,
     tokenId: jti,
     ...(verdict.kid !== undefined ? { keyId: verdict.kid } : {}),

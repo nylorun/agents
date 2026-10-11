@@ -166,35 +166,25 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 4 to 10 clients; protocol 6 and later clients require artifacts", () => {
-    expect(PROTOCOL_VERSION).toBe(10);
+  it("serves protocol 11 clients only; they require environments", () => {
+    expect(PROTOCOL_VERSION).toBe(11);
     // Protocol 8 clients require the Management API (key roles); protocol 9 clients the OAuth
-    // resource server's 401 challenges.
+    // resource server's 401 challenges; protocol 11 clients Environments.
     expect(PROTOCOL_FEATURES).toContain("management-api");
     expect(PROTOCOL_FEATURES).toContain("resource-server");
-    expect(PROTOCOL_FEATURES).not.toContain("runtime-tenants");
+    expect(PROTOCOL_FEATURES).toContain("environments");
     expect(PROTOCOL_FEATURES).toContain("artifacts");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 4, max: 10 });
-    // Protocol 7 removed these Host features (F9 I3).
-    for (const removed of ["subject-tokens", "browser-access", "derived-principals"])
+    expect(HOST_PROTOCOL).toMatchObject({ min: 11, max: 11 });
+    // Protocol 11 removed sandbox resources (R2d): no `sandboxes` Host feature.
+    expect(HOST_PROTOCOL.features).not.toContain("sandboxes");
+    // The compatibility window for protocol 4 to 10 clients is closed (R2d Q3).
+    for (const removed of ["runtime-tenants", "admin-status", "subject-tokens", "browser-access", "derived-principals"])
       expect(HOST_PROTOCOL.features).not.toContain(removed);
-    // The window: a protocol 4 client requires runtime-tenants, and the Host still has it.
-    expect(
-      checkCompatibility({ version: 4, required: ["runtime-tenants"] }, HOST_PROTOCOL),
-    ).toEqual({ ok: true });
-    // A protocol 5 to 7 client still works: it requires admin-status, which the Host still
-    // advertises though the Admin API is gone (protocol 8).
-    expect(
-      checkCompatibility({ version: 6, required: ["admin-status", "studio-principal", "artifacts"] }, HOST_PROTOCOL),
-    ).toEqual({ ok: true });
-    // Action endpoints are gone (track R2): a client that requires them is refused.
-    expect(PROTOCOL_FEATURES).not.toContain("action-endpoints");
-    expect(
-      checkCompatibility(
-        { version: 5, required: ["admin-status", "studio-principal", "action-endpoints"] },
-        HOST_PROTOCOL,
-      ),
-    ).toMatchObject({ ok: false, reason: "feature", missing: ["action-endpoints"] });
+    for (const version of [4, 8, 10])
+      expect(checkCompatibility({ version, required: [] }, HOST_PROTOCOL)).toMatchObject({
+        ok: false,
+        reason: "version",
+      });
   });
 
   it("makes artifact ids that match their pattern", () => {
@@ -226,7 +216,7 @@ describe("checkCompatibility", () => {
   it("rejects missing required features", () => {
     expect(
       checkCompatibility(
-        { version: PROTOCOL_VERSION, required: ["runtime-tenants", "missing-feature"] },
+        { version: PROTOCOL_VERSION, required: ["environments", "missing-feature"] },
         HOST_PROTOCOL,
       ),
     ).toEqual({
@@ -237,10 +227,6 @@ describe("checkCompatibility", () => {
     });
   });
 
-  it("retires admin-status: protocol 8 clients do not require it, and the Host keeps it for older ones", () => {
-    expect(PROTOCOL_FEATURES).not.toContain("admin-status");
-    expect(HOST_PROTOCOL.features).toContain("admin-status");
-  });
 });
 
 describe("keys by name (F9 I1, /v1/tenant/keys)", () => {

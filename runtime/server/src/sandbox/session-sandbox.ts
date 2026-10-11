@@ -137,7 +137,7 @@ function checked(original: AgentManifest, sandboxed: AgentManifest): SandboxedMa
     return {
       ok: false,
       message: clash
-        ? `'${original.id}' declares a tool named like a sandbox tool (bash, read, write, edit, grep, glob, save_artifact). Rename it, or open the session with sandbox: false.`
+        ? `'${original.id}' declares a tool named like a sandbox tool (bash, read, write, edit, grep, glob, save_artifact). Rename it, or open the session on no Environment or one of kind none.`
         : `'${original.id}' cannot take this sandbox: ${[...new Set(issues)].join("; ")}`,
     };
   }

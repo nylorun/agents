@@ -204,8 +204,6 @@ export type FlowHostSession = {
   status: string;
   activeTurnId: string | null;
   info?: any;
-  vaultIds?: readonly string[];
-  credentialSelections?: readonly unknown[];
   creation?: unknown;
   waits?: unknown;
   lastOutput?: JsonValue;

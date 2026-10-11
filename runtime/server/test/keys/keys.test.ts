@@ -56,37 +56,49 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
 }
 
 describe("the Tenant API through the keys service", () => {
-  it("creates and rotates a credential, and keeps a vault error's status", async () => {
+  it("writes and replaces an Environment's secret, and keeps a vault error's status, code and details", async () => {
     const runtime = await boot();
-    const vault = await call(runtime, "POST", "/v1/tenant/vaults", {
-      requestId: "v1",
-      idempotencyKey: "v1",
-      name: "GitHub",
-      ownerUserId: "ada",
-    });
-    expect(vault.status).toBe(200);
-    const created = await call(runtime, "POST", `/v1/tenant/vaults/${vault.body.id}/credentials`, {
-      requestId: "c1",
-      idempotencyKey: "c1",
-      name: "token",
-      auth: { type: "bearer", url: "https://mcp.example.invalid/mcp", token: "first-secret-value" },
+    const environment = await call(runtime, "PUT", "/v1/environments/ada", { kind: "none" });
+    expect(environment.status).toBe(200);
+    const url = "https://mcp.example.invalid/mcp";
+    const created = await call(runtime, "PUT", "/v1/environments/ada/secrets/token", {
+      type: "bearer",
+      url,
+      value: "first-secret-value",
     });
     expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({ name: "token", type: "bearer", binding: { url } });
     expect(JSON.stringify(created.body)).not.toContain("first-secret-value");
-    const rotated = await call(
-      runtime,
-      "POST",
-      `/v1/tenant/vaults/${vault.body.id}/credentials/${created.body.id}`,
-      { requestId: "r1", idempotencyKey: "r1", auth: { type: "bearer", token: "second-secret-value" } },
-    );
+    const rotated = await call(runtime, "PUT", "/v1/environments/ada/secrets/token", {
+      type: "bearer",
+      url,
+      value: "second-secret-value",
+    });
     expect(rotated.status).toBe(200);
-    // A vault error raised in the gateway keeps its status across the hop.
-    const missing = await call(runtime, "POST", `/v1/tenant/vaults/${vault.body.id}/credentials/cred_missing`, {
-      requestId: "r2",
-      idempotencyKey: "r2",
-      auth: { type: "bearer", token: "x-secret-value" },
+    expect(rotated.body.rotatedAt).toEqual(expect.any(String));
+    expect(JSON.stringify(rotated.body)).not.toContain("second-secret-value");
+    // A vault error raised in the gateway keeps its status, code and details across the hop.
+    const missing = await call(runtime, "PUT", "/v1/environments/missing/secrets/token", {
+      type: "bearer",
+      url,
+      value: "x-secret-value",
     });
     expect(missing.status).toBe(404);
+    const conflict = await call(runtime, "PUT", "/v1/environments/ada/secrets/other", {
+      type: "bearer",
+      url,
+      value: "x-secret-value",
+    });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body).toMatchObject({
+      code: "credential_conflict",
+      details: { url, existing: "token" },
+    });
+    const invalid = await call(runtime, "PUT", "/v1/environments/ada/secrets/PATH", {
+      type: "environment_variable",
+      value: "x",
+    });
+    expect(invalid.status).toBe(400);
   });
 
   it("sets and selects the host model", async () => {

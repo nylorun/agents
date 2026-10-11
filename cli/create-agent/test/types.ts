@@ -18,6 +18,11 @@ const session = await client.createSession({
   agentId: agent.manifest.id,
   ownerUserId: "local",
 });
+// Protocol 11: a session's sandbox and credentials come from the Environment it names.
+await client.environments.put("users/local/web", { kind: "virtual" });
+await client.createSession({ agentId: agent.manifest.id, ownerUserId: "local", environment: "users/local/web" });
+// @ts-expect-error Sessions name an Environment: there is no inline sandbox.
+await client.createSession({ agentId: agent.manifest.id, ownerUserId: "local", sandbox: "virtual" });
 await session.input("hello", { idempotencyKey: "input-1" });
 await session.history();
 await session.cancel({ idempotencyKey: "cancel-1" });

@@ -24,48 +24,36 @@ export function isNewSessionState(state: unknown): boolean {
 /** Who owns the sessions Studio starts (its proxy sets the same owner). */
 export const STUDIO_OWNER = "local-developer";
 
-/** The vaults a new session attaches, and the credential it picks where several match. */
-export interface NewSessionCredentials {
-  readonly vaultIds?: readonly string[];
-  readonly credentialSelections?: readonly {
-    readonly serverName: string;
-    readonly credentialId: string;
-  }[];
+/**
+ * The Environment a new session names (protocol 11): its sandbox, and the vault whose secrets
+ * its MCP servers, HTTP tools and shell use. Without one the session has no sandbox and sends
+ * no credential.
+ */
+export interface NewSessionEnvironment {
+  readonly environment?: string;
 }
 
-/** `NEW_SESSION` with the vaults the session attaches, when it attaches any. */
-export function newSessionState(credentials: NewSessionCredentials = {}) {
-  const vaultIds = credentials.vaultIds ?? [];
-  const selections = credentials.credentialSelections ?? [];
+/** `NEW_SESSION` with the Environment the session names, when it names one. */
+export function newSessionState(choice: NewSessionEnvironment = {}) {
   return {
     ...NEW_SESSION,
-    ...(vaultIds.length ? { vaultIds: [...vaultIds] } : {}),
-    ...(selections.length ? { credentialSelections: selections.map((item) => ({ ...item })) } : {}),
+    ...(choice.environment ? { environment: choice.environment } : {}),
   };
 }
 
-/** The vaults a `newSessionState` carries, read back from navigation state. */
-export function newSessionCredentials(state: unknown): NewSessionCredentials {
+/** The Environment a `newSessionState` carries, read back from navigation state. */
+export function newSessionEnvironment(state: unknown): NewSessionEnvironment {
   if (!isNewSessionState(state)) return {};
-  const { vaultIds, credentialSelections } = state as {
-    vaultIds?: unknown;
-    credentialSelections?: unknown;
-  };
-  const ids = Array.isArray(vaultIds)
-    ? vaultIds.filter((id): id is string => typeof id === "string" && id !== "")
-    : [];
-  const selections = Array.isArray(credentialSelections)
-    ? credentialSelections.flatMap((item: unknown) => {
-        const { serverName, credentialId } = (item ?? {}) as Record<string, unknown>;
-        return typeof serverName === "string" && typeof credentialId === "string"
-          ? [{ serverName, credentialId }]
-          : [];
-      })
-    : [];
-  return {
-    ...(ids.length ? { vaultIds: ids } : {}),
-    ...(selections.length ? { credentialSelections: selections } : {}),
-  };
+  const { environment } = state as { environment?: unknown };
+  return typeof environment === "string" && environment !== "" ? { environment } : {};
+}
+
+/** The id of the Environment a session view names (`environment: { id, version } | null`). */
+export function sessionEnvironmentId(view: Readonly<Record<string, unknown>>): string | undefined {
+  const environment = view.environment;
+  if (typeof environment !== "object" || environment === null) return undefined;
+  const id = (environment as { id?: unknown }).id;
+  return typeof id === "string" && id !== "" ? id : undefined;
 }
 
 /** A session's page that resolves its agent: what links to a child session use. */

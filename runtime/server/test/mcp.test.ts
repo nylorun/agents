@@ -138,37 +138,37 @@ async function boot(_directory: string, model?: ModelProvider) {
   });
 }
 
-async function createBearer(
-  runtime: { url: string; managementHeaders(): Record<string, string> },
-  ownerUserId: string,
+/** Creates Environment `environmentId` (no sandbox), if it is not there yet. */
+async function createEnvironment(runtime: { url: string }, environmentId: string) {
+  const response = await fetch(`${runtime.url}/v1/environments/${environmentId}`, {
+    method: "PUT",
+    headers: serverHeaders,
+    body: JSON.stringify({ requestId: `env-${environmentId}`, kind: "none" }),
+  });
+  expect(response.ok, await response.clone().text()).toBe(true);
+}
+
+/** Writes a bearer credential for `url` to the Environment's vault, as secret `name`. */
+async function putBearer(
+  runtime: { url: string },
+  environmentId: string,
+  name: string,
   url: string,
   token: string,
 ) {
-  const vault = await (
-    await fetch(`${runtime.url}/v1/tenant/vaults`, {
-      method: "POST",
-      headers: runtime.managementHeaders(),
-      body: JSON.stringify({
-        requestId: `vault-${ownerUserId}-${url}`,
-        idempotencyKey: `vault-${ownerUserId}-${url}`,
-        name: "GitHub",
-        ownerUserId,
-      }),
-    })
-  ).json();
-  const credential = await (
-    await fetch(`${runtime.url}/v1/tenant/vaults/${vault.id}/credentials`, {
-      method: "POST",
-      headers: runtime.managementHeaders(),
-      body: JSON.stringify({
-        requestId: `cred-${token}`,
-        idempotencyKey: `cred-${token}`,
-        name: token,
-        auth: { type: "bearer", url, token },
-      }),
-    })
-  ).json();
-  return { vaultId: vault.id as string, credentialId: credential.id as string };
+  return fetch(`${runtime.url}/v1/environments/${environmentId}/secrets/${name}`, {
+    method: "PUT",
+    headers: serverHeaders,
+    body: JSON.stringify({ requestId: `secret-${name}`, type: "bearer", url, value: token }),
+  });
+}
+
+/** An Environment with one bearer credential for `url`. */
+async function createBearer(runtime: { url: string }, environmentId: string, url: string, token: string) {
+  await createEnvironment(runtime, environmentId);
+  const response = await putBearer(runtime, environmentId, "github", url, token);
+  expect(response.status, await response.clone().text()).toBe(200);
+  return { environmentId };
 }
 
 async function register(runtime: { url: string }, manifest: unknown) {
@@ -200,7 +200,7 @@ async function openSession(
       ...body,
     }),
   });
-  expect(response.ok).toBe(true);
+  expect(response.ok, await response.clone().text()).toBe(true);
 }
 
 async function say(runtime: { url: string }, id: string, content: string) {
@@ -258,8 +258,8 @@ it("discovers a remote MCP server with a bearer and calls it from the Runtime", 
       .build();
     const registered = await register(runtime, agent.manifest);
     expect(registered.manifestHash).toBe(hashManifest(agent.manifest));
-    const vault = await createBearer(runtime, "ada", remote.url, TOKEN);
-    await openSession(runtime, "s1", { vaultIds: [vault.vaultId] });
+    const { environmentId } = await createBearer(runtime, "ada-env", remote.url, TOKEN);
+    await openSession(runtime, "s1", { environment: environmentId });
     await say(runtime, "s1", "read the issue");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
     expect(session.status).toBe("completed");
@@ -357,8 +357,8 @@ it("writes tool.completed with the output or the tool error of each MCP call", a
   }
 });
 
-it("refuses an ambiguous server and still discovers the other one", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "mcp-ambiguous-"));
+it("refuses a second credential for one server at the write, and connects with the first", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mcp-conflict-"));
   const github = await probe({ name: "github", tool: "get_issue", requiredToken: TOKEN });
   const docs = await probe({ name: "docs", tool: "search" });
   const runtime = await boot(directory, async () => ({
@@ -375,23 +375,29 @@ it("refuses an ambiguous server and still discovers the other one", async () => 
       })
       .build();
     await register(runtime, agent.manifest);
-    const first = await createBearer(runtime, "ada", github.url, TOKEN);
-    const second = await createBearer(runtime, "ada", github.url, `${TOKEN}-other`);
-    await openSession(runtime, "s1", { vaultIds: [first.vaultId] });
+    const { environmentId } = await createBearer(runtime, "ada-env", github.url, TOKEN);
+    // Ambiguity is refused where it would start (protocol 11): one credential per URL.
+    const second = await putBearer(runtime, environmentId, "other", github.url, `${TOKEN}-other`);
+    expect(second.status).toBe(409);
+    expect(await second.json()).toMatchObject({ code: "credential_conflict" });
+    const secrets = await (
+      await fetch(`${runtime.url}/v1/environments/${environmentId}/secrets`, { headers: serverHeaders })
+    ).json();
+    expect(secrets.secrets.map((secret: { name: string }) => secret.name)).toEqual(["github"]);
+    await openSession(runtime, "s1", { environment: environmentId });
     await say(runtime, "s1", "hello");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
     expect(session.status).toBe("completed");
-    expect(github.requests).toEqual([]);
-    expect(session.mcpSnapshot.mcpTools.map((tool: { name: string }) => tool.name)).toEqual([
+    expect(github.requests.length).toBeGreaterThan(0);
+    expect(github.requests.every((item) => item.authorization === `Bearer ${TOKEN}`)).toBe(true);
+    expect(docs.requests.every((item) => item.authorization == null)).toBe(true);
+    expect(session.mcpSnapshot.mcpTools.map((tool: { name: string }) => tool.name).sort()).toEqual([
       "docs__search",
+      "github__get_issue",
     ]);
     expect(session.mcpDiagnostics).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          serverName: "github",
-          outcome: "refused",
-          credentialIds: expect.arrayContaining([first.credentialId, second.credentialId]),
-        }),
+        expect.objectContaining({ serverName: "github", outcome: "connected" }),
         expect.objectContaining({ serverName: "docs", outcome: "connected" }),
       ]),
     );

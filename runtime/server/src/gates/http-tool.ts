@@ -54,9 +54,8 @@ export type HttpOutcome =
       readonly kind: "failed";
       readonly code: string;
       readonly message: string;
-      /** With `credential_rejected`: the tool's `credential`, and the scope of its vault. */
+      /** With `credential_rejected`: the tool's `credential`. */
       readonly server?: string;
-      readonly vault?: "installation" | "user";
       /** How many credential values the message had in it, replaced (R2b C8). */
       readonly redacted?: number;
     };
@@ -258,7 +257,6 @@ export async function runHttpTool(
     let credential: Record<string, string> = {};
     let identity: { readonly header: string } | undefined;
     let target: HttpToolTarget = http;
-    let vault: "installation" | "user" | undefined;
     if (http.credential !== undefined) {
       const authorized = await tenant.authorize(tool.sessionId, {
         url: http.url,
@@ -269,11 +267,10 @@ export async function runHttpTool(
       if (authorized.status === "unauthenticated")
         return failed(
           "http.credential",
-          `The session's vaults hold no credential '${http.credential}' for ${authorized.url}`,
+          `The session's Environment holds no credential '${http.credential}' for ${authorized.url}`,
         );
       credential = authorized.headers;
       identity = authorized.identity;
-      vault = authorized.vault;
       // A credential with `via` sends the call there, a gateway (R2b C2, Q9).
       if (authorized.via !== undefined) target = { ...http, url: authorized.via };
     }
@@ -296,9 +293,8 @@ export async function runHttpTool(
       return outcome;
     return {
       ...outcome,
-      message: `The service answered HTTP 401: it rejected the credential '${http.credential}' from the ${vault} vault`,
+      message: `The service answered HTTP 401: it rejected the credential '${http.credential}' from the session's Environment`,
       server: http.credential,
-      ...(vault === undefined ? {} : { vault }),
     };
   }
 }

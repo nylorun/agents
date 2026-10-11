@@ -1,5 +1,5 @@
 /**
- * Host tokens (F7.2, D42): what a pod sandbox's join token and host token reach, and what they
+ * Host tokens (F7.2, D42): what a pod Environment's join token and host token reach, and what they
  * do not. The join is bound to the token's hash and the Sandbox's current pod; a host token is
  * accepted only by the Harness API listener, for a connection that hosts its sandbox alone; an
  * older epoch, an egress token, a run token or a forged token is refused; a host connection
@@ -52,7 +52,7 @@ async function until<T>(read: () => Promise<T> | T, ok: (value: T) => boolean): 
 }
 
 async function pod(id: string) {
-  expect((await call("PUT", `/v1/sandboxes/${encodeURIComponent(id)}`, { kind: "pod" })).status).toBe(200);
+  expect((await call("PUT", `/v1/environments/${encodeURIComponent(id)}`, { kind: "pod" })).status).toBe(200);
   const name = podName(tenantId, id, 0);
   await until(() => fake.podUid(name), (uid) => uid !== undefined);
   return name;
@@ -148,7 +148,7 @@ describe("host tokens", { timeout: 60_000 }, () => {
     const a = podName(tenantId, "ht/a", 0);
     const grant = await hosts.join({ sandboxId: "ht/a", podUid: fake.podUid(a)!, joinToken: fake.joinToken(a)! });
     for (const bearer of [grant.hostToken, grant.egressToken]) {
-      const answer = await call("GET", "/v1/sandboxes", undefined, bearer);
+      const answer = await call("GET", "/v1/environments", undefined, bearer);
       expect(answer.status).not.toBe(200);
     }
     await expect(hosts.verify(grant.egressToken)).rejects.toBeInstanceOf(HostAuthError);
@@ -168,16 +168,17 @@ describe("host tokens", { timeout: 60_000 }, () => {
     await hello(channel);
     // It claims no event of a session it holds no run or request for.
     await expect(
-      channel.request("event", { sessionId: "someone-else", turnId: null, type: "sandbox.exec", payload: {} }),
+      channel.request("event", { sessionId: "someone-else", turnId: null, type: "environment.exec", payload: {} }),
     ).rejects.toMatchObject({ code: "run_not_held" });
-    // A session on another pod sandbox is not served by this host.
-    expect((await call("PUT", "/v1/sessions/ht-b", { requestId: "ht-b", agentId: "bot", ownerUserId: "app:ada", sandbox: { id: "ht/b" } })).status).toBe(200);
+    // A session on another pod Environment is not served by this host.
+    expect((await call("PUT", "/v1/sessions/ht-b", { requestId: "ht-b", agentId: "bot", ownerUserId: "app:ada", environment: "ht/b" })).status).toBe(200);
     const refused = await call("POST", "/v1/sessions/ht-b/sandbox/read", { path: "x" });
     expect(refused.status).toBe(409);
-    expect(refused.body.code).toBe("sandbox_unavailable");
-    // A session without a pod sandbox is never served by a host either: the in-process harness
-    // holds those workspaces.
-    expect((await call("PUT", "/v1/sessions/ht-plain", { requestId: "ht-plain", agentId: "bot", ownerUserId: "app:ada", sandbox: {} })).status).toBe(200);
+    expect(refused.body.code).toBe("environment_unavailable");
+    // A session without a pod Environment is never served by a host either: the in-process
+    // harness holds those workspaces.
+    expect((await call("PUT", "/v1/environments/ht%2Fplain", { kind: "virtual" })).status).toBe(200);
+    expect((await call("PUT", "/v1/sessions/ht-plain", { requestId: "ht-plain", agentId: "bot", ownerUserId: "app:ada", environment: "ht/plain" })).status).toBe(200);
     expect((await call("POST", "/v1/sessions/ht-plain/sandbox/bash", { command: "echo hi" })).status).toBe(200);
     // Nor does it lease a turn of one: the host's lease waits while the turn completes elsewhere.
     let leased = false;
@@ -193,8 +194,8 @@ describe("host tokens", { timeout: 60_000 }, () => {
     expect(await closed).toContain("epoch");
     expect((await connect(first.hostToken)).status).toBe(401);
     expect((await connect(second.hostToken)).status).toBe(101);
-    // Stopping the sandbox moves it again.
-    expect((await call("POST", "/v1/sandboxes/ht%2Fa/stop")).status).toBe(200);
+    // Stopping the Environment moves it again.
+    expect((await call("POST", "/v1/environments/ht%2Fa/stop")).status).toBe(200);
     await expect(hosts.renew(second.hostToken)).rejects.toBeInstanceOf(HostAuthError);
   });
 });

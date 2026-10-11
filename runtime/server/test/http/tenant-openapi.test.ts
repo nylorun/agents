@@ -32,7 +32,7 @@ it("documents the session reads with the same privileged credentials as serving"
     expect(op["x-nylorun-browser"]).toBeUndefined();
     expect(op["x-nylorun-scopes"]).toEqual(scopes);
   }
-  for (const path of ["/v1/sessions", "/v1/sessions/{sessionId}/items", "/v1/sandboxes"]) {
+  for (const path of ["/v1/sessions", "/v1/sessions/{sessionId}/items", "/v1/environments"]) {
     expect(operation("get", path).parameters.find((p: {name: string}) => p.name === "limit").required).toBe(false);
   }
 });
@@ -121,12 +121,10 @@ it("documents the agent list for issuer tokens too, and agent puts for applicati
   );
 });
 
-it("documents vaults and Tenant settings for management keys only (protocol 8)", () => {
+it("documents Tenant settings and credential coverage for management keys only (protocol 8)", () => {
   for (const [method, path] of [
-    ["post", "/v1/tenant/vaults"],
-    ["get", "/v1/tenant/vaults"],
-    ["get", "/v1/tenant/vaults/{vaultId}/credentials/{credentialId}"],
-    ["delete", "/v1/tenant/vaults/{vaultId}"],
+    ["post", "/v1/tenant/credential-coverage"],
+    ["post", "/v1/tenant/mcp/preview"],
     ["post", "/v1/tenant/reset"],
     ["get", "/v1/tenant/models"],
     ["get", "/v1/tenant/providers"],
@@ -136,8 +134,16 @@ it("documents vaults and Tenant settings for management keys only (protocol 8)",
     expect(op.security, `${method} ${path}`).toEqual([{ managementKey: [] }]);
     expect(op["x-nylorun-scopes"], `${method} ${path}`).toBe("never");
   }
-  // The old vault paths are gone, and the MCP OAuth connect (protocol 10).
+  // The vault paths are gone (protocol 11: an Environment's secrets replace them), and so are
+  // the old ones and the MCP OAuth connect (protocol 10).
   for (const [method, path] of [
+    ["post", "/v1/tenant/vaults"],
+    ["get", "/v1/tenant/vaults"],
+    ["get", "/v1/tenant/vaults/{vaultId}"],
+    ["get", "/v1/tenant/vaults/{vaultId}/credentials"],
+    ["post", "/v1/tenant/vaults/{vaultId}/credentials"],
+    ["get", "/v1/tenant/vaults/{vaultId}/credentials/{credentialId}"],
+    ["delete", "/v1/tenant/vaults/{vaultId}"],
     ["post", "/v1/vaults"],
     ["get", "/v1/vaults"],
     ["get", "/v1/vaults/{vaultId}/credentials/{credentialId}"],
@@ -146,11 +152,48 @@ it("documents vaults and Tenant settings for management keys only (protocol 8)",
     ["get", "/v1/oauth/callback"],
   ] as const)
     expect(operation(method, path), `${method} ${path}`).toBeUndefined();
+  for (const path of Object.keys(document.paths ?? {})) {
+    expect(path).not.toMatch(/vaults/);
+    expect(path).not.toMatch(/^\/v1\/sandboxes/);
+  }
   expect(operation("put", "/v1/tenant/sandbox").requestBody.content["application/json"].schema).toEqual({
-    $ref: "#/components/schemas/PutTenantSandboxRequest",
+    $ref: "#/components/schemas/PutTenantEnvironmentsRequest",
   });
   // `tenant:settings` is retired: no route names it.
   expect(JSON.stringify(document)).not.toContain("tenant:settings");
+});
+
+it("documents the Environment routes for callers that may use sessions or change Environments", () => {
+  const reads = [
+    ["get", "/v1/environments"],
+    ["get", "/v1/environments/{environmentId}"],
+    ["get", "/v1/environments/{environmentId}/events"],
+    ["get", "/v1/environments/{environmentId}/secrets"],
+    ["get", "/v1/environments/{environmentId}/secrets/{name}"],
+  ] as const;
+  const writes = [
+    ["put", "/v1/environments/{environmentId}"],
+    ["delete", "/v1/environments/{environmentId}"],
+    ["post", "/v1/environments/{environmentId}/stop"],
+    ["post", "/v1/environments/{environmentId}/reset"],
+    ["put", "/v1/environments/{environmentId}/secrets/{name}"],
+    ["delete", "/v1/environments/{environmentId}/secrets/{name}"],
+  ] as const;
+  for (const [method, path] of [...reads, ...writes]) {
+    const op = operation(method, path);
+    expect(op, `${method} ${path}`).toBeDefined();
+    expect(op.security, `${method} ${path}`).toEqual([{ applicationKey: [] }, { issuerToken: [] }]);
+  }
+  for (const [method, path] of reads)
+    expect(operation(method, path)["x-nylorun-scopes"], `${method} ${path}`).toEqual([
+      "sessions:own",
+      "environments:write",
+    ]);
+  for (const [method, path] of writes)
+    expect(operation(method, path)["x-nylorun-scopes"], `${method} ${path}`).toEqual([
+      "environments:write",
+    ]);
+  expect(JSON.stringify(document)).not.toContain("sandboxes:write");
 });
 
 it("documents the public keys for every caller or none, and signing keys for management keys", () => {

@@ -30,30 +30,28 @@ const psUp = {
   stderr: "",
 };
 
-const SANDBOXES = [
+const view = {
+  recipe: { harness: "nylorun", lifecycle: {} },
+  version: 1,
+  appliedVersion: 1,
+  ownerUserId: null,
+  lastUsedAt: "2026-10-03T00:00:00.000Z",
+  createdAt: "2026-10-03T00:00:00.000Z",
+  updatedAt: "2026-10-03T00:00:00.000Z",
+};
+const ENVIRONMENTS = [
   {
+    ...view,
     id: "team-a/proj-42",
     kind: "virtual",
     labels: { project: "acme" },
-    spec: {},
     state: "running",
     sessions: [{ id: "s1", activeTurnId: null }],
-    createdAt: "2026-10-03T00:00:00.000Z",
-    updatedAt: "2026-10-03T00:00:00.000Z",
   },
-  {
-    id: "user-7",
-    kind: "virtual",
-    labels: {},
-    spec: {},
-    state: "ready",
-    sessions: [],
-    createdAt: "2026-10-03T00:00:00.000Z",
-    updatedAt: "2026-10-03T00:00:00.000Z",
-  },
+  { ...view, id: "user-7", kind: "pod", labels: {}, state: "stopped", sessions: [] },
 ];
 
-/** A running Tenant whose Runtime answers the sandbox routes. */
+/** A running Tenant whose Runtime answers the Environment routes. */
 async function running(options: { up?: boolean } = {}) {
   const home = await temporaryHome();
   const keys: FakeKeys = new Map();
@@ -71,10 +69,10 @@ async function running(options: { up?: boolean } = {}) {
       return bearerIn(keys.values(), init)
         ? json({ kind: "application" })
         : json({ status: "rejected", code: "not_found", message: "Not found" }, 404);
-    if (path === "/v1/sandboxes") return json({ sandboxes: SANDBOXES });
-    if (path === "/v1/sandboxes/team-a%2Fproj-42" && init?.method === "DELETE")
+    if (path === "/v1/environments") return json({ environments: ENVIRONMENTS });
+    if (path === "/v1/environments/team-a%2Fproj-42" && init?.method === "DELETE")
       return json({ id: "team-a/proj-42", deleted: true });
-    if (path.startsWith("/v1/sandboxes/") && init?.method === "DELETE")
+    if (path.startsWith("/v1/environments/") && init?.method === "DELETE")
       return json({ id: "x", deleted: false });
     return undefined;
   });
@@ -87,15 +85,15 @@ async function running(options: { up?: boolean } = {}) {
 }
 
 describe("nylorun sandbox", () => {
-  it("ls lists the Tenant's sandboxes with the application key cli, put once and kept in the Host root", async () => {
+  it("ls lists the Tenant's Environments with the application key cli, put once and kept in the Host root", async () => {
     const { home, deps, fetch, docker, keys } = await running();
     expect(await sandboxCommand(deps, ["ls", "--label", "project=acme"])).toBe(0);
     expect(deps.lines).toEqual([
       "ID              KIND     STATE    SESSIONS  LABELS",
       "team-a/proj-42  virtual  running  1         project=acme",
-      "user-7          virtual  ready    0         -",
+      "user-7          pod      stopped  0         -",
     ]);
-    const request = fetch.requests.find((item) => item.url.includes("/v1/sandboxes"))!;
+    const request = fetch.requests.find((item) => item.url.includes("/v1/environments"))!;
     expect(new URL(request.url).searchParams.getAll("label")).toEqual(["project=acme"]);
     const headers = new Headers(request.init?.headers);
     expect(headers.get("authorization")).toBe(`Bearer ${keys.get("cli")!.key}`);
@@ -114,20 +112,20 @@ describe("nylorun sandbox", () => {
     expect(docker.calls.filter((args) => args.includes("keys"))).toHaveLength(2);
   });
 
-  it("ls --json prints the sandboxes", async () => {
+  it("ls --json prints the Environments", async () => {
     const { deps } = await running();
     expect(await sandboxCommand(deps, ["ls", "--json"])).toBe(0);
-    expect(JSON.parse(deps.lines.join("\n"))).toEqual(SANDBOXES);
+    expect(JSON.parse(deps.lines.join("\n"))).toEqual(ENVIRONMENTS);
   });
 
-  it("rm deletes a sandbox by an id with slashes, and says when there is none", async () => {
+  it("rm deletes an Environment by an id with slashes, and says when there is none", async () => {
     const { deps, fetch } = await running();
     expect(await sandboxCommand(deps, ["rm", "team-a/proj-42"])).toBe(0);
-    expect(deps.lines).toEqual(["Deleted sandbox team-a/proj-42 and its files."]);
+    expect(deps.lines).toEqual(["Deleted Environment team-a/proj-42: its sandbox, files and vault."]);
     const request = fetch.requests.find((item) => item.init?.method === "DELETE")!;
-    expect(new URL(request.url).pathname).toBe("/v1/sandboxes/team-a%2Fproj-42");
+    expect(new URL(request.url).pathname).toBe("/v1/environments/team-a%2Fproj-42");
     expect(await sandboxCommand(deps, ["rm", "ghost"])).toBe(1);
-    expect(deps.errors).toEqual(["No sandbox ghost on Tenant home-root."]);
+    expect(deps.errors).toEqual(["No Environment ghost on Tenant home-root."]);
   });
 
   it("never starts a stopped Tenant", async () => {

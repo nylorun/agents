@@ -171,7 +171,7 @@ function warnRemovedSettings(stack: StackConfig, logger: Logger): void {
     logger.warn("resolver_removed", {
       variables: stack.removedResolverVariables,
       message:
-        "The credential resolver is gone (protocol 10) and these variables are ignored: keep a person's keys in their user vault, or reach their accounts through a gateway",
+        "The credential resolver is gone (protocol 10) and these variables are ignored: keep a person's keys in their Environment's vault, or reach their accounts through a gateway",
     });
 }
 

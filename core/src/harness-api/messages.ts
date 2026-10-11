@@ -39,9 +39,9 @@ export type ReleaseReason = z.infer<typeof ReleaseReasonSchema>;
 
 /**
  * Events a harness may claim: for a run it holds, or for a workspace request core sent it. A
- * `sandbox.state` claim carries the workspace's compute record, which core keeps.
+ * `environment.state` claim carries the workspace's compute record, which core keeps.
  */
-export const HARNESS_CLAIMS = ["sandbox.state", "sandbox.exec"] as const;
+export const HARNESS_CLAIMS = ["environment.state", "environment.exec"] as const;
 export type HarnessClaim = (typeof HARNESS_CLAIMS)[number];
 
 export const HARNESS_ERROR_CODES = [

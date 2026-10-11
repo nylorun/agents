@@ -24,11 +24,10 @@ export interface HttpToolTarget {
   /** Default `POST`. */
   readonly method?: HttpToolMethod;
   /**
-   * Adds a vault credential to each request, as for a remote MCP server: a credential in the
-   * session's vaults bound to `url` (a `bearer` token or a `headers` map, sent to its `via` when
-   * it has one, with its identity header), chosen by the session's credential selection with
-   * this name (`credentialSelections[].serverName`) when several are. When the vaults hold none,
-   * the call fails with `http.credential` and is not sent.
+   * Adds a vault credential to each request, as for a remote MCP server: the credential in the
+   * vault of the session's Environment bound to `url` (a `bearer` token or a `headers` map, sent
+   * to its `via` when it has one, with its identity header). This name labels it in coverage.
+   * When the vault holds none, the call fails with `http.credential` and is not sent.
    */
   readonly credential?: string;
   /** How long the service may take to answer. Default 60000, at most 300000. */

@@ -168,7 +168,7 @@ export type TenantOpenHooks = {
   harnessTap?: MemoryPortsOptions["tap"];
   /**
    * Sandbox pods (F7.2): the sandboxes service (`NYLORUN_SANDBOXES_URL`) and the Runtime image
-   * pods copy the engine from. Without it, kind `pod` is `sandbox_unavailable`.
+   * pods copy the engine from. Without it, kind `pod` is `environment_unavailable`.
    */
   pods?: TenantPods;
 } & OpenedTenant;
@@ -346,7 +346,7 @@ export class TenantRuntime implements TenantHandle {
             logger: config.logger,
             preference,
             isPod: async (sandboxId) =>
-              (await opened.tx((t) => t.sandboxResource(sandboxId)))?.kind === "pod",
+              (await opened.tx((t) => t.environment(sandboxId)))?.kind === "pod",
           })
         : workspaces;
 

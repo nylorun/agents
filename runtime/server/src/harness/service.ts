@@ -86,7 +86,7 @@ function refOf(session: WorkspaceSession) {
   return {
     id: session.ownerId,
     activeTurnId: session.activeTurnId,
-    ...(session.sandboxId === undefined ? {} : { sandboxId: session.sandboxId }),
+    ...(session.environmentId === undefined ? {} : { environmentId: session.environmentId }),
   };
 }
 
@@ -179,7 +179,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
         return { workspaces: await sandbox().workspaces() };
       }
       case "workspace.remove": {
-        const { keys, sandboxIds, all } = params as { keys?: string[]; sandboxIds?: string[]; all?: true };
+        const { keys, environmentIds, all } = params as { keys?: string[]; environmentIds?: string[]; all?: true };
         const workspaces = sandbox();
         if (all) {
           await workspaces.reconcile(() => false, () => false);
@@ -190,7 +190,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
             throw new HarnessApiError("invalid", `${key} is not a workspace of this Tenant`);
           await workspaces.remove(key);
         }
-        for (const id of sandboxIds ?? []) await workspaces.removeSandbox(id);
+        for (const id of environmentIds ?? []) await workspaces.removeSandbox(id);
         return {};
       }
       default:

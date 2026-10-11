@@ -14,9 +14,10 @@
  *     report exactly one, open; Runtime and Management API requests without
  *     Nylorun-Tenant work, each with its own key; there is no Admin API (the admin key
  *     is no credential: /v1/admin/* is 401 with it) and no operator port
- * I2  protocol 4 compatibility: Nylorun-Tenant naming the Host's Tenant works,
+ * I2  Nylorun-Tenant compatibility: the header naming the Host's Tenant works,
  *     naming another Tenant is the opaque 404; an unknown key is 401 (protocol 9)
- * I3  a request outside the protocol range fails with 426 before any mutation
+ * I3  a request outside the protocol range (an older protocol 10 one too) fails with 426
+ *     before any mutation
  * I4  a Tenant restart (stop, start) restores sessions and agents; a database whose schema is
  *     newer than the Runtime leaves the Tenant unavailable (schema-too-new), which
  *     nylorun status reports
@@ -275,19 +276,25 @@ async function i1(url, stack, adminKey) {
   }).then(ok);
   await putAgent(url, key, "installation-agent");
   await putSession(url, key, "sess-installation", "installation-agent");
-  const vault = (
-    await request(url, "/v1/tenant/vaults", {
-      method: "POST",
-      key: managementKey,
-      body: { requestId: randomUUID(), idempotencyKey: randomUUID(), name: "Vault", ownerUserId: "acceptance" },
-    }).then(ok)
-  ).id;
+  // An Environment and its vault (protocol 11) are the Runtime API's, with the application key.
+  const environment = "acceptance/installation";
+  const path = `/v1/environments/${encodeURIComponent(environment)}`;
+  await request(url, path, { method: "PUT", key, body: { requestId: randomUUID(), kind: "virtual" } }).then(ok);
+  await request(url, `${path}/secrets/ACCEPTANCE_TOKEN`, {
+    method: "PUT",
+    key,
+    body: { requestId: randomUUID(), type: "environment_variable", value: "not-a-secret" },
+  }).then(ok);
   assert.deepEqual(
     (await runtimeGet(url, key, "/v1/agents")).agents.map((a) => a.manifest.id),
     ["installation-agent"],
   );
   assert.equal(await status(url, "/v1/sessions/sess-installation", key), 200);
-  assert.equal(await status(url, `/v1/tenant/vaults/${vault}`, managementKey), 200);
+  assert.equal(await status(url, path, key), 200);
+  assert.deepEqual(
+    (await runtimeGet(url, key, `${path}/secrets`)).secrets.map((secret) => secret.name),
+    ["ACCEPTANCE_TOKEN"],
+  );
   assert.equal(await status(url, "/v1/tenant", managementKey), 200);
   // Each key reaches its own API only (protocol 8).
   const crossed = await request(url, "/v1/tenant", { key });
@@ -316,14 +323,14 @@ async function i1(url, stack, adminKey) {
   pass("I1", "one open Tenant per installation; its APIs need no Nylorun-Tenant; no Admin API or operator port");
 }
 
-// ── I2: protocol 4 compatibility ──
+// ── I2: Nylorun-Tenant compatibility ──
 async function i2(url, stack) {
   const { id, key } = await hostTenant(stack);
-  const v4 = (tenantId) => ({ [PROTOCOL_HEADER]: "4", [TENANT_HEADER]: tenantId });
-  assert.equal(await status(url, "/v1/me", key, v4(id)), 200, "a protocol 4 client naming the Host's Tenant");
-  assert.equal(await status(url, "/v1/agents", key, v4(id)), 200);
-  const other = await request(url, "/v1/agents", { key, headers: v4(OTHER_TENANT) });
-  assert.equal(other.status, 404, "a protocol 4 client naming another Tenant");
+  const named = (tenantId) => ({ [PROTOCOL_HEADER]: PROTOCOL, [TENANT_HEADER]: tenantId });
+  assert.equal(await status(url, "/v1/me", key, named(id)), 200, "a client naming the Host's Tenant");
+  assert.equal(await status(url, "/v1/agents", key, named(id)), 200);
+  const other = await request(url, "/v1/agents", { key, headers: named(OTHER_TENANT) });
+  assert.equal(other.status, 404, "a client naming another Tenant");
   assert.deepEqual(
     await other.json(),
     { status: "rejected", code: "not_found", message: "Not found" },
@@ -351,6 +358,9 @@ async function i3(url, stack) {
     },
   });
   assert.equal(rejected.status, 426, await rejected.text());
+  // Protocol 11 accepts no older client: a protocol 10 request is a 426 too.
+  const older = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "10" } });
+  assert.equal(older.status, 426, "a protocol 10 client");
   assert.ok(
     !(await runtimeGet(url, key, "/v1/agents")).agents.some((agent) => agent.manifest.id === "too-new"),
     "no agent was written",

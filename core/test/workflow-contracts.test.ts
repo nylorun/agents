@@ -104,14 +104,14 @@ it("still registers an agent document without kind", () => {
   expect(parsed.manifest).not.toHaveProperty("kind");
 });
 
-it("accepts PutSession.sandbox", () => {
-  const parsed = PutSessionRequestSchema.parse({
-    requestId: "r1",
-    agentId: "coder",
-    ownerUserId: "u1",
-    sandbox: { session: "workflow-session" },
-  });
-  expect(parsed.sandbox).toEqual({ session: "workflow-session" });
+it("names an Environment on a session, and refuses the protocol 10 fields", () => {
+  const base = { requestId: "r1", agentId: "coder", ownerUserId: "u1" };
+  expect(PutSessionRequestSchema.parse({ ...base, environment: "users/u1/web" }).environment).toBe(
+    "users/u1/web",
+  );
+  for (const removed of [{ sandbox: { id: "x" } }, { vaultIds: ["v"] }, { credentialSelections: [] }])
+    expect(PutSessionRequestSchema.safeParse({ ...base, ...removed }).success).toBe(false);
+  expect(PutSessionRequestSchema.safeParse({ ...base, environment: "/bad" }).success).toBe(false);
 });
 
 it("message is exactly one of content or data", () => {

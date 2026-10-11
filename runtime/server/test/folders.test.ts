@@ -69,6 +69,15 @@ async function openSession(runtime: Runtime, id: string, extra: Record<string, u
     body: JSON.stringify({ requestId: "agent", manifest: agent.manifest, implementationVersion: "dev" }),
   });
   expect(put.ok, await put.clone().text()).toBe(true);
+  // A session with a sandbox names an Environment, created first (protocol 11).
+  if (typeof extra.environment === "string") {
+    const environment = await fetch(`${runtime.url}/v1/environments/${extra.environment}`, {
+      method: "PUT",
+      headers: json,
+      body: JSON.stringify({ requestId: `env-${extra.environment}`, kind: "virtual" }),
+    });
+    expect(environment.ok, await environment.clone().text()).toBe(true);
+  }
   const opened = await fetch(`${runtime.url}/v1/sessions/${id}`, {
     method: "PUT",
     headers: json,
@@ -183,7 +192,7 @@ it("exports /workspace/outputs at turn end as a folder: tree, files with Range, 
       },
     },
   );
-  await openSession(runtime, "s1", { sandbox: {} });
+  await openSession(runtime, "s1", { environment: "env-s1" });
 
   await turn(runtime, "s1", "build");
   const [created] = await eventually(runtime, "s1", "artifact.created");
@@ -322,7 +331,7 @@ it("exports /workspace/outputs at turn end as a folder: tree, files with Range, 
 
 it("exports nothing without a sandbox, or with no outputs in it", async () => {
   const runtime = await boot(turns([[bash("printf 'x' > notes.txt")], [], [], []]));
-  await openSession(runtime, "boxed", { sandbox: {} });
+  await openSession(runtime, "boxed", { environment: "env-boxed" });
   await openSession(runtime, "plain");
   // The second turn of each starts only once the first's advance (and its export) has ended.
   await turn(runtime, "boxed", "one");
@@ -346,7 +355,7 @@ it("skips an export past the per-file limit with artifact.export.skipped, and th
     body: JSON.stringify({ limits: { fileBytes: 8 } }),
   });
   expect(limits.status, await limits.clone().text()).toBe(200);
-  await openSession(runtime, "s1", { sandbox: {} });
+  await openSession(runtime, "s1", { environment: "env-s1" });
   await turn(runtime, "s1", "build");
   const [skipped] = await eventually(runtime, "s1", "artifact.export.skipped");
   expect(skipped!.payload).toMatchObject({ name: "outputs", reason: "file_too_large", limit: 8, path: "big.bin" });
@@ -361,7 +370,7 @@ it("exports the outputs of a sandbox a harness holds over WebSocket (F6.2)", asy
     turns([[bash("mkdir -p outputs/site && printf '<p>hi</p>' > outputs/site/index.html && printf 'x' > scratch.txt")]]),
     { harness: "ws" },
   );
-  await openSession(runtime, "s1", { sandbox: {} });
+  await openSession(runtime, "s1", { environment: "env-s1" });
   await turn(runtime, "s1", "build");
   const [created] = await eventually(runtime, "s1", "artifact.created");
   expect(created!.payload).toMatchObject({ kind: "folder", name: "outputs", version: 1, source: "export", fileCount: 1 });

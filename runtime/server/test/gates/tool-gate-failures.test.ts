@@ -147,7 +147,7 @@ describe("the loop's client of the gate", () => {
     const connection = await gate({
       forbidden: failure("mcp.forbidden", { redacted: 1 }) as never,
       unreachable: failure("mcp.unreachable", { sent: false, retryable: true }) as never,
-      rejected: failure("credential_rejected", { server: "remote", vault: "user" }) as never,
+      rejected: failure("credential_rejected", { server: "remote" }) as never,
       echo: { ok: true, result: { content: [{ type: "text", text: "[redacted]" }] }, redacted: 1 },
     });
     expect(await callMcpTool(connection.client, "forbidden", {})).toEqual({
@@ -161,12 +161,14 @@ describe("the loop's client of the gate", () => {
       code: "mcp.unreachable",
       retryable: true,
     });
-    expect(await callMcpTool(connection.client, "rejected", {})).toMatchObject({
+    const rejected = await callMcpTool(connection.client, "rejected", {});
+    expect(rejected).toMatchObject({
       code: "credential_rejected",
       server: "remote",
-      vault: "user",
       retryable: false,
     });
+    // Protocol 11: a session has one Environment's vault, so the error names no vault scope.
+    expect(rejected).not.toHaveProperty("vault");
     expect(await callMcpTool(connection.client, "echo", {})).toEqual({
       kind: "completed",
       output: "[redacted]",

@@ -12,7 +12,7 @@ import { isWorkflowManifest } from "../core/flow-host.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
 import { ownedTx } from "../store/ownership.js";
 import type { SandboxPodState, Tx } from "../store/types.js";
-import { sandboxLookup, type Lease, type Session, type TenantContext } from "../tenant/context.js";
+import type { Lease, Session, TenantContext } from "../tenant/context.js";
 import {
   checkParity,
   foldTranscriptWithCursor,
@@ -39,14 +39,14 @@ export interface SegmentStart {
   /** The record position of `transcript` (`foldTranscriptWithCursor`). */
   readonly cursor: number;
   readonly outcomes: RecordedOutcome[];
-  /** The tree's sandbox workspace: its owning session, and the sandbox resource it is attached to. */
+  /** The session's sandbox workspace: the session, and the Environment whose workspace it is. */
   readonly sandbox: {
     readonly ownerId: string;
-    readonly sandboxId?: string;
+    readonly environmentId?: string;
     /** Variables every sandbox command gets (R2c): secret names set to the sentinel, plain values. */
     readonly environment?: Readonly<Record<string, string>>;
   };
-  /** The sandbox is a pod sandbox (F7.2): its engine runs the segment. Its lifecycle state. */
+  /** The Environment is a pod (F7.2): its engine runs the segment. Its lifecycle state. */
   readonly pod?: { readonly id: string; readonly pod: SandboxPodState };
 }
 
@@ -72,9 +72,9 @@ export async function startSegment(
       }
       const fixtureModel = await usesFixtureModel(t);
       if (!options.harness) return { current, fixtureModel, outcomes: [], sandbox: { ownerId: id } };
-      const workspace = sandboxWorkspaceOf(current, await sandboxLookup(t, current.id));
-      const resource = workspace.sandboxId === undefined ? undefined : await t.sandboxResource(workspace.sandboxId);
-      const { environment } = await ctx.vault.sessionEnvironment(t, current.vaultIds ?? []);
+      const workspace = sandboxWorkspaceOf(current);
+      const resource = workspace.environmentId === undefined ? undefined : await t.environment(workspace.environmentId);
+      const environment = await ctx.vault.environmentVariables(t, current.environmentId);
       const sandbox = Object.keys(environment).length > 0 ? { ...workspace, environment } : workspace;
       return {
         current,

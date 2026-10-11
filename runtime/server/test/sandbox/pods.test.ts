@@ -1,8 +1,9 @@
 /**
- * Pod sandboxes in the Runtime (F7.2, S3–S8) against an in-memory sandboxes service
- * (`fake-sandboxes.ts`): create at once, join → host token, a turn whose harness runs in the
- * pod (its own engine, the `local` backend, over the Harness API listener with a host token),
- * relaunch, stop, idle, TTL and revival, PVC loss → `sandbox.lost`, reset, delete.
+ * Pod Environments in the Runtime (F7.2, S3–S8, protocol 11) against an in-memory sandboxes
+ * service (`fake-sandboxes.ts`): create at once, join → host token, a turn whose harness runs in
+ * the pod (its own engine, the `local` backend, over the Harness API listener with a host token),
+ * relaunch, stop, idle, a recipe change applied at the next wake, PVC loss →
+ * `environment.lost`, reset, delete.
  */
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -57,7 +58,7 @@ async function call(method: string, path: string, body?: unknown): Promise<{ sta
     return { status: response.status, body: text };
   }
 }
-const path = (id: string) => `/v1/sandboxes/${encodeURIComponent(id)}`;
+const path = (id: string) => `/v1/environments/${encodeURIComponent(id)}`;
 
 async function until<T>(what: string, read: () => Promise<T>, ok: (value: T) => boolean, ms = 20_000): Promise<T> {
   const deadline = Date.now() + ms;
@@ -83,15 +84,15 @@ async function message(sessionId: string) {
     content: "go",
   });
 }
-async function open(id: string, sandboxId: string) {
-  return call("PUT", `/v1/sessions/${id}`, { requestId: `open-${id}`, agentId: "bot", ownerUserId: "app:ada", sandbox: { id: sandboxId } });
+async function open(id: string, environmentId: string) {
+  return call("PUT", `/v1/sessions/${id}`, { requestId: `open-${id}`, agentId: "bot", ownerUserId: "app:ada", environment: environmentId });
 }
 async function settled(sessionId: string): Promise<any> {
   return until("session settles", async () => (await call("GET", `/v1/sessions/${sessionId}`)).body, (body) =>
     ["completed", "failed", "cancelled"].includes(body.status), 60_000);
 }
 
-/** Creates a pod sandbox and waits until the fake runs its pod. */
+/** Creates a pod Environment and waits until the fake runs its pod. */
 async function createPod(id: string, body: Record<string, unknown> = {}) {
   const created = await until("created", () => call("PUT", path(id), { kind: "pod", ...body }), (reply) => reply.status !== 409);
   expect(created.status, JSON.stringify(created.body)).toBe(200);
@@ -126,7 +127,7 @@ beforeAll(async () => {
   const agent = Agent({ id: "bot", name: "Bot" }).instructions("Work in the sandbox.").build();
   expect((await call("PUT", "/v1/agents/bot", { requestId: "bot", manifest: agent.manifest, implementationVersion: "dev" })).status).toBe(200);
   expect(
-    (await call("PUT", "/v1/tenant/sandbox", { requestId: "cfg", limits: { idle: "2s", ttl: "1h" } })).status,
+    (await call("PUT", "/v1/tenant/sandbox", { requestId: "cfg", limits: { idle: "2s" } })).status,
   ).toBe(200);
 });
 
@@ -135,7 +136,7 @@ afterAll(async () => {
   await runtime?.close();
 });
 
-describe("pod sandboxes", { timeout: 90_000 }, () => {
+describe("pod Environments", { timeout: 90_000 }, () => {
   it("reports the cluster", async () => {
     const tenant = (await call("GET", "/v1/tenant/sandbox")).body;
     expect(tenant.cluster).toEqual({
@@ -149,8 +150,14 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
   });
 
   it("creates a pod at once; its join token becomes a host token bound to the pod", async () => {
-    const { name, view: created } = await createPod("join/one", { image: "node:24-slim", network: { allow: ["pypi.org"] } });
-    expect(created).toMatchObject({ kind: "pod", spec: { image: "node:24-slim" }, pod: { desired: "running", volumeGeneration: 0 } });
+    const { name, view: created } = await createPod("join/one", { image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } });
+    expect(created).toMatchObject({
+      kind: "pod",
+      recipe: { image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } },
+      version: 1,
+      appliedVersion: 1,
+      pod: { desired: "running", volumeGeneration: 0 },
+    });
     const put = fake.calls.find((item) => item.method === "PUT" && item.name === name)!;
     expect(put.spec).toMatchObject({ mode: "Running", image: "node:24-slim", harnessImage: "nylorun-runtime:test", env: { NYLORUN_SANDBOX_ID: "join/one" } });
     expect(put.spec!.joinToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -162,7 +169,7 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     expect(first.epoch).toBe(1);
     expect((await hosts.renew(first.hostToken)).epoch).toBe(1);
     await until("observed running", () => view("join/one"), (body) => body.pod.observed === "running");
-    expect(await events("join/one")).toEqual(["sandbox.created", "sandbox.running"]);
+    expect(await events("join/one")).toEqual(["environment.created", "environment.running"]);
 
     // Relaunch: a new pod on the same volume joins; the old pod's tokens stop working.
     const uid = fake.relaunch(name);
@@ -170,7 +177,7 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     expect(second.epoch).toBe(2);
     await expect(hosts.renew(first.hostToken)).rejects.toMatchObject({ status: 401 });
     await expect(hosts.verify(first.hostToken)).rejects.toBeInstanceOf(HostAuthError);
-    expect((await events("join/one")).at(-1)).toBe("sandbox.relaunched");
+    expect((await events("join/one")).at(-1)).toBe("environment.relaunched");
   });
 
   it("runs a turn in the pod's engine, never in the Runtime's harness", async () => {
@@ -218,7 +225,7 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     // With the pod gone, its workspace is unavailable rather than served elsewhere.
     const refused = await call("POST", "/v1/sessions/pod-s1/sandbox/read", { path: "from-pod.txt" });
     expect(refused.status).toBe(409);
-    expect(refused.body.code).toBe("sandbox_unavailable");
+    expect(refused.body.code).toBe("environment_unavailable");
   });
 
   it("stops on request and when idle, and asks the pod to run again at the next turn", async () => {
@@ -229,7 +236,7 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     expect(stopped.body.pod.desired).toBe("suspended");
     await until("suspended", () => view("idle/one"), (body) => body.pod.observed === "suspended");
     expect(fake.calls.filter((item) => item.name === name).at(-1)?.spec?.mode).toBe("Suspended");
-    expect(await events("idle/one")).toContain("sandbox.suspended");
+    expect(await events("idle/one")).toContain("environment.suspended");
     // The next turn start asks for Running again.
     expect((await open("idle-s1", "idle/one")).status).toBe(200);
     expect((await message("idle-s1")).status).toBe(200);
@@ -241,27 +248,57 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     const { name: other } = await createPod("idle/two");
     await until("idle suspended", () => view("idle/two"), (body) => body.pod.desired === "suspended", 30_000);
     const types = await events("idle/two");
-    expect(types).toContain("sandbox.suspended");
+    expect(types).toContain("environment.suspended");
     await until("pod gone", async () => fake.podUid(other), (uid) => uid === undefined);
   });
 
-  it("expires at its TTL, refuses turns, and revives with a longer TTL", async () => {
-    const { name } = await createPod("ttl/one", { lifecycle: { ttl: "2s" } });
-    expect(fake.calls.find((item) => item.name === name)?.spec?.shutdownTime).toBeDefined();
-    await until("expired", () => view("ttl/one"), (body) => body.pod.observed === "expired", 30_000);
-    expect(await events("ttl/one")).toContain("sandbox.expired");
-    expect((await open("ttl-s1", "ttl/one")).status).toBe(200);
-    const refused = await message("ttl-s1");
-    expect(refused.status).toBe(409);
-    expect(refused.body.code).toBe("sandbox_expired");
-    // Longer than the Tenant allows: refused.
-    expect((await call("PUT", path("ttl/one"), { lifecycle: { ttl: "2h" } })).status).toBe(400);
-    const revived = await call("PUT", path("ttl/one"), { lifecycle: { ttl: "30m" } });
-    expect(revived.status, JSON.stringify(revived.body)).toBe(200);
-    expect(revived.body.pod.desired).toBe("running");
-    await until("revived", () => view("ttl/one"), (body) => body.pod.observed === "running");
-    const last = fake.calls.filter((item) => item.name === name).at(-1)!.spec!;
-    expect(Date.parse(last.shutdownTime!)).toBeGreaterThan(Date.now() + 20 * 60_000);
+  it("applies image and resources at the next wake, the rest at once; kind and storage are fixed", async () => {
+    const { name } = await createPod("recipe/one", { storage: "5GiB" });
+    await joinAs("recipe/one", name);
+    // Fixed: kind and storage.
+    expect((await call("PUT", path("recipe/one"), { kind: "virtual" })).status).toBe(409);
+    const storage = await call("PUT", path("recipe/one"), { storage: "10GiB" });
+    expect(storage.status).toBe(409);
+    expect(storage.body.message).toContain("storage");
+    expect((await call("PUT", path("recipe/one"), { storage: "5GiB" })).body.version).toBe(1);
+    // The Tenant's limits.idle (2s) is the most an Environment may ask for.
+    expect((await call("PUT", path("recipe/one"), { lifecycle: { idle: "1h" } })).status).toBe(400);
+    // Network applies at once: the version and the applied version move together.
+    const network = await call("PUT", path("recipe/one"), { network: { allowedHosts: ["pypi.org"] } });
+    expect(network.status, JSON.stringify(network.body)).toBe(200);
+    expect(network.body).toMatchObject({ version: 2, appliedVersion: 2 });
+    // Image waits for the pod's next start from stopped, so nothing swaps it mid-turn.
+    const image = await call("PUT", path("recipe/one"), { image: "node:24-slim" });
+    expect(image.body).toMatchObject({ version: 3, appliedVersion: 2, recipe: { image: "node:24-slim" } });
+    const before = fake.calls.filter((item) => item.method === "PUT" && item.name === name).length;
+    expect(fake.calls.filter((item) => item.method === "PUT" && item.name === name).at(-1)?.spec?.image).not.toBe(
+      "node:24-slim",
+    );
+    expect((await call("POST", `${path("recipe/one")}/stop`)).status).toBe(200);
+    await until("suspended", () => view("recipe/one"), (body) => body.pod.observed === "suspended");
+    // The next turn start applies it.
+    expect((await open("recipe-s1", "recipe/one")).status).toBe(200);
+    expect((await message("recipe-s1")).status).toBe(200);
+    await until("applied", () => view("recipe/one"), (body) => body.appliedVersion === 3);
+    await until(
+      "the pod runs the new image",
+      async () => fake.calls.filter((item) => item.method === "PUT" && item.name === name).slice(before),
+      (calls) => calls.some((item) => item.spec?.mode === "Running" && item.spec.image === "node:24-slim"),
+    );
+    await call("POST", "/v1/sessions/recipe-s1/commands", { type: "cancel", requestId: "c-recipe", idempotencyKey: "c-recipe" });
+    await settled("recipe-s1");
+  });
+
+  it("stops and resets only a pod: kinds virtual and none are a 400", async () => {
+    for (const kind of ["virtual", "none"]) {
+      const id = `kinds/${kind}`;
+      expect((await call("PUT", path(id), { kind })).status).toBe(200);
+      for (const action of ["stop", "reset"]) {
+        const refused = await call("POST", `${path(id)}/${action}`);
+        expect(refused.status, `${kind} ${action}`).toBe(400);
+        expect(refused.body.message).toContain("only a pod Environment stops and resets");
+      }
+    }
   });
 
   it("is lost when its volume goes, refuses turns until a reset, which starts a new volume", async () => {
@@ -270,13 +307,13 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     fake.losePvc(name);
     await reconcile("lost/one");
     const lost = await view("lost/one");
-    expect(lost.pod).toMatchObject({ observed: "lost", reason: "The sandbox's volume is gone" });
+    expect(lost.pod).toMatchObject({ observed: "lost", reason: "The Environment's volume is gone" });
     expect(lost.pod.hostEpoch).toBeGreaterThan(joined.epoch);
-    expect(await events("lost/one")).toContain("sandbox.lost");
+    expect(await events("lost/one")).toContain("environment.lost");
     await expect(hosts.renew(joined.hostToken)).rejects.toBeInstanceOf(HostAuthError);
     expect((await open("lost-s1", "lost/one")).status).toBe(200);
     const refused = await message("lost-s1");
-    expect(refused.body.code).toBe("sandbox_lost");
+    expect(refused.body.code).toBe("environment_lost");
 
     const reset = await call("POST", `${path("lost/one")}/reset`);
     expect(reset.status, JSON.stringify(reset.body)).toBe(200);
@@ -285,7 +322,7 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     await until("new pod", async () => fake.podUid(next), (uid) => uid !== undefined);
     await until("old Sandbox deleted", async () => fake.sandboxes.has(name), (has) => !has);
     expect(fake.joinToken(next)).not.toBe(fake.joinToken(name));
-    expect((await events("lost/one")).at(-1)).toBe("sandbox.reset");
+    expect((await events("lost/one")).at(-1)).toBe("environment.reset");
     expect((await joinAs("lost/one", next)).epoch).toBeGreaterThan(lost.pod.hostEpoch);
   });
 
@@ -301,7 +338,7 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     await expect(join(fake.relaunch(name), "vol-bbbb")).rejects.toMatchObject({ status: 401 });
     const lost = await view("lost/volume");
     expect(lost.pod).toMatchObject({ observed: "lost", reason: "The sandbox's volume was replaced: its files are gone" });
-    expect(await events("lost/volume")).toContain("sandbox.lost");
+    expect(await events("lost/volume")).toContain("environment.lost");
     await expect(hosts.renew(same.hostToken)).rejects.toBeInstanceOf(HostAuthError);
     await until("the Sandbox is deleted", async () => fake.sandboxes.has(name), (has) => !has);
   });
@@ -317,24 +354,24 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
   it("places sessions as the Tenant allows, and needs the sandboxes service up", async () => {
     await createPod("place/one");
     expect(
-      (await call("PUT", "/v1/tenant/sandbox", { requestId: "p1", limits: { idle: "2s", ttl: "1h" }, placement: { nylorun: { hosts: ["harness-container"] } } })).status,
+      (await call("PUT", "/v1/tenant/sandbox", { requestId: "p1", limits: { idle: "2s" }, placement: { nylorun: { hosts: ["harness-container"] } } })).status,
     ).toBe(200);
     const refused = await open("place-s1", "place/one");
     expect(refused.status).toBe(409);
     expect(refused.body.code).toBe("placement_refused");
     expect(
-      (await call("PUT", "/v1/tenant/sandbox", { requestId: "p2", limits: { idle: "2s", ttl: "1h" }, placement: { "*": { hosts: ["sandbox"] } } })).status,
+      (await call("PUT", "/v1/tenant/sandbox", { requestId: "p2", limits: { idle: "2s" }, placement: { "*": { hosts: ["sandbox"] } } })).status,
     ).toBe(200);
     const plain = await call("PUT", "/v1/sessions/place-s2", { requestId: "open-place-s2", agentId: "bot", ownerUserId: "app:ada" });
     expect(plain.body.code).toBe("placement_refused");
     expect((await open("place-s3", "place/one")).status).toBe(200);
-    expect((await call("PUT", "/v1/tenant/sandbox", { requestId: "p3", limits: { idle: "2s", ttl: "1h" } })).status).toBe(200);
+    expect((await call("PUT", "/v1/tenant/sandbox", { requestId: "p3", limits: { idle: "2s" } })).status).toBe(200);
     fake.down = true;
     try {
       await new Promise((resolve) => setTimeout(resolve, 5_100)); // the readiness cache
       const down = await open("place-s4", "place/one");
       expect(down.status).toBe(409);
-      expect(down.body.code).toBe("sandbox_unavailable");
+      expect(down.body.code).toBe("environment_unavailable");
     } finally {
       fake.down = false;
     }

@@ -58,6 +58,15 @@ async function openSession(
     body: JSON.stringify({ requestId: "agent", manifest: agent.manifest, implementationVersion: "dev" }),
   });
   expect(put.ok, await put.clone().text()).toBe(true);
+  // A session with a sandbox names an Environment, created first (protocol 11).
+  if (typeof extra.environment === "string") {
+    const environment = await fetch(`${runtime.url}/v1/environments/${extra.environment}`, {
+      method: "PUT",
+      headers: json,
+      body: JSON.stringify({ requestId: `env-${extra.environment}`, kind: "virtual" }),
+    });
+    expect(environment.ok, await environment.clone().text()).toBe(true);
+  }
   const opened = await fetch(`${runtime.url}/v1/sessions/${id}`, {
     method: "PUT",
     headers: json,
@@ -449,7 +458,7 @@ it("saves a sandbox file and inline text as artifacts from our engine", async ()
       seen,
     ),
   });
-  await openSession(runtime, "s1", "ada", { sandbox: {} });
+  await openSession(runtime, "s1", "ada", { environment: "env-s1" });
   const sent = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
     method: "POST",
     headers: json,

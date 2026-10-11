@@ -32,7 +32,7 @@ import { SANDBOX_WORKSPACE, type AgentManifest } from "@nylorun/core/define";
 import { isWorkflowManifest } from "../core/flow-host.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
 import { SandboxFileTooLargeError } from "../sandbox/types.js";
-import { sandboxLookup, type Session, type TenantContext } from "../tenant/context.js";
+import type { Session, TenantContext } from "../tenant/context.js";
 import { readArtifactLimits } from "./config.js";
 import {
   collectContent,
@@ -119,7 +119,7 @@ async function runExport(
     // Only a turn that completed, and only an agent's (a flow agent's sandbox is its agents').
     if (!s || s.status !== "completed" || s.lastTurnId !== turnId || isWorkflowManifest(s.manifest))
       return undefined;
-    const workspace = sandboxWorkspaceOf(s, await sandboxLookup(t, s.id));
+    const workspace = sandboxWorkspaceOf(s);
     const prior = (await t.listArtifacts({ sessionId })).find(
       (row) => row.kind === "folder" && row.name === OUTPUTS_ARTIFACT_NAME,
     );
@@ -129,7 +129,7 @@ async function runExport(
         sessionId,
         turnId,
         ownerId: workspace.ownerId,
-        ...(workspace.sandboxId === undefined ? {} : { sandboxId: workspace.sandboxId }),
+        ...(workspace.environmentId === undefined ? {} : { environmentId: workspace.environmentId }),
         manifest: s.manifest as AgentManifest,
       } satisfies WorkspaceSession,
       limits: await readArtifactLimits(t),

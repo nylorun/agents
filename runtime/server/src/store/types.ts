@@ -67,15 +67,15 @@ import type {
   EventPayload,
   EventType,
   LiveEvent,
-  SandboxEvent,
-  SandboxEventPayload,
-  SandboxEventType,
-  SandboxKind,
-  SandboxPodDesired,
-  SandboxPodObserved,
+  EnvironmentEvent,
+  EnvironmentEventPayload,
+  EnvironmentEventType,
+  EnvironmentKind,
+  EnvironmentRecipe,
+  PodDesired,
+  PodObserved,
   SessionEventOf,
 } from "@nylorun/core/contracts";
-import type { SandboxManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import type {
   ArtifactRow,
@@ -193,29 +193,37 @@ export interface SandboxDoc {
   key: string;
 }
 
-/** A sandbox resource (`sandbox_resources`): what `PUT /v1/sandboxes/{id}` created. */
-export interface SandboxResource {
+/** An Environment (`environments`, D55): what `PUT /v1/environments/{id}` created. */
+export interface Environment {
   id: string;
-  kind: SandboxKind;
-  /** The spec resolved against the Tenant's limits when the sandbox was created. */
-  spec: SandboxManifest;
+  kind: EnvironmentKind;
   labels: Record<string, string>;
+  /** What the app asked for, resolved against the Tenant's limits. */
+  recipe: EnvironmentRecipe;
+  /** The recipe the current pod or workspace runs (copied from `recipe` at the next wake). */
+  applied: EnvironmentRecipe;
+  version: number;
+  appliedVersion: number;
+  /** The owner guard: only this owner's sessions may name it. */
+  ownerUserId?: string;
+  /** ISO time it was last used (`lifecycle.deleteAfter` counts from it). */
+  lastUsedAt: string;
   createdAt: string;
   updatedAt: string;
-  /** Kind `pod`: the pod's lifecycle (F7.2). Absent for a virtual sandbox. */
+  /** Kind `pod`: the pod's lifecycle (F7.2). Absent otherwise. */
   pod?: SandboxPodState;
 }
 
 /**
- * A pod sandbox's lifecycle columns (`sandbox_resources`, F7.2, D34): what the Runtime wants
+ * A pod Environment's lifecycle columns (`environments`, F7.2, D34): what the Runtime wants
  * (`desired`), what it last saw (`observed`), and the fences of its incarnations.
  */
 export interface SandboxPodState {
   /** The agent-sandbox Sandbox's name (`podName`), of generation `volumeGen`. */
   k8sName: string;
   volumeGen: number;
-  desired: SandboxPodDesired;
-  observed: SandboxPodObserved;
+  desired: PodDesired;
+  observed: PodObserved;
   /** The UID of the pod that last joined. */
   podUid?: string;
   /** Bumped by every join, relaunch, loss and reset; host and egress tokens carry it. */
@@ -226,7 +234,6 @@ export interface SandboxPodState {
   rev: number;
   /** ISO times. */
   lastActiveAt?: string;
-  expiresAt?: string;
   startedAt?: string;
   reason?: string;
   /** An earlier incarnation's Sandbox still to delete (after a reset or a loss). */
@@ -342,7 +349,7 @@ export interface StoreCounts {
   definitions: number;
 }
 
-export type ResetScope = "sessions" | "sandboxes" | "all";
+export type ResetScope = "sessions" | "environments" | "all";
 
 /** Result of `takeOwnership`. */
 export type TakeOwnership =
@@ -643,44 +650,57 @@ export interface Tx {
   listDefinitions<T extends DefinitionDoc = DefinitionDoc>(): Promise<T[]>;
   listSandboxes<T extends SandboxDoc = SandboxDoc>(): Promise<T[]>;
 
-  // --- sandbox resources (blueprint D39, F7.1) -------------------------------
+  // --- Environments (D55, protocol 11) ---------------------------------------
 
-  /** The sandbox resource `id`; with `lock`, its row is locked until the transaction ends. */
-  sandboxResource(id: string, options?: { lock?: boolean }): Promise<SandboxResource | undefined>;
+  /** Environment `id`; with `lock`, its row is locked until the transaction ends. */
+  environment(id: string, options?: { lock?: boolean }): Promise<Environment | undefined>;
   /**
-   * Creates the sandbox resource unless one with its id exists, while the Tenant holds fewer
-   * than `limit`: `exists` and `limit` write nothing. Serialized with every other create.
+   * Creates the Environment unless one with its id exists, while the Tenant holds fewer than
+   * `limit`: `exists` and `limit` write nothing. Serialized with every other create.
    */
-  createSandboxResource(
-    row: SandboxResource,
-    limit: number,
-  ): Promise<"created" | "exists" | "limit">;
-  updateSandboxLabels(id: string, labels: Record<string, string>, updatedAt: string): Promise<void>;
-  /** Replaces a sandbox's spec (a pod's new `lifecycle.ttl`; the caller holds the row's lock). */
-  updateSandboxSpec(id: string, spec: SandboxManifest, updatedAt: string): Promise<void>;
-  /** Changes a pod sandbox's lifecycle columns (the caller holds the row's lock). */
-  updateSandboxPod(id: string, patch: SandboxPodPatch, updatedAt: string): Promise<void>;
-  deleteSandboxResource(id: string): Promise<void>;
-  /** Sandbox resources by id, those with every label in `labels` when it is given. */
-  listSandboxResources(filter?: { labels?: Record<string, string> }): Promise<SandboxResource[]>;
-  /** Sessions attached to sandbox resource `sandboxId` (`Session.sandboxId`), by id. */
-  sessionsOnSandbox<T extends SessionDoc = SessionDoc>(
-    sandboxId: string,
+  createEnvironment(row: Environment, limit: number): Promise<"created" | "exists" | "limit">;
+  /**
+   * Changes an Environment's columns other than its pod's (the caller holds the row's lock):
+   * labels, recipe and version, the applied recipe and its version, the owner guard (`null`
+   * clears it), and when it was last used.
+   */
+  updateEnvironment(
+    id: string,
+    patch: {
+      labels?: Record<string, string>;
+      recipe?: EnvironmentRecipe;
+      version?: number;
+      applied?: EnvironmentRecipe;
+      appliedVersion?: number;
+      ownerUserId?: string | null;
+      lastUsedAt?: string;
+    },
+    updatedAt: string,
+  ): Promise<void>;
+  /** Changes a pod Environment's lifecycle columns (the caller holds the row's lock). */
+  updateEnvironmentPod(id: string, patch: SandboxPodPatch, updatedAt: string): Promise<void>;
+  /** Deletes the Environment; its vault and credentials go with it (foreign key). */
+  deleteEnvironment(id: string): Promise<void>;
+  /** Environments by id, those with every label in `labels` when it is given. */
+  listEnvironments(filter?: { labels?: Record<string, string> }): Promise<Environment[]>;
+  /** Sessions that name Environment `environmentId` (`Session.environmentId`), by id. */
+  sessionsOnEnvironment<T extends SessionDoc = SessionDoc>(
+    environmentId: string,
   ): Promise<StoredSession<T>[]>;
   /**
-   * Appends an event to the sandbox's lifecycle stream through the record module. The caller
-   * holds the sandbox row's lock (or created the row in this transaction).
+   * Appends an event to the Environment's lifecycle stream through the record module. The
+   * caller holds the Environment row's lock (or created the row in this transaction).
    */
-  sandboxEvent<T extends SandboxEventType>(
-    sandboxId: string,
+  environmentEvent<T extends EnvironmentEventType>(
+    environmentId: string,
     type: T,
-    payload: SandboxEventPayload<T>,
-  ): Promise<SandboxEvent>;
-  /** The sandbox's lifecycle stream, from `fromSeq` on, at most `limit` events. */
-  sandboxEvents(
-    sandboxId: string,
+    payload: EnvironmentEventPayload<T>,
+  ): Promise<EnvironmentEvent>;
+  /** The Environment's lifecycle stream, from `fromSeq` on, at most `limit` events. */
+  environmentEvents(
+    environmentId: string,
     options?: { fromSeq?: number; limit?: number },
-  ): Promise<SandboxEvent[]>;
+  ): Promise<EnvironmentEvent[]>;
 
   /** `invoking` effects of one session; takeover turns them `uncertain`. */
   invokingEffects<T extends EffectDoc = EffectDoc>(
@@ -748,21 +768,21 @@ export interface Tx {
 
   // --- vault ---------------------------------------------------------------
 
-  /** Rejects on a duplicate id, or a second `host` vault. */
+  /** Rejects on a duplicate id, or a second vault for one Environment. */
   insertVault(row: VaultRow): Promise<void>;
   getVault(id: string): Promise<VaultRow | undefined>;
-  /** User vaults of one owner, ordered by `createdAt`, then id. */
-  vaultsByOwner(ownerUserId: string): Promise<VaultRow[]>;
-  /** Installation vaults (any session may attach them), ordered by `createdAt`, then id. */
-  installationVaults(): Promise<VaultRow[]>;
+  /** The vault of Environment `environmentId` (D56). */
+  vaultOfEnvironment(environmentId: string): Promise<VaultRow | undefined>;
   updateVaultMetadata(id: string, metadataJson: string | null): Promise<void>;
   /** Deletes the vault and its credentials. */
   deleteVault(id: string): Promise<void>;
 
   /** Rejects on a duplicate id or an unknown vault. */
   insertCredential(row: VaultCredentialRow): Promise<void>;
-  /** Looks a credential up by id alone (attachment checks); callers compare `vaultId`. */
+  /** Looks a credential up by id alone; callers compare `vaultId`. */
   getCredential(id: string): Promise<VaultCredentialRow | undefined>;
+  /** The credential named `name` in vault `vaultId` (names are unique per vault). */
+  credentialByName(vaultId: string, name: string): Promise<VaultCredentialRow | undefined>;
   /** Credentials of one vault, ordered by `createdAt`, then id. */
   credentialsForVault(
     vaultId: string,
@@ -906,9 +926,9 @@ export interface Tx {
    *   Tenant's record rows and log heads. The Tenant moves to the next basin
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;
-   * - `sandboxes`: sandbox records, sandbox resources and their lifecycle streams;
+   * - `environments`: sandbox records, Environments with their vaults, and their lifecycle
+   *   streams;
    * - `all`: both, plus definitions (and which definition files they use),
-   *   user vaults with their credentials,
    *   the model usage ledger, the model budgets and Tenant-wide artifacts. The host vault, principals, signing keys,
    *   settings, audit and vault idempotency rows stay.
    */

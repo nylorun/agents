@@ -54,7 +54,7 @@ import {
 } from "../../tenant/session-streams.js";
 import { putSession, sessionView } from "../../tenant/sessions.js";
 import { mayUseAgent } from "../../tenant/auth.js";
-import { sandboxGrantsOf } from "../../tenant/sandboxes.js";
+import { environmentGrantsOf } from "../../tenant/environments.js";
 
 const HEARTBEAT_MS = 15_000;
 const TERMINAL = new Set([
@@ -111,14 +111,13 @@ function lastUserMessage(messages: readonly Message[]): { id: string; text: stri
 function sessionOptions(
   input: RunAgentInput,
   scope: AuthScope
-): { info?: Record<string, unknown>; vaultIds?: string[]; credentialSelections?: unknown[] } {
+): { info?: Record<string, unknown>; environment?: string } {
   const raw = (input.forwardedProps as { nylorun?: { session?: unknown } } | undefined)
     ?.nylorun?.session;
   if (raw === undefined) return {};
   const parsed = PutSessionRequestSchema.pick({
     info: true,
-    vaultIds: true,
-    credentialSelections: true,
+    environment: true,
   })
     .strict()
     .safeParse(raw);
@@ -351,7 +350,7 @@ export async function startRun(
     caller.access,
     {
       createOnly: true,
-      ...(sandboxGrantsOf(scope) === undefined ? {} : { sandboxGrants: sandboxGrantsOf(scope)! }),
+      ...(environmentGrantsOf(scope) === undefined ? {} : { environmentGrants: environmentGrantsOf(scope)! }),
     }
   );
   const translator = new RunTranslator(input.threadId, input.runId);

@@ -1,7 +1,8 @@
 /**
- * Credentials for skills (R2c, D50) through the Runtime, against an in-memory sandboxes service:
- * session open refuses ambiguous shell credentials and a second owner on a sandbox that serves
- * secrets; a pod turn's commands see each `environment_secret` as `nylorun-managed` and each
+ * Credentials for skills (R2c, D50) in an Environment's vault (D56, protocol 11), through the
+ * Runtime against an in-memory sandboxes service: a second secret for a host is refused at write,
+ * and the owner guard keeps another owner's sessions off an Environment that serves secrets; a pod
+ * turn's commands see each `environment_secret` as `nylorun-managed` and each
  * `environment_variable` as its value; the vault releases the real header only for a bound host,
  * read afresh after a rotation. egress-gate's use of the release is `gates/egress-credentials`.
  */
@@ -30,8 +31,9 @@ let runtime: Awaited<ReturnType<typeof startTestTenant>>;
 let fake: FakeSandboxes;
 let listener: HarnessListener;
 let tenantId: string;
-const vaults: Record<string, string> = {};
-const credentials: Record<string, string> = {};
+/** Ada's pod Environment, guarded for her sessions. */
+const ENV = "creds";
+let created: { status: number; body: any };
 
 /** One bash call per turn that prints what a skill's CLI would read, then a text answer. */
 const podModel: ModelProvider = async (effect) => {
@@ -70,36 +72,16 @@ async function until<T>(what: string, read: () => Promise<T>, ok: (value: T) => 
   }
 }
 
-async function vault(key: string, owner: string | "installation") {
-  const created = await call("POST", "/v1/tenant/vaults", {
-    requestId: `v-${key}`,
-    idempotencyKey: `v-${key}`,
-    name: key,
-    ...(owner === "installation" ? { scope: "installation" } : { ownerUserId: owner }),
-  });
-  expect(created.status, JSON.stringify(created.body)).toBe(200);
-  vaults[key] = created.body.id;
+async function secret(name: string, body: Record<string, unknown>) {
+  return call("PUT", `/v1/environments/${ENV}/secrets/${name}`, body);
 }
 
-async function credential(vaultKey: string, key: string, auth: Record<string, unknown>) {
-  const created = await call("POST", `/v1/tenant/vaults/${vaults[vaultKey]}/credentials`, {
-    requestId: `c-${key}`,
-    idempotencyKey: `c-${key}`,
-    name: key,
-    auth,
-  });
-  expect(created.status, JSON.stringify(created.body)).toBe(200);
-  credentials[key] = created.body.id;
-  return created.body;
-}
-
-const open = (id: string, owner: string, vaultKeys: string[], sandboxId?: string) =>
+const open = (id: string, owner: string) =>
   call("PUT", `/v1/sessions/${id}`, {
     requestId: `open-${id}`,
     agentId: "bot",
     ownerUserId: owner,
-    vaultIds: vaultKeys.map((key) => vaults[key]),
-    ...(sandboxId ? { sandbox: { id: sandboxId } } : {}),
+    environment: ENV,
   });
 
 /** The vault as the gateway reads it, over the Tenant's database. */
@@ -129,21 +111,19 @@ beforeAll(async () => {
   const agent = Agent({ id: "bot", name: "Bot" }).instructions("Work in the sandbox.").build();
   expect((await call("PUT", "/v1/agents/bot", { requestId: "bot", manifest: agent.manifest, implementationVersion: "dev" })).status).toBe(200);
 
-  await vault("ada", "app:ada");
-  await credential("ada", "gh", { type: "environment_secret", secretName: "GH_TOKEN", secretValue: SECRET, allowedHosts: ["api.github.com", "GitHub.com"] });
-  await credential("ada", "region", { type: "environment_variable", variableName: "REGION", variableValue: "eu-west-1" });
-  await vault("again", "installation");
-  await credential("again", "gh2", { type: "environment_secret", secretName: "GH_TOKEN", secretValue: "x", allowedHosts: ["gitlab.example.com"] });
-  await vault("overlap", "installation");
-  await credential("overlap", "other", { type: "environment_secret", secretName: "OTHER_TOKEN", secretValue: "y", allowedHosts: ["github.com"] });
-  await vault("bao", "app:bao");
-  await credential("bao", "bao", {
-    type: "environment_secret",
-    secretName: "BAO_KEY",
-    secretValue: "bao-secret",
-    allowedHosts: ["api.bao.test"],
-    inject: { header: "X-Api-Key", format: "{value}" },
-  });
+  created = await until(
+    "created",
+    () => call("PUT", `/v1/environments/${ENV}`, { kind: "pod", ownerUserId: "app:ada" }),
+    (reply) => reply.status !== 409,
+  );
+  expect(created.status, JSON.stringify(created.body)).toBe(200);
+  for (const [name, body] of [
+    ["GH_TOKEN", { type: "environment_secret", value: SECRET, allowedHosts: ["api.github.com", "GitHub.com"] }],
+    ["REGION", { type: "environment_variable", value: "eu-west-1" }],
+  ] as const) {
+    const written = await secret(name, body);
+    expect(written.status, JSON.stringify(written.body)).toBe(200);
+  }
 });
 
 afterAll(async () => {
@@ -152,40 +132,49 @@ afterAll(async () => {
 });
 
 describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
-  it("lists a secret without its value and a variable with its value", async () => {
-    const listed = (await call("GET", `/v1/tenant/vaults/${vaults.ada}/credentials`)).body;
+  it("lists a secret and a variable, never a value", async () => {
+    const listed = (await call("GET", `/v1/environments/${ENV}/secrets`)).body;
     expect(JSON.stringify(listed)).not.toContain(SECRET);
-    const byName = Object.fromEntries((listed.credentials as any[]).map((entry) => [entry.name, entry]));
-    expect(byName.gh).toMatchObject({
+    expect(JSON.stringify(listed)).not.toContain("eu-west-1");
+    const byName = Object.fromEntries((listed.secrets as any[]).map((entry) => [entry.name, entry]));
+    expect(byName.GH_TOKEN).toMatchObject({
       type: "environment_secret",
       binding: {
-        secretName: "GH_TOKEN",
         allowedHosts: ["api.github.com", "github.com"],
         inject: { header: "Authorization", format: "Bearer {value}" },
       },
     });
-    expect(byName.region).toMatchObject({ type: "environment_variable", binding: { variableName: "REGION", variableValue: "eu-west-1" } });
+    expect(byName.REGION).toEqual({ name: "REGION", type: "environment_variable", binding: {}, createdAt: expect.any(String) });
   });
 
-  it("refuses a session whose vaults set one variable twice or bind one host twice", async () => {
-    for (const keys of [["ada", "again"], ["ada", "overlap"]]) {
-      const refused = await open(`conflict-${keys.join("-")}`, "app:ada", keys);
-      expect(refused.status, JSON.stringify(refused.body)).toBe(409);
-      expect(refused.body.code).toBe("credential_conflict");
-    }
+  it("refuses a second secret bound to a host at write, and a variable is set once by its name", async () => {
+    const refused = await secret("OTHER_TOKEN", { type: "environment_secret", value: "y", allowedHosts: ["github.com"] });
+    expect(refused.status, JSON.stringify(refused.body)).toBe(409);
+    expect(refused.body).toMatchObject({ code: "credential_conflict", details: { host: "github.com", existing: "GH_TOKEN" } });
+    // Another host is no conflict; the name is the variable, so it is set once.
+    const other = await secret("BAO_KEY", {
+      type: "environment_secret",
+      value: "bao-secret",
+      allowedHosts: ["api.bao.test"],
+      inject: { header: "X-Api-Key", format: "{value}" },
+    });
+    expect(other.status, JSON.stringify(other.body)).toBe(200);
+    expect((await call("DELETE", `/v1/environments/${ENV}/secrets/BAO_KEY`)).status).toBe(200);
+    expect(((await call("GET", `/v1/environments/${ENV}/secrets`)).body.secrets as { name: string }[]).map((item) => item.name)).toEqual([
+      "GH_TOKEN",
+      "REGION",
+    ]);
   });
 
   it("runs a pod turn with the sentinel and the variable; the gateway releases the header for a bound host only", async () => {
-    const created = await until("created", () => call("PUT", "/v1/sandboxes/creds", { kind: "pod" }), (reply) => reply.status !== 409);
-    expect(created.status, JSON.stringify(created.body)).toBe(200);
-    const name = podName(tenantId, "creds", created.body.pod.volumeGeneration);
+    const name = podName(tenantId, ENV, created.body.pod.volumeGeneration);
     await until("the pod runs", async () => fake.podUid(name), (uid) => uid !== undefined);
     const workspace = await mkdtemp(join(tmpdir(), "nylorun-creds-ws-"));
     const harnessRoot = await mkdtemp(join(tmpdir(), "nylorun-creds-harness-"));
     const joinFile = join(harnessRoot, "join-token");
     await writeFile(joinFile, fake.joinToken(name)!);
     const host = podHost(
-      { sandboxId: "creds", podUid: fake.podUid(name)!, joinFile, httpUrl: listener.url.replace(/^ws/, "http").replace(/\/nylorun.*$/, ""), blocked: [] },
+      { sandboxId: ENV, podUid: fake.podUid(name)!, joinFile, httpUrl: listener.url.replace(/^ws/, "http").replace(/\/nylorun.*$/, ""), blocked: [] },
       { info: () => undefined, warn: () => undefined },
     );
     let service: HarnessService | undefined;
@@ -204,7 +193,7 @@ describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
         backoff: { minMs: 50, maxMs: 200 },
       });
       await service.client.ready;
-      expect((await open("creds-ada", "app:ada", ["ada"], "creds")).status).toBe(200);
+      expect((await open("creds-ada", "app:ada")).status).toBe(200);
       const sent = await call("POST", "/v1/sessions/creds-ada/commands", { type: "message", requestId: "m1", idempotencyKey: "m1", content: "go" });
       expect(sent.status, JSON.stringify(sent.body)).toBe(200);
       const done = await until("settles", async () => (await call("GET", "/v1/sessions/creds-ada")).body, (body) =>
@@ -221,36 +210,35 @@ describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
     }
 
     // What egress-gate reads: the header for a bound host, by any case of its name; nothing elsewhere.
-    expect(await gateway((v) => v.releaseEnvironmentSecret({ sandboxId: "creds", host: "API.github.com" }))).toEqual({
+    const credentialId = await withTestSessionStore({ root: runtime.root, tenantId }, (store) =>
+      store.tx(async (t) => (await t.credentialByName((await t.vaultOfEnvironment(ENV))!.id, "GH_TOKEN"))!.id),
+    );
+    expect(await gateway((v) => v.releaseEnvironmentSecret({ environmentId: ENV, host: "API.github.com" }))).toEqual({
       status: "released",
       header: "Authorization",
       value: `Bearer ${SECRET}`,
-      credentialId: credentials.gh,
+      credentialId,
     });
-    expect(await gateway((v) => v.environmentSecretBound("creds", "github.com"))).toBe(true);
-    expect(await gateway((v) => v.environmentSecretBound("creds", "gist.github.com"))).toBe(false);
-    expect(await gateway((v) => v.releaseEnvironmentSecret({ sandboxId: "creds", host: "example.com" }))).toEqual({ status: "none" });
+    expect(await gateway((v) => v.environmentSecretBound(ENV, "github.com"))).toBe(true);
+    expect(await gateway((v) => v.environmentSecretBound(ENV, "gist.github.com"))).toBe(false);
+    expect(await gateway((v) => v.releaseEnvironmentSecret({ environmentId: ENV, host: "example.com" }))).toEqual({ status: "none" });
 
-    // A rotation applies to the next release; the binding stays.
-    const rotated = await call("POST", `/v1/tenant/vaults/${vaults.ada}/credentials/${credentials.gh}`, {
-      requestId: "rot",
-      idempotencyKey: "rot",
-      auth: { type: "environment_secret", secretValue: ROTATED },
-    });
+    // A replaced value applies to the next release; the credential and its binding stay.
+    const rotated = await secret("GH_TOKEN", { type: "environment_secret", value: ROTATED, allowedHosts: ["api.github.com", "github.com"] });
     expect(rotated.status, JSON.stringify(rotated.body)).toBe(200);
     expect(JSON.stringify(rotated.body)).not.toContain(ROTATED);
-    expect(await gateway((v) => v.releaseEnvironmentSecret({ sandboxId: "creds", host: "api.github.com" }))).toMatchObject({
+    expect(await gateway((v) => v.releaseEnvironmentSecret({ environmentId: ENV, host: "api.github.com" }))).toEqual({
       status: "released",
+      header: "Authorization",
       value: `Bearer ${ROTATED}`,
+      credentialId,
     });
 
-    // A second owner cannot join a sandbox that serves Ada's secrets, with secrets or without.
-    for (const [id, keys] of [["creds-bao", ["bao"]], ["creds-bao-plain", []]] as const) {
-      const refused = await open(id, "app:bao", [...keys], "creds");
-      expect(refused.status, JSON.stringify(refused.body)).toBe(409);
-      expect(refused.body.code).toBe("credential_conflict");
-    }
-    // Ada's second session joins, with a vault that binds the same host to the same credential.
-    expect((await open("creds-ada-2", "app:ada", ["ada"], "creds")).status).toBe(200);
+    // Another owner's session cannot name the Environment that serves Ada's secrets.
+    const refused = await open("creds-bao", "app:bao");
+    expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+    expect(refused.body.code).toBe("environment_owner_mismatch");
+    // Ada's second session names it too.
+    expect((await open("creds-ada-2", "app:ada")).status).toBe(200);
   });
 });

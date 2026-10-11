@@ -1,10 +1,11 @@
 /**
- * The `PUT /v1/pods/{name}` body of a pod sandbox: its resolved spec, the Tenant's lifecycle
+ * The `PUT /v1/pods/{name}` body of a pod Environment: its applied recipe, the Tenant's lifecycle
  * settings (D36, read at every apply) and the incarnation's fences. The pod shape itself is
  * rendered only by the sandboxes service.
  */
 import { parseSandboxDuration, parseSandboxSize, type SandboxManifest } from "@nylorun/core/define";
-import type { TenantSandboxConfig } from "@nylorun/core/contracts";
+import type { EnvironmentRecipe } from "@nylorun/core/contracts";
+import type { TenantSandboxConfig } from "../tenant-config.js";
 import { memoryMiBOf } from "../policy.js";
 import type { SandboxPodState } from "../../store/types.js";
 import type { PodSpec } from "./client.js";
@@ -17,20 +18,24 @@ export const DEFAULT_STORAGE_GIB = 5;
 /** Where the engine in the pod keeps its records, plugin data and home (on the volume). */
 export const POD_HARNESS_ROOT = "/harness";
 
-/** What a pod sandbox's spec holds beyond a virtual one's. */
-export type PodSandboxSpec = SandboxManifest & {
-  readonly storage?: string;
-  readonly lifecycle?: { readonly ttl?: string };
-};
+/** What a pod's spec holds beyond a virtual sandbox's. */
+export type PodSandboxSpec = SandboxManifest & { readonly storage?: string };
 
-/** The Tenant's lifecycle settings with their defaults. */
-export function podLifecycleConfig(config: TenantSandboxConfig): PodLifecycleConfig & {
+/**
+ * The lifecycle settings with their defaults: the Tenant's (D36), and the Environment's
+ * `lifecycle.idle` within the Tenant's `limits.idle` when `recipe` is given.
+ */
+export function podLifecycleConfig(
+  config: TenantSandboxConfig,
+  recipe?: Pick<EnvironmentRecipe, "lifecycle">,
+): PodLifecycleConfig & {
   readonly stopGraceSeconds: number;
 } {
   const stopGrace = config.lifecycle?.stopGrace;
+  const tenantIdle = parseSandboxDuration(config.limits?.idle ?? "15m") ?? 15 * 60_000;
+  const own = recipe?.lifecycle.idle === undefined ? undefined : parseSandboxDuration(recipe.lifecycle.idle);
   return {
-    onExpiry: config.lifecycle?.onExpiry ?? "retain",
-    idleMs: parseSandboxDuration(config.limits?.idle ?? "15m") ?? 15 * 60_000,
+    idleMs: own === undefined ? tenantIdle : Math.min(own, tenantIdle),
     stopGraceSeconds:
       stopGrace === undefined
         ? DEFAULT_STOP_GRACE_SECONDS
@@ -44,14 +49,8 @@ export function storageGiBOf(spec: PodSandboxSpec): number {
   return bytes === undefined ? DEFAULT_STORAGE_GIB : Math.max(1, Math.ceil(bytes / 1024 ** 3));
 }
 
-/** The Tenant's default image, when its default sandbox names one. */
-export function tenantDefaultImage(config: TenantSandboxConfig): string | undefined {
-  const fallback = config.default;
-  return typeof fallback === "object" ? fallback.image : undefined;
-}
-
 export interface PodSpecInput {
-  readonly sandboxId: string;
+  readonly environmentId: string;
   readonly spec: PodSandboxSpec;
   readonly pod: SandboxPodState;
   readonly config: TenantSandboxConfig;
@@ -65,7 +64,7 @@ export interface PodSpecInput {
 export function podSpecOf(input: PodSpecInput): PodSpec {
   const { spec, pod, config } = input;
   const lifecycle = podLifecycleConfig(config);
-  const image = spec.image ?? tenantDefaultImage(config);
+  const image = spec.image;
   return {
     opId: opIdOf(pod),
     mode: input.mode,
@@ -75,18 +74,11 @@ export function podSpecOf(input: PodSpecInput): PodSpec {
     memoryMiB: memoryMiBOf(spec),
     storageGiB: storageGiBOf(spec),
     stopGraceSeconds: lifecycle.stopGraceSeconds,
-    ...(pod.expiresAt ? { shutdownTime: new Date(pod.expiresAt).toISOString().replace(/\.\d{3}Z$/, "Z") } : {}),
-    shutdownPolicy: lifecycle.onExpiry === "delete" ? "Delete" : "Retain",
+    shutdownPolicy: "Retain",
     env: {
-      NYLORUN_SANDBOX_ID: input.sandboxId,
+      NYLORUN_SANDBOX_ID: input.environmentId,
       NYLORUN_HARNESS_ROOT: POD_HARNESS_ROOT,
     },
     ...(input.joinToken ? { joinToken: input.joinToken } : {}),
   };
-}
-
-/** When a sandbox with this TTL, created at `createdAt`, expires. */
-export function expiresAtOf(createdAt: string, ttl: string | undefined): string | undefined {
-  const ms = ttl === undefined ? undefined : parseSandboxDuration(ttl);
-  return ms === undefined ? undefined : new Date(Date.parse(createdAt) + ms).toISOString();
 }

@@ -3,7 +3,8 @@
  * verifier. The Runtime makes each request through its Tool Gate as for an agent's HTTP tool (in
  * process, or the gates service with `NYLORUN_TEST_MODEL_GATE=http`,
  * `gates/tool-gate-flow-http.test.ts`): the identity headers with the flow agent's id, the flow
- * effect id as `Idempotency-Key` and the vault credential. A failed request fails the stage; a
+ * effect id as `Idempotency-Key` and the credential of the session's Environment. A failed
+ * request fails the stage; a
  * verifier's verdict is recorded as `loop.verified`.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -14,6 +15,7 @@ import { Agent, createClient, http, type AgentsClient, type BuiltWorkflow } from
 import type { HostEffect } from "@nylorun/harness/run";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
+import { putEnvironment, putSecret } from "./support/environment-secrets.js";
 
 const APP = "flow-http-app-token-aaaaaaaaaaaaa";
 const TOKEN = "checks-secret-token-5d1e8b7c";
@@ -81,7 +83,7 @@ const stage = (name: string, path: string, extra: { credential?: string } = {}) 
   http({ name, input: Order, output: z.object({ refundId: z.string() }), url: `${target.url}${path}`, ...extra });
 
 /** Saves `workflow`, runs one turn, and returns its events. */
-async function run(workflow: BuiltWorkflow, options: { vaultIds?: string[] } = {}) {
+async function run(workflow: BuiltWorkflow, options: { environment?: string } = {}) {
   const put = await fetch(`${runtime.url}/v1/agents/${workflow.id}`, {
     method: "PUT",
     headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
@@ -92,7 +94,7 @@ async function run(workflow: BuiltWorkflow, options: { vaultIds?: string[] } = {
     id: `flow-http-${sessions}`,
     agentId: workflow.id,
     ownerUserId: "ada",
-    ...(options.vaultIds ? { vaultIds: options.vaultIds } : {}),
+    ...(options.environment ? { environment: options.environment } : {}),
   });
   const events: Event[] = [];
   const done = (async () => {
@@ -146,33 +148,21 @@ describe("an HTTP stage", { timeout: 30_000 }, () => {
     expect(JSON.stringify(last.payload)).toContain("tool.invalid-output");
   });
 
-  it("adds the session's vault credential bound to the stage's URL", async () => {
-    const vault = await (
-      await fetch(`${runtime.url}/v1/tenant/vaults`, {
-        method: "POST",
-        headers: runtime.managementHeaders(),
-        body: JSON.stringify({ requestId: "vault-flow", idempotencyKey: "vault-flow", name: "Checks", ownerUserId: "ada" }),
-      })
-    ).json();
-    const created = await fetch(`${runtime.url}/v1/tenant/vaults/${vault.id}/credentials`, {
-      method: "POST",
-      headers: runtime.managementHeaders(),
-      body: JSON.stringify({
-        requestId: "cred-checks",
-        idempotencyKey: "cred-checks",
-        name: "checks",
-        auth: { type: "bearer", url: `${target.url}/refunds`, token: TOKEN },
-      }),
+  it("adds the credential of the session's Environment bound to the stage's URL", async () => {
+    await putEnvironment(runtime.url, runtime.headers(), "flows/checks", { kind: "none", ownerUserId: "ada" });
+    await putSecret(runtime.url, runtime.headers(), "flows/checks", "checks", {
+      type: "bearer",
+      url: `${target.url}/refunds`,
+      value: TOKEN,
     });
-    expect(created.ok).toBe(true);
     const before = target.seen.length;
     const desk = Agent({ id: "billed-desk" }).pipe(orders, stage("refund", "/refunds", { credential: "checks" })).build();
-    const { last, events } = await run(desk, { vaultIds: [vault.id] });
+    const { last, events } = await run(desk, { environment: "flows/checks" });
     expect(last.type, JSON.stringify(last.payload)).toBe("turn.completed");
     expect(target.seen.slice(before).map((item) => item.headers.authorization)).toEqual([`Bearer ${TOKEN}`]);
     expect(JSON.stringify(events)).not.toContain(TOKEN);
 
-    // Without the vault, the request never leaves and the stage fails.
+    // Without an Environment, the request never leaves and the stage fails.
     const bare = await run(desk);
     expect(bare.last.type).toBe("turn.failed");
     expect(JSON.stringify(bare.last.payload)).toContain("http.credential");

@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import type { VaultInfo } from "@nylorun/agents";
+import type { EnvironmentView } from "@nylorun/agents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,19 +22,19 @@ import {
 } from "@/components/ui/sheet";
 import {
   coverageCounts,
+  coverageCredentialLabel,
   coverageEntryLabel,
   coverageStatusLabel,
   coverageTone,
-  credentialChoices,
-  keptPicks,
-  selectionsOf,
-  suggestedVaultIds,
-  vaultHolds,
+  environmentUnavailable,
   type Coverage,
-  type PickedCredential,
 } from "@/credential-coverage";
-import { createTenantManagementClient } from "@/proxy-client";
-import { newSessionState, type NewSessionCredentials } from "@/session-open";
+import { createTenantClient, createTenantManagementClient } from "@/proxy-client";
+import {
+  STUDIO_OWNER,
+  newSessionState,
+  type NewSessionEnvironment,
+} from "@/session-open";
 
 /** The agent a new session runs. */
 type SessionAgent = { readonly id: string; readonly name: string };
@@ -50,37 +50,51 @@ function messageOf(cause: unknown): string {
 }
 
 /**
- * Starts Studio's new sessions. An agent whose MCP servers or HTTP tools take a credential gets
- * the vault picker first, with the vaults that hold one suggested; any other agent's session
- * starts at once, as does every session on a Runtime without credential coverage.
+ * Starts Studio's new sessions. When the Tenant has Environments, or the agent's MCP servers or
+ * HTTP tools take a credential, the Environment picker comes first: the session's sandbox and
+ * credentials are the Environment's, and without one it has neither. Otherwise the session
+ * starts at once.
  */
 export function NewSessionProvider({
   tenantId,
   children,
 }: Readonly<{ tenantId: string; children: ReactNode }>) {
   const navigate = useNavigate();
-  const [pending, setPending] = useState<{ agent: SessionAgent; coverage: Coverage }>();
+  const [pending, setPending] = useState<{
+    agent: SessionAgent;
+    environments: EnvironmentView[];
+    coverage?: Coverage;
+  }>();
   const starting = useRef(false);
   const open = useCallback(
-    (agent: SessionAgent, credentials: NewSessionCredentials = {}) =>
-      void navigate(sessionPath(agent.id), { state: newSessionState(credentials) }),
+    (agent: SessionAgent, choice: NewSessionEnvironment = {}) =>
+      void navigate(sessionPath(agent.id), { state: newSessionState(choice) }),
     [navigate],
   );
   const start = useCallback(
     (agent: SessionAgent) => {
       if (starting.current) return;
       starting.current = true;
-      void createTenantManagementClient(tenantId)
-        .vaults.coverage({ agentId: agent.id })
-        .then(
-          (coverage) => {
-            // No entries (or a Runtime answering without them): nothing to pick.
-            if (!Array.isArray(coverage.entries) || coverage.entries.length === 0) open(agent);
-            else setPending({ agent, coverage });
-          },
-          // A Runtime without credential coverage: the session starts with no vaults, as before.
-          () => open(agent),
-        )
+      void Promise.all([
+        createTenantClient(tenantId)
+          .environments.list()
+          .then(
+            (listed) => (Array.isArray(listed) ? listed : []),
+            () => [],
+          ),
+        // A Runtime without credential coverage: no entries to show.
+        createTenantManagementClient(tenantId)
+          .coverage({ agentId: agent.id })
+          .then(
+            (coverage) => (Array.isArray(coverage.entries) ? coverage : undefined),
+            () => undefined,
+          ),
+      ])
+        .then(([environments, coverage]) => {
+          // Nothing to pick: the session starts without an Environment.
+          if (environments.length === 0 && !coverage?.entries.length) open(agent);
+          else setPending({ agent, environments, ...(coverage ? { coverage } : {}) });
+        })
         .finally(() => {
           starting.current = false;
         });
@@ -95,11 +109,12 @@ export function NewSessionProvider({
           key={pending.agent.id}
           tenantId={tenantId}
           agent={pending.agent}
+          environments={pending.environments}
           initial={pending.coverage}
           onCancel={() => setPending(undefined)}
-          onStart={(credentials) => {
+          onStart={(choice) => {
             setPending(undefined);
-            open(pending.agent, credentials);
+            open(pending.agent, choice);
           }}
         />
       ) : null}
@@ -107,7 +122,7 @@ export function NewSessionProvider({
   );
 }
 
-/** Starts a new session of `agent`: through the vault picker inside `NewSessionProvider`. */
+/** Starts a new session of `agent`: through the Environment picker inside `NewSessionProvider`. */
 export function useStartSession(): (agent: SessionAgent) => void {
   const start = useContext(NewSessionContext);
   const navigate = useNavigate();
@@ -127,51 +142,39 @@ const TONE_CLASS = {
 } as const;
 
 /**
- * The installation vaults a new session attaches (Studio manages no person's vault), with what
- * the agent's MCP servers and HTTP tools would get from them, checked by the Runtime as the
- * session's calls would choose (`credential-coverage`).
+ * The Environment a new session names, or none, with what the agent's MCP servers and HTTP
+ * tools would get from its secrets, checked by the Runtime as the session's calls would
+ * (`credential-coverage`). An Environment whose owner guard names another owner than Studio's
+ * cannot be picked.
  */
 function NewSessionSheet({
   tenantId,
   agent,
+  environments,
   initial,
   onCancel,
   onStart,
 }: Readonly<{
   tenantId: string;
   agent: SessionAgent;
-  initial: Coverage;
+  environments: readonly EnvironmentView[];
+  initial?: Coverage;
   onCancel: () => void;
-  onStart: (credentials: NewSessionCredentials) => void;
+  onStart: (choice: NewSessionEnvironment) => void;
 }>) {
   const sdk = useMemo(() => createTenantManagementClient(tenantId), [tenantId]);
-  const [vaults, setVaults] = useState<VaultInfo[]>();
-  const [vaultIds, setVaultIds] = useState<string[]>(() => suggestedVaultIds(initial));
-  const [picks, setPicks] = useState<PickedCredential[]>([]);
-  const [coverage, setCoverage] = useState<Coverage>(initial);
+  const [environmentId, setEnvironmentId] = useState("");
+  const [coverage, setCoverage] = useState<Coverage | undefined>(initial);
   const [checking, setChecking] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const checks = initial !== undefined;
 
   useEffect(() => {
-    let current = true;
-    sdk.vaults.list().then(
-      (listed) => current && setVaults(listed),
-      (cause: unknown) => current && setProblem(messageOf(cause)),
-    );
-    return () => {
-      current = false;
-    };
-  }, [sdk]);
-
-  useEffect(() => {
+    if (!checks) return;
     let current = true;
     setChecking(true);
-    sdk.vaults
-      .coverage({
-        agentId: agent.id,
-        vaultIds,
-        credentialSelections: selectionsOf(picks),
-      })
+    sdk
+      .coverage({ agentId: agent.id, ...(environmentId ? { environmentId } : {}) })
       .then(
         (next) => {
           if (!current) return;
@@ -184,24 +187,10 @@ function NewSessionSheet({
     return () => {
       current = false;
     };
-  }, [sdk, agent.id, vaultIds, picks]);
+  }, [sdk, agent.id, environmentId, checks]);
 
-  const toggle = (vaultId: string) => {
-    const next = vaultIds.includes(vaultId)
-      ? vaultIds.filter((id) => id !== vaultId)
-      : (vaults ?? []).map((vault) => vault.id).filter((id) => id === vaultId || vaultIds.includes(id));
-    setVaultIds(next);
-    setPicks(keptPicks(picks, next));
-  };
-  const choices = credentialChoices(coverage);
-  const pick = (serverName: string, credentialId: string) => {
-    const others = picks.filter((item) => item.serverName !== serverName);
-    const option = choices
-      .find((choice) => choice.serverName === serverName)
-      ?.options.find((item) => item.credentialId === credentialId);
-    setPicks(option ? [...others, { serverName, credentialId, vaultId: option.vaultId }] : others);
-  };
-  const counts = coverageCounts(coverage);
+  const counts = coverage ? coverageCounts(coverage) : undefined;
+  const picked = environments.find((environment) => environment.id === environmentId);
 
   return (
     <Sheet open onOpenChange={(open) => !open && onCancel()}>
@@ -209,100 +198,114 @@ function NewSessionSheet({
         <SheetHeader>
           <SheetTitle>New session · {agent.name}</SheetTitle>
           <SheetDescription>
-            Attach the installation vaults whose credentials this agent's MCP servers and HTTP
-            tools use. A credential is sent to the URL it is bound to.
+            Pick the Environment the session runs in: its sandbox, and the secrets this
+            agent's MCP servers, HTTP tools and shell use. A credential is sent only to the
+            URL it is bound to.
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4">
-          <section aria-labelledby="new-session-vaults" className="grid gap-2">
-            <h3 id="new-session-vaults" className="text-sm font-medium">
-              Vaults
+          <section aria-labelledby="new-session-environment" className="grid gap-2">
+            <h3 id="new-session-environment" className="text-sm font-medium">
+              Environment
             </h3>
-            {vaults === undefined ? (
-              <p className="text-sm text-muted-foreground">Loading vaults…</p>
-            ) : vaults.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                This Tenant has no vaults yet. Add credentials on the{" "}
-                <Link className="text-primary underline underline-offset-4" to="/settings/credentials">
-                  Credentials page
-                </Link>
-                .
-              </p>
-            ) : (
-              <ul className="grid gap-1">
-                {vaults.map((vault) => {
-                  const holds = vaultHolds(coverage, vault.id);
-                  return (
-                    <li key={vault.id}>
-                      <label className="flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/50">
-                        <input
-                          type="checkbox"
-                          className="size-4"
-                          checked={vaultIds.includes(vault.id)}
-                          onChange={() => toggle(vault.id)}
-                        />
-                        <span className="min-w-0 flex-1 truncate font-medium">{vault.name}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {holds === 0
-                            ? "nothing for this agent"
-                            : `holds ${holds} of ${coverage.entries.length}`}
-                        </span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-
-          <section aria-labelledby="new-session-coverage" className="grid gap-2">
-            <h3 id="new-session-coverage" className="text-sm font-medium">
-              What the tools get{checking ? " · checking…" : ""}
-            </h3>
-            <ul className="grid gap-2">
-              {coverage.entries.map((entry) => {
-                const tone = coverageTone(entry);
-                const choice = choices.find((item) => item.serverName === entry.serverName);
-                const picked = picks.find((item) => item.serverName === entry.serverName);
+            <ul className="grid gap-1">
+              <li>
+                <label className="flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/50">
+                  <input
+                    type="radio"
+                    name="new-session-environment"
+                    className="size-4"
+                    checked={environmentId === ""}
+                    onChange={() => setEnvironmentId("")}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium">None</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    no sandbox, no credentials
+                  </span>
+                </label>
+              </li>
+              {environments.map((environment) => {
+                const unavailable = environmentUnavailable(environment, STUDIO_OWNER);
                 return (
-                  <li
-                    key={`${entry.kind}:${entry.agentId ?? ""}:${entry.stage ?? ""}:${entry.name}`}
-                    className="grid gap-1 rounded-md border p-3 text-sm"
-                  >
-                    <div className="flex items-center gap-2">
+                  <li key={environment.id}>
+                    <label
+                      className={`flex items-center gap-3 rounded-md border px-3 py-2 text-sm ${unavailable ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted/50"}`}
+                      title={unavailable}
+                    >
+                      <input
+                        type="radio"
+                        name="new-session-environment"
+                        className="size-4"
+                        disabled={unavailable !== undefined}
+                        checked={environmentId === environment.id}
+                        onChange={() => setEnvironmentId(environment.id)}
+                      />
                       <span className="min-w-0 flex-1 truncate font-medium">
-                        {coverageEntryLabel(entry)}
+                        {environment.id}
                       </span>
-                      <Badge variant="outline" className={TONE_CLASS[tone]}>
-                        {coverageStatusLabel(entry)}
-                      </Badge>
-                    </div>
-                    <code className="truncate text-xs text-muted-foreground" title={entry.url}>
-                      {entry.url}
-                    </code>
-                    <p className="text-muted-foreground">{entry.message}</p>
-                    {choice ? (
-                      <label className="grid gap-1 text-xs">
-                        Credential for {entry.serverName}
-                        <select
-                          className="h-8 rounded-md border bg-transparent px-2 text-sm"
-                          value={picked?.credentialId ?? ""}
-                          onChange={(event) => pick(entry.serverName, event.target.value)}
-                        >
-                          <option value="">Pick a credential</option>
-                          {choice.options.map((item) => (
-                            <option key={item.credentialId} value={item.credentialId}>
-                              {item.credentialName} · {item.vaultName}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {unavailable ?? environment.kind}
+                      </span>
+                    </label>
                   </li>
                 );
               })}
             </ul>
+            {environments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                This Tenant has no Environments yet. Create one, and write its credentials,
+                on the{" "}
+                <Link className="text-primary underline underline-offset-4" to="/environments">
+                  Environments page
+                </Link>
+                .
+              </p>
+            ) : null}
           </section>
+
+          {coverage && coverage.entries.length > 0 ? (
+            <section aria-labelledby="new-session-coverage" className="grid gap-2">
+              <h3 id="new-session-coverage" className="text-sm font-medium">
+                What the tools get{checking ? " · checking…" : ""}
+              </h3>
+              <ul className="grid gap-2">
+                {coverage.entries.map((entry) => {
+                  const tone = coverageTone(entry);
+                  const credential = coverageCredentialLabel(entry);
+                  return (
+                    <li
+                      key={`${entry.kind}:${entry.agentId ?? ""}:${entry.stage ?? ""}:${entry.name}`}
+                      className="grid gap-1 rounded-md border p-3 text-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {coverageEntryLabel(entry)}
+                        </span>
+                        <Badge variant="outline" className={TONE_CLASS[tone]}>
+                          {coverageStatusLabel(entry)}
+                        </Badge>
+                      </div>
+                      <code className="truncate text-xs text-muted-foreground" title={entry.url}>
+                        {entry.url}
+                      </code>
+                      {credential ? (
+                        <p className="text-xs text-muted-foreground">Sends {credential}</p>
+                      ) : null}
+                      <p className="text-muted-foreground">{entry.message}</p>
+                    </li>
+                  );
+                })}
+              </ul>
+              {picked ? (
+                <Link
+                  className="text-sm text-primary underline underline-offset-4"
+                  to={`/settings/credentials?${new URLSearchParams({ environment: picked.id })}`}
+                >
+                  Manage {picked.id}'s credentials
+                </Link>
+              ) : null}
+            </section>
+          ) : null}
           {problem ? (
             <p role="alert" className="text-sm text-red-600">
               {problem}
@@ -311,15 +314,16 @@ function NewSessionSheet({
         </div>
         <SheetFooter className="flex-row items-center gap-2">
           <p className="mr-auto text-sm text-muted-foreground" role="status">
-            {counts.covered} of {coverage.entries.length} covered
-            {counts.error ? ` · ${counts.error} would fail` : ""}
+            {coverage && counts && coverage.entries.length > 0
+              ? `${counts.covered} of ${coverage.entries.length} covered${counts.error ? ` · ${counts.error} would fail` : ""}`
+              : null}
           </p>
           <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>
           <Button
             disabled={checking}
-            onClick={() => onStart({ vaultIds, credentialSelections: selectionsOf(picks) })}
+            onClick={() => onStart(environmentId ? { environment: environmentId } : {})}
           >
             Start session
           </Button>

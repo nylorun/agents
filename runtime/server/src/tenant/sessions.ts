@@ -1,7 +1,7 @@
 /**
- * Session and definition resources: `PUT/GET /v1/agents`, `PUT /v1/sessions/:id` (create or
- * re-attach vaults), the session list and the session view. Reads use the store's typed
- * queries; `PUT /v1/sessions/:id` runs in one transaction with the vault attachment checks.
+ * Session and definition resources: `PUT/GET /v1/agents`, `PUT /v1/sessions/:id` (create, or
+ * find an identical one), the session list and the session view. Reads use the store's typed
+ * queries; `PUT /v1/sessions/:id` runs in one transaction with the Environment's checks.
  */
 import {
   DefinitionDocumentSchema,
@@ -14,19 +14,13 @@ import { codeToolRefusal, type AgentManifest, type SandboxManifest } from "@nylo
 import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
-import { validateSandboxAttach } from "../core/sandbox-routes.js";
-import { resolveSandbox } from "../sandbox/resolve.js";
+import { sandboxSpecOf } from "../sandbox/resolve.js";
 import { withPlatformTools, withSandboxCapability } from "../sandbox/session-sandbox.js";
-import {
-  declaredSandboxes,
-  sandboxSpecOf,
-  sessionSandboxSpec,
-} from "../sandbox/share.js";
+import { declaredSandboxes } from "../sandbox/share.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import { checkPlacement, requirePods } from "../sandbox/placement.js";
-import { attachSandbox, recordAttachment } from "./sandboxes.js";
+import { openEnvironment, recordAttachment } from "./environments.js";
 import {
-  sandboxLookup,
   type Session,
   type SessionAccess,
   type TenantContext,
@@ -34,14 +28,9 @@ import {
 import { fail } from "./http.js";
 import { missingDefinitionFiles } from "./definition-files.js";
 
-/** A session's creation identity: everything but the request id and vault attachments. */
+/** A session's creation identity: everything but the request id. */
 const sessionIdentity = (value: any): string => {
-  const {
-    requestId: _requestId,
-    vaultIds: _vaultIds,
-    credentialSelections: _selections,
-    ...body
-  } = value ?? {};
+  const { requestId: _requestId, ...body } = value ?? {};
   return canonical(body);
 };
 
@@ -103,7 +92,7 @@ export async function putDefinition(
   if (declared.length > 0)
     fail(
       400,
-      `${declared.join(", ")} declares a sandbox. Agents no longer declare one: remove .sandbox() and open the session with it, createSession({ sandbox: { image, network: { allow }, resources } }), or set the Tenant's default sandbox. See MIGRATION.md.`
+      `${declared.join(", ")} declares a sandbox. Agents no longer declare one: remove .sandbox(), create an Environment with the sandbox (PUT /v1/environments/{id}) and open the session on it, createSession({ environment }). See MIGRATION.md.`
     );
   const definition = {
     ...body,
@@ -158,14 +147,14 @@ export async function listSessions(
 }
 
 /**
- * Create a session from its definition, or re-attach vaults to an identical one. `owner`, when
- * the request acts for a subject, must be the session's owner: another owner's session id is
- * the 404 of a missing one (not the 409 of a mismatch), and so are another owner's vaults and
- * sandboxes.
+ * Create a session from its definition, or find an identical one. `access`, when the request
+ * acts for a subject, must be the session's owner: another owner's session id is the 404 of a
+ * missing one (not the 409 of a mismatch), and so is an Environment whose owner guard names
+ * another owner.
  *
- * The session's sandbox is decided here and fixed for its life (§5 of Sandboxes v3): shared
- * with `{ session }`, none with `false`, inline, or the Tenant default when omitted. A definition
- * that declares its own sandbox (`.sandbox()`) keeps it and takes no sandbox request.
+ * The session's Environment is fixed for its life: its sandbox (kinds `virtual` and `pod`) is
+ * the session's, with the spec of the Environment's applied recipe pinned now, and its vault
+ * holds the session's credentials. Without one the session has no sandbox and no credentials.
  */
 export async function putSession(
   ctx: TenantContext,
@@ -179,14 +168,12 @@ export async function putSession(
      */
     createOnly?: boolean;
     /**
-     * The sandboxes the caller reaches (a token caller's grants, `sandboxGrantsOf`); undefined
-     * reaches every one. `sandbox: { id }` must name one of them.
+     * The Environments the caller reaches (a token caller's grants, `environmentGrantsOf`);
+     * undefined reaches every one. `environment` must name one of them.
      */
-    sandboxGrants?: readonly string[];
+    environmentGrants?: readonly string[];
   } = {}
 ): Promise<Session> {
-  const vaultIds = body.vaultIds ?? [];
-  const credentialSelections = body.credentialSelections ?? [];
   const opaque = access !== undefined;
   if (opaque && body.ownerUserId !== access.owner)
     fail(403, "ownerUserId must be the subject");
@@ -210,40 +197,31 @@ export async function putSession(
         fail(404, "Session not found");
       return prior;
     }
-    await ctx.vault.assertAttachment(
-      t,
-      body.ownerUserId,
-      vaultIds,
-      credentialSelections,
-      { opaque }
-    );
-    const environment = await ctx.vault.sessionEnvironment(t, vaultIds);
-    if (environment.conflict) fail(409, environment.conflict, { code: "credential_conflict" });
     if (prior) {
-      if (prior.sandboxId !== undefined)
-        await assertSandboxSecrets(ctx, t, prior.sandboxId, id, body.ownerUserId, environment.secretHosts);
       if (sessionIdentity(prior.creation) !== sessionIdentity(body))
         fail(409, "Session already exists with different creation parameters");
-      prior.vaultIds = vaultIds;
-      prior.credentialSelections = credentialSelections;
-      prior.creation = body;
-      await t.put("sessions", id, prior);
-      await ctx.vault.recordAttachment(t, id, vaultIds);
       return prior;
     }
     const definition =
       (await t.get<Definition>("definitions", body.agentId)) ??
       fail(404, "Definition not found");
-    const sandbox = await sessionSandbox(t, body, definition, {
-      opaque,
-      ...(options.sandboxGrants === undefined ? {} : { grants: options.sandboxGrants }),
-    });
-    // Placement (D38): where this session's harness may run, decided now and kept.
-    checkPlacement(await readSandboxConfig(t), sandbox.kind);
-    if (sandbox.kind === "pod") await requirePods(ctx.pods, `Sandbox ${sandbox.sandboxId}`);
-    if (sandbox.sandboxId !== undefined)
-      await assertSandboxSecrets(ctx, t, sandbox.sandboxId, id, body.ownerUserId, environment.secretHosts);
-    const pinned = sandbox.manifest === undefined ? platformTools(definition) : sandbox;
+    const environment =
+      body.environment === undefined
+        ? undefined
+        : await openEnvironment(t, body.environment, {
+            ...(options.environmentGrants === undefined ? {} : { grants: options.environmentGrants }),
+            ownerUserId: body.ownerUserId,
+            opaque,
+          });
+    const config = await readSandboxConfig(t);
+    // Placement (D38, D52): where this session's harness may run, decided now and kept.
+    checkPlacement(config, environment?.kind);
+    if (environment?.kind === "pod") await requirePods(ctx.pods, `Environment ${environment.id}`);
+    const spec =
+      environment === undefined || environment.kind === "none"
+        ? undefined
+        : sandboxSpecOf(environment.applied, effectiveSandboxConfig(config).limits.idle);
+    const pinned = spec === undefined ? platformTools(definition) : pin(definition, spec);
     const created: Session = {
       id,
       agentId: body.agentId,
@@ -256,124 +234,15 @@ export async function putSession(
       status: "idle",
       activeTurnId: null,
       creation: body,
-      vaultIds,
-      credentialSelections,
-      ...(sandbox.sandboxOwnerId !== undefined
-        ? { sandboxOwnerId: sandbox.sandboxOwnerId }
-        : {}),
-      ...(sandbox.sandboxId !== undefined ? { sandboxId: sandbox.sandboxId } : {}),
-      ...(sandbox.spec !== undefined
-        ? { sandbox: sandbox.spec, sandboxSource: sandbox.source }
-        : {}),
+      ...(environment === undefined
+        ? {}
+        : { environmentId: environment.id, environmentVersion: environment.version }),
+      ...(spec === undefined ? {} : { sandbox: spec }),
     };
     await t.put("sessions", id, created);
-    await ctx.vault.recordAttachment(t, id, vaultIds);
-    if (sandbox.sandboxId !== undefined) await recordAttachment(t, id, sandbox.sandboxId);
+    if (environment !== undefined) await recordAttachment(t, id, environment.id);
     return created;
   });
-}
-
-/**
- * A sandbox's shell secrets must be unambiguous (R2c, D50): egress-gate sets the header from the
- * one `environment_secret` bound to a host among the sessions using the sandbox. So while any of
- * them has secrets, they all have one owner, and no host is bound to two credentials.
- */
-async function assertSandboxSecrets(
-  ctx: TenantContext,
-  t: Tx,
-  sandboxId: string,
-  sessionId: string,
-  ownerUserId: string,
-  secretHosts: Readonly<Record<string, string>>
-): Promise<void> {
-  const conflict = (message: string) => fail(409, message, { code: "credential_conflict" });
-  const mine = Object.keys(secretHosts).length > 0;
-  for (const other of await t.sessionsOnSandbox<Session>(sandboxId)) {
-    if (other.id === sessionId) continue;
-    const theirs = (await ctx.vault.sessionEnvironment(t, other.vaultIds ?? [])).secretHosts;
-    if (other.ownerUserId !== ownerUserId && (mine || Object.keys(theirs).length > 0))
-      conflict(`Sandbox ${sandboxId} serves environment_secret credentials of one owner at a time`);
-    for (const [host, credentialId] of Object.entries(secretHosts))
-      if (theirs[host] !== undefined && theirs[host] !== credentialId)
-        conflict(`Two environment_secret credentials would be bound to ${host} in sandbox ${sandboxId}`);
-  }
-}
-
-function isShare(value: unknown): value is { session: string } {
-  return typeof value === "object" && value !== null && "session" in value;
-}
-
-function isAttach(value: unknown): value is { id: string } {
-  return typeof value === "object" && value !== null && "id" in value;
-}
-
-interface SessionSandbox {
-  readonly spec?: SandboxManifest;
-  readonly source?: Session["sandboxSource"];
-  readonly sandboxOwnerId?: string;
-  /** The sandbox resource the session attaches to, and its kind. */
-  readonly sandboxId?: string;
-  readonly kind?: "virtual" | "pod";
-  /** Set when the pinned manifest differs from the definition's. */
-  readonly manifest?: AgentManifest;
-  readonly manifestHash?: string;
-}
-
-/** Decide a new session's sandbox and, for an agent, the manifest that carries its tools. */
-async function sessionSandbox(
-  t: Tx,
-  body: PutSessionRequest,
-  definition: Definition,
-  options: { opaque: boolean; grants?: readonly string[] }
-): Promise<SessionSandbox> {
-  const request = body.sandbox;
-  const declared = sandboxSpecOf(definition.manifest) !== undefined;
-  if (isAttach(request)) {
-    if (declared)
-      fail(
-        400,
-        `'${body.agentId}' declares its own sandbox with .sandbox(). Remove it from the agent to attach a sandbox.`
-      );
-    const sandbox = await attachSandbox(t, request.id, options.grants);
-    // A pod's storage and lifecycle are the resource's, not the agent's sandbox manifest.
-    const { storage: _storage, lifecycle: _lifecycle, ...spec } = sandbox.spec as typeof sandbox.spec & {
-      storage?: unknown;
-      lifecycle?: unknown;
-    };
-    return { ...(await pin(definition, spec, "sandbox")), sandboxId: sandbox.id, kind: sandbox.kind };
-  }
-  if (isShare(request)) {
-    const owner = await t.get<Session>("sessions", request.session);
-    if (owner?.sandboxId !== undefined && (!options.opaque || owner.ownerUserId === body.ownerUserId))
-      fail(
-        400,
-        `Session ${request.session} is attached to sandbox ${owner.sandboxId}: open this session with sandbox: { id: "${owner.sandboxId}" }.`
-      );
-    const lookup = await sandboxLookup(t, request.session);
-    const sandboxOwnerId = validateSandboxAttach(body, definition.manifest, lookup, {
-      opaque: options.opaque,
-      inherit: !declared,
-    });
-    if (declared || sandboxOwnerId === undefined) return { sandboxOwnerId };
-    const spec = sessionSandboxSpec(lookup(request.session)!)!;
-    return { ...(await pin(definition, spec, "shared")), sandboxOwnerId };
-  }
-  if (declared) {
-    if (request !== undefined)
-      fail(
-        400,
-        `'${body.agentId}' declares its own sandbox with .sandbox(). Remove it from the agent to choose the sandbox when opening the session, or omit sandbox here.`
-      );
-    return {};
-  }
-  const resolved = resolveSandbox({
-    request,
-    config: effectiveSandboxConfig(await readSandboxConfig(t)),
-    actingForSubject: options.opaque,
-  });
-  if (resolved.kind === "none") return {};
-  if (resolved.kind === "error") return fail(resolved.status, resolved.errors.join(" "));
-  return pin(definition, resolved.spec, resolved.source);
 }
 
 /**
@@ -388,21 +257,16 @@ function platformTools(definition: Definition): { manifest?: AgentManifest; mani
   return { manifest: pinned.manifest, manifestHash: pinned.manifestHash };
 }
 
-async function pin(
+/** The manifest a session with a sandbox pins: the definition with the sandbox capability. */
+function pin(
   definition: Definition,
-  spec: SandboxManifest,
-  source: NonNullable<Session["sandboxSource"]>
-): Promise<SessionSandbox> {
+  spec: SandboxManifest
+): { manifest?: AgentManifest; manifestHash?: string } {
   // A workflow's manifest stays as registered: its agents inherit the sandbox when they start.
-  if (isWorkflowManifest(definition.manifest)) return { spec, source };
+  if (isWorkflowManifest(definition.manifest)) return {};
   const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec);
   if (!sandboxed.ok) return fail(400, sandboxed.message);
-  return {
-    spec,
-    source,
-    manifest: sandboxed.manifest,
-    manifestHash: sandboxed.manifestHash,
-  };
+  return { manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
 }
 
 /** The session resource returned by `GET`/`PUT /v1/sessions/:id`. */
@@ -431,12 +295,11 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
     implementationVersion: s.implementationVersion,
     status: s.status,
     activeTurnId: s.activeTurnId,
-    vaultIds: s.vaultIds ?? [],
-    credentialSelections: s.credentialSelections ?? [],
-    sandboxOwnerId: s.sandboxOwnerId ?? null,
-    ...(s.sandboxId === undefined ? {} : { sandboxId: s.sandboxId }),
-    sandbox: s.sandbox ?? null,
-    ...(s.sandboxSource ? { sandboxSource: s.sandboxSource } : {}),
+    environment:
+      s.environmentId === undefined
+        ? null
+        : { id: s.environmentId, version: s.environmentVersion ?? 1 },
+    ...(s.closedReason === undefined ? {} : { closedReason: s.closedReason }),
     mcpSnapshot: s.mcpSnapshot ?? null,
     mcpDiagnostics: s.mcpDiagnostics ?? [],
     waits,

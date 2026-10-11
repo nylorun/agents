@@ -76,7 +76,7 @@ it("describes and groups the tags, every operation in one of them, in the order 
   expect(runtime["x-tagGroups"].map((group) => group.name)).toEqual([
     "Agents",
     "Sessions",
-    "Sandboxes",
+    "Environments",
     "Artifacts",
     "Service",
   ]);
@@ -94,7 +94,7 @@ it("describes and groups the tags, every operation in one of them, in the order 
     "Tenant",
     "Application keys",
     "Models",
-    "Vaults",
+    "Credential coverage",
     "MCP servers",
     "Signing keys",
     "Settings",

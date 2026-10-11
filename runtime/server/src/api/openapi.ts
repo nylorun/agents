@@ -206,18 +206,22 @@ const RUNTIME_TAGS: readonly Tag[] = [
     operations: ["GET /v1/a2a/agents/{agentId}/card", "POST /v1/a2a/agents/{agentId}"],
   },
   {
-    name: "Sandboxes",
-    group: "Sandboxes",
+    name: "Environments",
+    group: "Environments",
     description:
-      "Isolated machines an agent works in: create or find one, watch its lifecycle, stop, reset or delete it. In `@nylorun/agents`.",
+      "Where sessions run: one sandbox (a virtual workspace, a pod with its own volume, or none) with a recipe that can change, and one vault of secrets for its shell, MCP servers and HTTP tools. Create, find or change one, watch its lifecycle, stop, reset or delete it, and write its secrets. In `@nylorun/agents`.",
     operations: [
-      "PUT /v1/sandboxes/{sandboxId}",
-      "GET /v1/sandboxes",
-      "GET /v1/sandboxes/{sandboxId}",
-      "GET /v1/sandboxes/{sandboxId}/events",
-      "POST /v1/sandboxes/{sandboxId}/stop",
-      "POST /v1/sandboxes/{sandboxId}/reset",
-      "DELETE /v1/sandboxes/{sandboxId}",
+      "PUT /v1/environments/{environmentId}",
+      "GET /v1/environments",
+      "GET /v1/environments/{environmentId}",
+      "GET /v1/environments/{environmentId}/events",
+      "POST /v1/environments/{environmentId}/stop",
+      "POST /v1/environments/{environmentId}/reset",
+      "DELETE /v1/environments/{environmentId}",
+      "GET /v1/environments/{environmentId}/secrets",
+      "GET /v1/environments/{environmentId}/secrets/{name}",
+      "PUT /v1/environments/{environmentId}/secrets/{name}",
+      "DELETE /v1/environments/{environmentId}/secrets/{name}",
     ],
   },
   {
@@ -292,26 +296,15 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
     ],
   },
   {
-    name: "Vaults",
+    name: "Credential coverage",
     description:
-      "The installation's and each person's credentials for agents' tools: API keys, bound to the URL they are sent to. Sessions attach a vault by id. `admin.vaults`.",
-    operations: [
-      "POST /v1/tenant/vaults",
-      "GET /v1/tenant/vaults",
-      "GET /v1/tenant/vaults/{vaultId}",
-      "DELETE /v1/tenant/vaults/{vaultId}",
-      "POST /v1/tenant/vaults/{vaultId}/credentials",
-      "GET /v1/tenant/vaults/{vaultId}/credentials",
-      "GET /v1/tenant/vaults/{vaultId}/credentials/{credentialId}",
-      "POST /v1/tenant/vaults/{vaultId}/credentials/{credentialId}",
-      "DELETE /v1/tenant/vaults/{vaultId}/credentials/{credentialId}",
-      "POST /v1/tenant/credential-coverage",
-    ],
+      "Which secret of an Environment each of an agent's MCP servers and HTTP tools would get, before a session opens. The secrets themselves are written on the Runtime API. `admin.coverage`.",
+    operations: ["POST /v1/tenant/credential-coverage"],
   },
   {
     name: "MCP servers",
     description:
-      "See a remote MCP server's tools before an agent names it, with the installation vault's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`.",
+      "See a remote MCP server's tools before an agent names it, with an Environment's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`.",
     operations: ["POST /v1/tenant/mcp/preview"],
   },
   {
@@ -326,7 +319,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   },
   {
     name: "Settings",
-    description: "The Tenant's sandbox and artifact settings. `admin.settings`.",
+    description: "The Tenant's sandbox backend, Environment and artifact settings. `admin.settings`.",
     operations: [
       "GET /v1/tenant/sandbox",
       "PUT /v1/tenant/sandbox",
@@ -434,7 +427,7 @@ function documents(): { runtime: OpenApiDocument; management: OpenApiDocument } 
     runtime: document(all, RUNTIME_TAGS, {
       title: "Nylorun Runtime API",
       description:
-        "For developers: agents, sessions (with AG-UI and A2A), sandboxes and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps).",
+        "For developers: agents, sessions (with AG-UI and A2A), Environments and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps).",
     }),
     management: document(all, MANAGEMENT_TAGS, {
       title: "Nylorun Management API",

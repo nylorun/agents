@@ -40,11 +40,11 @@ export function sessionWorkspaceKey(scope: string, sessionId: string): string {
 }
 
 /**
- * The key of sandbox resource `sandboxId`'s workspace: apart from every session key (16 hex
+ * The key of sandbox resource `environmentId`'s workspace: apart from every session key (16 hex
  * characters after the prefix). The virtual backend keeps it in `<sandboxes>/<key>/workspace`.
  */
-export function sandboxWorkspaceKey(scope: string, sandboxId: string): string {
-  return `${workspacePrefix(scope)}sbx-${createHash("sha256").update(sandboxId).digest("hex").slice(0, 16)}`;
+export function sandboxWorkspaceKey(scope: string, environmentId: string): string {
+  return `${workspacePrefix(scope)}sbx-${createHash("sha256").update(environmentId).digest("hex").slice(0, 16)}`;
 }
 
 /** The records in the Tenant's `sandboxes` table. */

@@ -1,6 +1,7 @@
 /**
- * Sandboxes v3, Phase 1: the sandbox is chosen when a session is opened, resolved against the
- * Tenant's configuration, and pinned. The agent definition declares nothing.
+ * Opening a session on an Environment (protocol 11): the session names the Environment it works
+ * in, whose recipe was resolved against the Tenant's configuration when it was written, and its
+ * sandbox spec is pinned for the session's life. The agent definition declares nothing.
  */
 import { expect, it } from "vitest";
 import {
@@ -57,6 +58,26 @@ function open(
   });
 }
 
+/** Creates (or finds) Environment `id` with `recipe`. */
+async function environment(runtime: { url: string }, id: string, recipe: Record<string, unknown> = {}) {
+  const response = await fetch(`${runtime.url}/v1/environments/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: serverHeaders,
+    body: JSON.stringify(recipe),
+  });
+  return response;
+}
+
+/** The sandbox spec the session pinned: its pinned manifest's sandbox capability. */
+async function pinnedSandbox(runtime: { url: string }, id: string): Promise<unknown> {
+  const response = await fetch(`${runtime.url}/v1/sessions/${id}/manifest`, { headers: serverHeaders });
+  expect(response.ok, await response.clone().text()).toBe(true);
+  const view = (await response.json()) as {
+    manifest: { capabilities: { id: string; sandbox?: unknown }[] };
+  };
+  return view.manifest.capabilities.find((item) => item.id === SANDBOX_CAPABILITY_ID)?.sandbox;
+}
+
 function tool(runtime: { url: string }, id: string, name: string, args: Record<string, unknown>) {
   return fetch(`${runtime.url}/v1/sessions/${id}/sandbox/${name}`, {
     method: "POST",
@@ -77,38 +98,40 @@ function oneCall(name: string, args: Record<string, unknown>, seen: unknown[]): 
   };
 }
 
-it("gives no sandbox when the request omits it and the Tenant has no default", async () => {
+it("gives no sandbox when the request names no Environment", async () => {
   const runtime = await boot();
   try {
     await register(runtime, plain("bot"));
     const opened = await open(runtime, "s1", { agentId: "bot" });
     expect(opened.ok, await opened.clone().text()).toBe(true);
-    const view = (await opened.json()) as { sandbox: unknown; manifestHash: string };
-    expect(view.sandbox).toBeNull();
+    const view = (await opened.json()) as { environment: unknown; manifestHash: string };
+    expect(view.environment).toBeNull();
     expect(view.manifestHash).toBe(hashManifest(plain("bot").manifest));
+    expect(await pinnedSandbox(runtime, "s1")).toBeUndefined();
     expect((await tool(runtime, "s1", "bash", { command: "echo hi" })).status).toBe(404);
   } finally {
     await runtime.close();
   }
 });
 
-it("pins an inline sandbox and adds the sandbox tools to the session only", async () => {
+it("pins the Environment's sandbox and adds the sandbox tools to the session only", async () => {
   const seen: unknown[] = [];
   const runtime = await boot(oneCall("bash", { command: "echo from-model" }, seen));
   try {
     await register(runtime, plain("bot"));
-    const opened = await open(runtime, "s1", {
-      agentId: "bot",
-      sandbox: { network: { allow: ["api.github.com"] }, resources: { cpus: 1 } },
+    const created = await environment(runtime, "work/ada", {
+      network: { allowedHosts: ["api.github.com"] },
+      resources: { cpus: 1 },
     });
+    expect(created.ok, await created.clone().text()).toBe(true);
+    const opened = await open(runtime, "s1", { agentId: "bot", environment: "work/ada" });
     expect(opened.ok, await opened.clone().text()).toBe(true);
     const view = (await opened.json()) as {
-      sandbox: Record<string, unknown>;
-      sandboxSource: string;
+      environment: Record<string, unknown>;
       manifestHash: string;
     };
-    expect(view.sandboxSource).toBe("inline");
-    expect(view.sandbox).toEqual({
+    expect(view.environment).toEqual({ id: "work/ada", version: 1 });
+    expect(await pinnedSandbox(runtime, "s1")).toEqual({
       network: { preset: "none", allow: ["api.github.com"] },
       resources: { cpus: 1, memory: "1024MiB" },
       idle: "15m",
@@ -142,118 +165,106 @@ it("pins an inline sandbox and adds the sandbox tools to the session only", asyn
     const items = (await (
       await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers: serverHeaders })
     ).json()) as { items: { type: string; payload: any }[] };
-    const exec = items.items.find((item) => item.type === "sandbox.exec");
+    const exec = items.items.find((item) => item.type === "environment.exec");
     expect(exec?.payload).toMatchObject({ tool: "bash", exitCode: 0, outcome: "completed" });
   } finally {
     await runtime.close();
   }
 });
 
-it("reports every problem with an inline sandbox in one 400", async () => {
+it("reports every problem with an Environment's recipe in one 400", async () => {
   const runtime = await boot();
   try {
-    await register(runtime, plain("bot"));
-    const refused = await open(runtime, "s1", {
-      agentId: "bot",
-      sandbox: {
-        image: "node:24",
-        network: { allow: ["api.openai.com"] },
-        resources: { cpus: 16 },
-      },
+    const refused = await environment(runtime, "bad/one", {
+      image: "node:24",
+      network: { allowedHosts: ["api.openai.com"] },
+      resources: { cpus: 16 },
     });
     expect(refused.status).toBe(400);
     const text = await refused.text();
-    expect(text).toContain("sandbox.image is not supported");
+    expect(text).toContain("image is for kind pod");
     expect(text).toContain("api.openai.com, which this Tenant does not allow");
-    expect(text).toContain("sandbox.resources.cpus asks for 16");
+    expect(text).toContain("resources.cpus asks for 16");
     // Nothing was created.
-    expect((await fetch(`${runtime.url}/v1/sessions/s1`, { headers: serverHeaders })).status).toBe(404);
+    expect(
+      (await fetch(`${runtime.url}/v1/environments/bad%2Fone`, { headers: serverHeaders })).status
+    ).toBe(404);
   } finally {
     await runtime.close();
   }
 });
 
-it("uses the Tenant default when the request omits the sandbox, and none for false", async () => {
+it("pins the Tenant's idle when the recipe names none, and the recipe's when it does", async () => {
   const runtime = await boot();
   try {
     const saved = await fetch(`${runtime.url}/v1/tenant/sandbox`, {
       method: "PUT",
       headers: runtime.managementHeaders(),
-      body: JSON.stringify({ default: "virtual", limits: { idle: "5m" } }),
+      body: JSON.stringify({ limits: { idle: "5m" } }),
     });
     expect(saved.ok, await saved.clone().text()).toBe(true);
     const report = (await saved.json()) as { backend: string; config: Record<string, any> };
     expect(report.backend).toBe("virtual");
-    expect(report.config).toMatchObject({ default: "virtual", limits: { idle: "5m" } });
+    expect(report.config).toMatchObject({ limits: { idle: "5m" } });
+    // The Tenant default sandbox is gone (protocol 11).
+    const old = await fetch(`${runtime.url}/v1/tenant/sandbox`, {
+      method: "PUT",
+      headers: runtime.managementHeaders(),
+      body: JSON.stringify({ default: "virtual" }),
+    });
+    expect(old.status).toBe(400);
 
     await register(runtime, plain("bot"));
-    const byDefault = (await (await open(runtime, "d1", { agentId: "bot" })).json()) as {
-      sandbox: Record<string, unknown>;
-      sandboxSource: string;
-    };
-    expect(byDefault.sandboxSource).toBe("default");
-    expect(byDefault.sandbox).toMatchObject({ idle: "5m", network: { preset: "none" } });
+    await environment(runtime, "idle/tenant");
+    await open(runtime, "d1", { agentId: "bot", environment: "idle/tenant" });
+    expect(await pinnedSandbox(runtime, "d1")).toMatchObject({ idle: "5m", network: { preset: "none" } });
+    await environment(runtime, "idle/own", { lifecycle: { idle: "2m" } });
+    await open(runtime, "d2", { agentId: "bot", environment: "idle/own" });
+    expect(await pinnedSandbox(runtime, "d2")).toMatchObject({ idle: "2m" });
+    // Above the Tenant's: refused.
+    const above = await environment(runtime, "idle/above", { lifecycle: { idle: "1h" } });
+    expect(above.status).toBe(400);
+    expect(await above.text()).toContain("lifecycle.idle is 1h; this Tenant allows at most 5m");
 
-    const none = (await (await open(runtime, "n1", { agentId: "bot", sandbox: false })).json()) as {
-      sandbox: unknown;
+    // A session with no Environment has no sandbox, whatever the Tenant's settings.
+    const none = (await (await open(runtime, "n1", { agentId: "bot" })).json()) as {
+      environment: unknown;
     };
-    expect(none.sandbox).toBeNull();
+    expect(none.environment).toBeNull();
+    expect(await pinnedSandbox(runtime, "n1")).toBeUndefined();
   } finally {
     await runtime.close();
   }
 });
 
-it("refuses to save a Tenant configuration whose default breaks its own limits", async () => {
+it("refuses to save a Tenant configuration whose defaults break its own limits", async () => {
   const runtime = await boot();
   try {
     const refused = await fetch(`${runtime.url}/v1/tenant/sandbox`, {
       method: "PUT",
       headers: runtime.managementHeaders(),
       body: JSON.stringify({
-        default: { network: { allow: ["api.openai.com"] } },
         limits: { resources: { cpus: 2 }, defaultResources: { cpus: 3 } },
       }),
     });
     expect(refused.status).toBe(400);
     const text = await refused.text();
     expect(text).toContain("limits.defaultResources.cpus is above limits.resources.cpus.");
-    expect(text).toContain("default: sandbox.network.allow includes api.openai.com");
   } finally {
     await runtime.close();
   }
 });
 
-it("fixes the sandbox for the session's life: a different one is a 409", async () => {
+it("fixes the Environment for the session's life: a different one is a 409", async () => {
   const runtime = await boot();
   try {
     await register(runtime, plain("bot"));
-    expect((await open(runtime, "s1", { agentId: "bot", sandbox: {} })).ok).toBe(true);
-    expect((await open(runtime, "s1", { agentId: "bot", sandbox: {} })).ok).toBe(true);
-    expect((await open(runtime, "s1", { agentId: "bot", sandbox: false })).status).toBe(409);
-  } finally {
-    await runtime.close();
-  }
-});
-
-it("shares a pinned sandbox with a session whose agent declares none", async () => {
-  const runtime = await boot();
-  try {
-    await register(runtime, plain("lead"));
-    await register(runtime, plain("helper"));
-    expect((await open(runtime, "lead-1", { agentId: "lead", sandbox: {} })).ok).toBe(true);
-    const shared = await open(runtime, "helper-1", {
-      agentId: "helper",
-      sandbox: { session: "lead-1" },
-    });
-    expect(shared.ok, await shared.clone().text()).toBe(true);
-    const view = (await shared.json()) as { sandboxOwnerId: string; sandboxSource: string };
-    expect(view).toMatchObject({ sandboxOwnerId: "lead-1", sandboxSource: "shared" });
-
-    expect((await tool(runtime, "lead-1", "write", { path: "note.txt", content: "shared" })).ok).toBe(true);
-    const read = (await (await tool(runtime, "helper-1", "read", { path: "note.txt" })).json()) as {
-      output: string;
-    };
-    expect(read.output).toContain("shared");
+    await environment(runtime, "fixed/one");
+    await environment(runtime, "fixed/two");
+    expect((await open(runtime, "s1", { agentId: "bot", environment: "fixed/one" })).ok).toBe(true);
+    expect((await open(runtime, "s1", { agentId: "bot", environment: "fixed/one" })).ok).toBe(true);
+    expect((await open(runtime, "s1", { agentId: "bot", environment: "fixed/two" })).status).toBe(409);
+    expect((await open(runtime, "s1", { agentId: "bot" })).status).toBe(409);
   } finally {
     await runtime.close();
   }
@@ -277,7 +288,9 @@ it("refuses to register a definition that declares a sandbox", async () => {
       body: JSON.stringify({ requestId: "put-old", manifest: declaredSandbox("old"), implementationVersion: "dev" }),
     });
     expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("'old' (capability 'sandbox') declares a sandbox");
+    const text = await refused.text();
+    expect(text).toContain("'old' (capability 'sandbox') declares a sandbox");
+    expect(text).toContain("PUT /v1/environments/{id}");
   } finally {
     await runtime.close();
   }
@@ -298,30 +311,48 @@ it("keeps a sandbox declared by a definition stored before the upgrade", async (
     );
     const legacy = await open(runtime, "legacy", { agentId: "old" });
     expect(legacy.ok, await legacy.clone().text()).toBe(true);
-    expect(((await legacy.json()) as { sandbox: unknown }).sandbox).toBeNull();
+    expect(((await legacy.json()) as { environment: unknown }).environment).toBeNull();
     expect((await tool(runtime, "legacy", "bash", { command: "echo ok" })).ok).toBe(true);
-    const refused = await open(runtime, "both", { agentId: "old", sandbox: {} });
+    // On an Environment too, it cannot take a second sandbox.
+    await environment(runtime, "legacy/ws");
+    const refused = await open(runtime, "both", { agentId: "old", environment: "legacy/ws" });
     expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("declares its own sandbox with .sandbox()");
+    expect(await refused.text()).toContain("'old'");
   } finally {
     await runtime.close();
   }
 });
 
-it("lets a caller acting for a user use the default, but not define a sandbox", async () => {
+it("lets a caller acting for a user open sessions on an Environment, but change one only with environments:write", async () => {
   const runtime = await boot();
   try {
     await register(runtime, plain("bot"));
+    await environment(runtime, "people/ada");
     const subject = {
       ...serverHeaders,
       "Nylorun-Subject": "ada",
       "Nylorun-Scopes": "sessions:own",
     };
-    const refused = await open(runtime, "s1", { agentId: "bot", sandbox: {} }, subject);
+    const opened = await open(runtime, "s1", { agentId: "bot", environment: "people/ada" }, subject);
+    expect(opened.ok, await opened.clone().text()).toBe(true);
+    expect(((await opened.json()) as { environment: unknown }).environment).toEqual({
+      id: "people/ada",
+      version: 1,
+    });
+    expect((await open(runtime, "s2", { agentId: "bot" }, subject)).ok).toBe(true);
+    const refused = await fetch(`${runtime.url}/v1/environments/people%2Fada`, {
+      method: "PUT",
+      headers: subject,
+      body: JSON.stringify({ resources: { cpus: 1 } }),
+    });
     expect(refused.status).toBe(403);
-    expect(await refused.text()).toContain("Defining a sandbox needs an application key");
-    expect((await open(runtime, "s2", { agentId: "bot", sandbox: false }, subject)).ok).toBe(true);
-    expect((await open(runtime, "s3", { agentId: "bot" }, subject)).ok).toBe(true);
+    const writer = await fetch(`${runtime.url}/v1/environments/people%2Fada`, {
+      method: "PUT",
+      headers: { ...subject, "Nylorun-Scopes": "sessions:own environments:write" },
+      body: JSON.stringify({ resources: { cpus: 1 } }),
+    });
+    expect(writer.ok, await writer.clone().text()).toBe(true);
+    expect(((await writer.json()) as { version: number }).version).toBe(2);
   } finally {
     await runtime.close();
   }
@@ -333,16 +364,15 @@ it("gives the agents a session uses as tools the same sandbox", async () => {
     const helper = Agent({ id: "helper", description: "Helps." }).instructions("Help.");
     const lead = Agent({ id: "lead", name: "lead" }).instructions("Lead.").subagents(helper).build();
     await register(runtime, lead);
-    const opened = await open(runtime, "s1", { agentId: "lead", sandbox: {} });
+    await environment(runtime, "lead/ws");
+    const opened = await open(runtime, "s1", { agentId: "lead", environment: "lead/ws" });
     expect(opened.ok, await opened.clone().text()).toBe(true);
-    const { withSandboxCapability } = await import("../src/sandbox/session-sandbox.js");
-    const sandboxed = withSandboxCapability(lead.manifest, { network: { preset: "none" } });
-    expect(sandboxed.ok).toBe(true);
-    const child = sandboxed.ok
-      ? sandboxed.manifest.capabilities
-          .flatMap((item) => item.tools ?? [])
-          .find((item) => item.name === "helper")?.agent
-      : undefined;
+    const pinned = (await (
+      await fetch(`${runtime.url}/v1/sessions/s1/manifest`, { headers: serverHeaders })
+    ).json()) as { manifest: { capabilities: { tools?: { name: string; agent?: unknown }[] }[] } };
+    const child = pinned.manifest.capabilities
+      .flatMap((item) => item.tools ?? [])
+      .find((item) => item.name === "helper")?.agent;
     expect(
       (child as { capabilities: { id: string }[] } | undefined)?.capabilities.map((item) => item.id)
     ).toContain(SANDBOX_CAPABILITY_ID);
@@ -351,7 +381,7 @@ it("gives the agents a session uses as tools the same sandbox", async () => {
   }
 });
 
-it("refuses a sandbox for an agent with a tool named like a sandbox tool", async () => {
+it("refuses an Environment with a sandbox for an agent with a tool named like a sandbox tool", async () => {
   const runtime = await boot();
   try {
     const { http } = await import("@nylorun/core/define");
@@ -364,9 +394,13 @@ it("refuses a sandbox for an agent with a tool named like a sandbox tool", async
     });
     const clash = Agent({ id: "clash", name: "clash" }).instructions("x").tools(bash).build();
     await register(runtime, clash);
-    const refused = await open(runtime, "s1", { agentId: "clash", sandbox: {} });
+    await environment(runtime, "clash/ws");
+    const refused = await open(runtime, "s1", { agentId: "clash", environment: "clash/ws" });
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain("declares a tool named like a sandbox tool");
+    // Kind none has no sandbox tools to clash with.
+    await environment(runtime, "clash/none", { kind: "none" });
+    expect((await open(runtime, "s2", { agentId: "clash", environment: "clash/none" })).ok).toBe(true);
   } finally {
     await runtime.close();
   }

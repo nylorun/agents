@@ -1,8 +1,8 @@
 /**
  * R2 M3: HTTP tools. The Runtime makes the request itself, through the Tool Gate (in process, or
  * the gates service with `NYLORUN_TEST_MODEL_GATE=http`, `gates/tool-gate-http.test.ts`): the
- * input as JSON, the identity headers, the run-once key as `Idempotency-Key` and the vault
- * credential; the answer, a failure status, a timeout or a refused address is what the model
+ * input as JSON, the identity headers, the run-once key as `Idempotency-Key` and the credential
+ * of the session's Environment; the answer, a failure status, a timeout or a refused address is what the model
  * sees. Static approval (`approval: "always"`) on an HTTP tool or a remote MCP server waits for
  * the session's `approve`.
  */
@@ -15,6 +15,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { Agent, createClient, http, type AgentsClient } from "@nylorun/agents";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
+import { putEnvironment, putSecret } from "./support/environment-secrets.js";
 
 const APP = "http-tools-app-token-aaaaaaaaaaaa";
 const TOKEN = "billing-secret-token-7f3c9a2e";
@@ -148,14 +149,14 @@ async function register(on: Runtime, manifest: unknown) {
 type Session = ReturnType<AgentsClient["session"]>;
 
 /** Opens a session, has the model call `name` with `args`, and waits for the turn to settle or pause. */
-async function call(name: string, args: Record<string, unknown>, options: { vaultIds?: string[] } = {}, on = client) {
+async function call(name: string, args: Record<string, unknown>, options: { environment?: string } = {}, on = client) {
   next = { name, args };
   sessions += 1;
   const session = await on.createSession({
     id: `s${sessions}`,
     agentId: "orders",
     ownerUserId: "ada",
-    ...(options.vaultIds ? { vaultIds: options.vaultIds } : {}),
+    ...(options.environment ? { environment: options.environment } : {}),
   });
   await session.input("go", { idempotencyKey: `m${sessions}` });
   return session;
@@ -239,38 +240,30 @@ describe("an HTTP tool call", () => {
     ]);
   });
 
-  it("adds the session's vault credential bound to the tool's URL", async () => {
-    const vault = await (
-      await fetch(`${runtime.url}/v1/tenant/vaults`, {
-        method: "POST",
-        headers: runtime.managementHeaders(),
-        body: JSON.stringify({ requestId: "vault-ada", idempotencyKey: "vault-ada", name: "Billing", ownerUserId: "ada" }),
-      })
-    ).json();
-    const created = await fetch(`${runtime.url}/v1/tenant/vaults/${vault.id}/credentials`, {
-      method: "POST",
-      headers: runtime.managementHeaders(),
-      body: JSON.stringify({
-        requestId: "cred-billing",
-        idempotencyKey: "cred-billing",
-        name: "billing",
-        auth: { type: "bearer", url: `${target.url}/refunds`, token: TOKEN },
-      }),
+  it("adds the credential of the session's Environment bound to the tool's URL", async () => {
+    await putEnvironment(runtime.url, runtime.headers(), "users/ada", { kind: "none", ownerUserId: "ada" });
+    await putSecret(runtime.url, runtime.headers(), "users/ada", "billing", {
+      type: "bearer",
+      url: `${target.url}/refunds`,
+      value: TOKEN,
     });
-    expect(created.ok).toBe(true);
+    await putEnvironment(runtime.url, runtime.headers(), "empty");
     const before = target.seen.length;
-    const session = await call("billed", { orderId: "A-6" }, { vaultIds: [vault.id] });
+    const session = await call("billed", { orderId: "A-6" }, { environment: "users/ada" });
     await settled(session);
     expect(await completed(session)).toEqual([expect.objectContaining({ output: { refundId: "r-A-6" } })]);
     expect(target.seen.slice(before).map((item) => item.headers.authorization)).toEqual([`Bearer ${TOKEN}`]);
     expect(JSON.stringify(await session.history())).not.toContain(TOKEN);
 
-    // Without the vault, the call never leaves: the model hears why.
-    const bare = await call("billed", { orderId: "A-7" });
-    await settled(bare);
-    expect(await completed(bare)).toEqual([
-      expect.objectContaining({ error: expect.objectContaining({ code: "http.credential" }) }),
-    ]);
+    // Without an Environment, or in one with no credential for the URL, the call never leaves:
+    // the model hears why.
+    for (const options of [{}, { environment: "empty" }]) {
+      const bare = await call("billed", { orderId: "A-7" }, options);
+      await settled(bare);
+      expect(await completed(bare)).toEqual([
+        expect.objectContaining({ error: expect.objectContaining({ code: "http.credential" }) }),
+      ]);
+    }
     expect(target.seen.length).toBe(before + 1);
   });
 });

@@ -10,7 +10,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
-import { Sandboxes } from "@/components/sandboxes";
+import { Environments } from "@/components/environments";
 import { Artifacts, SessionArtifacts } from "@/components/artifacts";
 import { artifactReferences } from "@/resources/artifacts";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -74,7 +74,8 @@ import {
   asStudioDefinition,
   definitionForSession,
   isNewSessionState,
-  newSessionCredentials,
+  newSessionEnvironment,
+  sessionEnvironmentId,
 } from "@/session-open";
 import { NewSessionProvider } from "@/components/new-session";
 import type {
@@ -442,8 +443,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   }, [waiting, refresh]);
   const agent = connection.agents.find((a) => a.id === agentId);
   const resourceActive =
-    location.pathname === "/sandboxes"
-      ? "sandboxes"
+    location.pathname === "/environments"
+      ? "environments"
       : location.pathname === "/artifacts"
         ? "artifacts"
         : undefined;
@@ -467,8 +468,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
           <SidebarTrigger />
           <strong>
-            {resourceActive === "sandboxes"
-              ? "Sandboxes"
+            {resourceActive === "environments"
+              ? "Environments"
               : resourceActive === "artifacts"
                 ? "Artifacts"
                 : settingsSection
@@ -510,8 +511,11 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
           ) : location.pathname === "/vault" ? (
             <Navigate to={`/settings/credentials${location.search}${location.hash}`} replace />
-          ) : resourceActive === "sandboxes" ? (
-            <Sandboxes tenantId={tenant.id} />
+          ) : location.pathname === "/sandboxes" ? (
+            // Protocol 11 replaced sandbox resources with Environments.
+            <Navigate to={`/environments${location.search}${location.hash}`} replace />
+          ) : resourceActive === "environments" ? (
+            <Environments tenantId={tenant.id} />
           ) : resourceActive === "artifacts" ? (
             <Artifacts tenantId={tenant.id} />
           ) : settingsSection ? (
@@ -635,7 +639,7 @@ type SessionLoad =
 /**
  * Opens a session by reading it. Only Studio's own "New session" creates one:
  * a PUT with Studio's parameters would answer 409 for a session an application
- * created with another owner, sandbox or info.
+ * created with another owner, Environment or info.
  */
 function SessionWorkspace({
   routeAgentId,
@@ -652,8 +656,8 @@ function SessionWorkspace({
 }) {
   const location = useLocation();
   const create = isNewSessionState(location.state);
-  // The vaults Studio's "New session" picked, kept from the first render of this session.
-  const [credentials] = useState(() => newSessionCredentials(location.state));
+  // The Environment Studio's "New session" picked, kept from the first render of this session.
+  const [environment] = useState(() => newSessionEnvironment(location.state));
   const routeAgent = agents.find((a) => a.id === routeAgentId);
   const routeAgentKnown = routeAgent !== undefined;
   const [load, setLoad] = useState<SessionLoad>({ kind: "loading" });
@@ -674,7 +678,7 @@ function SessionWorkspace({
           id: sessionId,
           agentId: routeAgentId,
           ownerUserId: STUDIO_OWNER,
-          ...credentials,
+          ...environment,
         });
         if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: routeAgentId });
       }
@@ -751,7 +755,7 @@ function SessionView({
   >();
   const workflowLink = lookupWorkflowLink(sessionId);
   const [sessionQuery, setSessionQuery] = useSearchParams();
-  const [sandboxId, setSandboxId] = useState<string | undefined>();
+  const [environmentId, setEnvironmentId] = useState<string | undefined>();
   useEffect(() => {
     const tab = sessionQuery.get("inspector");
     setActiveTab(
@@ -798,7 +802,7 @@ function SessionView({
       }
       const inspect = await current.inspect(abort.signal);
       setStatus(inspect.status);
-      setSandboxId(typeof inspect.sandboxId === "string" ? inspect.sandboxId : undefined);
+      setEnvironmentId(sessionEnvironmentId(inspect));
       await refresh();
       for await (const event of current.observe({
         cursor: history.cursor ?? undefined,
@@ -831,7 +835,7 @@ function SessionView({
     setDetailsOpen(false);
     setSelectedNode(undefined);
     setSelectedIteration(undefined);
-    setSandboxId(undefined);
+    setEnvironmentId(undefined);
   }, [sessionId, isWorkflow]);
 
   const busy =
@@ -916,17 +920,17 @@ function SessionView({
             <span className="truncate font-mono text-xs text-muted-foreground">
               {sessionId}
             </span>
-            {sandboxId ? (
+            {environmentId ? (
               <Link
                 className="ml-auto truncate text-xs underline"
-                to={`/sandboxes?${new URLSearchParams({ selected: sandboxId })}`}
-                title={sandboxId}
+                to={`/environments?${new URLSearchParams({ selected: environmentId })}`}
+                title={environmentId}
               >
-                Sandbox: {sandboxId}
+                Environment: {environmentId}
               </Link>
             ) : (
               <span className="ml-auto text-xs text-muted-foreground">
-                Sandbox: None
+                Environment: None
               </span>
             )}
             {busy && status !== "loading" && (

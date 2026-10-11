@@ -348,19 +348,20 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
 /**
  * `EgressSandboxes` over the Tenant's `sandbox_resources` (one indexed read): a pod sandbox's
  * host epoch, the pod that joined at it and its spec's allowlist; nothing for a virtual
- * sandbox, or one deleted, lost or expired, as `staleHost` judges a host token.
+ * Environment, or one deleted or lost, as `staleHost` judges a host token.
  */
 export function storeEgressSandboxes(store: SessionStore): EgressSandboxes {
   return {
     async live(sandboxId) {
-      const sandbox = await store.tx((t) => t.sandboxResource(sandboxId));
+      const sandbox = await store.tx((t) => t.environment(sandboxId));
       const pod = sandbox?.pod;
       if (!sandbox || sandbox.kind !== "pod" || !pod) return undefined;
-      if (pod.desired === "deleted" || pod.observed === "lost" || pod.observed === "expired") return undefined;
+      if (pod.desired === "deleted" || pod.observed === "lost") return undefined;
       return {
         epoch: pod.hostEpoch,
         ...(pod.podUid ? { podUid: pod.podUid } : {}),
-        allow: sandbox.spec.network?.allow ?? [],
+        // The applied allowlist: a recipe change writes it at once (Q8).
+        allow: sandbox.applied.network?.allowedHosts ?? [],
       };
     },
   };

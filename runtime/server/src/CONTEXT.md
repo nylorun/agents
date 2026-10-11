@@ -18,7 +18,8 @@ _Avoid_: calling only the SDK or only the CLI "the client".
 
 **Runtime API**: The Tenant's routes for developers' apps and browsers: everything under
 `/v1` except `/v1/tenant/*` (protocol 8). Agents and their definition files, sessions with
-AG-UI and A2A, sandboxes, artifacts, `/v1/me` and the public JWKS (`/v1/access/jwks`). It
+AG-UI and A2A, Environments and their secrets, artifacts, `/v1/me` and the public JWKS
+(`/v1/access/jwks`). It
 takes application keys and trusted issuers' tokens; a management key here is `403
 key_role_mismatch` (except `/v1/me` and the JWKS).
 Nothing in a request selects the Tenant (protocol 5). Client package: `@nylorun/agents`.
@@ -26,7 +27,7 @@ Reference: `/openapi/runtime.json` (alias `/openapi.json`).
 _Avoid_: "Tenant API" for the whole surface (say which API), "SDK API" or "application API".
 
 **Management API**: The Tenant's routes for operators, `/v1/tenant/*` (status, seed and
-reset, models, usage and budgets, vaults and credential coverage, MCP server previews, signing keys, sandbox and
+reset, models, usage and budgets, credential coverage, MCP server previews, signing keys, sandbox backend, Environment and
 artifact settings, application keys) (protocol 8; its routes' credentials are `management`, `RouteAccess` in
 `api/http/define.ts`). It takes management
 keys only: an application key,
@@ -91,7 +92,7 @@ local Tenant's `~/.nylorun/tenants/<name>/`). `nylorun start` writes `host.json`
 `host-credentials.json`.
 _Avoid_: calling the Host a "scope", "project Runtime", or "global Runtime".
 
-**Tenant**: One isolated unit of sessions, principals, vault, sandboxes and
+**Tenant**: One isolated unit of sessions, principals, Environments with their vaults and
 logs: the one Tenant of an installation, its state in the Postgres schema
 `nylorun` of its own database (the `nylorun.tenant` row holds its envelope), its record in
 `nylorun_streams`, and the Tenant directory `<host root>/tenant/`. The Host creates it on
@@ -163,36 +164,60 @@ _Avoid_: using one for an app server or a browser; "admin key" for it.
 **Subject**: The person an application principal acts for, named with
 `Nylorun-Subject` (feature `subject-headers`, `tenant/auth.ts`). Chosen by the
 integrator (`app:42`); 1–200 visible ASCII characters, `host` and `installation`
-reserved (they own the host model's vault and the installation vaults). A subject reaches only sessions whose
+reserved (`host` owns the host model's vault; `installation` is a session for no person). A subject reaches only sessions whose
 `ownerUserId` is the subject; another owner's resource is the same `404` as a
 missing one. No subject reaches the Management API (protocol 8). Only
 application keys may send it; with a management key it is `403`.
 A **trusted issuer**'s token names its subject itself.
 _Avoid_: "user" for the header value (the Runtime has no user accounts).
 
-**Installation vault**: A vault with `scope: "installation"`, owned by the reserved
-subject `installation` (F9 C1, `vault/service.ts`): the installation's own
-credentials (shared tool keys, MCP gateway keys). Only a management key
-creates, lists or changes one (as every vault: vault routes are the Management API's,
-`/v1/tenant/vaults…`, since protocol 8; `admin.vaults` in `@nylorun/admin`); any session
-may attach one by id (`vaultIds`, through the Runtime API) and select its
-credentials. Studio's Credentials page (Tenant settings) manages them. A person's vault (`scope: "user"`,
-created by a management key for `ownerUserId`) attaches only to that person's
-sessions. The `host` model vault is neither: it
-is never listed or attached.
-_Avoid_: "shared vault", "org vault".
+**Environment**: Where sessions run (D55, protocol 11, `tenant/environments.ts`, the
+`environments` table): one sandbox, of kind `virtual` (a just-bash workspace in the harness
+container), `pod` (an agent-sandbox pod with its own volume; see **Pod Environment**) or `none` (no
+compute), with a **recipe** that can change and one **vault** (D56). `PUT`/`GET`/`DELETE
+/v1/environments/{id}`, `GET /v1/environments?label=k=v`, `POST .../stop|reset`; ids are
+`/`-separated segments, sent percent-encoded as one path segment. A `PUT` on an existing id
+compares the fields sent: `kind` and `storage` are fixed (`409`), labels replace, and any other
+change writes `recipe` and bumps `version`; a pod runs `applied` (`appliedVersion`), copied from
+`recipe` when it is asked to run from stopped, so image and resources never change mid-turn, while
+network, harness and lifecycle apply at once (egress-gate reads `applied.network`). A session names
+one with `environment` (`Session.environmentId`) and pins its sandbox spec then
+(`Session.sandbox`, `sandbox/resolve.ts` `sandboxSpecOf`); its workspace is keyed by the
+Environment's id, so its sessions share files, and deleting a session only detaches it. Turns are
+serial per Environment with a sandbox (`409 environment_busy`, a flow tree's sessions counting as
+one), checked at every turn start with a token caller's grants and the **owner guard**
+(`ownerUserId`: only that owner's sessions may name it; `403 environment_owner_mismatch`, the
+opaque `404` to a caller acting for a person) in `checkEnvironmentTurn`. `lifecycle.idle` (at most
+the Tenant's) stops a pod; `lifecycle.deleteAfter` deletes an Environment unused that long, counted
+from `lastUsedAt` (a turn's end, a `PUT`, a secret write, a stop or reset) by the Tenant sweep
+(`sweepUnusedEnvironments`). The Tenant holds at most `limits.environments` (default 100).
+Lifecycle events (`environment.created`, `.attached`, `.detached`, `.deleted` and a pod's) go to
+its own stream in the record (`nylorun_streams.environment_events`, `record/environment.ts`), not
+relayed to S2; the session's log records `environment.attached`.
+_Avoid_: "scope" for who uses an Environment (the app maps people to ids), "space", "sandbox
+resource" (protocol 10).
+
+**Vault**: One Environment's secrets (D56, `vault/service.ts`): a `vaults` row whose
+`environment_id` names its Environment (unique, deleted with it), created in the transaction that
+creates the Environment. Its credentials are written on the Runtime API with
+`PUT /v1/environments/{id}/secrets/{name}` (an application key, or `environments:write`; through
+the keys service, `Keys.putEnvironmentSecret`), replaced by name, and never read back; a second
+`environment_secret` for a host or a second `bearer`/`headers` credential for a URL is `409
+credential_conflict` at the write. The `host` vault (no Environment) holds the model credential
+and is never written this way. There are no user or installation vaults (protocol 11).
+_Avoid_: "attach a vault" (protocol 10), "shared vault", "org vault".
 
 **Session credentials**: Where a session's MCP servers and HTTP tools get their credentials:
-the session's attached vaults, matched by the URL the manifest names (`vault/sources.ts`,
-`sessionCredentials` over `VaultService.authorize`), in the gateway or in process. OSS holds
-no OAuth client and asks no credential resolver (protocol 10, D49): a person's own keys go in
-their user vault, the installation's in its vaults. A credential is a `bearer` token or a
+the vault of the session's Environment, matched by the URL the manifest names (`vault/sources.ts`,
+`sessionCredentials` over `VaultService.authorize`), in the gateway or in process; a session
+without an Environment sends none. OSS holds no OAuth client and asks no credential resolver
+(protocol 10, D49): a person's own keys go in the Environment the app maps to them. A credential is a `bearer` token or a
 `headers` map; its **via** sends the server's requests elsewhere (an MCP gateway) while the manifest's
 URL still picks it, and its **identity header** carries the session owner's subject (none for an
 `installation` session). A `401` is the tool error `credential_rejected` (R2b C1, C2). **Credential
 coverage** (`POST /v1/tenant/credential-coverage`, `VaultService.coverage`, `vault/coverage.ts`)
-answers ahead of a session what each URL an agent names would get from given vaults, decided as a
-call decides it, with no secret read. A server
+answers ahead of a session what each URL an agent names would get in a given Environment
+(`covered` or `missing`), decided as a call decides it, with no secret read. A server
 that takes only a person's OAuth sign-in is reached through an **MCP gateway**; the operator's
 guide, with recipes, is "MCP servers and HTTP tools" in DEPLOYMENT.md (R2b C5).
 _Avoid_: "MCP OAuth connect" and "credential resolver" (both removed in protocol 10), "broker"
@@ -200,13 +225,14 @@ _Avoid_: "MCP OAuth connect" and "credential resolver" (both removed in protocol
 
 **Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,
-`sandboxes:write` (`SUBJECT_SCOPES`). `vaults:own` (retired in protocol 7) and
+`environments:write` (`SUBJECT_SCOPES`; `sandboxes:write` was renamed in protocol 11 and is
+refused with a message naming the new one). `vaults:own` (retired in protocol 7) and
 `tenant:settings` (retired in protocol 8, when the Tenant's settings moved to the
 Management API) are still accepted and grant nothing. Each route declares the scopes that
 allow it (`RouteAccess`, `api/http/define.ts`), decided from the route alone before any
 lookup (`403 scope_required`); the sandbox tool routes are open to no subject, and no subject reaches the Management API.
 A trusted issuer's token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,
-`sandboxes:write`) and `studio`.
+`environments:write`) and `studio`.
 
 **Trusted issuer**: An identity provider whose JWTs the Runtime API accepts as
 bearers (feature `trusted-issuers`, F9 I2), declared in the **identity file**
@@ -221,7 +247,7 @@ refetch a minute for an unknown `kid`; unreachable → `401 issuer_unavailable`
 for new kids). It becomes the `token` AuthScope with `issuer: <name>`: the subject
 its template renders from scalar claims, the claim's scopes within `allowedScopes`
 (`ISSUER_SCOPES`: the token scopes plus `studio`, an operator scope no route
-requires), the issuer's agent allowlist and rendered sandbox grants; only its expiry
+requires), the issuer's agent allowlist and rendered Environment grants; only its expiry
 ends it (an expired one is `401 token_expired`, and a stream it opened ends with
 `event: nylorun.closed`). It may not set session `info` or send `message.manifest`,
 and sees only `{ agentId, name, description }` of the agents it may use. Accepted from
@@ -260,7 +286,7 @@ cancel, for a person named by a trusted issuer's token or by subject headers. Th
 `sessionIdFor(subject, agent, thread)` (`api/ag-ui/session-id.ts`), the same on
 every path; it is created on the thread's first run with the options in
 `forwardedProps.nylorun.session` and never changed by a later run.
-_Avoid_: re-`PUT`ting a thread's session (it would replace its vaults).
+_Avoid_: re-`PUT`ting a thread's session (its Environment is fixed when it is created).
 
 **Browsers**: A request with an `Origin` reaches the `/v1` routes (protocol 7): a
 trusted issuer's token is served, any key (application or management) is `403
@@ -401,12 +427,14 @@ workspace before the first call that opens it (`sandbox/skills.ts`), with bytes 
 store, or in a harness from core (`definition.file`, for the run that made the call).
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 9`; the Host serves 4 to 9; required features
-`studio-principal`, `artifacts`, `management-api` and `resource-server`. The Host still
-advertises `runtime-tenants` for protocol 4 clients and `admin-status` for protocol 5 to 7
-clients, which require it, though the Admin API is gone; optional Host features
-`tenant-fixture-model`, `transcript-events`, `subject-headers`, `ag-ui-endpoint`,
-`a2a-endpoint`, `sandboxes`, `sandbox-pods` and `trusted-issuers`).
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 11`; the Host serves protocol 11 only and answers older
+clients `426`; required features `studio-principal`, `artifacts`, `management-api`,
+`resource-server` and `environments`; optional Host features `tenant-fixture-model`,
+`transcript-events`, `subject-headers`, `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`,
+`trusted-issuers`, `session-reads`, `calls-export` and `credential-coverage`).
+Protocol 11 replaced sandbox resources, session vaults and user and installation vaults with
+Environments (D55, D56): a fresh start (migration 0020) that closed every older session.
+Protocol 10 removed MCP credential custody (D49).
 Protocol 9 made the Runtime API an OAuth 2.1 resource server: credential failures are `401`
 challenges instead of the opaque `404`, the protected resource metadata is served, and the
 identity file lost `maxLifetime`.
@@ -483,11 +511,11 @@ One line each; the module named is where the term lives in code.
 - **Static approval**: `approval: "always"` on an HTTP tool, or on a remote MCP server for all its tools, or on one of its tools (R2b C9): the engine pauses each call for the session's `approve` before it becomes an effect, and a denied call is `denied` without running (`DurableSessionTool.approval`, `harness/run/durable.ts`).
 - **MCP tool settings**: An MCP server's `tools` map (manifest v6, R2b C9), keyed by the server's own tool names with `"*"` for the rest, each `{enabled?, approval?, deferred?}`, beside the server's own `approval` and `deferred`; a tool's settings resolve from its entry, then `"*"`, then the server, then the default (`mcpToolSettings`, core). Discovery leaves out a disabled tool before it takes a name, and `mcp.discovered` counts them (`disabled`) and names keys no listed tool has (`unknownTools`). A turn variant may only tighten them: `enabled: false` or `approval: "always"` (`isVariantOf`); `sessionToolsOf` and `mcpToolOf` read the turn's manifest. A manifest that sets neither field stays v5. _Avoid_: "allowlist" for the map itself; `"*": {enabled: false}` makes one.
 - **Deferred tool**: A remote MCP tool out of the model's tool list (R2b C10): the model finds it with `tool_search` and runs it with `tool_call`, which the session gives the agent in its `nylorun.tools` capability (empty in the pinned manifest; `sandbox/session-sandbox.ts`), with a note naming each server, its deferred tools and its instructions. Core decides it once, when it records the session's MCP snapshot (`pinDeferral` in `mcp/snapshot.ts`): a tool's `deferred` setting, else whether the agent's listed MCP tools pass a tenth of the Tenant's model's context window at 4 characters a token (`contextWindowOf`, `model/catalog.ts`). `tool_search` is core's (BM25 over names and descriptions, `tenant/tool-search.ts`); `tool_call` is the engine's: it checks the arguments against the tool's `inputSchema`, asks for approval as a direct call would, and makes the tool's own effect, so routing, `tool.completed`, scrubbing and stored results are a direct call's (`deferredToolCall`, `harness/run/durable.ts`). _Avoid_: "lazy tools" or "tool RAG".
-- **egress-gate**: The `egress` service (F7.2, D42), run in the gateway's process on 4200 (`NYLORUN_EGRESS_LISTEN_*`): pod sandboxes' only way out, a CONNECT proxy that verifies an egress token, checks its sandbox's host epoch, and tunnels only to a host name in the spec's `network.allow` (exact or `*.suffix`) on 443 or 80 that resolves to a public address, 64 tunnels per sandbox (`gates/egress.ts`). The one exception is a host an `environment_secret` is bound to (R2c, see **Shell credential**); every other connection is an opaque tunnel. No events; refusals are logged.
-- **Shell credential**: A vault credential a skill's CLI uses in a pod sandbox (R2c, D50): `environment_secret` (`secretName`, sealed `secretValue`, `allowedHosts`, `inject` header and format) or `environment_variable` (a visible `variableName` and `variableValue`). The lease's `routing.sandbox.environment` gives every command each secret's name with the sentinel `nylorun-managed` and each variable's value (`VaultService.sessionEnvironment`, `harness-api/start.ts`). For CONNECT to 443 of a bound host, egress-gate terminates TLS with a fresh leaf the egress CA signs (`keys/egress-ca.ts`, `keys/x509.ts`; the CA in the Tenant setting `egress.ca`, its key sealed) and sets the header on every request from the vault, uncached (`releaseEnvironmentSecret`, `gates/egress-credentials.ts`). Session open refuses `credential_conflict` for a repeated name or host, or two owners' secrets on one sandbox (`assertSandboxSecrets`, `tenant/sessions.ts`). _Avoid_: "placeholder", "injection" for the variable itself.
+- **egress-gate**: The `egress` service (F7.2, D42), run in the gateway's process on 4200 (`NYLORUN_EGRESS_LISTEN_*`): pod Environments' only way out, a CONNECT proxy that verifies an egress token, checks its Environment's host epoch, and tunnels only to a host name in its applied recipe's `network.allowedHosts` (exact or `*.suffix`) on 443 or 80 that resolves to a public address, 64 tunnels per sandbox (`gates/egress.ts`). The one exception is a host an `environment_secret` is bound to (R2c, see **Shell credential**); every other connection is an opaque tunnel. No events; refusals are logged.
+- **Shell credential**: An Environment's secret a skill's CLI uses in its pod (R2c, D50, D56): `environment_secret` (the variable is the secret's name; sealed value, `allowedHosts`, `inject` header and format) or `environment_variable` (a visible name and value). The lease's `routing.sandbox.environment` gives every command each secret's name with the sentinel `nylorun-managed` and each variable's value (`VaultService.environmentVariables`, `harness-api/start.ts`). For CONNECT to 443 of a bound host, egress-gate terminates TLS with a fresh leaf the egress CA signs (`keys/egress-ca.ts`, `keys/x509.ts`; the CA in the Tenant setting `egress.ca`, its key sealed) and sets the header on every request from the Environment's vault, uncached (`releaseEnvironmentSecret`, `gates/egress-credentials.ts`). A second secret for a host is refused at the write (`409 credential_conflict`). _Avoid_: "placeholder", "injection" for the variable itself.
 - **Egress CA**: The installation's one long-lived CA for egress-gate's leaves (R2c, `keys/egress-ca.ts`): created on first use under the signing keys' lock, its certificate in every join answer (`caCertificate`) and the pod's trust bundle (`<harness root>/egress-ca-bundle.pem`, `harness/pod.ts`), its key never outside keys. No rotation yet.
 - **Egress token**: The ES256 JWT (`typ: nylorun-egress+jwt`, `aud: nylorun-egress`) a pod's harness gets at join, naming its sandbox, host epoch and pod UID; minted with every host token (`mintEgressToken`, `tenant/host-token.ts`) and accepted only by egress-gate, as the proxy credential (`sandbox/egress-token.ts`).
-- **MCP tool preview**: What a remote MCP server offers before an agent names it (R2b C12, `POST /v1/tenant/mcp/preview`, a management key; `admin.mcp.preview`, `nylorun mcp inspect`, Studio's **Preview tools**): the keys service (`Keys.previewMcp`, `mcp/preview.ts`) connects with the installation vault's credential for the URL (one across the installation vaults, or the one `vaultId` names; its headers and `via`, never an identity header), under the Host's address policy and within 15 s, lists the tools with the model names a server called `name` would give them (default from the URL's host, `previewServerName`), and closes. It never calls a tool, and scrubs every credential value sent from its answer. A `401` answers `200` with `authRequired` and the server's RFC 9728 protected-resource metadata (the challenge's `resource_metadata`, else the well-known path); any other failure is `502 mcp_preview_failed` with `details.failure` (`mcp.unreachable`, …). _Avoid_: "probe", "connect" (removed in protocol 10).
+- **MCP tool preview**: What a remote MCP server offers before an agent names it (R2b C12, `POST /v1/tenant/mcp/preview`, a management key; `admin.mcp.preview`, `nylorun mcp inspect`, Studio's **Preview tools**): the keys service (`Keys.previewMcp`, `mcp/preview.ts`) connects with the credential for the URL in the vault of `environmentId`, if given (its headers and `via`, never an identity header), under the Host's address policy and within 15 s, lists the tools with the model names a server called `name` would give them (default from the URL's host, `previewServerName`), and closes. It never calls a tool, and scrubs every credential value sent from its answer. A `401` answers `200` with `authRequired` and the server's RFC 9728 protected-resource metadata (the challenge's `resource_metadata`, else the well-known path); any other failure is `502 mcp_preview_failed` with `details.failure` (`mcp.unreachable`, …). _Avoid_: "probe", "connect" (removed in protocol 10).
 - **Model Gate**: The gates service's endpoint for model calls, `POST /nylorun/v1/model-calls` (`api/gate/routes.ts`, `host/gates.ts`), and the `ModelGate` seam the loop calls (`gates/model-gate.ts`): in process (`gates/in-process.ts`) or over HTTP (`gates/http-client.ts`). Only it reads a model credential (`vault/host-model.ts`); a hop failure is a failure outcome, never an uncertain effect.
 - **API node**: A Runtime process that runs the core service, serving the Runtime API, the Management API and SSE (`host/stack-config.ts`, `infra/workers.ts`).
 - **Worker**: A Runtime process that runs the loop service, whose Restate endpoint runs advances and sweeps (`infra/workers.ts`, `tenant/worker.ts`).
@@ -500,10 +528,10 @@ One line each; the module named is where the term lives in code.
 - **SessionStreams**: A process's readers of Durable Streams for one open Tenant (`ctx.sessionStreams`): one `SessionStream` per observed session, and the streams wiring (`tenant/session-streams.ts`).
 - **SessionStream**: The shared read of one observed session's stream in this process, followed by that session's SSE and in-process clients, each from its own next sequence (`tenant/session-streams.ts`).
 - **Advance**: One run of a session's current segment under ownership: load the checkpoint, offer the segment to a harness as a run, settle what it reports (`tenant/advance.ts`). A run whose harness connection is lost keeps the lease until it lapses, so the next advance takes the session over.
-- **Harness API**: The protocol between core and a harness (v2, `@nylorun/core/harness-api`, blueprint D37; v2 dropped held runs with track R2): requests and messages over a channel, in process by reference (or through JSON in tests), or over WebSocket (F6.2: core's listener `harness-api/ws-server.ts`, `NYLORUN_HARNESS_LISTEN_*`, accepting only `NYLORUN_HARNESS_TOKEN`; the client `harness/ws-client.ts`). A harness says `hello`, keeps a `lease` waiting, and per run sends `effect.intent`/`effect.outcome` (the Record seam), `lease.renew`, and one output (`turn.completed`, `turn.paused`, `turn.waiting`, `turn.failed`, `checkpoint` for a yield) or `lease.release`. Core sends `cancel` with the advance's abort reason. A harness readies the session's MCP servers itself (`session.mcp`) and claims its `sandbox.*` events (`event`). Not a public API: protocol 5 does not cover it.
-- **Harness**: One long-running client of the Harness API that runs the engine for the runs it leases, with injected executors for model, MCP and sandbox calls (`@nylorun/harness/api`, `harness/executors.ts`). Each Tenant runs one in process (`harness-api/in-process.ts`, the default outside Compose), or none with `NYLORUN_HARNESS=remote` (the Compose stack's default): harness services (`--service harness`, `harness/main.ts`, `harness/service.ts`), the **Harness container** and the engines in pod sandboxes, attach over WebSocket with their own MCP pool and SandboxManager. It reaches no store (`scripts/check-boundaries.mjs`).
-- **Harness container**: A local Tenant's `harness` container: the Runtime image with `--service harness`, connected to core's Harness API with `NYLORUN_HARNESS_TOKEN` and mounting only the Tenant's `sandboxes/` (`cli/nylorun/src/stack/compose-file.ts`). It runs the turns and the virtual sandboxes of every session not attached to a pod sandbox. `NYLORUN_HARNESS=in-process` in `.env` drops it and runs them in the `runtime` container.
-- **Workspace capability**: What core does with sandbox workspaces outside a run (`ctx.sandbox`, a `WorkspacePort`, `harness-api/workspace.ts`): the sandbox tool routes, `save_artifact`'s reads, Tenant status, the sweep, a sandbox resource's deletion and a sandboxes reset. In process it is the Tenant's SandboxManager; with remote harnesses it is the `workspace.*` requests to the harness that declared `workspace` in its `hello` (`503 request_rejected` when none is connected). The SandboxManager keeps its compute records through a `SandboxRecords` port (`sandbox/records.ts`: the `sandboxes` table, or `<root>/sandboxes/records.json` in a harness, mirrored into the table from its `sandbox.state` claims and sweep answers).
+- **Harness API**: The protocol between core and a harness (v2, `@nylorun/core/harness-api`, blueprint D37; v2 dropped held runs with track R2): requests and messages over a channel, in process by reference (or through JSON in tests), or over WebSocket (F6.2: core's listener `harness-api/ws-server.ts`, `NYLORUN_HARNESS_LISTEN_*`, accepting only `NYLORUN_HARNESS_TOKEN`; the client `harness/ws-client.ts`). A harness says `hello`, keeps a `lease` waiting, and per run sends `effect.intent`/`effect.outcome` (the Record seam), `lease.renew`, and one output (`turn.completed`, `turn.paused`, `turn.waiting`, `turn.failed`, `checkpoint` for a yield) or `lease.release`. Core sends `cancel` with the advance's abort reason. A harness readies the session's MCP servers itself (`session.mcp`) and claims its `environment.state` and `environment.exec` events (`event`). Not a public API: protocol 5 does not cover it.
+- **Harness**: One long-running client of the Harness API that runs the engine for the runs it leases, with injected executors for model, MCP and sandbox calls (`@nylorun/harness/api`, `harness/executors.ts`). Each Tenant runs one in process (`harness-api/in-process.ts`, the default outside Compose), or none with `NYLORUN_HARNESS=remote` (the Compose stack's default): harness services (`--service harness`, `harness/main.ts`, `harness/service.ts`), the **Harness container** and the engines in pod Environments, attach over WebSocket with their own MCP pool and SandboxManager. It reaches no store (`scripts/check-boundaries.mjs`).
+- **Harness container**: A local Tenant's `harness` container: the Runtime image with `--service harness`, connected to core's Harness API with `NYLORUN_HARNESS_TOKEN` and mounting only the Tenant's `sandboxes/` (`cli/nylorun/src/stack/compose-file.ts`). It runs the turns and the virtual sandboxes of every session not on a pod Environment. `NYLORUN_HARNESS=in-process` in `.env` drops it and runs them in the `runtime` container.
+- **Workspace capability**: What core does with sandbox workspaces outside a run (`ctx.sandbox`, a `WorkspacePort`, `harness-api/workspace.ts`): the sandbox tool routes, `save_artifact`'s reads, Tenant status, the sweep, an Environment's deletion and an Environments reset. In process it is the Tenant's SandboxManager; with remote harnesses it is the `workspace.*` requests to the harness that declared `workspace` in its `hello` (`503 request_rejected` when none is connected). The SandboxManager keeps its compute records through a `SandboxRecords` port (`sandbox/records.ts`: the `sandboxes` table, or `<root>/sandboxes/records.json` in a harness, mirrored into the table from its `environment.state` claims and sweep answers).
 - **Run**: A lease on one session's segment, offered by an advance to the first waiting harness (`harness-api/server.ts`): a `runId` bound to the connection that leased it (any other gets `run_not_held`), the turn, the epoch and, from F5, a run token. Its `turn.start` carries the segment's checkpoint without the transcript, its completed outcomes and the transcript's cursor.
 - **Transcript cursor**: The record `seq` of the last event that changed a session's transcript fold (`transcript.updated`, `turn.cancelled`, `turn.failed`). A harness that holds the transcript at the run's cursor resumes from its cache; otherwise it reads it once (`transcript.read`).
 - **Wake**: A request, delivered at least once, that a session advance (`WakeReason` in `execution/types.ts`). A transaction asks for one with `Tx.wake`, which writes it to the outbox.
@@ -515,13 +543,11 @@ One line each; the module named is where the term lives in code.
 - **Transcript fold**: The own loop's model-facing transcript, rebuilt from the session's `transcript.updated` events (internal, never served) at each segment start; `turn.cancelled` and `turn.failed` undo their turn's edits. The session row stores the engine state without it, folding from `Session.history.from` (`tenant/history.ts`, blueprint P0.3). Tests run in shadow mode (`test/setup/transcript-shadow.ts`), which also keeps the transcript on the row and checks the fold against it.
 - **Stream relay**: Feeds Durable Streams from the record, exactly once and in order per session (`matchSeq`), acknowledging the replication slot only after S2 has the events; reconciles the record with S2 after a new or lost slot. On a Host with S2 one process-wide relay reads logical replication once the Tenant is open, filling in its id (`streams/relay/`, `adapters/replication/pgoutput.ts`); otherwise the Tenant relays its own commits (`tenant/streams.ts`). The only writer of session streams.
 - **Basin generation**: The Tenant's current S2 basin, from 0; a sessions reset moves to the next, so ids it frees start in an empty basin, and the old basin is deleted after a grace period (`streams/basin.ts`, `tenant/streams.ts`).
-- **Sandbox resource**: A sandbox with its own id, kind (`virtual`, or `pod` with sandbox pods; see **Pod sandbox**), spec and labels (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, `GET /v1/sandboxes?label=k=v`, the `sandbox_resources` table, `tenant/sandboxes.ts`; Host feature `sandboxes`, blueprint D39). Ids are `/`-separated segments, sent percent-encoded as one path segment. A session attaches with `PutSessionRequest.sandbox = { id }` (`Session.sandboxId`) and pins the sandbox's spec; its workspace is keyed by the sandbox id (`SandboxManager.sandboxKeyOf`), so attached sessions share files, and deleting a session (a sessions reset) only detaches it. Turns are serial per sandbox (`409 sandbox_busy`), checked with a token caller's sandbox grants at every turn start (`checkSandboxTurn`). The Tenant holds at most `limits.sandboxes` (default 100). Lifecycle events (`sandbox.created`, `.attached`, `.detached`, `.deleted`) go to the sandbox's own stream in the record (`nylorun_streams.sandbox_events`, `record/sandbox.ts`), not relayed to S2; the session's log records `sandbox.attached`.
-- **Pod sandbox** (F7.2, Host feature `sandbox-pods`, D32–D34, D36, D38, D42): a sandbox resource of kind `pod`: an agent-sandbox Sandbox on the Tenant's cluster, driven only by the sandboxes service (`sandbox/pods/client.ts`, `NYLORUN_SANDBOXES_URL`). Its lifecycle is a pure decision (`sandbox/pods/lifecycle.ts`) carried out by the `Sandbox` object's reconcile (`sandbox/pods/reconcile.ts`; Restate `NylorunSandbox`, or `MemoryExecution`), serialized per sandbox, with `idle` and `ttl` timers; the row's `desired`/`observed`/`rev`/`host_epoch` columns are its state. The pod runs the engine (`--service harness` with `NYLORUN_SANDBOX_KIND=pod`) copied from the Runtime image: it waits for its NetworkPolicy (`sandbox/pods/network-gate.ts`), exchanges its join token for a host token (`sandbox/join.ts`, `tenant/host-token.ts`, `POST /nylorun/harness/v1/host/join`), and connects to the Harness API as its sandbox's host: it alone leases the turns of sessions attached to it and serves their workspace (`local` backend). Placement (`sandbox/placement.ts`) is checked at session open: `placement_refused`, `sandbox_unavailable`; turns refuse `sandbox_lost` and `sandbox_expired`.
+- **Pod Environment** (F7.2, Host feature `sandbox-pods`, D32–D34, D36, D38, D42): an Environment of kind `pod`: an agent-sandbox Sandbox on the Tenant's cluster, driven only by the sandboxes service (`sandbox/pods/client.ts`, `NYLORUN_SANDBOXES_URL`). Its lifecycle is a pure decision (`sandbox/pods/lifecycle.ts`) carried out by the `Sandbox` object's reconcile (`sandbox/pods/reconcile.ts`; Restate `NylorunSandbox`, or `MemoryExecution`), serialized per Environment, with an `idle` timer; the row's `desired`/`observed`/`rev`/`host_epoch` columns are its state, and the pod is applied from the row's `applied` recipe. The pod runs the engine (`--service harness` with `NYLORUN_SANDBOX_KIND=pod`) copied from the Runtime image: it waits for its NetworkPolicy (`sandbox/pods/network-gate.ts`), exchanges its join token for a host token (`sandbox/join.ts`, `tenant/host-token.ts`, `POST /nylorun/harness/v1/host/join`), and connects to the Harness API as its Environment's host: it alone leases the turns of the sessions that name it and serves their workspace (`local` backend). Placement (`sandbox/placement.ts`) is checked at session open: `placement_refused`, `environment_unavailable`; turns refuse `environment_lost`.
 _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
-- **Virtual sandbox**: The `virtual` backend (`adapters/sandbox/virtual.ts`): an emulated bash with a virtual filesystem whose `/workspace` is `<sandboxes>/<key>/workspace`, run by the harness that runs the session's turns (the Harness container, or in process). Not an isolation boundary; no `image`. A sandbox resource's kind defaults to `virtual` (`tenant/sandboxes.ts`); a session that names no sandbox gets the Tenant's `sandbox.config` default, `none` when unset (`sandbox/tenant-config.ts`).
-- **Placement** (F7.2, D38): Where a session's harness may run, checked at session open and never downgraded (`sandbox/placement.ts`). The Tenant's `sandbox.config` `placement` maps harness ids (`nylorun`, or `*` for the rest) to hosts: `harness-container` (the in-process harness or the Harness container) and `sandbox` (the engine in a pod sandbox); both by default. A session attached to a pod sandbox runs on `sandbox`, any other on `harness-container`; a host the Tenant does not allow is `409 placement_refused`.
-- **Sandbox grant**: A sandbox a trusted issuer's token reaches, rendered from the issuer's `sandboxes` templates (identity file): an exact sandbox id, or a prefix ending in `/*` (`team-a/*` reaches `team-a/proj-42`, not `team-a`). A token without one reaches no sandbox; any other id is the 404 of a missing one. Application keys, with or without subject headers, reach every sandbox; changing one through a subject needs `sandboxes:write`.
-- **Pinned sandbox**: The sandbox a session was opened with (`PutSessionRequest.sandbox`, or the Tenant default), resolved against the Tenant's `sandbox.config` limits and stored on the session (`Session.sandbox`). An agent session carries it as the `nylorun.sandbox` capability in its pinned manifest; sessions that share or inherit it point at the owner with `sandboxOwnerId` (`sandbox/resolve.ts`, `sandbox/session-sandbox.ts`). Sharing through `{ session }` is deprecated for clients: they share a sandbox resource; linked sessions of a flow still inherit through `sandboxOwnerId`, and a tree whose owner is attached to a sandbox resource works in that sandbox.
+- **Placement** (F7.2, D38): Where a session's harness may run, checked at session open and never downgraded (`sandbox/placement.ts`). The Tenant's `environments.config` `placement` maps harness ids (`nylorun`, or `*` for the rest) to hosts: `harness-container` (the in-process harness or the Harness container) and `sandbox` (the engine in a pod); both by default. A session on a pod Environment runs on `sandbox`, any other (a virtual or `none` Environment, or none) on `harness-container` (D52); a host the Tenant does not allow is `409 placement_refused`.
+- **Environment grant**: An Environment a trusted issuer's token reaches, rendered from the issuer's `environments` templates (identity file): an exact Environment id, or a prefix ending in `/*` (`users/alice/*` reaches `users/alice/web`, not `users/alice`). A token without one reaches no Environment; any other id is the 404 of a missing one. Application keys, with or without subject headers, reach every Environment; changing one through a subject needs `environments:write`. An identity file that still says `sandboxes:` is refused at start (protocol 11).
+- **Pinned sandbox**: The sandbox spec of a session's Environment when the session opened (`Session.sandbox`, from the Environment's `applied` recipe, `sandboxSpecOf`), carried in an agent session's pinned manifest as the `nylorun.sandbox` capability (`sandbox/session-sandbox.ts`). A flow's linked sessions inherit the workflow's Environment and spec (`tenant/effects.ts`). A virtual Environment's recipe change reaches the sessions opened after it.
 - **Tenant sweep**: A per-Tenant durable timer that reconciles the Session Store with Durable Session Execution: it sends the outbox's undelivered requests, settles linked agent effects, re-wakes orphaned sessions and reconciles stalled pod sandboxes (on a process's first pass, then once a minute: a backstop for what the execution itself lost, never a request's delivery) and stops idle sandboxes (`tenant/sweep.ts`).
 
 ## Terms to avoid (appear nowhere in new copy)
@@ -551,6 +577,7 @@ _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
 | operator listener, operator port, `NYLORUN_ADMIN_PORT`, `NYLORUN_ADMIN_LISTEN_*`, `adminPort` (removed in protocol 8) | the Host's one listener; `nylorun-operate` for Host work |
 | operator key, Host feature `operator-keys` | application key (`PUT /v1/tenant/keys/{keyId}`, `nylorun key put <id>`); management key for the Management API |
 | `tenant:settings` (retired in protocol 8) | a management key on the Management API, as itself; Studio uses its own key |
-| `/v1/vaults…`, `/v1/access/signing-keys…`, `client.createVault`, `client.access.signingKeys` | `/v1/tenant/vaults…`, `/v1/tenant/signing-keys…`; `admin.vaults`, `admin.signingKeys` |
+| `/v1/vaults…`, `/v1/access/signing-keys…`, `client.createVault`, `client.access.signingKeys` | `/v1/tenant/signing-keys…`, `admin.signingKeys`; vaults: an Environment's secrets (protocol 11) |
+| `/v1/sandboxes…`, `client.sandboxes`, `sandbox: { id }`, `vaultIds`, `credentialSelections`, `/v1/tenant/vaults…`, `admin.vaults`, user and installation vaults, `sandboxes:write`, `sandbox_*` error codes and events (protocol 10) | `/v1/environments…`, `client.environments`, `environment: <id>`, `PUT /v1/environments/{id}/secrets/{name}`, `environments:write`, `environment_*` codes and events (protocol 11) |
 | required feature `admin-status` on new clients | `management-api` (the Host advertises `admin-status` only for protocol 5 to 7 clients) |
 | `deriveStudioToken(adminKey, tenantId)` | `deriveStudioToken(adminKey)` (Studio key v2) |

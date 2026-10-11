@@ -1,7 +1,7 @@
 # @nylorun/admin
 
 The Management API client (protocol 8): the Tenant's status, seed and reset, its
-models, vaults, MCP server previews, signing keys, settings and application keys, through
+models, credential coverage, MCP server previews, signing keys, settings and application keys, through
 `/v1/tenant/*` with a **management key**. It also holds the two helpers over the
 admin key that Studio needs. Depends only on `@nylorun/core`.
 Requires Node 24+. Vocabulary: [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
@@ -63,8 +63,8 @@ Management keys are issued on the Tenant's machine only:
 | `admin.tenant` | `status()`, `seed(request)`, `reset(request)` | `GET /v1/tenant`, `PUT /v1/tenant/config/seed`, `POST /v1/tenant/reset` |
 | `admin.keys` | `list()`, `put(id)`, `delete(id)` | `/v1/tenant/keys…` |
 | `admin.models` | `catalog()`, `providers()`, `get()`, `put(request)`, `select(request)`, `usage(query)`, `budgets.get()`, `budgets.put(request)` | `/v1/tenant/models`, `/providers`, `/model`, `/model/selection`, `/usage`, `/budgets` |
-| `admin.vaults` | `create`, `list(ownerUserId?)`, `get`, `delete`, `credentials.create`, `.list`, `.get`, `.rotate`, `.delete`, `coverage(request)` | `/v1/tenant/vaults…`, `POST /v1/tenant/credential-coverage` |
-| `admin.mcp` | `preview({ url, type?, name?, vaultId? })` | `POST /v1/tenant/mcp/preview` |
+| `admin.coverage` | called directly: `admin.coverage({ agentId, environmentId? })` | `POST /v1/tenant/credential-coverage` |
+| `admin.mcp` | `preview({ url, type?, name?, environmentId? })` | `POST /v1/tenant/mcp/preview` |
 | `admin.signingKeys` | `list()`, `rotate({ force? })`, `revoke(kid)` | `/v1/tenant/signing-keys…` |
 | `admin.settings` | `sandbox.get()`, `sandbox.put(request)`, `artifacts.get()`, `artifacts.put(request)` | `/v1/tenant/sandbox`, `/v1/tenant/artifacts` |
 
@@ -83,54 +83,45 @@ await admin.keys.list(); // [{ id, role, createdAt }]
 await admin.keys.delete("backend"); // true when it existed
 ```
 
-Installation vaults hold the installation's shared credentials. A session
-attaches them by id (`vaultIds`) through the Runtime API:
+Credentials for MCP servers, HTTP tools and skills are not the Management
+API's: each Environment has one vault, whose secrets the app writes on the
+Runtime API (`client.environments.secrets.put` in
+[`@nylorun/agents`](../agents/README.md), `PUT /v1/environments/{id}/secrets/{name}`)
+and never reads back. See "MCP servers and HTTP tools" in
+[DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), with
+gateway recipes.
+
+`admin.coverage` says what a session of a saved agent would send for each of
+its MCP servers and HTTP tool credentials in the Environment it will name,
+before any session starts: `covered` (with the secret's Environment, name and
+`via`) or `missing`. Without `environmentId` every entry is `missing`. It reads
+no secret and calls no server (Host feature `credential-coverage`).
 
 ```ts
-const vault = await admin.vaults.create({ scope: "installation", name: "tools", idempotencyKey: "tools" });
-await admin.vaults.credentials.create(vault.id, {
-  name: "linear",
-  idempotencyKey: "linear",
-  auth: { type: "bearer", url: "https://mcp.linear.app/mcp", token: process.env.LINEAR_TOKEN! },
-});
-```
-
-A credential is bound to the URL an agent names: a `bearer` token, or a
-`headers` map (`{ type: "headers", url, headers: { "x-api-key": … } }`). Either
-may add `via`, where the requests go instead (an MCP gateway), and
-`identity: { header }`, which carries the session owner's subject. A person's
-own keys go in their vault (`admin.vaults.create({ name, ownerUserId })`).
-Listing and getting a credential return its header names, `via` and identity
-header, never a value; `credentials.rotate` replaces the token or the map. See
-"MCP servers and HTTP tools" in
-[DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), with gateway
-recipes.
-
-`admin.vaults.coverage` says what a session of a saved agent would send for each
-of its MCP servers and HTTP tool credentials with the vaults it attaches, before
-any session starts: `covered`, `missing` (with the vaults that hold one in
-`available`), `ambiguous` or `selection_mismatch`. It reads no secret and calls no
-server (Host feature `credential-coverage`).
-
-```ts
-const coverage = await admin.vaults.coverage({ agentId: "triage", vaultIds: [vault.id] });
+const coverage = await admin.coverage({ agentId: "triage", environmentId: "projects/acme" });
 if (!coverage.complete)
   for (const entry of coverage.entries) if (entry.status !== "covered") console.log(entry.name, entry.message);
 ```
 
-`admin.mcp.preview` shows what that server offers with that credential, before
-an agent names it: the Runtime connects, lists the tools within 15 s and calls
-none. Each tool has the name the model would call it (made with `name`,
-default from the URL's host), its annotations and its input schema's size. A
-server that answers `401` comes back with `authRequired` and its RFC 9728
-protected-resource metadata; one that cannot be listed rejects with
-`mcp_preview_failed` (`details.failure`).
+`admin.mcp.preview` shows what a server offers with an Environment's credential
+for its URL (none without `environmentId`), before an agent names it: the
+Runtime connects, lists the tools within 15 s and calls none. Each tool has the
+name the model would call it (made with `name`, default from the URL's host),
+its annotations and its input schema's size. A server that answers `401` comes
+back with `authRequired` and its RFC 9728 protected-resource metadata; one that
+cannot be listed rejects with `mcp_preview_failed` (`details.failure`).
 
 ```ts
-const preview = await admin.mcp.preview({ url: "https://mcp.linear.app/mcp", name: "linear", vaultId: vault.id });
+const preview = await admin.mcp.preview({ url: "https://mcp.linear.app/mcp", name: "linear", environmentId: "projects/acme" });
 for (const tool of preview.tools) console.log(tool.modelName, tool.schemaBytes);
 if (preview.authRequired) console.log("needs a sign-in:", preview.authRequired.resourceMetadata);
 ```
+
+`admin.settings.sandbox` reads and replaces the Tenant's Environment settings
+(Tenant setting `environments.config`): `limits` (`network`, `resources`,
+`defaultResources`, `idle`, `environments`), the pods' `lifecycle.stopGrace` and
+`placement`. `admin.tenant.reset({ scope })` takes `sessions`, `environments`
+or `all`.
 
 ## In a browser
 

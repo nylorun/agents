@@ -4,21 +4,19 @@
     "title": "Nylorun Runtime API",
     "version": "0.0.0",
     "x-nylorun-protocol": {
-      "min": 4,
-      "max": 10,
+      "min": 11,
+      "max": 11,
       "features": [
-        "runtime-tenants",
-        "admin-status",
         "studio-principal",
         "artifacts",
         "management-api",
         "resource-server",
+        "environments",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
         "ag-ui-endpoint",
         "a2a-endpoint",
-        "sandboxes",
         "sandbox-pods",
         "trusted-issuers",
         "session-reads",
@@ -26,7 +24,7 @@
         "credential-coverage"
       ]
     },
-    "description": "For developers: agents, sessions (with AG-UI and A2A), sandboxes and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
+    "description": "For developers: agents, sessions (with AG-UI and A2A), Environments and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
   },
   "servers": [
     {
@@ -6329,12 +6327,13 @@
               "request_rejected",
               "invalid_request",
               "subject_required",
-              "sandbox_not_granted",
-              "sandbox_busy",
-              "sandbox_unavailable",
+              "environment_not_granted",
+              "environment_busy",
+              "environment_unavailable",
               "placement_refused",
-              "sandbox_lost",
-              "sandbox_expired",
+              "environment_lost",
+              "environment_owner_mismatch",
+              "session_closed",
               "issuer_unavailable",
               "definition_files_missing",
               "credential_rejected",
@@ -9379,7 +9378,7 @@
               "null"
             ]
           },
-          "sandboxId": {
+          "environmentId": {
             "type": [
               "string",
               "null"
@@ -9405,7 +9404,7 @@
           "status",
           "activeTurnId",
           "lastTurnId",
-          "sandboxId",
+          "environmentId",
           "createdAt",
           "lastEventAt"
         ],
@@ -9452,57 +9451,28 @@
               "null"
             ]
           },
-          "vaultIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "credentialSelections": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "serverName": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "credentialId": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "required": [
-                "serverName",
-                "credentialId"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "sandboxOwnerId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "sandboxId": {
-            "type": "string"
-          },
-          "sandbox": {
+          "environment": {
             "type": [
               "object",
               "null"
             ],
-            "additionalProperties": {}
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
           },
-          "sandboxSource": {
-            "type": "string",
-            "enum": [
-              "default",
-              "inline",
-              "shared",
-              "sandbox"
-            ]
+          "closedReason": {
+            "type": "string"
           },
           "mcpSnapshot": {
             "type": [
@@ -9555,10 +9525,7 @@
           "implementationVersion",
           "status",
           "activeTurnId",
-          "vaultIds",
-          "credentialSelections",
-          "sandboxOwnerId",
-          "sandbox",
+          "environment",
           "mcpSnapshot",
           "mcpDiagnostics",
           "uncertainEffects"
@@ -9584,105 +9551,9 @@
             "type": "object",
             "additionalProperties": {}
           },
-          "vaultIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "credentialSelections": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "serverName": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "credentialId": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "required": [
-                "serverName",
-                "credentialId"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "sandbox": {
-            "anyOf": [
-              {
-                "type": "boolean",
-                "enum": [
-                  false
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "description": "A sandbox id, such as `user-42` or `team-a/proj-42`"
-                  }
-                },
-                "required": [
-                  "id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "session": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "session"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "image": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "network": {
-                    "type": "object",
-                    "properties": {
-                      "allow": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "resources": {
-                    "type": "object",
-                    "properties": {
-                      "cpus": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 64
-                      },
-                      "memory": {
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                },
-                "additionalProperties": false
-              }
-            ]
+          "environment": {
+            "type": "string",
+            "description": "An Environment id, such as `user-42` or `users/alice/web`"
           }
         },
         "required": [
@@ -9761,13 +9632,13 @@
             "$ref": "#/components/schemas/McpDiscoveredEvent"
           },
           {
-            "$ref": "#/components/schemas/SandboxStateEvent"
+            "$ref": "#/components/schemas/EnvironmentStateEvent"
           },
           {
-            "$ref": "#/components/schemas/SandboxExecEvent"
+            "$ref": "#/components/schemas/EnvironmentExecEvent"
           },
           {
-            "$ref": "#/components/schemas/SandboxAttachedEvent"
+            "$ref": "#/components/schemas/EnvironmentAttachedEvent"
           },
           {
             "$ref": "#/components/schemas/NodeStartedEvent"
@@ -9818,9 +9689,9 @@
             "delegation.started": "#/components/schemas/DelegationStartedEvent",
             "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
             "mcp.discovered": "#/components/schemas/McpDiscoveredEvent",
-            "sandbox.state": "#/components/schemas/SandboxStateEvent",
-            "sandbox.exec": "#/components/schemas/SandboxExecEvent",
-            "sandbox.attached": "#/components/schemas/SandboxAttachedEvent",
+            "environment.state": "#/components/schemas/EnvironmentStateEvent",
+            "environment.exec": "#/components/schemas/EnvironmentExecEvent",
+            "environment.attached": "#/components/schemas/EnvironmentAttachedEvent",
             "node.started": "#/components/schemas/NodeStartedEvent",
             "node.agent": "#/components/schemas/NodeAgentEvent",
             "loop.iteration": "#/components/schemas/LoopIterationEvent",
@@ -11973,13 +11844,6 @@
                   "server": {
                     "type": "string"
                   },
-                  "vault": {
-                    "type": "string",
-                    "enum": [
-                      "installation",
-                      "user"
-                    ]
-                  },
                   "retryable": {
                     "type": "boolean"
                   }
@@ -12839,7 +12703,7 @@
           "payload"
         ]
       },
-      "SandboxStateEvent": {
+      "EnvironmentStateEvent": {
         "type": "object",
         "properties": {
           "schema": {
@@ -12969,7 +12833,7 @@
           "type": {
             "type": "string",
             "enum": [
-              "sandbox.state"
+              "environment.state"
             ]
           },
           "payload": {
@@ -13034,7 +12898,7 @@
           "payload"
         ]
       },
-      "SandboxExecEvent": {
+      "EnvironmentExecEvent": {
         "type": "object",
         "properties": {
           "schema": {
@@ -13164,7 +13028,7 @@
           "type": {
             "type": "string",
             "enum": [
-              "sandbox.exec"
+              "environment.exec"
             ]
           },
           "payload": {
@@ -13216,7 +13080,7 @@
           "payload"
         ]
       },
-      "SandboxAttachedEvent": {
+      "EnvironmentAttachedEvent": {
         "type": "object",
         "properties": {
           "schema": {
@@ -13346,18 +13210,18 @@
           "type": {
             "type": "string",
             "enum": [
-              "sandbox.attached"
+              "environment.attached"
             ]
           },
           "payload": {
             "type": "object",
             "properties": {
-              "sandboxId": {
+              "environmentId": {
                 "type": "string"
               }
             },
             "required": [
-              "sandboxId"
+              "environmentId"
             ],
             "additionalProperties": {}
           }
@@ -15342,10 +15206,10 @@
         ],
         "additionalProperties": false
       },
-      "ListSandboxesResponse": {
+      "ListEnvironmentsResponse": {
         "type": "object",
         "properties": {
-          "sandboxes": {
+          "environments": {
             "type": "array",
             "items": {
               "type": "object",
@@ -15357,7 +15221,8 @@
                   "type": "string",
                   "enum": [
                     "virtual",
-                    "pod"
+                    "pod",
+                    "none"
                   ]
                 },
                 "labels": {
@@ -15366,18 +15231,85 @@
                     "type": "string"
                   }
                 },
-                "spec": {
+                "recipe": {
                   "type": "object",
-                  "additionalProperties": {}
+                  "properties": {
+                    "image": {
+                      "type": "string"
+                    },
+                    "resources": {
+                      "type": "object",
+                      "properties": {
+                        "cpus": {
+                          "type": "integer"
+                        },
+                        "memory": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "cpus",
+                        "memory"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "storage": {
+                      "type": "string"
+                    },
+                    "network": {
+                      "type": "object",
+                      "properties": {
+                        "allowedHosts": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "allowedHosts"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "harness": {
+                      "type": "string"
+                    },
+                    "lifecycle": {
+                      "type": "object",
+                      "properties": {
+                        "idle": {
+                          "type": "string"
+                        },
+                        "deleteAfter": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "harness",
+                    "lifecycle"
+                  ],
+                  "additionalProperties": false
+                },
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "appliedVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "ownerUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "state": {
                   "type": "string",
-                  "enum": [
-                    "ready",
-                    "creating",
-                    "running",
-                    "stopped"
-                  ]
+                  "description": "ready, creating, running or stopped; an open set"
                 },
                 "pod": {
                   "type": "object",
@@ -15396,7 +15328,6 @@
                         "creating",
                         "running",
                         "suspended",
-                        "expired",
                         "lost",
                         "failed",
                         "deleting"
@@ -15410,9 +15341,6 @@
                       "type": "integer",
                       "minimum": 0
                     },
-                    "expiresAt": {
-                      "type": "string"
-                    },
                     "reason": {
                       "type": "string"
                     }
@@ -15424,6 +15352,9 @@
                     "hostEpoch"
                   ],
                   "additionalProperties": false
+                },
+                "lastUsedAt": {
+                  "type": "string"
                 },
                 "sessions": {
                   "type": "array",
@@ -15458,8 +15389,12 @@
                 "id",
                 "kind",
                 "labels",
-                "spec",
+                "recipe",
+                "version",
+                "appliedVersion",
+                "ownerUserId",
                 "state",
+                "lastUsedAt",
                 "sessions",
                 "createdAt",
                 "updatedAt"
@@ -15469,17 +15404,17 @@
           }
         },
         "required": [
-          "sandboxes"
+          "environments"
         ],
         "additionalProperties": false
       },
-      "SandboxPage": {
+      "EnvironmentPage": {
         "type": "object",
         "properties": {
-          "sandboxes": {
+          "environments": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/SandboxView"
+              "$ref": "#/components/schemas/EnvironmentView"
             }
           },
           "nextCursor": {
@@ -15490,12 +15425,12 @@
           }
         },
         "required": [
-          "sandboxes",
+          "environments",
           "nextCursor"
         ],
         "additionalProperties": false
       },
-      "SandboxView": {
+      "EnvironmentView": {
         "type": "object",
         "properties": {
           "id": {
@@ -15505,7 +15440,8 @@
             "type": "string",
             "enum": [
               "virtual",
-              "pod"
+              "pod",
+              "none"
             ]
           },
           "labels": {
@@ -15514,18 +15450,85 @@
               "type": "string"
             }
           },
-          "spec": {
+          "recipe": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+              "image": {
+                "type": "string"
+              },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "cpus": {
+                    "type": "integer"
+                  },
+                  "memory": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cpus",
+                  "memory"
+                ],
+                "additionalProperties": false
+              },
+              "storage": {
+                "type": "string"
+              },
+              "network": {
+                "type": "object",
+                "properties": {
+                  "allowedHosts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "allowedHosts"
+                ],
+                "additionalProperties": false
+              },
+              "harness": {
+                "type": "string"
+              },
+              "lifecycle": {
+                "type": "object",
+                "properties": {
+                  "idle": {
+                    "type": "string"
+                  },
+                  "deleteAfter": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "harness",
+              "lifecycle"
+            ],
+            "additionalProperties": false
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "appliedVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "state": {
             "type": "string",
-            "enum": [
-              "ready",
-              "creating",
-              "running",
-              "stopped"
-            ]
+            "description": "ready, creating, running or stopped; an open set"
           },
           "pod": {
             "type": "object",
@@ -15544,7 +15547,6 @@
                   "creating",
                   "running",
                   "suspended",
-                  "expired",
                   "lost",
                   "failed",
                   "deleting"
@@ -15558,9 +15560,6 @@
                 "type": "integer",
                 "minimum": 0
               },
-              "expiresAt": {
-                "type": "string"
-              },
               "reason": {
                 "type": "string"
               }
@@ -15572,6 +15571,9 @@
               "hostEpoch"
             ],
             "additionalProperties": false
+          },
+          "lastUsedAt": {
+            "type": "string"
           },
           "sessions": {
             "type": "array",
@@ -15606,15 +15608,19 @@
           "id",
           "kind",
           "labels",
-          "spec",
+          "recipe",
+          "version",
+          "appliedVersion",
+          "ownerUserId",
           "state",
+          "lastUsedAt",
           "sessions",
           "createdAt",
           "updatedAt"
         ],
         "additionalProperties": false
       },
-      "PutSandboxRequest": {
+      "PutEnvironmentRequest": {
         "type": "object",
         "properties": {
           "requestId": {
@@ -15625,7 +15631,8 @@
             "type": "string",
             "enum": [
               "virtual",
-              "pod"
+              "pod",
+              "none"
             ]
           },
           "labels": {
@@ -15638,18 +15645,6 @@
           "image": {
             "type": "string",
             "minLength": 1
-          },
-          "network": {
-            "type": "object",
-            "properties": {
-              "allow": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              }
-            },
-            "additionalProperties": false
           },
           "resources": {
             "type": "object",
@@ -15668,10 +15663,38 @@
           "storage": {
             "type": "string"
           },
+          "network": {
+            "type": "object",
+            "properties": {
+              "allowedHosts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "harness": {
+            "type": "string",
+            "enum": [
+              "nylorun"
+            ]
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
           "lifecycle": {
             "type": "object",
             "properties": {
-              "ttl": {
+              "idle": {
+                "type": "string"
+              },
+              "deleteAfter": {
                 "type": "string"
               }
             },
@@ -15680,7 +15703,7 @@
         },
         "additionalProperties": false
       },
-      "ListSandboxEventsResponse": {
+      "ListEnvironmentEventsResponse": {
         "type": "object",
         "properties": {
           "events": {
@@ -15691,7 +15714,7 @@
                 "schema": {
                   "type": "string",
                   "enum": [
-                    "nylorun.sandbox-event/1"
+                    "nylorun.environment-event/1"
                   ]
                 },
                 "eventId": {
@@ -15700,7 +15723,7 @@
                 "tenantId": {
                   "type": "string"
                 },
-                "sandboxId": {
+                "environmentId": {
                   "type": "string"
                 },
                 "seq": {
@@ -15713,17 +15736,16 @@
                 "type": {
                   "type": "string",
                   "enum": [
-                    "sandbox.created",
-                    "sandbox.attached",
-                    "sandbox.detached",
-                    "sandbox.deleted",
-                    "sandbox.running",
-                    "sandbox.suspended",
-                    "sandbox.expired",
-                    "sandbox.relaunched",
-                    "sandbox.lost",
-                    "sandbox.reset",
-                    "sandbox.failed"
+                    "environment.created",
+                    "environment.attached",
+                    "environment.detached",
+                    "environment.deleted",
+                    "environment.running",
+                    "environment.suspended",
+                    "environment.relaunched",
+                    "environment.lost",
+                    "environment.reset",
+                    "environment.failed"
                   ]
                 },
                 "payload": {
@@ -15735,7 +15757,7 @@
                 "schema",
                 "eventId",
                 "tenantId",
-                "sandboxId",
+                "environmentId",
                 "seq",
                 "time",
                 "type",
@@ -15750,7 +15772,7 @@
         ],
         "additionalProperties": false
       },
-      "DeleteSandboxResponse": {
+      "DeleteEnvironmentResponse": {
         "type": "object",
         "properties": {
           "id": {
@@ -15763,6 +15785,374 @@
         "required": [
           "id",
           "deleted"
+        ],
+        "additionalProperties": false
+      },
+      "ListEnvironmentSecretsResponse": {
+        "type": "object",
+        "properties": {
+          "secrets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "bearer",
+                    "headers",
+                    "environment_secret",
+                    "environment_variable"
+                  ]
+                },
+                "binding": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "allowedHosts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "inject": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                        },
+                        "format": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "header",
+                        "format"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "headerNames": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "via": {
+                  "type": "string"
+                },
+                "identity": {
+                  "type": "object",
+                  "properties": {
+                    "header": {
+                      "type": "string",
+                      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                    }
+                  },
+                  "required": [
+                    "header"
+                  ],
+                  "additionalProperties": false
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "rotatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "type",
+                "binding",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "additionalProperties": false
+      },
+      "EnvironmentSecretView": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "bearer",
+              "headers",
+              "environment_secret",
+              "environment_variable"
+            ]
+          },
+          "binding": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "allowedHosts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "inject": {
+                "type": "object",
+                "properties": {
+                  "header": {
+                    "type": "string",
+                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                  },
+                  "format": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "header",
+                  "format"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "headerNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "via": {
+            "type": "string"
+          },
+          "identity": {
+            "type": "object",
+            "properties": {
+              "header": {
+                "type": "string",
+                "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+              }
+            },
+            "required": [
+              "header"
+            ],
+            "additionalProperties": false
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "rotatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "binding",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "PutEnvironmentSecretRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "environment_secret"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "allowedHosts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "maxItems": 32
+              },
+              "inject": {
+                "type": "object",
+                "properties": {
+                  "header": {
+                    "type": "string",
+                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                  },
+                  "format": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "header",
+                  "format"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "value",
+              "allowedHosts"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "environment_variable"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              }
+            },
+            "required": [
+              "type",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "bearer"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1
+              },
+              "via": {
+                "type": "string"
+              },
+              "identity": {
+                "type": "object",
+                "properties": {
+                  "header": {
+                    "type": "string",
+                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                  }
+                },
+                "required": [
+                  "header"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "url",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "headers"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "via": {
+                "type": "string"
+              },
+              "identity": {
+                "type": "object",
+                "properties": {
+                  "header": {
+                    "type": "string",
+                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                  }
+                },
+                "required": [
+                  "header"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "url",
+              "headers"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "DeletedResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
         ],
         "additionalProperties": false
       },
@@ -16461,7 +16851,7 @@
                 "agents:read",
                 "agents:write",
                 "sessions:own",
-                "sandboxes:write",
+                "environments:write",
                 "studio"
               ]
             }
@@ -16483,12 +16873,12 @@
               }
             ]
           },
-          "sandboxes": {
+          "environments": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "A token caller's sandbox grants (empty reaches none); absent when no grant limits the caller"
+            "description": "A token caller's Environment grants (empty reaches none); absent when no grant limits the caller"
           },
           "via": {
             "type": "string",
@@ -16889,10 +17279,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17029,10 +17419,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17168,10 +17558,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -17303,10 +17693,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -17413,10 +17803,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17560,10 +17950,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17736,7 +18126,7 @@
               "type": "string"
             },
             "required": false,
-            "name": "sandboxId",
+            "name": "environmentId",
             "in": "query"
           },
           {
@@ -17750,10 +18140,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17894,10 +18284,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18054,10 +18444,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18135,13 +18525,13 @@
                       "$ref": "#/components/schemas/McpDiscoveredEvent"
                     },
                     {
-                      "$ref": "#/components/schemas/SandboxStateEvent"
+                      "$ref": "#/components/schemas/EnvironmentStateEvent"
                     },
                     {
-                      "$ref": "#/components/schemas/SandboxExecEvent"
+                      "$ref": "#/components/schemas/EnvironmentExecEvent"
                     },
                     {
-                      "$ref": "#/components/schemas/SandboxAttachedEvent"
+                      "$ref": "#/components/schemas/EnvironmentAttachedEvent"
                     },
                     {
                       "$ref": "#/components/schemas/NodeStartedEvent"
@@ -18308,10 +18698,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18448,10 +18838,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18585,10 +18975,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -18721,10 +19111,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -18847,10 +19237,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -18979,10 +19369,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19151,10 +19541,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19297,10 +19687,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19443,10 +19833,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19577,10 +19967,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19727,10 +20117,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19839,13 +20229,13 @@
         }
       }
     },
-    "/v1/sandboxes/{sandboxId}": {
+    "/v1/environments/{environmentId}": {
       "put": {
         "tags": [
-          "Sandboxes"
+          "Environments"
         ],
-        "summary": "Create or find a sandbox",
-        "description": "Creates the sandbox within the Tenant's limits, or answers the one with this id, so get-or-create is one call. Its spec is fixed once it exists; labels, when sent, replace its labels. Kind `pod` needs sandbox pods (`nylorun sandbox enable`): it is created at once, and a PUT on an existing pod sandbox starts it again when it was stopped, or revives it with a longer `lifecycle.ttl`.",
+        "summary": "Create, find or change an Environment",
+        "description": "Creates the Environment and its vault within the Tenant's limits, or answers the one with this id, so get-or-create is one call. On an existing one the fields sent are compared: `kind` and `storage` are fixed (`409`), labels replace, `ownerUserId` sets or (with `null`) clears the owner guard, and any other change writes the recipe and bumps `version`. A pod's image and resources apply when it is next started from stopped (`appliedVersion`); `network.allowedHosts`, `harness` and `lifecycle` apply at once. Kind `pod` needs sandbox pods (`nylorun sandbox enable`) and is created at once.",
         "security": [
           {
             "applicationKey": []
@@ -19860,26 +20250,26 @@
           "token"
         ],
         "x-nylorun-scopes": [
-          "sandboxes:write"
+          "environments:write"
         ],
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
             },
             "required": true,
-            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
-            "name": "sandboxId",
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
             "in": "path"
           },
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19909,18 +20299,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PutSandboxRequest"
+                "$ref": "#/components/schemas/PutEnvironmentRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "The sandbox",
+            "description": "The Environment",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SandboxView"
+                  "$ref": "#/components/schemas/EnvironmentView"
                 }
               }
             }
@@ -19966,7 +20356,7 @@
             }
           },
           "409": {
-            "description": "A sandbox with this id has another spec, the Tenant holds as many sandboxes as it allows (`limit_exceeded`), kind pod without sandbox pods (`sandbox_unavailable`), or a lost pod sandbox (`sandbox_lost`)"
+            "description": "An Environment with this id has another kind or storage, the Tenant holds as many Environments as it allows (`limit_exceeded`), kind pod without sandbox pods (`environment_unavailable`), or it is being deleted (`environment_busy`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -19992,10 +20382,10 @@
       },
       "get": {
         "tags": [
-          "Sandboxes"
+          "Environments"
         ],
-        "summary": "Get a sandbox",
-        "description": "Its spec, labels, state and the sessions attached to it (acting for a person, only theirs).",
+        "summary": "Get an Environment",
+        "description": "Its recipe, versions, labels, owner guard, state and the sessions that name it (acting for a person, only theirs).",
         "security": [
           {
             "applicationKey": []
@@ -20011,26 +20401,26 @@
         ],
         "x-nylorun-scopes": [
           "sessions:own",
-          "sandboxes:write"
+          "environments:write"
         ],
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
             },
             "required": true,
-            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
-            "name": "sandboxId",
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
             "in": "path"
           },
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20057,11 +20447,11 @@
         ],
         "responses": {
           "200": {
-            "description": "The sandbox",
+            "description": "The Environment",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SandboxView"
+                  "$ref": "#/components/schemas/EnvironmentView"
                 }
               }
             }
@@ -20130,10 +20520,10 @@
       },
       "delete": {
         "tags": [
-          "Sandboxes"
+          "Environments"
         ],
-        "summary": "Delete a sandbox",
-        "description": "Deletes the sandbox and its files. Sessions attached to it stay attached by id; their next turn is refused until a sandbox with this id exists again.",
+        "summary": "Delete an Environment",
+        "description": "Deletes the Environment, its vault with every secret, and its files. Sessions that name it keep its id; their next turn is refused (`environment_unavailable`) until an Environment with this id exists again.",
         "security": [
           {
             "applicationKey": []
@@ -20148,26 +20538,26 @@
           "token"
         ],
         "x-nylorun-scopes": [
-          "sandboxes:write"
+          "environments:write"
         ],
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
             },
             "required": true,
-            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
-            "name": "sandboxId",
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
             "in": "path"
           },
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20198,7 +20588,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DeleteSandboxResponse"
+                  "$ref": "#/components/schemas/DeleteEnvironmentResponse"
                 }
               }
             }
@@ -20244,7 +20634,7 @@
             }
           },
           "409": {
-            "description": "A session attached to it has a turn running (`sandbox_busy`)"
+            "description": "A session that names it has a turn running (`environment_busy`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -20269,13 +20659,13 @@
         }
       }
     },
-    "/v1/sandboxes": {
+    "/v1/environments": {
       "get": {
         "tags": [
-          "Sandboxes"
+          "Environments"
         ],
-        "summary": "List sandboxes",
-        "description": "Every sandbox with all the labels asked for. A token caller sees only the sandboxes its grants reach.",
+        "summary": "List Environments",
+        "description": "Every Environment with all the labels asked for. A token caller sees only the Environments its grants reach.",
         "security": [
           {
             "applicationKey": []
@@ -20291,7 +20681,7 @@
         ],
         "x-nylorun-scopes": [
           "sessions:own",
-          "sandboxes:write"
+          "environments:write"
         ],
         "parameters": [
           {
@@ -20335,10 +20725,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20365,16 +20755,16 @@
         ],
         "responses": {
           "200": {
-            "description": "The sandboxes; limit opts into pagination",
+            "description": "The Environments; limit opts into pagination",
             "content": {
               "application/json": {
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/ListSandboxesResponse"
+                      "$ref": "#/components/schemas/ListEnvironmentsResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/SandboxPage"
+                      "$ref": "#/components/schemas/EnvironmentPage"
                     }
                   ]
                 }
@@ -20444,13 +20834,13 @@
         }
       }
     },
-    "/v1/sandboxes/{sandboxId}/events": {
+    "/v1/environments/{environmentId}/events": {
       "get": {
         "tags": [
-          "Sandboxes"
+          "Environments"
         ],
-        "summary": "Read a sandbox's lifecycle events",
-        "description": "`sandbox.created`, `sandbox.attached`, `sandbox.detached` and `sandbox.deleted`, in order, numbered from 0.",
+        "summary": "Read an Environment's lifecycle events",
+        "description": "`environment.created`, `.attached`, `.detached`, `.deleted` and a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, in order, numbered from 0.",
         "security": [
           {
             "applicationKey": []
@@ -20466,17 +20856,17 @@
         ],
         "x-nylorun-scopes": [
           "sessions:own",
-          "sandboxes:write"
+          "environments:write"
         ],
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
             },
             "required": true,
-            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
-            "name": "sandboxId",
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
             "in": "path"
           },
           {
@@ -20492,10 +20882,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20526,7 +20916,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListSandboxEventsResponse"
+                  "$ref": "#/components/schemas/ListEnvironmentEventsResponse"
                 }
               }
             }
@@ -20594,13 +20984,13 @@
         }
       }
     },
-    "/v1/sandboxes/{sandboxId}/stop": {
+    "/v1/environments/{environmentId}/stop": {
       "post": {
         "tags": [
-          "Sandboxes"
+          "Environments"
         ],
-        "summary": "Stop a pod sandbox",
-        "description": "Suspends the pod: its volume is kept, and the next turn of a session attached to it (or a PUT) starts it again. Refused during a turn (`sandbox_busy`).",
+        "summary": "Stop a pod Environment",
+        "description": "Suspends the pod: its volume is kept, and the next turn of a session that names it starts it again. Refused during a turn (`environment_busy`).",
         "security": [
           {
             "applicationKey": []
@@ -20615,26 +21005,26 @@
           "token"
         ],
         "x-nylorun-scopes": [
-          "sandboxes:write"
+          "environments:write"
         ],
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
             },
             "required": true,
-            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
-            "name": "sandboxId",
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
             "in": "path"
           },
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20661,17 +21051,17 @@
         ],
         "responses": {
           "200": {
-            "description": "The sandbox",
+            "description": "The Environment",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SandboxView"
+                  "$ref": "#/components/schemas/EnvironmentView"
                 }
               }
             }
           },
           "400": {
-            "description": "The sandbox is virtual"
+            "description": "The Environment is not of kind pod"
           },
           "401": {
             "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
@@ -20704,7 +21094,7 @@
             }
           },
           "409": {
-            "description": "A turn holds it (`sandbox_busy`), or no sandbox pods (`sandbox_unavailable`)"
+            "description": "A turn holds it (`environment_busy`), or no sandbox pods (`environment_unavailable`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -20729,13 +21119,13 @@
         }
       }
     },
-    "/v1/sandboxes/{sandboxId}/reset": {
+    "/v1/environments/{environmentId}/reset": {
       "post": {
         "tags": [
-          "Sandboxes"
+          "Environments"
         ],
-        "summary": "Reset a pod sandbox",
-        "description": "A new pod on a new, empty volume; the old pod and volume are deleted. The way out of `sandbox_lost`. Refused during a turn (`sandbox_busy`).",
+        "summary": "Reset a pod Environment",
+        "description": "A new pod on a new, empty volume with the recipe applied; the old pod and volume are deleted. The way out of `environment_lost`. Refused during a turn (`environment_busy`).",
         "security": [
           {
             "applicationKey": []
@@ -20750,26 +21140,26 @@
           "token"
         ],
         "x-nylorun-scopes": [
-          "sandboxes:write"
+          "environments:write"
         ],
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
             },
             "required": true,
-            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
-            "name": "sandboxId",
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
             "in": "path"
           },
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20796,17 +21186,17 @@
         ],
         "responses": {
           "200": {
-            "description": "The sandbox",
+            "description": "The Environment",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SandboxView"
+                  "$ref": "#/components/schemas/EnvironmentView"
                 }
               }
             }
           },
           "400": {
-            "description": "The sandbox is virtual"
+            "description": "The Environment is not of kind pod"
           },
           "401": {
             "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
@@ -20839,7 +21229,604 @@
             }
           },
           "409": {
-            "description": "A turn holds it (`sandbox_busy`), or no sandbox pods (`sandbox_unavailable`)"
+            "description": "A turn holds it (`environment_busy`), or no sandbox pods (`environment_unavailable`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/environments/{environmentId}/secrets": {
+      "get": {
+        "tags": [
+          "Environments"
+        ],
+        "summary": "List an Environment's secrets",
+        "description": "Each secret's name, type and binding (its URL, or its hosts and header). Never a value.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
+            },
+            "required": true,
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The secrets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEnvironmentSecretsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/environments/{environmentId}/secrets/{name}": {
+      "get": {
+        "tags": [
+          "Environments"
+        ],
+        "summary": "Get an Environment's secret",
+        "description": "Its name, type and binding. Never its value.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
+            },
+            "required": true,
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The secret's name: the variable for `environment_secret` and `environment_variable`, a label for `bearer` and `headers`"
+            },
+            "required": true,
+            "description": "The secret's name: the variable for `environment_secret` and `environment_variable`, a label for `bearer` and `headers`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentSecretView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Environments"
+        ],
+        "summary": "Write an Environment's secret",
+        "description": "Creates or replaces one credential of the Environment's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun-managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
+            },
+            "required": true,
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The secret's name: the variable for `environment_secret` and `environment_variable`, a label for `bearer` and `headers`"
+            },
+            "required": true,
+            "description": "The secret's name: the variable for `environment_secret` and `environment_variable`, a label for `bearer` and `headers`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutEnvironmentSecretRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The secret, without its value",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentSecretView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another credential is bound to one of its hosts or to its URL (`credential_conflict`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Environments"
+        ],
+        "summary": "Delete an Environment's secret",
+        "description": "The next request that would have used it gets none.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
+            },
+            "required": true,
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The secret's name: the variable for `environment_secret` and `environment_variable`, a label for `bearer` and `headers`"
+            },
+            "required": true,
+            "description": "The secret's name: the variable for `environment_secret` and `environment_variable`, a label for `bearer` and `headers`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -20931,10 +21918,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21083,10 +22070,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21220,10 +22207,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21355,10 +22342,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21492,10 +22479,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21654,10 +22641,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21868,10 +22855,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22025,10 +23012,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22249,10 +23236,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22396,10 +23383,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22534,10 +23521,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22680,10 +23667,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": false,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22923,10 +23910,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23079,10 +24066,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `10`"
+              "description": "The protocol version, `11`"
             },
             "required": true,
-            "description": "The protocol version, `10`",
+            "description": "The protocol version, `11`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23219,8 +24206,8 @@
       "description": "The same sessions through Agent2Agent: a context is one session per subject, agent and `contextId`, and a task is one turn. The card is how an A2A client finds the agent."
     },
     {
-      "name": "Sandboxes",
-      "description": "Isolated machines an agent works in: create or find one, watch its lifecycle, stop, reset or delete it. In `@nylorun/agents`."
+      "name": "Environments",
+      "description": "Where sessions run: one sandbox (a virtual workspace, a pod with its own volume, or none) with a recipe that can change, and one vault of secrets for its shell, MCP servers and HTTP tools. Create, find or change one, watch its lifecycle, stop, reset or delete it, and write its secrets. In `@nylorun/agents`."
     },
     {
       "name": "Artifacts",
@@ -23248,9 +24235,9 @@
       ]
     },
     {
-      "name": "Sandboxes",
+      "name": "Environments",
       "tags": [
-        "Sandboxes"
+        "Environments"
       ]
     },
     {

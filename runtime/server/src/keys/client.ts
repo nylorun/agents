@@ -69,7 +69,10 @@ export function httpKeys(options: HttpKeysOptions): Keys {
             const error = answer.error;
             reject(
               error.kind === "vault"
-                ? new VaultError(error.status, error.message)
+                ? new VaultError(error.status, error.message, {
+                    ...(error.code === undefined ? {} : { code: error.code }),
+                    ...(error.details === undefined ? {} : { details: error.details as Record<string, unknown> }),
+                  })
                 : new HttpError(error.status, error.message, {
                     ...(error.code === undefined ? {} : { code: error.code }),
                     ...(error.details === undefined ? {} : { details: error.details }),

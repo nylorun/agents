@@ -93,7 +93,7 @@ async function harnessChecks(stack, images, status) {
   for (const name of ["NYLORUN_GATES_TOKEN", "NYLORUN_OBJECT_STORE_SECRET_KEY", "NYLORUN_DATABASE_URL", "NYLORUN_KEYS_URL"])
     assert.equal(await printenv("harness", name), "", `the harness does not hold ${name}`);
 
-  // An agent with a sandbox.
+  // An agent with a sandbox: a session on a virtual Environment (protocol 11).
   const tenant = await stack.tenant();
   const stub = await startStubModel(stack, images.runtime);
   try {
@@ -114,11 +114,12 @@ async function harnessChecks(stack, images, status) {
       implementationVersion: "dev",
       manifest: { id: "plugged", name: "Plugged", manifestSchemaVersion: 5, capabilities: [] },
     });
+    await call("/v1/environments/plugged", "PUT", { requestId: randomUUID(), kind: "virtual" });
     await call("/v1/sessions/plugged", "PUT", {
       requestId: randomUUID(),
       agentId: "plugged",
       ownerUserId: "stack-smoke",
-      sandbox: {},
+      environment: "plugged",
     });
     const turn = async (n, content) => {
       await call("/v1/sessions/plugged/commands", "POST", {
