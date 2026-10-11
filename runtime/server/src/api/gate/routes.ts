@@ -466,6 +466,9 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
 
 /** `promise`, or a rejection as soon as `signal` aborts (the call itself keeps running). */
 function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  // Nobody may wait for it (the caller went away first); its rejection, a cancel or the gate's
+  // shutdown, is not an unhandled one.
+  promise.catch(() => {});
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
