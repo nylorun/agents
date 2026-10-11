@@ -28,7 +28,12 @@ export interface HarnessExecutors {
    * call's span context from core's `execute` answer (R7.4): a sandbox command gets it as
    * `TRACEPARENT`.
    */
-  tool(effect: HostEffect, signal: AbortSignal, run: HarnessRun, call?: ToolCallContext): Promise<unknown>;
+  tool(
+    effect: HostEffect,
+    signal: AbortSignal,
+    run: HarnessRun,
+    call?: ToolCallContext,
+  ): Promise<unknown>;
   /**
    * Calls that outlive this process at their gate: a shutdown leaves them running there, and
    * the next run re-sends them (`rejoin`) instead of marking them uncertain.
