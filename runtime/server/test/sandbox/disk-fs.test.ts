@@ -108,9 +108,13 @@ describe("the disk as files", () => {
     // Files keep their bytes, modes and times; links and directories their paths and targets.
     const shape = (entry: (typeof listed.entries)[number]) =>
       entry.type === "file"
-        ? { path: entry.path, type: entry.type, size: entry.size, mode: entry.mode, mtimeMs: entry.mtimeMs }
+        ? { path: entry.path, type: entry.type, size: entry.size, mode: entry.mode }
         : { path: entry.path, type: entry.type, target: entry.target };
     expect(again.entries.map(shape)).toEqual(listed.entries.map(shape));
+    // Setting a time rounds it to what the file system keeps: within a millisecond or two.
+    for (const [i, entry] of again.entries.entries())
+      if (entry.type === "file")
+        expect(Math.abs((entry.mtimeMs ?? 0) - (listed.entries[i]!.mtimeMs ?? 0))).toBeLessThanOrEqual(2);
   });
 
   it("refuses a path that leaves its root, names no root, or is the engine's own", async () => {
