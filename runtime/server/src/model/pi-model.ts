@@ -106,6 +106,9 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
   };
   return async (call, context) => {
     context.signal.throwIfAborted();
+    // The first stream event's time, from here (R7.1): the meter keeps it on the usage row.
+    const calledAt = Date.now();
+    let firstEventAt: number | undefined;
     const root = options.root ?? "";
     const stored = await options.readHostModel?.();
     if (!stored)
@@ -179,6 +182,8 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         timer = setTimeout(() => idle.abort(), settings.idleTimeoutMs);
       };
       arm();
+      // Only the answer's own attempt counts: a retried attempt's first event is not its.
+      firstEventAt = undefined;
       try {
         const stream = registry.streamSimple(selected, request, {
           ...invocationOptions,
@@ -186,6 +191,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         });
         for await (const event of stream) {
           arm();
+          firstEventAt ??= Date.now();
           if (event.type === "text_delta" && options.onPreview) {
             try {
               void Promise.resolve(
@@ -313,6 +319,8 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
           // The engine keeps the next prompt inside this window (Model Calls §7).
           contextWindow: selected.contextWindow,
           maxOutputTokens: selected.maxTokens,
+          // From the call to the provider's first stream event (R7.1); absent when none came.
+          ...(firstEventAt !== undefined ? { firstTokenMs: firstEventAt - calledAt } : {}),
         },
       },
     };

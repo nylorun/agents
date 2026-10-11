@@ -835,6 +835,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         const first = await store.tx((t) => t.recordModelUsage(usage("u1")));
         expect(first).toEqual({
           ...usage("u1"), duplicate: false, tokensReported: null, costKnown: null, txid: expect.any(String),
+          startedAt: null, endedAt: null, firstTokenMs: null,
         });
         const again = await store.tx((t) =>
           t.recordModelUsage({ ...usage("u2"), effectKey: usage("u1").effectKey }),
@@ -844,6 +845,23 @@ export function storeContract(name: string, factory: StoreFactory): void {
           calls: 2,
           tokens: 30,
           costUsd: 0.5,
+        });
+      });
+
+      it("reads a call's first row with the gate's timing, never a duplicate (R7.1)", async () => {
+        const store = await fresh();
+        const timing = {
+          startedAt: "2030-01-01T00:00:00.000Z",
+          endedAt: "2030-01-01T00:00:02.000Z",
+          firstTokenMs: 400,
+        };
+        await store.tx(async (t) => {
+          await t.recordModelUsage({ ...usage("u1"), ...timing });
+          await t.recordModelUsage({ ...usage("u2"), effectKey: usage("u1").effectKey, totalTokens: 99 });
+        });
+        await store.tx(async (t) => {
+          expect(await t.modelUsageOf(usage("u1").effectKey)).toMatchObject({ id: "u1", ...timing });
+          expect(await t.modelUsageOf("nobody:0:model:1")).toBeUndefined();
         });
       });
 

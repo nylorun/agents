@@ -55,6 +55,19 @@ describe("usageRow", () => {
     });
   });
 
+  it("keeps the gate's start and end of the call and the first token's time (R7.1)", () => {
+    const timed = { ...answered, evidence: { ...answered.evidence, extras: { ...answered.evidence!.extras, firstTokenMs: 312.4 } } };
+    const startedAt = new Date("2030-05-17T13:44:58.000Z");
+    expect(usageRow(request, timed, at, { startedAt, endedAt: at })).toMatchObject({
+      startedAt: "2030-05-17T13:44:58.000Z",
+      endedAt: "2030-05-17T13:45:00.000Z",
+      firstTokenMs: 312,
+    });
+    const untimed = usageRow(request, answered, at)!;
+    expect(untimed).not.toHaveProperty("startedAt");
+    expect(untimed).not.toHaveProperty("firstTokenMs");
+  });
+
   it("records nothing for a failure, or an answer without usage", () => {
     expect(usageRow(request, { kind: "failed", code: "auth", message: "no", retryable: false }, at)).toBeUndefined();
     expect(usageRow(request, { output: [], finishReason: "stop" }, at)).toBeUndefined();
@@ -89,6 +102,12 @@ describe("createMeter", () => {
       calls: 1,
       tokens: 15,
       costUsd: 0.002,
+    });
+    // The gate's timing of the call (R7.1): now() before and after it.
+    expect(await store.tx((t) => t.modelUsageOf(request.effectId))).toMatchObject({
+      startedAt: at.toISOString(),
+      endedAt: at.toISOString(),
+      firstTokenMs: null,
     });
     await meter.call(store, request, async () => answered);
     expect(warnings).toEqual(["model_usage_duplicate"]);

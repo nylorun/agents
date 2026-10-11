@@ -131,6 +131,17 @@ describe("an HTTP stage", { timeout: 30_000 }, () => {
       path: "refund",
       key: "refund",
     });
+    // Its outcome row (R7.1): one per stage, with the journal's window.
+    const ended = own.filter((e) => e.type === "node.completed");
+    expect(ended).toHaveLength(1);
+    expect(ended[0]!.payload).toMatchObject({
+      path: "refund",
+      kind: "http",
+      key: "refund",
+      effectId: `${turnId}:0:flow:refund:tool:-`,
+      status: "completed",
+      durationMs: expect.any(Number),
+    });
     // Never an Action.
     expect(own.some((e) => e.type === "action.pending")).toBe(false);
   });

@@ -146,6 +146,23 @@ it("writes message.assistant per model step and tool.completed for Runtime-run t
       "tool.completed",
       "message.assistant",
     ]);
+
+    // Span-ready rows (R7.1): each outcome names its effect and carries the journal's window.
+    // No gate metered these calls (the test's model provider) or ran the sandbox tools.
+    for (const row of [...messages, ...tools]) {
+      expect(row.effectId).toEqual(expect.any(String));
+      expect(row.durationMs).toBeGreaterThanOrEqual(0);
+      expect(row.gate).toBeUndefined();
+    }
+    expect(messages[0].meteredUsage).toBeUndefined();
+    expect(new Set([...messages, ...tools].map((row) => row.effectId)).size).toBe(5);
+    const [completed] = ofType(items, "turn.completed");
+    expect(completed!.payload).toMatchObject({
+      output: "Done.",
+      durationMs: expect.any(Number),
+      agentId: "bot",
+      totals: { steps: 0, tokens: 0, costUsd: 0 },
+    });
   } finally {
     await runtime.close();
   }
@@ -193,6 +210,8 @@ it("pauses for approval on an HTTP tool with an output schema, with the call id 
     const interactionId = (waits[0] as { interaction: { id: string } })
       .interaction.id;
     expect(service.calls).toEqual([]);
+    // The turn waits for a person: that wait is not its running time (R7.1).
+    await new Promise((resolve) => setTimeout(resolve, 400));
     await session.approve(interactionId, true, { idempotencyKey: "a1" });
     expect((await settle(session, ["completed", "failed"])).status).toBe(
       "completed"
@@ -213,7 +232,17 @@ it("pauses for approval on an HTTP tool with an output schema, with the call id 
       invocationId: interaction.invocationId,
       toolName: "save",
       output: { saved: true },
+      // What the tool policy did (R7.1): it held the call, and the app's key approved it.
+      policy: { decision: "ask", reason: expect.any(String), approvedBy: expect.any(String) },
     });
+    const started = Date.parse(ofType(items, "command.message")[0]!.time);
+    const [ended] = ofType(items, "turn.completed");
+    const { durationMs, pausedMs } = ended!.payload as { durationMs: number; pausedMs: number };
+    // The span holds the 400 ms wait, and pausedMs says how much of it was the wait (event times
+    // are the database's: allow for skew).
+    expect(pausedMs).toBeGreaterThanOrEqual(300);
+    expect(durationMs).toBeGreaterThanOrEqual(pausedMs);
+    expect(durationMs).toBeLessThanOrEqual(Date.parse(ended!.time) - started + 100);
     expect(items.some((item) => item.type.startsWith("action."))).toBe(false);
 
     // Two model steps, each written once, although the paused segment replays the first.
@@ -223,6 +252,32 @@ it("pauses for approval on an HTTP tool with an output schema, with the call id 
     expect(messages.map((m) => m.text)).toEqual(["Saving it.", "Saved."]);
   } finally {
     await service.close();
+    await runtime.close();
+  }
+});
+
+it("writes one message.assistant for a step that said nothing, which history skips (R7.1)", async () => {
+  const runtime = await startTestTenant({
+    applicationKey: APP,
+    modelProvider: async () => ({ output: [] }),
+  });
+  const client = createClient({
+    url: runtime.url,
+    key: runtime.applicationKey,
+    tenant: runtime.tenantId,
+  });
+  try {
+    await client.saveAgent(Agent({ id: "bot", name: "Bot" }).instructions("Say nothing.").build(), {
+      implementationVersion: "dev",
+    });
+    const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+    await session.input("hello", { idempotencyKey: "m1" });
+    await settle(session, ["completed", "failed"]);
+    const { items } = await session.history();
+    const messages = ofType(items, "message.assistant").map((item) => item.payload as any);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ text: "", toolCalls: [], effectId: expect.any(String) });
+  } finally {
     await runtime.close();
   }
 });

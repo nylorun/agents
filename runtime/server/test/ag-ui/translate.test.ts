@@ -142,6 +142,25 @@ describe("RunTranslator", () => {
     ]);
   });
 
+  it("skips a step that said nothing, which is in the log for its timing (R7.1)", () => {
+    const t = new RunTranslator("t1", "r1");
+    const empty = event("message.assistant", {
+      invocationId: "inv_e",
+      text: "",
+      toolCalls: [],
+      effectId: "turn_1:0:model:1",
+      durationMs: 12,
+    });
+    expect(t.translate(empty).events).toEqual([]);
+    // It is no model step of its own: a workflow's output still shows.
+    expect(t.translate(event("turn.completed", { output: "result" })).events.map((e) => e.type)).toEqual([
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
+      "RUN_FINISHED",
+    ]);
+  });
+
   it("maps both turn.failed shapes to RUN_ERROR", () => {
     const t = new RunTranslator("t1", "r1");
     expect(
@@ -186,6 +205,19 @@ describe("messagesFromEvents", () => {
       },
       { id: "call-1:result", role: "tool", toolCallId: "call-1", content: "shipped" },
       { id: "inv_n", role: "assistant", content: "Shipped." },
+    ]);
+  });
+
+  it("skips a step that said nothing (R7.1)", () => {
+    expect(
+      messagesFromEvents([
+        event("command.message", { type: "message", idempotencyKey: "m1", content: "hi" }),
+        event("message.assistant", { invocationId: "inv_e", text: "", toolCalls: [] }),
+        event("turn.completed", { output: "done" }),
+      ])
+    ).toEqual([
+      { id: "m1", role: "user", content: "hi" },
+      { id: expect.any(String), role: "assistant", content: "done" },
     ]);
   });
 });

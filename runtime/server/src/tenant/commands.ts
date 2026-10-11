@@ -49,6 +49,7 @@ import { checkEnvironmentTurn } from "./environments.js";
 import { turnManifestOf, variantStore } from "./session.js";
 import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
+import { endTurn, resumeTurn, startTurn } from "./turn-timing.js";
 
 /** A command's identity for idempotency: everything but the request id. */
 const semantic = (value: any): string => {
@@ -125,11 +126,13 @@ export async function command(
             "Turn cancelled before model outcome was durably recorded";
           await t.put("effects", effect.request.effectId, effect);
         }
+      // The cancelled turn's span (R7.1): its duration, agent and totals.
+      const ended = cancelledTurnId !== null ? await endTurn(t, s, cancelledTurnId) : {};
       event = await t.event(
         id,
         cancelledTurnId,
         "turn.cancelled",
-        { reason: command.reason },
+        { reason: command.reason, ...ended },
         commandWriter(scope)
       );
       await slimModelEffects(t, id, cancelledTurnId);
@@ -176,6 +179,7 @@ export async function command(
         // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
         if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };
         s.activeTurnId = randomUUID();
+        startTurn(s);
         // File parts name artifacts the caller may read; each is pinned to a version now.
         const parts =
           "parts" in command
@@ -300,6 +304,8 @@ export async function command(
           segment: (s.checkpoint?.segment ?? 0) + 1,
         });
       }
+      // A paused turn goes on: its wait for a person is not its running time (R7.1).
+      resumeTurn(s);
       s.status = "runnable";
       s.waits = undefined;
       // A flow answers each interaction in the same segment, as a held tool call's approval is

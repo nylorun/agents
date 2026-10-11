@@ -83,6 +83,12 @@ export interface Session {
    * turn it started (`linkedTurnEnd` in `core/flow-host.ts`).
    */
   lastTurnId?: string;
+  /** When the active turn started (R7.1, `turn-timing.ts`); absent on a turn started before. */
+  turnStartedAt?: string;
+  /** How long the active turn has waited paused for a person, in ms (R7.1). */
+  pausedMs?: number;
+  /** Since when the active turn waits paused (R7.1); absent while it runs. */
+  pausedAt?: string;
   creation: unknown;
   mcpSnapshot?: McpSnapshot;
   mcpDiagnostics?: readonly McpDiagnostic[];

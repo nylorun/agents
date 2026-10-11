@@ -120,7 +120,11 @@ it("completes fixture turns on the example beside ours, each harness serving its
   expect((await api(runtime, "GET", "/v1/sessions/ours")).body.harness).toBe("nylorun");
 
   const first = await say(runtime, "s1", "conformance:text", 1);
-  expect(first.find((item) => item.type === "turn.completed")?.payload).toEqual({ output: "conformance ok" });
+  expect(first.find((item) => item.type === "turn.completed")?.payload).toMatchObject({
+    output: "conformance ok",
+    agentId: "bot",
+    totals: { steps: 1 },
+  });
   const assistant = first.find((item) => item.type === "message.assistant");
   expect(assistant?.payload).toMatchObject({ text: "conformance ok" });
   // The example wrote it: the log says so (R4.9).

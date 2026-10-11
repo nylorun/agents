@@ -112,6 +112,39 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     expect((await usage("?scope=agent&id=other")).body).toMatchObject({ calls: 0 });
   });
 
+  it("puts the gate's timing and metered usage on the outcome, and the turn's totals on its end (R7.1)", async () => {
+    provider(() => answer("hi"));
+    const { client, usage } = await tenant();
+    const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+    await session.input("hello", { idempotencyKey: "m1" });
+    expect((await settle(session)).status).toBe("completed");
+    const { items } = await session.history();
+    const [message] = items.filter((item) => item.type === "message.assistant");
+    const payload = message!.payload as Record<string, any>;
+    expect(payload).toMatchObject({
+      text: "hi",
+      effectId: expect.any(String),
+      durationMs: expect.any(Number),
+      firstTokenMs: expect.any(Number),
+      meteredUsage: { inputTokens: 12, outputTokens: 3, totalTokens: 15 },
+    });
+    expect(payload.meteredUsage).not.toHaveProperty("costUsd");
+    const { startedAt, endedAt } = payload.gate as { startedAt: string; endedAt: string };
+    expect(Date.parse(endedAt)).toBeGreaterThanOrEqual(Date.parse(startedAt));
+    // The gate's call sits inside the journal's window.
+    expect(Date.parse(endedAt) - Date.parse(startedAt)).toBeLessThanOrEqual(payload.durationMs + 1);
+
+    // The turn's totals are what /v1/tenant/usage totals for it.
+    const [completed] = items.filter((item) => item.type === "turn.completed");
+    const turn = (await usage(`?scope=turn&id=${completed!.turnId}`)).body;
+    expect(completed!.payload).toMatchObject({
+      agentId: "bot",
+      durationMs: expect.any(Number),
+      totals: { steps: turn.calls, tokens: turn.tokens, costUsd: turn.costUsd },
+    });
+    expect(turn).toMatchObject({ calls: 1, tokens: 15 });
+  });
+
   it("records nothing for a call that fails", async () => {
     provider(() => new Response(JSON.stringify({ error: { message: "bad request" } }), { status: 400 }));
     const { client, usage } = await tenant();
@@ -119,6 +152,16 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     await session.input("hello", { idempotencyKey: "m1" });
     expect((await settle(session)).status).toBe("failed");
     expect((await usage()).body).toMatchObject({ calls: 0 });
+    // Nothing was metered: the outcome's span is the journal's window alone (R7.1).
+    const { items } = await session.history();
+    const failed = items.find((item) => item.type === "model.failed")!.payload as Record<string, unknown>;
+    expect(failed).toMatchObject({ effectId: expect.any(String), durationMs: expect.any(Number) });
+    expect(failed).not.toHaveProperty("gate");
+    expect(failed).not.toHaveProperty("meteredUsage");
+    expect(items.find((item) => item.type === "turn.failed")!.payload).toMatchObject({
+      agentId: "bot",
+      totals: { steps: 0, tokens: 0, costUsd: 0 },
+    });
   });
 });
 

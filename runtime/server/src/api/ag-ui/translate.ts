@@ -5,6 +5,7 @@
  */
 import { EventType, type BaseEvent, type Interrupt } from "@ag-ui/core";
 import {
+  isEmptyAssistantMessage,
   parseTranscriptEvent,
   type LiveEvent,
   type TranscriptEvent,
@@ -111,7 +112,8 @@ export class RunTranslator {
     switch (event.type) {
       case "message.assistant": {
         const p = event.payload;
-        if (p.agent) return none;
+        // A step that said nothing is in the log for its timing (R7.1), never a message.
+        if (p.agent || isEmptyAssistantMessage(p)) return none;
         this.sawAssistant = true;
         return { events: assistantEvents(p), finished: false };
       }

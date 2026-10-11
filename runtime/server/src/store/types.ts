@@ -859,6 +859,11 @@ export interface Tx {
 
   /** Appends a row, setting `duplicate` when one with the same `effectKey` exists; returns it. */
   recordModelUsage(row: ModelUsageWrite): Promise<ModelUsageRow>;
+  /**
+   * The first row the gate recorded for the model call `effectKey` (R7.1), never a `duplicate`;
+   * undefined when no gate metered it.
+   */
+  modelUsageOf(effectKey: string): Promise<ModelUsageRow | undefined>;
   modelUsageTotals(query: ModelUsageQuery): Promise<ModelUsageTotals>;
   /** Every budget, ordered by scope, then scope id. */
   listModelBudgets(): Promise<ModelBudgetRow[]>;

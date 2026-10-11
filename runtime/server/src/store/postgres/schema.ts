@@ -388,7 +388,9 @@ export const signingKeys = nylorun.table(
  * The model usage ledger (P1.3): one row per model call a gate served, written after the call.
  * A second row for the same effect (a call the gate ran again after a gateway restart) is
  * flagged `duplicate`; both were billed. Budgets read their spend from it. Token counts are 0
- * when the provider sent none.
+ * when the provider sent none. `startedAt`, `endedAt` and `firstTokenMs` are the gate's own
+ * timing of the call (R7.1, migration 0022); null on rows written before, and `firstTokenMs`
+ * when the provider streamed nothing.
  */
 export const modelUsage = nylorun.table(
   "model_usage",
@@ -414,6 +416,12 @@ export const modelUsage = nylorun.table(
     /** True when an earlier row has the same `effectKey`: the provider billed the call twice. */
     duplicate: boolean().notNull(),
     createdAt: text().notNull(),
+    /** When the gate sent the call to the provider. */
+    startedAt: text(),
+    /** When the provider's answer was complete. */
+    endedAt: text(),
+    /** From `startedAt` to the provider's first stream event. */
+    firstTokenMs: integer(),
   },
   (t) => [
     index("model_usage_session").on(t.sessionId, t.createdAt, t.id),
@@ -730,5 +738,11 @@ export type DefinitionFileRow = typeof definitionFiles.$inferSelect;
 
 export type ModelUsageWrite = Omit<
   ModelUsageRow,
-  "duplicate" | "txid" | "tokensReported" | "costKnown"
-> & { tokensReported?: boolean | null; costKnown?: boolean | null };
+  "duplicate" | "txid" | "tokensReported" | "costKnown" | "startedAt" | "endedAt" | "firstTokenMs"
+> & {
+  tokensReported?: boolean | null;
+  costKnown?: boolean | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  firstTokenMs?: number | null;
+};

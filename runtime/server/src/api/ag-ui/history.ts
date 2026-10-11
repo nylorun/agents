@@ -3,7 +3,11 @@
  * message (see `translate.ts`), usable as `HttpAgent`'s `initialMessages`.
  */
 import type { AssistantMessage, Message } from "@ag-ui/core";
-import { parseTranscriptEvent, type LiveEvent } from "@nylorun/core/contracts";
+import {
+  isEmptyAssistantMessage,
+  parseTranscriptEvent,
+  type LiveEvent,
+} from "@nylorun/core/contracts";
 import { outputText, toolResultOf } from "./translate.js";
 
 export function messagesFromEvents(items: readonly LiveEvent[]): Message[] {
@@ -47,6 +51,8 @@ export function messagesFromEvents(items: readonly LiveEvent[]): Message[] {
       });
       continue;
     }
+    // A step that said nothing is in the log for its timing (R7.1), never a message.
+    if (event.type === "message.assistant" && isEmptyAssistantMessage(event.payload)) continue;
     if (event.type === "message.assistant" && !event.payload.agent) {
       const p = event.payload;
       sawAssistant = true;

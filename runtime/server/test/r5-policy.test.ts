@@ -126,8 +126,11 @@ describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
         status: "failed",
         attempts: 0,
         error: expect.objectContaining({ code: "tool.denied", message: "Refunds over 10000 are refused" }),
+        // What the policy did (R7.1); never sent, so no gate times.
+        policy: { decision: "deny", reason: "Refunds over 10000 are refused" },
       }),
     ]);
+    expect(completed[0]!.payload).not.toHaveProperty("gate");
   });
 
   it("holds a call an ask rule matches; approved after a restart, it runs once with the input shown", async () => {
@@ -193,6 +196,9 @@ describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
     expect((await settled(runtime)).status).toBe("completed");
     expect(service.requests()).toEqual([]);
     expect(JSON.stringify(seen)).toContain("tool.denied");
+    // Held, then denied by a person (R7.1): the policy asked, and nobody approved.
+    const completed = (await items(runtime)).find((item) => item.type === "tool.completed")!;
+    expect(completed.payload.policy).toEqual({ decision: "ask", reason: expect.any(String) });
   });
 
   it("keeps the approval of a session pinned to a manifest that set it, through the Tool Gate", async () => {

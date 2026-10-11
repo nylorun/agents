@@ -8,6 +8,10 @@
  * the scope at the scope's average cost per call, reaches its limit. Calls in a turn run one
  * at a time, so a scope overspends by at most one call per concurrent call. The refusal is a
  * `budget_exhausted` failure, which the turn does not retry.
+ *
+ * The row also keeps the gate's own timing of the call (R7.1): `now()` before the call and
+ * after it, and the adapter's `firstTokenMs` (`evidence.extras`), so a model call's span is
+ * what the gate measured.
  */
 import { randomUUID } from "node:crypto";
 import { failure } from "../model/classify.js";
@@ -88,8 +92,9 @@ export function createMeter(options: MeterOptions): Meter {
       // A call counts as in flight until its usage is recorded, so the check never misses it.
       for (const key of keys) inflight.set(key, (inflight.get(key) ?? 0) + 1);
       try {
+        const startedAt = now();
         const outcome = await call();
-        await record(store, request, outcome);
+        await record(store, request, outcome, { startedAt, endedAt: now() });
         return outcome;
       } finally {
         for (const key of keys) {
@@ -101,8 +106,13 @@ export function createMeter(options: MeterOptions): Meter {
     },
   };
 
-  async function record(store: SessionStore, request: ModelGateRequest, outcome: ModelGateOutcome) {
-    const row = usageRow(request, outcome, now());
+  async function record(
+    store: SessionStore,
+    request: ModelGateRequest,
+    outcome: ModelGateOutcome,
+    timing: CallTiming,
+  ) {
+    const row = usageRow(request, outcome, timing.endedAt, timing);
     if (!row) return;
     try {
       const recorded = await store.tx((t) => t.recordModelUsage(row));
@@ -121,14 +131,25 @@ export function createMeter(options: MeterOptions): Meter {
   }
 }
 
-/** The ledger row of an outcome that carries usage; undefined for a failure. */
+/** When the gate sent a call and when its answer was complete (R7.1). */
+export interface CallTiming {
+  readonly startedAt: Date;
+  readonly endedAt: Date;
+}
+
+/**
+ * The ledger row of an outcome that carries usage; undefined for a failure. With `timing`, the
+ * row keeps the gate's start and end of the call, and the adapter's `firstTokenMs`.
+ */
 export function usageRow(
   request: ModelGateRequest,
   outcome: ModelGateOutcome,
   at: Date,
+  timing?: CallTiming,
 ): ModelUsageWrite | undefined {
   if (typeof outcome !== "object" || "kind" in outcome || !outcome.usage) return undefined;
   const usage = outcome.usage;
+  const firstTokenMs = outcome.evidence?.extras?.firstTokenMs;
   const producer = producerOf(outcome);
   const inputTokens = count(usage.inputTokens);
   const outputTokens = count(usage.outputTokens);
@@ -156,6 +177,12 @@ export function usageRow(
     reasoningTokens: count(usage.reasoningTokens),
     costUsd: Number.isFinite(usage.costUsd) && usage.costUsd! > 0 ? usage.costUsd! : 0,
     createdAt: at.toISOString(),
+    ...(timing
+      ? { startedAt: timing.startedAt.toISOString(), endedAt: timing.endedAt.toISOString() }
+      : {}),
+    ...(typeof firstTokenMs === "number" && Number.isFinite(firstTokenMs) && firstTokenMs >= 0
+      ? { firstTokenMs: Math.round(firstTokenMs) }
+      : {}),
   };
 }
 

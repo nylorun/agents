@@ -11,6 +11,10 @@
  *
  * Rows store the request's hash (`requestHash`) and, for a model call, the request without its
  * prompt: drift is a hash compare. Rows written before carry their full request, hashed on read.
+ *
+ * Every row a run journals keeps when it was journaled (`startedAt`, R7.1), and a rejoin keeps
+ * it: an outcome's `durationMs` is the journal's window, from the intent to the outcome. A model
+ * call's outcome event also carries what the meter recorded for it (`modelOutcomeFacts`).
  */
 import {
   HARNESS_TOOLS_CAPABILITY,
@@ -56,7 +60,12 @@ import {
   recoversToolCalls,
   resolveNewFlowEffect,
 } from "../tenant/effects.js";
-import { assistantMessage, contextCompacted, modelFailed } from "../tenant/transcript.js";
+import {
+  assistantMessage,
+  contextCompacted,
+  modelFailed,
+  modelOutcomeFacts,
+} from "../tenant/transcript.js";
 import { abortKind } from "../tenant/worker.js";
 import { redactTokens } from "./redact.js";
 import { toolCallDecision } from "../gates/policy.js";
@@ -178,7 +187,15 @@ export async function recordIntent(
     if (request.kind === "delegation") {
       // Lifecycle points of an agent used as a tool: journaled once, so replays never re-emit.
       const outcome = { value: null };
-      await t.put("effects", request.effectId, { request, requestHash, status: "completed", outcome });
+      const at = new Date().toISOString();
+      await t.put("effects", request.effectId, {
+        request,
+        requestHash,
+        status: "completed",
+        outcome,
+        startedAt: at,
+        settledAt: at,
+      });
       const settled = request.effectId.endsWith(":settled");
       const callId = (request.context as { callId?: unknown } | undefined)?.callId;
       await t.event(
@@ -240,7 +257,9 @@ export async function recordIntent(
       request: storedRequest(request) as HostEffect,
       requestHash,
       status: "invoking",
-      ...(request.kind === "tool" ? firstSend(toolKindOf(s, agentManifest, request)) : {}),
+      ...(request.kind === "tool"
+        ? firstSend(toolKindOf(s, agentManifest, request))
+        : { startedAt: new Date().toISOString() }),
     };
     // The Tenant's tool policy decides an MCP or HTTP tool call as it is journaled (R5 step 2).
     if (row.toolKind === "mcp" || row.toolKind === "http") {
@@ -443,19 +462,32 @@ export async function recordOutcome(
     }
     effect.status = "completed";
     effect.outcome = { value };
+    effect.settledAt = new Date().toISOString();
     await t.put("effects", effectId, effect);
     const model = request.kind === "model";
     const failed = model ? modelFailed(request, value) : undefined;
-    // A summary call is never an assistant message; the last one publishes context.compacted.
+    // A summary call is never an assistant message; it publishes context.compacted, `partial`
+    // unless it is the last.
     const summarizing = model && Boolean((request.context as { compaction?: unknown }).compaction);
     const compacted = summarizing && !failed ? contextCompacted(request, value) : undefined;
     const transcript = failed || summarizing || !model ? undefined : assistantMessage(request, value);
     if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
     const writer = scope.writer;
-    if (failed) await t.event(s.id, request.turnId, "model.failed", failed, writer);
-    if (compacted) await t.event(s.id, request.turnId, "context.compacted", compacted, writer);
+    // The call's span (R7.1): the journal's window, and the meter's row for it when a gate ran it.
+    const facts =
+      failed || compacted || transcript
+        ? modelOutcomeFacts(effectId, effect, await t.modelUsageOf(effectId))
+        : undefined;
+    if (failed) await t.event(s.id, request.turnId, "model.failed", { ...failed, ...facts }, writer);
+    if (compacted) await t.event(s.id, request.turnId, "context.compacted", { ...compacted, ...facts }, writer);
     if (transcript)
-      await t.event(s.id, request.turnId, "message.assistant", transcript as EventPayload<"message.assistant">, writer);
+      await t.event(
+        s.id,
+        request.turnId,
+        "message.assistant",
+        { ...transcript, ...facts } as EventPayload<"message.assistant">,
+        writer
+      );
     return { status: "completed" as const, outcome: effect.outcome };
   });
 }

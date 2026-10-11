@@ -11,19 +11,27 @@
  *
  * The row body keeps the journal's facts: `toolKind`, `server`, `attempts`, `startedAt` and
  * `settledAt`. A row written before R5 has none of them.
+ *
+ * Spans (R7.1). `tool.completed` also carries the call's effect id, the Tool Gate's own start
+ * and end of its last send (`gate`, from its `tool_crossings` row: MCP and HTTP calls through
+ * the gateway, while the row is kept), and what the tool policy did when it did more than allow
+ * (`policy`). A flow's HTTP stage, which names no tool call, ends in `node.completed` instead.
  */
 import type { EventPayload, EventWriter } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
+import { isFlowToolEffect } from "../core/flow-host.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
 import { mcpToolOf } from "../mcp/snapshot.js";
 import { sandboxCapabilityOf } from "../sandbox/capability.js";
 import type { Session } from "../tenant/context.js";
 import {
   toolCompleted,
+  type GateTimes,
   type ToolCallFacts,
   type ToolCallKind,
   type ToolCallStatus,
+  type ToolPolicyFact,
 } from "../tenant/transcript.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import { toolCallDuration, toolCallStatus } from "./tool-status.js";
@@ -76,22 +84,55 @@ export function interrupted(message: string) {
   return { kind: "failed", code: "tool.interrupted", message, retryable: false };
 }
 
-/** The facts `tool.completed` carries for `row`, settled with `status`. */
-export function factsOf(row: ToolRow, status: ToolCallStatus): ToolCallFacts {
+/** The facts `tool.completed` carries for `row`, settled with `status`, and the gate's times. */
+export function factsOf(row: ToolRow, status: ToolCallStatus, gate?: GateTimes): ToolCallFacts {
   const durationMs = toolCallDuration(row);
+  const policy = policyOf(row);
   return {
     status,
     ...(row.toolKind === undefined ? {} : { kind: row.toolKind }),
     ...(row.server === undefined ? {} : { server: row.server }),
     ...(row.attempts === undefined ? {} : { attempts: row.attempts }),
     ...(durationMs === undefined ? {} : { durationMs }),
+    effectId: row.request.effectId,
+    ...(gate === undefined ? {} : { gate }),
+    ...(policy === undefined ? {} : { policy }),
   };
 }
 
 /**
+ * What the Tenant's tool policy did with `row` (R5 step 2), when it did more than allow it: held
+ * it for a person (`ask`, with who approved it, when someone did), or refused it unsent (`deny`).
+ */
+export function policyOf(row: ToolRow): ToolPolicyFact | undefined {
+  if (row.hold)
+    return {
+      decision: "ask",
+      reason: row.hold.reason,
+      ...(row.approval?.by === undefined ? {} : { approvedBy: row.approval.by }),
+    };
+  const value = row.outcome?.value as { code?: unknown; message?: unknown } | null | undefined;
+  // `bypolicy` refuses a call before its first send.
+  if (row.attempts === 0 && value?.code === "tool.denied")
+    return { decision: "deny", reason: String(value.message ?? "") };
+  return undefined;
+}
+
+/**
+ * The Tool Gate's own start and end of `row`'s last send (R7.1), from its `tool_crossings` row:
+ * an MCP or HTTP call the gateway ran and settled. Undefined for any other call, one never sent,
+ * and one whose crossing is gone (pruned a day after it settled) or not settled.
+ */
+async function gateOf(t: Tx, row: ToolRow): Promise<GateTimes | undefined> {
+  if ((row.toolKind !== "mcp" && row.toolKind !== "http") || !row.attempts) return undefined;
+  const crossing = await t.toolCrossing(row.request.effectId);
+  return crossing?.settledAt ? { startedAt: crossing.startedAt, endedAt: crossing.settledAt } : undefined;
+}
+
+/**
  * Settles a tool row with `value` (`completed`) or as `cancelled`, and writes its one
- * `tool.completed` (an agent's tool call; a flow's HTTP stage names no call and writes none).
- * Writes `row`.
+ * `tool.completed` (an agent's tool call), or `node.completed` (a flow's HTTP stage or verifier,
+ * which names no call, R7.1). Writes `row`.
  */
 export async function settleToolRow(
   t: Tx,
@@ -111,7 +152,28 @@ export async function settleToolRow(
   row.settledAt = (options.now ?? new Date()).toISOString();
   await t.put("effects", request.effectId, row);
   const status = toolCallStatus(row) as ToolCallStatus;
-  const transcript = toolCompleted(request, value, factsOf(row, status));
+  const gate = await gateOf(t, row);
+  if (isFlowToolEffect(request)) {
+    const durationMs = toolCallDuration(row);
+    await t.event(
+      s.id,
+      request.turnId,
+      "node.completed",
+      {
+        path: request.path!,
+        kind: row.toolKind ?? "http",
+        key: request.key!,
+        ...(request.iterations !== undefined ? { iterations: request.iterations } : {}),
+        effectId: request.effectId,
+        status,
+        ...(durationMs === undefined ? {} : { durationMs }),
+        ...(gate === undefined ? {} : { gate }),
+      },
+      options.writer,
+    );
+    return row.outcome;
+  }
+  const transcript = toolCompleted(request, value, factsOf(row, status, gate));
   if (transcript)
     await t.event(s.id, request.turnId, "tool.completed", transcript as EventPayload<"tool.completed">, options.writer);
   return row.outcome;
