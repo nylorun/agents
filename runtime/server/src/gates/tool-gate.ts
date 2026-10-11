@@ -29,7 +29,7 @@ export interface ToolGate {
   /**
    * True when a keyed MCP or HTTP tool call outlives the caller's process (the gates service,
    * G3): after a takeover or a shutdown, re-sending it joins the call or returns its outcome,
-   * and a call lost with the gateway answers `uncertain` instead of running again.
+   * and a call lost with the gateway runs again under the same key (R5.3).
    */
   readonly recovers?: boolean;
   /** Stops a keyed tool call that outlives its caller (a user cancel). Never rejects. */

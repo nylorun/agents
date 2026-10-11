@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
-import { patchStoredSession, startTestTenant } from "./support/tenant.js";
+import { startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
 import type { TenantConfig } from "../src/tenant/types.js";
@@ -185,11 +185,11 @@ it("returns an unavailable backend as a failed tool result the model can read", 
   }
 });
 
-it("treats a backend failure during a write tool as uncertain and never re-runs it", async () => {
+it("fails a backend failure during a write tool to the model as tool.interrupted, and never re-runs it (R5)", async () => {
   const backend = fakeBackend({ available: true, execThrows: true });
+  const results: unknown[] = [];
   const runtime = await boot({
-    retainRoot: true,
-    modelProvider: script([{ name: "bash", args: { command: "rm -rf build" } }]),
+    modelProvider: script([{ name: "bash", args: { command: "rm -rf build" } }], results),
     sandbox: { backend: "virtual", backends: [backend] },
   });
   try {
@@ -197,26 +197,21 @@ it("treats a backend failure during a write tool as uncertain and never re-runs 
     await openSession(runtime, "s1");
     await say(runtime, "s1", "clean");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
-    expect(session.status).toBe("uncertain");
+    expect(session.status).toBe("completed");
+    expect(JSON.stringify(results.at(-1))).toContain("tool.interrupted");
     expect(backend.execs).toBe(1);
+    const completed = (await items(runtime, "s1")).filter((item) => item.type === "tool.completed");
+    expect(completed.map((item) => item.payload)).toEqual([
+      expect.objectContaining({
+        toolName: "bash",
+        status: "failed",
+        kind: "sandbox",
+        attempts: 1,
+        error: expect.objectContaining({ code: "tool.interrupted" }),
+      }),
+    ]);
   } finally {
     await runtime.close();
-  }
-  await patchStoredSession(runtime.root, runtime.tenantId, "s1", { status: "runnable" });
-  const again = await boot({
-    hostRoot: runtime.root,
-    tenantId: runtime.tenantId,
-    modelProvider: async () => {
-      throw new Error("model must not run again");
-    },
-    sandbox: { backend: "virtual", backends: [backend] },
-  });
-  try {
-    await until(again, "s1", ["uncertain", "failed", "completed"]);
-    expect(backend.execs).toBe(1);
-  } finally {
-    await again.close();
-    await rm(runtime.root, { recursive: true, force: true });
   }
 });
 

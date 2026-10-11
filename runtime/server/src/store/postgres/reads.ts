@@ -18,6 +18,7 @@ import {
 import type {
   ModelCall,
   EnvironmentView,
+  ToolCall,
   SessionListItem,
   SessionManifestView,
   SessionUsageTotals,
@@ -28,7 +29,9 @@ import { fail } from "../../tenant/http.js";
 import { sandboxWorkspaceKey } from "../../sandbox/records.js";
 import { database, driverError, type Transaction } from "./db.js";
 import { createPostgresReadClient, type PostgresClient } from "./connect.js";
+import { toolCallDuration, toolCallStatus } from "../../harness-api/tool-status.js";
 import {
+  effects,
   modelUsage,
   environments,
   sandboxes,
@@ -75,6 +78,53 @@ function publicCall(row: ModelUsageRow): ModelCall {
       tokensReported: row.tokensReported,
       costKnown: row.costKnown,
     },
+  };
+}
+/** A tool row's body, as the effect journal writes it (`harness-api/tool-journal.ts`). */
+interface ToolRowBody {
+  readonly request: {
+    readonly effectId: string;
+    readonly turnId: string;
+    readonly capabilityId?: string;
+    readonly toolName?: string;
+    readonly input?: unknown;
+    readonly context?: { readonly callId?: unknown };
+  };
+  readonly status: string;
+  readonly outcome?: { readonly value: unknown };
+  readonly error?: string;
+  readonly toolKind?: ToolCall["kind"];
+  readonly server?: string;
+  readonly attempts?: number;
+  readonly startedAt?: string;
+  readonly settledAt?: string;
+}
+function publicToolCall(body: ToolRowBody): ToolCall {
+  const { request } = body;
+  const status = toolCallStatus(body);
+  const value = body.outcome?.value as { kind?: unknown; code?: unknown; message?: unknown } | null | undefined;
+  const error =
+    value?.kind === "failed"
+      ? { code: String(value.code ?? "tool.failed"), message: String(value.message ?? "") }
+      : status === "uncertain"
+        ? { code: "uncertain", message: body.error ?? "" }
+        : null;
+  return {
+    effectId: request.effectId,
+    turnId: request.turnId,
+    callId: typeof request.context?.callId === "string" ? request.context.callId : null,
+    capabilityId: request.capabilityId ?? null,
+    toolName: request.toolName ?? null,
+    kind: body.toolKind ?? null,
+    server: body.server ?? null,
+    status,
+    // A row written before R5 counted no sends: it was sent once.
+    attempts: body.attempts ?? 1,
+    input: request.input ?? null,
+    error,
+    startedAt: body.startedAt ?? null,
+    settledAt: body.settledAt ?? null,
+    durationMs: toolCallDuration(body) ?? null,
   };
 }
 function keyOf(
@@ -260,6 +310,35 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
           calls: items.map(publicCall),
           nextCursor:
             rows.length > page.limit && last ? cursor.encode([last.createdAt, last.id]) : null,
+          asOf: new Date().toISOString(),
+        };
+      }),
+    toolCalls: (id, turnId, page, access) =>
+      read(async (tx) => {
+        await requireSession(tx, id, access);
+        const cursor = readCursor(tenantId, "tool-calls", { sessionId: id, turnId });
+        const key = keyOf(cursor.decode(page.cursor), 2);
+        // In the order of their first send; a row written before R5 has no `startedAt`.
+        const startedAt = sql<string>`coalesce(${effects.body}->>'startedAt', '')`;
+        const rows = await tx
+          .select({ id: effects.id, body: effects.body, startedAt })
+          .from(effects)
+          .where(
+            and(
+              eq(effects.sessionId, id),
+              eq(effects.kind, "tool"),
+              turnId === undefined ? undefined : eq(effects.turnId, turnId),
+              key ? sql`(${startedAt}, ${effects.id}) > (${key[0]}, ${key[1]})` : undefined,
+            ),
+          )
+          .orderBy(asc(startedAt), asc(effects.id))
+          .limit(page.limit + 1);
+        const items = rows.slice(0, page.limit);
+        const last = items.at(-1);
+        return {
+          calls: items.map((row) => publicToolCall(row.body as ToolRowBody)),
+          nextCursor:
+            rows.length > page.limit && last ? cursor.encode([last.startedAt, last.id]) : null,
           asOf: new Date().toISOString(),
         };
       }),

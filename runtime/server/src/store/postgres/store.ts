@@ -1417,6 +1417,22 @@ class PostgresTx implements Tx {
     return inserted.length === 1;
   }
 
+  async restartToolCrossing(row: Pick<ToolCrossingRow, "key" | "hash" | "startedAt">): Promise<boolean> {
+    this.check();
+    const restarted = await this.db
+      .update(toolCrossings)
+      .set({ startedAt: row.startedAt })
+      .where(
+        and(
+          eq(toolCrossings.key, row.key),
+          eq(toolCrossings.hash, row.hash),
+          isNull(toolCrossings.settledAt),
+        ),
+      )
+      .returning({ key: toolCrossings.key });
+    return restarted.length === 1;
+  }
+
   async settleToolCrossing(key: string, answer: unknown, settledAt: string): Promise<void> {
     this.check();
     await this.db

@@ -79,6 +79,10 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `credential-coverage`: `POST /v1/tenant/credential-coverage` (the Management API) says which
  * credential of an Environment's vault each of a saved agent's MCP servers and HTTP tools would
  * get in a session that names that Environment.
+ * `tool-calls` (R5): `GET /v1/sessions/{id}/calls/tool` pages a session's tool calls from the
+ * effect journal, every `tool.completed` says how its call ended (`status`, `kind`, `server`,
+ * `attempts`, `durationMs`), and tool calls are delivered at least once with their effect id as
+ * the key (`Idempotency-Key` for HTTP tools, `_meta["nylorun/idempotency-key"]` for MCP tools).
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -91,6 +95,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "session-reads",
   "calls-export",
   "credential-coverage",
+  "tool-calls",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

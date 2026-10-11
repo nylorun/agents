@@ -3,6 +3,10 @@
  * (same id, same request hash) resolves here; any other becomes an `effect.intent`. A model
  * intent carries no prompt: core stores its hash. When core answers `execute`, the harness runs
  * the call and reports its outcome.
+ *
+ * A tool call whose gate hop lost its answer (`executors.resends`) is sent again with the same
+ * key (R5.3): the harness waits a moment and asks core again with the same intent, and core
+ * counts the send, answering `execute` again or the call's outcome once it reached its cap.
  */
 import {
   HarnessApiError,
@@ -40,26 +44,39 @@ export function apiHost(
     }
   };
 
-  const execute = async (effect: HostEffect): Promise<EffectResolution> => {
+  const execute = async (effect: HostEffect, requestHash: string): Promise<EffectResolution> => {
     const model = effect.kind === "model";
-    try {
-      const value = model
-        ? await executors.model(effect, signal, run)
-        : await executors.tool(effect, signal, run);
-      return await ask("effect.outcome", { runId, effectId: effect.effectId, value });
-    } catch (error) {
-      // Another owner decides what the effect became.
-      if (error instanceof HarnessApiError && error.code === "ownership_lost") throw error;
-      const recoverable = model ? executors.recovers.model : executors.recovers.tool(effect, run);
-      const kind = runAbortKind(signal);
-      // The call goes on at its gate: the next run re-sends it and collects its outcome.
-      if (recoverable && kind === "shutdown") throw error;
-      if (recoverable && !model && kind === "cancel") await executors.cancelAtGate?.(effect, run);
-      return ask("effect.outcome", {
-        runId,
-        effectId: effect.effectId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    for (let resent = 0; ; resent += 1) {
+      try {
+        const value = model
+          ? await executors.model(effect, signal, run)
+          : await executors.tool(effect, signal, run);
+        return await ask("effect.outcome", { runId, effectId: effect.effectId, value });
+      } catch (error) {
+        // Another owner decides what the effect became.
+        if (error instanceof HarnessApiError && error.code === "ownership_lost") throw error;
+        const recoverable = model ? executors.recovers.model : executors.recovers.tool(effect, run);
+        const kind = runAbortKind(signal);
+        // The call goes on at its gate: the next run re-sends it and collects its outcome.
+        if (recoverable && kind === "shutdown") throw error;
+        // The hop lost the answer: core counts one more send, and the call goes again (R5.3).
+        if (!model && kind === undefined && executors.resends?.(effect, error, run)) {
+          await pause(RESEND_DELAYS_MS[Math.min(resent, RESEND_DELAYS_MS.length - 1)]!, signal);
+          const again = await ask("effect.intent", {
+            runId,
+            effect: intentOf(effect),
+            requestHash,
+          });
+          if (again.status === "execute") continue;
+          return again;
+        }
+        if (recoverable && !model && kind === "cancel") await executors.cancelAtGate?.(effect, run);
+        return ask("effect.outcome", {
+          runId,
+          effectId: effect.effectId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   };
 
@@ -74,10 +91,29 @@ export function apiHost(
         return { status: "completed", outcome: known.outcome };
       }
       const answer = await ask("effect.intent", { runId, effect: intentOf(effect), requestHash });
-      if (answer.status === "execute") return execute(effect);
+      if (answer.status === "execute") return execute(effect, requestHash);
       return answer;
     },
   };
+}
+
+/** How long the harness waits before it sends a call whose gate hop was lost again. */
+const RESEND_DELAYS_MS = [1_000, 2_000, 4_000] as const;
+
+/** Waits `ms`, or throws the reason as soon as `signal` aborts. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /** What crosses for an effect: a model call's prompt stays here. */

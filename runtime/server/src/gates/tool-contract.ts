@@ -25,9 +25,9 @@
  * answer, not a gate error. A tool call's failure is coded (`error.failure`, R2b C7), and neither
  * a result nor a failure carries a credential value the gate sent (C8). An answer past 8 MiB is
  * `mcp.too-large` (C11), as an HTTP tool's is `http.too-large`; core shapes what fits into a
- * result the model can take (`tenant/tool-results.ts`). A keyed call whose
- * earlier attempt was lost with the gateway answers `{ok: false, error: {uncertain: true}}` and
- * is never run again.
+ * result the model can take (`tenant/tool-results.ts`). A keyed call whose earlier attempt was
+ * lost with the gateway runs again under the same key (R5.3); one another gateway process holds
+ * answers `{ok: false, error: {uncertain: true}}`, and the caller sends it again.
  *
  * HTTP tools (R2 M3). `POST /nylorun/v1/http-calls` `{tool, effectId, turnId, input}`: one call
  * of an HTTP tool. The loop names the tool (`{sessionId?, agentId?, capabilityId, toolName}`), or a
@@ -36,7 +36,7 @@
  * (`gates/http-tool.ts`). A run token's turn is the call's; `turnId` counts only under core's
  * credential. Keyed like a tool call, and cancelled by the same route. It answers
  * `200 {ok: true, result}` with the tool outcome (a failed request is a failed outcome the
- * model sees), or `{ok: false, error: {uncertain: true}}` for a call lost with the gateway.
+ * model sees), or `{ok: false, error: {uncertain: true}}` for a call another gateway process holds.
  */
 import { z } from "zod";
 import type { McpCallFailure } from "../mcp/connect.js";
@@ -103,13 +103,12 @@ export interface McpGateError {
   readonly code?: number;
   /** The vault credentials a refused authorization names. */
   readonly credentialIds?: readonly string[];
-  /** The call may have run: its earlier attempt was lost with the gateway. Never re-run. */
+  /** Not answered here: another gateway process holds the keyed call. Send it again (R5.3). */
   readonly uncertain?: boolean;
   /**
    * How the request failed, coded (R2b C1, C7): the loop's `McpCallFailed`, which a tool call
-   * turns into a failed outcome the model sees (`mcp.lost` only for a read-only or idempotent
-   * tool). `credential_rejected` for a `401`, with the server. Its message has no credential
-   * value in it (C8).
+   * turns into a failed outcome the model sees (`mcp.lost` included). `credential_rejected` for a
+   * `401`, with the server. Its message has no credential value in it (C8).
    */
   readonly failure?: McpCallFailure;
 }

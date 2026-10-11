@@ -195,8 +195,6 @@ export class McpPool {
     manifest: AgentManifest;
     /** The effect id: a gate runs the call once under it (F4.1). */
     effectId?: string;
-    /** The tool is read-only or idempotent: a lost answer is the model's to retry (R2b C7). */
-    retrySafe?: boolean;
     signal?: AbortSignal;
   }): Promise<McpToolOutcome> {
     const key = this.liveKey(input.sessionId, input.agentId, input.capabilityId, input.serverName);
@@ -208,7 +206,6 @@ export class McpPool {
       try {
         return await callMcpTool(live.connection.client, input.serverToolName, input.args, {
           ...(input.effectId === undefined ? {} : { key: input.effectId }),
-          ...(input.retrySafe ? { retrySafe: true } : {}),
           ...(input.signal ? { signal: input.signal } : {}),
         });
       } catch (error) {

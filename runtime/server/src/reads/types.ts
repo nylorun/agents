@@ -2,6 +2,7 @@ import type {
   ModelCallExportPage,
   ModelCallsPage,
   EnvironmentPage,
+  ToolCallsPage,
   SessionManifestView,
   SessionPage,
   SessionListItem,
@@ -28,6 +29,13 @@ export interface ReadStore {
     access: ReadAccess,
   ): Promise<ModelCallsPage>;
   exportModel(after: string | undefined, limit: number): Promise<ModelCallExportPage>;
+  /** A session's tool calls (R5.2), from the effect journal, in the order they were first sent. */
+  toolCalls(
+    id: string,
+    turnId: string | undefined,
+    page: PageOptions,
+    access: ReadAccess,
+  ): Promise<ToolCallsPage>;
   environments(
     labels: Record<string, string>,
     page: PageOptions,

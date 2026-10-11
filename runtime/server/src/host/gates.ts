@@ -27,6 +27,7 @@ import { staleRun, verifyRunToken, type RunTokenKeyCache } from "../tenant/run-t
 import { createFsBlobStore, type BlobStore } from "../blob/index.js";
 import type { ModelCallSettings } from "../gates/model-gate.js";
 import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
+import { journalCheck } from "../gates/journal.js";
 import { probeDatabase } from "../infra/database.js";
 import type { PostgresClient } from "../store/postgres/connect.js";
 import type { Logger } from "../tenant/types.js";
@@ -154,6 +155,7 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     mcp,
     http: gateHttpTools(vaults, options.delivery ?? {}, logger),
     toolCalls,
+    journal: journalCheck(vaults),
     logger,
     ...(options.keys ? { keys: async () => (await vaults.open()).keys() } : {}),
   });

@@ -91,7 +91,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -158,7 +159,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -225,7 +227,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -292,7 +295,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -359,7 +363,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -426,7 +431,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -493,7 +499,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -560,7 +567,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -627,7 +635,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -694,7 +703,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -761,7 +771,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -828,7 +839,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -928,7 +940,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -995,7 +1008,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -1062,7 +1076,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -1129,7 +1144,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -1196,7 +1212,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -1263,7 +1280,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },
@@ -1330,7 +1348,8 @@
           "trusted-issuers",
           "session-reads",
           "calls-export",
-          "credential-coverage"
+          "credential-coverage",
+          "tool-calls"
         ]
       }
     },

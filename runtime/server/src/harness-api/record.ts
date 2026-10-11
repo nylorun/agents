@@ -54,14 +54,17 @@ import {
   recoversToolCalls,
   resolveNewFlowEffect,
 } from "../tenant/effects.js";
-import {
-  assistantMessage,
-  contextCompacted,
-  modelFailed,
-  toolCompleted,
-} from "../tenant/transcript.js";
+import { assistantMessage, contextCompacted, modelFailed } from "../tenant/transcript.js";
 import { abortKind } from "../tenant/worker.js";
-import type { EffectDoc, Tx } from "../store/types.js";
+import type { Tx } from "../store/types.js";
+import {
+  MAX_TOOL_ATTEMPTS,
+  firstSend,
+  interrupted,
+  settleToolRow,
+  toolKindOf,
+  type ToolRow,
+} from "./tool-journal.js";
 
 /** What a run's journal writes are scoped by: the advance's lease and its signal. */
 export interface RecordScope {
@@ -70,11 +73,8 @@ export interface RecordScope {
   readonly signal: AbortSignal;
 }
 
-type StoredEffect = EffectDoc & {
-  requestHash?: string;
-  outcome?: { value: unknown; statePatch?: Record<string, unknown> };
+type StoredEffect = ToolRow & {
   agentSessionId?: string;
-  error?: string;
   /** A tool result's share of its step's budget, reserved before it is shaped (R2b C11). */
   resultBytes?: number;
 };
@@ -123,12 +123,12 @@ export async function recordIntent(
         throw new HarnessApiError("effect_drift", "Effect identity request drift");
       if (existing.status === "completed") return { status: "completed", outcome: existing.outcome! };
       // A call its previous owner left running at the gate: re-send it, same key and request,
-      // to join it or collect its outcome (P1.2 for model calls, F4.1 for remote MCP and HTTP
-      // tool calls).
+      // to join it or collect its outcome (P1.2).
       if (existing.status === "invoking" && request.kind === "model" && recoversModelCalls(ctx))
         return { status: "execute", rejoin: true };
-      if (existing.status === "invoking" && recoversToolCalls(ctx) && isGateToolEffect(s, existing.request))
-        return { status: "execute", rejoin: true };
+      // A tool call a crash, a shutdown or a lost gate hop interrupted (R5.3, R5.4).
+      if (existing.status === "invoking" && existing.request.kind === "tool")
+        return resend(t, s, existing, recoversToolCalls(ctx));
       if (request.kind === "agent" && existing.status === "pending" && existing.agentSessionId) {
         const agent = await t.get<Session>("sessions", existing.agentSessionId);
         const outcome = await linkedOutcome(t, existing, agent);
@@ -147,7 +147,12 @@ export async function recordIntent(
     if (request.kind !== "model" && effectRequestHash(request) !== requestHash)
       throw new HarnessApiError("invalid", "The request hash does not match the request");
     if (flowHttp) {
-      await t.put("effects", request.effectId, { request, requestHash, status: "invoking" });
+      await t.put("effects", request.effectId, {
+        request,
+        requestHash,
+        status: "invoking",
+        ...firstSend({ toolKind: "http" }),
+      });
       await t.event(s.id, s.activeTurnId, "node.started", {
         path: request.path!,
         kind: "http",
@@ -191,16 +196,21 @@ export async function recordIntent(
       // removes tools), so this is a backstop, as is an MCP tool the turn disabled, which the
       // model was never offered. The model sees the failure; nothing runs.
       const disabled = request.kind === "tool" && mcpToolOf(s.mcpSnapshot, request) !== undefined;
-      const outcome = { value: disabled ? disabledTool(request) : unrunnableTool(request) };
-      await t.put("effects", request.effectId, { request, requestHash, status: "completed", outcome });
-      const transcript = toolCompleted(request, outcome.value);
-      if (transcript) await t.event(s.id, request.turnId, "tool.completed", transcript as EventPayload<"tool.completed">);
+      const row: StoredEffect = {
+        request,
+        requestHash,
+        status: "invoking",
+        ...toolKindOf(s, agentManifest, request),
+        attempts: 0,
+      };
+      const outcome = await settleToolRow(t, s, row, disabled ? disabledTool(request) : unrunnableTool(request));
       return { status: "completed", outcome };
     }
     await t.put("effects", request.effectId, {
       request: storedRequest(request),
       requestHash,
       status: "invoking",
+      ...(request.kind === "tool" ? firstSend(toolKindOf(s, agentManifest, request)) : {}),
     });
     // `save_artifact` writes the Tenant's artifacts: core runs it, reading the file through the
     // workspace capability, wherever the sandbox is.
@@ -245,6 +255,38 @@ async function runInCore(
   return recordOutcome(scope, request.effectId, { value });
 }
 
+/**
+ * The answer to a tool row still `invoking` (R5.3, R5.4): a crash, a shutdown or a lost gate
+ * hop interrupted its send. An MCP or HTTP call (it crosses the Tool Gate, which hands the tool
+ * its key) is sent again, one more attempt, until `MAX_TOOL_ATTEMPTS`; then it fails to the
+ * model. Any other call (sandbox, core-served) has no key to dedupe on: it fails to the model
+ * now, and is not run again (Q2).
+ */
+async function resend(t: Tx, s: Session, row: StoredEffect, rejoin: boolean): Promise<IntentAnswer> {
+  if (!isGateToolEffect(s, row.request)) {
+    const outcome = await settleToolRow(
+      t,
+      s,
+      row,
+      interrupted("A crash interrupted this call before its outcome was recorded. It may have run; it is not run again."),
+    );
+    return { status: "completed", outcome };
+  }
+  const attempts = (row.attempts ?? 1) + 1;
+  if (attempts > MAX_TOOL_ATTEMPTS) {
+    const outcome = await settleToolRow(
+      t,
+      s,
+      row,
+      interrupted(`The call was interrupted ${MAX_TOOL_ATTEMPTS} times and may have run.`),
+    );
+    return { status: "completed", outcome };
+  }
+  row.attempts = attempts;
+  await t.put("effects", row.request.effectId, row);
+  return rejoin ? { status: "execute", rejoin: true } : { status: "execute" };
+}
+
 /** The failed outcome of an MCP tool the turn's manifest disables (R2b C9). */
 function disabledTool(request: HostEffect) {
   return {
@@ -275,18 +317,33 @@ export async function recordOutcome(
 ): Promise<OutcomeAnswer> {
   const { ctx, lease, signal } = scope;
   if ("error" in result) {
-    await ctx.store.tx(async (t) => {
+    return ctx.store.tx(async (t): Promise<OutcomeAnswer> => {
       const s = await t.assertEpoch<Session>(lease.sessionId, lease.epoch);
       const effect = await t.get<StoredEffect>("effects", effectId);
-      if (!effect) return;
+      if (!effect) return { status: "uncertain" };
       const { request } = effect;
+      const active = s && s.status !== "cancelled" && s.activeTurnId === request.turnId;
+      // A tool call whose fate the harness could not learn fails to the model (R5.3): it may
+      // have run, and nothing sends it again. A cancel already settled it.
+      if (request.kind === "tool") {
+        if (effect.status === "completed") return { status: "completed", outcome: effect.outcome! };
+        if (effect.status !== "invoking" || !active) return { status: "uncertain" };
+        effect.error = result.error;
+        const outcome = await settleToolRow(
+          t,
+          s,
+          effect,
+          interrupted(`${result.error} (the call may have run; it is not sent again)`),
+        );
+        return { status: "completed", outcome };
+      }
       effect.status = "uncertain";
       effect.error = result.error;
       await t.put("effects", effectId, effect);
-      if (s && s.status !== "cancelled" && s.activeTurnId === request.turnId)
+      if (active)
         await t.event(s.id, request.turnId, "effect.uncertain", { effectId, message: result.error });
+      return { status: "uncertain" };
     });
-    return { status: "uncertain" };
   }
   const value = await shaped(scope, effectId, result.value);
   return ctx.store.tx(async (t) => {
@@ -296,6 +353,13 @@ export async function recordOutcome(
     const { request } = effect;
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId || abortKind(signal) === "cancel")
       throw TURN_CANCELLED();
+    if (request.kind === "tool") {
+      // Settled already: a re-send after a lost hop collected what the first send recorded.
+      if (effect.status === "completed") return { status: "completed" as const, outcome: effect.outcome! };
+      const outcome = await settleToolRow(t, s, effect, value);
+      if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
+      return { status: "completed" as const, outcome };
+    }
     effect.status = "completed";
     effect.outcome = { value };
     await t.put("effects", effectId, effect);
@@ -304,19 +368,12 @@ export async function recordOutcome(
     // A summary call is never an assistant message; the last one publishes context.compacted.
     const summarizing = model && Boolean((request.context as { compaction?: unknown }).compaction);
     const compacted = summarizing && !failed ? contextCompacted(request, value) : undefined;
-    const transcript =
-      failed || summarizing
-        ? undefined
-        : model
-        ? assistantMessage(request, value)
-        : toolCompleted(request, value);
+    const transcript = failed || summarizing || !model ? undefined : assistantMessage(request, value);
     if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
     if (failed) await t.event(s.id, request.turnId, "model.failed", failed);
     if (compacted) await t.event(s.id, request.turnId, "context.compacted", compacted);
-    if (transcript && model)
+    if (transcript)
       await t.event(s.id, request.turnId, "message.assistant", transcript as EventPayload<"message.assistant">);
-    else if (transcript)
-      await t.event(s.id, request.turnId, "tool.completed", transcript as EventPayload<"tool.completed">);
     return { status: "completed" as const, outcome: effect.outcome };
   });
 }

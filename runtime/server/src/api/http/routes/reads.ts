@@ -7,6 +7,7 @@ import {
   SessionUsageTotals,
   ModelCallsPage,
   ModelCallExportPage,
+  ToolCallsPage,
 } from "../../components.js";
 import { readAccess, readStoreOf } from "../../../reads/access.js";
 import { requireApplication, requirePrincipal } from "../../../tenant/auth.js";
@@ -147,6 +148,44 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     );
   }
+  const toolCallsQuery = turnQuery
+    .extend({
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      cursor: z.string().optional(),
+    })
+    .strict();
+  // What ran, with what input, how many sends and how it ended (R5.2): the effect journal's tool
+  // rows, readable as the model calls are.
+  tenantRoute(
+    api,
+    { credentials: ["application"], scopes: "never" },
+    {
+      method: "get",
+      path: "/v1/sessions/{sessionId}/calls/tool",
+      tags: ["Sessions"],
+      summary: "Page a session's tool calls",
+      request: { params: sessionId, query: toolCallsQuery },
+      responses: {
+        200: {
+          description: "Each tool call in the order it was first sent, with its status and sends",
+          content: { "application/json": { schema: ToolCallsPage } },
+        },
+      },
+    },
+    async (c) => {
+      requirePrincipal(c.get("scope"));
+      const q = parseQuery(toolCallsQuery, c.req.query());
+      return jsonResponse(
+        200,
+        await readStoreOf(c.env.tenant).toolCalls(
+          c.req.param("sessionId")!,
+          q.turnId,
+          q,
+          readAccess(c.get("scope")),
+        ),
+      );
+    },
+  );
   const exportQuery = z
     .object({
       after: z.string().optional(),

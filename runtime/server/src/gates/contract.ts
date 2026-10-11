@@ -56,7 +56,11 @@ export interface GateErrorBody {
       | "gate_forbidden"
       | "run_stale"
       | "invalid_request"
-      | "gate_conflict";
+      | "gate_conflict"
+      /** A run's tool call without its effect id as `Idempotency-Key` (R5.6). */
+      | "key_required"
+      /** A run's tool call the effect journal does not hold, running, as sent (R5.6). */
+      | "effect_not_journaled";
     readonly message: string;
   };
 }

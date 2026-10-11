@@ -24,6 +24,7 @@ import {
   SessionManifestViewSchema,
   SessionUsageTotalsSchema,
   ModelCallsPageSchema,
+  ToolCallsPageSchema,
   type SessionItemsResponse,
   type SessionSummary,
   type ListAgentsResponse,
@@ -402,6 +403,21 @@ export class SessionClient {
         undefined,
         options.signal,
       ),
+    );
+  }
+  /**
+   * The session's tool calls (R5, Host feature `tool-calls`), in the order they were first sent:
+   * each one's tool, input, status and sends. `attempts` above 1: a crash re-sent it.
+   */
+  async toolCalls(
+    options: { turnId?: string; limit?: number; cursor?: string; signal?: AbortSignal } = {},
+  ) {
+    await this.transport.requireFeature("tool-calls", options.signal);
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.turnId !== undefined) query.set("turnId", options.turnId);
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    return ToolCallsPageSchema.parse(
+      await this.transport.json(`${this.path}/calls/tool?${query}`, "GET", undefined, options.signal),
     );
   }
   /** `agent` narrows to one agent used as a tool: its delegationId or its path. */

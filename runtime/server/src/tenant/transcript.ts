@@ -4,7 +4,11 @@
  * Payload schemas: `@nylorun/core/contracts` (`parseTranscriptEvent`).
  */
 import type { HostEffect } from "@nylorun/harness/run";
+import type { TOOL_CALL_KINDS, TOOL_CALL_STATUSES } from "@nylorun/core/contracts";
 import { isModelFailureOutcome } from "@nylorun/core/define";
+
+export type ToolCallStatus = (typeof TOOL_CALL_STATUSES)[number];
+export type ToolCallKind = (typeof TOOL_CALL_KINDS)[number];
 
 /** The model's tool call id and the harness invocation, for tool effects. */
 export function toolIds(
@@ -112,8 +116,20 @@ export function modelFailed(request: HostEffect, value: unknown) {
   };
 }
 
-/** `tool.completed` for a tool the Runtime ran: its output, or the tool error it reported. */
-export function toolCompleted(request: HostEffect, value: unknown) {
+/** What the journal knows of a tool call when it ends (R5.1), for its `tool.completed`. */
+export interface ToolCallFacts {
+  readonly status: ToolCallStatus;
+  readonly kind?: ToolCallKind;
+  readonly server?: string;
+  readonly attempts?: number;
+  readonly durationMs?: number;
+}
+
+/**
+ * `tool.completed` for a tool call that ended: its output, or the tool error it reported, and
+ * how it ended (R5.1).
+ */
+export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolCallFacts) {
   const ids = toolIds(request.context);
   if (!("callId" in ids)) return undefined;
   const outcome = value as {
@@ -148,6 +164,15 @@ export function toolCompleted(request: HostEffect, value: unknown) {
     ...ids,
     capabilityId: request.capabilityId!,
     toolName: request.toolName!,
+    ...(facts
+      ? {
+          status: facts.status,
+          ...(facts.kind === undefined ? {} : { kind: facts.kind }),
+          ...(facts.server === undefined ? {} : { server: facts.server }),
+          ...(facts.attempts === undefined ? {} : { attempts: facts.attempts }),
+          ...(facts.durationMs === undefined ? {} : { durationMs: facts.durationMs }),
+        }
+      : {}),
     ...result,
     ...redacted,
     ...agentOf(request),

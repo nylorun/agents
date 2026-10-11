@@ -39,8 +39,8 @@ export interface McpRequestOptions {
 /** Options of one tool call. */
 export interface McpCallOptions extends McpRequestOptions {
   /**
-   * The call's effect id. A gate runs a keyed call once and keeps its outcome, so a re-send
-   * after a takeover joins it (F4.1). An in-process connection ignores it.
+   * The call's effect id. A gate keeps a keyed call's outcome, so a re-send after a takeover
+   * joins it (F4.1), and the server gets it in `_meta` (R5.5).
    */
   readonly key?: string;
 }
@@ -122,8 +122,8 @@ export type McpToolOutcome =
  * - `mcp.forbidden`: the server answered `403`.
  * - `mcp.error`: the server answered a JSON-RPC error; the message has its code.
  * - `mcp.status`: the server answered another HTTP error status, without a JSON-RPC error.
- * - `mcp.lost`: sent, and the answer was lost, so the tool may have run. The model sees it only
- *   for a tool the server marks read-only or idempotent (Q15); any other call is `uncertain`.
+ * - `mcp.lost`: sent, and the answer was lost, so the tool may have run. The model sees it, and
+ *   decides whether to call again (R5; it replaced R2b's read-only and idempotent exception).
  * - `mcp.too-large`: the answer passed `MCP_RESULT_MAX_BYTES` (R2b C11), as an HTTP tool's
  *   answer is `http.too-large`. The tool ran; its answer was not kept.
  */
@@ -272,8 +272,16 @@ function tracked<T>(call: boolean, run: (tracker: Tracker) => Promise<T>): Promi
 }
 
 /**
+ * Where a `tools/call` carries its key (R5.5): MCP has no standard key field, and `_meta` is the
+ * spec's place for extra request data. The key is the call's effect id, the same on every send,
+ * so a server that reads it can run the call once.
+ */
+export const IDEMPOTENCY_META_KEY = "nylorun/idempotency-key";
+
+/**
  * An SDK `Client` as an `McpClient`. Its answers and failures carry no credential value sent
- * with them (R2b C8), and a failed call is an `McpCallFailed` (C7).
+ * with them (R2b C8), and a failed call is an `McpCallFailed` (C7). A keyed call sends its key in
+ * `_meta` (R5.5).
  */
 export function sdkClient(client: Client, serverName: string): McpClient {
   return {
@@ -290,7 +298,11 @@ export function sdkClient(client: Client, serverName: string): McpClient {
       tracked(true, async (tracker) => {
         const lost = tracker.calling!.signal;
         try {
-          const result = (await client.callTool(params, undefined, {
+          const keyed =
+            options?.key === undefined
+              ? params
+              : { ...params, _meta: { [IDEMPOTENCY_META_KEY]: options.key } };
+          const result = (await client.callTool(keyed, undefined, {
             signal: options?.signal ? AbortSignal.any([options.signal, lost]) : lost,
           })) as Record<string, unknown>;
           // An answer the stream did not count (an `sse` server answers on its event stream).
@@ -458,7 +470,6 @@ export async function listMcpTools(
     if (name === undefined) continue;
     const { tool, inputSchema } = candidate;
     const outputSchema = tool.outputSchema ? usableSchema(tool.outputSchema) : undefined;
-    const annotations = retryHints(tool.annotations);
     tools.push({
       capabilityId: input.capabilityId,
       serverName: input.serverName,
@@ -469,7 +480,6 @@ export async function listMcpTools(
         : {}),
       inputSchema,
       ...(outputSchema === undefined ? {} : { outputSchema }),
-      ...(annotations === undefined ? {} : { annotations }),
     });
   }
   return { tools, omitted, renamed, disabled, unknownTools };
@@ -484,13 +494,7 @@ export async function callMcpTool(
   client: McpClient,
   serverToolName: string,
   args: unknown,
-  options: McpCallOptions & {
-    /**
-     * The tool is read-only or idempotent (`McpToolRecord.annotations`): a call whose answer was
-     * lost after it was sent is `mcp.lost` to the model. Otherwise it is left uncertain (Q15).
-     */
-    readonly retrySafe?: boolean;
-  } = {},
+  options: McpCallOptions = {},
 ): Promise<McpToolOutcome> {
   let answer: McpCallAnswer;
   try {
@@ -511,10 +515,7 @@ export async function callMcpTool(
     if (!(error instanceof McpCallFailed)) throw error;
     // The connection's to handle: its holder opens it again and sends the call once more.
     if (error instanceof McpConnectionStale) throw error;
-    // Sent, then lost: the tool may have run. Calling it again is the model's choice only for a
-    // tool the server says is safe to repeat; any other waits for an operator.
-    if (error.code === "mcp.lost" && !options.retrySafe) throw new Error(error.message);
-    // Otherwise the outcome is known: the model sees it.
+    // The model sees it, `mcp.lost` included: sent, then lost, so the tool may have run (R5).
     return error.outcome();
   }
   const { result } = answer;
@@ -835,16 +836,6 @@ function rpcErrorOf(body: string): { code: number; message: string } | undefined
     // Not JSON: an HTTP error status.
   }
   return undefined;
-}
-
-/** The hints that calling a tool again is safe, when the server gives any. */
-function retryHints(
-  annotations: Readonly<Record<string, unknown>> | undefined,
-): McpToolRecord["annotations"] | undefined {
-  const readOnly = annotations?.readOnlyHint === true;
-  const idempotent = annotations?.idempotentHint === true;
-  if (!readOnly && !idempotent) return undefined;
-  return { ...(readOnly ? { readOnlyHint: true } : {}), ...(idempotent ? { idempotentHint: true } : {}) };
 }
 
 function sameOrigin(requestUrl: string, serverUrl: string): boolean {

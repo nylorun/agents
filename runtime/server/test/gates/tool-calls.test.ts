@@ -1,7 +1,8 @@
 /**
- * F4.1 G3: keyed tool calls (MCP and HTTP tools) in the gates service run once. A re-send joins a running call or gets
- * its answer; after a gateway restart the answer comes from `tool_crossings`, and a call that
- * was lost with the old gateway answers `uncertain` instead of running again.
+ * F4.1 G3, R5.3: keyed tool calls (MCP and HTTP tools) in the gates service. A re-send joins a
+ * running call or gets its answer; after a gateway restart the answer comes from
+ * `tool_crossings`, and a call that was lost with the old gateway runs again under the same key
+ * (at least once). A cancelled call never runs again under its key.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
@@ -79,7 +80,7 @@ describe("keyed tool calls at the gate", () => {
     expect(held.calls()).toBe(1);
   });
 
-  it("answers uncertain for a call lost with the old gateway, and never runs it again", async () => {
+  it("runs a call lost with the old gateway again, under the same key (R5.3)", async () => {
     const held = heldMcp();
     const k = key();
     const before = createToolCalls({ vaults, logger: quiet });
@@ -88,11 +89,14 @@ describe("keyed tool calls at the gate", () => {
     before.close(); // the gateway stops mid-call
     await expect(running).rejects.toThrow();
     const after = createToolCalls({ vaults, logger: quiet });
-    expect(await after.run(undefined, k, "h", request(held))).toMatchObject({
-      ok: false,
-      error: { uncertain: true },
+    held.release();
+    expect(await after.run(undefined, k, "h", request(held))).toMatchObject({ ok: true });
+    expect(held.calls()).toBe(2);
+    // Settled now: a third send collects the answer.
+    expect(await createToolCalls({ vaults, logger: quiet }).run(undefined, k, "h", request(held))).toMatchObject({
+      ok: true,
     });
-    expect(held.calls()).toBe(1);
+    expect(held.calls()).toBe(2);
   });
 
   it("refuses a different request under the same key, running or settled", async () => {
@@ -120,10 +124,12 @@ describe("keyed tool calls at the gate", () => {
     await expect.poll(() => held.calls()).toBe(1);
     calls.cancel(k);
     await expect(running).rejects.toThrow();
-    expect(await calls.run(undefined, k, "h", request(held))).toMatchObject({
-      ok: false,
-      error: { uncertain: true },
-    });
+    const cancelled = { ok: false, error: { message: expect.stringContaining("cancelled") } };
+    await expect.poll(() => store.tx((t) => t.toolCrossing(k)).then((row) => row?.answer)).toMatchObject(cancelled);
+    expect(await calls.run(undefined, k, "h", request(held))).toMatchObject(cancelled);
+    expect(await createToolCalls({ vaults, logger: quiet }).run(undefined, k, "h", request(held))).toMatchObject(
+      cancelled,
+    );
     expect(held.calls()).toBe(1);
   });
 

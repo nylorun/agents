@@ -63,15 +63,29 @@ policy (`NYLORUN_ENDPOINT_*`), with `content-type: application/json`,
 restart, so your service can drop duplicates. A `2xx` JSON answer is the output
 (text when it is not JSON and the tool has no `output`), checked against
 `output`. Any other status (with the start of its body), a timeout, a refused
-address or a mismatched output is a tool error the model sees. A call whose
-answer was lost with the gateway is `uncertain` and never sent again.
+address or a mismatched output is a tool error the model sees.
+
+**How tool calls are delivered.** Each MCP or HTTP tool call the model decides
+is sent at least once, and every send carries the same key: `Idempotency-Key`
+for an HTTP tool, `_meta["nylorun/idempotency-key"]` on an MCP `tools/call`. A
+crash, a restart or a lost connection to the gateway sends the call again with
+that key, up to 3 sends; after that the model gets `tool.interrupted` ("may
+have run") and decides. A tool that honors the key runs once; one that ignores
+it may act twice, and `attempts` above 1 in `tool.completed` and in
+`session.toolCalls()` marks where. A sandbox command (`bash`, `write` and the
+rest) is never run twice by the Runtime: a crash fails it to the model as
+`tool.interrupted`. When the model decides the same call again, in a later
+turn say, that is a new call with a new key: put a business key (an order or
+charge id) in the tool's input schema to refuse it too.
 
 `credential` works as for a remote MCP server: the vault of the session's
 Environment must hold a credential bound to the tool's exact URL, else the call
 fails before it is sent (`http.credential`). A credential with `via`
 sends the call there instead, such as a gateway, with the session owner in its
 identity header, and a `401` is `credential_rejected` to the model, not retried. `approval: "always"` pauses the turn for `session.approve()`; a
-denied call never runs and the model sees the denial. A remote MCP server takes
+denied call never runs and the model sees the denial. Today only the Runtime's
+own harness asks for it: a harness built from the Harness API can skip it, until
+tool policy moves to the gateway (R5 step 2). A remote MCP server takes
 `approval: "always"` too, for every one of its tools:
 `.mcp({ shop: { type: "streamable-http", url, approval: "always" } })`.
 An HTTP tool is also a flow stage (see [Flow agents](#flow-agents)), and runs

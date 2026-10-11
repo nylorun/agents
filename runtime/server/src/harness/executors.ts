@@ -12,6 +12,7 @@ import type { HarnessExecutors, HarnessRun, McpRecorder, PreparedRun } from "@ny
 import type { DurableSessionTool } from "@nylorun/harness/run";
 import { toolFixtureModel } from "../core/provider.js";
 import type { ToolGate } from "../gates/tool-gate.js";
+import { GateCallLost } from "../gates/tool-client.js";
 import { serversOf, type McpPool } from "../mcp/pool.js";
 import { mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
 import type { SandboxManager } from "../sandbox/manager.js";
@@ -67,6 +68,8 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
       },
       tool: recovered,
     },
+    // A gate hop that lost the answer: the call is sent again with its key (R5.3).
+    resends: (effect, error, run) => error instanceof GateCallLost && atGate(effect, run),
     async cancelAtGate(effect) {
       await options.toolGate.cancel?.({
         tenantId: options.model.tenantId,

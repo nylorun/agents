@@ -58,7 +58,7 @@ import { isOwnershipLost, ownedTx } from "../store/ownership.js";
 import { endAdvance } from "./scheduler.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import type { Lease, Session, TenantContext } from "./context.js";
-import { isGateToolEffect, recoversModelCalls, recoversToolCalls } from "./effects.js";
+import { recoversModelCalls } from "./effects.js";
 import { slimModelEffects } from "./slim.js";
 import {
   applyUpdates,
@@ -266,7 +266,6 @@ async function takeOwnership(ctx: TenantContext, id: string): Promise<Taken> {
     if (taken.takeover)
       await takeOver(t, s, {
         recoversModelCalls: recoversModelCalls(ctx),
-        recoversToolCalls: recoversToolCalls(ctx),
       });
     if (!s.checkpoint || !["running", "runnable"].includes(s.status)) {
       await t.releaseOwnership(id, lease.owner, lease.epoch);
@@ -281,15 +280,17 @@ async function takeOwnership(ctx: TenantContext, id: string): Promise<Taken> {
 /**
  * Takeover (§10.5 step 2, §11.4), inside the transaction that took ownership: the dead
  * owner's `invoking` effects become `uncertain` and are never invoked again, except model
- * calls when the gate recovers them (P1.2) and remote MCP and HTTP tool calls when the Tool
- * Gate does (F4.1 G3): those stay `invoking`, and the replay re-sends them. When one belongs
- * to the active turn, the session becomes `uncertain` too, with an `effect.uncertain` event.
- * Mutates and writes `s`. Returns the effect ids it marked.
+ * calls when the gate recovers them (P1.2) and every tool call (R5.3): those stay `invoking`,
+ * and the replay decides. It re-sends a model call, and an MCP or HTTP tool call with the same
+ * key; a sandbox or core-served tool call fails to the model as `tool.interrupted`
+ * (`harness-api/tool-journal.ts`). When an effect marked `uncertain` belongs to the active
+ * turn, the session becomes `uncertain` too, with an `effect.uncertain` event. Mutates and
+ * writes `s`. Returns the effect ids it marked.
  */
 export async function takeOver(
   t: Tx,
   s: Session,
-  options: { recoversModelCalls?: boolean; recoversToolCalls?: boolean } = {}
+  options: { recoversModelCalls?: boolean } = {}
 ): Promise<string[]> {
   const marked: string[] = [];
   for (const effect of await t.invokingEffects<
@@ -297,7 +298,7 @@ export async function takeOver(
   >(s.id)) {
     // Still running at the gate, or finished there: the replay re-sends it (P1.2).
     if (options.recoversModelCalls && effect.request.kind === "model") continue;
-    if (options.recoversToolCalls && isGateToolEffect(s, effect.request)) continue;
+    if (effect.request.kind === "tool") continue;
     effect.status = "uncertain";
     effect.error ??= "The Worker running this effect stopped before its outcome was recorded";
     await t.put("effects", effect.request.effectId, effect);

@@ -80,6 +80,8 @@ export type {
   ModelCall,
   ModelCallsPage,
   EnvironmentPage,
+  ToolCall,
+  ToolCallsPage,
   LiveEvent,
   SessionEvent,
   SessionEventOf,

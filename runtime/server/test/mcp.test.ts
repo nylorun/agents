@@ -7,7 +7,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent, hashManifest } from "@nylorun/core/define";
-import { patchStoredSession, startTestTenant } from "./support/tenant.js";
+import { startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
 import type { ModelProvider } from "../src/core/provider.js";
@@ -544,18 +544,24 @@ it("pins the discovery snapshot and lets a new session discover again", async ()
   }
 });
 
-it("does not send a failed MCP call again after it is uncertain", async () => {
+it("gives a lost MCP answer to the model as mcp.lost, and never sends the call again (R5)", async () => {
   const remote = await probe({ name: "github", tool: "get_issue" });
   remote.failCalls = true;
+  const seen: unknown[] = [];
   const runtime = await startTestTenant({
     applicationKey: APP,
-    retainRoot: true,
     vaultKek: KEK,
-    modelProvider: async () => ({
-      output: [
-        { type: "tool-call", id: "call-1", name: "github__get_issue", args: { number: 1 } },
-      ],
-    }),
+    modelProvider: async (effect) => {
+      const prompt = (effect.input as { prompt?: { kind?: string }[] }).prompt ?? [];
+      const result = prompt.find((item) => item.kind === "tool-result");
+      if (result) {
+        seen.push(result);
+        return { output: [{ type: "text", text: "done" }] };
+      }
+      return {
+        output: [{ type: "tool-call", id: "call-1", name: "github__get_issue", args: { number: 1 } }],
+      };
+    },
   });
   try {
     const agent = Agent({ id: "bot", name: "Bot" })
@@ -570,27 +576,11 @@ it("does not send a failed MCP call again after it is uncertain", async () => {
     await openSession(runtime, "s1");
     await say(runtime, "s1", "read");
     const session = await until(runtime, "s1", ["uncertain", "failed", "completed"]);
-    expect(session.status).toBe("uncertain");
+    expect(session.status).toBe("completed");
+    expect(JSON.stringify(seen)).toContain("mcp.lost");
     expect(remote.requests.filter((item) => item.method === "tools/call")).toHaveLength(1);
-    await runtime.close();
-    await patchStoredSession(runtime.root, runtime.tenantId, "s1", { status: "runnable" });
-    const again = await startTestTenant({
-      applicationKey: APP,
-      hostRoot: runtime.root,
-      tenantId: runtime.tenantId,
-      vaultKek: KEK,
-      modelProvider: async () => {
-        throw new Error("model must not run again");
-      },
-    });
-    try {
-      await until(again, "s1", ["uncertain", "failed", "completed"]);
-      expect(remote.requests.filter((item) => item.method === "tools/call")).toHaveLength(1);
-    } finally {
-      await again.close();
-      await rm(runtime.root, { recursive: true, force: true });
-    }
   } finally {
+    await runtime.close();
     await remote.close();
   }
 });
