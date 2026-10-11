@@ -18,3 +18,4 @@ Other changes:
 - Core refuses a `hello` whose `api` is not `2`.
 - **The fixture model answers at the Model Gate (R4.3).** With a Tenant's `fixtureModel` seeded, the gate answers model calls itself and meters each one, like any model: a `model_usage` row with provider `fixture` and cost 0, readable at `GET /v1/sessions/{id}/calls/model`. Our harness no longer answers it locally.
 - The fixture model also answers conformance markers: `conformance:text`, `conformance:tool <name> <json>`, `conformance:budget` and `conformance:slow <seconds>`.
+- **The sandboxes service can run a harness image (R4.4, Go).** `PUT /v1/pods/{name}` accepts `entrypoint: "image"`: the workload image's own `ENTRYPOINT` and `CMD` run, with no engine copied in and no `harnessImage`. The default, `entrypoint: "engine"`, is unchanged. The Runtime starts sending it with the harness pin in a later change.
