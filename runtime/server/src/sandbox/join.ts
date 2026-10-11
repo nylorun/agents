@@ -35,6 +35,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { isEnvironmentId } from "@nylorun/core/contracts";
 import type { Environment } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
+import { recoverLostVolume, runPendingSeed } from "../artifacts/disk.js";
 import {
   recordSetup,
   setupFile,
@@ -73,6 +74,11 @@ export interface HostJoinAnswer {
   readonly caCertificate: string;
   /** What to run and copy on a new disk before taking turns (`sandbox/setup.ts`); join only. */
   readonly setup?: SetupPlan;
+  /**
+   * The new volume starts from a disk version (R2d step 3): core writes it once the engine
+   * connects, so the engine runs no setup (the version holds what setup made). Join only.
+   */
+  readonly seeded?: true;
 }
 
 /** A refused join, renewal or host connection. */
@@ -211,14 +217,27 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
         }
         // The previous host's connection (an older epoch) serves nothing more, on any process.
         await t.signal({ type: "host.revoked", sandboxId, epoch });
-        return { epoch, setup: row ? await setupPlanOf(ctx, t, row) : undefined };
+        return {
+          epoch,
+          setup: row ? await setupPlanOf(ctx, t, row) : undefined,
+          seeded: row?.diskSeed !== undefined,
+        };
       });
-      if ("lost" in joined) return refuse("the volume was replaced: the sandbox is lost");
+      if ("lost" in joined) {
+        // With a disk version, a new volume seeded from the latest one (R2d step 3).
+        void recoverLostVolume(ctx, sandboxId).catch(() => undefined);
+        return refuse("the volume was replaced: the sandbox is lost");
+      }
       ctx.config.logger.info("sandbox host joined", { sandboxId, epoch: joined.epoch });
       const answer = answerOf(
         await mintHostTokens(ctx, { sandboxId, epoch: joined.epoch, podUid }),
         await ctx.keys.egressCa(),
       );
+      if (joined.seeded) {
+        // The engine connects next; the seed waits for it, then writes the version.
+        void runPendingSeed(ctx, sandboxId);
+        return { ...answer, seeded: true };
+      }
       return joined.setup ? { ...answer, setup: joined.setup } : answer;
     },
     async renew(hostToken) {

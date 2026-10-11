@@ -21,7 +21,10 @@ export const SETUP_RETRY_POLL_MS = 5_000;
 const REPORT_TAIL = 4 * 1024;
 
 export interface DiskSetupOptions {
-  readonly host: Pick<PodHost, "setup" | "setupState" | "reportSetup" | "setupFile">;
+  readonly host: Pick<PodHost, "setup" | "setupState" | "reportSetup" | "setupFile"> & {
+    /** The volume starts from a disk version (R2d step 3): it holds what setup made. */
+    readonly seeded?: boolean;
+  };
   /** Runs one command as the sandbox tools do (`localExec`). */
   readonly exec: (request: ExecRequest, signal: AbortSignal) => Promise<ExecResult>;
   /** The volume's id file (`/harness/volume-id`). */
@@ -117,8 +120,17 @@ async function runOnce(options: DiskSetupOptions, setup: DiskSetup): Promise<Dis
  */
 export async function prepareDisk(options: DiskSetupOptions): Promise<void> {
   let setup = options.host.setup;
-  if (!setup) return;
   const volumeId = await readText(options.volumeFile);
+  if (options.host.seeded) {
+    // A volume seeded from a disk version: the version holds what setup made, so mark it done.
+    if (volumeId) {
+      const done: Marker = { volumeId, recipeVersion: setup?.recipeVersion ?? 0, status: "ok" };
+      await writeAtomic(options.markerFile, new TextEncoder().encode(`${JSON.stringify(done)}\n`));
+    }
+    options.logger.info("environment_setup_skipped", { reason: "seeded" });
+    return;
+  }
+  if (!setup) return;
   const marker = await readText(options.markerFile);
   if (marker && volumeId) {
     try {

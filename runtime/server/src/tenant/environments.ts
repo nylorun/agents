@@ -50,6 +50,7 @@ import { podName } from "../sandbox/pods/name.js";
 import { podLifecycleConfig } from "../sandbox/pods/spec.js";
 import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
+import { deleteDiskArtifact, forkSeedOf, runPendingSeed } from "../artifacts/disk.js";
 import { sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 
@@ -137,6 +138,22 @@ async function viewOf(
         }
       : {}),
     lastUsedAt: environment.lastUsedAt,
+    ...(environment.kind === "none"
+      ? {}
+      : {
+          disk: {
+            latestVersion: (await t.diskArtifact(environment.id))?.latestVersion || null,
+            ...(diskHeld(environment)
+              ? {
+                  operation: {
+                    kind: environment.diskOp!.kind,
+                    ...(environment.diskOp!.version === undefined ? {} : { version: environment.diskOp!.version }),
+                    startedAt: environment.diskOp!.startedAt,
+                  },
+                }
+              : {}),
+          },
+        }),
     sessions: sessions
       .filter((session) => owner === undefined || session.ownerUserId === owner)
       .map((session) => ({ id: session.id, activeTurnId: session.activeTurnId })),
@@ -244,7 +261,7 @@ export async function putEnvironment(
       409,
       `Environment ${id} exists with another ${field}, which is fixed: delete it to create it again.`,
     );
-  return ctx.store.tx(async (t) => {
+  const view = await ctx.store.tx(async (t) => {
     const now = new Date().toISOString();
     const config = effectiveSandboxConfig(await readSandboxConfig(t));
     const resolve = (kind: EnvironmentKind, request: RecipeRequest) => {
@@ -259,6 +276,8 @@ export async function putEnvironment(
         }, { "retry-after": "5" });
     };
     const found = async (existing: Environment): Promise<EnvironmentView> => {
+      if (body.from !== undefined)
+        fail(409, `Environment ${id} exists: from applies only when a PUT creates one.`);
       if (body.kind !== undefined && body.kind !== existing.kind) conflict("kind");
       if (body.storage !== undefined && body.storage !== existing.recipe.storage) conflict("storage");
       checkGuard(scope, body.ownerUserId, existing.ownerUserId);
@@ -313,6 +332,7 @@ export async function putEnvironment(
     const kind = body.kind ?? "virtual";
     const recipe = resolve(kind, recipeRequest(body));
     await checkFiles(t, recipe.files);
+    const seed = body.from === undefined ? undefined : await forkSource(t, scope, kind, body.from);
     const row: Environment = {
       id,
       kind,
@@ -325,6 +345,17 @@ export async function putEnvironment(
       lastUsedAt: now,
       createdAt: now,
       updatedAt: now,
+      ...(seed
+        ? {
+            diskSeed: seed,
+            diskOp: {
+              kind: "seed" as const,
+              version: seed.version,
+              startedAt: now,
+              until: new Date(Date.now() + SEED_LEASE_MS).toISOString(),
+            },
+          }
+        : {}),
       ...(kind === "pod"
         ? {
             pod: {
@@ -353,7 +384,11 @@ export async function putEnvironment(
       return found(again);
     }
     await ctx.vault.createEnvironmentVault(t, id, actorOf(scope));
-    await t.environmentEvent(id, "environment.created", { kind, labels: row.labels });
+    await t.environmentEvent(id, "environment.created", {
+      kind,
+      labels: row.labels,
+      ...(seed ? { from: { environment: body.from!.environment, version: seed.version } } : {}),
+    });
     if (row.pod) {
       // Created at once; idle from now if no turn comes.
       await reconcileAfter(t, id);
@@ -362,6 +397,30 @@ export async function putEnvironment(
     }
     return viewOf(ctx, t, row, subjectOf(scope));
   });
+  // A virtual fork's workspace is written at once (a pod's once its engine connects).
+  if (body.from !== undefined && view.kind === "virtual") {
+    await runPendingSeed(ctx, id);
+    return getEnvironment(ctx, id, scope);
+  }
+  return view;
+}
+
+/**
+ * The disk version a create's `from` names (R2d step 3): the caller's grants must reach the
+ * source, a caller acting for a person must be its guard's owner, and kind `none` has no disk.
+ */
+async function forkSource(
+  t: Tx,
+  scope: AuthScope,
+  kind: EnvironmentKind,
+  from: NonNullable<PutEnvironmentRequest["from"]>,
+): Promise<{ artifactId: string; version: number }> {
+  if (kind === "none") fail(400, "from is for an Environment with a disk: kind none has none.");
+  reachable(environmentGrantsOf(scope), from.environment);
+  const source = (await liveEnvironment(t, from.environment)) ?? notFound();
+  const subject = subjectOf(scope);
+  if (subject !== undefined && source.ownerUserId !== undefined && source.ownerUserId !== subject) notFound();
+  return forkSeedOf(t, from);
 }
 
 /** `GET /v1/environments/{id}`. */
@@ -394,6 +453,42 @@ export async function listEnvironments(
   });
 }
 
+/**
+ * Asks pod Environment `id` to run when it is stopped or failed (a disk copy needs its engine),
+ * with its recipe applied, as a turn start would.
+ */
+export async function wakePod(ctx: TenantContext, id: string): Promise<void> {
+  if (!ctx.pods) fail(409, `Environment ${id} is a pod Environment, and this Runtime has no sandbox pods.`, { code: "environment_unavailable" });
+  await ctx.store.tx(async (t) => {
+    const environment = await liveEnvironment(t, id, { lock: true });
+    const pod = environment?.pod;
+    if (!environment || !pod) return;
+    if (pod.observed === "lost")
+      fail(409, `Environment ${id} was lost (${pod.reason ?? "its volume is gone"}). Reset or restore it.`, {
+        code: "environment_lost",
+      });
+    const now = new Date().toISOString();
+    if (pod.desired !== "running" || pod.observed === "failed") {
+      await wantRunning(t, environment as PodEnvironment, now);
+      await reconcileAfter(t, id);
+    } else await t.updateEnvironmentPod(id, { lastActiveAt: now }, now);
+  });
+}
+
+/** Whether a disk lease (R2d step 3) holds `environment` now. */
+export function diskHeld(environment: Environment, now = Date.now()): boolean {
+  return environment.diskOp !== undefined && Date.parse(environment.diskOp.until) > now;
+}
+
+/** Refused while a snapshot or restore copies the disk (a pending seed does not count). */
+export function refuseDiskCopy(environment: Environment): void {
+  if (diskHeld(environment) && environment.diskOp!.kind !== "seed")
+    fail(409, `Environment ${environment.id}'s disk is being copied (${environment.diskOp!.kind}). Try again shortly.`, {
+      code: "environment_busy",
+      details: { retryAfterSeconds: 5 },
+    }, { "retry-after": "5" });
+}
+
 /** Refused while a session that names Environment `id` has a turn running. */
 async function refuseBusy(t: Tx, id: string): Promise<void> {
   const busy = (await t.sessionsOnEnvironment<Session>(id)).some(
@@ -416,10 +511,12 @@ async function deleteIn(
   environment: Environment,
   actor: string,
   reason: "delete" | "deleteAfter",
-): Promise<void> {
+): Promise<string[]> {
   const id = environment.id;
   await t.environmentEvent(id, "environment.deleted", { reason });
   await ctx.vault.deleteEnvironmentVault(t, id, actor);
+  // Its disk versions go with it; their manifests' bytes are the caller's, after the commit.
+  const keys = await deleteDiskArtifact(ctx, t, id);
   if (environment.pod) {
     const epoch = environment.pod.hostEpoch + 1;
     await t.updateEnvironmentPod(
@@ -430,6 +527,12 @@ async function deleteIn(
     await reconcileAfter(t, id);
     await revokeHost(t, id, epoch);
   } else await t.deleteEnvironment(id);
+  return keys;
+}
+
+/** Deletes the Object store keys a deletion returned, after its commit. */
+async function deleteKeys(ctx: TenantContext, keys: readonly string[]): Promise<void> {
+  for (const key of keys) await ctx.blobs.delete(key).catch(() => undefined);
 }
 
 /**
@@ -445,14 +548,17 @@ export async function deleteEnvironment(
   reachable(environmentGrantsOf(scope), id);
   const deleted = await ctx.store.tx(async (t) => {
     const environment = await liveEnvironment(t, id, { lock: true });
-    if (!environment) return false;
+    if (!environment) return undefined;
     await refuseBusy(t, id);
-    await deleteIn(ctx, t, environment, actorOf(scope), "delete");
-    return true;
+    refuseDiskCopy(environment);
+    return deleteIn(ctx, t, environment, actorOf(scope), "delete");
   });
   // After the commit: a turn that starts now finds no Environment and is refused.
-  if (deleted) await ctx.sandbox.removeSandbox(id);
-  return { id, deleted };
+  if (deleted) {
+    await deleteKeys(ctx, deleted);
+    await ctx.sandbox.removeSandbox(id);
+  }
+  return { id, deleted: deleted !== undefined };
 }
 
 /**
@@ -472,15 +578,15 @@ export async function sweepUnusedEnvironments(ctx: TenantContext, now = Date.now
         const environment = await liveEnvironment(t, candidate.id, { lock: true });
         const after = environment?.recipe.lifecycle.deleteAfter;
         const ms = after === undefined ? undefined : parseSandboxDuration(after);
-        if (!environment || ms === undefined || Date.parse(environment.lastUsedAt) + ms > now) return false;
+        if (!environment || ms === undefined || Date.parse(environment.lastUsedAt) + ms > now) return undefined;
         const busy = (await t.sessionsOnEnvironment<Session>(environment.id)).some(
           (session) => session.activeTurnId !== null,
         );
-        if (busy) return false;
-        await deleteIn(ctx, t, environment, "sweep", "deleteAfter");
-        return true;
+        if (busy || diskHeld(environment)) return undefined;
+        return deleteIn(ctx, t, environment, "sweep", "deleteAfter");
       });
       if (deleted) {
+        await deleteKeys(ctx, deleted);
         await ctx.sandbox.removeSandbox(candidate.id);
         ctx.config.logger.info("environment deleted after lifecycle.deleteAfter", {
           environmentId: candidate.id,
@@ -548,45 +654,89 @@ export async function resetEnvironment(
   return ctx.store.tx(async (t) => {
     const environment = await podEnvironment(t, id);
     await refuseBusy(t, id);
+    refuseDiskCopy(environment);
     const pod = environment.pod;
     if (pod.retiring !== undefined)
       fail(409, `Environment ${id} is still deleting its previous volume. Try again shortly.`, {
         code: "environment_busy",
         details: { retryAfterSeconds: 5 },
       }, { "retry-after": "5" });
-    const now = new Date().toISOString();
-    const volumeGen = pod.volumeGen + 1;
-    const epoch = pod.hostEpoch + 1;
-    await t.updateEnvironment(
-      id,
-      { applied: environment.recipe, appliedVersion: environment.version, lastUsedAt: now },
-      now,
-    );
-    await t.updateEnvironmentPod(
-      id,
-      {
-        k8sName: podName(ctx.config.tenantId, id, volumeGen),
-        volumeGen,
-        retiring: pod.k8sName,
-        desired: "running",
-        observed: "creating",
-        rev: pod.rev + 1,
-        hostEpoch: epoch,
-        joinTokenHash: null,
-        podUid: null,
-        volumeId: null,
-        startedAt: now,
-        lastActiveAt: now,
-        reason: null,
-      },
-      now,
-    );
-    await t.environmentEvent(id, "environment.reset", { volumeGeneration: volumeGen });
-    await reconcileAfter(t, id);
-    await revokeHost(t, id, epoch);
+    await newVolume(ctx, t, environment);
     return viewOf(ctx, t, (await t.environment(id)) ?? environment, subjectOf(scope));
   });
 }
+
+/**
+ * Gives pod Environment `environment` (locked) a new pod on a new, empty volume, the next volume
+ * generation, with its recipe applied: the old Sandbox and volume are retired. With `seed`, the
+ * new volume starts from that disk version before any turn (R2d step 3): a restore, or the
+ * recovery of a lost volume.
+ */
+export async function newVolume(
+  ctx: TenantContext,
+  t: Tx,
+  environment: Environment,
+  options: {
+    seed?: { artifactId: string; version: number };
+    reason?: "restore" | "lost";
+  } = {},
+): Promise<number> {
+  const id = environment.id;
+  const pod = environment.pod!;
+  const now = new Date().toISOString();
+  const volumeGen = pod.volumeGen + 1;
+  const epoch = pod.hostEpoch + 1;
+  await t.updateEnvironment(
+    id,
+    {
+      applied: environment.recipe,
+      appliedVersion: environment.version,
+      lastUsedAt: now,
+      ...(!options.seed
+        ? { diskSeed: null, diskOp: null }
+        : {
+            diskSeed: options.seed,
+            diskOp: {
+              kind: "seed",
+              version: options.seed.version,
+              startedAt: now,
+              until: new Date(Date.now() + SEED_LEASE_MS).toISOString(),
+            },
+          }),
+    },
+    now,
+  );
+  await t.updateEnvironmentPod(
+    id,
+    {
+      k8sName: podName(ctx.config.tenantId, id, volumeGen),
+      volumeGen,
+      retiring: pod.k8sName,
+      desired: "running",
+      observed: "creating",
+      rev: pod.rev + 1,
+      hostEpoch: epoch,
+      joinTokenHash: null,
+      podUid: null,
+      volumeId: null,
+      startedAt: now,
+      lastActiveAt: now,
+      reason: null,
+    },
+    now,
+  );
+  await t.environmentEvent(id, "environment.reset", {
+    volumeGeneration: volumeGen,
+    ...(options.reason ? { reason: options.reason } : {}),
+    ...(options.seed ? { from: { version: options.seed.version } } : {}),
+  });
+  await reconcileAfter(t, id);
+  await revokeHost(t, id, epoch);
+  return volumeGen;
+}
+
+/** How long a pending seed holds the disk before another process may take it over. */
+export const SEED_LEASE_MS = 10 * 60_000;
 
 /** `GET /v1/environments/{id}/events`: the Environment's lifecycle stream. */
 export async function environmentEventsOf(
@@ -669,6 +819,8 @@ export async function checkEnvironmentTurn(
       code: "environment_owner_mismatch",
     });
   if (environment.kind === "none") return;
+  // A snapshot or restore copies the disk between turns (R2d step 3); a seed's turn waits.
+  refuseDiskCopy(environment);
   // A flow tree's sessions nest their turns in its root's: one holder.
   const tree = session.flowRootId ?? session.id;
   const holder = (await t.sessionsOnEnvironment<Session>(id)).find(

@@ -167,8 +167,13 @@ export async function setupFile(
   }
   const manifest: FolderManifest = await readManifest(ctx.blobs, found.version);
   if (path === undefined)
-    return { kind: "folder", entries: manifest.entries.map((entry) => ({ path: entry.path, size: entry.size })) };
-  const entry = manifest.entries.find((item) => item.path === path);
+    return {
+      kind: "folder",
+      entries: manifest.entries
+        .filter((entry) => entry.type === undefined)
+        .map((entry) => ({ path: entry.path, size: entry.size })),
+    };
+  const entry = manifest.entries.find((item) => item.path === path && item.type === undefined);
   if (!entry) return undefined;
   const got = await ctx.blobs.get(contentKey(entry.sha256));
   return got ? { kind: "file", contentType: entry.contentType, body: got.body } : undefined;

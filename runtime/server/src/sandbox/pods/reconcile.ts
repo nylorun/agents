@@ -20,6 +20,7 @@ import type { TenantContext } from "../../tenant/context.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../tenant-config.js";
 import { podSandboxSpecOf } from "../resolve.js";
 import { sha256Hex } from "../join.js";
+import { recoverLostVolume } from "../../artifacts/disk.js";
 import type { PodStatus } from "./client.js";
 import { decide, type PodRow, type PodTimer, type PodTrigger } from "./lifecycle.js";
 import { podLifecycleConfig, podSpecOf } from "./spec.js";
@@ -157,6 +158,9 @@ export async function reconcileSandbox(
     await ctx.sandbox.removeSandbox(sandboxId).catch(() => undefined);
     return {};
   }
+  // A lost volume with a disk version starts again from the latest one (R2d step 3).
+  if (patch.observed === "lost" && (await recoverLostVolume(ctx, sandboxId).catch(() => false)))
+    return { retryAfterMs: 0 };
   return {
     ...(decision.retryAfterMs === undefined ? {} : { retryAfterMs: decision.retryAfterMs }),
     ...(decision.arm.length > 0 ? { arm: decision.arm } : {}),

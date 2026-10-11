@@ -334,6 +334,8 @@ async function runRemoteSegment(
     // A pod Environment's segment runs in its pod (F7.2), or fails when the pod cannot run it.
     const unusable = podUnusable(ctx, segment);
     if (unusable) throw new Error(unusable);
+    // A new volume being seeded from a disk version takes no turn until it holds it (R2d step 3).
+    if (segment.pod?.seeding) throw new HarnessUnavailable();
     const pod = segment.pod?.id;
     if (started.environmentId !== undefined) placed.environment = started.environmentId;
     end = await ctx.harness.offer({

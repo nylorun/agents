@@ -74,7 +74,9 @@ export async function runHarness(
   const service = startHarnessService({
     url: config.url,
     token,
-    ...(pod ? { sandboxBackends: [localBackend({ env: baseline, proxyEnv: () => pod.proxyEnv() })] } : {}),
+    ...(pod
+      ? { sandboxBackends: [localBackend({ env: baseline, proxyEnv: () => pod.proxyEnv(), harnessRoot: config.root })] }
+      : {}),
     paths,
     modelGate: httpModelGate({ url: config.gatesUrl, runTokens }),
     useVaultModel: true,

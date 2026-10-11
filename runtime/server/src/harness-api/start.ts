@@ -46,8 +46,11 @@ export interface SegmentStart {
     /** Variables every sandbox command gets (R2c): secret names set to the sentinel, plain values. */
     readonly environment?: Readonly<Record<string, string>>;
   };
-  /** The Environment is a pod (F7.2): its engine runs the segment. Its lifecycle state. */
-  readonly pod?: { readonly id: string; readonly pod: SandboxPodState };
+  /**
+   * The Environment is a pod (F7.2): its engine runs the segment. Its lifecycle state, and
+   * whether its new volume is still being seeded from a disk version (R2d step 3).
+   */
+  readonly pod?: { readonly id: string; readonly pod: SandboxPodState; readonly seeding?: boolean };
 }
 
 /** The segment's starting transaction and fold. */
@@ -81,7 +84,9 @@ export async function startSegment(
         fixtureModel,
         outcomes: current.checkpoint ? await bulkOutcomes(t, current, current.checkpoint) : [],
         sandbox,
-        ...(resource?.pod ? { pod: { id: resource.id, pod: resource.pod } } : {}),
+        ...(resource?.pod
+          ? { pod: { id: resource.id, pod: resource.pod, ...(resource.diskSeed ? { seeding: true } : {}) } }
+          : {}),
       };
     }
   );

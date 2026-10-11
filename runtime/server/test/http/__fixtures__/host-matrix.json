@@ -92,7 +92,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -160,7 +162,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -228,7 +232,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -296,7 +302,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -364,7 +372,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -432,7 +442,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -500,7 +512,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -568,7 +582,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -636,7 +652,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -704,7 +722,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -772,7 +792,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -840,7 +862,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -941,7 +965,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -1009,7 +1035,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -1077,7 +1105,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -1145,7 +1175,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -1213,7 +1245,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -1281,7 +1315,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },
@@ -1349,7 +1385,9 @@
           "session-reads",
           "calls-export",
           "credential-coverage",
-          "tool-calls"
+          "tool-calls",
+          "environment-setup",
+          "environment-disk-versions"
         ]
       }
     },

@@ -35,6 +35,8 @@ export interface LocalBackendOptions {
   readonly proxyEnv?: () => Readonly<Record<string, string>>;
   /** The base environment of commands (the engine's allowlisted one); `NYLORUN_*` is dropped. */
   readonly env: Readonly<Record<string, string | undefined>>;
+  /** The engine's `/harness` on the same volume, a disk root of its versions (R2d step 3). */
+  readonly harnessRoot?: string;
 }
 
 /** This process's environment without the engine's own variables. */
@@ -136,6 +138,10 @@ export function localBackend(options: LocalBackendOptions): SandboxBackend {
   const handle: SandboxHandle = {
     workspace,
     exec,
+    diskRoots: {
+      workspace,
+      ...(options.harnessRoot === undefined ? {} : { harness: options.harnessRoot }),
+    },
     async readFile(path) {
       try {
         return await readFile(path, "utf8");

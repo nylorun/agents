@@ -810,6 +810,17 @@ export const PutEnvironmentRequestSchema = z
     setup: z.array(EnvironmentSetupCommandSchema).max(ENVIRONMENT_SETUP_MAX).optional(),
     /** Pods only: artifact versions copied in when the disk is made or reset, before `setup`. */
     files: z.array(EnvironmentFileSchema).max(ENVIRONMENT_SETUP_MAX).optional(),
+    /**
+     * Only when the `PUT` creates the Environment (Host feature `environment-disk-versions`): its
+     * disk starts from this version of another Environment's disk. Its vault starts empty.
+     */
+    from: z
+      .object({
+        environment: EnvironmentIdSchema,
+        version: z.union([z.number().int().positive(), z.literal("latest")]),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type PutEnvironmentRequest = z.infer<typeof PutEnvironmentRequestSchema>;
@@ -887,6 +898,24 @@ export const EnvironmentViewSchema = z
     pod: EnvironmentPodViewSchema.optional(),
     /** When it was last used: a turn, a recipe change, a secret write, a stop or a reset. */
     lastUsedAt: z.string(),
+    /**
+     * Its disk versions (Host feature `environment-disk-versions`): the latest, and the copy
+     * that holds the disk now, if one does. Absent for kind `none`.
+     */
+    disk: z
+      .object({
+        latestVersion: z.number().int().positive().nullable(),
+        operation: z
+          .object({
+            kind: z.enum(["snapshot", "restore", "seed"]),
+            version: z.number().int().positive().optional(),
+            startedAt: z.string(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
     /** Sessions that name it (acting for a subject, only the subject's own). */
     sessions: z.array(EnvironmentSessionSchema),
     createdAt: z.string(),
@@ -894,6 +923,67 @@ export const EnvironmentViewSchema = z
   })
   .strict();
 export type EnvironmentView = z.infer<typeof EnvironmentViewSchema>;
+
+/** `POST /v1/environments/{id}/snapshot`: a new version of the Environment's disk. */
+export const EnvironmentSnapshotSchema = z
+  .object({
+    environmentId: z.string(),
+    artifactId: z.string(),
+    version: z.number().int().positive(),
+    format: z.string(),
+    /** Entries in the version: files, links and empty directories. */
+    files: z.number().int().nonnegative(),
+    /** The files' bytes. */
+    bytes: z.number().int().nonnegative(),
+    /** Of those, the bytes stored now (the rest were stored already). */
+    storedBytes: z.number().int().nonnegative(),
+    durationMs: z.number().int().nonnegative(),
+    /** True when the disk had not changed: `version` is the latest, and nothing was stored. */
+    unchanged: z.boolean(),
+    createdAt: z.string(),
+  })
+  .strict();
+export type EnvironmentSnapshot = z.infer<typeof EnvironmentSnapshotSchema>;
+/** `POST /v1/environments/{id}/restore`: which version of its disk to put back. */
+export const RestoreEnvironmentRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    version: z.union([z.number().int().positive(), z.literal("latest")]),
+  })
+  .strict();
+export type RestoreEnvironmentRequest = z.infer<typeof RestoreEnvironmentRequestSchema>;
+export const EnvironmentRestoreSchema = z
+  .object({
+    environmentId: z.string(),
+    restored: z.number().int().positive(),
+    /**
+     * `done` once the version is back (a virtual Environment); `pending` while a pod's new volume
+     * is seeded (`disk.operation` in the view until it ends; turns wait for it).
+     */
+    status: z.enum(["done", "pending"]),
+    volumeGeneration: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type EnvironmentRestore = z.infer<typeof EnvironmentRestoreSchema>;
+/** `GET /v1/environments/{id}/versions`: its disk versions, newest first. */
+export const EnvironmentVersionsSchema = z
+  .object({
+    environmentId: z.string(),
+    /** The folder artifact that holds them (read trees, files and diffs through `/v1/artifacts`). */
+    artifactId: z.string().nullable(),
+    latest: z.number().int().positive().nullable(),
+    versions: z.array(
+      z
+        .object({
+          version: z.number().int().positive(),
+          bytes: z.number().int().nonnegative(),
+          createdAt: z.string(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type EnvironmentVersions = z.infer<typeof EnvironmentVersionsSchema>;
 
 export const ListEnvironmentsResponseSchema = z
   .object({ environments: z.array(EnvironmentViewSchema) })
@@ -1991,7 +2081,7 @@ export const TranscriptUpdatedPayloadSchema = z
  * or the turn-end export of a sandbox's outputs (F8.2), whose listing and bytes the harness
  * holding the workspace supplied.
  */
-export const ArtifactSourceSchema = z.enum(["upload", "engine", "export"]);
+export const ArtifactSourceSchema = z.enum(["upload", "engine", "export", "snapshot"]);
 export type ArtifactSource = z.infer<typeof ArtifactSourceSchema>;
 /**
  * What an artifact holds: one file, or a folder (F8.2), whose versions are manifests of paths to
@@ -3405,6 +3495,11 @@ export type ArtifactLink = z.infer<typeof ArtifactLinkSchema>;
 export const FOLDER_CONTENT_TYPE = "application/vnd.nylorun.folder+json";
 /** The manifest format a folder version is stored as. */
 export const FOLDER_MANIFEST_FORMAT = "nylorun.folder.v1";
+/**
+ * The manifest format of an Environment's disk versions (R2d step 3): v1's entries, plus file
+ * modes and modification times, symbolic links and empty directories. Readers accept both.
+ */
+export const FOLDER_MANIFEST_FORMAT_V2 = "nylorun.folder.v2";
 /** The folder artifact a session's turn-end export writes, one per session. */
 export const OUTPUTS_ARTIFACT_NAME = "outputs";
 /** The most files one turn-end export stores; past it the export is skipped. */
@@ -3412,13 +3507,26 @@ export const EXPORT_MAX_FILES = 10_000;
 /** The most bytes one turn-end export stores (before dedupe); past it the export is skipped. */
 export const EXPORT_MAX_BYTES = 1024 * 1024 * 1024;
 
-/** One file of a folder: its path in the folder (`/`-separated, relative), size, hash and type. */
+/**
+ * One file of a folder: its path in the folder (`/`-separated, relative), size, hash and type.
+ * In a v2 manifest an entry may also be a symbolic link (`type: "link"`, its `target`) or an
+ * empty directory (`type: "dir"`), with no bytes (`size` 0, `sha256` and `contentType` empty),
+ * and any entry may carry its `mode` and `mtimeMs`.
+ */
 export const FolderEntrySchema = z
   .object({
     path: z.string().min(1).max(ARTIFACT_PATH_MAX),
     size: z.number().int().nonnegative(),
     sha256: z.string().meta({ description: "SHA-256 of the file's bytes, lowercase hex" }),
     contentType: z.string(),
+    /** v2: absent for a file. */
+    type: z.enum(["link", "dir"]).optional(),
+    /** v2: the permission bits (`0o755` is 493). */
+    mode: z.number().int().nonnegative().max(0o7777).optional(),
+    /** v2: the modification time, ms since the epoch. */
+    mtimeMs: z.number().nonnegative().optional(),
+    /** v2: a link's target, as stored on the disk. */
+    target: z.string().max(4096).optional(),
   })
   .strict();
 export type FolderEntry = z.infer<typeof FolderEntrySchema>;
@@ -3429,7 +3537,7 @@ export type FolderEntry = z.infer<typeof FolderEntrySchema>;
  */
 export const FolderManifestSchema = z
   .object({
-    format: z.literal(FOLDER_MANIFEST_FORMAT),
+    format: z.enum([FOLDER_MANIFEST_FORMAT, FOLDER_MANIFEST_FORMAT_V2]),
     entries: z.array(FolderEntrySchema),
   })
   .strict();

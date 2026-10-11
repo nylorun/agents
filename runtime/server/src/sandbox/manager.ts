@@ -47,6 +47,7 @@ import {
   type SandboxSelectionReport,
 } from "./select.js";
 import { mountSkill, sandboxSkillsOf, skillSignature } from "./skills.js";
+import { runDiskOp, type DiskAnswer, type DiskOp } from "./disk-fs.js";
 import {
   resolveSandboxPath,
   runSandboxTool,
@@ -336,6 +337,27 @@ export class SandboxManager {
       return listing === undefined
         ? { kind: "missing" as const, path: resolved }
         : { kind: "listed" as const, path: resolved, listing };
+    });
+  }
+
+  /**
+   * One operation on the disk of the session's sandbox (R2d step 3, `sandbox/disk-fs.ts`), in the
+   * same queue as its tool calls, starting it first when it is stopped.
+   */
+  async disk(
+    session: SandboxSessionRef,
+    capability: CapabilityManifest,
+    op: DiskOp,
+    signal: AbortSignal
+  ): Promise<DiskAnswer | Extract<SandboxToolOutcome, { kind: "failed" }>> {
+    return this.withHandle(session, capability, signal, async (handle, live) => {
+      if (!handle.diskRoots)
+        return {
+          kind: "failed" as const,
+          code: "sandbox.unsupported",
+          message: `The ${live.backend.name} backend has no disk to version`,
+        };
+      return runDiskOp(handle.diskRoots, op);
     });
   }
 

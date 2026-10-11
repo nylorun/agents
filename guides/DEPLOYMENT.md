@@ -337,6 +337,36 @@ resources and vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandbox
   templates). The Tenant holds at most `limits.environments` (default 100),
   set with `PUT /v1/tenant/sandbox` (Tenant setting `environments.config`).
 
+- **Setup and input files** (pods): `files` copies versions of Tenant-wide
+  artifacts in (a file artifact at its `path`, a folder artifact under it), then
+  `setup` runs its commands in order (`/bin/sh -c`, in `cwd`, default
+  `/workspace`; `timeout` default 10m, at most 30m; at most 16 of each), with the
+  Environment's variables and secrets (as the sentinel) and its egress. They run
+  once per disk: when the pod's volume is new (created or reset), before its
+  first turn; a resume keeps what they made, and a recipe change reaches the
+  next new disk. A failed command fails the pod (`observed: failed`, reason
+  `setup: command N …`, with its exit code and the end of its output in the
+  `environment.failed` event) and the turn waiting for it; the next turn start
+  runs the setup again.
+- **Disk versions** (Host feature `environment-disk-versions`): between turns,
+  `POST /v1/environments/{id}/snapshot` keeps a version of the disk
+  (`/workspace`, and a pod's `/harness` but the engine's own files) as a version
+  of a folder artifact the Environment owns: files with their modes and times,
+  links and empty directories, each file's bytes stored once across versions.
+  An unchanged disk makes no version (`unchanged: true`). `POST .../restore`
+  with `{ version }` (or `"latest"`) puts one back: a virtual Environment at
+  once, a pod on a new volume seeded from the version before its next turn
+  (`disk.operation` in the view until then). `PUT` with
+  `from: { environment, version }` creates an Environment whose disk starts as
+  another's version (its vault starts empty). `GET .../versions` lists them,
+  `DELETE .../versions/{n}` deletes one, and their trees, files, diffs and zips
+  read through `/v1/artifacts/{artifactId}/versions/{n}/…`. A pod whose volume is
+  lost and that has a version gets a new volume seeded from the latest one,
+  instead of refusing turns until a reset. A snapshot or restore during a turn
+  is `409 environment_busy`; a version holds at most 200,000 entries and 10 GiB,
+  within the Tenant's artifact total. Deleting the Environment deletes its
+  versions.
+
 `GET /v1/environments?label=k=v` lists them, `POST .../stop` and `.../reset`
 stop a pod or give it a new, empty volume, and `DELETE` removes the Environment
 with its vault and files. `npx nylorun sandbox ls | rm` does the same on a local

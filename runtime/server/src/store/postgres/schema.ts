@@ -256,6 +256,13 @@ export const environments = nylorun.table(
      * a join with another one means the volume was replaced (its files are gone), so `lost`.
      */
     volumeId: text(),
+    /**
+     * The disk lease (R2d step 3): `{ kind, version?, startedAt, until }` while a snapshot, a
+     * restore or a seed copies the disk; turns are refused until it ends or `until` passes.
+     */
+    diskOp: jsonText(),
+    /** The disk version the next volume starts from: `{ artifactId, version }` (R2d step 3). */
+    diskSeed: jsonText(),
   },
   (t) => [check("environments_kind_check", sql`${t.kind} IN ('virtual', 'pod', 'none')`)],
 );
@@ -477,9 +484,12 @@ export const artifacts = nylorun.table(
     labelsJson: text(),
     createdAt: textC().notNull(),
     updatedAt: text().notNull(),
+    /** The Environment whose disk versions this folder holds (R2d step 3); one per Environment. */
+    environmentId: textC(),
   },
   (t) => [
     index("artifacts_session").on(t.sessionId, t.createdAt, t.id),
+    uniqueIndex("artifacts_environment_disk").on(t.environmentId).where(sql`environment_id IS NOT NULL`),
     check("artifacts_kind_check", sql`kind IN ('file', 'folder')`),
   ],
 );
@@ -495,7 +505,7 @@ export const artifactVersions = nylorun.table(
     size: bigint({ mode: "number" }).notNull(),
     sha256: text().notNull(),
     contentType: text().notNull(),
-    source: text({ enum: ["upload", "engine", "export"] }).notNull(),
+    source: text({ enum: ["upload", "engine", "export", "snapshot"] }).notNull(),
     createdAt: textC().notNull(),
   },
   (t) => [

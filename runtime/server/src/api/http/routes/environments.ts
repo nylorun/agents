@@ -12,11 +12,22 @@ import {
   isEnvironmentId,
   PutEnvironmentRequestSchema,
   PutEnvironmentSecretRequestSchema,
+  RestoreEnvironmentRequestSchema,
 } from "@nylorun/core/contracts";
+import {
+  deleteEnvironmentVersion,
+  environmentVersions,
+  restoreEnvironment,
+  snapshotEnvironment,
+} from "../../../artifacts/disk.js";
 import {
   DeleteEnvironmentResponse,
   DeletedResponse,
   EnvironmentPage,
+  EnvironmentRestore,
+  EnvironmentSnapshot,
+  EnvironmentVersions,
+  RestoreEnvironmentRequest,
   EnvironmentSecretView,
   EnvironmentView,
   ListEnvironmentEventsResponse,
@@ -262,6 +273,99 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       async (c) =>
         jsonResponse(200, await run(c.env.tenant, idOf(c.req.param("environmentId")), c.get("scope"))),
     );
+
+  tenantRoute(
+    api,
+    WRITE,
+    {
+      method: "post",
+      path: "/v1/environments/{environmentId}/snapshot",
+      tags: ["Environments"],
+      summary: "Snapshot an Environment's disk",
+      description:
+        "Between turns, a new version of the Environment's disk (`/workspace`, and a pod's `/harness` but the engine's own files): files with their modes and modification times, links and empty directories, as a version of the folder artifact the Environment owns. Unchanged files are stored once; an unchanged disk makes no version (`unchanged`). A stopped pod is started first. Refused during a turn or another copy (`environment_busy`).",
+      request: { params: environmentId },
+      responses: {
+        201: json(EnvironmentSnapshot, "The version"),
+        400: { description: "The Environment is of kind none" },
+        409: { description: "A turn or another copy holds the disk (`environment_busy`), or the pod could not start (`environment_unavailable`)" },
+        413: { description: "Past the entries, bytes or Tenant total a version may hold (`limit_exceeded`)" },
+      },
+    },
+    async (c) =>
+      jsonResponse(201, await snapshotEnvironment(c.env.tenant, idOf(c.req.param("environmentId")), c.get("scope"))),
+  );
+
+  tenantRoute(
+    api,
+    WRITE,
+    {
+      method: "post",
+      path: "/v1/environments/{environmentId}/restore",
+      tags: ["Environments"],
+      summary: "Restore a version of an Environment's disk",
+      description:
+        "Puts disk version `version` (or `latest`) back. A virtual Environment's workspace is rewritten at once (`done`); a pod gets a new volume seeded from the version before any turn (`pending`, with `disk.operation` in the view until it ends). The Environment keeps its id, vault and sessions. Refused during a turn or another copy (`environment_busy`).",
+      request: {
+        params: environmentId,
+        body: { required: true, content: { "application/json": { schema: RestoreEnvironmentRequest } } },
+      },
+      responses: {
+        200: json(EnvironmentRestore, "Restored, or being restored"),
+        404: { description: "No such Environment, or no such version" },
+        409: { description: "A turn or another copy holds the disk (`environment_busy`)" },
+      },
+    },
+    async (c) => {
+      const body = RestoreEnvironmentRequestSchema.parse(await readJson(c.req.raw));
+      return jsonResponse(
+        200,
+        await restoreEnvironment(c.env.tenant, idOf(c.req.param("environmentId")), c.get("scope"), body.version),
+      );
+    },
+  );
+
+  tenantRoute(
+    api,
+    READ,
+    {
+      method: "get",
+      path: "/v1/environments/{environmentId}/versions",
+      tags: ["Environments"],
+      summary: "List an Environment's disk versions",
+      description:
+        "Newest first. Read a version's tree, files, diff and zip through `/v1/artifacts/{artifactId}/versions/{version}/…`.",
+      request: { params: environmentId },
+      responses: { 200: json(EnvironmentVersions, "The versions") },
+    },
+    async (c) =>
+      jsonResponse(200, await environmentVersions(c.env.tenant, idOf(c.req.param("environmentId")), c.get("scope"))),
+  );
+
+  tenantRoute(
+    api,
+    WRITE,
+    {
+      method: "delete",
+      path: "/v1/environments/{environmentId}/versions/{version}",
+      tags: ["Environments"],
+      summary: "Delete an Environment's disk version",
+      description: "Deletes the version, and the stored files no other version names. Refused while a seed reads it.",
+      request: { params: environmentId.extend({ version: z.string() }) },
+      responses: {
+        200: json(z.object({ environmentId: z.string(), version: z.number(), deleted: z.boolean() }), "Deleted, or there was none"),
+        409: { description: "A new volume is being seeded from it (`environment_busy`)" },
+      },
+    },
+    async (c) => {
+      const version = c.req.param("version") ?? "";
+      if (!/^[1-9]\d{0,8}$/.test(version)) fail(400, "version must be a version number");
+      return jsonResponse(
+        200,
+        await deleteEnvironmentVersion(c.env.tenant, idOf(c.req.param("environmentId")), c.get("scope"), Number(version)),
+      );
+    },
+  );
 
   tenantRoute(
     api,

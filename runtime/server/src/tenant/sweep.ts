@@ -44,6 +44,7 @@
  * reports it.
  */
 import { sweepUnusedEnvironments } from "./environments.js";
+import { sweepPendingSeeds } from "../artifacts/disk.js";
 import {
   pendingAgentEffects,
   reconcilePendingAgentEffect,
@@ -135,6 +136,8 @@ export async function sweep(ctx: TenantContext): Promise<void> {
       : []),
     // Environments unused for their `lifecycle.deleteAfter`: one query when none is due.
     ["environments", () => sweepUnusedEnvironments(ctx, now.getTime())],
+    // Seeds of new volumes whose engine is connected and no process copies (R2d step 3).
+    ["seeds", () => sweepPendingSeeds(ctx)],
     // A harness elsewhere closes its own idle MCP connections.
     ["mcp", async () => ctx.mcp?.sweep()],
     [

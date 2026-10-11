@@ -63,6 +63,8 @@ export interface PodHost {
   readonly epoch: number | undefined;
   /** The disk's setup from the last join, if its recipe has one. */
   readonly setup: DiskSetup | undefined;
+  /** The last join's volume starts from a disk version core writes: no setup runs on it. */
+  readonly seeded: boolean;
   /** Whether to run the setup again after a failure, with the plan to run now. */
   setupState(): Promise<{ retry: boolean; setup?: DiskSetup }>;
   /** Reports how the setup ended. */
@@ -89,6 +91,7 @@ export function podHost(
   const call = options.fetch ?? fetch;
   let held: Held | undefined;
   let setup: DiskSetup | undefined;
+  let seeded = false;
   /** The CA in the bundle on disk, once one is written. */
   let bundled: string | undefined;
 
@@ -112,9 +115,13 @@ export function podHost(
       expiresAt: string;
       caCertificate?: string;
       setup?: DiskSetup;
+      seeded?: boolean;
     };
     if (typeof body.caCertificate === "string") await writeBundle(body.caCertificate);
-    if (path === "join") setup = body.setup;
+    if (path === "join") {
+      setup = body.setup;
+      seeded = body.seeded === true;
+    }
     return {
       hostToken: body.hostToken,
       egressToken: body.egressToken,
@@ -227,6 +234,9 @@ export function podHost(
     },
     get setup() {
       return setup;
+    },
+    get seeded() {
+      return seeded;
     },
     async setupState() {
       const response = await authorized("setup", { method: "GET" });

@@ -394,6 +394,8 @@ function environmentOf(row: typeof environments.$inferSelect): Environment {
     lastUsedAt: new Date(row.lastUsedAt).toISOString(),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    ...(row.diskOp ? { diskOp: row.diskOp as Environment["diskOp"] } : {}),
+    ...(row.diskSeed ? { diskSeed: row.diskSeed as Environment["diskSeed"] } : {}),
     ...(row.k8sName !== null && row.desired !== null && row.observed !== null
       ? {
           pod: {
@@ -869,10 +871,12 @@ class PostgresTx implements Tx {
     if (found) return "exists";
     const [counted] = await this.db.select({ n: count() }).from(environments);
     if ((counted?.n ?? 0) >= limit) return "limit";
-    const { pod, ownerUserId, ...environment } = row;
+    const { pod, ownerUserId, diskOp, diskSeed, ...environment } = row;
     await this.db.insert(environments).values({
       ...environment,
       ownerUserId: ownerUserId ?? null,
+      diskOp: diskOp ?? null,
+      diskSeed: diskSeed ?? null,
       ...(pod ? podColumns(pod) : {}),
     });
     return "created";
@@ -888,6 +892,8 @@ class PostgresTx implements Tx {
       appliedVersion?: number;
       ownerUserId?: string | null;
       lastUsedAt?: string;
+      diskOp?: Environment["diskOp"] | null;
+      diskSeed?: Environment["diskSeed"] | null;
     },
     updatedAt: string,
   ): Promise<void> {
@@ -1459,6 +1465,16 @@ class PostgresTx implements Tx {
     return row;
   }
 
+  async diskArtifact(
+    environmentId: string,
+    options: { lock?: boolean } = {},
+  ): Promise<ArtifactRow | undefined> {
+    this.check();
+    const query = this.db.select().from(artifacts).where(eq(artifacts.environmentId, environmentId));
+    const [row] = options.lock ? await query.for("update") : await query;
+    return row;
+  }
+
   async listArtifacts(filter: { sessionId?: string } = {}): Promise<ArtifactRow[]> {
     this.check();
     return this.db
@@ -1516,6 +1532,24 @@ class PostgresTx implements Tx {
       .returning({ blobKey: artifactVersions.blobKey });
     await this.db.delete(artifacts).where(eq(artifacts.id, id));
     return deleted.map((row) => row.blobKey);
+  }
+
+  async deleteArtifactVersion(artifactId: string, version: number): Promise<string | undefined> {
+    this.check();
+    const [deleted] = await this.db
+      .delete(artifactVersions)
+      .where(and(eq(artifactVersions.artifactId, artifactId), eq(artifactVersions.version, version)))
+      .returning({ blobKey: artifactVersions.blobKey });
+    if (!deleted) return undefined;
+    const [left] = await this.db
+      .select({ latest: sql<number | null>`max(${artifactVersions.version})` })
+      .from(artifactVersions)
+      .where(eq(artifactVersions.artifactId, artifactId));
+    await this.db
+      .update(artifacts)
+      .set({ latestVersion: Number(left?.latest ?? 0), updatedAt: new Date().toISOString() })
+      .where(eq(artifacts.id, artifactId));
+    return deleted.blobKey;
   }
 
   async lockArtifactQuota(): Promise<void> {
