@@ -223,6 +223,10 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "GET /v1/environments/{environmentId}/secrets/{name}",
       "PUT /v1/environments/{environmentId}/secrets/{name}",
       "DELETE /v1/environments/{environmentId}/secrets/{name}",
+      "POST /v1/environments/{environmentId}/snapshot",
+      "POST /v1/environments/{environmentId}/restore",
+      "GET /v1/environments/{environmentId}/versions",
+      "DELETE /v1/environments/{environmentId}/versions/{version}",
     ],
   },
   {

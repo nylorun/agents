@@ -14,13 +14,20 @@
  *
  * Ids may hold `/`; they are sent percent-encoded as one path segment. Secret values are
  * write-only: no call reads one back.
+ *
+ * Disk versions (Host feature `environment-disk-versions`): `snapshot(id)` keeps a version of
+ * the Environment's disk between turns, `restore(id, version)` puts one back, and
+ * `put(id, { from: { environment, version } })` creates a new Environment from another's version.
  */
 import {
   EnvironmentPageSchema,
   isEnvironmentId,
   type DeleteEnvironmentResponse,
   type EnvironmentEvent,
+  type EnvironmentRestore,
   type EnvironmentSecretView,
+  type EnvironmentSnapshot,
+  type EnvironmentVersions,
   type EnvironmentView,
   type PutEnvironmentRequest,
   type PutEnvironmentSecretRequest,
@@ -206,6 +213,53 @@ export class EnvironmentsClient {
   /** Resets a pod Environment: a new pod on a new, empty volume, with its recipe applied. */
   async reset(environmentId: string, options: { signal?: AbortSignal } = {}): Promise<EnvironmentView> {
     return this.transport.json(`${this.path(environmentId)}/reset`, "POST", {}, options.signal);
+  }
+
+  /**
+   * Keeps a version of the Environment's disk (`POST /v1/environments/{id}/snapshot`), between
+   * turns; `unchanged` when the disk is as the latest version has it.
+   */
+  async snapshot(environmentId: string, options: { signal?: AbortSignal } = {}): Promise<EnvironmentSnapshot> {
+    await this.transport.requireFeature("environment-disk-versions", options.signal);
+    return this.transport.json(`${this.path(environmentId)}/snapshot`, "POST", {}, options.signal);
+  }
+
+  /**
+   * Puts disk version `version` back: at once for a virtual Environment (`done`), on a new volume
+   * seeded before the next turn for a pod (`pending`).
+   */
+  async restore(
+    environmentId: string,
+    version: number | "latest",
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EnvironmentRestore> {
+    await this.transport.requireFeature("environment-disk-versions", options.signal);
+    return this.transport.json(
+      `${this.path(environmentId)}/restore`,
+      "POST",
+      { requestId: id(), version },
+      options.signal,
+    );
+  }
+
+  /** The Environment's disk versions, newest first. */
+  async versions(environmentId: string, options: { signal?: AbortSignal } = {}): Promise<EnvironmentVersions> {
+    await this.transport.requireFeature("environment-disk-versions", options.signal);
+    return this.transport.json(`${this.path(environmentId)}/versions`, "GET", undefined, options.signal);
+  }
+
+  /** Deletes disk version `version`; `deleted` is false when there was none. */
+  async deleteVersion(
+    environmentId: string,
+    version: number,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ environmentId: string; version: number; deleted: boolean }> {
+    return this.transport.json(
+      `${this.path(environmentId)}/versions/${version}`,
+      "DELETE",
+      undefined,
+      options.signal,
+    );
   }
 
   /** Deletes the Environment, its vault and its files; `deleted` is false when there was none. */

@@ -171,6 +171,7 @@ it("documents the Environment routes for callers that may use sessions or change
     ["get", "/v1/environments/{environmentId}/events"],
     ["get", "/v1/environments/{environmentId}/secrets"],
     ["get", "/v1/environments/{environmentId}/secrets/{name}"],
+    ["get", "/v1/environments/{environmentId}/versions"],
   ] as const;
   const writes = [
     ["put", "/v1/environments/{environmentId}"],
@@ -179,6 +180,9 @@ it("documents the Environment routes for callers that may use sessions or change
     ["post", "/v1/environments/{environmentId}/reset"],
     ["put", "/v1/environments/{environmentId}/secrets/{name}"],
     ["delete", "/v1/environments/{environmentId}/secrets/{name}"],
+    ["post", "/v1/environments/{environmentId}/snapshot"],
+    ["post", "/v1/environments/{environmentId}/restore"],
+    ["delete", "/v1/environments/{environmentId}/versions/{version}"],
   ] as const;
   for (const [method, path] of [...reads, ...writes]) {
     const op = operation(method, path);

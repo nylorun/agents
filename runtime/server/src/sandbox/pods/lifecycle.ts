@@ -25,12 +25,17 @@
  * - **Reset** (`tenant/environments.ts`) bumps the volume generation: a new name, so a new
  *   Sandbox and volume; the old name is `retiring` and deleted here.
  *
+ * - **Setup** (R2d step 2): a failed setup (`sandbox/setup.ts`) leaves the pod `failed` with a
+ *   reason that starts `setup:`, even while the pod is ready, until a turn start asks it to run.
+ *
  * An unused Environment is deleted by the Tenant sweep (`lifecycle.deleteAfter`), not here.
  */
 import type { EnvironmentEventPayload, EnvironmentEventType } from "@nylorun/core/contracts";
 import type { Environment, SandboxPodPatch, SandboxPodState } from "../../store/types.js";
 import type { PodStatus } from "./client.js";
 
+/** A setup failure's `reason` starts with this (`sandbox/setup.ts`); it is sticky. */
+export const SETUP_FAILED = "setup:";
 /** A pod not ready this long after it was asked to run has failed. */
 export const READY_DEADLINE_MS = 5 * 60_000;
 /** How soon to look again while the pod changes. */
@@ -202,6 +207,9 @@ export function decide(facts: PodFacts): PodDecision {
   }
 
   if (desired === "running") {
+    // A failed setup (R2d step 2) stays failed until a turn start asks the pod to run again,
+    // though the pod itself is ready: its engine takes no turn meanwhile.
+    if (pod.observed === "failed" && pod.reason?.startsWith(SETUP_FAILED)) return done();
     if (status.ready) {
       if (pod.observed !== "running") {
         patch.observed = "running";

@@ -20,6 +20,7 @@
 import { HarnessApiError, type CoreMethod, type WorkspaceRecord } from "@nylorun/core/harness-api";
 import type { CapabilityManifest, SandboxToolName } from "@nylorun/core/define";
 import type { SandboxManager, SandboxSessionRef } from "../sandbox/manager.js";
+import { fromWireAnswer, toWireOp, type DiskOp } from "../sandbox/disk-fs.js";
 import { DEFAULT_SANDBOX_IMAGE } from "../sandbox/policy.js";
 import type { SandboxSelectionReport } from "../sandbox/select.js";
 import type { SandboxToolOutcome } from "../sandbox/tools.js";
@@ -58,6 +59,13 @@ export interface WorkspacePort {
     maxBytes: number,
     signal: AbortSignal
   ): ReturnType<SandboxManager["readBytes"]>;
+  /** One operation on the disk of the workspace of `session` (R2d step 3). */
+  disk(
+    session: SandboxSessionRef,
+    capability: CapabilityManifest,
+    op: DiskOp,
+    signal: AbortSignal
+  ): ReturnType<SandboxManager["disk"]>;
   report(): Promise<WorkspaceReport>;
   /** One Tenant sweep pass: stop idle workspaces, remove those whose owner is gone. */
   sweep(options: { now?: number; sessionExists: Exists; sandboxExists: Exists }): Promise<void>;
@@ -77,6 +85,7 @@ export function localWorkspace(manager: SandboxManager): WorkspacePort {
       manager.listFiles(session, capability, dir, maxEntries, signal),
     readBytes: (session, capability, path, maxBytes, signal) =>
       manager.readBytes(session, capability, path, maxBytes, signal),
+    disk: (session, capability, op, signal) => manager.disk(session, capability, op, signal),
     report: () => manager.report(),
     sweep: (options) => manager.sweep(options),
     removeSandbox: (environmentId) => manager.removeSandbox(environmentId),
@@ -224,6 +233,22 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
         throw error;
       }
     },
+    async disk(session, capability, op, signal) {
+      try {
+        const answer = (await options.server.workspace(
+          "list" in op || "read" in op ? "workspace.read" : "workspace.write",
+          { session: sessionOf(session), spec: capability.sandbox ?? {}, disk: toWireOp(op) as never },
+          signal,
+          target
+        )) as Record<string, unknown>;
+        return answer.kind === "failed"
+          ? { kind: "failed", code: String(answer.code), message: String(answer.message) }
+          : fromWireAnswer(answer);
+      } catch (error) {
+        if (error instanceof NoWorkspaceHarness) return unavailable(error);
+        throw error;
+      }
+    },
     async report() {
       const answer = await ask("workspace.report", {}).catch(() => undefined);
       if (answer) return answer as unknown as WorkspaceReport;
@@ -274,5 +299,7 @@ export function withPodWorkspaces(
       (await routed(session)).listFiles(session, capability, dir, maxEntries, signal),
     readBytes: async (session, capability, path, maxBytes, signal) =>
       (await routed(session)).readBytes(session, capability, path, maxBytes, signal),
+    disk: async (session, capability, op, signal) =>
+      (await routed(session)).disk(session, capability, op, signal),
   };
 }

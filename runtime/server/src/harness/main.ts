@@ -10,8 +10,9 @@
  *
  * In a pod sandbox (`NYLORUN_SANDBOX_KIND=pod`, F7.2) it is that sandbox's engine: it first waits
  * until the pod's NetworkPolicy is in force (`awaitNetworkPolicy`), then joins with the
- * pod's join token instead of a harness token (`pod.ts`), and runs its sandbox's tools in the
- * pod itself (the `local` backend), with egress through egress-gate. SIGTERM (tini forwards
+ * pod's join token instead of a harness token (`pod.ts`), runs its disk's setup on a new volume
+ * (`setup.ts`), and runs its sandbox's tools in the pod itself (the `local` backend), with egress
+ * through egress-gate. SIGTERM (tini forwards
  * it; the pod's grace is 10 s by default) gives its runs back and exits.
  */
 import { mkdirSync } from "node:fs";
@@ -22,9 +23,10 @@ import { httpToolGate } from "../gates/tool-client.js";
 import { createHostLogger } from "../host/logger.js";
 import type { StackConfig } from "../host/stack-config.js";
 import { RUNTIME_VERSION } from "../version.js";
-import { localBackend } from "../adapters/sandbox/local.js";
+import { localBackend, localExec } from "../adapters/sandbox/local.js";
 import { awaitNetworkPolicy } from "../sandbox/pods/network-gate.js";
 import { podHost, type PodHost } from "./pod.js";
+import { prepareDisk } from "./setup.js";
 import { harnessRunTokens } from "./run-tokens.js";
 import { startHarnessService } from "./service.js";
 
@@ -54,6 +56,16 @@ export async function runHarness(
       volumeFile: join(config.root, "volume-id"),
       caBundleFile: join(config.root, "egress-ca-bundle.pem"),
     });
+    // Join, then make the disk ready (R2d step 2) before taking any turn.
+    await pod.token();
+    const host = pod;
+    await prepareDisk({
+      host,
+      exec: localExec({ env: baseline, proxyEnv: () => host.proxyEnv() }),
+      volumeFile: join(config.root, "volume-id"),
+      markerFile: join(config.root, "setup.json"),
+      logger,
+    });
   }
   const token = pod ? () => pod.token() : config.token;
   if (token === undefined) throw new Error("--service harness needs NYLORUN_HARNESS_TOKEN");
@@ -62,7 +74,9 @@ export async function runHarness(
   const service = startHarnessService({
     url: config.url,
     token,
-    ...(pod ? { sandboxBackends: [localBackend({ env: baseline, proxyEnv: () => pod.proxyEnv() })] } : {}),
+    ...(pod
+      ? { sandboxBackends: [localBackend({ env: baseline, proxyEnv: () => pod.proxyEnv(), harnessRoot: config.root })] }
+      : {}),
     paths,
     modelGate: httpModelGate({ url: config.gatesUrl, runTokens }),
     useVaultModel: true,

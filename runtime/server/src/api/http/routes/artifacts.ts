@@ -271,7 +271,8 @@ function zipResponse(
   const refused = zipTooLarge(manifest.entries.length, version.size);
   if (refused) fail(400, refused);
   const iterator = zipStream(
-    manifest.entries.map((entry) => ({
+    // A v2 manifest's links and empty directories are not files: the zip holds the files.
+    manifest.entries.filter((entry) => entry.type === undefined).map((entry) => ({
       name: entry.path,
       open: async () => {
         const got = await ctx.blobs.get(contentKey(entry.sha256), { signal: request.signal });
@@ -637,9 +638,12 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Artifacts"],
       summary: "Delete an artifact",
       description:
-        "Deletes every version and its bytes; its links stop working. A session's artifact gets `artifact.deleted` in its history.",
+        "Deletes every version and its bytes; its links stop working. A session's artifact gets `artifact.deleted` in its history. An Environment's disk versions are deleted through `/v1/environments/{environmentId}/versions/{version}` (`409` here).",
       request: { params: artifactId },
-      responses: { 200: json(DeleteArtifactResponse, "Deleted") },
+      responses: {
+        200: json(DeleteArtifactResponse, "Deleted"),
+        409: { description: "The artifact holds an Environment's disk versions" },
+      },
     },
     async (c) =>
       jsonResponse(

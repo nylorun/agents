@@ -219,6 +219,18 @@ Secrets are write-only: `client.environments.secrets.put(id, name, secret)` crea
 
 Sessions on one Environment share its `/workspace`, and one turn runs in it at a time: a second session's turn is refused with `409 environment_busy` until the first ends. Deleting a session only detaches it. With `ownerUserId` set, a session of another owner is `403 environment_owner_mismatch` (a caller acting for a person gets the `404` of a missing Environment), checked when it opens and at every turn start. `client.environments.list({ labels })`, `page`, `get(id)`, `events(id)`, `stop(id)`, `reset(id)` and `delete(id)` manage them, and `npx nylorun sandbox ls | rm` does the same on a local Tenant. Acting for a person (`app.as(...)`), changing an Environment or its secrets needs `environments:write`. A trusted issuer's token reaches only the Environments its issuer grants (the identity file's `environments` templates, exact ids or prefixes ending in `/*`), checked at every turn start. The Tenant holds at most `limits.environments` of them (`PUT /v1/tenant/sandbox`, default 100).
 
+A pod's disk can start prepared: `files` copies versions of Tenant-wide artifacts in, then `setup` runs its commands, once per new disk and before its first turn (a failed command fails the pod, and the next turn start runs the setup again). Between turns, `client.environments.snapshot(id)` keeps a version of the disk, `restore(id, version)` puts one back (a pod on a new volume seeded before its next turn), `put(newId, { from: { environment: id, version: "latest" } })` starts a new Environment from it, and `versions(id)` and `deleteVersion(id, n)` manage them ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#environments)):
+
+```ts
+await client.environments.put("projects/acme", {
+  kind: "pod",
+  files: [{ artifactId: repoTarball.artifactId, version: 1, path: "/workspace/app" }],
+  setup: [{ command: "npm ci", cwd: "/workspace/app", timeout: "15m" }],
+});
+const { version } = await client.environments.snapshot("projects/acme");
+await client.environments.put("projects/acme-try", { kind: "pod", from: { environment: "projects/acme", version } });
+```
+
 Add an agent with `.subagents()` to let the model delegate to it:
 
 ```ts

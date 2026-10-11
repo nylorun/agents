@@ -197,6 +197,30 @@ relayed to S2; the session's log records `environment.attached`.
 _Avoid_: "scope" for who uses an Environment (the app maps people to ids), "space", "sandbox
 resource" (protocol 10).
 
+**Disk setup**: A pod Environment's `files` and `setup` (R2d step 2, `sandbox/setup.ts`,
+`harness/setup.ts`), run once per new disk: the join answer carries the plan (`setupPlanOf`), the
+engine copies the input files through `GET host/files/{index}` and runs the commands before it
+serves a turn, marking the volume (`/harness/setup.json` with the volume id). A failure is
+`POST host/setup`: the pod is `observed: failed` with reason `setup: …`, kept while it is ready
+until a turn start asks it to run again, when `GET host/setup` tells the engine to retry. A volume
+seeded from a disk version skips it.
+
+**Disk version**: A version of an Environment's disk (R2d step 3, `artifacts/disk.ts`,
+`sandbox/disk-fs.ts`): a version of the folder artifact the Environment owns
+(`artifacts.environment_id`), manifest `nylorun.folder.v2` with modes, file times, links and empty
+directories, its files content-addressed and shared with every other folder version. Disk work
+holds the Environment's **disk lease** (`environments.disk_op`: snapshot, restore or seed, with a
+heartbeat), refused during a turn and refusing turns (`409 environment_busy`). A snapshot lists and
+reads the disk through the workspace (`SandboxManager.disk`, over the Harness API for a pod) in
+8 MiB ranges. A restore rewrites a virtual workspace at once; for a pod it takes a new volume
+(`newVolume`) with `disk_seed`, which `runPendingSeed` writes once the new pod's engine connects
+(started at join, swept by the Tenant sweep), turns waiting meanwhile. `from` on a create seeds a
+new Environment the same way, and a lost volume with a version is recovered from the latest one
+(`recoverLostVolume`). The engine's own files (`volume-id`, the trust bundle, the setup marker,
+`sandboxes/`) are never in a version.
+_Avoid_: "snapshot" for the stored thing (a snapshot is the act; the result is a disk version),
+"checkpoint".
+
 **Vault**: One Environment's secrets (D56, `vault/service.ts`): a `vaults` row whose
 `environment_id` names its Environment (unique, deleted with it), created in the transaction that
 creates the Environment. Its credentials are written on the Runtime API with

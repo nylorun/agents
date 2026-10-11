@@ -14,8 +14,11 @@
  * /nylorun/harness/v1/host/join` (`{ sandboxId, podUid, joinToken }`), renews it with `POST
  * .../host/renew` (`Authorization: Bearer <host token>`), and upgrades with the host token as
  * its bearer: that connection hosts its sandbox alone (`HarnessPeer.host`). Both answer
- * `{ hostToken, egressToken, sandboxId, epoch, expiresAt, caCertificate }` (the egress CA, R2c);
- * every refusal is the same 401. The harness token is never accepted as a host token, nor a host token anywhere but here.
+ * `{ hostToken, egressToken, sandboxId, epoch, expiresAt, caCertificate }` (the egress CA, R2c),
+ * and a join adds the disk's `setup` (R2d step 2). With its host token the engine also reads and
+ * reports its setup (`GET|POST .../host/setup`) and reads its input files (`GET
+ * .../host/files/{index}[/{path}]`). Every refusal is the same 401. The harness token is never
+ * accepted as a host token, nor a host token anywhere but here.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -32,13 +35,20 @@ import {
 import { tokenType } from "../tenant/jwt.js";
 import { HOST_TOKEN_TYP } from "../tenant/host-token.js";
 import { HostAuthError, type HostAuthority, type HostJoinRequest } from "../sandbox/join.js";
+import { parseSetupReport } from "../sandbox/setup.js";
 import type { HarnessPeer } from "./server.js";
 
 /** Where a pod's engine exchanges its join token, and renews its host token. */
 export const HOST_JOIN_PATH = `${HARNESS_API_PATH}/host/join`;
 export const HOST_RENEW_PATH = `${HARNESS_API_PATH}/host/renew`;
+/** Where a pod's engine reads its setup and reports it (R2d step 2, `sandbox/setup.ts`). */
+export const HOST_SETUP_PATH = `${HARNESS_API_PATH}/host/setup`;
+/** Where it reads its input files: `/{index}`, and a folder's file `/{index}/{path}`. */
+export const HOST_FILES_PATH = `${HARNESS_API_PATH}/host/files`;
 /** A join's body is small. */
 const MAX_JOIN_BODY = 8 * 1024;
+/** A setup report carries the end of a command's output. */
+const MAX_REPORT_BODY = 64 * 1024;
 
 /** Attaches a harness's channel to the open Tenant; returns a function that detaches it. */
 export type HarnessAttach = (channel: HarnessChannel, peer: HarnessPeer) => () => void;
@@ -117,13 +127,13 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
     });
     response.end(text);
   };
-  const readBody = (request: IncomingMessage) =>
+  const readBody = (request: IncomingMessage, max = MAX_JOIN_BODY) =>
     new Promise<string>((resolve, reject) => {
       let size = 0;
       const chunks: Buffer[] = [];
       request.on("data", (chunk: Buffer) => {
         size += chunk.length;
-        if (size > MAX_JOIN_BODY) {
+        if (size > max) {
           reject(new HostAuthError(400, "The body is too large"));
           request.destroy();
         } else chunks.push(chunk);
@@ -159,12 +169,67 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
     }
   };
 
-  // Plain requests get nothing but the pods' join and renewal: the listener speaks the Harness API.
+  /** A pod's setup and input files (R2d step 2), with its host token. */
+  const serveSetup = async (request: IncomingMessage, response: ServerResponse, path: string) => {
+    if (!allowed.has(String(request.headers.host ?? "").toLowerCase())) return reply(response, 421);
+    const authority = await options.hosts?.().catch(() => undefined);
+    if (!authority || closing) return reply(response, 503, { error: { code: "unavailable", message: "Try again" } });
+    const token = bearerOf(request.headers.authorization) ?? "";
+    try {
+      if (path === HOST_SETUP_PATH) {
+        if (request.method === "GET") return reply(response, 200, await authority.setup(token));
+        if (request.method !== "POST") return reply(response, 405, undefined, { allow: "GET, POST" });
+        const report = parseSetupReport(JSON.parse(await readBody(request, MAX_REPORT_BODY)));
+        if (!report) throw new HostAuthError(400, "The report is malformed");
+        await authority.reportSetup(token, report);
+        return reply(response, 200, {});
+      }
+      if (request.method !== "GET") return reply(response, 405, undefined, { allow: "GET" });
+      const [index, ...rest] = path.slice(HOST_FILES_PATH.length + 1).split("/");
+      if (!/^\d{1,2}$/.test(index ?? "")) return reply(response, 404);
+      const file = await authority.setupFile(
+        token,
+        Number(index),
+        rest.length === 0 ? undefined : rest.map((part) => decodeURIComponent(part)).join("/"),
+      );
+      if (!file) return reply(response, 404);
+      if (file.kind === "folder")
+        return reply(response, 200, { entries: file.entries }, { "x-nylorun-artifact-kind": "folder" });
+      response.writeHead(200, {
+        connection: "close",
+        "cache-control": "no-store",
+        "content-type": file.contentType,
+        "x-nylorun-artifact-kind": "file",
+      });
+      for await (const chunk of file.body as unknown as AsyncIterable<Uint8Array>) response.write(chunk);
+      response.end();
+    } catch (error) {
+      if (error instanceof HostAuthError) {
+        if (error.reason) logger.warn("sandbox_host_refused", { path, reason: error.reason });
+        return reply(
+          response,
+          error.status,
+          { error: { code: error.status === 401 ? "unauthorized" : "invalid", message: error.message } },
+          error.status === 401 ? { "www-authenticate": "Bearer" } : {}
+        );
+      }
+      if (error instanceof SyntaxError) return reply(response, 400, { error: { code: "invalid", message: "Not JSON" } });
+      logger.warn("sandbox_host_failed", { path, message: error instanceof Error ? error.message : String(error) });
+      if (response.headersSent) return void response.destroy();
+      return reply(response, 503, { error: { code: "unavailable", message: "Try again" } });
+    }
+  };
+
+  // Plain requests get nothing but the pods' join, renewal and setup: the listener speaks the Harness API.
   const server = createServer((request, response) => {
     const path = new URL(request.url ?? "/", "http://harness.local").pathname;
     if (closing) return reply(response, 503);
     if ((path === HOST_JOIN_PATH || path === HOST_RENEW_PATH) && options.hosts) {
       void serveHost(request, response, path);
+      return;
+    }
+    if ((path === HOST_SETUP_PATH || path.startsWith(`${HOST_FILES_PATH}/`)) && options.hosts) {
+      void serveSetup(request, response, path);
       return;
     }
     response.writeHead(426, { connection: "close", upgrade: "websocket" });

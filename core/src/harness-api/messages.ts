@@ -21,6 +21,7 @@ import type {
   WorkspaceBytesCallSchema,
   WorkspaceCallSchema,
   WorkspaceListCallSchema,
+  WorkspaceDiskCallSchema,
   WorkspaceRecordSchema,
   WorkspaceSessionSchema,
   coreMessages,
@@ -88,7 +89,7 @@ export type OutcomeAnswer = z.infer<typeof OutcomeAnswerSchema>;
 /** Requests a harness sends to core, with their answers. */
 export type HarnessRequests = RequestTypes<typeof harnessRequests>;
 
-/** The session a workspace request acts for: the workspace's owner and its sandbox resource. */
+/** The session a workspace request acts for, and the Environment whose workspace it is. */
 export type WorkspaceSession = z.infer<typeof WorkspaceSessionSchema>;
 
 /** A workspace's compute record, as the harness keeps it. */
@@ -102,6 +103,9 @@ export type WorkspaceBytesCall = z.infer<typeof WorkspaceBytesCallSchema>;
 
 /** The regular files under a directory of a workspace (the turn-end export, F8.2). */
 export type WorkspaceListCall = z.infer<typeof WorkspaceListCallSchema>;
+
+/** One operation on a workspace's disk (R2d step 3). */
+export type WorkspaceDiskCall = z.infer<typeof WorkspaceDiskCallSchema>;
 
 /** Requests core sends to a harness that declared `workspace` (F6.2), with their answers. */
 export type CoreRequests = RequestTypes<typeof coreRequests>;

@@ -37,6 +37,8 @@ export interface SandboxSpec {
   readonly network: ResolvedNetwork;
 }
 
+import type { DiskRoots } from "./disk-fs.js";
+
 export interface ExecRequest {
   readonly command: string;
   readonly cwd: string;
@@ -80,6 +82,11 @@ export interface SandboxHandle {
   writeFile(path: string, content: string | Uint8Array): Promise<void>;
   /** Release compute; files persist. */
   stop(): Promise<void>;
+  /**
+   * Where the disk's roots are, for disk versions (R2d step 3, `sandbox/disk-fs.ts`): the
+   * workspace, and in a pod the engine's `/harness`. Absent for a backend without a disk.
+   */
+  readonly diskRoots?: DiskRoots;
 }
 
 /** The files `listFiles` found: paths relative to the directory listed. */
