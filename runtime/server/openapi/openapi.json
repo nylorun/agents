@@ -9770,6 +9770,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -9804,6 +9806,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -10009,6 +10033,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -10043,6 +10069,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -10199,6 +10247,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -10233,6 +10283,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -10386,6 +10458,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -10420,6 +10494,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -10548,6 +10644,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -10582,6 +10680,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -10753,6 +10873,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -10787,6 +10909,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -10929,6 +11073,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -10963,6 +11109,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -11093,6 +11261,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -11127,6 +11297,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -11335,6 +11527,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -11369,6 +11563,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -11537,6 +11753,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -11571,6 +11789,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -11744,6 +11984,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -11778,6 +12020,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -12005,6 +12269,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -12039,6 +12305,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -12176,6 +12464,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -12210,6 +12500,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -12365,6 +12677,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -12399,6 +12713,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -12554,6 +12890,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -12588,6 +12926,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -12797,6 +13157,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -12831,6 +13193,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -12992,6 +13376,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -13026,6 +13412,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -13174,6 +13582,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -13208,6 +13618,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -13341,6 +13773,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -13375,6 +13809,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -13519,6 +13975,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -13553,6 +14011,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -13699,6 +14179,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -13733,6 +14215,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -13879,6 +14383,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -13913,6 +14419,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -14058,6 +14586,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -14092,6 +14622,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -14274,6 +14826,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -14308,6 +14862,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -14490,6 +15066,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -14524,6 +15102,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -14661,6 +15261,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -14695,6 +15297,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -14849,6 +15473,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -14883,6 +15509,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
@@ -15020,6 +15668,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "client",
+                  "core",
                   "model-gate",
                   "tool-gate",
                   "egress-gate",
@@ -15054,6 +15704,28 @@
               "claimed",
               "asserted"
             ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
           },
           "trace": {
             "type": "object",
