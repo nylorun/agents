@@ -8,7 +8,9 @@ import {
   ModelCallsPage,
   ModelCallExportPage,
   ToolCallsPage,
+  TurnTrace,
 } from "../../components.js";
+import { turnTrace } from "../../../traces/read.js";
 import { readAccess, readStoreOf } from "../../../reads/access.js";
 import { requireApplication, requirePrincipal } from "../../../tenant/auth.js";
 import { fail } from "../../../tenant/http.js";
@@ -184,6 +186,35 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
           readAccess(c.get("scope")),
         ),
       );
+    },
+  );
+  // A turn's spans (R7.5): the same mapping the trace projector posts, from the turn's log rows,
+  // with the installation's content opt-ins. Spans carry cost: the application's, as /calls are.
+  tenantRoute(
+    api,
+    { credentials: ["application"], scopes: "never" },
+    {
+      method: "get",
+      path: "/v1/sessions/{sessionId}/turns/{turnId}/trace",
+      tags: ["Sessions"],
+      summary: "Read a turn's trace",
+      description:
+        "The turn's spans as OTLP/HTTP JSON (`resourceSpans`), as the Runtime posts them to an OTLP collector: a root span for the turn, a span for each model, tool and egress crossing, ids derived so every read agrees. Post it to a collector's `/v1/traces` to backfill. A turn still running has no root span yet; a turn the session never had has no spans.",
+      request: { params: sessionId.extend({ turnId: z.string() }) },
+      responses: {
+        200: {
+          description: "The turn's spans",
+          content: { "application/json": { schema: TurnTrace } },
+        },
+      },
+    },
+    async (c) => {
+      requirePrincipal(c.get("scope"));
+      const ctx = c.env.tenant;
+      const id = c.req.param("sessionId")!;
+      const turnId = c.req.param("turnId")!;
+      const events = await readStoreOf(ctx).turnEvents(id, turnId, readAccess(c.get("scope")));
+      return jsonResponse(200, await turnTrace(ctx, id, turnId, events));
     },
   );
   const exportQuery = z

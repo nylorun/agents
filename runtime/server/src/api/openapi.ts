@@ -184,6 +184,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "GET /v1/sessions/{sessionId}/usage",
       "GET /v1/sessions/{sessionId}/calls/model",
       "GET /v1/sessions/{sessionId}/calls/tool",
+      "GET /v1/sessions/{sessionId}/turns/{turnId}/trace",
       "POST /v1/sessions/{sessionId}/sandbox/{tool}",
     ],
   },

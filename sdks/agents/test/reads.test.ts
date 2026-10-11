@@ -16,6 +16,8 @@ function runtime(features: readonly string[] = HOST_PROTOCOL.features) {
           protocol: { ...HOST_PROTOCOL, features },
         });
       paths.push(url.pathname + url.search);
+      if (url.pathname.endsWith("/trace"))
+        return Response.json({ resourceSpans: [{ resource: { attributes: [] }, scopeSpans: [] }] });
       if (url.pathname.endsWith("/items"))
         return Response.json({
           items: [],
@@ -60,4 +62,14 @@ it("rejects unsupported optional reads before sending their requests", async () 
   // The Tenant's ledger export is the Management API's (`@nylorun/admin`), not the SDK's.
   expect("calls" in client).toBe(false);
   expect(paths).toEqual([]);
+});
+it("reads a turn's trace (feature traces), and refuses it on a Runtime without the feature", async () => {
+  const { client, paths } = runtime();
+  expect(await client.session("s 1").trace("trn/1")).toEqual({
+    resourceSpans: [{ resource: { attributes: [] }, scopeSpans: [] }],
+  });
+  expect(paths).toEqual(["/v1/sessions/s%201/turns/trn%2F1/trace"]);
+  const older = runtime(HOST_PROTOCOL.features.filter((f) => f !== "traces"));
+  await expect(older.client.session("s").trace("t")).rejects.toThrow(/traces/);
+  expect(older.paths).toEqual([]);
 });

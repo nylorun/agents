@@ -26,6 +26,7 @@ import {
   SessionUsageTotalsSchema,
   ModelCallsPageSchema,
   ToolCallsPageSchema,
+  TurnTraceSchema,
   type SessionItemsResponse,
   type SessionSummary,
   type ListAgentsResponse,
@@ -421,6 +422,22 @@ export class SessionClient {
     if (options.cursor !== undefined) query.set("cursor", options.cursor);
     return ToolCallsPageSchema.parse(
       await this.transport.json(`${this.path}/calls/tool?${query}`, "GET", undefined, options.signal),
+    );
+  }
+  /**
+   * A turn's trace (R7, Host feature `traces`): its spans as OTLP/HTTP JSON (`resourceSpans`), as
+   * the Runtime posts them to an OTLP collector. Post it to a collector's `/v1/traces` to backfill
+   * one, or read it without one.
+   */
+  async trace(turnId: string, options: { signal?: AbortSignal } = {}) {
+    await this.transport.requireFeature("traces", options.signal);
+    return TurnTraceSchema.parse(
+      await this.transport.json(
+        `${this.path}/turns/${encodeURIComponent(turnId)}/trace`,
+        "GET",
+        undefined,
+        options.signal,
+      ),
     );
   }
   /** `agent` narrows to one agent used as a tool: its delegationId or its path. */
