@@ -172,6 +172,8 @@ describe("a pod Environment's setup and input files", { timeout: 90_000 }, () =>
       content: "go",
     });
     expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+    // The pod is kept: a reconcile applies nothing new, and the engine's host token still serves.
+    await runtime.handle.worker!.sandbox!("setup/fails", "reconcile", new AbortController().signal);
     const again = await until("retry", () => hosts.setup(joined.hostToken), (state) => state.retry);
     expect(again.setup?.commands).toEqual([{ command: "exit 3", cwd: "/workspace", timeoutMs: 10 * 60_000 }]);
   });

@@ -48,6 +48,7 @@ import { sandboxWorkspaceKey } from "../sandbox/records.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import { podName } from "../sandbox/pods/name.js";
 import { podLifecycleConfig } from "../sandbox/pods/spec.js";
+import { SETUP_FAILED } from "../sandbox/pods/lifecycle.js";
 import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
 import { deleteDiskArtifact, forkSeedOf, runPendingSeed } from "../artifacts/disk.js";
@@ -220,8 +221,26 @@ type PodEnvironment = Environment & { pod: SandboxPodState };
 /**
  * Asks the pod to run (again), with the recipe applied: a new `rev`, so the service applies it.
  * Only a stopped or failed pod is asked, so image and resources never change mid-turn (Q8).
+ *
+ * A pod that runs but whose disk setup failed (R2d step 2) with its recipe unchanged keeps its pod:
+ * the failure is cleared and nothing applied, so its engine, which polls `GET host/setup` with its
+ * host token, is told to run the setup again (a new apply would end that token).
  */
 async function wantRunning(t: Tx, environment: PodEnvironment, now: string): Promise<void> {
+  const pod = environment.pod;
+  if (
+    pod.desired === "running" &&
+    pod.observed === "failed" &&
+    pod.reason?.startsWith(SETUP_FAILED) &&
+    environment.appliedVersion === environment.version
+  ) {
+    await t.updateEnvironmentPod(
+      environment.id,
+      { observed: "creating", startedAt: now, lastActiveAt: now, reason: null },
+      now,
+    );
+    return;
+  }
   if (environment.appliedVersion !== environment.version)
     await t.updateEnvironment(
       environment.id,
