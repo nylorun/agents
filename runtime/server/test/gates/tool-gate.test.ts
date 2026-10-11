@@ -3,7 +3,7 @@
  * authorizes one), the gate refuses servers a session does not declare, and HTTP tool calls
  * cross it (R2 M3).
  */
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -309,7 +309,8 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
     return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/refunds`, seen };
   }
 
-  async function gate() {
+  /** `open`: the vault the gate opens for `tenantId`; the fixture's unless it returns another. */
+  async function gate(options: { open?: (tenantId: string | undefined) => Promise<object | undefined> } = {}) {
     const authorizeMcp = vi.fn(async (_sessionId: string, request: { url: string }) => ({
       status: "authorized" as const,
       url: request.url,
@@ -319,12 +320,13 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
       gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
       logger: quiet,
       vaults: {
-        open: async () =>
+        open: async (tenantId?: string) =>
           ({
             tenantId: runs.tenantId,
             store: runs.store,
             session: (id: string) => runs.store.tx((t) => t.get("sessions", id)),
             authorizeMcp,
+            ...(await options.open?.(tenantId)),
           }) as never,
       },
       drainMs: 0,
@@ -406,5 +408,68 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
       result: { kind: "failed", code: "http.undeclared", message: "'nope' is not an HTTP tool of the session" },
     });
     expect(target.seen).toEqual([]);
+  });
+
+  it("shuts down mid-call with a re-send whose caller went away, and leaves no unhandled rejection", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    cleanup.push(async () => void process.off("unhandledRejection", unhandled));
+    // A service that never answers.
+    let reached!: () => void;
+    const called = new Promise<void>((resolve) => (reached = resolve));
+    const silent: Server = createServer(() => reached());
+    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+    cleanup.push(async () => {
+      silent.closeAllConnections();
+      await new Promise<void>((resolve) => silent.close(() => resolve()));
+    });
+    const agent = billing(`http://127.0.0.1:${(silent.address() as AddressInfo).port}/refunds`);
+    // Once the call runs, the re-send's journal check (the open naming the Tenant) waits until
+    // its caller has gone, then reports when its read is done.
+    let hold: { entered: () => void; released: Promise<void>; checked: () => void } | undefined;
+    const { server } = await gate({
+      open: async (tenantId) => {
+        if (tenantId === undefined || !hold) return undefined;
+        const { entered, released, checked } = hold;
+        hold = undefined;
+        entered();
+        await released;
+        return { store: { tx: (fn: never) => runs.store.tx(fn).finally(() => setImmediate(checked)) } };
+      },
+    });
+    const responses: Promise<void>[] = [];
+    server.server.on("request", (_req, res: ServerResponse) =>
+      responses.push(new Promise<void>((resolve) => res.once("close", () => resolve()))),
+    );
+    await runs.run("http-d", { manifest: agent.manifest });
+    const call = {
+      tool: { sessionId: "http-d", capabilityId: capabilityOf(agent), toolName: "refund" },
+      effectId: "turn-d:0:tool:1",
+      turnId: "t",
+      input: { id: "D-1" },
+    };
+    await runs.journal("http-d", { ...call.tool, effectId: call.effectId, input: call.input });
+    const tools = httpToolGate({ url: server.url, token, runTokens: runs.grants });
+    void tools.callHttp!(call, new AbortController().signal).catch(() => undefined);
+    await called;
+
+    let entered!: () => void;
+    let release!: () => void;
+    let checked!: () => void;
+    const held = new Promise<void>((resolve) => (entered = resolve));
+    const read = new Promise<void>((resolve) => (checked = resolve));
+    hold = { entered, released: new Promise<void>((resolve) => (release = resolve)), checked };
+    const gone = new AbortController();
+    const resend = tools.callHttp!(call, gone.signal).catch(() => undefined);
+    await held;
+    gone.abort();
+    await resend;
+    await responses[1];
+    // The re-send joins the running call with its own request already aborted.
+    release();
+    await read;
+    await server.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(unhandled).not.toHaveBeenCalled();
   });
 });
