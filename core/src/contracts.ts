@@ -606,21 +606,14 @@ export const PutAgentRequestSchema = z
   })
   .strict();
 export type PutAgentRequest = z.infer<typeof PutAgentRequestSchema>;
-export const CredentialSelectionSchema = z
-  .object({
-    serverName: z.string().min(1),
-    credentialId: z.string().min(1),
-  })
-  .strict();
-export type CredentialSelection = z.infer<typeof CredentialSelectionSchema>;
-const sandboxHostSchema = z.string().refine(isSandboxHostPattern, {
-  message: "network.allow entries must be host names such as api.github.com or *.example.com",
+const hostPatternSchema = z.string().refine(isSandboxHostPattern, {
+  message: "network.allowedHosts entries must be host names such as api.github.com or *.example.com",
 });
-const sandboxDurationSchema = (name: string) =>
+const durationSchema = (name: string) =>
   z.string().refine((value) => parseSandboxDuration(value) !== undefined, {
     message: `${name} must be a duration such as 30s, 15m or 1h`,
   });
-const sandboxResourcesSchema = z
+const resourcesSchema = z
   .object({
     cpus: z.number().int().min(1).max(64).optional(),
     memory: z
@@ -631,48 +624,36 @@ const sandboxResourcesSchema = z
       .optional(),
   })
   .strict();
-/**
- * A sandbox defined when a session is opened. No `network.allow` means no egress. The Runtime
- * checks it against the Tenant's limits and pins the result on the session.
- */
-export const SandboxInlineRequestSchema = z
-  .object({
-    image: z.string().min(1).optional(),
-    network: z.object({ allow: z.array(sandboxHostSchema).optional() }).strict().optional(),
-    resources: sandboxResourcesSchema.optional(),
-  })
-  .strict();
-export type SandboxInlineRequest = z.infer<typeof SandboxInlineRequestSchema>;
 
-// --- sandboxes as a resource (Host feature `sandboxes`, blueprint D39) ----------------------
+// --- Environments (protocol 11, R2d, blueprint D55 and D56) --------------------------------
 
 /**
- * A sandbox id: 1–200 characters, one or more `/`-separated segments of letters, digits, `.`,
- * `_` and `-`, each starting with a letter or digit (`user-42`, `team-a/proj-42`). Ids are
- * hierarchical so an `sbx` grant can name a family of them (`team-a/*`).
+ * An Environment id: 1–200 characters, one or more `/`-separated segments of letters, digits,
+ * `.`, `_` and `-`, each starting with a letter or digit (`user-42`, `users/alice/web`). Ids are
+ * hierarchical so a grant can name a family of them (`users/alice/*`).
  */
-const SANDBOX_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
-export const SANDBOX_ID_MAX_LENGTH = 200;
+const ENVIRONMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+export const ENVIRONMENT_ID_MAX_LENGTH = 200;
 
-export function isSandboxId(value: unknown): value is string {
+export function isEnvironmentId(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    value.length <= SANDBOX_ID_MAX_LENGTH &&
-    SANDBOX_ID_PATTERN.test(value)
+    value.length <= ENVIRONMENT_ID_MAX_LENGTH &&
+    ENVIRONMENT_ID_PATTERN.test(value)
   );
 }
 
-/** A sandbox grant: an exact sandbox id, or a prefix ending in `/*` (`team-a/*`). */
-export function isSandboxGrant(value: unknown): value is string {
+/** An Environment grant: an exact Environment id, or a prefix ending in `/*` (`team-a/*`). */
+export function isEnvironmentGrant(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  return value.endsWith("/*") ? isSandboxId(value.slice(0, -2)) : isSandboxId(value);
+  return value.endsWith("/*") ? isEnvironmentId(value.slice(0, -2)) : isEnvironmentId(value);
 }
 
 /**
- * Whether `grants` (a token caller's sandbox grants) reach sandbox `id`: an exact entry, or a prefix
- * entry `p/*` for any id below `p/`. No grants reach no sandbox.
+ * Whether `grants` (a token caller's Environment grants) reach Environment `id`: an exact entry,
+ * or a prefix entry `p/*` for any id below `p/`. No grants reach no Environment.
  */
-export function sandboxGranted(grants: readonly string[] | undefined, id: string): boolean {
+export function environmentGranted(grants: readonly string[] | undefined, id: string): boolean {
   for (const grant of grants ?? []) {
     if (grant.endsWith("/*")) {
       if (id.startsWith(grant.slice(0, -1))) return true;
@@ -681,26 +662,32 @@ export function sandboxGranted(grants: readonly string[] | undefined, id: string
   return false;
 }
 
-export const SandboxIdSchema = z
+export const EnvironmentIdSchema = z
   .string()
-  .refine(isSandboxId, {
+  .refine(isEnvironmentId, {
     message:
-      "A sandbox id is up to 200 characters: /-separated segments of letters, digits, '.', '_' and '-'",
+      "An Environment id is up to 200 characters: /-separated segments of letters, digits, '.', '_' and '-'",
   })
-  .meta({ description: "A sandbox id, such as `user-42` or `team-a/proj-42`" });
-export const SandboxGrantSchema = z.string().refine(isSandboxGrant, {
-  message: "A sandbox grant is a sandbox id, or a prefix ending in /* such as team-a/*",
+  .meta({ description: "An Environment id, such as `user-42` or `users/alice/web`" });
+export const EnvironmentGrantSchema = z.string().refine(isEnvironmentGrant, {
+  message: "An Environment grant is an Environment id, or a prefix ending in /* such as team-a/*",
 });
 
-/** `virtual`: a just-bash workspace, no cluster (F7.1). `pod`: an agent-sandbox pod (F7.2). */
-export const SANDBOX_KINDS = ["virtual", "pod"] as const;
-export type SandboxKind = (typeof SANDBOX_KINDS)[number];
+/**
+ * `virtual`: a just-bash workspace in the harness container, no cluster (a local convenience).
+ * `pod`: an agent-sandbox pod with its own volume (Host feature `sandbox-pods`). `none`: no
+ * compute, only the vault, for agents whose tools are remote MCP servers and HTTP tools.
+ */
+export const ENVIRONMENT_KINDS = ["virtual", "pod", "none"] as const;
+export type EnvironmentKind = (typeof ENVIRONMENT_KINDS)[number];
+/** The kinds with a sandbox (a disk and the sandbox tools). */
+export type SandboxKind = Exclude<EnvironmentKind, "none">;
 
 const LABEL_KEY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,61}[A-Za-z0-9])?$/;
 const LABEL_VALUE_PATTERN = /^[\x20-\x7e]{0,256}$/;
-export const SANDBOX_LABELS_MAX = 32;
+export const ENVIRONMENT_LABELS_MAX = 32;
 /** The developer's own key-value pairs; the Runtime stores and filters them, never reads them. */
-export const SandboxLabelsSchema = z
+export const EnvironmentLabelsSchema = z
   .record(
     z.string().regex(LABEL_KEY_PATTERN, {
       message: "Label keys are 1-63 letters, digits, '.', '_', '/' and '-'",
@@ -709,248 +696,266 @@ export const SandboxLabelsSchema = z
       message: "Label values are up to 256 printable ASCII characters",
     }),
   )
-  .refine((labels) => Object.keys(labels).length <= SANDBOX_LABELS_MAX, {
-    message: `At most ${SANDBOX_LABELS_MAX} labels`,
+  .refine((labels) => Object.keys(labels).length <= ENVIRONMENT_LABELS_MAX, {
+    message: `At most ${ENVIRONMENT_LABELS_MAX} labels`,
   });
-export type SandboxLabels = z.infer<typeof SandboxLabelsSchema>;
+export type EnvironmentLabels = z.infer<typeof EnvironmentLabelsSchema>;
+
+/** The harnesses an Environment's recipe may name. Only `nylorun` until track R4. */
+export const ENVIRONMENT_HARNESSES = ["nylorun"] as const;
 
 /**
- * `PUT /v1/sandboxes/{sandboxId}`: creates the sandbox, or finds the one with this id. The spec
- * (`kind`, `image`, `network`, `resources`, `storage`) is checked against the Tenant's limits
- * and fixed once the sandbox exists; `labels`, when sent, replace the sandbox's labels.
- *
- * Kind `pod` (Host feature `sandbox-pods`) is created at once on the Tenant's cluster. A `PUT`
- * on an existing pod sandbox also starts it again when it was stopped, and one with a
- * `lifecycle.ttl` other than its own sets a new expiry (counted from its creation), which
- * revives an expired sandbox.
+ * An Environment's lifecycle. `idle`: stop compute after this long without a turn, at most the
+ * Tenant's `limits.idle` (default the Tenant's). `deleteAfter`: delete the Environment, its vault
+ * and its disk once it has gone this long unused (no turn, recipe change, secret write, stop or
+ * reset); default never.
  */
-export const PutSandboxRequestSchema = z
+export const EnvironmentLifecycleSchema = z
+  .object({
+    idle: durationSchema("lifecycle.idle").optional(),
+    deleteAfter: durationSchema("lifecycle.deleteAfter").optional(),
+  })
+  .strict();
+export type EnvironmentLifecycle = z.infer<typeof EnvironmentLifecycleSchema>;
+
+/**
+ * `PUT /v1/environments/{environmentId}`: creates the Environment and its vault, or finds the
+ * one with this id, so "get or create" is one call. On an existing one the fields sent are
+ * compared: `kind` and `storage` are fixed (a difference is `409`), `labels` replace its labels,
+ * and any other difference changes its recipe and bumps its `version`. Image and resources
+ * reach a pod when it next starts from stopped; `network.allowedHosts` applies within seconds.
+ * A `PUT` that changes nothing answers the view unchanged.
+ */
+export const PutEnvironmentRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
-    /** Default `virtual`. `pod` needs sandbox pods (`nylorun sandbox enable`). */
-    kind: z.enum(SANDBOX_KINDS).optional(),
-    labels: SandboxLabelsSchema.optional(),
+    /** Default `virtual`. `pod` needs sandbox pods (`nylorun sandbox enable`). Fixed. */
+    kind: z.enum(ENVIRONMENT_KINDS).optional(),
+    labels: EnvironmentLabelsSchema.optional(),
     /** Pods only: the workload image (default the Tenant's, else `python:3.13-slim`). */
     image: z.string().min(1).optional(),
-    /** Hosts the sandbox may reach; pods also take `*.suffix` patterns. */
-    network: z.object({ allow: z.array(sandboxHostSchema).optional() }).strict().optional(),
-    resources: sandboxResourcesSchema.optional(),
-    /** Pods only: the volume's size (default 5GiB), fixed once created. */
+    resources: resourcesSchema.optional(),
+    /** Pods only: the volume's size (default 5GiB). Fixed. */
     storage: z
       .string()
       .refine((value) => parseSandboxSize(value) !== undefined, {
         message: "storage must be a size such as 5GiB",
       })
       .optional(),
-    /** Pods only. */
-    lifecycle: z
-      .object({
-        /** How long after its creation the sandbox expires; within the Tenant's `limits.ttl`. */
-        ttl: sandboxDurationSchema("lifecycle.ttl").optional(),
-      })
+    /** Hosts the sandbox may reach; pods also take `*.suffix` patterns. */
+    network: z
+      .object({ allowedHosts: z.array(hostPatternSchema).optional() })
       .strict()
       .optional(),
+    /** The harness that runs the Environment's sessions. Only `nylorun` until track R4. */
+    harness: z.enum(ENVIRONMENT_HARNESSES).optional(),
+    /**
+     * The owner guard: when set, only sessions of this owner may name the Environment (checked
+     * when a session opens and at every turn start). `null` clears it.
+     */
+    ownerUserId: z.string().min(1).nullable().optional(),
+    lifecycle: EnvironmentLifecycleSchema.optional(),
   })
   .strict();
-export type PutSandboxRequest = z.infer<typeof PutSandboxRequestSchema>;
+export type PutEnvironmentRequest = z.infer<typeof PutEnvironmentRequestSchema>;
 
-/** A session attached to a sandbox, as the sandbox's view lists it. */
-export const SandboxSessionSchema = z
+/** An Environment's recipe, resolved against the Tenant's limits. */
+export const EnvironmentRecipeSchema = z
+  .object({
+    image: z.string().optional(),
+    resources: z.object({ cpus: z.number().int(), memory: z.string() }).strict().optional(),
+    storage: z.string().optional(),
+    network: z.object({ allowedHosts: z.array(z.string()) }).strict().optional(),
+    harness: z.string(),
+    lifecycle: EnvironmentLifecycleSchema,
+  })
+  .strict();
+export type EnvironmentRecipe = z.infer<typeof EnvironmentRecipeSchema>;
+
+/** A session that names an Environment, as the Environment's view lists it. */
+export const EnvironmentSessionSchema = z
   .object({ id: z.string(), activeTurnId: z.string().nullable() })
   .strict();
 
-/** What the Runtime wants of a pod sandbox (`desired`) and what it last saw (`observed`). */
-export const SANDBOX_POD_DESIRED = ["running", "suspended", "deleted"] as const;
-export const SANDBOX_POD_OBSERVED = [
+/** What the Runtime wants of a pod (`desired`) and what it last saw (`observed`). */
+export const POD_DESIRED = ["running", "suspended", "deleted"] as const;
+export const POD_OBSERVED = [
   "creating",
   "running",
   "suspended",
-  "expired",
   "lost",
   "failed",
   "deleting",
 ] as const;
-export type SandboxPodDesired = (typeof SANDBOX_POD_DESIRED)[number];
-export type SandboxPodObserved = (typeof SANDBOX_POD_OBSERVED)[number];
-export const SandboxPodViewSchema = z
+export type PodDesired = (typeof POD_DESIRED)[number];
+export type PodObserved = (typeof POD_OBSERVED)[number];
+export const EnvironmentPodViewSchema = z
   .object({
-    desired: z.enum(SANDBOX_POD_DESIRED),
-    observed: z.enum(SANDBOX_POD_OBSERVED),
+    desired: z.enum(POD_DESIRED),
+    observed: z.enum(POD_OBSERVED),
     /** Bumped by every reset: each generation has its own volume. */
     volumeGeneration: z.number().int().nonnegative(),
     /** Bumped each time a pod joins; a host token of an older epoch is refused. */
     hostEpoch: z.number().int().nonnegative(),
-    /** When it expires (its TTL), if it has one. */
-    expiresAt: z.string().optional(),
     /** Why it failed, or was lost. */
     reason: z.string().optional(),
   })
   .strict();
-export type SandboxPodView = z.infer<typeof SandboxPodViewSchema>;
+export type EnvironmentPodView = z.infer<typeof EnvironmentPodViewSchema>;
 
-/** `PUT` and `GET /v1/sandboxes/{sandboxId}`. */
-export const SandboxViewSchema = z
+/**
+ * The compute states an Environment reports today: `ready` until a tool first runs in a virtual
+ * one, then `creating`, `running` or `stopped`. An open set: clients must accept values they do
+ * not know (a later release may add one, such as `cold`).
+ */
+export const ENVIRONMENT_STATES = ["ready", "creating", "running", "stopped"] as const;
+
+/** `PUT` and `GET /v1/environments/{environmentId}`. */
+export const EnvironmentViewSchema = z
   .object({
     id: z.string(),
-    kind: z.enum(SANDBOX_KINDS),
+    kind: z.enum(ENVIRONMENT_KINDS),
     labels: z.record(z.string(), z.string()),
-    /** The spec, resolved against the Tenant's limits when the sandbox was created. */
-    spec: z.record(z.string(), z.unknown()),
-    /**
-     * `ready` until a tool first runs in it, then the workspace's compute state. A virtual
-     * sandbox has nothing to stop: `stopped` means only that its turn queue is idle.
-     */
-    state: z.enum(["ready", "creating", "running", "stopped"]),
+    /** What the app asked for, resolved against the Tenant's limits. */
+    recipe: EnvironmentRecipeSchema,
+    /** Bumped by every recipe change. */
+    version: z.number().int().positive(),
+    /** The recipe version the current pod (or virtual workspace) runs. */
+    appliedVersion: z.number().int().positive(),
+    /** The owner guard, or `null`. */
+    ownerUserId: z.string().nullable(),
+    /** See `ENVIRONMENT_STATES`: an open set. */
+    state: z.string().meta({ description: "ready, creating, running or stopped; an open set" }),
     /** Kind `pod`: what the Runtime wants of the pod and what it last saw. */
-    pod: SandboxPodViewSchema.optional(),
-    /** Sessions attached to it (acting for a subject, only the subject's own). */
-    sessions: z.array(SandboxSessionSchema),
+    pod: EnvironmentPodViewSchema.optional(),
+    /** When it was last used: a turn, a recipe change, a secret write, a stop or a reset. */
+    lastUsedAt: z.string(),
+    /** Sessions that name it (acting for a subject, only the subject's own). */
+    sessions: z.array(EnvironmentSessionSchema),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
   .strict();
-export type SandboxView = z.infer<typeof SandboxViewSchema>;
+export type EnvironmentView = z.infer<typeof EnvironmentViewSchema>;
 
-export const ListSandboxesResponseSchema = z
-  .object({ sandboxes: z.array(SandboxViewSchema) })
+export const ListEnvironmentsResponseSchema = z
+  .object({ environments: z.array(EnvironmentViewSchema) })
   .strict();
-export type ListSandboxesResponse = z.infer<typeof ListSandboxesResponseSchema>;
+export type ListEnvironmentsResponse = z.infer<typeof ListEnvironmentsResponseSchema>;
 
-export const DeleteSandboxResponseSchema = z
+export const DeleteEnvironmentResponseSchema = z
   .object({ id: z.string(), deleted: z.boolean() })
   .strict();
-export type DeleteSandboxResponse = z.infer<typeof DeleteSandboxResponseSchema>;
+export type DeleteEnvironmentResponse = z.infer<typeof DeleteEnvironmentResponseSchema>;
 
-/** The schema id of a sandbox's lifecycle events (its stream in the record). */
-export const SANDBOX_EVENT_SCHEMA = "nylorun.sandbox-event/1";
-export const SANDBOX_EVENT_TYPES = [
-  "sandbox.created",
-  "sandbox.attached",
-  "sandbox.detached",
-  "sandbox.deleted",
+/** The schema id of an Environment's lifecycle events (its stream in the record). */
+export const ENVIRONMENT_EVENT_SCHEMA = "nylorun.environment-event/1";
+export const ENVIRONMENT_EVENT_TYPES = [
+  "environment.created",
+  "environment.attached",
+  "environment.detached",
+  "environment.deleted",
   // Kind `pod` (Host feature `sandbox-pods`).
-  "sandbox.running",
-  "sandbox.suspended",
-  "sandbox.expired",
-  "sandbox.relaunched",
-  "sandbox.lost",
-  "sandbox.reset",
-  "sandbox.failed",
+  "environment.running",
+  "environment.suspended",
+  "environment.relaunched",
+  "environment.lost",
+  "environment.reset",
+  "environment.failed",
 ] as const;
-export type SandboxEventType = (typeof SANDBOX_EVENT_TYPES)[number];
-/** The payload of each sandbox lifecycle event. */
-export const SANDBOX_EVENT_PAYLOADS = {
-  "sandbox.created": z
-    .object({ kind: z.enum(SANDBOX_KINDS), labels: z.record(z.string(), z.string()) })
+export type EnvironmentEventType = (typeof ENVIRONMENT_EVENT_TYPES)[number];
+/** The payload of each Environment lifecycle event. */
+export const ENVIRONMENT_EVENT_PAYLOADS = {
+  "environment.created": z
+    .object({ kind: z.enum(ENVIRONMENT_KINDS), labels: z.record(z.string(), z.string()) })
     .passthrough(),
-  "sandbox.attached": z.object({ sessionId: z.string() }).passthrough(),
-  "sandbox.detached": z
+  "environment.attached": z.object({ sessionId: z.string() }).passthrough(),
+  "environment.detached": z
     .object({ sessionId: z.string(), reason: z.enum(["reset"]) })
     .passthrough(),
-  "sandbox.deleted": z.object({}).passthrough(),
-  /** A pod joined and serves the sandbox. */
-  "sandbox.running": z.object({ hostEpoch: z.number().int() }).passthrough(),
+  /** Deleted by a `DELETE`, or by the sweep once `lifecycle.deleteAfter` passed (`reason`). */
+  "environment.deleted": z
+    .object({ reason: z.enum(["delete", "deleteAfter"]).optional() })
+    .passthrough(),
+  /** A pod joined and serves the Environment. */
+  "environment.running": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again. */
-  "sandbox.suspended": z.object({ reason: z.enum(["stop", "idle"]) }).passthrough(),
-  /** Its TTL passed: turns are refused until a `PUT` sets a longer TTL. */
-  "sandbox.expired": z.object({ onExpiry: z.enum(["retain", "delete"]) }).passthrough(),
+  "environment.suspended": z.object({ reason: z.enum(["stop", "idle"]) }).passthrough(),
   /** Its pod was replaced (same volume): the old pod's host token no longer works. */
-  "sandbox.relaunched": z.object({ hostEpoch: z.number().int() }).passthrough(),
+  "environment.relaunched": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Its volume or node is gone: turns are refused until a reset. */
-  "sandbox.lost": z.object({ reason: z.string() }).passthrough(),
+  "environment.lost": z.object({ reason: z.string() }).passthrough(),
   /** Reset: a new pod on a new, empty volume. */
-  "sandbox.reset": z.object({ volumeGeneration: z.number().int() }).passthrough(),
+  "environment.reset": z.object({ volumeGeneration: z.number().int() }).passthrough(),
   /** The pod did not become ready. */
-  "sandbox.failed": z.object({ reason: z.string() }).passthrough(),
-} as const satisfies Record<SandboxEventType, z.ZodType>;
-export type SandboxEventPayload<T extends SandboxEventType> = z.infer<
-  (typeof SANDBOX_EVENT_PAYLOADS)[T]
+  "environment.failed": z.object({ reason: z.string() }).passthrough(),
+} as const satisfies Record<EnvironmentEventType, z.ZodType>;
+export type EnvironmentEventPayload<T extends EnvironmentEventType> = z.infer<
+  (typeof ENVIRONMENT_EVENT_PAYLOADS)[T]
 >;
-/** One lifecycle event on a sandbox's stream, numbered from 0. */
-export const SandboxEventSchema = z
+/** One lifecycle event on an Environment's stream, numbered from 0. */
+export const EnvironmentEventSchema = z
   .object({
-    schema: z.literal(SANDBOX_EVENT_SCHEMA),
+    schema: z.literal(ENVIRONMENT_EVENT_SCHEMA),
     eventId: z.string(),
     tenantId: z.string(),
-    sandboxId: z.string(),
+    environmentId: z.string(),
     seq: z.number().int().nonnegative(),
     time: z.string(),
-    type: z.enum(SANDBOX_EVENT_TYPES),
+    type: z.enum(ENVIRONMENT_EVENT_TYPES),
     payload: z.record(z.string(), z.unknown()),
   })
   .strict();
-export type SandboxEvent = z.infer<typeof SandboxEventSchema>;
-export const ListSandboxEventsResponseSchema = z
-  .object({ events: z.array(SandboxEventSchema) })
+export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>;
+export const ListEnvironmentEventsResponseSchema = z
+  .object({ events: z.array(EnvironmentEventSchema) })
   .strict();
 
-/**
- * `PutSessionRequest.sandbox`: `false` for none, `{ id }` to attach a sandbox resource (Host
- * feature `sandboxes`), `{ session }` to share another session's sandbox, or an inline sandbox.
- * Omitted means the Tenant's default.
- */
-export const SandboxRequestSchema = z.union([
-  z.literal(false),
-  z.object({ id: SandboxIdSchema }).strict(),
-  z.object({ session: z.string().min(1) }).strict(),
-  SandboxInlineRequestSchema,
-]);
-export type SandboxRequest = z.infer<typeof SandboxRequestSchema>;
 export const PutSessionRequestSchema = z
   .object({
     requestId: RequestIdSchema,
     agentId: z.string().min(1),
     ownerUserId: z.string().min(1),
     info: jsonObject.optional(),
-    vaultIds: z.array(z.string().min(1)).optional(),
-    credentialSelections: z.array(CredentialSelectionSchema).optional(),
-    /** The session's sandbox; see `SandboxRequestSchema`. Fixed once the session exists. */
-    sandbox: SandboxRequestSchema.optional(),
+    /**
+     * The Environment the session runs in: its sandbox, and its vault's credentials for the
+     * session's shell, MCP servers and HTTP tools. Omitted: no sandbox and no credentials.
+     * Fixed once the session exists.
+     */
+    environment: EnvironmentIdSchema.optional(),
   })
   .strict();
+export type PutSessionRequest = z.infer<typeof PutSessionRequestSchema>;
 /** The hosts a harness can run on (blueprint D38). */
-export const SANDBOX_PLACEMENT_HOSTS = ["harness-container", "sandbox"] as const;
-export type SandboxPlacementHost = (typeof SANDBOX_PLACEMENT_HOSTS)[number];
+export const PLACEMENT_HOSTS = ["harness-container", "sandbox"] as const;
+export type PlacementHost = (typeof PLACEMENT_HOSTS)[number];
 
 /**
- * A Tenant's sandbox configuration (Tenant setting `sandbox.config`): what a session gets when
- * it names no sandbox, and the limits every session's sandbox must fit.
+ * A Tenant's Environment settings (Tenant setting `environments.config`): the limits every
+ * Environment's recipe must fit, the pods' stop grace, and where harnesses may run.
  */
-export const TenantSandboxConfigSchema = z
+export const TenantEnvironmentsConfigSchema = z
   .object({
-    /** `none` (the default when unset), `virtual`, or an inline sandbox. */
-    default: z
-      .union([z.literal("none"), z.literal("virtual"), SandboxInlineRequestSchema])
-      .optional(),
     limits: z
       .object({
-        /** Hosts a sandbox may allow. Default: package registries and code hosts. */
-        network: z.array(sandboxHostSchema).optional(),
-        /** The most a session may ask for. */
-        resources: sandboxResourcesSchema.optional(),
-        /** What a session gets when it asks for nothing. */
-        defaultResources: sandboxResourcesSchema.optional(),
-        /** Stop compute after this long without use. */
-        idle: z
-          .string()
-          .refine((value) => parseSandboxDuration(value) !== undefined, {
-            message: "idle must be a duration such as 30s, 15m or 1h",
-          })
-          .optional(),
-        /** The most sandbox resources (`PUT /v1/sandboxes/{id}`) the Tenant may hold. Default 100. */
-        sandboxes: z.number().int().min(0).max(100_000).optional(),
-        /** Pods: the longest `lifecycle.ttl` a sandbox may ask for. Default none (no limit). */
-        ttl: sandboxDurationSchema("limits.ttl").optional(),
+        /** Hosts an Environment may allow. Default: package registries and code hosts. */
+        network: z.array(hostPatternSchema).optional(),
+        /** The most an Environment may ask for. */
+        resources: resourcesSchema.optional(),
+        /** What an Environment gets when it asks for nothing. */
+        defaultResources: resourcesSchema.optional(),
+        /** Stop compute after this long without use; an Environment's `lifecycle.idle` is at most this. */
+        idle: durationSchema("limits.idle").optional(),
+        /** The most Environments the Tenant may hold. Default 100. */
+        environments: z.number().int().min(0).max(100_000).optional(),
       })
       .strict()
       .optional(),
-    /** Pods: what happens at expiry and how long a pod has to stop. Read at every timer. */
+    /** Pods: how long a pod has to stop. Read at every timer. */
     lifecycle: z
       .object({
-        /** `retain` (default) keeps the volume after the TTL; `delete` deletes the sandbox. */
-        onExpiry: z.enum(["retain", "delete"]).optional(),
         /** The pod's grace period to stop, at most 30s. Default 10s. */
-        stopGrace: sandboxDurationSchema("lifecycle.stopGrace")
+        stopGrace: durationSchema("lifecycle.stopGrace")
           .refine((value) => (parseSandboxDuration(value) ?? 0) <= 30_000, {
             message: "lifecycle.stopGrace is at most 30s",
           })
@@ -960,67 +965,28 @@ export const TenantSandboxConfigSchema = z
       .optional(),
     /**
      * Where each harness may run (blueprint D38), by harness id (`nylorun`, or `*` for the rest):
-     * `harness-container` (the Runtime's harness) and `sandbox` (the engine in a pod sandbox).
+     * `harness-container` (the Runtime's harness) and `sandbox` (the engine in a pod).
      * Default `{ "*": { hosts: ["harness-container", "sandbox"] } }`. Checked when a session
      * opens; a host left out is refused (`placement_refused`).
      */
     placement: z
       .record(
         z.string().min(1),
-        z.object({ hosts: z.array(z.enum(SANDBOX_PLACEMENT_HOSTS)).min(1) }).strict(),
+        z.object({ hosts: z.array(z.enum(PLACEMENT_HOSTS)).min(1) }).strict(),
       )
       .optional(),
   })
   .strict();
-export type TenantSandboxConfig = z.infer<typeof TenantSandboxConfigSchema>;
-/** `PUT /v1/tenant/sandbox`: replaces the Tenant's sandbox configuration. */
-export const PutTenantSandboxRequestSchema = TenantSandboxConfigSchema.extend({
+export type TenantEnvironmentsConfig = z.infer<typeof TenantEnvironmentsConfigSchema>;
+/** `PUT /v1/tenant/sandbox`: replaces the Tenant's Environment settings (`environments.config`). */
+export const PutTenantEnvironmentsRequestSchema = TenantEnvironmentsConfigSchema.extend({
   requestId: RequestIdSchema.optional(),
 }).strict();
-export type PutTenantSandboxRequest = z.infer<typeof PutTenantSandboxRequestSchema>;
-export type PutSessionRequest = z.infer<typeof PutSessionRequestSchema>;
+export type PutTenantEnvironmentsRequest = z.infer<typeof PutTenantEnvironmentsRequestSchema>;
 const vaultWriteBase = {
   requestId: RequestIdSchema,
   idempotencyKey: IdempotencyKeySchema,
 };
-/** The owner of every installation vault (`scope: "installation"`); a reserved subject. */
-export const INSTALLATION_OWNER = "installation";
-/**
- * The scope a vault-create request asks for: `scope` when given; otherwise `user` when it names
- * an `ownerUserId` and `installation` when it doesn't.
- */
-export function vaultScopeOf(request: {
-  readonly scope?: "user" | "installation";
-  readonly ownerUserId?: string;
-}): "user" | "installation" {
-  return request.scope ?? (request.ownerUserId === undefined ? "installation" : "user");
-}
-export const CreateVaultRequestSchema = z
-  .object({
-    ...vaultWriteBase,
-    name: z.string().min(1),
-    /**
-     * `user`: one person's vault, owned by `ownerUserId`. `installation`: the installation's own
-     * vault, owned by `installation`, which any session may attach; management keys only (the
-     * Management API). When absent, `user` if `ownerUserId` is given, else `installation`
-     * (`vaultScopeOf`).
-     */
-    scope: z.enum(["user", "installation"]).optional(),
-    /** Required for a `user` vault; absent (or `installation`) for an installation vault. */
-    ownerUserId: z.string().min(1).optional(),
-    metadata: z.record(z.string(), z.string()).optional(),
-  })
-  .strict()
-  .superRefine((value, ctx) => {
-    if (vaultScopeOf(value) === "user") {
-      if (value.ownerUserId === undefined)
-        ctx.addIssue({ code: "custom", path: ["ownerUserId"], message: "ownerUserId is required for a user vault" });
-      else if (value.ownerUserId === INSTALLATION_OWNER)
-        ctx.addIssue({ code: "custom", path: ["ownerUserId"], message: "installation is reserved for installation vaults" });
-    } else if (value.ownerUserId !== undefined && value.ownerUserId !== INSTALLATION_OWNER)
-      ctx.addIssue({ code: "custom", path: ["ownerUserId"], message: "An installation vault is owned by installation" });
-  });
-export type CreateVaultRequest = z.infer<typeof CreateVaultRequestSchema>;
 /** An RFC 9110 field name. */
 export const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const CredentialHeaderNameSchema = z
@@ -1167,84 +1133,69 @@ const EnvironmentValueSchema = z
   .max(8192)
   .refine((value) => !/[\r\n\0]/.test(value), "A value has no CR, LF or NUL");
 
+/** The name of a credential for a tool (`bearer` or `headers`): a label of 1–64 characters. */
+export const TOOL_SECRET_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 /**
- * A credential for the server at `url` (the URL a manifest names): `bearer` sends
- * `Authorization: Bearer <token>`, `headers` its header map (R2b C2). The header names may not be
- * the MCP transport's headers or `Nylorun-*`.
+ * `PUT /v1/environments/{environmentId}/secrets/{name}` (D56): creates or replaces one credential
+ * in the Environment's vault. For `environment_secret` and `environment_variable` the name is
+ * the variable's name (a POSIX name, not reserved); for `bearer` and `headers` it is a label.
+ * The same name and type keeps the credential and re-seals its value and binding; another type
+ * replaces it. Values are write-only: no route reads them back. Two `environment_secret`
+ * credentials bound to one host, or two `bearer`/`headers` credentials for one URL, are
+ * `409 credential_conflict`.
  */
-export const CreateCredentialRequestSchema = z
-  .object({
-    ...vaultWriteBase,
-    name: z.string().min(1),
-    auth: z.discriminatedUnion("type", [
-      z
-        .object({
-          type: z.literal("bearer"),
-          url: z.string().min(1),
-          token: z.string().min(1),
-          ...credentialRouting,
-        })
-        .strict(),
-      z
-        .object({
-          type: z.literal("headers"),
-          url: z.string().min(1),
-          headers: CredentialHeadersSchema,
-          ...credentialRouting,
-        })
-        .strict(),
-      z
-        .object({
-          type: z.literal("environment_secret"),
-          secretName: EnvironmentNameSchema,
-          secretValue: EnvironmentValueSchema,
-          allowedHosts: AllowedHostsSchema,
-          inject: EnvironmentSecretInjectSchema.optional(),
-        })
-        .strict(),
-      z
-        .object({
-          type: z.literal("environment_variable"),
-          variableName: EnvironmentNameSchema,
-          variableValue: EnvironmentValueSchema,
-        })
-        .strict(),
-    ]),
-  })
-  .strict();
-export type CreateCredentialRequest = z.infer<
-  typeof CreateCredentialRequestSchema
->;
-/**
- * Replaces a credential's secret; its type and URL stay. `via` and `identity` are kept unless
- * given (`null` removes one).
- */
-export const RotateCredentialRequestSchema = z
-  .object({
-    ...vaultWriteBase,
-    auth: z.discriminatedUnion("type", [
-      z
-        .object({
-          type: z.literal("bearer"),
-          token: z.string().min(1),
-          ...credentialRoutingChange,
-        })
-        .strict(),
-      z
-        .object({
-          type: z.literal("headers"),
-          headers: CredentialHeadersSchema,
-          ...credentialRoutingChange,
-        })
-        .strict(),
-      z.object({ type: z.literal("environment_secret"), secretValue: EnvironmentValueSchema }).strict(),
-      z.object({ type: z.literal("environment_variable"), variableValue: EnvironmentValueSchema }).strict(),
-    ]),
-  })
-  .strict();
-export type RotateCredentialRequest = z.infer<
-  typeof RotateCredentialRequestSchema
->;
+export const PutEnvironmentSecretRequestSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      requestId: RequestIdSchema.optional(),
+      type: z.literal("environment_secret"),
+      value: EnvironmentValueSchema,
+      allowedHosts: AllowedHostsSchema,
+      inject: EnvironmentSecretInjectSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: RequestIdSchema.optional(),
+      type: z.literal("environment_variable"),
+      value: EnvironmentValueSchema,
+    })
+    .strict(),
+  z
+    .object({
+      requestId: RequestIdSchema.optional(),
+      type: z.literal("bearer"),
+      url: z.string().min(1),
+      value: z.string().min(1),
+      ...credentialRouting,
+    })
+    .strict(),
+  z
+    .object({
+      requestId: RequestIdSchema.optional(),
+      type: z.literal("headers"),
+      url: z.string().min(1),
+      headers: CredentialHeadersSchema,
+      ...credentialRouting,
+    })
+    .strict(),
+]);
+export type PutEnvironmentSecretRequest = z.infer<typeof PutEnvironmentSecretRequestSchema>;
+/** Whether `name` may name a secret of `type` (`PUT .../secrets/{name}`); a message when not. */
+export function environmentSecretNameError(
+  type: PutEnvironmentSecretRequest["type"],
+  name: string,
+): string | undefined {
+  if (type === "environment_secret" || type === "environment_variable") {
+    if (!ENVIRONMENT_NAME_PATTERN.test(name))
+      return "An environment variable name is a letter or _ followed by letters, digits or _";
+    if (isReservedEnvironmentName(name)) return `${name} is a reserved environment variable name`;
+    return undefined;
+  }
+  return TOOL_SECRET_NAME_PATTERN.test(name)
+    ? undefined
+    : "A credential name is 1-64 letters, digits, '.', '_' and '-'";
+}
 /**
  * What the Runtime cannot learn from a custom OpenAI-compatible endpoint (Model Calls §7):
  * its context window and output limit, whether it reasons, and pi-ai `compat` settings
@@ -1308,35 +1259,25 @@ export type SelectHostModelRequest = z.infer<
   typeof SelectHostModelRequestSchema
 >;
 export type HostModelProviderInfo = z.infer<typeof HostModelProviderInfoSchema>;
-export const VaultInfoSchema = z
+export const ENVIRONMENT_SECRET_TYPES = [
+  "bearer",
+  "headers",
+  "environment_secret",
+  "environment_variable",
+] as const;
+/**
+ * One credential of an Environment's vault, never its value: what it is bound to (the server
+ * `url` for `bearer` and `headers`; the hosts and header for `environment_secret`).
+ */
+export const EnvironmentSecretViewSchema = z
   .object({
-    id: z.string(),
     name: z.string(),
-    ownerUserId: z.string(),
-    metadata: z.record(z.string(), z.string()).optional(),
-    createdAt: z.string(),
-  })
-  .strict();
-export type VaultInfo = z.infer<typeof VaultInfoSchema>;
-export const CredentialInfoSchema = z
-  .object({
-    id: z.string(),
-    vaultId: z.string(),
-    name: z.string(),
-    type: z.enum(["bearer", "headers", "environment_secret", "environment_variable"]),
-    /**
-     * What the credential is bound to: the server `url` for `bearer` and `headers`; the variable
-     * name and hosts for `environment_secret` (R2c); the name and its plain value for
-     * `environment_variable`, which is not a secret. A secret's value is never shown.
-     */
+    type: z.enum(ENVIRONMENT_SECRET_TYPES),
     binding: z
       .object({
         url: z.string().optional(),
-        secretName: z.string().optional(),
         allowedHosts: z.array(z.string()).optional(),
         inject: EnvironmentSecretInjectSchema.optional(),
-        variableName: z.string().optional(),
-        variableValue: z.string().optional(),
       })
       .strict(),
     /** A `headers` credential's header names (lower case), never their values. */
@@ -1347,14 +1288,17 @@ export const CredentialInfoSchema = z
     rotatedAt: z.string().optional(),
   })
   .strict();
-export type CredentialInfo = z.infer<typeof CredentialInfoSchema>;
+export type EnvironmentSecretView = z.infer<typeof EnvironmentSecretViewSchema>;
+export const ListEnvironmentSecretsResponseSchema = z
+  .object({ secrets: z.array(EnvironmentSecretViewSchema) })
+  .strict();
+export type ListEnvironmentSecretsResponse = z.infer<typeof ListEnvironmentSecretsResponseSchema>;
 /** The MCP transports a preview speaks: a manifest's remote server types. */
 export const MCP_PREVIEW_TYPES = ["streamable-http", "sse"] as const;
 /**
  * `POST /v1/tenant/mcp/preview` (R2b C12): what a remote MCP server offers, before an agent
- * names it. The Runtime connects with the installation vault's credential for `url` (one
- * credential across the installation vaults, or the one in `vaultId`), lists the tools and
- * closes the connection; it never calls a tool.
+ * names it. The Runtime connects with the credential for `url` in the vault of `environmentId`
+ * (none without one), lists the tools and closes the connection; it never calls a tool.
  */
 export const McpPreviewRequestSchema = z
   .object({
@@ -1380,8 +1324,8 @@ export const McpPreviewRequestSchema = z
      * host's name before its top-level domain (`linear` for `mcp.linear.app`).
      */
     name: modelFacingName("MCP server").optional(),
-    /** The installation vault whose credential to send. Default: every installation vault. */
-    vaultId: z.string().min(1).optional(),
+    /** The Environment whose vault's credential for `url` to send. Default: none is sent. */
+    environmentId: EnvironmentIdSchema.optional(),
   })
   .strict();
 export type McpPreviewRequest = z.infer<typeof McpPreviewRequestSchema>;
@@ -1406,7 +1350,7 @@ export type McpPreviewTool = z.infer<typeof McpPreviewToolSchema>;
 /**
  * A preview (R2b C12). A server that answered `401` is `authRequired`, with its RFC 9728
  * protected-resource metadata when it publishes any: it needs a person's sign-in or a key the
- * installation vaults do not hold, so reach it with a key or through a gateway (`via`).
+ * Environment's vault does not hold, so reach it with a key or through a gateway (`via`).
  */
 export const McpPreviewSchema = z
   .object({
@@ -1414,7 +1358,7 @@ export const McpPreviewSchema = z
     name: z.string(),
     url: z.string(),
     type: z.enum(MCP_PREVIEW_TYPES),
-    /** True when an installation vault's credential was sent. */
+    /** True when a credential of the Environment's vault was sent. */
     credentialSent: z.boolean(),
     /** The server's `initialize` answer: its name, version and title. */
     serverInfo: z.record(z.string(), z.unknown()).optional(),
@@ -1436,36 +1380,26 @@ export const McpPreviewSchema = z
   .strict();
 export type McpPreview = z.infer<typeof McpPreviewSchema>;
 /**
- * `POST /v1/tenant/credential-coverage`: which vault credential each of a saved agent's remote
- * MCP servers and HTTP tools would get in a session that attaches `vaultIds`, decided as the
- * session's tool calls decide it (by URL, then by `credentialSelections`). It reads no secret and
- * calls no server. The attachment is checked as a session's is, so a vault the session could not
- * attach is the same error here.
+ * `POST /v1/tenant/credential-coverage`: which credential each of a saved agent's remote MCP
+ * servers and HTTP tools would get in a session that names `environmentId`, decided as the
+ * session's tool calls decide it (by URL). It reads no secret and calls no server.
  */
 export const CredentialCoverageRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
     /** A saved agent or flow agent. */
     agentId: z.string().min(1),
-    /**
-     * The session's owner: a person's vaults attach only to their own sessions, and theirs are
-     * listed among `available`. Default: no person (only installation vaults attach).
-     */
-    ownerUserId: z.string().min(1).optional(),
-    /** The vaults the session would attach (`vaultIds`). Default: none. */
-    vaultIds: z.array(z.string().min(1)).optional(),
-    /** The session's `credentialSelections`. */
-    credentialSelections: z.array(CredentialSelectionSchema).optional(),
+    /** The Environment the session would name. Default: none (every entry is `missing`). */
+    environmentId: EnvironmentIdSchema.optional(),
   })
   .strict();
 export type CredentialCoverageRequest = z.infer<typeof CredentialCoverageRequestSchema>;
 /** A credential coverage names: where it is, never its value. */
 export const CoverageCredentialSchema = z
   .object({
-    vaultId: z.string(),
-    vaultName: z.string(),
-    credentialId: z.string(),
-    credentialName: z.string(),
+    environmentId: z.string(),
+    /** The secret's name in the Environment's vault. */
+    name: z.string(),
     /** Where the credential sends the requests instead of the URL (a gateway). */
     via: z.string().optional(),
   })
@@ -1473,14 +1407,11 @@ export const CoverageCredentialSchema = z
 export type CoverageCredential = z.infer<typeof CoverageCredentialSchema>;
 /**
  * What a session would send for one URL an agent declares:
- * - `covered`: one credential of the attached vaults (`credential`);
- * - `missing`: none of the attached vaults holds one: an MCP server is called without a
- *   credential (a public server needs none), an HTTP tool fails with `http.credential`;
- * - `ambiguous`: several do and no selection names one: the call is refused;
- * - `selection_mismatch`: the selection for `serverName` names a credential that is not for
- *   this URL: the call is refused.
+ * - `covered`: the Environment's vault holds a credential for it (`credential`);
+ * - `missing`: it holds none: an MCP server is called without a credential (a public server
+ *   needs none), an HTTP tool fails with `http.credential`.
  */
-export const COVERAGE_STATUSES = ["covered", "missing", "ambiguous", "selection_mismatch"] as const;
+export const COVERAGE_STATUSES = ["covered", "missing"] as const;
 export type CoverageStatus = (typeof COVERAGE_STATUSES)[number];
 /** One remote MCP server or HTTP tool credential an agent declares. */
 export const CredentialCoverageEntrySchema = z
@@ -1492,7 +1423,7 @@ export const CredentialCoverageEntrySchema = z
     stage: z.string().optional(),
     /** The MCP server's name, or the HTTP tool's (or stage's) name. */
     name: z.string(),
-    /** What a credential selection names: the server's name, or the HTTP tool's `credential`. */
+    /** The server's name, or the HTTP tool's `credential`. */
     serverName: z.string(),
     /** The URL a credential must be bound to, as the vault compares it. */
     url: z.string(),
@@ -1501,10 +1432,6 @@ export const CredentialCoverageEntrySchema = z
     status: z.enum(COVERAGE_STATUSES),
     /** The credential the session would send, when `covered`. */
     credential: CoverageCredentialSchema.optional(),
-    /** The attached vaults' credentials for the URL. */
-    matches: z.array(CoverageCredentialSchema),
-    /** Credentials for the URL in vaults the session could attach and does not. */
-    available: z.array(CoverageCredentialSchema),
     /** What the session would do, in a sentence. */
     message: z.string(),
   })
@@ -1513,7 +1440,7 @@ export type CredentialCoverageEntry = z.infer<typeof CredentialCoverageEntrySche
 export const CredentialCoverageSchema = z
   .object({
     agentId: z.string(),
-    vaultIds: z.array(z.string()),
+    environmentId: z.string().nullable(),
     /** True when every entry is `covered`. */
     complete: z.boolean(),
     /** One per declared MCP server and HTTP tool credential: the agent's, then its agents'. */
@@ -1793,8 +1720,6 @@ export const ToolCompletedPayloadSchema = z
          * whose server answered `401`.
          */
         server: z.string().optional(),
-        /** With `credential_rejected`: the scope of the vault whose credential was sent; absent when none was. */
-        vault: z.enum(["installation", "user"]).optional(),
         /** An MCP tool error (R2b C7): true when calling again may work, as for `mcp.unreachable`. */
         retryable: z.boolean().optional(),
       })
@@ -1900,8 +1825,8 @@ export const CommandRespondPayloadSchema = z
     value: z.unknown(),
   })
   .passthrough();
-/** `sandbox.state`: the session's sandbox changed state. */
-export const SandboxStatePayloadSchema = z
+/** `environment.state`: the session's sandbox changed state. */
+export const EnvironmentStatePayloadSchema = z
   .object({
     state: z.enum(["creating", "running", "stopped"]),
     backend: z.string(),
@@ -1915,14 +1840,14 @@ export const SandboxStatePayloadSchema = z
   })
   .passthrough();
 /**
- * `sandbox.attached`: the session was opened on a sandbox resource (`sandbox: { id }`). The
- * sandbox's own stream records the same attachment.
+ * `environment.attached`: the session was opened on an Environment (`environment`). The
+ * Environment's own stream records the same attachment.
  */
-export const SandboxAttachedPayloadSchema = z
-  .object({ sandboxId: z.string() })
+export const EnvironmentAttachedPayloadSchema = z
+  .object({ environmentId: z.string() })
   .passthrough();
-/** `sandbox.exec`: one sandbox tool call finished. */
-export const SandboxExecPayloadSchema = z
+/** `environment.exec`: one sandbox tool call finished. */
+export const EnvironmentExecPayloadSchema = z
   .object({
     tool: z.string(),
     command: z.string().optional(),
@@ -2132,9 +2057,9 @@ export const EVENT_CATALOG = {
   "delegation.started": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1 },
-  "sandbox.state": { payload: SandboxStatePayloadSchema, source: "loop", version: 1 },
-  "sandbox.exec": { payload: SandboxExecPayloadSchema, source: "loop", version: 1 },
-  "sandbox.attached": { payload: SandboxAttachedPayloadSchema, source: "api", version: 1 },
+  "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1 },
+  "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1 },
+  "environment.attached": { payload: EnvironmentAttachedPayloadSchema, source: "api", version: 1 },
   "node.started": { payload: NodeStartedPayloadSchema, source: "loop", version: 1 },
   "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1 },
   "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1 },
@@ -2552,8 +2477,8 @@ export const SeedTenantConfigRequestSchema = z
     sandbox: z
       .object({
         backend: z.enum(["auto", "virtual"]).optional(),
-        /** Seeds Tenant setting `sandbox.config` when it is absent. */
-        config: TenantSandboxConfigSchema.optional(),
+        /** Seeds Tenant setting `environments.config` when it is absent. */
+        config: TenantEnvironmentsConfigSchema.optional(),
       })
       .strict()
       .optional(),
@@ -2583,7 +2508,7 @@ export type SeedTenantConfigResponse = z.infer<
 export const ResetTenantRequestSchema = z
   .object({
     requestId: RequestIdSchema,
-    scope: z.enum(["sessions", "sandboxes", "all"]),
+    scope: z.enum(["sessions", "environments", "all"]),
     activeWork: z.enum(["drain", "cancel"]),
   })
   .strict();
@@ -2592,15 +2517,15 @@ export type ResetTenantRequest = z.infer<typeof ResetTenantRequestSchema>;
 /**
  * Acting for a subject (Host feature `subject-headers`): what an application principal may
  * narrow a request to. `sessions:own` reaches only the subject's own sessions; the others reach
- * Tenant-wide resources. `sandboxes:write` creates and deletes sandboxes (Host feature
- * `sandboxes`); a token caller's reach only the ids its sandbox grants name. Vaults are the
- * installation's, managed with management keys on the Management API (protocol 8).
+ * Tenant-wide resources. `environments:write` creates, changes and deletes Environments and
+ * writes their secrets (protocol 11); a token caller's reach only the ids its Environment
+ * grants name.
  */
 export const SUBJECT_SCOPES = [
   "agents:read",
   "agents:write",
   "sessions:own",
-  "sandboxes:write",
+  "environments:write",
 ] as const;
 export type SubjectScope = (typeof SUBJECT_SCOPES)[number];
 /**
@@ -2613,9 +2538,11 @@ const RETIRED_SUBJECT_SCOPES: readonly string[] = ["vaults:own", "tenant:setting
 /** 1–200 visible ASCII characters; spaces only inside. */
 const SUBJECT_PATTERN = /^[\x21-\x7e](?:[\x20-\x7e]{0,198}[\x21-\x7e])?$/;
 /**
- * Owner ids the Runtime uses itself: the host model's vault is owned by `host`, installation
- * vaults by `installation`.
+ * The owner of a session opened for no person: an MCP server's or HTTP tool's identity header
+ * (R2b C2) names nobody for it. A reserved subject.
  */
+export const INSTALLATION_OWNER = "installation";
+/** Owner ids the Runtime uses itself: `host` (the model vault's) and `installation`. */
 const RESERVED_SUBJECTS = new Set(["host", INSTALLATION_OWNER]);
 
 /** A valid subject: 1–200 visible ASCII characters, not reserved by the Runtime. */
@@ -2651,6 +2578,11 @@ export function parseSubjectHeaders(
       message: "Nylorun-Scopes is required with Nylorun-Subject",
     };
   const names = named.filter((name) => !RETIRED_SUBJECT_SCOPES.includes(name));
+  if (names.includes("sandboxes:write"))
+    return {
+      ok: false,
+      message: "sandboxes:write was renamed environments:write in protocol 11",
+    };
   const unknown = names.filter(
     (name) => !(SUBJECT_SCOPES as readonly string[]).includes(name)
   );
@@ -2671,10 +2603,10 @@ export function parseSubjectHeaders(
 export const TOKEN_SCOPES = [
   "agents:read",
   "sessions:own",
-  "sandboxes:write",
+  "environments:write",
 ] as const;
-/** The most sandbox grants one token caller carries. */
-export const TOKEN_SANDBOX_GRANTS_MAX = 16;
+/** The most Environment grants one token caller carries. */
+export const TOKEN_ENVIRONMENT_GRANTS_MAX = 16;
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
 /**
  * The longest a token the Runtime signs itself lives, in seconds (capability links): rotating
@@ -2760,8 +2692,8 @@ export type CallerScope = (typeof CALLER_SCOPES)[number];
  * - `subject` is the person the request acts for; absent for an application key alone.
  * - `scopes`: what the caller holds. An application key alone holds every subject scope.
  * - `agents`: the agents it may reach, `*` for all.
- * - `sandboxes`: the sandbox grants of a token caller (empty reaches none); absent for an
- *   application key, alone or acting for a subject, which no grant limits.
+ * - `environments`: the Environment grants of a token caller (empty reaches none); absent for
+ *   an application key, alone or acting for a subject, which no grant limits.
  */
 export const MeResponseSchema = z
   .object({
@@ -2771,12 +2703,12 @@ export const MeResponseSchema = z
       .meta({ description: "The person the request acts for; absent for an application key alone" }),
     scopes: z.array(z.enum(CALLER_SCOPES)),
     agents: AgentAllowlistSchema,
-    sandboxes: z
+    environments: z
       .array(z.string())
       .optional()
       .meta({
         description:
-          "A token caller's sandbox grants (empty reaches none); absent when no grant limits the caller",
+          "A token caller's Environment grants (empty reaches none); absent when no grant limits the caller",
       }),
     via: z.string().meta({
       description:
@@ -2885,18 +2817,14 @@ export const SessionViewSchema = z
     implementationVersion: z.string(),
     status: z.enum(SESSION_STATUSES),
     activeTurnId: z.string().nullable(),
-    vaultIds: z.array(z.string()),
-    credentialSelections: z.array(CredentialSelectionSchema),
     /**
-     * The session whose sandbox this one shares; `null` when it owns its own. Deprecated: share
-     * a sandbox resource with `sandbox: { id }` (the client's `sandboxes.forSession()`).
+     * The Environment the session names, and its recipe version when the session opened (for
+     * reading only); `null` without one.
      */
-    sandboxOwnerId: z.string().nullable(),
-    /** The sandbox resource the session is attached to (`sandbox: { id }`), if any. */
-    sandboxId: z.string().optional(),
-    /** The sandbox pinned when the session was opened, or `null`. */
-    sandbox: z.record(z.string(), z.unknown()).nullable(),
-    sandboxSource: z.enum(["default", "inline", "shared", "sandbox"]).optional(),
+    environment: z
+      .object({ id: z.string(), version: z.number().int().positive() })
+      .strict()
+      .nullable(),
     mcpSnapshot: z.record(z.string(), z.unknown()).nullable(),
     mcpDiagnostics: z.array(z.record(z.string(), z.unknown())),
     /** What the session waits on: interactions, approvals, timers. */
@@ -2961,30 +2889,24 @@ export type ListProvidersResponse = z.infer<typeof ListProvidersResponseSchema>;
 const SandboxResourcesLimitSchema = z
   .object({ cpus: z.number(), memoryMiB: z.number() })
   .strict();
-/** A Tenant's sandbox configuration with every default applied (sizes in MiB). */
+/** A Tenant's Environment settings with every default applied (sizes in MiB). */
 export const EffectiveSandboxConfigSchema = z
   .object({
-    default: z.union([z.literal("none"), z.literal("virtual"), SandboxInlineRequestSchema]),
     limits: z
       .object({
         network: z.array(z.string()),
         resources: SandboxResourcesLimitSchema,
         defaultResources: SandboxResourcesLimitSchema,
         idle: z.string(),
-        /** The most sandbox resources the Tenant may hold. */
-        sandboxes: z.number().int().nonnegative().optional(),
-        /** Pods: the longest `lifecycle.ttl`, when the Tenant sets one. */
-        ttl: z.string().optional(),
+        /** The most Environments the Tenant may hold. */
+        environments: z.number().int().nonnegative().optional(),
       })
       .strict(),
-    /** Pods (Host feature `sandbox-pods`): what happens at expiry, and the pod's stop grace. */
-    lifecycle: z
-      .object({ onExpiry: z.enum(["retain", "delete"]), stopGrace: z.string() })
-      .strict()
-      .optional(),
+    /** Pods (Host feature `sandbox-pods`): the pod's stop grace. */
+    lifecycle: z.object({ stopGrace: z.string() }).strict().optional(),
     /** Where each harness may run (D38). */
     placement: z
-      .record(z.string(), z.object({ hosts: z.array(z.enum(SANDBOX_PLACEMENT_HOSTS)) }).strict())
+      .record(z.string(), z.object({ hosts: z.array(z.enum(PLACEMENT_HOSTS)) }).strict())
       .optional(),
   })
   .strict();
@@ -3110,13 +3032,7 @@ export type PutModelBudgetsRequest = z.infer<typeof PutModelBudgetsRequestSchema
 export const ModelBudgetsSchema = z.object({ budgets: z.array(ModelBudgetSchema) }).strict();
 export type ModelBudgets = z.infer<typeof ModelBudgetsSchema>;
 
-export const ListVaultsResponseSchema = z.object({ vaults: z.array(VaultInfoSchema) }).strict();
-export type ListVaultsResponse = z.infer<typeof ListVaultsResponseSchema>;
-export const ListCredentialsResponseSchema = z
-  .object({ credentials: z.array(CredentialInfoSchema) })
-  .strict();
-export type ListCredentialsResponse = z.infer<typeof ListCredentialsResponseSchema>;
-/** A deleted vault or credential. */
+/** A deleted resource. */
 export const DeletedResponseSchema = z.object({ id: z.string() }).strict();
 export type DeletedResponse = z.infer<typeof DeletedResponseSchema>;
 
@@ -3503,7 +3419,7 @@ export type TenantArtifactsView = z.infer<typeof TenantArtifactsViewSchema>;
 /** Opt-in session reads (Host feature `session-reads`). */
 export const SessionListItemSchema = SessionSummarySchema.extend({
   lastTurnId: z.string().nullable(),
-  sandboxId: z.string().nullable(),
+  environmentId: z.string().nullable(),
   createdAt: z.string().nullable(),
   lastEventAt: z.string().nullable(),
 }).strict();
@@ -3582,7 +3498,7 @@ export const ModelCallExportPageSchema = z
   })
   .strict();
 export type ModelCallExportPage = z.infer<typeof ModelCallExportPageSchema>;
-export const SandboxPageSchema = z
-  .object({ sandboxes: z.array(SandboxViewSchema), nextCursor: z.string().nullable() })
+export const EnvironmentPageSchema = z
+  .object({ environments: z.array(EnvironmentViewSchema), nextCursor: z.string().nullable() })
   .strict();
-export type SandboxPage = z.infer<typeof SandboxPageSchema>;
+export type EnvironmentPage = z.infer<typeof EnvironmentPageSchema>;

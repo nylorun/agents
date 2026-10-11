@@ -71,7 +71,7 @@ export const WorkspaceRecordSchema = z
   .object({
     key: z.string().min(1).max(512),
     sessionId: id,
-    sandboxId: id.optional(),
+    environmentId: id.optional(),
     backend: z.string(),
     image: z.string(),
     state: z.enum(["creating", "running", "stopped"]),
@@ -80,12 +80,12 @@ export const WorkspaceRecordSchema = z
   })
   .strict();
 
-/** The session a workspace request acts for: the workspace's owner and its sandbox resource. */
+/** The session a workspace request acts for, and the Environment whose workspace it is. */
 export const WorkspaceSessionSchema = z
   .object({
-    /** The session that owns the workspace: its log records the workspace's events. */
+    /** The session the request acts for: its log records the workspace's events. */
     ownerId: id,
-    sandboxId: id.optional(),
+    environmentId: id.optional(),
     activeTurnId: id.nullable(),
   })
   .strict();
@@ -145,11 +145,11 @@ export const RunRoutingSchema = z
     /** The session's pinned manifest: an effect's agent resolves against it. */
     rootManifest: document,
     mcpSnapshot: z.unknown().optional(),
-    /** The session that owns the tree's sandbox, and the sandbox resource it is attached to. */
+    /** The session's sandbox: the session, and the Environment whose sandbox it is. */
     sandbox: z
       .object({
         ownerId: id,
-        sandboxId: id.optional(),
+        environmentId: id.optional(),
         spec: z.unknown().optional(),
         /**
          * Variables every sandbox command gets (R2c, D50): each `environment_secret` name set to
@@ -295,7 +295,7 @@ export const harnessRequests = {
         turnId: id.nullable(),
         type: z.enum(HARNESS_CLAIMS),
         payload: z.unknown(),
-        /** With `sandbox.state`: the workspace's compute record as it is now. */
+        /** With `environment.state`: the workspace's compute record as it is now. */
         record: WorkspaceRecordSchema.optional(),
       })
       .strict(),
@@ -323,7 +323,7 @@ export const harnessRequests = {
 
 /**
  * Requests core sends to a harness that declared `workspace` (F6.2), with their answers. A
- * sandbox tool's answer is its `SandboxToolOutcome`; the harness claims its `sandbox.*` events
+ * sandbox tool's answer is its `SandboxToolOutcome`; the harness claims its `environment.*` events
  * while the request is in flight. `workspace.read` stays generic: F8.2 exports outputs
  * through it.
  */
@@ -341,12 +341,12 @@ export const coreRequests = {
     params: z.object({ now: z.number().optional() }).strict(),
     result: z.object({ workspaces: z.array(WorkspaceRecordSchema) }).strict(),
   },
-  /** Deletes workspaces with their files: by key, by sandbox resource, or all of them. */
+  /** Deletes workspaces with their files: by key, by Environment, or all of them. */
   "workspace.remove": {
     params: z
       .object({
         keys: z.array(z.string().min(1)).optional(),
-        sandboxIds: z.array(id).optional(),
+        environmentIds: z.array(id).optional(),
         all: z.literal(true).optional(),
       })
       .strict(),

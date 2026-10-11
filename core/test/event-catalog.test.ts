@@ -31,7 +31,8 @@ describe("event catalog", () => {
     expect(Object.keys(EVENT_SCHEMAS)).toEqual(EVENT_TYPES);
     for (const type of EVENT_TYPES)
       expect(EVENT_SCHEMAS[type].shape.type.value).toBe(type);
-    expect(EVENT_TYPES).toContain("sandbox.exec");
+    expect(EVENT_TYPES).toContain("environment.exec");
+    expect(EVENT_TYPES).not.toContain("sandbox.exec");
     expect(EVENT_TYPES).not.toContain("node.completed");
   });
 

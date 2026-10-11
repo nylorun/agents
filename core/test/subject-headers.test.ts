@@ -4,7 +4,7 @@ import {
   SCOPES_HEADER,
   SUBJECT_HEADER,
 } from "../src/compatibility.js";
-import { CreateVaultRequestSchema, SUBJECT_SCOPES, parseSubjectHeaders, vaultScopeOf } from "../src/contracts.js";
+import { SUBJECT_SCOPES, parseSubjectHeaders } from "../src/contracts.js";
 
 describe("parseSubjectHeaders", () => {
   it("returns the subject and its scopes, collapsing duplicates", () => {
@@ -23,6 +23,13 @@ describe("parseSubjectHeaders", () => {
       subject: "app:42",
       scopes: new Set(["sessions:own"]),
     });
+  });
+
+  it("names environments:write in place of the renamed sandboxes:write (protocol 11)", () => {
+    expect(SUBJECT_SCOPES).toContain("environments:write");
+    const parsed = parseSubjectHeaders("app:42", "sessions:own sandboxes:write");
+    expect(parsed).toMatchObject({ ok: false });
+    expect(!parsed.ok && parsed.message).toMatch(/environments:write/);
   });
 
   it("requires scopes and knows only the listed ones", () => {
@@ -45,29 +52,5 @@ describe("parseSubjectHeaders", () => {
     expect(SUBJECT_HEADER).toBe("Nylorun-Subject");
     expect(SCOPES_HEADER).toBe("Nylorun-Scopes");
     expect(HOST_PROTOCOL.features).toContain("subject-headers");
-  });
-});
-
-describe("CreateVaultRequestSchema", () => {
-  const base = { requestId: "r1", idempotencyKey: "k1", name: "GitHub" };
-
-  it("needs an owner for a user vault and none for an installation vault", () => {
-    expect(CreateVaultRequestSchema.safeParse({ ...base, ownerUserId: "ada" }).success).toBe(true);
-    expect(CreateVaultRequestSchema.safeParse({ ...base, scope: "installation" }).success).toBe(true);
-    expect(
-      CreateVaultRequestSchema.safeParse({ ...base, scope: "installation", ownerUserId: "installation" }).success,
-    ).toBe(true);
-    expect(CreateVaultRequestSchema.safeParse({ ...base, scope: "user" }).success).toBe(false);
-    expect(CreateVaultRequestSchema.safeParse({ ...base, ownerUserId: "installation" }).success).toBe(false);
-    expect(CreateVaultRequestSchema.safeParse({ ...base, scope: "installation", ownerUserId: "ada" }).success).toBe(false);
-    expect(CreateVaultRequestSchema.safeParse({ ...base, scope: "host" }).success).toBe(false);
-  });
-
-  it("takes the scope from the owner when none is given", () => {
-    expect(CreateVaultRequestSchema.safeParse(base).success).toBe(true);
-    expect(vaultScopeOf(base)).toBe("installation");
-    expect(vaultScopeOf({ ...base, ownerUserId: "ada" })).toBe("user");
-    expect(vaultScopeOf({ ...base, scope: "installation" })).toBe("installation");
-    expect(vaultScopeOf({ ...base, scope: "user", ownerUserId: "ada" })).toBe("user");
   });
 });
