@@ -36,6 +36,15 @@ import { isEnvironmentId } from "@nylorun/core/contracts";
 import type { Environment } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
 import {
+  recordSetup,
+  setupFile,
+  setupPlanOf,
+  setupState,
+  type SetupFile,
+  type SetupPlan,
+  type SetupReport,
+} from "./setup.js";
+import {
   mintHostTokens,
   staleHost,
   verifyHostToken,
@@ -62,6 +71,8 @@ export interface HostJoinAnswer {
   readonly expiresAt: string;
   /** The egress CA certificate (PEM) the sandbox trusts (R2c). */
   readonly caCertificate: string;
+  /** What to run and copy on a new disk before taking turns (`sandbox/setup.ts`); join only. */
+  readonly setup?: SetupPlan;
 }
 
 /** A refused join, renewal or host connection. */
@@ -83,6 +94,12 @@ export interface HostAuthority {
   renew(hostToken: string): Promise<HostJoinAnswer>;
   /** The claims of a current host's token, for a connection; refuses a stale one. */
   verify(hostToken: string): Promise<HostClaims>;
+  /** Whether to run the setup again, with the plan to run (`GET host/setup`). */
+  setup(hostToken: string): Promise<{ retry: boolean; setup?: SetupPlan }>;
+  /** Records the setup's outcome (`POST host/setup`). */
+  reportSetup(hostToken: string, report: SetupReport): Promise<void>;
+  /** Input file `index` of the host's recipe, or one file of it (`GET host/files/{index}[/{path}]`). */
+  setupFile(hostToken: string, index: number, path: string | undefined): Promise<SetupFile | undefined>;
 }
 
 const POD_UID = /^[A-Za-z0-9-]{1,64}$/;
@@ -194,16 +211,32 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
         }
         // The previous host's connection (an older epoch) serves nothing more, on any process.
         await t.signal({ type: "host.revoked", sandboxId, epoch });
-        return epoch;
+        return { epoch, setup: row ? await setupPlanOf(ctx, t, row) : undefined };
       });
-      if (typeof joined === "object") return refuse("the volume was replaced: the sandbox is lost");
-      ctx.config.logger.info("sandbox host joined", { sandboxId, epoch: joined });
-      return answerOf(await mintHostTokens(ctx, { sandboxId, epoch: joined, podUid }), await ctx.keys.egressCa());
+      if ("lost" in joined) return refuse("the volume was replaced: the sandbox is lost");
+      ctx.config.logger.info("sandbox host joined", { sandboxId, epoch: joined.epoch });
+      const answer = answerOf(
+        await mintHostTokens(ctx, { sandboxId, epoch: joined.epoch, podUid }),
+        await ctx.keys.egressCa(),
+      );
+      return joined.setup ? { ...answer, setup: joined.setup } : answer;
     },
     async renew(hostToken) {
       const claims = await verified(hostToken);
       return answerOf(await mintHostTokens(ctx, claims), await ctx.keys.egressCa());
     },
     verify: verified,
+    async setup(hostToken) {
+      const claims = await verified(hostToken);
+      return setupState(ctx, claims.sandboxId);
+    },
+    async reportSetup(hostToken, report) {
+      const claims = await verified(hostToken);
+      await recordSetup(ctx, claims.sandboxId, claims.epoch, report);
+    },
+    async setupFile(hostToken, index, path) {
+      const claims = await verified(hostToken);
+      return setupFile(ctx, claims.sandboxId, index, path);
+    },
   };
 }

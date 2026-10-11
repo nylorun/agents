@@ -40,7 +40,7 @@ export {
   isDefinitionFileHash,
 } from "./utils/definition-files.js";
 export type { ErrorCode } from "./compatibility.js";
-import { ERROR_CODES } from "./compatibility.js";
+import { ERROR_CODES, isArtifactId } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
 export const IdempotencyKeySchema = z.string().min(1).max(256);
 const jsonObject = z.record(z.string(), z.unknown());
@@ -718,6 +718,54 @@ export const EnvironmentLifecycleSchema = z
   .strict();
 export type EnvironmentLifecycle = z.infer<typeof EnvironmentLifecycleSchema>;
 
+/** The most setup commands and input files an Environment's recipe holds (step 2). */
+export const ENVIRONMENT_SETUP_MAX = 16;
+/** A setup command's longest timeout (default 10m). */
+export const ENVIRONMENT_SETUP_TIMEOUT_MAX_MS = 30 * 60_000;
+const absoluteWorkspacePath = (name: string) =>
+  z
+    .string()
+    .min(1)
+    .max(1024)
+    .refine(
+      (value) =>
+        (value === "/workspace" || value.startsWith("/workspace/")) &&
+        !value.split("/").some((segment) => segment === ".." || segment === "."),
+      { message: `${name} must be /workspace or a path under it, without . or .. segments` },
+    );
+/**
+ * One setup command (pods only): run with `/bin/sh -c` when the pod's disk is made or reset,
+ * before the engine takes a turn, with the Environment's variables, secrets (as the sentinel)
+ * and egress, as a turn's commands are.
+ */
+export const EnvironmentSetupCommandSchema = z
+  .object({
+    command: z.string().min(1).max(4096),
+    /** Where it runs. Default `/workspace`. */
+    cwd: absoluteWorkspacePath("cwd").optional(),
+    /** Default 10m, at most 30m. */
+    timeout: durationSchema("timeout")
+      .refine((value) => (parseSandboxDuration(value) ?? 0) <= ENVIRONMENT_SETUP_TIMEOUT_MAX_MS, {
+        message: "timeout is at most 30m",
+      })
+      .optional(),
+  })
+  .strict();
+export type EnvironmentSetupCommand = z.infer<typeof EnvironmentSetupCommandSchema>;
+/**
+ * One input file (pods only): a version of a Tenant-wide artifact, copied in when the pod's disk
+ * is made or reset, before the setup commands. A file artifact is written at `path`; a folder
+ * artifact is unpacked under it.
+ */
+export const EnvironmentFileSchema = z
+  .object({
+    artifactId: z.string().refine(isArtifactId, { message: "artifactId must be an artifact id" }),
+    version: z.number().int().positive(),
+    path: absoluteWorkspacePath("path"),
+  })
+  .strict();
+export type EnvironmentFile = z.infer<typeof EnvironmentFileSchema>;
+
 /**
  * `PUT /v1/environments/{environmentId}`: creates the Environment and its vault, or finds the
  * one with this id, so "get or create" is one call. On an existing one the fields sent are
@@ -755,6 +803,13 @@ export const PutEnvironmentRequestSchema = z
      */
     ownerUserId: z.string().min(1).nullable().optional(),
     lifecycle: EnvironmentLifecycleSchema.optional(),
+    /**
+     * Pods only (Host feature `environment-setup`): commands run when the disk is made or reset,
+     * before any turn. A change applies at the next reset.
+     */
+    setup: z.array(EnvironmentSetupCommandSchema).max(ENVIRONMENT_SETUP_MAX).optional(),
+    /** Pods only: artifact versions copied in when the disk is made or reset, before `setup`. */
+    files: z.array(EnvironmentFileSchema).max(ENVIRONMENT_SETUP_MAX).optional(),
   })
   .strict();
 export type PutEnvironmentRequest = z.infer<typeof PutEnvironmentRequestSchema>;
@@ -768,6 +823,8 @@ export const EnvironmentRecipeSchema = z
     network: z.object({ allowedHosts: z.array(z.string()) }).strict().optional(),
     harness: z.string(),
     lifecycle: EnvironmentLifecycleSchema,
+    setup: z.array(EnvironmentSetupCommandSchema).optional(),
+    files: z.array(EnvironmentFileSchema).optional(),
   })
   .strict();
 export type EnvironmentRecipe = z.infer<typeof EnvironmentRecipeSchema>;

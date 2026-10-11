@@ -28,6 +28,22 @@ interface Held {
   readonly caCertificate?: string;
 }
 
+/** What to run and copy on a new disk (`sandbox/setup.ts` in core), from the join answer. */
+export interface DiskSetup {
+  readonly recipeVersion: number;
+  readonly commands: readonly { readonly command: string; readonly cwd: string; readonly timeoutMs: number }[];
+  readonly files: readonly { readonly index: number; readonly path: string }[];
+  readonly environment: Readonly<Record<string, string>>;
+}
+
+/** How a setup ended, as the engine reports it. */
+export interface DiskSetupReport {
+  readonly status: "ok" | "failed";
+  readonly index?: number;
+  readonly exitCode?: number;
+  readonly output?: string;
+}
+
 /** The variables CLIs read their trust bundle from: OpenSSL, Node, Python, curl, git, AWS. */
 const TRUST_VARIABLES = [
   "SSL_CERT_FILE",
@@ -45,6 +61,14 @@ export interface PodHost {
   proxyEnv(): Record<string, string>;
   /** The host epoch of the tokens held. */
   readonly epoch: number | undefined;
+  /** The disk's setup from the last join, if its recipe has one. */
+  readonly setup: DiskSetup | undefined;
+  /** Whether to run the setup again after a failure, with the plan to run now. */
+  setupState(): Promise<{ retry: boolean; setup?: DiskSetup }>;
+  /** Reports how the setup ended. */
+  reportSetup(report: DiskSetupReport): Promise<void>;
+  /** Input file `index` (a file's bytes or a folder's listing), or one file of a folder. */
+  setupFile(index: number, path?: string): Promise<Response>;
   stop(): void;
 }
 
@@ -64,6 +88,7 @@ export function podHost(
 ): PodHost {
   const call = options.fetch ?? fetch;
   let held: Held | undefined;
+  let setup: DiskSetup | undefined;
   /** The CA in the bundle on disk, once one is written. */
   let bundled: string | undefined;
 
@@ -86,8 +111,10 @@ export function podHost(
       epoch: number;
       expiresAt: string;
       caCertificate?: string;
+      setup?: DiskSetup;
     };
     if (typeof body.caCertificate === "string") await writeBundle(body.caCertificate);
+    if (path === "join") setup = body.setup;
     return {
       hostToken: body.hostToken,
       egressToken: body.egressToken,
@@ -135,6 +162,17 @@ export function podHost(
     });
     logger.info("sandbox_host_joined", { sandboxId: config.sandboxId, epoch: held.epoch });
     return held;
+  };
+
+  /** A request with a current host token: the held one, renewed near expiry, or a new join. */
+  const authorized = async (path: string, init: RequestInit): Promise<Response> => {
+    const current =
+      held && held.expiresAt - Date.now() > 60_000 ? held : ((await renew()) ?? (await join()));
+    return call(`${config.httpUrl}/nylorun/harness/v1/host/${path}`, {
+      ...init,
+      headers: { ...(init.headers as Record<string, string> | undefined), authorization: `Bearer ${current.hostToken}` },
+      signal: AbortSignal.timeout(5 * 60_000),
+    });
   };
 
   const renew = async (): Promise<Held | undefined> => {
@@ -186,6 +224,27 @@ export function podHost(
     },
     get epoch() {
       return held?.epoch;
+    },
+    get setup() {
+      return setup;
+    },
+    async setupState() {
+      const response = await authorized("setup", { method: "GET" });
+      if (!response.ok) throw new Error(`host/setup answered ${response.status}`);
+      return (await response.json()) as { retry: boolean; setup?: DiskSetup };
+    },
+    async reportSetup(report) {
+      const response = await authorized("setup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(report),
+      });
+      await response.body?.cancel();
+      if (!response.ok) throw new Error(`host/setup answered ${response.status}`);
+    },
+    setupFile(index, path) {
+      const suffix = path === undefined ? "" : `/${path.split("/").map(encodeURIComponent).join("/")}`;
+      return authorized(`files/${index}${suffix}`, { method: "GET" });
     },
     stop() {
       clearInterval(timer);

@@ -36,6 +36,7 @@
 import {
   environmentGranted,
   type EnvironmentKind,
+  type EnvironmentRecipe,
   type EnvironmentView,
   type PutEnvironmentRequest,
 } from "@nylorun/core/contracts";
@@ -160,7 +161,23 @@ function recipeRequest(body: PutEnvironmentRequest, existing?: Environment): Rec
     ...pick("network", body.network),
     ...pick("harness", body.harness),
     ...pick("lifecycle", body.lifecycle),
+    ...pick("setup", body.setup),
+    ...pick("files", body.files),
   };
+}
+
+/**
+ * Refuses input files that are not a version of a Tenant-wide artifact (a session's artifacts
+ * go with the session); pins nothing else: the version is the one named.
+ */
+async function checkFiles(t: Tx, files: EnvironmentRecipe["files"]): Promise<void> {
+  for (const file of files ?? []) {
+    const artifact = await t.artifact(file.artifactId);
+    if (!artifact || artifact.sessionId !== null)
+      fail(400, `files: ${file.artifactId} is not an artifact of the Tenant (an artifact of a session cannot be one).`);
+    if (!(await t.artifactVersion(file.artifactId, file.version)))
+      fail(400, `files: ${file.artifactId} has no version ${file.version}.`);
+  }
 }
 
 /** Refuses an owner guard a caller acting for a person may not set. */
@@ -246,6 +263,7 @@ export async function putEnvironment(
       if (body.storage !== undefined && body.storage !== existing.recipe.storage) conflict("storage");
       checkGuard(scope, body.ownerUserId, existing.ownerUserId);
       const recipe = resolve(existing.kind, recipeRequest(body, existing));
+      if (body.files !== undefined) await checkFiles(t, recipe.files);
       const patch: Parameters<Tx["updateEnvironment"]>[1] = { lastUsedAt: now };
       if (body.labels !== undefined && canonical(body.labels) !== canonical(existing.labels))
         patch.labels = body.labels;
@@ -255,8 +273,14 @@ export async function putEnvironment(
         const version = existing.version + 1;
         patch.recipe = recipe;
         patch.version = version;
+        // What waits for the pod to start from stopped; setup and files run only on a new disk.
         const compute = (r: typeof recipe) =>
-          canonical({ image: r.image ?? null, resources: r.resources ?? null });
+          canonical({
+            image: r.image ?? null,
+            resources: r.resources ?? null,
+            setup: r.setup ?? null,
+            files: r.files ?? null,
+          });
         if (existing.kind !== "pod" || compute(recipe) === compute(existing.applied)) {
           // Nothing waits for a wake: apply all of it.
           patch.applied = recipe;
@@ -288,6 +312,7 @@ export async function putEnvironment(
     checkGuard(scope, body.ownerUserId);
     const kind = body.kind ?? "virtual";
     const recipe = resolve(kind, recipeRequest(body));
+    await checkFiles(t, recipe.files);
     const row: Environment = {
       id,
       kind,

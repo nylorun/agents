@@ -69,11 +69,14 @@ function collector() {
   };
 }
 
-export function localBackend(options: LocalBackendOptions): SandboxBackend {
-  const workspace = options.workspace ?? SANDBOX_WORKSPACE;
-  const env = baseEnv(options.env, workspace);
-
-  const exec = (request: ExecRequest, signal: AbortSignal): Promise<ExecResult> =>
+/**
+ * How the pod runs a command: `/bin/sh -c` in its own process group, with the base environment,
+ * the request's variables and the proxy of the moment. The sandbox tools and the disk's setup
+ * (`harness/setup.ts`) both run commands this way.
+ */
+export function localExec(options: LocalBackendOptions): (request: ExecRequest, signal: AbortSignal) => Promise<ExecResult> {
+  const env = baseEnv(options.env, options.workspace ?? SANDBOX_WORKSPACE);
+  return (request: ExecRequest, signal: AbortSignal): Promise<ExecResult> =>
     new Promise((resolve, reject) => {
       if (signal.aborted) return reject(signal.reason ?? new Error("Turn cancelled"));
       const child = spawn("/bin/sh", ["-c", request.command], {
@@ -121,6 +124,11 @@ export function localBackend(options: LocalBackendOptions): SandboxBackend {
         });
       });
     });
+}
+
+export function localBackend(options: LocalBackendOptions): SandboxBackend {
+  const workspace = options.workspace ?? SANDBOX_WORKSPACE;
+  const exec = localExec(options);
 
   const missing = (error: unknown) =>
     (error as NodeJS.ErrnoException)?.code === "ENOENT" || (error as NodeJS.ErrnoException)?.code === "ENOTDIR";
