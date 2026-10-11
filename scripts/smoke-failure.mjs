@@ -25,7 +25,9 @@
 // 5. The same for a graceful stop (SIGTERM) mid-call.
 // 5a. The harness killed (kill -9) mid model call: the gateway keeps the call; the
 //     restarted harness re-sends and joins it, so the stub saw one call.
-// 5b. The harness killed mid `bash`: the effect is uncertain, the session waits.
+// 5b. The harness killed mid `bash`: a sandbox call has no key to dedupe on, so it
+//     fails to the model as `tool.interrupted` and is never run again (R5); the
+//     turn completes.
 // 6. Every call crossed the gateway (one model_call line per call); the
 //    runtime runs with the gate.
 // 7. Gateway stopped: the turn fails with model.transient, nothing becomes
@@ -42,8 +44,8 @@
 //     completes, nothing is uncertain, and the server ran the tool once. The
 //     gateway logged the call (mcp_request); the runtime never did.
 // 13. Runtime and gateway both killed mid MCP call: the restarted gateway finds
-//     the call's crossing without an answer and answers uncertain, so the
-//     session is uncertain and the server never runs the tool a second time.
+//     the call's crossing without an answer and runs it again under the same key
+//     (R5), sent to the server in `_meta`; the turn completes, nothing uncertain.
 //
 // The Tenant is always reset at the end.
 import assert from "node:assert/strict";
@@ -61,11 +63,13 @@ import { startStubModel } from "./lib/stub-model.mjs";
 
 /**
  * The stub MCP server (F4.1), run with `node -e` in the Runtime image: Streamable HTTP with JSON
- * answers, one tool `slow` that holds every call until released. It counts calls.
+ * answers, one tool `slow` that holds every call until released. It counts calls, and lists
+ * each call's idempotency key (R5) at `GET /keys`.
  */
 const STUB_MCP = String.raw`
 const http = require("node:http");
 let calls = 0;
+const keys = [];
 let hold = true;
 const held = new Set();
 const reply = (res, id, result) => {
@@ -76,6 +80,10 @@ http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/calls") {
     res.setHeader("content-type", "application/json");
     return res.end(JSON.stringify({ calls, held: held.size }));
+  }
+  if (req.method === "GET" && req.url === "/keys") {
+    res.setHeader("content-type", "application/json");
+    return res.end(JSON.stringify(keys));
   }
   if (req.method === "POST" && req.url === "/hold") {
     hold = true;
@@ -115,6 +123,7 @@ http.createServer((req, res) => {
       });
     if (message.method === "tools/call") {
       calls += 1;
+      keys.push(message.params?._meta?.["nylorun/idempotency-key"] ?? null);
       const done = () => reply(res, message.id, { content: [{ type: "text", text: "slow done" }] });
       if (!hold) return done();
       held.add(done);
@@ -331,8 +340,9 @@ try {
       );
       console.log(`[failure] harness killed mid model call: one provider call (${elapsed()})`);
 
-      // 5b. The harness killed mid `bash`: the workspace call is lost with it, so the effect is
-      // uncertain and the session waits for a decision; nothing runs it twice.
+      // 5b. The harness killed mid `bash`: the workspace call is lost with it. A sandbox call has
+      // no key to dedupe on, so it fails to the model as `tool.interrupted` at once and is never
+      // run again (R5); the model answers and the turn completes. Nothing is uncertain.
       await request(runtimeUrl, tenant, "/v1/environments/s3", {
         method: "PUT",
         body: { requestId: randomUUID(), kind: "virtual" },
@@ -362,15 +372,20 @@ try {
         },
         { timeout: 180_000, interval: 1000, message: "the bash turn to settle" },
       );
-      assert.equal(bashed.status, "uncertain", JSON.stringify(bashed));
-      assert.equal(bashed.uncertainEffects.length, 1, JSON.stringify(bashed.uncertainEffects));
+      assert.equal(bashed.status, "completed", JSON.stringify(bashed));
+      assert.deepEqual(bashed.uncertainEffects ?? [], [], JSON.stringify(bashed.uncertainEffects));
       const bashHistory = await historyWith(
         () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s3/items"),
-        "effect.uncertain",
+        "turn.completed",
       );
-      assert.equal(count(bashHistory, "effect.uncertain"), 1, types(bashHistory).join(", "));
-      assert.equal(count(bashHistory, "tool.completed"), 0, "bash never completed");
-      console.log(`[failure] harness killed mid bash: the effect is uncertain (${elapsed()})`);
+      assert.equal(count(bashHistory, "effect.uncertain"), 0, types(bashHistory).join(", "));
+      const bashCalls = bashHistory.items.filter((item) => item.type === "tool.completed");
+      assert.equal(bashCalls.length, 1, types(bashHistory).join(", "));
+      assert.equal(bashCalls[0].payload.toolName, "bash", JSON.stringify(bashCalls[0].payload));
+      assert.equal(bashCalls[0].payload.status, "failed", JSON.stringify(bashCalls[0].payload));
+      assert.equal(bashCalls[0].payload.attempts, 1, "bash was sent once and never run again");
+      assert.equal(bashCalls[0].payload.error?.code, "tool.interrupted", JSON.stringify(bashCalls[0].payload));
+      console.log(`[failure] harness killed mid bash: tool.interrupted to the model, run once (${elapsed()})`);
 
       // 6. Every call crossed the gateway, and the runtime runs with it.
       const gatewayLogs = (await stack.compose(["logs", "--no-log-prefix", "gateway"])).split("\n");
@@ -590,7 +605,8 @@ try {
       );
       console.log(`[failure] kill -9 mid MCP call: recovered with one tool run (${elapsed()})`);
 
-      // 13. Runtime and gateway both killed mid MCP call: never run twice.
+      // 13. Runtime and gateway both killed mid MCP call: the call is lost with the gateway, so
+      // the restarted gateway runs it again under the same key (R5), and the turn completes.
       await fetch(`http://${mcpPublished}/hold`, { method: "POST" });
       await toolMessage(2);
       await eventually(async () => (await mcpStub()).held === 1, {
@@ -603,12 +619,25 @@ try {
       await gatewayHealthy();
       await stack.compose(["start", "runtime"]);
       await ready();
-      assert.equal((await toolSettled()).status, "uncertain");
-      await historyWith(toolHistory, "effect.uncertain");
+      await eventually(async () => {
+        const stats = await mcpStub();
+        return stats.calls === 3 && stats.held === 1;
+      }, { timeout: 120_000, interval: 500, message: "the lost MCP call to be sent again" });
       await fetch(`http://${mcpPublished}/release`, { method: "POST" });
+      assert.equal((await toolSettled()).status, "completed");
+      const resent = await historyWith(toolHistory, "turn.completed", 2);
+      assert.equal(count(resent, "effect.uncertain"), 0, types(resent).join(", "));
+      const lostCall = resent.items.filter((item) => item.type === "tool.completed").at(-1)?.payload;
+      assert.equal(lostCall?.status, "completed", JSON.stringify(lostCall));
+      assert.ok(lostCall.attempts >= 2, `sent again: ${JSON.stringify(lostCall)}`);
+      const keys = await (await fetch(`http://${mcpPublished}/keys`)).json();
+      assert.equal(keys.length, 3, JSON.stringify(keys));
+      assert.ok(keys.every((key) => typeof key === "string" && key), `every call carried a key: ${JSON.stringify(keys)}`);
+      assert.equal(keys[1], keys[2], "the lost call was sent again under its key");
+      assert.notEqual(keys[0], keys[1], "each tool call has its own key");
       await new Promise((resolve) => setTimeout(resolve, 3000));
-      assert.equal((await mcpStub()).calls, 2, "the lost call was never run again");
-      console.log(`[failure] runtime and gateway killed mid MCP call: uncertain, run once (${elapsed()})`);
+      assert.equal((await mcpStub()).calls, 3, "the lost call was sent again once");
+      console.log(`[failure] runtime and gateway killed mid MCP call: sent again under its key (${elapsed()})`);
       console.log(`[failure] Tool Gate cases passed (${elapsed()})`);
     } finally {
       await model.remove();
