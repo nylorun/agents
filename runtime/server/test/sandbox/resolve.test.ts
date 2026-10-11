@@ -74,7 +74,6 @@ describe("resolveRecipe", () => {
     ).toEqual({
       kind: "error",
       errors: [
-        "harness codex is not available: only nylorun is.",
         "lifecycle.idle is 1h; this Tenant allows at most 10m.",
         "image is for kind pod: a virtual Environment runs no images.",
         "storage is for kind pod: a virtual Environment has no volume.",
