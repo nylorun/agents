@@ -321,7 +321,11 @@ resources and vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandbox
   what runs), and a virtual Environment's change reaches the sessions opened
   after it. Egress is limited to the hosts the Environment allows, within the
   Tenant's `limits.network`; private networks, loopback, the host and cloud
-  metadata endpoints are always blocked.
+  metadata endpoints are always blocked. Each connection a pod opens, allowed or
+  refused, is one `egress.connection` event in the log of the session whose turn
+  held the Environment (host, port, outcome, bytes, duration; never headers,
+  paths or bodies), or one `environment.egress` event on
+  `GET /v1/environments/{id}/events` between turns.
 - **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn
   (at most the Tenant's `limits.idle`); `lifecycle.deleteAfter` deletes the
   Environment, its vault and its disk once it has gone that long unused (no

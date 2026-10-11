@@ -21,20 +21,35 @@
  * `environment_secret` of a live session on the sandbox is bound to. There the gate terminates
  * TLS and sets the credential's header on every request (`egress-credentials.ts`), still sending
  * only to the checked address. Every other host gets the tunnel. Any other request
- * (an absolute-form plain HTTP request included) is answered 405. Refusals are logged, never as
- * events; the token never is. Tunnels close after `idleMs` without traffic in either direction.
+ * (an absolute-form plain HTTP request included) is answered 405. Refusals are logged; the token
+ * never is. Tunnels close after `idleMs` without traffic in either direction.
+ *
+ * Every connection to a named host on a live token is recorded once (R7.3, Q6, Q7), when it
+ * closes or at once when the gate refuses it: `egress.connection` on the session log of the turn
+ * that held the Environment when it opened (read as the name resolves), else `environment.egress`
+ * on the Environment's own stream. Host, port, outcome, bytes, duration and, for a credential
+ * host, the request count and credential ids; never a header value, a path or a body. A refusal
+ * before that (no token, a stale one, no `host:port`) stays a log line, and a client that hangs up
+ * before the gate answers leaves nothing. A write never holds the tunnel up, and a failed one is
+ * logged (`egress_record_failed`).
  */
 import { lookup as dnsLookup } from "node:dns/promises";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { BlockList, connect, isIP, type AddressInfo, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
+import type { EventPayload, EventWriter } from "@nylorun/core/contracts";
 import { isSandboxHostPattern } from "@nylorun/core/define";
 import type { EgressTokenVerdict } from "../sandbox/egress-token.js";
 import type { SessionStore } from "../store/types.js";
 import { isPrivateAddress } from "../tenant/outbound.js";
 import type { Logger } from "../tenant/types.js";
 import { bindListener } from "../host/http.js";
-import { credentialTerminator, type EgressCredentials } from "./egress-credentials.js";
+import {
+  CONNECT_ESTABLISHED,
+  credentialTerminator,
+  type EgressCredentials,
+  type EgressTally,
+} from "./egress-credentials.js";
 
 /**
  * What egress-gate reads of a sandbox: its current host epoch, the pod that joined at it, and
@@ -46,6 +61,26 @@ export interface EgressSandboxes {
     | undefined
   >;
 }
+
+/** The session and turn holding an Environment: turns are serial per Environment, so one at most. */
+export interface EgressHolder {
+  readonly sessionId: string;
+  readonly turnId: string;
+}
+
+/** One connection's record (R7.3): `egress.connection`'s payload, `environment.egress`'s too. */
+export type EgressConnection = EventPayload<"egress.connection">;
+
+/** Where egress-gate records connections (R7.3). */
+export interface EgressRecord {
+  /** The session whose turn holds the Environment now; `undefined` between turns. */
+  holder(environmentId: string): Promise<EgressHolder | undefined>;
+  /** Writes `connection` to `holder`'s session log, or to the Environment's stream without one. */
+  write(holder: EgressHolder | undefined, connection: EgressConnection): Promise<void>;
+}
+
+/** egress-gate as the writer of its events (R4.9): the gate saw the connection itself. */
+export const EGRESS_WRITER: EventWriter = { source: { kind: "egress-gate", id: "egress" }, evidence: "observed" };
 
 /** Ports a tunnel may open. */
 export const EGRESS_PORTS: readonly number[] = [443, 80];
@@ -76,6 +111,8 @@ export interface StartEgressGateOptions {
   readonly dial?: (address: string, port: number) => Socket;
   /** The vault and keys, for hosts an `environment_secret` is bound to (R2c). None: tunnels only. */
   readonly credentials?: EgressCredentials;
+  /** Where connections are recorded (R7.3). None: they are only logged. */
+  readonly record?: EgressRecord;
 }
 
 export interface EgressGate {
@@ -177,6 +214,78 @@ function answer(socket: Duplex, status: number, message: string, headers: string
   );
 }
 
+/**
+ * One connection's record (R7.3): written once, at a refusal or at the close, after the answer
+ * and off the tunnel's path. The holder is read when `holder()` is first called, as the
+ * connection opens, and kept for the write.
+ */
+interface ConnectionRecord {
+  holder(): void;
+  refused(status: number, reason: string): void;
+  closed(tally?: EgressTally): void;
+  /** A host an `environment_secret` is bound to: the gate terminates TLS (R2c). */
+  credentialBound: boolean;
+}
+
+function connectionRecord(
+  sink: EgressRecord | undefined,
+  logger: Logger,
+  client: Duplex,
+  at: {
+    readonly environmentId: string;
+    readonly host: string;
+    readonly port: number;
+    /** The gate's clock at CONNECT. */
+    readonly startedAt: Date;
+    /** The client socket's `bytesRead` when the tunnel's bytes start. */
+    readonly upFrom: number;
+  },
+): ConnectionRecord {
+  let holding: Promise<EgressHolder | undefined> | undefined;
+  let written = false;
+  const holder = (to: EgressRecord) => (holding ??= to.holder(at.environmentId));
+  const write = (fields: Pick<EgressConnection, "outcome" | "reason" | "status" | "requests" | "credentialIds">) => {
+    if (written || !sink) return;
+    written = true;
+    const socket = client as Partial<Socket>;
+    const allowed = fields.outcome === "allowed";
+    const connection: EgressConnection = {
+      environmentId: at.environmentId,
+      host: at.host,
+      port: at.port,
+      ...fields,
+      mode: record.credentialBound ? "credential" : "tunnel",
+      credentialBound: record.credentialBound,
+      // Up is what the sandbox sent after its CONNECT, down what it got after the gate's 200.
+      bytesUp: allowed ? Math.max(0, (socket.bytesRead ?? 0) - at.upFrom) : 0,
+      bytesDown: allowed ? Math.max(0, (socket.bytesWritten ?? 0) - CONNECT_ESTABLISHED.length) : 0,
+      durationMs: Math.max(0, Date.now() - at.startedAt.getTime()),
+      startedAt: at.startedAt.toISOString(),
+    };
+    holder(sink)
+      .then((held) => sink.write(held, connection))
+      .catch((error: unknown) =>
+        logger.error("egress_record_failed", {
+          sandboxId: at.environmentId,
+          host: at.host,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+  };
+  const record: ConnectionRecord = {
+    credentialBound: false,
+    // A failed read is logged when the write needs it.
+    holder: () => void (sink && holder(sink).catch(() => undefined)),
+    refused: (status, reason) => write({ outcome: "refused", reason, status }),
+    closed: (tally) =>
+      write({
+        outcome: "allowed",
+        ...(tally ? { requests: tally.requests, credentialIds: [...tally.credentialIds] } : {}),
+      }),
+  };
+  return record;
+}
+
 export async function startEgressGate(options: StartEgressGateOptions): Promise<EgressGate> {
   const { logger, sandboxes } = options;
   const idleMs = options.idleMs ?? EGRESS_IDLE_MS;
@@ -205,12 +314,18 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     : undefined;
   const open = new Map<string, Set<Duplex>>();
   const tunnels = new Set<Duplex>();
+  /** Each connection's record, once its Environment and target are known. */
+  const records = new WeakMap<Duplex, ConnectionRecord>();
 
   async function onConnect(req: IncomingMessage, client: Duplex, head: Buffer): Promise<void> {
+    const startedAt = new Date();
+    // What the sandbox sent before the tunnel: its CONNECT, less the bytes after it (`head`).
+    const upFrom = ((client as Partial<Socket>).bytesRead ?? 0) - head.length;
     const target = parseTarget(req.url);
     const refuse = (status: number, reason: string, fields: Record<string, unknown> = {}, message?: string) => {
       logger.warn("egress_refused", { status, reason, ...(target ? { host: target.host, port: target.port } : {}), ...fields });
       answer(client, status, message ?? reason, status === 407 ? ['proxy-authenticate: Basic realm="nylorun-egress"'] : []);
+      records.get(client)?.refused(status, reason);
     };
     const raw = proxyToken(req.headers["proxy-authorization"]);
     if (!raw) return refuse(407, "egress_token_missing", {}, "an egress token is required");
@@ -225,12 +340,22 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       return refuse(407, "pod_stale", { sandboxId }, "the egress token was refused");
     if (!target) return refuse(403, "target_invalid", { sandboxId }, "CONNECT needs host:port");
     const { host, port } = target;
+    const record = connectionRecord(options.record, logger, client, {
+      environmentId: sandboxId,
+      host,
+      port,
+      startedAt,
+      upFrom,
+    });
+    records.set(client, record);
     if (!EGRESS_PORTS.includes(port))
       return refuse(403, "port_refused", { sandboxId }, `port ${port} is not allowed; tunnels open to 443 or 80 only`);
     if (isIP(host.replace(/^\[|\]$/g, "")) !== 0 || !isSandboxHostPattern(host) || host.startsWith("*."))
       return refuse(403, "not_a_host_name", { sandboxId }, `${host} is not a host name; IP literals are refused`);
     if (!egressAllows(host, sandbox.allow))
       return refuse(403, "host_not_allowed", { sandboxId }, `${host} is not in this sandbox's network.allow`);
+    // Who holds the Environment as the connection opens, read while the name resolves.
+    record.holder();
     let mine = open.get(sandboxId);
     if (!mine) open.set(sandboxId, (mine = new Set()));
     if (mine.size >= maxPerSandbox)
@@ -255,9 +380,12 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       return refuse(403, "address_refused", { sandboxId }, `${host} resolves only to addresses tunnels may not reach`);
     if (client.destroyed) return;
     if (terminator && port === 443 && (await options.credentials!.bound(sandboxId, host))) {
+      record.credentialBound = true;
       // A client that spoke before the 200 is not one this path serves.
       if (head.length > 0) return refuse(403, "early_data", { sandboxId }, "wait for the CONNECT answer before sending");
-      return terminator.terminate(client, { sandboxId, host, addresses: allowed });
+      const tally: EgressTally = { requests: 0, credentialIds: new Set() };
+      client.once("close", () => record.closed(tally));
+      return terminator.terminate(client, { sandboxId, host, addresses: allowed, tally });
     }
     const upstream = await dialFirst(allowed.map((entry) => entry.address), port);
     if (!upstream) return refuse(502, "connect_failed", { sandboxId }, `could not connect to ${host}:${port}`);
@@ -273,8 +401,11 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     upstream.on("timeout", close);
     upstream.on("error", close);
     upstream.on("close", () => client.destroy());
-    client.on("close", () => upstream.destroy());
-    client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+    client.on("close", () => {
+      upstream.destroy();
+      record.closed();
+    });
+    client.write(CONNECT_ESTABLISHED);
     if (head.length > 0) upstream.write(head);
     upstream.pipe(client);
     client.pipe(upstream);
@@ -320,6 +451,7 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     onConnect(req, client, head).catch((error: unknown) => {
       logger.error("egress_failed", { error: error instanceof Error ? error.message : String(error) });
       answer(client, 502, "the tunnel failed");
+      records.get(client)?.refused(502, "egress_failed");
     });
   });
   server.on("clientError", (_error, socket) => {
@@ -363,6 +495,33 @@ export function storeEgressSandboxes(store: SessionStore): EgressSandboxes {
         // The applied allowlist: a recipe change writes it at once (Q8).
         allow: sandbox.applied.network?.allowedHosts ?? [],
       };
+    },
+  };
+}
+
+/**
+ * `EgressRecord` over the Tenant's record (R7.3). The holder is the session on the Environment
+ * whose body has an `activeTurnId` (turns are serial per Environment). With a holder, the write
+ * is `egress.connection` on its session log, at that turn, under the session row's lock; without
+ * one, `environment.egress` on the Environment's stream, under its row's lock. A deleted
+ * Environment gets nothing.
+ */
+export function storeEgressRecord(store: SessionStore): EgressRecord {
+  return {
+    async holder(environmentId) {
+      const sessions = await store.tx((t) => t.sessionsOnEnvironment(environmentId));
+      const holding = sessions.find((session) => typeof session.activeTurnId === "string");
+      return holding ? { sessionId: holding.id, turnId: holding.activeTurnId! } : undefined;
+    },
+    async write(holder, connection) {
+      await store.tx(async (t) => {
+        if (holder) {
+          await t.event(holder.sessionId, holder.turnId, "egress.connection", connection, EGRESS_WRITER);
+          return;
+        }
+        if (!(await t.environment(connection.environmentId, { lock: true }))) return;
+        await t.environmentEvent(connection.environmentId, "environment.egress", connection);
+      });
     },
   };
 }

@@ -33,7 +33,13 @@ import type { PostgresClient } from "../store/postgres/connect.js";
 import type { Logger } from "../tenant/types.js";
 import { bindListener, headerValue, isAllowedRequestHost, sendRejected } from "./http.js";
 import type { EgressConfig, GatesConfig } from "./stack-config.js";
-import { startEgressGate, storeEgressSandboxes, type EgressGate, type StartEgressGateOptions } from "../gates/egress.js";
+import {
+  startEgressGate,
+  storeEgressRecord,
+  storeEgressSandboxes,
+  type EgressGate,
+  type StartEgressGateOptions,
+} from "../gates/egress.js";
 import { verifyEgressToken, type EgressTokenKeyCache } from "../sandbox/egress-token.js";
 import { leafKeyPair } from "../keys/x509.js";
 
@@ -227,7 +233,8 @@ export interface StartEgressOptions {
 
 /**
  * egress-gate (`--service egress`, F7.2): pods' CONNECT proxy, verifying egress tokens against the
- * Tenant's public keys and reading its sandboxes from the same database as the gates.
+ * Tenant's public keys and reading its sandboxes from the same database as the gates, where it
+ * also records each connection (R7.3).
  */
 export async function startEgress(options: StartEgressOptions): Promise<EgressGate> {
   const { database } = options;
@@ -247,6 +254,11 @@ export async function startEgress(options: StartEgressOptions): Promise<EgressGa
       return verifyEgressToken(vault.store, vault.tenantId, raw, publicKeys);
     },
     sandboxes: { live: async (sandboxId) => storeEgressSandboxes((await tenant.open()).store).live(sandboxId) },
+    // Each connection on the Tenant's record (R7.3): the gates' one write into it.
+    record: {
+      holder: async (environmentId) => storeEgressRecord((await tenant.open()).store).holder(environmentId),
+      write: async (holder, connection) => storeEgressRecord((await tenant.open()).store).write(holder, connection),
+    },
     credentials: {
       bound: async (sandboxId, host) => (await tenant.open()).environmentSecretBound(sandboxId, host),
       release: async (sandboxId, host) => (await tenant.open()).releaseEnvironmentSecret(sandboxId, host),

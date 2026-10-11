@@ -12,6 +12,8 @@
  * Nothing here knows a tool: the header name and its format are the credential's. A release the
  * vault refuses (two secrets for one host, an unreadable value) answers 502 and is logged, never
  * as an event; a value never is. Upgrades (WebSocket) and HTTP/2 are not served on this path.
+ * Each connection keeps a tally for its `egress.connection` event (R7.3): how many requests it
+ * read and which credentials it set, by id.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Agent, request } from "node:https";
@@ -39,6 +41,15 @@ export interface EgressCredentials {
   readonly upstreamPort?: number;
 }
 
+/** The answer to a CONNECT the gate serves; a tunnel's byte counts leave it out. */
+export const CONNECT_ESTABLISHED = "HTTP/1.1 200 Connection Established\r\n\r\n";
+
+/** What one terminated connection did so far (R7.3): requests read, credentials set (ids). */
+export interface EgressTally {
+  requests: number;
+  readonly credentialIds: Set<string>;
+}
+
 /** Headers that describe one hop and are never forwarded. */
 const HOP_BY_HOP = new Set([
   "connection",
@@ -56,6 +67,7 @@ interface Terminated {
   readonly sandboxId: string;
   readonly host: string;
   readonly agent: Agent;
+  readonly tally: EgressTally;
 }
 
 /** `rawHeaders` without hop-by-hop headers and `drop`, as lowercase names to values. */
@@ -90,6 +102,8 @@ export interface CredentialTerminator {
       readonly sandboxId: string;
       readonly host: string;
       readonly addresses: readonly { address: string; family: number }[];
+      /** Counted as requests are served, read when the connection closes. */
+      readonly tally: EgressTally;
     },
   ): Promise<void>;
 }
@@ -126,6 +140,7 @@ export function credentialTerminator(options: {
       return;
     }
     const { sandboxId, host } = at;
+    at.tally.requests += 1;
     const release = await credentials.release(sandboxId, host);
     if (release.status === "refused") {
       logger.warn("egress_credential_refused", { status: 502, reason: release.reason, sandboxId, host });
@@ -134,7 +149,10 @@ export function credentialTerminator(options: {
     }
     const header = release.status === "released" ? release.header.toLowerCase() : undefined;
     const headers = forwardable(req.rawHeaders, header);
-    if (release.status === "released") headers[header!] = [release.value];
+    if (release.status === "released") {
+      headers[header!] = [release.value];
+      at.tally.credentialIds.add(release.credentialId);
+    }
     const upstream = request({
       host,
       port: credentials.upstreamPort ?? 443,
@@ -162,7 +180,7 @@ export function credentialTerminator(options: {
 
   return {
     async terminate(client, target) {
-      const { sandboxId, host, addresses } = target;
+      const { sandboxId, host, addresses, tally } = target;
       const leaf = await credentials.leaf(host);
       if (client.destroyed) return;
       // Requests go to the addresses the gate checked, never to the name resolved again.
@@ -176,13 +194,13 @@ export function credentialTerminator(options: {
         lookup,
         ...(credentials.upstreamCa ? { ca: credentials.upstreamCa } : {}),
       });
-      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      client.write(CONNECT_ESTABLISHED);
       const tls = new TLSSocket(client as Socket, {
         isServer: true,
         secureContext: createSecureContext({ key: leaf.key, cert: leaf.cert }),
         ALPNProtocols: ["http/1.1"],
       });
-      terminated.set(tls, { sandboxId, host, agent });
+      terminated.set(tls, { sandboxId, host, agent, tally });
       tls.on("error", () => tls.destroy());
       tls.on("close", () => {
         agent.destroy();
