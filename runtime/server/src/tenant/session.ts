@@ -1,16 +1,13 @@
 /**
- * Pure helpers over the session document: turn-manifest pins and variants, and state rebasing.
+ * Pure helpers over the session document: turn-manifest pins and variants. The engine's state
+ * is the harness's (R4.2): nothing here reads it.
  * No store access and no I/O. (The tools of an MCP snapshot
  * live in `mcp/snapshot.ts`.)
  *
  * Later waves: stable; the async store conversion (Wave 1 / A) does not change these.
  */
 import type { AgentManifest } from "@nylorun/core/define";
-import {
-  allowedManifestHashes,
-  rebaseTurnState,
-  type TurnManifestStore,
-} from "../core/turn-manifest.js";
+import type { TurnManifestStore } from "../core/turn-manifest.js";
 import type { Session } from "./context.js";
 
 export { manifestFor, sessionToolsOf } from "../mcp/snapshot.js";
@@ -34,15 +31,3 @@ export function turnManifestOf(session: Session): AgentManifest {
   return session.variants?.[hash] ?? session.manifest;
 }
 
-export function rebaseSessionState(session: Session, turnHash: string): void {
-  const allowed = allowedManifestHashes({
-    pinnedHash: session.manifestHash,
-    variantHashes: Object.keys(session.variants ?? {}),
-  });
-  const next = rebaseTurnState({
-    state: session.state,
-    turnManifestHash: turnHash,
-    isAllowedHash: (hash) => allowed.has(hash),
-  });
-  if (next !== session.state) session.state = next;
-}

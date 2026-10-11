@@ -1551,8 +1551,16 @@ export type SessionEventBody = SessionCommand;
 export type MessageEventBody = z.infer<typeof MessageEventBodySchema>;
 /** The envelope every session event carries (`nylorun.event/2`, Durable Streams §9.5). */
 export const EVENT_SCHEMA = "nylorun.event/2";
-/** Who wrote an event. v1 writes `loop` (the engine) and `api` (commands and results). */
+/**
+ * Who wrote an event (track R4, R4.9): the writer says so, not the event's type. `client` is a
+ * command over the Runtime API (its `principal` says who sent it), `core` is core's own logic
+ * (settle, sweeps, the flow host, exports, the tools core serves), `harness` is what a harness
+ * reported (`source.id` is its harness id, `runId` its run), and the gates are themselves.
+ * `loop` and `api` are what events written before R4 say.
+ */
 export const EventSourceKindSchema = z.enum([
+  "client",
+  "core",
   "model-gate",
   "tool-gate",
   "egress-gate",
@@ -1569,7 +1577,12 @@ export const EventSourceKindSchema = z.enum([
   "api",
 ]);
 export type EventSourceKind = z.infer<typeof EventSourceKindSchema>;
-/** How far an event can be trusted, by who could forge it. v1 writes `observed` only. */
+/**
+ * How far an event can be trusted, by who could forge it. `observed`: the Runtime saw it itself
+ * (commands, the tools core serves, gate records, core's settle). `claimed`: a harness reported
+ * it (an assistant message, a tool result it ran, its turn's end), so it is the harness's claim;
+ * the Model Gate's usage row is the measured record of the same model call.
+ */
 export const EvidenceClassSchema = z.enum([
   "observed",
   "measured",
@@ -1578,6 +1591,27 @@ export const EvidenceClassSchema = z.enum([
   "asserted",
 ]);
 export type EvidenceClass = z.infer<typeof EvidenceClassSchema>;
+/** A command's sender (R4.9): from the request's credential, never from its body. */
+export const EventPrincipalSchema = z
+  .object({
+    kind: z.enum(["application", "subject", "flow-host", "core"]),
+    id: z.string(),
+  })
+  .strict();
+export type EventPrincipal = z.infer<typeof EventPrincipalSchema>;
+
+/**
+ * Who wrote an event, as its writer says (R4.9). Absent, core wrote it and saw it (`core`,
+ * `observed`).
+ */
+export interface EventWriter {
+  readonly source: { readonly kind: EventSourceKind; readonly id: string };
+  readonly evidence?: EvidenceClass;
+  /** The run the event was written in. */
+  readonly runId?: string;
+  readonly principal?: EventPrincipal;
+}
+
 /**
  * The envelope fields. Not strict: a client strips fields it does not know, so the envelope
  * can grow without a protocol bump.
@@ -1604,6 +1638,8 @@ const eventEnvelope = {
   schemaVersion: z.number().int().positive(),
   source: z.object({ kind: EventSourceKindSchema, id: z.string() }),
   evidence: EvidenceClassSchema,
+  /** Who sent a command (`command.*`, a cancel's `turn.cancelled`), from its credential (R4.9). */
+  principal: EventPrincipalSchema.optional(),
   trace: z
     .object({
       traceId: z.string(),

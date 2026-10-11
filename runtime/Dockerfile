@@ -44,6 +44,7 @@ COPY scripts/check-typescript-version.mjs scripts/
 COPY scripts/lib/repo.mjs scripts/lib/
 COPY core/tsconfig.json core/
 COPY core/src core/src
+COPY core/scripts core/scripts
 COPY runtime/harness/tsconfig.json runtime/harness/
 COPY runtime/harness/src runtime/harness/src
 COPY runtime/server/tsconfig.json runtime/server/

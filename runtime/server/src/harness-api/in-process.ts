@@ -9,7 +9,7 @@
  * SandboxManager and no store, as `--service harness` runs one.
  */
 import { randomBytes } from "node:crypto";
-import { memoryChannels, type MemoryPortsOptions } from "@nylorun/core/harness-api";
+import { DEFAULT_HARNESS, memoryChannels, type MemoryPortsOptions } from "@nylorun/core/harness-api";
 import { createHarness } from "@nylorun/harness/api";
 import type { ModelRoute } from "../harness/calls.js";
 import { harnessExecutors } from "../harness/executors.js";
@@ -52,7 +52,8 @@ export async function startInProcessHarness(
       sandbox: () => tools.sandbox,
     }),
     logger: ctx.config.logger,
-    name: "in-process",
+    // Our harness: its hello names our harness id (R4.1).
+    name: DEFAULT_HARNESS,
   });
   await harness.start();
   return {
@@ -97,7 +98,6 @@ export async function startLoopbackHarness(
     ...(ctx.config.delivery ? { delivery: ctx.config.delivery } : {}),
     ...(options.sandboxBackends ? { sandboxBackends: options.sandboxBackends } : {}),
     logger: quietLogger(ctx),
-    name: "loopback",
     ephemeral: ctx.config.mode === "ephemeral",
     backoff: { minMs: 50, maxMs: 500 },
   });

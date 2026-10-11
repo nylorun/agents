@@ -68,7 +68,6 @@ export async function runHarness(
     useVaultModel: true,
     toolGate: httpToolGate({ url: config.gatesUrl, runTokens }),
     logger,
-    name: pod ? `sandbox ${config.pod!.sandboxId}` : "harness",
     version: RUNTIME_VERSION,
     onGrant: (grant) => runTokens.grant(grant),
   });

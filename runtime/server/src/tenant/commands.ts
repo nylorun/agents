@@ -16,7 +16,7 @@
  * other process aborts its own on the signal (`control.ts`).
  */
 import { randomUUID } from "node:crypto";
-import type { LiveEvent, SessionCommand } from "@nylorun/core/contracts";
+import type { EventPrincipal, EventWriter, LiveEvent, SessionCommand } from "@nylorun/core/contracts";
 import {
   createDurableCheckpoint,
   createFlowCheckpoint,
@@ -45,7 +45,7 @@ import { fail } from "./http.js";
 import { settleToolRow } from "../harness-api/tool-journal.js";
 import { accessOf } from "./auth.js";
 import { checkEnvironmentTurn } from "./environments.js";
-import { rebaseSessionState, turnManifestOf, variantStore } from "./session.js";
+import { turnManifestOf, variantStore } from "./session.js";
 import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
 
@@ -122,9 +122,13 @@ export async function command(
             "Turn cancelled before model outcome was durably recorded";
           await t.put("effects", effect.request.effectId, effect);
         }
-      event = await t.event(id, cancelledTurnId, "turn.cancelled", {
-        reason: command.reason,
-      });
+      event = await t.event(
+        id,
+        cancelledTurnId,
+        "turn.cancelled",
+        { reason: command.reason },
+        commandWriter(scope)
+      );
       await slimModelEffects(t, id, cancelledTurnId);
       // The process running the advance aborts it on this signal (control.ts), sent at commit.
       await t.signal({
@@ -199,7 +203,6 @@ export async function command(
           if (!resolved.ok) {
             fail(400, resolved.message);
           } else {
-            rebaseSessionState(s, resolved.hash);
             s.checkpoint = createDurableCheckpoint({
               manifest: resolved.manifest,
               sessionId: id,
@@ -292,7 +295,8 @@ export async function command(
         id,
         s.activeTurnId,
         `command.${command.type}`,
-        command
+        command,
+        commandWriter(scope)
       );
     }
     await t.put("sessions", id, s);
@@ -335,4 +339,24 @@ export async function command(
     }
   }
   return response;
+}
+
+/** Core's own commands (R4.9): the flow host's, and a drain's cancels. */
+const CORE_PRINCIPALS: Readonly<Record<string, "flow-host" | "core">> = { "flow-host": "flow-host", drain: "core" };
+
+/**
+ * Who sent a command (R4.9), from its credential and never its body: a client over the Runtime
+ * API (an application, or a person through it or a token), or core itself.
+ */
+export function commandWriter(scope: AuthScope): EventWriter {
+  if (scope.kind === "application" && CORE_PRINCIPALS[scope.principalId] !== undefined)
+    return {
+      source: { kind: "core", id: "runtime" },
+      principal: { kind: CORE_PRINCIPALS[scope.principalId]!, id: scope.principalId },
+    };
+  const principal: EventPrincipal =
+    scope.kind === "subject" || scope.kind === "token"
+      ? { kind: "subject", id: scope.subject }
+      : { kind: "application", id: scope.kind === "anonymous" ? "anonymous" : scope.principalId };
+  return { source: { kind: "client", id: principal.id }, principal };
 }

@@ -29,6 +29,7 @@ import {
   DEFAULT_HARNESS,
   HARNESS_API_VERSION,
   HARNESS_CLAIMS,
+  MAX_HARNESS_STATE_BYTES,
   isHarnessId,
   HarnessApiError,
   type CoreMethod,
@@ -44,7 +45,7 @@ import {
   type TurnStart,
   type WorkspaceRecord,
 } from "@nylorun/core/harness-api";
-import { definitionFilesOf } from "@nylorun/core/contracts";
+import { definitionFilesOf, type EventWriter } from "@nylorun/core/contracts";
 import { isOwnershipLost } from "../store/ownership.js";
 import { ownedSession, type Lease, type TenantContext } from "../tenant/context.js";
 import {
@@ -171,6 +172,8 @@ interface Connection {
   harness?: string;
   /** Declared `workspace` in its `hello`. */
   workspace: boolean;
+  /** The tools it declared it runs itself (`capabilities.tools`, R4.2). */
+  tools?: ReadonlySet<string>;
   /** Sessions its workspace requests in flight act for, with how many each. */
   readonly claims: Map<string, number>;
   /** `workspace.sweep` and `workspace.remove` requests in flight: they may stop any workspace. */
@@ -254,10 +257,19 @@ export function createHarnessApiServer(
     return run;
   };
 
+  /** What a harness reports is its claim (R4.9): its harness id and, in a run, the run. */
+  const writerOf = (connection: Connection, runId?: string): EventWriter => ({
+    source: { kind: "harness", id: connection.harness ?? connection.peer.name },
+    evidence: "claimed",
+    ...(runId === undefined ? {} : { runId }),
+  });
+
   const scope = (run: Run) => ({
     ctx,
     lease: run.offer.lease,
     signal: run.offer.controller.signal,
+    ...(run.connection?.tools ? { nativeTools: run.connection.tools } : {}),
+    ...(run.connection ? { writer: writerOf(run.connection, run.grant.runId) } : {}),
   });
 
   const serve = (connection: Connection) =>
@@ -273,6 +285,7 @@ export function createHarnessApiServer(
           );
         connection.harness = await harnessIdOf(connection, name);
         connection.workspace = capabilities.workspace !== undefined;
+        if (capabilities.tools?.length) connection.tools = new Set(capabilities.tools.map((tool) => tool.name));
         return {
           api: HARNESS_API_VERSION,
           tenantId: ctx.config.tenantId,
@@ -295,7 +308,11 @@ export function createHarnessApiServer(
           });
           match();
         });
-      if (OUTPUTS.includes(method)) return output(held(connection, String(p.runId), method), method, p);
+      if (OUTPUTS.includes(method)) {
+        const run = held(connection, String(p.runId), method);
+        if (connection.harness !== DEFAULT_HARNESS) checkCustomOutput(run, method, p);
+        return output(run, method, p);
+      }
       const run = held(connection, String(p.runId));
       switch (method) {
         case "lease.renew":
@@ -385,7 +402,7 @@ export function createHarnessApiServer(
     try {
       await ctx.store.tx(async (t) => {
         if (record) await t.put("sandboxes", record.key, record satisfies WorkspaceRecord);
-        await t.event(event.sessionId, event.turnId, event.type, event.payload as never);
+        await t.event(event.sessionId, event.turnId, event.type, event.payload as never, writerOf(connection, event.runId));
       });
     } catch (error) {
       ctx.config.logger.warn("harness event claim not recorded", {
@@ -421,7 +438,8 @@ export function createHarnessApiServer(
           current.id,
           run.grant.turnId,
           "mcp.discovered",
-          mcpDiscovered(current.mcpSnapshot, diagnostics)
+          mcpDiscovered(current.mcpSnapshot, diagnostics),
+          run.connection ? writerOf(run.connection, run.grant.runId) : undefined
         );
       } else if (diagnostics.length > 0) {
         const prior = [...(current.mcpDiagnostics ?? [])];
@@ -450,6 +468,26 @@ export function createHarnessApiServer(
     const bytes = await readDefinitionFile(ctx.blobs, sha256, signal);
     if (!bytes) throw new HarnessApiError("unavailable", `The Object store has no bytes for ${sha256}`);
     return { base64: Buffer.from(bytes).toString("base64") };
+  };
+
+  /**
+   * A custom harness's output (R4.2): its state is its own, stored as sent and never read, so it
+   * must be JSON and at most `MAX_HARNESS_STATE_BYTES`; a larger one fails the turn, as an engine
+   * that threw would. It cannot pause for approvals in v2 (Q14): approvals read our engine's plan
+   * until R5 makes them core holds.
+   */
+  const checkCustomOutput = (run: Run, method: string, params: Record<string, unknown>) => {
+    if (method === "turn.paused")
+      throw new HarnessApiError("invalid", "A custom harness cannot pause for approvals in Harness API 2");
+    if (params.state === undefined || run.outputs.has(method)) return;
+    const bytes = Buffer.byteLength(JSON.stringify(params.state) ?? "");
+    if (bytes <= MAX_HARNESS_STATE_BYTES) return;
+    output(run, "turn.failed", {
+      runId: run.grant.runId,
+      status: "failed",
+      thrown: { code: "invalid", message: `The harness's state is ${bytes} bytes, over ${MAX_HARNESS_STATE_BYTES}` },
+    }).catch(() => undefined);
+    throw new HarnessApiError("invalid", `state over 256 KiB (${bytes} bytes): the turn failed`);
   };
 
   const output = (run: Run, method: string, params: Record<string, unknown>) => {

@@ -13,6 +13,7 @@
  * prompt: drift is a hash compare. Rows written before carry their full request, hashed on read.
  */
 import {
+  HARNESS_TOOLS_CAPABILITY,
   HarnessApiError,
   effectRequestHash,
   isEffectIdOf,
@@ -21,7 +22,7 @@ import {
   type OutcomeAnswer,
   type RecordedOutcome,
 } from "@nylorun/core/harness-api";
-import type { EventPayload } from "@nylorun/core/contracts";
+import type { EventPayload, EventWriter } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import {
@@ -72,6 +73,13 @@ export interface RecordScope {
   readonly ctx: TenantContext;
   readonly lease: Lease;
   readonly signal: AbortSignal;
+  /** The tools the run's harness declared it runs itself (`hello` `capabilities.tools`, R4.2). */
+  readonly nativeTools?: ReadonlySet<string>;
+  /**
+   * Who reported what this scope records (R4.9): the run's harness, so the events derived from
+   * its intents and outcomes are its claim. Absent, core recorded what it saw itself.
+   */
+  readonly writer?: EventWriter;
 }
 
 type StoredEffect = ToolRow & {
@@ -153,12 +161,18 @@ export async function recordIntent(
         status: "invoking",
         ...firstSend({ toolKind: "http" }),
       });
-      await t.event(s.id, s.activeTurnId, "node.started", {
-        path: request.path!,
-        kind: "http",
-        key: request.key!,
-        ...(request.iterations !== undefined ? { iterations: request.iterations } : {}),
-      });
+      await t.event(
+        s.id,
+        s.activeTurnId,
+        "node.started",
+        {
+          path: request.path!,
+          kind: "http",
+          key: request.key!,
+          ...(request.iterations !== undefined ? { iterations: request.iterations } : {}),
+        },
+        scope.writer
+      );
       return { status: "execute" };
     }
     if (request.kind === "delegation") {
@@ -167,11 +181,17 @@ export async function recordIntent(
       await t.put("effects", request.effectId, { request, requestHash, status: "completed", outcome });
       const settled = request.effectId.endsWith(":settled");
       const callId = (request.context as { callId?: unknown } | undefined)?.callId;
-      await t.event(s.id, s.activeTurnId, settled ? "delegation.completed" : "delegation.started", {
-        agent: request.agent!,
-        ...(typeof callId === "string" ? { callId } : {}),
-        ...(request.input as object),
-      });
+      await t.event(
+        s.id,
+        s.activeTurnId,
+        settled ? "delegation.completed" : "delegation.started",
+        {
+          agent: request.agent!,
+          ...(typeof callId === "string" ? { callId } : {}),
+          ...(request.input as object),
+        },
+        scope.writer
+      );
       return { status: "completed", outcome };
     }
     const agentManifest = manifestFor(s.manifest, request.agent);
@@ -190,7 +210,10 @@ export async function recordIntent(
           isReadArtifactCall(agentManifest, request) ||
           isSkillToolCall(agentManifest, request) ||
           // `tool_search` (R2b C10) reads the session's pinned MCP snapshot: core serves it.
-          isToolSearchCall(agentManifest, request)));
+          isToolSearchCall(agentManifest, request) ||
+          // A tool the run's harness declared and runs itself (R4.2, Q3).
+          (request.capabilityId === HARNESS_TOOLS_CAPABILITY &&
+            scope.nativeTools?.has(request.toolName ?? "") === true)));
     if (!executed) {
       // A tool that would run the developer's code: refused at save (a turn's manifest only
       // removes tools), so this is a backstop, as is an MCP tool the turn disabled, which the
@@ -203,7 +226,13 @@ export async function recordIntent(
         ...toolKindOf(s, agentManifest, request),
         attempts: 0,
       };
-      const outcome = await settleToolRow(t, s, row, disabled ? disabledTool(request) : unrunnableTool(request));
+      const outcome = await settleToolRow(
+        t,
+        s,
+        row,
+        disabled ? disabledTool(request) : unrunnableTool(request),
+        { writer: coreIn(scope) }
+      );
       return { status: "completed", outcome };
     }
     await t.put("effects", request.effectId, {
@@ -243,16 +272,25 @@ async function runInCore(
   request: HostEffect,
   call: () => Promise<unknown>
 ): Promise<IntentAnswer> {
+  // Core ran the call: its outcome is what core saw, not the harness's claim (R4.9).
+  const writer = coreIn(scope);
+  const core: RecordScope = { ctx: scope.ctx, lease: scope.lease, signal: scope.signal, ...(writer ? { writer } : {}) };
   let value: unknown;
   try {
     value = await call();
   } catch (error) {
     if (isOwnershipLost(error)) throw error;
-    return recordOutcome(scope, request.effectId, {
+    return recordOutcome(core, request.effectId, {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  return recordOutcome(scope, request.effectId, { value });
+  return recordOutcome(core, request.effectId, { value });
+}
+
+/** Core's own write during the scope's run (R4.9): core saw it, in that run. */
+function coreIn(scope: RecordScope): EventWriter | undefined {
+  const runId = scope.writer?.runId;
+  return runId === undefined ? undefined : { source: { kind: "core", id: "runtime" }, runId };
 }
 
 /**
@@ -334,6 +372,7 @@ export async function recordOutcome(
           s,
           effect,
           interrupted(`${result.error} (the call may have run; it is not sent again)`),
+          { writer: coreIn(scope) }
         );
         return { status: "completed", outcome };
       }
@@ -341,7 +380,7 @@ export async function recordOutcome(
       effect.error = result.error;
       await t.put("effects", effectId, effect);
       if (active)
-        await t.event(s.id, request.turnId, "effect.uncertain", { effectId, message: result.error });
+        await t.event(s.id, request.turnId, "effect.uncertain", { effectId, message: result.error }, scope.writer);
       return { status: "uncertain" };
     });
   }
@@ -356,7 +395,8 @@ export async function recordOutcome(
     if (request.kind === "tool") {
       // Settled already: a re-send after a lost hop collected what the first send recorded.
       if (effect.status === "completed") return { status: "completed" as const, outcome: effect.outcome! };
-      const outcome = await settleToolRow(t, s, effect, value);
+      // What the call returned is the harness's claim, or, for a tool core ran, core's (R4.9).
+      const outcome = await settleToolRow(t, s, effect, value, { writer: scope.writer });
       if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
       return { status: "completed" as const, outcome };
     }
@@ -370,10 +410,11 @@ export async function recordOutcome(
     const compacted = summarizing && !failed ? contextCompacted(request, value) : undefined;
     const transcript = failed || summarizing || !model ? undefined : assistantMessage(request, value);
     if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
-    if (failed) await t.event(s.id, request.turnId, "model.failed", failed);
-    if (compacted) await t.event(s.id, request.turnId, "context.compacted", compacted);
+    const writer = scope.writer;
+    if (failed) await t.event(s.id, request.turnId, "model.failed", failed, writer);
+    if (compacted) await t.event(s.id, request.turnId, "context.compacted", compacted, writer);
     if (transcript)
-      await t.event(s.id, request.turnId, "message.assistant", transcript as EventPayload<"message.assistant">);
+      await t.event(s.id, request.turnId, "message.assistant", transcript as EventPayload<"message.assistant">, writer);
     return { status: "completed" as const, outcome: effect.outcome };
   });
 }

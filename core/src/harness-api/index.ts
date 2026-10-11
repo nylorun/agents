@@ -36,7 +36,9 @@ export {
 export {
   EffectIntentSchema,
   FrameSchema,
+  HarnessCheckpointSchema,
   IntentAnswerSchema,
+  NativeToolSchema,
   OutcomeAnswerSchema,
   RecordedOutcomeSchema,
   RunGrantSchema,

@@ -12,7 +12,8 @@ import { isWorkflowManifest } from "../core/flow-host.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
 import { ownedTx } from "../store/ownership.js";
 import type { SandboxPodState, Tx } from "../store/types.js";
-import type { Lease, Session, TenantContext } from "../tenant/context.js";
+import { harnessOf, type Lease, type Session, type TenantContext } from "../tenant/context.js";
+import { HARNESS_ID } from "../sandbox/placement.js";
 import {
   checkParity,
   foldTranscriptWithCursor,
@@ -23,7 +24,7 @@ import {
   type TranscriptUpdate,
 } from "../tenant/history.js";
 import { usesFixtureModel } from "../tenant/model-setting.js";
-import { rebaseSessionState, sessionToolsOf, turnManifestOf } from "../tenant/session.js";
+import { sessionToolsOf, turnManifestOf } from "../tenant/session.js";
 import { bulkOutcomes } from "./record.js";
 
 /** Segment rollover defaults (Model Calls §10), well inside the advance deadline. */
@@ -63,8 +64,9 @@ export async function startSegment(
     id,
     lease.epoch,
     async (t, current) => {
-      if (!isWorkflowManifest(current.manifest) && current.checkpoint) {
-        rebaseSessionState(current, current.checkpoint.manifestHash);
+      // A transcript left on our engine's state by an older Runtime is recorded once; another
+      // harness's state is its own (R4.2).
+      if (!isWorkflowManifest(current.manifest) && current.checkpoint && harnessOf(current) === HARNESS_ID) {
         await adoptStoredTranscript(t, current);
         const cp = current.checkpoint as DurableCheckpoint;
         current.checkpoint = { ...cp, state: current.state };
@@ -88,8 +90,13 @@ export async function startSegment(
   // One history (P0.3): the engine resumes from the transcript folded from the record.
   const { current } = started;
   const cp = current.checkpoint as DurableCheckpoint | undefined;
-  if (isWorkflowManifest(current.manifest) || !cp?.state)
-    return { ...started, transcript: [], cursor: -1 };
+  if (isWorkflowManifest(current.manifest)) return { ...started, transcript: [], cursor: -1 };
+  // Another harness's state says nothing about its transcript (R4.2): fold it every segment.
+  if (harnessOf(current) !== HARNESS_ID) {
+    const { transcript, cursor } = await foldSession(ctx, current);
+    return { ...started, transcript, cursor };
+  }
+  if (!cp?.state) return { ...started, transcript: [], cursor: -1 };
   const { transcript, cursor } = await foldSession(ctx, current);
   checkParity(id, transcript, transcriptOf(cp.state));
   return { ...started, transcript, cursor };
@@ -106,7 +113,7 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     engine: flow ? "flow" : "agent",
     manifest: flow ? current.manifest : turnManifestOf(current),
     checkpoint:
-      !flow && (cp as DurableCheckpoint).state
+      !flow && (cp as DurableCheckpoint).state && harnessOf(current) === HARNESS_ID
         ? { ...cp, state: withTranscript((cp as DurableCheckpoint).state, []) }
         : cp,
     // The turn's manifest: a variant may have disabled MCP tools or required their approval.

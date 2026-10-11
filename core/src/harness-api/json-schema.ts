@@ -14,7 +14,9 @@ import { HARNESS_API_VERSION } from "./messages.js";
 import {
   EffectIntentSchema,
   FrameSchema,
+  HarnessCheckpointSchema,
   IntentAnswerSchema,
+  NativeToolSchema,
   OutcomeAnswerSchema,
   RecordedOutcomeSchema,
   RunGrantSchema,
@@ -31,7 +33,9 @@ import {
 const named: Record<string, unknown> = {
   EffectIntentSchema,
   FrameSchema,
+  HarnessCheckpointSchema,
   IntentAnswerSchema,
+  NativeToolSchema,
   OutcomeAnswerSchema,
   RecordedOutcomeSchema,
   RunGrantSchema,

@@ -12,7 +12,7 @@
  * The row body keeps the journal's facts: `toolKind`, `server`, `attempts`, `startedAt` and
  * `settledAt`. A row written before R5 has none of them.
  */
-import type { EventPayload } from "@nylorun/core/contracts";
+import type { EventPayload, EventWriter } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { isHttpToolCall } from "../gates/http-tool.js";
@@ -94,7 +94,12 @@ export async function settleToolRow(
   s: Pick<Session, "id">,
   row: ToolRow,
   value: unknown,
-  options: { cancelled?: boolean; now?: Date } = {},
+  options: {
+    cancelled?: boolean;
+    now?: Date;
+    /** Who reported the outcome (R4.9): the harness that ran the call; absent, core. */
+    writer?: EventWriter;
+  } = {},
 ): Promise<{ value: unknown }> {
   const request = row.request as HostEffect;
   row.status = options.cancelled ? "cancelled" : "completed";
@@ -104,6 +109,6 @@ export async function settleToolRow(
   const status = toolCallStatus(row) as ToolCallStatus;
   const transcript = toolCompleted(request, value, factsOf(row, status));
   if (transcript)
-    await t.event(s.id, request.turnId, "tool.completed", transcript as EventPayload<"tool.completed">);
+    await t.event(s.id, request.turnId, "tool.completed", transcript as EventPayload<"tool.completed">, options.writer);
   return row.outcome;
 }
