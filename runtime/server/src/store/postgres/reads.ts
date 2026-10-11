@@ -16,6 +16,7 @@ import {
   type SQLWrapper,
 } from "drizzle-orm";
 import type {
+  LiveEvent,
   ModelCall,
   EnvironmentView,
   ToolCall,
@@ -342,6 +343,18 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
             rows.length > page.limit && last ? cursor.encode([last.startedAt, last.id]) : null,
           asOf: new Date().toISOString(),
         };
+      }),
+    turnEvents: (id, turnId, access) =>
+      read(async (tx) => {
+        await requireSession(tx, id, access);
+        // The record has no turn column: one session's rows, on the turn id in the event (no
+        // index yet, R8).
+        const rows = await tx
+          .select({ body: sessionEvents.body })
+          .from(sessionEvents)
+          .where(and(eq(sessionEvents.sessionId, id), sql`${sessionEvents.body}->>'turnId' = ${turnId}`))
+          .orderBy(asc(sessionEvents.seq));
+        return rows.map((row) => row.body as LiveEvent);
       }),
     exportModel: (after, limit) =>
       read(async (tx) => {

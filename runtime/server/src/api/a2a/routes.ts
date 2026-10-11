@@ -52,6 +52,7 @@ import {
 import { HttpError, fail } from "../../tenant/http.js";
 import { observeSession, readHistory } from "../../tenant/session-streams.js";
 import { putSession } from "../../tenant/sessions.js";
+import type { TraceContext } from "../../traces/ids.js";
 
 /**
  * How long a blocking `SendMessage` waits for the task to end or ask for input. After it, the
@@ -65,6 +66,8 @@ interface Caller {
   readonly scope: AuthScope;
   readonly access: SessionAccess;
   readonly agentId: string;
+  /** The request's trace context (R7.4): a message's turn joins the caller's trace. */
+  readonly trace?: TraceContext;
 }
 
 /** A task the caller owns, with the session it lives in. */
@@ -95,7 +98,7 @@ export async function a2aCall(
   ctx: TenantContext,
   scope: AuthScope,
   agentId: string,
-  input: { body: () => Promise<string>; version: string | null },
+  input: { body: () => Promise<string>; version: string | null; trace?: TraceContext },
   response: ServerResponse
 ): Promise<unknown> {
   const access = accessOf(scope);
@@ -109,7 +112,7 @@ export async function a2aCall(
   // A blocking call stops waiting when the caller hangs up; the task keeps running.
   const hangup = new AbortController();
   response.on("close", () => hangup.abort());
-  const caller: Caller = { ctx, scope, access, agentId };
+  const caller: Caller = { ctx, scope, access, agentId, ...(input.trace ? { trace: input.trace } : {}) };
   const { id } = envelope.request;
   try {
     checkVersion(input.version);
@@ -232,7 +235,8 @@ async function run(
       caller.ctx,
       sessionId,
       SessionCommandSchema.parse(input),
-      caller.scope
+      caller.scope,
+      caller.trace ? { trace: caller.trace } : {}
     )) as { turnId: string | null; cursor: string };
     return { turnId: accepted.turnId!, cursor: accepted.cursor };
   } catch (error) {

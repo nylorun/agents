@@ -12,7 +12,9 @@
  * first start (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`; tenancy.md §4), trusting the issuers of the identity file
  * `NYLORUN_IDENTITY_FILE` names (Host feature `trusted-issuers`); with S2, a process running core
  * runs the stream relay, which feeds the Tenant's streams from the record over
- * logical replication (one process at a time holds the slot); `/ready` reports
+ * logical replication (one process at a time holds the slot); with `OTEL_EXPORTER_OTLP_ENDPOINT`
+ * it also runs the trace projector, which posts the record's spans over OTLP from a slot of its
+ * own (R7.2); `/ready` reports
  * the Tenant and the infrastructure checks. With an Object store
  * (`NYLORUN_OBJECT_STORE_*`) the Tenant's blobs go to it through the `s3` BlobStore, and a
  * process running core creates its bucket; without one they stay on disk (`fs`). A process
@@ -36,8 +38,12 @@ import { createPostgresTenantOpener } from "../tenant/store-pg.js";
 import { openTenantRuntime } from "../tenant/runtime.js";
 import { createPgoutputSource } from "../adapters/replication/pgoutput.js";
 import { assertLogicalReplication } from "../store/postgres/connect.js";
-import { createPostgresRecordReader } from "../store/postgres/record.js";
 import { createStreamRelay, type StreamRelay } from "../streams/relay/core.js";
+import { createPostgresRecordReader, createPostgresTurnMessages } from "../store/postgres/record.js";
+import { createPostgresSessionStore } from "../store/postgres/store.js";
+import { createTraceProjector, TRACE_SLOT, type TraceProjector } from "../traces/projector.js";
+import { createOtlpPoster } from "../traces/otlp.js";
+import { traceKey } from "../traces/key.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
 import { configForFactory } from "./config-for.js";
 import { createHost, type CreateHostOptions } from "./create-host.js";
@@ -296,6 +302,7 @@ export async function main(): Promise<void> {
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
     objectStore: stack.objectStore ? "s3" : "fs",
+    traces: stack.traces?.export ? "otlp" : "off",
   });
   const infra = createInfra(stack, { logger });
   const database = infra.database;
@@ -326,7 +333,11 @@ export async function main(): Promise<void> {
   // running core runs one, once the Tenant is open (the relay reads its id); the replication
   // slot lets exactly one be active. Without S2, the Tenant relays its own commits.
   let relay: StreamRelay | undefined;
-  if (streams && stack.services.has("core")) await assertLogicalReplication(database);
+  // With an OTLP endpoint (R7.2, Q5), the trace projector reads the record on its own slot: one
+  // process running core at a time, as for the relay. Without one there is no slot.
+  const traceExport = stack.services.has("core") ? stack.traces?.export : undefined;
+  let projector: TraceProjector | undefined;
+  if ((streams || traceExport) && stack.services.has("core")) await assertLogicalReplication(database);
   const startRelay = (tenantId: string) => {
     if (!streams || !stack.services.has("core") || relay) return;
     const source = createPgoutputSource({
@@ -341,6 +352,31 @@ export async function main(): Promise<void> {
       log: (message, fields) => logger.info(message, fields),
     });
     relay.start();
+  };
+  const startProjector = (tenantId: string) => {
+    if (!traceExport || projector) return;
+    const store = createPostgresSessionStore({ sql: database, tenantId });
+    const log = (message: string, fields?: Record<string, unknown>) => logger.info(message, fields);
+    projector = createTraceProjector({
+      source: createPgoutputSource({
+        connectionString: stack.endpoints.databaseUrl!,
+        tenantId,
+        slot: TRACE_SLOT,
+        applicationName: "nylorun-trace-export",
+        log,
+      }),
+      post: createOtlpPoster({
+        url: traceExport.url,
+        headers: traceExport.headers,
+        resource: stack.traces!.resource,
+        log: (message, fields) => logger.warn(message, fields),
+      }),
+      key: () => traceKey(store),
+      turnMessage: createPostgresTurnMessages(database),
+      content: new Set(stack.traces!.content),
+      log,
+    });
+    projector.start();
   };
   // With the gates service the Tenant's vault-backed model calls, remote MCP calls and HTTP
   // tool calls cross it, and this process never reads a model or MCP credential.
@@ -399,11 +435,17 @@ export async function main(): Promise<void> {
           ...(blobs ? { blobs } : {}),
           ...(stack.harnessMode === "remote" ? { harness: "remote" as const } : {}),
           ...(pods ? { pods } : {}),
+          ...(stack.traces
+            ? { traces: { resource: stack.traces.resource, content: new Set(stack.traces.content) } }
+            : {}),
           ...opened,
         }),
     }),
     logger,
-    onOpen: (handle) => startRelay(handle.envelope.id),
+    onOpen: (handle) => {
+      startRelay(handle.envelope.id);
+      startProjector(handle.envelope.id);
+    },
   });
 
   const options: CreateHostOptions = {
@@ -423,6 +465,7 @@ export async function main(): Promise<void> {
       beforeTenants: async () => {
         await hostExecution.stop();
         await relay?.stop();
+        await projector?.stop();
         // The harnesses' runs stop with the Tenant's advances; their connections close after.
       },
       afterTenants: async () => {

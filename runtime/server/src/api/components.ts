@@ -17,6 +17,7 @@ import {
   EnvironmentPageSchema,
   ToolCallSchema,
   ToolCallsPageSchema,
+  TurnTraceSchema,
   JwksSchema,
   SigningKeyListSchema,
   SigningKeyViewSchema,
@@ -231,4 +232,5 @@ export const EnvironmentPage = named(
 );
 export const ToolCall = named("ToolCall", ToolCallSchema);
 export const ToolCallsPage = named("ToolCallsPage", ToolCallsPageSchema.extend({ calls: z.array(ToolCall) }));
+export const TurnTrace = named("TurnTrace", TurnTraceSchema);
 export const MeResponse = named("MeResponse", MeResponseSchema);

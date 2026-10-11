@@ -280,7 +280,9 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
     async callHttp(call: HttpToolCall, signal: AbortSignal): Promise<HttpOutcome> {
       const token = options.runTokens?.token(call.tool.sessionId);
       const { sessionId: _, ...unnamed } = call.tool;
-      const body: HttpCallBody = { ...call, tool: token ? unnamed : { ...call.tool } };
+      // The gate reads the call's span context from its journal row (R7.4), not from the caller.
+      const { traceparent: _traceparent, ...sent } = call;
+      const body: HttpCallBody = { ...sent, tool: token ? unnamed : { ...call.tool } };
       return answered<HttpOutcome>(
         HTTP_CALLS_PATH,
         { body, ...(token ? { bearer: token } : {}) },

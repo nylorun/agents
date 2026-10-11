@@ -72,11 +72,13 @@ it("documents session commands for every caller that sends them, with their head
       .filter((parameter: { in: string }) => parameter.in === "header")
       .map((parameter: { name: string; required?: boolean }) => [parameter.name, parameter.required ?? false]),
   );
-  // Protocol 5: no request names the Tenant.
+  // Protocol 5: no request names the Tenant. W3C trace context joins the caller's trace (R7.4).
   expect(headers).toEqual({
     "Nylorun-Protocol": true,
     "Nylorun-Subject": false,
     "Nylorun-Scopes": false,
+    traceparent: false,
+    tracestate: false,
   });
   expect(Object.keys(op.responses)).toEqual(
     expect.arrayContaining(["200", "400", "401", "403", "404", "409", "426", "503"]),

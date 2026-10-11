@@ -13,6 +13,8 @@ import { durationBetween } from "./transcript.js";
 /** The turn timing a session body keeps. */
 export interface TurnTiming {
   turnStartedAt?: string;
+  /** The trace context the turn's message arrived with (R7.4); it ends with the turn. */
+  turnTrace?: unknown;
   pausedMs?: number;
   pausedAt?: string;
 }
@@ -64,5 +66,6 @@ export async function endTurn(
   };
   delete s.turnStartedAt;
   delete s.pausedMs;
+  delete s.turnTrace;
   return facts;
 }

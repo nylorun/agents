@@ -25,7 +25,8 @@
         "tool-calls",
         "environment-setup",
         "environment-disk-versions",
-        "tool-policy"
+        "tool-policy",
+        "traces"
       ]
     },
     "description": "For developers: agents, sessions (with AG-UI and A2A), Environments and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -9954,7 +9955,22 @@
                   ]
                 }
               },
-              "manifest": {}
+              "manifest": {},
+              "trace": {
+                "type": "object",
+                "properties": {
+                  "traceparent": {
+                    "type": "string"
+                  },
+                  "tracestate": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "traceparent"
+                ],
+                "additionalProperties": {}
+              }
             },
             "required": [
               "requestId",
@@ -19460,6 +19476,160 @@
           "durationMs"
         ],
         "additionalProperties": false
+      },
+      "TurnTrace": {
+        "type": "object",
+        "properties": {
+          "resourceSpans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resource": {
+                  "type": "object",
+                  "properties": {
+                    "attributes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "object",
+                            "additionalProperties": {}
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "value"
+                        ],
+                        "additionalProperties": {}
+                      }
+                    }
+                  },
+                  "required": [
+                    "attributes"
+                  ],
+                  "additionalProperties": {}
+                },
+                "scopeSpans": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "scope": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ],
+                        "additionalProperties": {}
+                      },
+                      "spans": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "traceId": {
+                              "type": "string"
+                            },
+                            "spanId": {
+                              "type": "string"
+                            },
+                            "parentSpanId": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "integer"
+                            },
+                            "startTimeUnixNano": {
+                              "type": "string"
+                            },
+                            "endTimeUnixNano": {
+                              "type": "string"
+                            },
+                            "attributes": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string"
+                                  },
+                                  "value": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "value"
+                                ],
+                                "additionalProperties": {}
+                              }
+                            },
+                            "status": {
+                              "type": "object",
+                              "properties": {
+                                "code": {
+                                  "type": "integer"
+                                },
+                                "message": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "code"
+                              ],
+                              "additionalProperties": {}
+                            }
+                          },
+                          "required": [
+                            "traceId",
+                            "spanId",
+                            "name",
+                            "kind",
+                            "startTimeUnixNano",
+                            "endTimeUnixNano",
+                            "attributes",
+                            "status"
+                          ],
+                          "additionalProperties": {}
+                        }
+                      }
+                    },
+                    "required": [
+                      "scope",
+                      "spans"
+                    ],
+                    "additionalProperties": {}
+                  }
+                }
+              },
+              "required": [
+                "resource",
+                "scopeSpans"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "resourceSpans"
+        ],
+        "additionalProperties": {}
       }
     },
     "parameters": {}
@@ -20526,6 +20696,26 @@
             "description": "The subject's space-separated scopes; required with a subject",
             "name": "Nylorun-Scopes",
             "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "W3C trace context: the turn this request starts joins the caller's trace (feature `traces`). A malformed value is ignored"
+            },
+            "required": false,
+            "description": "W3C trace context: the turn this request starts joins the caller's trace (feature `traces`). A malformed value is ignored",
+            "name": "traceparent",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "W3C trace context, kept with `traceparent`"
+            },
+            "required": false,
+            "description": "W3C trace context, kept with `traceparent`",
+            "name": "tracestate",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -21551,6 +21741,124 @@
         }
       }
     },
+    "/v1/sessions/{sessionId}/turns/{turnId}/trace": {
+      "get": {
+        "tags": [
+          "Sessions API"
+        ],
+        "summary": "Read a turn's trace",
+        "description": "The turn's spans as OTLP/HTTP JSON (`resourceSpans`), as the Runtime posts them to an OTLP collector: a root span for the turn, a span for each model, tool and egress crossing, ids derived so every read agrees. Post it to a collector's `/v1/traces` to backfill. A turn still running has no root span yet; a turn the session never had has no spans.",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "turnId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The turn's spans",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnTrace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions/{sessionId}/sandbox/{tool}": {
       "post": {
         "tags": [
@@ -21752,6 +22060,26 @@
             "required": false,
             "description": "The subject's space-separated scopes; required with a subject",
             "name": "Nylorun-Scopes",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "W3C trace context: the turn this request starts joins the caller's trace (feature `traces`). A malformed value is ignored"
+            },
+            "required": false,
+            "description": "W3C trace context: the turn this request starts joins the caller's trace (feature `traces`). A malformed value is ignored",
+            "name": "traceparent",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "W3C trace context, kept with `traceparent`"
+            },
+            "required": false,
+            "description": "W3C trace context, kept with `traceparent`",
+            "name": "tracestate",
             "in": "header"
           }
         ],
@@ -22500,6 +22828,26 @@
             "required": false,
             "description": "The subject's space-separated scopes; required with a subject",
             "name": "Nylorun-Scopes",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "W3C trace context: the turn this request starts joins the caller's trace (feature `traces`). A malformed value is ignored"
+            },
+            "required": false,
+            "description": "W3C trace context: the turn this request starts joins the caller's trace (feature `traces`). A malformed value is ignored",
+            "name": "traceparent",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "W3C trace context, kept with `traceparent`"
+            },
+            "required": false,
+            "description": "W3C trace context, kept with `traceparent`",
+            "name": "tracestate",
             "in": "header"
           }
         ],

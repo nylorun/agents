@@ -12,6 +12,7 @@ import {
   SessionCommandSchema,
 } from "@nylorun/core/contracts";
 import { handleSessionSandboxTool, SandboxRouteError } from "../../../core/sandbox-routes.js";
+import { traceContextOf } from "../../../traces/ids.js";
 import {
   AcceptedResponse,
   ListAgentsResponse,
@@ -46,7 +47,7 @@ import {
 } from "../../../tenant/sessions.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
-import { tenantRoute, type RouteAccess } from "../define.js";
+import { TraceHeaders, tenantRoute, type RouteAccess } from "../define.js";
 import { pageQuery, sessionPage, sessionPageQuery, parseQuery } from "./reads.js";
 import { jsonResponse } from "../respond.js";
 
@@ -101,22 +102,26 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       summary: "Send a command to a session",
       description:
         "A message starts a turn; the others answer what the session waits on, or cancel. Idempotent on the command's `idempotencyKey`.",
-      request: { params: sessionId, body: body(SessionCommand) },
+      request: { params: sessionId, body: body(SessionCommand), headers: TraceHeaders },
       responses: {
         200: json(AcceptedResponse, "The command, accepted"),
         409: { description: "A turn is running, or the session does not wait on this" },
       },
     },
-    async (c) =>
-      jsonResponse(
+    async (c) => {
+      // A `traceparent` joins the turn to the caller's trace (R7.4); a malformed one is ignored.
+      const trace = traceContextOf(c.req.raw.headers);
+      return jsonResponse(
         200,
         await command(
           c.env.tenant,
           c.req.param("sessionId")!,
           SessionCommandSchema.parse(await readJson(c.req.raw)),
           c.get("scope"),
+          trace ? { trace } : {},
         ),
-      ),
+      );
+    },
   );
 
   tenantRoute(

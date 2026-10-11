@@ -48,6 +48,8 @@ import type { BlobStore } from "../blob/index.js";
 import type { WorkspaceReader } from "../artifacts/workspace.js";
 import type { RunGrants } from "./run-grants.js";
 import { fail } from "./http.js";
+import type { TraceOptions } from "../traces/options.js";
+import type { TraceContext } from "../traces/ids.js";
 
 export interface Session {
   id: string;
@@ -89,6 +91,11 @@ export interface Session {
   pausedMs?: number;
   /** Since when the active turn waits paused (R7.1); absent while it runs. */
   pausedAt?: string;
+  /**
+   * The trace context the active turn's message arrived with (R7.4): its trace is the caller's,
+   * and the context core hands on (to the harness, tools and sandbox commands) is in it.
+   */
+  turnTrace?: TraceContext;
   creation: unknown;
   mcpSnapshot?: McpSnapshot;
   mcpDiagnostics?: readonly McpDiagnostic[];
@@ -205,6 +212,11 @@ export interface TenantContext {
    * this process's `sandbox` today; over the Harness API's `workspace.read` from F6.2.
    */
   readonly workspaces: WorkspaceReader;
+  /**
+   * How the trace route (R7.5) makes spans: the resource and the content the installation exports
+   * (R7.2). Absent: `service.name` `nylorun`, no content.
+   */
+  readonly traces?: TraceOptions;
   /**
    * The run token of each session an advance of this process owns (F5): the credential the
    * HTTP gate clients present for that session's model and MCP calls (`run-grants.ts`).

@@ -23,8 +23,17 @@ export interface HarnessRun {
 export interface HarnessExecutors {
   /** A model call. A provider failure is a failure outcome; only an abort throws. */
   model(effect: HostEffect, signal: AbortSignal, run: HarnessRun): Promise<unknown>;
-  /** An MCP, HTTP or sandbox tool call, routed by `run.start.routing`. */
-  tool(effect: HostEffect, signal: AbortSignal, run: HarnessRun): Promise<unknown>;
+  /**
+   * An MCP, HTTP or sandbox tool call, routed by `run.start.routing`. `call.traceparent` is the
+   * call's span context from core's `execute` answer (R7.4): a sandbox command gets it as
+   * `TRACEPARENT`.
+   */
+  tool(
+    effect: HostEffect,
+    signal: AbortSignal,
+    run: HarnessRun,
+    call?: ToolCallContext,
+  ): Promise<unknown>;
   /**
    * Calls that outlive this process at their gate: a shutdown leaves them running there, and
    * the next run re-sends them (`rejoin`) instead of marking them uncertain.
@@ -49,6 +58,11 @@ export interface HarnessExecutors {
    * tools, which the segment runs with. Undefined: nothing to change.
    */
   prepare?(run: HarnessRun, record: McpRecorder): Promise<PreparedRun | undefined>;
+}
+
+/** What core's `execute` answer says of a tool call beside running it (R7.4). */
+export interface ToolCallContext {
+  readonly traceparent?: string;
 }
 
 /** Records a session's MCP discovery in core (`session.mcp`). */

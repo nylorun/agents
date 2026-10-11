@@ -392,7 +392,7 @@ too:
 | Setting | Value | Why |
 | --- | --- | --- |
 | `wal_level` | `logical` | The relay reads committed events from a replication slot. Changing it restarts Postgres |
-| `max_replication_slots`, `max_wal_senders` | at least 2 (the default 10 is enough) | One slot, `nylorun_stream_relay` |
+| `max_replication_slots`, `max_wal_senders` | at least 2 (the default 10 is enough) | One slot, `nylorun_stream_relay`, and `nylorun_trace_export` when traces are exported |
 | `max_slot_wal_keep_size` | a few GB (`nylorun start` uses 4GB) | A stuck relay cannot fill the disk; a lost slot only costs a reconciliation |
 | The Runtime's role | `REPLICATION`, plus read access to `nylorun_streams` | The relay reads the Tenant's events (a local Tenant's `nylorun` role is a superuser) |
 
@@ -406,6 +406,50 @@ S2. Each process holds one connection of its own for it (`application_name`
 `nylorun-control`). Connect the Runtime to Postgres directly or through a pooler in session
 mode: a pooler in transaction mode (PgBouncer's default) does not deliver notifications, and
 a cancel then reaches another process only through the 5-second poll.
+
+## Traces
+
+Each turn is one OpenTelemetry trace, derived from the session log (track R7): a root span
+`invoke_agent <agent>` for the turn, and a child span for every model call (`chat <model>`),
+tool call (`execute_tool <tool>`, a flow's HTTP stage too) and egress-gate tunnel
+(`CONNECT <host>`), plus a marker for each pause and answer. Attribute names follow the OTel
+GenAI semantic conventions at one pinned commit (`nylorun.semconv.genai` on the resource); the
+rest are `nylorun.*`. Span ids are derived from the log under a key the Tenant keeps (its
+setting `trace.key`), so exporting the same turn twice, or reading it from the route, gives the
+same ids.
+
+Export is off until an OTLP endpoint is set on the `runtime` container. `nylorun start` passes
+these variables to it from the shell it runs in (a collector on your machine is
+`host.docker.internal`):
+
+| Variable | Meaning |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | The collector's OTLP/HTTP base URL; spans go to `<url>/v1/traces` as JSON |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | The full traces URL instead |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `key=value` pairs separated by commas (values percent-encoded), sent with every post |
+| `OTEL_SERVICE_NAME` | `service.name` on the resource; default `nylorun` |
+| `OTEL_RESOURCE_ATTRIBUTES` | More resource attributes, `key=value` pairs |
+| `NYLORUN_TRACE_CONTENT` | The content spans carry, any of `user`, `outputs`, `tool-results`, `errors`; none by default |
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | `true` turns on all four kinds |
+
+- **Off the hot path.** With an endpoint, the process running core reads committed events
+  from its own replication slot, `nylorun_trace_export` (the slot is created at start; one
+  process reads it at a time), and posts batches of up to 512 spans, or every 2 s. No turn waits
+  for it. Without an endpoint there is no slot.
+- **A collector that is down costs only its spans.** A `429`, a `5xx` or a lost connection is
+  tried three times with backoff, then the batch is dropped and logged as
+  `trace_export_dropped {spans}`, and the slot moves on anyway, so Postgres keeps no WAL for the
+  collector. Read the turns it missed from `GET /v1/sessions/{id}/turns/{turnId}/trace` and post
+  them to the collector's `/v1/traces` to backfill.
+- **What leaves.** By default a span carries references (`nylorun.event.cursor` points at the
+  log event), never content. The content kinds above are each cut at 8 KiB. A span never carries
+  a credential value (the log holds none), a prompt (the log holds none), a person's id
+  (`ownerUserId`, a subject, who approved), an identity header or an idempotency key.
+- **Trace context.** A command, an AG-UI run or an A2A message sent with a `traceparent` joins the
+  caller's trace: the turn's root span is a child of the caller's span. The turn hands its own
+  context on: to the harness (`TurnStart.trace`), to HTTP tools and MCP servers as `traceparent`
+  on the call's requests, and to sandbox commands as `TRACEPARENT`.
+- **Lag** is not reported yet: watch `nylorun_trace_export` in `pg_replication_slots`.
 
 ## The Object store
 

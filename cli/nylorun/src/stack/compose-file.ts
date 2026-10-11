@@ -248,7 +248,16 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       NYLORUN_HARNESS: \${NYLORUN_HARNESS:-remote}
       NYLORUN_HARNESS_LISTEN_PORT: "4200"
       NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200${sandboxes ? SANDBOXES_HARNESS_HOST : ""}
-      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}${identity ? IDENTITY_RUNTIME_ENV : ""}
+      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}
+      # Traces (R7.2): from the shell that runs \`nylorun start\`. Unset, they are
+      # empty and the Runtime exports nothing. A collector on this machine is host.docker.internal.
+      OTEL_EXPORTER_OTLP_ENDPOINT: \${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: \${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: \${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: \${OTEL_SERVICE_NAME:-}
+      OTEL_RESOURCE_ATTRIBUTES: \${OTEL_RESOURCE_ATTRIBUTES:-}
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: \${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT:-}
+      NYLORUN_TRACE_CONTENT: \${NYLORUN_TRACE_CONTENT:-}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}${identity ? IDENTITY_RUNTIME_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:

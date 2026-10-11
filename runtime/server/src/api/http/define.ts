@@ -146,6 +146,15 @@ function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
   };
 }
 
+/** W3C trace context a request may send (R7.4): the turn it starts joins the caller's trace. */
+export const TraceHeaders = z.object({
+  traceparent: z
+    .string()
+    .optional()
+    .meta({ description: "W3C trace context: the turn this request starts joins the caller's trace (feature `traces`). A malformed value is ignored" }),
+  tracestate: z.string().optional().meta({ description: "W3C trace context, kept with `traceparent`" }),
+});
+
 export function tenantRoute(
   api: OpenAPIHono<TenantEnv>,
   access: RouteAccess,
@@ -177,7 +186,11 @@ export function tenantRoute(
       ...schemes.map((scheme) => ({ [scheme]: [] })),
       ...(access.anonymous ? [{}] : []),
     ],
-    request: { ...route.request, headers },
+    // A route's own headers (`traceparent`, R7.4) beside the common ones.
+    request: {
+      ...route.request,
+      headers: route.request?.headers instanceof z.ZodObject ? headers.extend(route.request.headers.shape) : headers,
+    },
     responses: {
       400: rejected("Invalid headers, path, body or cursor"),
       401: rejected(

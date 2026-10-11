@@ -50,6 +50,7 @@ import { turnManifestOf, variantStore } from "./session.js";
 import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
 import { endTurn, resumeTurn, startTurn } from "./turn-timing.js";
+import type { TraceContext } from "../traces/ids.js";
 
 /** A command's identity for idempotency: everything but the request id. */
 const semantic = (value: any): string => {
@@ -61,7 +62,12 @@ export async function command(
   ctx: TenantContext,
   id: string,
   input: SessionCommand,
-  scope: AuthScope
+  scope: AuthScope,
+  /**
+   * The W3C trace context the request carried (R7.4): a `message` records it on its
+   * `command.message`, and the turn joins the caller's trace. Not part of the command's identity.
+   */
+  options: { trace?: TraceContext } = {}
 ): Promise<unknown> {
   const { store } = ctx;
   const cascadeCancelIds: string[] = [];
@@ -180,6 +186,8 @@ export async function command(
         if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };
         s.activeTurnId = randomUUID();
         startTurn(s);
+        if (options.trace) s.turnTrace = options.trace;
+        else delete s.turnTrace;
         // File parts name artifacts the caller may read; each is pinned to a version now.
         const parts =
           "parts" in command
@@ -323,7 +331,7 @@ export async function command(
         id,
         s.activeTurnId,
         `command.${command.type}`,
-        command,
+        command.type === "message" && options.trace ? { ...command, trace: options.trace } : command,
         commandWriter(scope)
       );
     }

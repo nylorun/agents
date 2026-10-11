@@ -244,22 +244,24 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
 
   /**
    * Under a run token, the 400 or 409 for a tool call the effect journal does not hold, running,
-   * as sent (R5.6); undefined when it does, or under core's credential.
+   * as sent (R5.6); else the call's span context from its row (R7.4), none under core's credential.
    */
   const unjournaled = async (
     c: Context<GateEnv>,
     tenantId: string | undefined,
     key: string | undefined,
     call: GateToolCall,
-  ): Promise<Response | undefined> => {
+  ): Promise<{ refused: Response } | { refused?: undefined; traceparent?: string }> => {
     const claims = c.get("run");
-    if (!claims || !options.journal) return undefined;
+    if (!claims || !options.journal) return {};
     if (!key)
-      return c.json(gateError("key_required", "A run's tool call needs its effect id as its Idempotency-Key"), 400);
-    const refused = await options.journal.refusal(tenantId, claims, key, call);
-    if (refused === undefined) return undefined;
-    logger.warn("gate_call_unjournaled", { route: c.req.path, session: claims.sessionId, effect: key, reason: refused });
-    return c.json(gateError("effect_not_journaled", refused), 409);
+      return {
+        refused: c.json(gateError("key_required", "A run's tool call needs its effect id as its Idempotency-Key"), 400),
+      };
+    const answer = await options.journal.check(tenantId, claims, key, call);
+    if (answer.refused === undefined) return answer.traceparent ? { traceparent: answer.traceparent } : {};
+    logger.warn("gate_call_unjournaled", { route: c.req.path, session: claims.sessionId, effect: key, reason: answer.refused });
+    return { refused: c.json(gateError("effect_not_journaled", answer.refused), 409) };
   };
 
   /** 409 for a keyed re-send the in-flight map refused, or undefined. */
@@ -311,13 +313,14 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
       const body = { ...request.body, server: server.server };
       const signal = c.req.raw.signal;
       const key = c.req.header("idempotency-key");
-      const refused = await unjournaled(c, request.tenantId, key, {
+      const journaled = await unjournaled(c, request.tenantId, key, {
         kind: "mcp",
         server: body.server,
         name: body.name,
         arguments: body.arguments,
       });
-      if (refused) return refused;
+      if (journaled.refused) return journaled.refused;
+      const traced = journaled.traceparent ? { traceparent: journaled.traceparent } : {};
       try {
         // Keyed: the call runs under its own signal, once, and outlives this request (G3). The
         // hash covers the session, so a re-send joins only its own session's call.
@@ -328,12 +331,12 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
                   request.tenantId,
                   key,
                   createHash("sha256").update(canonical(body)).digest("hex"),
-                  (own) => mcp.call(request.tenantId, { ...body, key }, own),
+                  (own) => mcp.call(request.tenantId, { ...body, key, ...traced }, own),
                   ownerOf(c),
                 ),
                 signal,
               )
-            : await mcp.call(request.tenantId, body, signal);
+            : await mcp.call(request.tenantId, { ...body, ...traced }, signal);
         if (signal.aborted) return new Response(null, { status: 499 });
         return c.json(answer);
       } catch (error) {
@@ -353,15 +356,17 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
       const tool = sessionOf(c, request.body.tool, "tool");
       if (!tool.ok) return tool.response;
       // A run token's turn is the call's: it names the request's `Nylorun-Turn-Id`.
-      const call: HttpToolCall = {
+      let call: HttpToolCall = {
         ...request.body,
         tool: tool.ref,
         turnId: c.get("run")?.turnId ?? request.body.turnId,
       };
       const signal = c.req.raw.signal;
       const key = c.req.header("idempotency-key");
-      const refused = await unjournaled(c, request.tenantId, key, { kind: "http", tool: call.tool, input: call.input });
-      if (refused) return refused;
+      const journaled = await unjournaled(c, request.tenantId, key, { kind: "http", tool: call.tool, input: call.input });
+      if (journaled.refused) return journaled.refused;
+      // The span context from the call's journal row (R7.4), never from the body.
+      if (journaled.traceparent) call = { ...call, traceparent: journaled.traceparent };
       try {
         // Keyed: runs once under its own signal and outlives this request, as an MCP call.
         const answer =

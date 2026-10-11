@@ -1,7 +1,9 @@
 /**
  * The stream relay's change source on Postgres logical replication (Durable Streams §7.1,
  * §7.4, §7.6): a persistent `pgoutput` slot on the `nylorun_stream_relay` publication, read
- * with `pg-logical-replication`. The only file importing it (with `pg`, which it needs).
+ * with `pg-logical-replication`. The only file importing it (with `pg`, which it needs). The
+ * trace projector (R7.2) reads the same publication from a slot of its own
+ * (`traces/projector.ts`); for it a fresh slot means nothing to reconcile.
  *
  * - **One reader per slot.** Postgres lets one connection hold a slot, so every Runtime
  *   process can run a source and exactly one is active; the others retry every few seconds
@@ -40,6 +42,8 @@ export interface PgoutputSourceOptions {
   publication?: string;
   /** The schema of the record tables. Default `nylorun_streams`. */
   schema?: string;
+  /** The connections' `application_name`. Default `nylorun-stream-relay`. */
+  applicationName?: string;
   /** Wait between attempts to take the slot. Default 5 s. */
   retryMs?: number;
   log?: (message: string, fields?: Record<string, unknown>) => void;
@@ -56,12 +60,13 @@ export function createPgoutputSource(options: PgoutputSourceOptions): ChangeSour
   const publication = options.publication ?? "nylorun_stream_relay";
   const schema = options.schema ?? "nylorun_streams";
   const retryMs = options.retryMs ?? 5000;
+  const applicationName = options.applicationName ?? "nylorun-stream-relay";
   const { tenantId } = options;
   const log = options.log ?? (() => {});
   const pool = new pg.Pool({
     connectionString: options.connectionString,
     max: 2,
-    application_name: "nylorun-stream-relay",
+    application_name: applicationName,
   });
   let service: LogicalReplicationService | undefined;
   let stopped = false;
@@ -111,7 +116,7 @@ export function createPgoutputSource(options: PgoutputSourceOptions): ChangeSour
     // `stop()` during `prepareSlot` had no service to stop: do not start one it cannot.
     if (stopped) return;
     const current = new LogicalReplicationService(
-      { connectionString: options.connectionString, application_name: "nylorun-stream-relay" },
+      { connectionString: options.connectionString, application_name: applicationName },
       { acknowledge: { auto: false, timeoutSeconds: 0 }, flowControl: { enabled: false } },
     );
     service = current;

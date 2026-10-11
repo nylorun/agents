@@ -95,7 +95,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -166,7 +167,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -237,7 +239,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -308,7 +311,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -379,7 +383,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -450,7 +455,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -521,7 +527,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -592,7 +599,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -663,7 +671,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -734,7 +743,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -805,7 +815,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -876,7 +887,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -980,7 +992,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -1051,7 +1064,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -1122,7 +1136,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -1193,7 +1208,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -1264,7 +1280,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -1335,7 +1352,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },
@@ -1406,7 +1424,8 @@
           "tool-calls",
           "environment-setup",
           "environment-disk-versions",
-          "tool-policy"
+          "tool-policy",
+          "traces"
         ]
       }
     },

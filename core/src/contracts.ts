@@ -2152,6 +2152,14 @@ export const CommandMessagePayloadSchema = z
     parts: z.array(MessagePartSchema).optional(),
     /** The turn manifest the message carried, if any. */
     manifest: z.unknown().optional(),
+    /**
+     * The W3C trace context the message was sent with (R7.4): the turn's trace is the caller's,
+     * and its root span the child of the caller's span.
+     */
+    trace: z
+      .object({ traceparent: z.string(), tracestate: z.string().optional() })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 /** `command.approve`: an answer to an approval interaction. */
@@ -3988,6 +3996,52 @@ export const ToolCallsPageSchema = z
   .object({ calls: z.array(ToolCallSchema), nextCursor: z.string().nullable(), asOf: z.string() })
   .strict();
 export type ToolCallsPage = z.infer<typeof ToolCallsPageSchema>;
+/** One OTLP attribute (R7.5): a key and an `AnyValue` (`stringValue`, `intValue`, …). */
+export const OtlpKeyValueSchema = z
+  .object({ key: z.string(), value: z.record(z.string(), z.unknown()) })
+  .passthrough();
+/**
+ * One span as OTLP/HTTP JSON encodes it (R7.5): hex ids, times in nanoseconds as decimal strings,
+ * `kind` (1 internal, 3 client) and `status.code` (0 unset, 1 ok, 2 error) as numbers.
+ */
+export const OtlpSpanSchema = z
+  .object({
+    traceId: z.string(),
+    spanId: z.string(),
+    parentSpanId: z.string().optional(),
+    name: z.string(),
+    kind: z.number().int(),
+    startTimeUnixNano: z.string(),
+    endTimeUnixNano: z.string(),
+    attributes: z.array(OtlpKeyValueSchema),
+    status: z.object({ code: z.number().int(), message: z.string().optional() }).passthrough(),
+  })
+  .passthrough();
+export type OtlpSpan = z.infer<typeof OtlpSpanSchema>;
+/**
+ * A turn's trace (R7.5, feature `traces`): the OTLP `ExportTraceServiceRequest` JSON the Runtime
+ * posts to a collector, built from the turn's log rows. One resource, one scope.
+ */
+export const TurnTraceSchema = z
+  .object({
+    resourceSpans: z.array(
+      z
+        .object({
+          resource: z.object({ attributes: z.array(OtlpKeyValueSchema) }).passthrough(),
+          scopeSpans: z.array(
+            z
+              .object({
+                scope: z.object({ name: z.string(), version: z.string().optional() }).passthrough(),
+                spans: z.array(OtlpSpanSchema),
+              })
+              .passthrough(),
+          ),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+export type TurnTrace = z.infer<typeof TurnTraceSchema>;
 export const EnvironmentPageSchema = z
   .object({ environments: z.array(EnvironmentViewSchema), nextCursor: z.string().nullable() })
   .strict();

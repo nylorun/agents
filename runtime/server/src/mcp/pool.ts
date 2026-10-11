@@ -195,6 +195,8 @@ export class McpPool {
     manifest: AgentManifest;
     /** The effect id: a gate runs the call once under it (F4.1). */
     effectId?: string;
+    /** The call's span context (R7.4), sent as `traceparent` on a connection this process holds. */
+    traceparent?: string;
     signal?: AbortSignal;
   }): Promise<McpToolOutcome> {
     const key = this.liveKey(input.sessionId, input.agentId, input.capabilityId, input.serverName);
@@ -207,6 +209,7 @@ export class McpPool {
         return await callMcpTool(live.connection.client, input.serverToolName, input.args, {
           ...(input.effectId === undefined ? {} : { key: input.effectId }),
           ...(input.signal ? { signal: input.signal } : {}),
+          ...(input.traceparent === undefined ? {} : { traceparent: input.traceparent }),
         });
       } catch (error) {
         if (!(error instanceof McpConnectionStale)) throw error;

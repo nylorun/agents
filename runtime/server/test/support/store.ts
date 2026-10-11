@@ -16,7 +16,14 @@ import { tenantTestDatabase } from "./database.js";
 export { isolatedTestDatabase, tenantTestDatabase, testPool } from "./database.js";
 
 /** The database of each test Tenant of this file, by Tenant id. */
-const databases = new Map<string, { sql: PostgresClient; drop(): Promise<void> }>();
+const databases = new Map<string, { sql: PostgresClient; url: string; drop(): Promise<void> }>();
+
+/** The URL of a test Tenant's database (logical replication). Throws for one this file did not create. */
+export function testTenantUrl(tenantId: string): string {
+  const database = databases.get(tenantId);
+  if (!database) throw new Error(`Test Tenant ${tenantId} has no database in this file`);
+  return database.url;
+}
 
 /** The pool on a test Tenant's database. Throws for a Tenant this file did not create. */
 export function testTenantPool(tenantId: string): PostgresClient {

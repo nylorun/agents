@@ -44,13 +44,17 @@ export function apiHost(
     }
   };
 
-  const execute = async (effect: HostEffect, requestHash: string): Promise<EffectResolution> => {
+  const execute = async (
+    effect: HostEffect,
+    requestHash: string,
+    traceparent: string | undefined,
+  ): Promise<EffectResolution> => {
     const model = effect.kind === "model";
     for (let resent = 0; ; resent += 1) {
       try {
         const value = model
           ? await executors.model(effect, signal, run)
-          : await executors.tool(effect, signal, run);
+          : await executors.tool(effect, signal, run, traceparent ? { traceparent } : {});
         return await ask("effect.outcome", { runId, effectId: effect.effectId, value });
       } catch (error) {
         // Another owner decides what the effect became.
@@ -67,7 +71,10 @@ export function apiHost(
             effect: intentOf(effect),
             requestHash,
           });
-          if (again.status === "execute") continue;
+          if (again.status === "execute") {
+            traceparent = again.traceparent ?? traceparent;
+            continue;
+          }
           return again;
         }
         if (recoverable && !model && kind === "cancel") await executors.cancelAtGate?.(effect, run);
@@ -91,7 +98,7 @@ export function apiHost(
         return { status: "completed", outcome: known.outcome };
       }
       const answer = await ask("effect.intent", { runId, effect: intentOf(effect), requestHash });
-      if (answer.status === "execute") return execute(effect, requestHash);
+      if (answer.status === "execute") return execute(effect, requestHash, answer.traceparent);
       return answer;
     },
   };

@@ -14,7 +14,9 @@
  *
  * Every row a run journals keeps when it was journaled (`startedAt`, R7.1), and a rejoin keeps
  * it: an outcome's `durationMs` is the journal's window, from the intent to the outcome. A model
- * call's outcome event also carries what the meter recorded for it (`modelOutcomeFacts`).
+ * call's outcome event also carries what the meter recorded for it (`modelOutcomeFacts`). A tool
+ * row keeps its span's context (`traceparent`, R7.4), which the `execute` answer carries to the
+ * harness and the Tool Gate reads with the row.
  */
 import {
   HARNESS_TOOLS_CAPABILITY,
@@ -70,6 +72,8 @@ import { abortKind } from "../tenant/worker.js";
 import { redactTokens } from "./redact.js";
 import { toolCallDecision } from "../gates/policy.js";
 import type { Tx } from "../store/types.js";
+import { traceKey } from "../traces/key.js";
+import { effectSpanOf, traceparentOf, turnTraceIdOf, type TraceKey } from "../traces/ids.js";
 import {
   MAX_TOOL_ATTEMPTS,
   firstSend,
@@ -129,11 +133,15 @@ export async function recordIntent(
 ): Promise<IntentAnswer> {
   const { ctx, lease, signal } = scope;
   const request = effect as HostEffect;
+  // Read before the transaction: the first read of the Tenant may create the key.
+  const key = await traceKey(ctx.store);
   const answer = await ctx.store.tx(async (t): Promise<
     IntentAnswer | "flow" | "save" | "read" | "search" | { skill: AgentManifest }
   > => {
     const s = await ownedSession(t, lease, request.sessionId);
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId) throw TURN_CANCELLED();
+    // A tool call's span context (R7.4), kept on its row.
+    const traced = () => ({ traceparent: toolTraceparent(key, ctx.store.tenantId, s, request) });
     // An aborted advance starts no effect; the advance decides what the abort means.
     signal.throwIfAborted();
     const existing = await t.get<StoredEffect>("effects", request.effectId);
@@ -166,7 +174,7 @@ export async function recordIntent(
     if (request.kind !== "model" && effectRequestHash(request) !== requestHash)
       throw new HarnessApiError("invalid", "The request hash does not match the request");
     if (flowHttp) {
-      const row: StoredEffect = { request, requestHash, status: "invoking", ...firstSend({ toolKind: "http" }) };
+      const row: StoredEffect = { request, requestHash, status: "invoking", ...firstSend({ toolKind: "http" }), ...traced() };
       await t.event(
         s.id,
         s.activeTurnId,
@@ -182,7 +190,7 @@ export async function recordIntent(
       const decided = await bypolicy(t, s, row, "http");
       if (decided) return decided;
       await t.put("effects", request.effectId, row);
-      return { status: "execute" };
+      return { status: "execute", traceparent: row.traceparent! };
     }
     if (request.kind === "delegation") {
       // Lifecycle points of an agent used as a tool: journaled once, so replays never re-emit.
@@ -258,7 +266,7 @@ export async function recordIntent(
       requestHash,
       status: "invoking",
       ...(request.kind === "tool"
-        ? firstSend(toolKindOf(s, agentManifest, request))
+        ? { ...firstSend(toolKindOf(s, agentManifest, request)), ...traced() }
         : { startedAt: new Date().toISOString() }),
     };
     // The Tenant's tool policy decides an MCP or HTTP tool call as it is journaled (R5 step 2).
@@ -275,7 +283,7 @@ export async function recordIntent(
     // The skill tools read the agent's definition files: core serves them.
     if (isSkillToolCall(agentManifest, request)) return { skill: agentManifest };
     if (isToolSearchCall(agentManifest, request)) return "search";
-    return { status: "execute" };
+    return { status: "execute", ...(row.traceparent ? { traceparent: row.traceparent } : {}) };
   });
   if (answer === "save") return runInCore(scope, request, () => callSaveArtifact(scope.ctx, request, scope.signal));
   if (answer === "read") return runInCore(scope, request, () => callReadArtifact(scope.ctx, request, scope.signal));
@@ -348,7 +356,19 @@ async function resend(t: Tx, s: Session, row: StoredEffect, rejoin: boolean): Pr
   }
   row.attempts = attempts;
   await t.put("effects", row.request.effectId, row);
-  return rejoin ? { status: "execute", rejoin: true } : { status: "execute" };
+  const traced = row.traceparent ? { traceparent: row.traceparent } : {};
+  return rejoin ? { status: "execute", rejoin: true, ...traced } : { status: "execute", ...traced };
+}
+
+/** The span context of tool call `request` (R7.4): its turn's trace, and its own span. */
+function toolTraceparent(
+  key: TraceKey,
+  tenantId: string,
+  s: Pick<Session, "id" | "turnTrace">,
+  request: HostEffect,
+): string {
+  const traceId = turnTraceIdOf(key, { tenantId, sessionId: s.id, turnId: request.turnId }, s.turnTrace);
+  return traceparentOf(traceId, effectSpanOf(key, request.effectId));
 }
 
 /**

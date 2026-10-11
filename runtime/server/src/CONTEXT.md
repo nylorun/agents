@@ -456,7 +456,7 @@ store, or in a harness from core (`definition.file`, for the run that made the c
 clients `426`; required features `studio-principal`, `artifacts`, `management-api`,
 `resource-server` and `environments`; optional Host features `tenant-fixture-model`,
 `transcript-events`, `subject-headers`, `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`,
-`trusted-issuers`, `session-reads`, `calls-export` and `credential-coverage`).
+`trusted-issuers`, `session-reads`, `calls-export`, `credential-coverage` and `traces`).
 Protocol 11 replaced sandbox resources, session vaults and user and installation vaults with
 Environments (D55, D56): a fresh start (migration 0020) that closed every older session.
 Protocol 10 removed MCP credential custody (D49).
@@ -516,6 +516,32 @@ a person included, so the turn's span holds every crossing), `pausedMs` (how muc
 waited paused), `agentId` and `totals` (`steps`, `tokens`, `costUsd`: one
 read of the usage ledger by turn, as `/v1/tenant/usage` totals it) (`tenant/turn-timing.ts`).
 _Avoid_: computing a span from `effects` timestamps or event times.
+
+**Trace**: One turn as an OpenTelemetry trace (track R7, Host feature `traces`), a projection of
+the session log like SSE and AG-UI: one committed row maps to at most one span (`traces/map.ts`,
+`spanOf`), and nothing is instrumented outside the log. The turn's end is the root span
+`invoke_agent {agentId}`; each span-ready row of a model call (`chat`), tool call or flow stage
+(`execute_tool`) and egress tunnel (`CONNECT {host}`) is its child, with gate times when a gate
+measured the crossing; pauses and answers are markers. A turn whose `command.message` carried a
+`traceparent` (R7.4, recorded as `trace`) is in the caller's trace, its root a child of the
+caller's span. Content is left out unless the installation opts in per kind
+(`NYLORUN_TRACE_CONTENT`). `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans
+as OTLP JSON (R7.5). Core hands the turn's context to the harness (`TurnStart.trace`) and each
+tool call's to the tool (`traceparent` on its journal row, which the Tool Gate reads and sends;
+`TRACEPARENT` for a sandbox command).
+_Avoid_: spans timed from live code, or an OpenTelemetry SDK in the Runtime.
+
+**Trace projector**: The second reader of the session log (`traces/projector.ts`), beside the
+stream relay: a `pgoutput` slot of its own, `nylorun_trace_export`, on the relay's publication,
+started by a process running core only when an OTLP endpoint is set (`OTEL_EXPORTER_OTLP_*`). It
+posts OTLP/HTTP JSON in batches (`traces/otlp.ts`), drops a batch after three retries
+(`trace_export_dropped`) and acknowledges the slot in commit order either way, so a dead
+collector keeps no WAL. It never reads S2 (D48).
+
+**Trace key**: The Tenant setting `trace.key` (32 random bytes, `traces/key.ts`) under which trace
+and span ids are HMACs of tenant, session, turn and effect ids (`traces/ids.ts`): the same on
+every read of the log, and not computable from a session id. Created on first use under the
+signing keys' lock and not sealed: it is no credential, and only core reads it.
 
 **A2A endpoint**: The Runtime API routes `POST /v1/a2a/agents/:agent` (A2A 1.0
 JSON-RPC) and `GET /v1/a2a/agents/:agent/card` (feature `a2a-endpoint`,

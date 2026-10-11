@@ -61,6 +61,8 @@ export interface McpHandler {
       arguments: Record<string, unknown>;
       /** The call's `Idempotency-Key`, sent to the server in `_meta` (R5.5). */
       key?: string;
+      /** The call's span context from its journal row (R7.4), sent as `traceparent`. */
+      traceparent?: string;
     },
     signal: AbortSignal,
   ): Promise<McpAnswer<Record<string, unknown>>>;
@@ -203,7 +205,13 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
    */
   async function callOnce(
     tenantId: string | undefined,
-    request: { server: McpServerRef; name: string; arguments: Record<string, unknown>; key?: string },
+    request: {
+      server: McpServerRef;
+      name: string;
+      arguments: Record<string, unknown>;
+      key?: string;
+      traceparent?: string;
+    },
     signal: AbortSignal,
   ) {
     for (let attempt = 0; ; attempt += 1) {
@@ -214,7 +222,11 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
           (entry) =>
             entry.connection.client.callTool(
               { name: request.name, arguments: request.arguments },
-              { signal, ...(request.key === undefined ? {} : { key: request.key }) },
+              {
+                signal,
+                ...(request.key === undefined ? {} : { key: request.key }),
+                ...(request.traceparent === undefined ? {} : { traceparent: request.traceparent }),
+              },
             ),
           true,
         );

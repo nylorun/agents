@@ -16,6 +16,11 @@ export interface StackEndpoints {
    * `NYLORUN_TEST_S3_ENDPOINT` is, so the suite runs only where an S3 server is known to listen.
    */
   s3: { endpoint?: string; accessKeyId: string; secretAccessKey: string };
+  /**
+   * The stock OpenTelemetry Collector of the R7 exit test (profile `traces`): its OTLP/HTTP traces
+   * URL, and the directory its file exporter writes `traces.jsonl` to.
+   */
+  otel: { tracesUrl: string; dir: string };
 }
 
 export function stackEndpoints(): StackEndpoints {
@@ -40,6 +45,10 @@ export function stackEndpoints(): StackEndpoints {
       // The test stack's RustFS credential (compose.yaml).
       accessKeyId: process.env.NYLORUN_TEST_S3_ACCESS_KEY ?? "nylorun",
       secretAccessKey: process.env.NYLORUN_TEST_S3_SECRET_KEY ?? "nylorun-test-secret",
+    },
+    otel: {
+      tracesUrl: `http://127.0.0.1:${port("NYLORUN_TEST_OTEL_PORT", 54318)}/v1/traces`,
+      dir: process.env.NYLORUN_TEST_OTEL_DIR ?? "/tmp/nylorun-test-otel",
     },
   };
 }
