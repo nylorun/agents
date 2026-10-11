@@ -12,6 +12,8 @@
  * restored volume keeps its own identity (`volume-id`), trust bundle and setup marker.
  *
  * Writes go to a temporary name and are renamed into place; a link replaces what is at its path.
+ * Times are whole milliseconds, rounded: a time written back with `utimes` can read back a hair
+ * under the millisecond it was, which rounding keeps and flooring would not.
  */
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readdir, readlink, rename, rm, symlink, utimes, chmod, appendFile, writeFile } from "node:fs/promises";
@@ -86,7 +88,7 @@ export async function listDisk(roots: DiskRoots, maxEntries: number): Promise<Di
     }
     if (names.length === 0 && !top) {
       const info = await lstat(absolute);
-      entries.push({ path: relative, type: "dir", size: 0, mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) });
+      entries.push({ path: relative, type: "dir", size: 0, mode: info.mode & 0o7777, mtimeMs: Math.round(info.mtimeMs) });
       return;
     }
     for (const name of names) {
@@ -102,7 +104,7 @@ export async function listDisk(roots: DiskRoots, maxEntries: number): Promise<Di
         throw error;
       }
       const mode = info.mode & 0o7777;
-      const mtimeMs = Math.floor(info.mtimeMs);
+      const mtimeMs = Math.round(info.mtimeMs);
       if (info.isSymbolicLink())
         entries.push({ path, type: "link", size: 0, mode, mtimeMs, target: await readlink(child) });
       else if (info.isDirectory()) await walk(child, path, false);
