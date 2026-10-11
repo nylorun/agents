@@ -157,7 +157,7 @@ async function harnessChecks(stack, images, status) {
         .slice(1);
     const inRuntime = await top("runtime");
     assert.equal(inRuntime.length, 1, `the runtime container runs one process:\n${inRuntime.join("\n")}`);
-    assert.match(inRuntime[0], /runtime\/dist\/host\/main\.js/);
+    assert.match(inRuntime[0], /runtime\/server\/dist\/host\/main\.js/);
     console.log("[stack] the harness runs bash; the runtime runs nothing but itself");
   } finally {
     await stub.remove();
