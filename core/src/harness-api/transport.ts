@@ -58,5 +58,12 @@ export const HostJoinAnswerSchema = z.strictObject({
   epoch: z.number().int(),
   expiresAt: z.string(),
   caCertificate: z.string(),
+  /**
+   * Join only: what our engine copies and runs on a new disk before it takes turns (the
+   * Environment's `files` and `setup`). A custom harness runs them itself, or ignores them.
+   */
+  setup: z.record(z.string(), z.unknown()).optional(),
+  /** Join only: the new volume starts from a disk version, so there is no setup to run. */
+  seeded: z.literal(true).optional(),
 });
 export type HostJoinAnswer = z.infer<typeof HostJoinAnswerSchema>;

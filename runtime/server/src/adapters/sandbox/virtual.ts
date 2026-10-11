@@ -79,6 +79,8 @@ export function virtualBackend(options: { readonly root: string }): SandboxBacke
         ...(network ? { network } : {}),
       });
       return {
+        // A virtual workspace's disk is its host directory: `/workspace` only.
+        diskRoots: { workspace: root },
         async exec(request: ExecRequest, signal: AbortSignal): Promise<ExecResult> {
           const controller = new AbortController();
           let timedOut = false;

@@ -46,16 +46,21 @@ export function sortEntries(entries: readonly FolderEntry[]): FolderEntry[] {
   return [...entries].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
-/** The manifest's bytes, as stored: deterministic for the same entries. */
-export function encodeManifest(entries: readonly FolderEntry[]): Uint8Array {
+/**
+ * The manifest's bytes, as stored: deterministic for the same entries. A v1 manifest keeps each
+ * file's path, size, hash and type; a v2 one (a disk version, R2d step 3) every field.
+ */
+export function encodeManifest(
+  entries: readonly FolderEntry[],
+  format: FolderManifest["format"] = FOLDER_MANIFEST_FORMAT,
+): Uint8Array {
   const manifest: FolderManifest = {
-    format: FOLDER_MANIFEST_FORMAT,
-    entries: sortEntries(entries).map(({ path, size, sha256, contentType }) => ({
-      path,
-      size,
-      sha256,
-      contentType,
-    })),
+    format,
+    entries: sortEntries(entries).map((entry) =>
+      format === FOLDER_MANIFEST_FORMAT
+        ? { path: entry.path, size: entry.size, sha256: entry.sha256, contentType: entry.contentType }
+        : { ...entry },
+    ),
   };
   return new TextEncoder().encode(JSON.stringify(manifest));
 }
@@ -69,10 +74,10 @@ export async function readManifest(blobs: BlobStore, version: ArtifactVersionRow
   return parsed.data;
 }
 
-/** The entry at `path`, or the 404 of a missing file. */
+/** The file at `path` (not a v2 link or directory), or the 404 of a missing file. */
 export function entryAt(manifest: FolderManifest, path: string): FolderEntry {
   return (
-    manifest.entries.find((entry) => entry.path === path) ??
+    manifest.entries.find((entry) => entry.path === path && entry.type === undefined) ??
     fail(404, `No file ${path} in this folder version`)
   );
 }
@@ -90,7 +95,13 @@ export function diffManifests(
   for (const entry of to.manifest.entries) {
     const prior = before.get(entry.path);
     if (!prior) added.push(entry);
-    else if (prior.sha256 !== entry.sha256 || prior.contentType !== entry.contentType)
+    else if (
+      prior.sha256 !== entry.sha256 ||
+      prior.contentType !== entry.contentType ||
+      prior.type !== entry.type ||
+      prior.target !== entry.target ||
+      prior.mode !== entry.mode
+    )
       changed.push({ path: entry.path, from: prior, to: entry });
   }
   const removed = (from?.manifest.entries ?? []).filter((entry) => !after.has(entry.path));
@@ -227,6 +238,7 @@ export async function commitFolderVersion(
           labelsJson: null,
           createdAt,
           updatedAt: createdAt,
+          environmentId: null,
         };
         await t.insertArtifact(row, version);
       }

@@ -60,6 +60,10 @@ import {
   SandboxToolOutcomeSchema,
   PutEnvironmentRequestSchema,
   EnvironmentViewSchema,
+  EnvironmentSnapshotSchema,
+  RestoreEnvironmentRequestSchema,
+  EnvironmentRestoreSchema,
+  EnvironmentVersionsSchema,
   ListEnvironmentsResponseSchema,
   DeleteEnvironmentResponseSchema,
   ListEnvironmentEventsResponseSchema,
@@ -107,6 +111,10 @@ export const DeleteOperatorKeyResponse = named(
 export const SandboxToolOutcome = named("SandboxToolOutcome", SandboxToolOutcomeSchema);
 export const PutEnvironmentRequest = named("PutEnvironmentRequest", PutEnvironmentRequestSchema);
 export const EnvironmentView = named("EnvironmentView", EnvironmentViewSchema);
+export const EnvironmentSnapshot = named("EnvironmentSnapshot", EnvironmentSnapshotSchema);
+export const RestoreEnvironmentRequest = named("RestoreEnvironmentRequest", RestoreEnvironmentRequestSchema);
+export const EnvironmentRestore = named("EnvironmentRestore", EnvironmentRestoreSchema);
+export const EnvironmentVersions = named("EnvironmentVersions", EnvironmentVersionsSchema);
 export const ListEnvironmentsResponse = named("ListEnvironmentsResponse", ListEnvironmentsResponseSchema);
 export const DeleteEnvironmentResponse = named("DeleteEnvironmentResponse", DeleteEnvironmentResponseSchema);
 export const ListEnvironmentEventsResponse = named(

@@ -138,6 +138,49 @@ export const WorkspaceListCallSchema = z
   })
   .strict();
 
+/**
+ * One operation on the disk of a workspace (R2d step 3): `list` its entries (files with mode and
+ * modification time, links, empty directories; paths relative to the volume, `workspace/…` and
+ * in a pod `harness/…`), `read` a range of one file (answered `{kind: "read", base64, eof}`),
+ * `clear` it (the engine's own files stay), or `put` entries back in order. A `workspace.read`
+ * carries `list` or `read`; a `workspace.write` `clear` or `put`.
+ */
+export const DiskOpSchema = z.union([
+  z.object({ list: z.object({ maxEntries: z.number().int().positive() }).strict() }).strict(),
+  z
+    .object({
+      read: z
+        .object({
+          path: z.string().min(1),
+          offset: z.number().int().nonnegative(),
+          length: z.number().int().positive().max(16 * 1024 * 1024),
+        })
+        .strict(),
+    })
+    .strict(),
+  z.object({ clear: z.literal(true) }).strict(),
+  z
+    .object({
+      put: z.array(
+        z
+          .object({
+            path: z.string().min(1),
+            type: z.enum(["file", "dir", "link"]),
+            mode: z.number().int().nonnegative().optional(),
+            mtimeMs: z.number().nonnegative().optional(),
+            base64: z.string().optional(),
+            append: z.boolean().optional(),
+            target: z.string().optional(),
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
+]);
+export const WorkspaceDiskCallSchema = z
+  .object({ session: WorkspaceSessionSchema, spec: z.unknown(), disk: DiskOpSchema })
+  .strict();
+
 /** The lease on one run. `token` is the run token (F5) when the gates require one. */
 export const RunGrantSchema = z
   .object({
@@ -400,10 +443,10 @@ export const harnessRequests = {
  */
 export const coreRequests = {
   "workspace.read": {
-    params: z.union([WorkspaceCallSchema, WorkspaceBytesCallSchema, WorkspaceListCallSchema]),
+    params: z.union([WorkspaceCallSchema, WorkspaceBytesCallSchema, WorkspaceListCallSchema, WorkspaceDiskCallSchema]),
     result: outcomeObject,
   },
-  "workspace.write": { params: WorkspaceCallSchema, result: outcomeObject },
+  "workspace.write": { params: z.union([WorkspaceCallSchema, WorkspaceDiskCallSchema]), result: outcomeObject },
   "workspace.exec": { params: WorkspaceCallSchema, result: outcomeObject },
   /** The harness's sandbox selection report (`GET /v1/tenant/sandbox`, Tenant status). */
   "workspace.report": { params: empty, result: outcomeObject },

@@ -76,6 +76,11 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * (`NYLORUN_IDENTITY_FILE`) as bearers, from servers and from browsers alike, with the
  * issuer's subject, scopes (and the issuer-only `studio`), agents and Environment grants; `GET
  * /v1/me` reports who any credential is.
+ * `environment-setup`: a pod Environment's recipe takes `setup` commands and input `files`, run
+ * and copied when its disk is made or reset, before any turn.
+ * `environment-disk-versions`: an Environment's disk has versions: `POST
+ * /v1/environments/{id}/snapshot` and `/restore`, `GET .../versions`, `DELETE .../versions/{n}`,
+ * and `from` on a `PUT` that creates one; a pod whose volume is lost starts again from the latest.
  * `credential-coverage`: `POST /v1/tenant/credential-coverage` (the Management API) says which
  * credential of an Environment's vault each of a saved agent's MCP servers and HTTP tools would
  * get in a session that names that Environment.
@@ -96,6 +101,8 @@ export const OPTIONAL_HOST_FEATURES = [
   "calls-export",
   "credential-coverage",
   "tool-calls",
+  "environment-setup",
+  "environment-disk-versions",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

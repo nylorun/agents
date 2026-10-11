@@ -213,6 +213,19 @@ export interface Environment {
   updatedAt: string;
   /** Kind `pod`: the pod's lifecycle (F7.2). Absent otherwise. */
   pod?: SandboxPodState;
+  /** The disk lease while a snapshot, restore or seed copies the disk (R2d step 3). */
+  diskOp?: DiskOperation;
+  /** The disk version the next volume starts from (R2d step 3). */
+  diskSeed?: { artifactId: string; version: number };
+}
+
+/** A disk lease (R2d step 3): what holds the disk, since when, and until when unless renewed. */
+export interface DiskOperation {
+  kind: "snapshot" | "restore" | "seed";
+  version?: number;
+  /** ISO times. */
+  startedAt: string;
+  until: string;
 }
 
 /**
@@ -677,6 +690,8 @@ export interface Tx {
       appliedVersion?: number;
       ownerUserId?: string | null;
       lastUsedAt?: string;
+      diskOp?: DiskOperation | null;
+      diskSeed?: { artifactId: string; version: number } | null;
     },
     updatedAt: string,
   ): Promise<void>;
@@ -867,6 +882,8 @@ export interface Tx {
 
   /** The artifact `id`; with `lock`, its row is locked until the transaction ends. */
   artifact(id: string, options?: { lock?: boolean }): Promise<ArtifactRow | undefined>;
+  /** The folder artifact that holds Environment `environmentId`'s disk versions (R2d step 3). */
+  diskArtifact(environmentId: string, options?: { lock?: boolean }): Promise<ArtifactRow | undefined>;
   /** Artifacts by creation time, then id: those of one session when `sessionId` is given. */
   listArtifacts(filter?: { sessionId?: string }): Promise<ArtifactRow[]>;
   /** Writes a new artifact with its first version. Rejects on a duplicate id. */
@@ -881,6 +898,11 @@ export interface Tx {
   artifactVersions(artifactId: string): Promise<ArtifactVersionRow[]>;
   /** Deletes the artifact and its versions; returns the versions' blob keys (empty when none). */
   deleteArtifact(id: string): Promise<string[]>;
+  /**
+   * Deletes one version of a locked artifact (its content rows go with it) and returns its blob
+   * key; the latest version becomes the newest one left. The artifact itself stays, even empty.
+   */
+  deleteArtifactVersion(artifactId: string, version: number): Promise<string | undefined>;
   /**
    * Serializes the Tenant's artifact writes: held until the transaction ends. Take it before
    * reading the total a new version must fit under.

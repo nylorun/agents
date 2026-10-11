@@ -1,0 +1,11 @@
+---
+"@nylorun/core": minor
+"@nylorun/runtime": minor
+"@nylorun/agents": minor
+---
+
+**A pod's disk can start prepared, and every Environment's disk has versions (R2d steps 2 and 3).** Before, a new pod volume was empty and a disk could only be kept or reset. Now:
+
+- **Setup and input files** (pods, Host feature `environment-setup`): `PUT /v1/environments/{id}` takes `files` (versions of Tenant-wide artifacts, copied in: a file at its `path`, a folder under it) and `setup` (commands run in order with `/bin/sh -c`, `cwd` default `/workspace`, `timeout` default 10m and at most 30m, at most 16 of each). They run once per new disk, after the pod's engine joins and before its first turn, with the Environment's variables, secrets (as the sentinel) and egress. A failed command fails the pod (`observed: failed`, reason `setup: command N …`, an `environment.failed` event with the exit code and the end of the output) and the turn waiting for it; the next turn start runs the setup again. A virtual Environment refuses both with a `400`.
+- **Disk versions** (Host feature `environment-disk-versions`): `POST /v1/environments/{id}/snapshot` keeps a version of the disk between turns (`/workspace`, and a pod's `/harness` but the engine's own files) as a version of a folder artifact the Environment owns, with modes, modification times, links and empty directories (folder manifest `nylorun.folder.v2`); each file's bytes are stored once, and an unchanged disk makes no version. `POST .../restore` puts a version back: a virtual Environment at once, a pod on a new volume seeded before its next turn (`disk.operation` in the view meanwhile; turns wait). `PUT` with `from: { environment, version }` creates an Environment from another's version. `GET .../versions` and `DELETE .../versions/{n}` list and delete them; their trees, files, diffs and zips read through `/v1/artifacts`. A lost pod volume with a version is recovered from the latest one instead of refusing turns until a reset. Snapshot and restore during a turn are `409 environment_busy`. `EnvironmentView.disk` gives the latest version and the copy in progress. Migration `0021_disk_versions`.
+- `@nylorun/agents`: `client.environments.snapshot`, `restore`, `versions` and `deleteVersion`; `put` takes `setup`, `files` and `from`.

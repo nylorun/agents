@@ -260,6 +260,7 @@ export async function uploadArtifact(
               : JSON.stringify(input.labels),
           createdAt,
           updatedAt: createdAt,
+          environmentId: null,
         };
         version = {
           artifactId,
@@ -371,7 +372,8 @@ export async function folderContent(
 /**
  * Deletes the artifact and every version: its rows and, for a session's artifact, its
  * `artifact.deleted` event in one transaction, then its bytes. A folder's content-addressed
- * files go too, those no other version names, under the quota lock (`folders.ts`).
+ * files go too, those no other version names, under the quota lock (`folders.ts`). An
+ * Environment's disk artifact is refused: its own routes delete its versions.
  */
 export async function deleteArtifact(
   ctx: TenantContext,
@@ -380,6 +382,8 @@ export async function deleteArtifact(
 ): Promise<{ artifactId: string; deleted: true }> {
   const keys = await ctx.store.tx(async (t) => {
     const found = await readableArtifact(t, id, access);
+    if (found.environmentId !== null)
+      fail(409, `Artifact ${id} holds Environment ${found.environmentId}'s disk versions: delete them with DELETE /v1/environments/{id}/versions/{version}, or delete the Environment.`);
     if (found.sessionId !== null) await lockedSession(t, found.sessionId, access);
     if (found.kind === "folder") await t.lockArtifactQuota();
     const row = await readableArtifact(t, id, access, { lock: true });

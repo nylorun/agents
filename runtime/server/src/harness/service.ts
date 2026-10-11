@@ -9,6 +9,7 @@
  * keeps its compute records in `<sandboxes>/records.json` and claims its events from core
  * (`event`): for the run that made the call, or the workspace request core sent.
  */
+import { fromWireOp, toWireAnswer, type WireDiskOp } from "../sandbox/disk-fs.js";
 import { join } from "node:path";
 import {
   DEFAULT_HARNESS,
@@ -17,6 +18,7 @@ import {
   type WorkspaceBytesCall,
   type WorkspaceCall,
   type WorkspaceListCall,
+  type WorkspaceDiskCall,
   type WorkspaceSession,
 } from "@nylorun/core/harness-api";
 import type { CapabilityManifest, SandboxManifest, SandboxToolName } from "@nylorun/core/define";
@@ -137,6 +139,17 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
       case "workspace.read":
       case "workspace.write":
       case "workspace.exec": {
+        if ("disk" in (params as object)) {
+          // A disk version's read or write (R2d step 3).
+          const call = params as WorkspaceDiskCall;
+          const answer = await sandbox().disk(
+            refOf(call.session),
+            { id: "sandbox", type: "agent", sandbox: call.spec as SandboxManifest, tools: [] } as CapabilityManifest,
+            fromWireOp(call.disk as WireDiskOp),
+            signal
+          );
+          return "code" in answer ? answer : toWireAnswer(answer);
+        }
         if (method === "workspace.read" && "list" in (params as object)) {
           const call = params as WorkspaceListCall;
           return sandbox().listFiles(

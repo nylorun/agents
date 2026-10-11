@@ -5,9 +5,11 @@
  * response lists all of them.
  */
 import type {
+  EnvironmentFile,
   EnvironmentKind,
   EnvironmentLifecycle,
   EnvironmentRecipe,
+  EnvironmentSetupCommand,
 } from "@nylorun/core/contracts";
 import { DEFAULT_HARNESS } from "@nylorun/core/contracts";
 import { parseSandboxDuration, type SandboxManifest } from "@nylorun/core/define";
@@ -22,6 +24,8 @@ export interface RecipeRequest {
   readonly network?: { readonly allowedHosts?: readonly string[] };
   readonly harness?: string;
   readonly lifecycle?: EnvironmentLifecycle;
+  readonly setup?: readonly EnvironmentSetupCommand[];
+  readonly files?: readonly EnvironmentFile[];
 }
 
 export type RecipeResolution =
@@ -46,7 +50,7 @@ export function resolveRecipe(
   if (idle !== undefined && idle > (parseSandboxDuration(limits.idle) ?? Infinity))
     errors.push(`lifecycle.idle is ${lifecycle.idle}; this Tenant allows at most ${limits.idle}.`);
   if (kind === "none") {
-    for (const field of ["image", "resources", "storage", "network"] as const)
+    for (const field of ["image", "resources", "storage", "network", "setup", "files"] as const)
       if (request[field] !== undefined)
         errors.push(`${field} is for an Environment with a sandbox: kind none has none.`);
     if (errors.length > 0) return { kind: "error", errors };
@@ -56,6 +60,9 @@ export function resolveRecipe(
     errors.push("image is for kind pod: a virtual Environment runs no images.");
   if (request.storage !== undefined && !pod)
     errors.push("storage is for kind pod: a virtual Environment has no volume.");
+  for (const field of ["setup", "files"] as const)
+    if (request[field] !== undefined && request[field]!.length > 0 && !pod)
+      errors.push(`${field} is for kind pod: it runs when a pod's disk is made or reset.`);
   const allow = (request.network?.allowedHosts ?? []).map((host) => host.toLowerCase());
   for (const host of allow) {
     if (!withinCeiling(host, limits.network))
@@ -86,6 +93,8 @@ export function resolveRecipe(
       network: { allowedHosts: [...new Set(allow)].sort() },
       harness,
       lifecycle: { ...lifecycle },
+      ...(pod && request.setup?.length ? { setup: request.setup.map((command) => ({ ...command })) } : {}),
+      ...(pod && request.files?.length ? { files: request.files.map((file) => ({ ...file })) } : {}),
     },
   };
 }

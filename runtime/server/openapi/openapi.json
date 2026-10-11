@@ -22,7 +22,9 @@
         "session-reads",
         "calls-export",
         "credential-coverage",
-        "tool-calls"
+        "tool-calls",
+        "environment-setup",
+        "environment-disk-versions"
       ]
     },
     "description": "For developers: agents, sessions (with AG-UI and A2A), Environments and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -14719,7 +14721,8 @@
                 "enum": [
                   "upload",
                   "engine",
-                  "export"
+                  "export",
+                  "snapshot"
                 ]
               },
               "callId": {
@@ -14959,7 +14962,8 @@
                 "enum": [
                   "upload",
                   "engine",
-                  "export"
+                  "export",
+                  "snapshot"
                 ]
               },
               "callId": {
@@ -15992,6 +15996,57 @@
                         }
                       },
                       "additionalProperties": false
+                    },
+                    "setup": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "command": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096
+                          },
+                          "cwd": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1024
+                          },
+                          "timeout": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "command"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "artifactId": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1024
+                          }
+                        },
+                        "required": [
+                          "artifactId",
+                          "version",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -16062,6 +16117,47 @@
                 },
                 "lastUsedAt": {
                   "type": "string"
+                },
+                "disk": {
+                  "type": "object",
+                  "properties": {
+                    "latestVersion": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
+                    },
+                    "operation": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "snapshot",
+                            "restore",
+                            "seed"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "startedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "startedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "latestVersion"
+                  ],
+                  "additionalProperties": false
                 },
                 "sessions": {
                   "type": "array",
@@ -16211,6 +16307,57 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "setup": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "cwd": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    "timeout": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "artifactId": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    }
+                  },
+                  "required": [
+                    "artifactId",
+                    "version",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
@@ -16281,6 +16428,47 @@
           },
           "lastUsedAt": {
             "type": "string"
+          },
+          "disk": {
+            "type": "object",
+            "properties": {
+              "latestVersion": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "exclusiveMinimum": 0
+              },
+              "operation": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "snapshot",
+                      "restore",
+                      "seed"
+                    ]
+                  },
+                  "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "startedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "startedAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "latestVersion"
+            ],
+            "additionalProperties": false
           },
           "sessions": {
             "type": "array",
@@ -16404,6 +16592,87 @@
               }
             },
             "additionalProperties": false
+          },
+          "setup": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "timeout": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 16
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "artifactId": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                }
+              },
+              "required": [
+                "artifactId",
+                "version",
+                "path"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 16
+          },
+          "from": {
+            "type": "object",
+            "properties": {
+              "environment": {
+                "type": "string",
+                "description": "An Environment id, such as `user-42` or `users/alice/web`"
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "latest"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "environment",
+              "version"
+            ],
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -16490,6 +16759,168 @@
         "required": [
           "id",
           "deleted"
+        ],
+        "additionalProperties": false
+      },
+      "EnvironmentSnapshot": {
+        "type": "object",
+        "properties": {
+          "environmentId": {
+            "type": "string"
+          },
+          "artifactId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "format": {
+            "type": "string"
+          },
+          "files": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "storedBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unchanged": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "environmentId",
+          "artifactId",
+          "version",
+          "format",
+          "files",
+          "bytes",
+          "storedBytes",
+          "durationMs",
+          "unchanged",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "EnvironmentRestore": {
+        "type": "object",
+        "properties": {
+          "environmentId": {
+            "type": "string"
+          },
+          "restored": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "pending"
+            ]
+          },
+          "volumeGeneration": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "environmentId",
+          "restored",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "RestoreEnvironmentRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "latest"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "EnvironmentVersions": {
+        "type": "object",
+        "properties": {
+          "environmentId": {
+            "type": "string"
+          },
+          "artifactId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "version",
+                "bytes",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "environmentId",
+          "artifactId",
+          "latest",
+          "versions"
         ],
         "additionalProperties": false
       },
@@ -16928,7 +17359,8 @@
                       "enum": [
                         "upload",
                         "engine",
-                        "export"
+                        "export",
+                        "snapshot"
                       ]
                     },
                     "createdAt": {
@@ -16981,7 +17413,8 @@
                 "enum": [
                   "upload",
                   "engine",
-                  "export"
+                  "export",
+                  "snapshot"
                 ]
               },
               "createdAt": {
@@ -17074,7 +17507,8 @@
                         "enum": [
                           "upload",
                           "engine",
-                          "export"
+                          "export",
+                          "snapshot"
                         ]
                       },
                       "createdAt": {
@@ -17175,7 +17609,8 @@
                   "enum": [
                     "upload",
                     "engine",
-                    "export"
+                    "export",
+                    "snapshot"
                   ]
                 },
                 "createdAt": {
@@ -17235,6 +17670,26 @@
                 },
                 "contentType": {
                   "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "link",
+                    "dir"
+                  ]
+                },
+                "mode": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4095
+                },
+                "mtimeMs": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "target": {
+                  "type": "string",
+                  "maxLength": 4096
                 }
               },
               "required": [
@@ -17288,6 +17743,26 @@
                 },
                 "contentType": {
                   "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "link",
+                    "dir"
+                  ]
+                },
+                "mode": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4095
+                },
+                "mtimeMs": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "target": {
+                  "type": "string",
+                  "maxLength": 4096
                 }
               },
               "required": [
@@ -17319,6 +17794,26 @@
                 },
                 "contentType": {
                   "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "link",
+                    "dir"
+                  ]
+                },
+                "mode": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4095
+                },
+                "mtimeMs": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "target": {
+                  "type": "string",
+                  "maxLength": 4096
                 }
               },
               "required": [
@@ -17356,6 +17851,26 @@
                     },
                     "contentType": {
                       "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "link",
+                        "dir"
+                      ]
+                    },
+                    "mode": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4095
+                    },
+                    "mtimeMs": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "target": {
+                      "type": "string",
+                      "maxLength": 4096
                     }
                   },
                   "required": [
@@ -17384,6 +17899,26 @@
                     },
                     "contentType": {
                       "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "link",
+                        "dir"
+                      ]
+                    },
+                    "mode": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4095
+                    },
+                    "mtimeMs": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "target": {
+                      "type": "string",
+                      "maxLength": 4096
                     }
                   },
                   "required": [
@@ -22839,6 +23374,595 @@
         }
       }
     },
+    "/v1/environments/{environmentId}/snapshot": {
+      "post": {
+        "tags": [
+          "Environments"
+        ],
+        "summary": "Snapshot an Environment's disk",
+        "description": "Between turns, a new version of the Environment's disk (`/workspace`, and a pod's `/harness` but the engine's own files): files with their modes and modification times, links and empty directories, as a version of the folder artifact the Environment owns. Unchanged files are stored once; an unchanged disk makes no version (`unchanged`). A stopped pod is started first. Refused during a turn or another copy (`environment_busy`).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
+            },
+            "required": true,
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The Environment is of kind none"
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn or another copy holds the disk (`environment_busy`), or the pod could not start (`environment_unavailable`)"
+          },
+          "413": {
+            "description": "Past the entries, bytes or Tenant total a version may hold (`limit_exceeded`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/environments/{environmentId}/restore": {
+      "post": {
+        "tags": [
+          "Environments"
+        ],
+        "summary": "Restore a version of an Environment's disk",
+        "description": "Puts disk version `version` (or `latest`) back. A virtual Environment's workspace is rewritten at once (`done`); a pod gets a new volume seeded from the version before any turn (`pending`, with `disk.operation` in the view until it ends). The Environment keeps its id, vault and sessions. Refused during a turn or another copy (`environment_busy`).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
+            },
+            "required": true,
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreEnvironmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Restored, or being restored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentRestore"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Environment, or no such version"
+          },
+          "409": {
+            "description": "A turn or another copy holds the disk (`environment_busy`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/environments/{environmentId}/versions": {
+      "get": {
+        "tags": [
+          "Environments"
+        ],
+        "summary": "List an Environment's disk versions",
+        "description": "Newest first. Read a version's tree, files, diff and zip through `/v1/artifacts/{artifactId}/versions/{version}/…`.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
+            },
+            "required": true,
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The versions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentVersions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/environments/{environmentId}/versions/{version}": {
+      "delete": {
+        "tags": [
+          "Environments"
+        ],
+        "summary": "Delete an Environment's disk version",
+        "description": "Deletes the version, and the stored files no other version names. Refused while a seed reads it.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
+            },
+            "required": true,
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted, or there was none",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "environmentId": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "number"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "environmentId",
+                    "version",
+                    "deleted"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A new volume is being seeded from it (`environment_busy`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/artifacts": {
       "post": {
         "tags": [
@@ -23301,7 +24425,7 @@
           "Artifacts"
         ],
         "summary": "Delete an artifact",
-        "description": "Deletes every version and its bytes; its links stop working. A session's artifact gets `artifact.deleted` in its history.",
+        "description": "Deletes every version and its bytes; its links stop working. A session's artifact gets `artifact.deleted` in its history. An Environment's disk versions are deleted through `/v1/environments/{environmentId}/versions/{version}` (`409` here).",
         "security": [
           {
             "applicationKey": []
@@ -23408,6 +24532,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "The artifact holds an Environment's disk versions"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
