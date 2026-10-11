@@ -211,30 +211,6 @@ export function checkBoundaries(name) {
     throw new Error("Studio must be private with no bin: it ships only as the ghcr.io/nylorun/studio image");
   console.log(`${name}: package, source and declaration dependencies passed.`);
 }
-/**
- * The harness conformance suite (conformance/) is a black box: it reaches the Runtime only over
- * its public HTTP APIs, so it imports no @nylorun package and nothing outside its own directory.
- */
-export function checkConformance() {
-  const dir = join(root, "conformance");
-  const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-  for (const dependency of Object.keys({ ...pkg.dependencies, ...pkg.peerDependencies, ...pkg.optionalDependencies }))
-    if (dependency.startsWith("@nylorun/") || dependency === "nylorun")
-      throw new Error(`conformance must not depend on ${dependency}: it drives the Runtime through its APIs only`);
-  for (const path of files(join(dir, "src"))) {
-    if (!/\.(?:ts|js)$/.test(path)) continue;
-    const source = readFileSync(path, "utf8");
-    for (const match of source.matchAll(/(?:from\s*|import\s*\()["']([^"']+)["']/g)) {
-      const target = match[1];
-      if (target.startsWith("@nylorun/") || target === "nylorun")
-        throw new Error(`${path} imports ${target}; conformance drives the Runtime through its APIs only`);
-      if (target.startsWith(".") && !join(dirname(path), target).startsWith(join(dir, "src")))
-        throw new Error(`${path} imports ${target}, outside conformance/src`);
-    }
-  }
-  console.log("conformance: imports no Nylorun package or Runtime code.");
-}
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   for (const name of Object.keys(allowed)) checkBoundaries(name);
-  checkConformance();
 }

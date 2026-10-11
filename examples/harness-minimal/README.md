@@ -83,19 +83,7 @@ curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/config/seed" \
   -d '{"requestId": "fixture-1", "fixtureModel": true}'
 ```
 
-Then send `conformance:text` to a session, or `conformance:tool bash {"command":"uname -a"}` to a session on the `virtual` Environment. Each model call is a row of `GET /v1/sessions/{id}/calls/model`, with provider `fixture`.
-
-## Check it
-
-The conformance suite ([`conformance/`](../../conformance/)) checks a harness against a live Runtime through its public APIs only. Against the stack above, from the repository root:
-
-```sh
-npm run build --workspace @nylorun/harness-conformance
-node conformance/dist/cli.js --runtime "$NYLORUN_RUNTIME_URL" --key "$NYLORUN_API_KEY" \
-  --manage-key "$NYLORUN_MANAGEMENT_KEY" --harness minimal --restart "docker restart harness-minimal"
-```
-
-Outside a checkout, `npx @nylorun/harness-conformance` takes the same options. It turns the fixture model on for good, so point it at a Tenant for testing. This harness passes every required check; the workspace and MCP checks are not applicable, as it declares neither.
+Then send `fixture:text` to a session, or `fixture:tool bash {"command":"uname -a"}` to a session on the `virtual` Environment. Each model call is a row of `GET /v1/sessions/{id}/calls/model`, with provider `fixture`. The fixture model stays on once seeded, so use a Tenant for testing.
 
 ## Tests
 
@@ -104,7 +92,7 @@ npm install
 npm test
 ```
 
-The unit tests run the loop against a fake core and a fake Model Gate: a text turn, a `bash` turn journaled intent first, a replay that runs nothing twice, and a cancel. In the Runtime's tests, [`example-harness.test.ts`](../../runtime/server/test/harness-api/example-harness.test.ts) runs it against a real Runtime over the WebSocket with its own token, beside our harness, on the fixture model, and [`conformance.test.ts`](../../runtime/server/test/harness-api/conformance.test.ts) runs the conformance suite against both.
+The unit tests run the loop against a fake core and a fake Model Gate: a text turn, a `bash` turn journaled intent first, a replay that runs nothing twice, and a cancel. In the Runtime's tests, [`example-harness.test.ts`](../../runtime/server/test/harness-api/example-harness.test.ts) runs it against a real Runtime over the WebSocket with its own token, beside our harness, on the fixture model: routing, metering, journaling, one run per turn, cancels, a restart mid-command, a tool the turn does not offer, a budget refusal and token redaction.
 
 ## What it leaves out
 

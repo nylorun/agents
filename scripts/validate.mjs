@@ -13,7 +13,6 @@ async function tests() {
     "runtime",
     "nylorun",
     "cli",
-    "harness-conformance",
     "create-agent",
   ])
     await script("test", name);
@@ -33,7 +32,6 @@ try {
     await node("scripts/check-boundaries.mjs");
     await node("scripts/check-ambient.mjs");
     await script("format:check", "harness");
-    await script("format:check", "harness-conformance");
     await script("test:types", "harness");
     await script("test:types", "create-agent");
     await tests();

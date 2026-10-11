@@ -7,4 +7,4 @@
 - what a token is: a compact JWT whose `typ` starts with `nylorun-`, such as egress, run or host tokens;
 - what replaces it: `[nylorun token redacted]`.
 
-This applies to every harness, ours included. The harness conformance suite found the leak (HC14) when it ran the example harness as a sandbox pod's image. Other values are unchanged.
+This applies to every harness, ours included. The leak showed when the example harness ran as a sandbox pod's image. Other values are unchanged.

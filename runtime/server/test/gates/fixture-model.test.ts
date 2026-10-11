@@ -1,5 +1,5 @@
 /**
- * The fixture model's script (R4.3): the conformance markers, and the release demo it keeps.
+ * The fixture model's script (R4.3): the scripted markers, and the release demo it keeps.
  */
 import { describe, expect, it } from "vitest";
 import type { ModelCall } from "@nylorun/core/harness-api";
@@ -14,10 +14,10 @@ const call = (prompt: ModelCall["prompt"], tools: ModelCall["tools"] = []): Mode
 });
 
 describe("fixture model", () => {
-  it("answers conformance:text with text, metered with cost 0", async () => {
-    const answer = await fixtureAnswer(call([user("conformance:text")]));
+  it("answers fixture:text with text, metered with cost 0", async () => {
+    const answer = await fixtureAnswer(call([user("fixture:text")]));
     expect(answer).toMatchObject({
-      output: [{ type: "text", text: "conformance ok" }],
+      output: [{ type: "text", text: "fixture ok" }],
       finishReason: "stop",
       usage: { costUsd: 0 },
       evidence: { extras: { producer: { provider: "fixture" } } },
@@ -25,7 +25,7 @@ describe("fixture model", () => {
   });
 
   it("calls an offered tool, then quotes its result", async () => {
-    const first = await fixtureAnswer(call([user('conformance:tool bash {"command":"echo hi"}')], [bash]));
+    const first = await fixtureAnswer(call([user('fixture:tool bash {"command":"echo hi"}')], [bash]));
     expect(first).toMatchObject({
       output: [{ type: "tool-call", name: "bash", args: { command: "echo hi" } }],
       finishReason: "tool-calls",
@@ -33,42 +33,42 @@ describe("fixture model", () => {
     const second = await fixtureAnswer(
       call(
         [
-          user('conformance:tool bash {"command":"echo hi"}'),
-          { kind: "tool-result", toolCallId: "conformance_call", toolName: "bash", status: "completed", content: [{ type: "text", text: "hi" }] },
+          user('fixture:tool bash {"command":"echo hi"}'),
+          { kind: "tool-result", toolCallId: "fixture_call", toolName: "bash", status: "completed", content: [{ type: "text", text: "hi" }] },
         ],
         [bash]
       )
     );
-    expect(second).toMatchObject({ output: [{ type: "text", text: "conformance tool completed: hi" }] });
+    expect(second).toMatchObject({ output: [{ type: "text", text: "fixture tool completed: hi" }] });
   });
 
   it("says so when the named tool is not offered", async () => {
-    expect(await fixtureAnswer(call([user("conformance:tool bash {}")]))).toMatchObject({
-      output: [{ type: "text", text: "conformance: no tool bash is offered" }],
+    expect(await fixtureAnswer(call([user("fixture:tool bash {}")]))).toMatchObject({
+      output: [{ type: "text", text: "fixture: no tool bash is offered" }],
     });
   });
 
-  it("calls a tool that is not offered on conformance:unoffered, and never one that is", async () => {
-    expect(await fixtureAnswer(call([user('conformance:unoffered nylorun_conformance_unoffered {"x":1}')], [bash]))).toMatchObject({
-      output: [{ type: "tool-call", name: "nylorun_conformance_unoffered", args: { x: 1 } }],
+  it("calls a tool that is not offered on fixture:unoffered, and never one that is", async () => {
+    expect(await fixtureAnswer(call([user('fixture:unoffered nylorun_fixture_unoffered {"x":1}')], [bash]))).toMatchObject({
+      output: [{ type: "tool-call", name: "nylorun_fixture_unoffered", args: { x: 1 } }],
       finishReason: "tool-calls",
     });
-    expect(await fixtureAnswer(call([user("conformance:unoffered bash {}")], [bash]))).toMatchObject({
-      output: [{ type: "text", text: "conformance: tool bash is offered" }],
+    expect(await fixtureAnswer(call([user("fixture:unoffered bash {}")], [bash]))).toMatchObject({
+      output: [{ type: "text", text: "fixture: tool bash is offered" }],
     });
   });
 
-  it("fails with budget_exhausted on conformance:budget", async () => {
-    expect(await fixtureAnswer(call([user("conformance:budget")]))).toMatchObject({
+  it("fails with budget_exhausted on fixture:budget", async () => {
+    expect(await fixtureAnswer(call([user("fixture:budget")]))).toMatchObject({
       kind: "failed",
       code: "budget_exhausted",
       retryable: false,
     });
   });
 
-  it("waits on conformance:slow until aborted", async () => {
+  it("waits on fixture:slow until aborted", async () => {
     const controller = new AbortController();
-    const answer = fixtureAnswer(call([user("conformance:slow 20")]), controller.signal);
+    const answer = fixtureAnswer(call([user("fixture:slow 20")]), controller.signal);
     controller.abort(new Error("cancelled"));
     await expect(answer).rejects.toThrow("cancelled");
   });

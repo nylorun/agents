@@ -14,16 +14,13 @@ export const packages = [
   "studio",
   "nylorun",
   "cli",
-  "harness-conformance",
   "create-agent",
 ];
 /**
  * Where each package lives, relative to the repository root. Directories follow
  * the Docker images: runtime/ is ghcr.io/nylorun/runtime (the server and the
  * harness it runs), studio/ is ghcr.io/nylorun/studio; sdks/ and cli/ hold the
- * npm-only packages. conformance/ is @nylorun/harness-conformance, the harness
- * conformance suite: a tool that drives a Runtime over HTTP, depending on no
- * other package here.
+ * npm-only packages.
  */
 export const PACKAGE_PATHS = {
   core: "core",
@@ -34,7 +31,6 @@ export const PACKAGE_PATHS = {
   studio: "studio",
   nylorun: "cli/nylorun",
   cli: "cli/legacy",
-  "harness-conformance": "conformance",
   "create-agent": "cli/create-agent",
 };
 /** The directory of a package, relative to the repository root. */

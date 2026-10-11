@@ -14,9 +14,7 @@ const impact = { none: 0, patch: 1, minor: 2, major: 3 };
  * `ghcr.io/nylorun/studio`, pinned by nylorun (`cli/nylorun/package.json`
  * `nylorun.studio`), so a Studio release reaches developers through nylorun.
  * The deprecated @nylorun/cli only runs nylorun's `nylo`, so it is not one
- * either. Nor is @nylorun/harness-conformance: a tool a harness author runs with
- * npx, which depends on no package here and which none depends on, so it is no
- * one's consumer and releases only on its own changesets.
+ * either.
  */
 export const CREATOR_PINS = Object.freeze([
   "core",

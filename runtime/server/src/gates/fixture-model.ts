@@ -3,17 +3,17 @@
  * Tenant's setting `model.fixture` is on (`PUT /v1/tenant/config/seed {fixtureModel: true}`).
  * The gate answers it itself, metered like any model (a `model_usage` row per call, provider
  * `fixture`, tokens counted from the text, cost 0), so every harness that calls the gate is seen
- * the same way: ours, and one written from the published contract (`@nylorun/harness-conformance`).
+ * the same way: ours, and one written from the published contract.
  *
  * What it answers is read from the call: the last user message and the offered tools.
- * - `conformance:text`: one text answer, `conformance ok`.
- * - `conformance:tool <name> <json>`: one call of the offered tool `<name>` with `<json>` as its
+ * - `fixture:text`: one text answer, `fixture ok`.
+ * - `fixture:tool <name> <json>`: one call of the offered tool `<name>` with `<json>` as its
  *   arguments; once the tool's result is in the prompt, a text answer that quotes it.
- * - `conformance:unoffered <name> <json>`: the same call of a tool `<name>` the call does *not*
+ * - `fixture:unoffered <name> <json>`: the same call of a tool `<name>` the call does *not*
  *   offer (a model that names a tool it was never given), for the check that such a call runs
  *   nothing; once a result is in the prompt, a text answer that quotes it.
- * - `conformance:budget`: a `budget_exhausted` failure.
- * - `conformance:slow <seconds>`: a text answer after that long (at most 60 s), or nothing once
+ * - `fixture:budget`: a `budget_exhausted` failure.
+ * - `fixture:slow <seconds>`: a text answer after that long (at most 60 s), or nothing once
  *   the call is aborted, for cancel checks.
  * - Anything else keeps the release demo: with a `lookup_order` tool it looks up order
  *   `demo-123` once, then answers with the result; on a later user message it says what the
@@ -24,7 +24,7 @@ import type { RuntimeModelCall } from "../contracts.js";
 
 export const FIXTURE_PROVIDER = "fixture";
 
-const MARKER = /^conformance:(\w+)(?:\s+([\s\S]*))?$/;
+const MARKER = /^fixture:(\w+)(?:\s+([\s\S]*))?$/;
 
 type Answer = ModelCandidate | ModelFailureOutcome;
 
@@ -35,7 +35,7 @@ export async function fixtureAnswer(call: RuntimeModelCall, signal?: AbortSignal
     (item): item is Extract<PromptItem, { kind: "message" }> => item.kind === "message" && item.role === "user"
   );
   const marker = MARKER.exec(textOf(users.at(-1)?.content ?? []).trim());
-  if (marker) return conformance(call, marker[1]!, marker[2]?.trim() ?? "", last, signal);
+  if (marker) return scripted(call, marker[1]!, marker[2]?.trim() ?? "", last, signal);
   if (last?.kind === "tool-result") return candidate(call, `Order lookup complete: ${textOf(last.content, true)}`);
   if (users.length > 1) return candidate(call, `I remember: ${textOf(users[0]!.content)}`);
   if (!call.tools.some((tool) => tool.name === "lookup_order"))
@@ -43,7 +43,7 @@ export async function fixtureAnswer(call: RuntimeModelCall, signal?: AbortSignal
   return candidate(call, [{ type: "tool-call", id: "fixture_lookup", name: "lookup_order", args: { orderId: "demo-123" } }]);
 }
 
-async function conformance(
+async function scripted(
   call: RuntimeModelCall,
   kind: string,
   rest: string,
@@ -52,40 +52,40 @@ async function conformance(
 ): Promise<Answer> {
   switch (kind) {
     case "text":
-      return candidate(call, "conformance ok");
+      return candidate(call, "fixture ok");
     case "tool":
     case "unoffered": {
       if (last?.kind === "tool-result")
-        return candidate(call, `conformance tool ${last.status}: ${textOf(last.content, true)}`);
+        return candidate(call, `fixture tool ${last.status}: ${textOf(last.content, true)}`);
       const space = rest.indexOf(" ");
       const name = space < 0 ? rest : rest.slice(0, space);
       const offered = call.tools.some((tool) => tool.name === name);
-      if (kind === "tool" && !offered) return candidate(call, `conformance: no tool ${name} is offered`);
-      if (kind === "unoffered" && offered) return candidate(call, `conformance: tool ${name} is offered`);
+      if (kind === "tool" && !offered) return candidate(call, `fixture: no tool ${name} is offered`);
+      if (kind === "unoffered" && offered) return candidate(call, `fixture: tool ${name} is offered`);
       let args: unknown = {};
       try {
         if (space >= 0) args = JSON.parse(rest.slice(space + 1));
       } catch {
-        return candidate(call, "conformance: the tool arguments are not JSON");
+        return candidate(call, "fixture: the tool arguments are not JSON");
       }
       if (typeof args !== "object" || args === null || Array.isArray(args))
-        return candidate(call, "conformance: the tool arguments are not an object");
-      return candidate(call, [{ type: "tool-call", id: "conformance_call", name, args: args as Record<string, never> }]);
+        return candidate(call, "fixture: the tool arguments are not an object");
+      return candidate(call, [{ type: "tool-call", id: "fixture_call", name, args: args as Record<string, never> }]);
     }
     case "budget":
       return {
         kind: "failed",
         code: "budget_exhausted",
-        message: "The fixture model's budget is exhausted (conformance:budget)",
+        message: "The fixture model's budget is exhausted (fixture:budget)",
         retryable: false,
       };
     case "slow": {
       const seconds = Math.min(Math.max(Number(rest) || 0, 0), 60);
       await sleep(seconds * 1000, signal);
-      return candidate(call, `conformance slept ${seconds} s`);
+      return candidate(call, `fixture slept ${seconds} s`);
     }
     default:
-      return candidate(call, `conformance: unknown marker ${kind}`);
+      return candidate(call, `fixture: unknown marker ${kind}`);
   }
 }
 

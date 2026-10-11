@@ -1,22 +1,21 @@
 #!/usr/bin/env node
-// A custom harness as a pod's image (track R4, R4.4, conformance HC15) on a real cluster:
+// A custom harness as a pod's image (track R4, R4.4) on a real cluster:
 //
 //   node scripts/sandbox/harness-pod.mjs --context docker-desktop
 //   node scripts/sandbox/harness-pod.mjs --context kind-nylorun --host-address 172.17.0.1
 //
 // Builds the example harness's image (`examples/harness-minimal`), starts a Tenant
-// (`nylorun start --no-studio`), turns on its fixture model and sandbox pods, then runs the
-// harness conformance suite with the pod profile: every session runs on a pod Environment whose
-// `image` is the example and whose `harness` is `minimal`, so the pod runs the image's own
-// entrypoint, joins with its join token, and takes the turns. Our harness stays in its container
-// beside it (HC18).
+// (`nylorun start --no-studio`) and turns on its fixture model and sandbox pods. A session on a
+// pod Environment whose `image` is the example and whose `harness` is `minimal` runs `bash`: the
+// pod runs the image's own entrypoint, joins with its join token, takes the turn and runs the
+// command in /workspace. Our harness stays in its container beside it and serves a session with
+// no Environment at the same time.
 //
 // Needs what `npm run test:sandboxes` needs (kubectl, a context with agent-sandbox, the workspace
 // builds, images the cluster's node can use: CI loads them with `kind load docker-image`).
 // NYLORUN_EXAMPLE_HARNESS_IMAGE names a prebuilt example image.
 import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import { root, run } from "../lib/repo.mjs";
 import { ensureImages, imageId, runtimeHeaders, withStack } from "../lib/stack.mjs";
 
@@ -38,7 +37,6 @@ if (!process.env.NYLORUN_EXAMPLE_HARNESS_IMAGE || !(await imageId(exampleImage))
     timeout: 1_200_000,
   });
 }
-const { runConformance } = await import(join(root, "conformance", "dist", "index.js"));
 
 const images = await ensureImages({ only: ["runtime", "sandboxes"] });
 let failed = false;
@@ -59,20 +57,70 @@ await withStack({ name: "nylorun-harness-pod", images, startArgs: ["--no-studio"
   const limits = await manage("PUT", "/v1/tenant/sandbox", { limits: { idle: "10m" }, lifecycle: { stopGrace: "10s" } });
   if (!limits.ok) throw new Error(`PUT /v1/tenant/sandbox: ${limits.status} ${await limits.text()}`);
 
-  step(`conformance, pod profile, harness minimal as ${exampleImage}`);
-  const report = await runConformance({
-    runtime: stack.runtimeUrl,
-    key: tenant.key,
-    manageKey: tenant.managementKey,
-    harness: "minimal",
-    profile: "pod",
-    image: exampleImage,
-    turnTimeoutMs: 600_000,
+  const api = async (method, path, body) => {
+    const response = await fetch(`${stack.runtimeUrl}${path}`, {
+      method,
+      headers: runtimeHeaders(tenant.key, { "content-type": "application/json" }),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`);
+    return response.json();
+  };
+  const seeded = await manage("PUT", "/v1/tenant/config/seed", { fixtureModel: true });
+  if (!seeded.ok) throw new Error(`PUT /v1/tenant/config/seed: ${seeded.status} ${await seeded.text()}`);
+  const prefix = `hp-${randomUUID().slice(0, 8)}`;
+  await api("PUT", `/v1/agents/${prefix}-agent`, {
+    requestId: randomUUID(),
+    manifest: {
+      manifestSchemaVersion: 5,
+      id: `${prefix}-agent`,
+      name: "Harness pod",
+      capabilities: [{ id: "agent", type: "agent", instructions: ["Answer briefly."] }],
+    },
+    implementationVersion: "harness-pod",
   });
-  for (const result of report.results)
-    console.log(`${result.status.padEnd(7)} ${result.id} ${result.section ?? ""} ${result.detail}`);
-  failed = report.results.some((result) => result.status === "fail");
+  await api("PUT", `/v1/environments/${prefix}-pod`, { kind: "pod", harness: "minimal", image: exampleImage });
+
+  /** Opens `session`, sends `content` and waits for the turn's end: the session's items. */
+  const turn = async (session, content, environment) => {
+    await api("PUT", `/v1/sessions/${session}`, {
+      requestId: randomUUID(),
+      agentId: `${prefix}-agent`,
+      ownerUserId: "harness-pod",
+      ...(environment ? { environment } : {}),
+    });
+    const requestId = randomUUID();
+    await api("POST", `/v1/sessions/${session}/commands`, { type: "message", requestId, idempotencyKey: requestId, content });
+    const deadline = Date.now() + 600_000;
+    for (;;) {
+      const { items } = await api("GET", `/v1/sessions/${session}/items`);
+      if (items.some((item) => /^turn\.(completed|failed|cancelled)$/.test(item.type))) return items;
+      if (Date.now() > deadline) throw new Error(`the turn of ${session} did not end within 600 s`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  };
+  const check = (ok, detail) => {
+    console.log(`${ok ? "pass" : "fail"} ${detail}`);
+    if (!ok) failed = true;
+  };
+
+  step(`a session on the pod Environment, harness minimal as ${exampleImage}, beside ours`);
+  const command = `fixture:tool bash ${JSON.stringify({ command: "echo nylorun-pod:$(pwd)" })}`;
+  const [pod, ours] = await Promise.all([turn(`${prefix}-pod`, command, `${prefix}-pod`), turn(`${prefix}-ours`, "fixture:text")]);
+  const podEnd = pod.find((item) => /^turn\.(completed|failed|cancelled)$/.test(item.type));
+  check(
+    podEnd?.type === "turn.completed" && podEnd.source?.kind === "harness" && podEnd.source.id === "minimal",
+    `the pod's harness took the run and settled it: ${podEnd?.type} from ${podEnd?.source?.kind} ${podEnd?.source?.id ?? ""}`
+  );
+  const ran = pod.find((item) => item.type === "tool.completed" && item.payload?.toolName === "bash");
+  check(
+    String(ran?.payload?.output?.stdout ?? "").includes("nylorun-pod:/workspace"),
+    `bash ran in /workspace: ${JSON.stringify(ran?.payload?.output?.stdout ?? null)}`
+  );
+  const oursEnd = ours.find((item) => item.type === "turn.completed");
+  check(oursEnd?.source?.kind === "harness" && oursEnd.source.id === "nylorun", "our harness served the session with no Environment at the same time");
+  await api("DELETE", `/v1/environments/${prefix}-pod`).catch(() => {});
   if (failed) await stack.logs().catch(() => {});
 });
-console.log(failed ? "\nharness-pod: FAILED" : "\nharness-pod: every check that applies passed");
+console.log(failed ? "\nharness-pod: FAILED" : "\nharness-pod: passed");
 process.exitCode = failed ? 1 : 0;

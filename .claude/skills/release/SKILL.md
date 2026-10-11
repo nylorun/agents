@@ -66,7 +66,7 @@ what each workflow job does, and the Recovery table.
 6. **Verify.** For every package in `.release/plan.json` except Studio (image
    only), `npm view <package>@beta version` prints the plan's version, where
    `<package>` is `@nylorun/<key>` for the plan's key (`nylorun` stays
-   unscoped; `harness-conformance` is `@nylorun/harness-conformance`), and
+   unscoped), and
    `docker buildx imagetools inspect ghcr.io/nylorun/<runtime|studio>:<version>`
    succeeds for each image the plan publishes, and
    `npm view nylorun@beta nylorun.runtime nylorun.studio` prints the plan's
