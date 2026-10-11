@@ -8,7 +8,10 @@ import type { WorkflowManifest } from "./workflow.js";
  */
 export type ManifestSchemaVersion = 5 | 6;
 
-/** Whether each call waits for a person's approval (`approve` on the session). Default `never`. */
+/**
+ * Whether each call waits for a person's approval, in a manifest saved before R5 step 2 (the
+ * Tool Gate holds such a call). New definitions use the Tenant's tool policy instead.
+ */
 export type ApprovalMode = "never" | "always";
 
 /** The methods an HTTP tool may use: each sends the tool input as a JSON body. */
@@ -47,7 +50,11 @@ export interface ToolManifest {
   readonly agent?: AgentManifest | WorkflowManifest;
   /** Present when the Runtime runs this tool as an HTTP request. Never with `agent`. */
   readonly http?: HttpToolTarget;
-  /** Each call of an HTTP tool waits for approval. */
+  /**
+   * @deprecated Removed in R5 step 2: the Runtime refuses a definition that sets it, and tool
+   * approvals are the Tenant's tool policy (`PUT /v1/tenant/tool-policy`). Read only from
+   * manifests saved before, which the Tool Gate still holds for approval.
+   */
   readonly approval?: ApprovalMode;
 }
 
@@ -69,7 +76,7 @@ export interface SkillManifest {
 export interface McpToolSettings {
   /** `false`: the tool never reaches the model and cannot be called. Default `true`. */
   readonly enabled?: boolean;
-  /** `always`: each call waits for approval. Default: the server's `approval`, else `never`. */
+  /** @deprecated Removed in R5 step 2, as `ToolManifest.approval`; read only from older manifests. */
   readonly approval?: ApprovalMode;
   /**
    * `true`: the tool leaves the model's tool list; the model finds it with `tool_search` and runs
@@ -83,7 +90,7 @@ interface McpServerFields {
   readonly name: string;
   readonly url: string;
   readonly headers?: Readonly<Record<string, string>>;
-  /** Each call of every tool of the server waits for approval. */
+  /** @deprecated Removed in R5 step 2, as `ToolManifest.approval`; read only from older manifests. */
   readonly approval?: ApprovalMode;
   /** Defers every tool of the server, or none (manifest v6, R2b C10). Default: automatic. */
   readonly deferred?: boolean;

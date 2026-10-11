@@ -3,8 +3,8 @@
  * the gates service with `NYLORUN_TEST_MODEL_GATE=http`, `gates/tool-gate-http.test.ts`): the
  * input as JSON, the identity headers, the run-once key as `Idempotency-Key` and the credential
  * of the session's Environment; the answer, a failure status, a timeout or a refused address is what the model
- * sees. Static approval (`approval: "always"`) on an HTTP tool or a remote MCP server waits for
- * the session's `approve`.
+ * sees. The Tenant's tool policy (R5 step 2) holds a call an `ask` rule matches, an HTTP tool's
+ * or a remote MCP server's, until the session's `approve`.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -121,11 +121,18 @@ beforeAll(async () => {
       http({ name: "fail", input, url: `${target.url}/fail` }),
       http({ name: "slow", input, url: `${target.url}/slow`, timeoutMs: 200 }),
       http({ name: "billed", input, url: `${target.url}/refunds`, credential: "billing" }),
-      http({ name: "approved", input, output, url: `${target.url}/refunds`, approval: "always" }),
+      http({ name: "approved", input, output, url: `${target.url}/refunds` }),
     )
-    .mcp({ shop: { type: "streamable-http", url: orders.url, approval: "always" } })
+    .mcp({ shop: { type: "streamable-http", url: orders.url } })
     .build();
   await register(runtime, agent.manifest);
+  // The calls a person approves (R5 step 2): `approved`, and every tool of `shop`.
+  const policy = await fetch(`${runtime.url}/v1/tenant/tool-policy`, {
+    method: "PUT",
+    headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
+    body: JSON.stringify({ rules: [{ effect: "ask", tool: "approved" }, { effect: "ask", server: "shop" }] }),
+  });
+  expect(policy.ok).toBe(true);
 });
 
 afterAll(async () => {
@@ -268,12 +275,12 @@ describe("an HTTP tool call", () => {
   });
 });
 
-describe("static approval", () => {
+describe("the Tenant's tool policy asks (R5 step 2)", () => {
   it("holds an HTTP tool call for approval, then makes it", async () => {
     const before = target.seen.length;
     const session = await call("approved", { orderId: "B-1" });
     const wait = await pausedWait(session);
-    expect(wait.interaction).toMatchObject({ kind: "approval", prompt: "Approve approved?" });
+    expect(wait.interaction).toMatchObject({ kind: "approval", prompt: expect.stringContaining("Approve approved?") });
     expect(target.seen.length).toBe(before);
     await session.approve(wait.interaction.id, true, { idempotencyKey: "approve-b1" });
     expect((await settled(session)).status).toBe("completed");
@@ -287,7 +294,7 @@ describe("static approval", () => {
     const wait = await pausedWait(session);
     await session.approve(wait.interaction.id, false, { idempotencyKey: "deny-b2" });
     expect((await settled(session)).status).toBe("completed");
-    expect(lastToolResult).toMatchObject({ status: "denied" });
+    expect(JSON.stringify(lastToolResult)).toContain("tool.denied");
     expect(target.seen.length).toBe(before);
   });
 
@@ -304,7 +311,7 @@ describe("static approval", () => {
     const refused = await pausedWait(denied);
     await denied.approve(refused.interaction.id, false, { idempotencyKey: "deny-c2" });
     expect((await settled(denied)).status).toBe("completed");
-    expect(lastToolResult).toMatchObject({ status: "denied" });
+    expect(JSON.stringify(lastToolResult)).toContain("tool.denied");
     expect(orders.calls()).toBe(1);
   });
 });

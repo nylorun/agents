@@ -1,11 +1,13 @@
 /**
  * HTTP tools (R2 M3): a tool the manifest describes as one HTTP request, which the Runtime makes
  * itself through its Tool Gate. No developer code runs for it: the tool value carries its target
- * (`http`) and static approval into the manifest, and its `execute` only says where it runs.
+ * (`http`) into the manifest, and its `execute` only says where it runs. Whether a call waits for
+ * a person is the Tenant's tool policy, decided at the Tool Gate (R5 step 2), never the tool's.
  * An HTTP tool is also a flow stage. `http({ url })` without a name and an input is a bare
  * target, a Loop's HTTP verifier: its manifest form is itself, `{ http: { url, … } }`.
  */
 import type { ApprovalMode, HttpToolMethod, HttpToolTarget, ToolManifest } from "../types/manifest.js";
+import { APPROVAL_REMOVED } from "./approval.js";
 import type { JsonObject } from "../types/shared.js";
 import type { ToolDefinition, ToolInputSchema, ToolOutputSchema, ToolSchemaSource } from "../types/tool.js";
 import { HarnessError } from "../errors.js";
@@ -29,6 +31,11 @@ export const HTTP_TOOL_MAX_TIMEOUT_MS = 300_000;
 /** What an HTTP tool puts in its manifest entry besides its name and schemas. */
 export interface HttpTool {
   readonly http: HttpToolTarget;
+  /**
+   * @deprecated A pinned manifest's `approval`, from before R5 step 2: kept so the rebuilt
+   * definition hashes as pinned, and held by the Tool Gate. Nothing asks for it here, and
+   * `http()` refuses it.
+   */
   readonly approval?: ApprovalMode;
 }
 
@@ -42,8 +49,6 @@ export interface HttpToolOptions<
   readonly input: InputSchema;
   /** Checked against the answer; a mismatch is a tool error the model sees. */
   readonly output?: OutputSchema;
-  /** `always`: each call waits for approval. Default `never`. */
-  readonly approval?: ApprovalMode;
 }
 
 /** A bare HTTP target: a Loop's HTTP verifier, `.loop(body, { verify: http({ url }), max })`. */
@@ -67,10 +72,12 @@ export function http<
 export function http(target: HttpToolTarget): HttpTarget;
 export function http(options: HttpToolOptions<any, any> | HttpToolTarget): AnyTool | HttpTarget {
   if (!("name" in options) && !("input" in options)) return httpTarget(options);
-  const { name, description, input, output, approval } = options as HttpToolOptions<any, any>;
+  const { name, description, input, output } = options as HttpToolOptions<any, any>;
   const target = targetOf(options);
   const issue =
-    (input === undefined ? "input is required" : undefined) ?? httpTargetIssue(target) ?? approvalIssue(approval);
+    (input === undefined ? "input is required" : undefined) ??
+    httpTargetIssue(target) ??
+    ("approval" in options ? APPROVAL_REMOVED : undefined);
   if (issue) throw new HarnessError("tool.invalid", `HTTP tool '${name}': ${issue}`);
   return prepareTool(
     withHttpTarget(
@@ -80,7 +87,7 @@ export function http(options: HttpToolOptions<any, any> | HttpToolTarget): AnyTo
         inputSchema: schemaSource(input),
         ...(output === undefined ? {} : { outputSchema: schemaSource(output) }),
       },
-      { http: target, ...(approval === undefined ? {} : { approval }) },
+      { http: target },
     ),
   );
 }
@@ -131,7 +138,6 @@ export function httpToolFromManifest(declared: ToolManifest & { readonly http: H
 /**
  * Marks `tool` as an HTTP tool. A host gives its own `execute` (the Runtime's engine routes the
  * call to its Tool Gate); without one, calling it explains that only the Runtime runs it.
- * `approval: "always"` makes each call wait for approval.
  */
 export function withHttpTarget(
   tool: Omit<AnyTool, "execute"> & Pick<Partial<AnyTool>, "execute">,
@@ -140,7 +146,6 @@ export function withHttpTarget(
   const definition: AnyTool = {
     ...tool,
     execute: tool.execute ?? runtimeOnly,
-    ...(target.approval === "always" ? { approval: () => true } : {}),
   };
   Object.defineProperty(definition, HTTP, {
     value: Object.freeze({ http: Object.freeze({ ...target.http }), ...(target.approval ? { approval: target.approval } : {}) }),
@@ -186,12 +191,6 @@ export function httpUrlIssue(url: unknown): string | undefined {
     return "url must not carry credentials; name a vault credential with `credential`";
   if (parsed.hash !== "") return "url must not have a fragment";
   return undefined;
-}
-
-function approvalIssue(approval: unknown): string | undefined {
-  return approval === undefined || (APPROVAL_MODES as readonly unknown[]).includes(approval)
-    ? undefined
-    : `approval must be one of ${APPROVAL_MODES.join(", ")}`;
 }
 
 async function runtimeOnly(): Promise<never> {

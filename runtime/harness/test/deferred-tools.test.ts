@@ -160,13 +160,12 @@ describe("deferred tools in the engine", () => {
     expect(JSON.stringify(h.results[0])).toContain("tool.unknown");
   });
 
-  it("asks for approval of a tool that needs it, as a direct call would, before any effect", async () => {
+  it("never asks for approval itself: the Tool Gate holds a call its policy asks about (R5 step 2)", async () => {
     const h = host([
       { name: TOOL_CALL_TOOL, args: { name: "github__create_issue", arguments: { title: "x" } } },
     ]);
     const result = await run(h.host);
-    expect(result.status).toBe("paused");
-    expect(h.tools).toEqual([]);
-    expect(JSON.stringify(result)).toContain("Approve github__create_issue?");
+    expect(result.status).not.toBe("paused");
+    expect(JSON.stringify(result)).not.toContain("Approve github__create_issue?");
   });
 });

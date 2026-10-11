@@ -39,7 +39,7 @@ export interface ToolServer {
    */
   tool<I, O = undefined>(
     name: string,
-    options: { input: I; output?: O; description?: string; approval?: "always" | "never"; timeoutMs?: number },
+    options: { input: I; output?: O; description?: string; timeoutMs?: number },
   ): ToolDefinition<any, any, any>;
   /** Every call, in order. */
   readonly calls: ToolCall[];
@@ -85,7 +85,6 @@ export async function startToolServer(handlers: Record<string, ToolHandler>): Pr
         input: options.input as never,
         ...(options.output === undefined ? {} : { output: options.output as never }),
         ...(options.description === undefined ? {} : { description: options.description }),
-        ...(options.approval === undefined ? {} : { approval: options.approval }),
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
         url: url(name),
       }) as ToolDefinition<any, any, any>,

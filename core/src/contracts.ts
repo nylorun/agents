@@ -3203,6 +3203,65 @@ export type PutModelBudgetsRequest = z.infer<typeof PutModelBudgetsRequestSchema
 export const ModelBudgetsSchema = z.object({ budgets: z.array(ModelBudgetSchema) }).strict();
 export type ModelBudgets = z.infer<typeof ModelBudgetsSchema>;
 
+/** What a tool policy rule does to a call it matches (R5 step 2). */
+export const TOOL_POLICY_EFFECTS = ["allow", "ask", "deny"] as const;
+/** A test of one field of a tool call's input; every test it sets must hold. */
+export const ToolInputConditionSchema = z
+  .object({
+    equals: jsonValue.optional(),
+    in: z.array(jsonValue).min(1).optional(),
+    gt: z.number().optional(),
+    gte: z.number().optional(),
+    lt: z.number().optional(),
+    lte: z.number().optional(),
+    /** A regular expression the field's string value must match. */
+    matches: z.string().min(1).max(500).optional(),
+  })
+  .strict()
+  .superRefine((condition, ctx) => {
+    if (Object.keys(condition).length === 0)
+      ctx.addIssue({ code: "custom", message: "A condition sets at least one of equals, in, gt, gte, lt, lte or matches" });
+    if (condition.matches !== undefined)
+      try {
+        new RegExp(condition.matches);
+      } catch {
+        ctx.addIssue({ code: "custom", path: ["matches"], message: `matches is not a regular expression: ${condition.matches}` });
+      }
+  });
+export type ToolInputCondition = z.infer<typeof ToolInputConditionSchema>;
+/**
+ * One rule of the Tenant's tool policy (R5 step 2), applied at the Tool Gate to every MCP and
+ * HTTP tool call of every harness. A rule matches a call when every selector it sets matches:
+ * `tool` (the name the model calls it by, `*` for any run of characters), `server` (an MCP
+ * server's name), `kind`, `agent` (the agent that calls it) and `when` (fields of the input, by
+ * dotted path). The strictest matching rule decides: `deny` refuses the call before it is sent,
+ * `ask` holds it until a person approves it on the session (`approve`), `allow` runs it. A call no
+ * rule matches runs. Sandbox tools never cross the gate; their network side is egress policy.
+ */
+export const ToolRuleSchema = z
+  .object({
+    effect: z.enum(TOOL_POLICY_EFFECTS),
+    tool: z.string().min(1).max(200).optional(),
+    server: z.string().min(1).max(200).optional(),
+    kind: z.enum(["mcp", "http"]).optional(),
+    agent: z.string().min(1).max(200).optional(),
+    when: z.record(z.string().min(1).max(200), ToolInputConditionSchema).optional(),
+    /** Why the rule exists: shown with a held or denied call. */
+    reason: z.string().min(1).max(500).optional(),
+  })
+  .strict();
+export type ToolRule = z.infer<typeof ToolRuleSchema>;
+/** `PUT /v1/tenant/tool-policy`: replaces every rule. An empty list allows every call. */
+export const PutToolPolicyRequestSchema = z
+  .object({ requestId: RequestIdSchema.optional(), rules: z.array(ToolRuleSchema).max(200) })
+  .strict();
+export type PutToolPolicyRequest = z.infer<typeof PutToolPolicyRequestSchema>;
+/** The Tenant's tool policy; `updatedAt` is null until one is set. */
+export const ToolPolicySchema = z
+  .object({ rules: z.array(ToolRuleSchema), updatedAt: z.string().nullable() })
+  .strict();
+export type ToolPolicy = z.infer<typeof ToolPolicySchema>;
+
 /** A deleted resource. */
 export const DeletedResponseSchema = z.object({ id: z.string() }).strict();
 export type DeletedResponse = z.infer<typeof DeletedResponseSchema>;
@@ -3701,7 +3760,8 @@ export const ToolCallSchema = z
     toolName: z.string().nullable(),
     kind: z.enum(TOOL_CALL_KINDS).nullable(),
     server: z.string().nullable(),
-    status: z.enum(["invoking", ...TOOL_CALL_STATUSES, "uncertain"]),
+    /** `held`: the Tool Gate holds it for a person's approval (R5 step 2). */
+    status: z.enum(["invoking", "held", ...TOOL_CALL_STATUSES, "uncertain"]),
     attempts: z.number().int().nonnegative(),
     input: z.unknown(),
     error: z.object({ code: z.string(), message: z.string() }).strict().nullable(),

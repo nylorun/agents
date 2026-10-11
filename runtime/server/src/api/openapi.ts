@@ -301,6 +301,12 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
     ],
   },
   {
+    name: "Tool policy",
+    description:
+      "The rules the Tool Gate applies to every MCP and HTTP tool call of every harness: refuse it, hold it for a person's approval, or run it. `admin.toolPolicy`.",
+    operations: ["GET /v1/tenant/tool-policy", "PUT /v1/tenant/tool-policy"],
+  },
+  {
     name: "Credential coverage",
     description:
       "Which secret of an Environment each of an agent's MCP servers and HTTP tools would get, before a session opens. The secrets themselves are written on the Runtime API. `admin.coverage`.",

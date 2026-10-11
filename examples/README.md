@@ -62,9 +62,10 @@ The writer's shell needs a sandbox, chosen when the session opens, as for the [d
 [`src/ag-ui/`](./src/ag-ui/) is a web backend that puts the
 [support agent](./agents/ag-ui/support.ts) in front of its signed-in users. The
 browser speaks [AG-UI](https://docs.ag-ui.com) to the backend; the backend signs
-people in, hosts the handler and answers the agent's `lookup_order`, an HTTP tool
-(`approval: "always"`) the Runtime calls at the backend's URL. The whole
-integration is [`app.ts`](./src/ag-ui/app.ts):
+people in, hosts the handler and answers the agent's `lookup_order`, an HTTP tool the
+Runtime calls at the backend's URL. `save` also adds a rule to the Tenant's tool policy
+(with the management key) so each lookup waits for the person. The whole integration is
+[`app.ts`](./src/ag-ui/app.ts):
 
 ```ts
 const tools = toolsService([lookupOrderCode]); // POST /lookup_order: the tool's code runs here

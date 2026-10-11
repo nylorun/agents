@@ -4,7 +4,7 @@
  */
 
 /** The codes of a call the Runtime ended rather than the tool: its status is `failed`. */
-const RUNTIME_ENDED = new Set(["tool.disabled", "tool.unavailable", "tool.interrupted"]);
+const RUNTIME_ENDED = new Set(["tool.disabled", "tool.unavailable", "tool.interrupted", "tool.denied"]);
 
 /** What a tool row's body says of how it ended. */
 export interface ToolRowState {
@@ -17,8 +17,9 @@ export interface ToolRowState {
 /** How a tool row ended, as `tool.completed` and `/calls/tool` say it. */
 export function toolCallStatus(
   row: ToolRowState,
-): "completed" | "failed" | "cancelled" | "invoking" | "uncertain" {
+): "completed" | "failed" | "cancelled" | "invoking" | "held" | "uncertain" {
   if (row.status === "cancelled") return "cancelled";
+  if (row.status === "held") return "held";
   if (row.status === "uncertain") return "uncertain";
   if (row.status !== "completed") return "invoking";
   const value = row.outcome?.value as { kind?: unknown; code?: unknown } | null | undefined;

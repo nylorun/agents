@@ -88,6 +88,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * effect journal, every `tool.completed` says how its call ended (`status`, `kind`, `server`,
  * `attempts`, `durationMs`), and tool calls are delivered at least once with their effect id as
  * the key (`Idempotency-Key` for HTTP tools, `_meta["nylorun/idempotency-key"]` for MCP tools).
+ * `tool-policy` (R5 step 2): `GET`/`PUT /v1/tenant/tool-policy` (the Management API) sets which
+ * MCP and HTTP tool calls run, wait for a person (`ask`: the turn pauses until `approve`) or are
+ * refused (`deny`: `tool.denied`), for every harness; a manifest that sets `approval` is refused.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -103,6 +106,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "tool-calls",
   "environment-setup",
   "environment-disk-versions",
+  "tool-policy",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

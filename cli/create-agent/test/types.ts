@@ -33,7 +33,6 @@ const lookupOrder = http({
   url: "https://orders.example.com/lookup",
   method: "POST",
   timeoutMs: 10_000,
-  approval: "never",
 });
 await client.saveAgent(Agent({ id: "orders", name: "Orders" }).tools(lookupOrder).build());
 await client.saveAgent(agent, { implementationVersion: "1.0.0", requestId: "save-1" });
@@ -41,8 +40,8 @@ await client.saveAgent(agent);
 // With no connection fields the client resolves the Project link (what the starter does).
 const linked = await createClient();
 await linked.saveAgent(agent);
-// @ts-expect-error Approval is "always" or "never".
-http({ name: "x", input: z.object({}), url: "https://example.com", approval: "sometimes" });
+// @ts-expect-error Approval is the Tenant's tool policy, not the tool's (R5 step 2).
+http({ name: "x", input: z.object({}), url: "https://example.com", approval: "always" });
 // @ts-expect-error Action handlers were removed: the Runtime runs agents from their manifests alone.
 void sdk.createActionHandler;
 // @ts-expect-error Action sandboxes went with them.

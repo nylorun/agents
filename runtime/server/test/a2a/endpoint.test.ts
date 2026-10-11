@@ -15,6 +15,7 @@ import { createA2aHandler, toNodeListener } from "@nylorun/agents/a2a";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { startTestTenant } from "../support/tenant.js";
 import { startToolServer, type ToolServer } from "../support/tool-server.js";
+import { setToolPolicy } from "../support/tool-policy.js";
 
 /**
  * A2A v1 exit gate: partners reach the Tenant's agents through a gateway
@@ -82,7 +83,7 @@ let held: Promise<void> = Promise.resolve();
 function agents(service: ToolServer) {
   const support = Agent({ id: "support", name: "Support", description: "Answers questions." }).build();
   const guarded = Agent({ id: "guarded", name: "Guarded" })
-    .tools(service.tool("save", { input: z.object({ note: z.string() }), approval: "always" }))
+    .tools(service.tool("save", { input: z.object({ note: z.string() }) }))
     .build();
   const slow = Agent({ id: "slow", name: "Slow" })
     .tools(service.tool("wait", { input: z.object({}) }))
@@ -115,6 +116,8 @@ beforeAll(async () => {
   });
   const built = agents(service);
   for (const agent of built) await client.saveAgent(agent, { implementationVersion: "dev" });
+  // The guarded agent's save waits for a person (R5 step 2).
+  await setToolPolicy(runtime, [{ effect: "ask", tool: "save", agent: "guarded" }]);
   const handler = createA2aHandler({
     basePath: "/a2a",
     agents: built,

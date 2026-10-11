@@ -5,7 +5,7 @@
  * tighten them.
  */
 import { describe, expect, it } from "vitest";
-import { Agent, McpError, mcpToolSettings } from "../src/define.js";
+import { Agent, McpError, approvalRefusal, approvalsOf, mcpToolSettings } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
 import { isVariantOf } from "../src/definition/variant.js";
 import { hashManifest } from "../src/utils/hash.js";
@@ -107,7 +107,7 @@ describe("manifest v6", () => {
 
   it("rebuilds a v6 manifest at v6, with or without v6 fields, so its hash holds", () => {
     const withSettings = Agent({ id: "bot" })
-      .mcp({ github: { ...github, tools: { create_issue: { approval: "always" } } } })
+      .mcp({ github: { ...github, tools: { create_issue: { enabled: false } } } })
       .build().manifest;
     const restored = Agent.from(JSON.parse(JSON.stringify(withSettings)), {});
     expect(hashManifest(restored.manifest)).toBe(hashManifest(withSettings));
@@ -135,9 +135,10 @@ describe("a turn variant (Q18)", () => {
     ],
   });
 
-  it("may disable a tool or require its approval", () => {
+  it("may disable a tool, and keeps a pinned approval but adds none (R5 step 2)", () => {
     const pin = pinned({ tools: { create_issue: { approval: "never" } } });
-    expect(isVariantOf(pinned({ tools: { create_issue: { approval: "always" } } }), pin)).toBe(true);
+    // Tool approvals are the Tenant's tool policy: a variant cannot ask for one.
+    expect(isVariantOf(pinned({ tools: { create_issue: { approval: "always" } } }), pin)).toBe(false);
     expect(
       isVariantOf(pinned({ tools: { create_issue: { approval: "never" }, delete_repo: { enabled: false } } }), pin)
     ).toBe(true);
@@ -172,5 +173,33 @@ describe("a turn variant (Q18)", () => {
     ];
     for (const server of widened) expect(isVariantOf(pinned(server), pin)).toBe(false);
     expect(isVariantOf(pin, pin)).toBe(true);
+  });
+});
+
+describe("approval, removed (R5 step 2)", () => {
+  it("is refused by the builder, on a server or on a tool's settings", () => {
+    expect(() => Agent({ id: "bot" }).mcp({ github: { ...github, approval: "always" } as never })).toThrow(/approval was removed/);
+    expect(() =>
+      Agent({ id: "bot" }).mcp({ github: { ...github, tools: { create_issue: { approval: "always" } } } as never })
+    ).toThrow(/approval was removed/);
+  });
+
+  it("names where a definition sets it, so a save can refuse it", () => {
+    const manifest: AgentManifest = {
+      manifestSchemaVersion: 6,
+      id: "bot",
+      capabilities: [
+        {
+          id: "mcp",
+          type: "agent",
+          mcpServers: {
+            github: { name: "github", ...github, tools: { create_issue: { approval: "always" } } } as McpServerManifest,
+          },
+        },
+      ],
+    };
+    expect(approvalsOf(manifest)).toEqual(["tool 'create_issue' of MCP server 'github' of agent 'bot'"]);
+    expect(approvalRefusal(manifest)).toMatch(/^approval was removed from the manifest: remove it from tool 'create_issue'/);
+    expect(approvalRefusal(Agent({ id: "bot" }).mcp({ github }).build().manifest)).toBeUndefined();
   });
 });

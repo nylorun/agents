@@ -21,6 +21,7 @@ import { contextWindowOf, hostModelCatalog } from "../src/model/catalog.js";
 import { pinDeferral, sessionToolsOf, type McpSnapshot } from "../src/mcp/snapshot.js";
 import { rank } from "../src/tenant/tool-search.js";
 import { startTestTenant } from "./support/tenant.js";
+import { setToolPolicy } from "./support/tool-policy.js";
 
 const APP = "tool-settings-app-key-aaaaaaaaaaaaa";
 /** About 280 characters of a tool's description that no query of these tests matches. */
@@ -200,7 +201,7 @@ beforeAll(async () => {
           tools: {
             "*": { enabled: false },
             search_issues: { enabled: true },
-            create_issue: { enabled: true, approval: "always" },
+            create_issue: { enabled: true },
             not_a_tool: { enabled: true },
           },
         },
@@ -211,7 +212,7 @@ beforeAll(async () => {
     Agent({ id: "big" })
       .mcp({
         ledger: { type: "streamable-http", url: ledger.url },
-        funds: { type: "streamable-http", url: funds.url, tools: { transfer: { approval: "always" } } },
+        funds: { type: "streamable-http", url: funds.url },
         // One tool stays in the list whatever the size (Q21: settings override).
         archive: { type: "streamable-http", url: archive.url, tools: { archive_t00: { deferred: false } } },
       })
@@ -223,6 +224,11 @@ beforeAll(async () => {
       .mcp({ small: { type: "streamable-http", url: small.url, tools: { epsilon: { deferred: true } } } })
       .build().manifest,
   );
+  // The calls a person approves (R5 step 2).
+  await setToolPolicy(runtime, [
+    { effect: "ask", tool: "github__create_issue" },
+    { effect: "ask", tool: "funds__transfer" },
+  ]);
 }, 60_000);
 
 afterAll(async () => {
@@ -259,7 +265,7 @@ describe("per-tool settings (C9)", () => {
     expect(github.called.length).toBe(before);
   });
 
-  it("asks for approval of one tool, not the others", async () => {
+  it("holds one tool for approval, as the Tenant's tool policy asks, not the others", async () => {
     script({ name: "github__create_issue", args: { title: "x" } });
     const session = await open("allow");
     const wait = await paused(session);
@@ -270,7 +276,7 @@ describe("per-tool settings (C9)", () => {
     expect(github.called).toContain("create_issue");
   });
 
-  it("lets a turn variant disable a tool and require another's approval", async () => {
+  it("lets a turn variant disable a tool, never ask for an approval (R5 step 2), and never widen", async () => {
     script();
     const session = await open("allow");
     await settled(session);
@@ -287,8 +293,8 @@ describe("per-tool settings (C9)", () => {
                   ...capability.mcpServers.github,
                   tools: {
                     ...capability.mcpServers.github.tools,
-                    search_issues: { enabled: true, approval: "always" },
-                    create_issue: { enabled: false, approval: "always" },
+                    search_issues: { enabled: true },
+                    create_issue: { enabled: false },
                   },
                 },
               },
@@ -299,11 +305,29 @@ describe("per-tool settings (C9)", () => {
     offered = [];
     script({ name: "github__search_issues", args: { q: "flaky" } });
     await session.command({ type: "message", requestId: "variant-1", idempotencyKey: "variant-1", content: "again", manifest: variant });
-    const wait = await paused(session);
-    expect(wait.interaction.prompt).toBe("Approve github__search_issues?");
+    expect((await settled(session)).status).toBe("completed");
     expect(toolsOf(offered[0]!, "github")).toEqual(["github__search_issues"]);
-    await session.approve(wait.interaction.id, false, { idempotencyKey: "deny-search" });
-    await settled(session);
+
+    // A variant cannot ask for an approval: tool approvals are the Tenant's tool policy.
+    const asking: AgentManifest = {
+      ...variant,
+      capabilities: variant.capabilities.map((capability) =>
+        capability.mcpServers?.github
+          ? {
+              ...capability,
+              mcpServers: {
+                github: {
+                  ...capability.mcpServers.github,
+                  tools: { ...capability.mcpServers.github.tools, search_issues: { enabled: true, approval: "always" } },
+                },
+              },
+            }
+          : capability
+      ),
+    };
+    await expect(
+      session.command({ type: "message", requestId: "variant-3", idempotencyKey: "variant-3", content: "ask", manifest: asking })
+    ).rejects.toThrow(/not a variant/);
 
     // Widening is refused: enabling a tool the pin's allowlist leaves out.
     const widened: AgentManifest = {

@@ -13,6 +13,7 @@ import type {
 } from "@nylorun/core/define";
 import {
   SANDBOX_TOOL_NAMES,
+  approvalRefusal,
   codeToolRefusal,
   delegateOf,
   isBuiltWorkflow,
@@ -243,7 +244,9 @@ export class AgentsClient {
       assertNoMiddlewareClosures(agent);
       skillFilesOf(agent, files);
     }
-    const refusal = codeToolRefusal(agent.manifest as AgentManifest | WorkflowManifest);
+    const refusal =
+      codeToolRefusal(agent.manifest as AgentManifest | WorkflowManifest) ??
+      approvalRefusal(agent.manifest as AgentManifest | WorkflowManifest);
     if (refusal) throw new Error(refusal);
     await this.files.ensure(files);
     return this.transport.json(`/v1/agents/${segment(agent.id)}`, "PUT", {

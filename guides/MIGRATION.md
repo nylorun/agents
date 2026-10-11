@@ -1,3 +1,48 @@
+# Tool approvals are the Tenant's tool policy (R5)
+
+**`approval` leaves the manifest.** An agent no longer says which of its tool calls wait for a
+person: the operator does, once for every agent and every harness, with the Tenant's tool policy.
+`PUT /v1/agents/:id` and `saveAgent()` refuse a definition that sets `approval` on an HTTP tool,
+an MCP server or an MCP tool's settings, and `http({ approval })` and `.mcp({ … approval })` throw.
+
+Move each `approval: "always"` to an `ask` rule, with a management key:
+
+```ts
+// Before
+Agent({ id: "support" })
+  .tools(http({ name: "refund_order", input, url, approval: "always" }))
+  .mcp({ github: { type: "streamable-http", url, tools: { create_issue: { approval: "always" } } } });
+
+// After: the agent declares its tools…
+Agent({ id: "support" })
+  .tools(http({ name: "refund_order", input, url }))
+  .mcp({ github: { type: "streamable-http", url } });
+
+// …and the Tenant's tool policy holds them for a person.
+import { createAdmin } from "@nylorun/admin";
+await createAdmin().toolPolicy.put({
+  rules: [
+    { effect: "ask", agent: "support", tool: "refund_order" },
+    { effect: "ask", agent: "support", tool: "github__create_issue" },
+  ],
+});
+```
+
+A rule can also refuse a call (`deny`) or test its input (`when`); see [Tool
+policy](./DEPLOYMENT.md#tool-policy). Approving is unchanged: the turn pauses (`turn.paused`) and
+`session.approve(interactionId, approved)` answers it. A refused call now reaches the model as a
+failed result with the code `tool.denied`, and its `tool.completed` says `status: "failed"`. A
+session pinned to a manifest saved with `approval: "always"` keeps that approval until it ends.
+A turn manifest can no longer add an approval.
+
+**Tool calls are delivered at least once.** A crash, a restart or a lost gateway connection sends
+an MCP or HTTP call again with the same key (`Idempotency-Key`, or
+`_meta["nylorun/idempotency-key"]` for MCP), up to three sends; then the model gets
+`tool.interrupted`. A sandbox command a crash interrupted fails to the model the same way, and is
+not run again. No tool call leaves a session `uncertain` any more, and `mcp.lost` reaches the model
+for every tool. Make a side effect safe to repeat by honoring the key. `GET
+/v1/sessions/{id}/calls/tool` (`session.toolCalls()`) lists a session's tool calls with their sends.
+
 # Environments replace sandboxes and vaults (protocol 11): a fresh start
 
 **Upgrading deletes your sandboxes, their disks and every vault except the model's, and closes

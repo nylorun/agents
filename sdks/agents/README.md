@@ -49,13 +49,12 @@ const refundOrder = http({
   method: "POST", // default; or PUT, PATCH
   credential: "billing", // optional: the session's Environment holds a credential for this URL
   timeoutMs: 20_000, // default 60000, at most 300000
-  approval: "always", // optional: each call waits for session.approve()
 });
 
 export const support = Agent({ id: "support" }).tools(refundOrder);
 ```
 
-The tool goes into the manifest as `http` (and `approval`), and the Runtime's
+The tool goes into the manifest as `http`, and the Runtime's
 Tool Gate sends the model's input as the JSON body, under the Host's address
 policy (`NYLORUN_ENDPOINT_*`), with `content-type: application/json`,
 `Nylorun-Session-Id`, `Nylorun-Turn-Id`, `Nylorun-Agent-Id` and an
@@ -82,14 +81,53 @@ charge id) in the tool's input schema to refuse it too.
 Environment must hold a credential bound to the tool's exact URL, else the call
 fails before it is sent (`http.credential`). A credential with `via`
 sends the call there instead, such as a gateway, with the session owner in its
-identity header, and a `401` is `credential_rejected` to the model, not retried. `approval: "always"` pauses the turn for `session.approve()`; a
-denied call never runs and the model sees the denial. Today only the Runtime's
-own harness asks for it: a harness built from the Harness API can skip it, until
-tool policy moves to the gateway (R5 step 2). A remote MCP server takes
-`approval: "always"` too, for every one of its tools:
-`.mcp({ shop: { type: "streamable-http", url, approval: "always" } })`.
-An HTTP tool is also a flow stage (see [Flow agents](#flow-agents)), and runs
+identity header, and a `401` is `credential_rejected` to the model, not retried.
+Whether a call waits for a person is not the tool's to say: it is the Tenant's
+[tool policy](#tool-policy). An HTTP tool is also a flow stage (see [Flow agents](#flow-agents)), and runs
 only on the Runtime (a local `run()` reports `http.runtime-only`).
+
+## Tool policy
+
+Which MCP and HTTP tool calls run, wait for a person, or are refused is the
+Tenant's tool policy, set by the operator on the Management API with a
+management key (`PUT /v1/tenant/tool-policy`, `admin.toolPolicy.put()` in
+`@nylorun/admin`). The Runtime applies it to every call of every harness as it
+journals the call, before anything is sent, and its Tool Gate runs only a call
+the journal holds running, so a harness cannot skip it.
+
+```ts
+import { createAdmin } from "@nylorun/admin";
+
+await createAdmin().toolPolicy.put({
+  rules: [
+    { effect: "ask", tool: "refund_order", reason: "Refunds need a person" },
+    { effect: "deny", tool: "refund_order", when: { amount: { gt: 10_000 } } },
+    { effect: "ask", server: "github", tool: "github__delete_*" },
+  ],
+});
+```
+
+A rule matches a call when every selector it sets matches: `tool` (the name the
+model calls it by; `*` matches any run of characters), `server` (an MCP
+server's name), `kind` (`mcp` or `http`), `agent` (the agent that calls it) and
+`when` (fields of the call's input by dotted path, each tested with `equals`,
+`in`, `gt`, `gte`, `lt`, `lte` or `matches`). The strictest matching rule
+decides, and a call no rule matches runs:
+
+- `deny`: the call is never sent; the model gets `tool.denied` with the rule's
+  `reason`.
+- `ask`: the turn pauses (`turn.paused`, with the tool, its input and the
+  reason). `session.approve(interactionId, true)` sends that exact call;
+  `false` fails it to the model as `tool.denied`, unsent. Nothing holds a
+  process while it waits, so an approval can wait a day, or a Runtime restart.
+  Studio shows an approval card; AG-UI ends the run with a `tool_approval`
+  interrupt.
+- `allow`: it runs.
+
+Sandbox tools never cross the gate: their network side is egress policy. A
+manifest no longer sets `approval` (the Runtime and `saveAgent` refuse it); a
+session pinned to a manifest saved with `approval: "always"` keeps it, as an
+ask, until it ends.
 
 ## Connection resolution
 
@@ -181,7 +219,7 @@ const assistant = Agent({ id: "assistant", name: "Assistant" })
 
 Each key names a server; its `name` defaults to the key and, when given, must equal it. Repeated `.mcp()` calls add servers to the same capability. Nylorun accepts remote servers only: `streamable-http` and `sse` ([Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers)); a `stdio` server is refused, so run it behind an HTTP transport and declare its URL. Attach an Agent Plugin package with `.plugin(path)`: its skills and remote MCP servers join the agent, and a stdio server in its `mcp.json` throws.
 
-Set a server's tools one by one with `tools`, keyed by the server's own tool names, `"*"` for the rest: `{ "*": { enabled: false }, search_issues: { enabled: true }, create_issue: { enabled: true, approval: "always" } }` is an allowlist with one approval. When an agent's MCP tools would fill more than a tenth of the model's context window, the Runtime defers them: the model finds them with `tool_search` and runs them with `tool_call`. `deferred: true` or `false`, on a tool or on the server, decides instead. Either setting makes the manifest v6 (see MIGRATION.md).
+Set a server's tools one by one with `tools`, keyed by the server's own tool names, `"*"` for the rest: `{ "*": { enabled: false }, search_issues: { enabled: true }, create_issue: { enabled: true } }` is an allowlist (whether a call waits for a person is the [tool policy](#tool-policy)). When an agent's MCP tools would fill more than a tenth of the model's context window, the Runtime defers them: the model finds them with `tool_search` and runs them with `tool_call`. `deferred: true` or `false`, on a tool or on the server, decides instead. Either setting makes the manifest v6 (see MIGRATION.md).
 
 A manifest never carries a server's credential, and its `headers` hold no secret. You write a credential for the server's URL into an Environment (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in, with `client.environments.secrets.put`), and sessions that name the Environment use it: [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun mcp inspect` for listing a server's tools first. After `saveAgent`, `admin.coverage({ agentId, environmentId })` in `@nylorun/admin` says which credential each server and HTTP tool would get in that Environment ([Checking an agent's credentials](../../guides/DEPLOYMENT.md#checking-an-agents-credentials)). The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
 
@@ -311,28 +349,9 @@ export const shipFeature = Agent({ id: "ship-feature" })
 export const agents = [shipFeature];
 ```
 
-A flow stage cannot take `approval` yet (`flow.approval-unsupported`). To have a person
-approve opening the PR, give the HTTP tool to an agent as the last stage instead: that
-agent's turn pauses until the call is approved, and the flow session's `pending()` lists
-the wait:
-
-```ts
-const prOpener = Agent({ id: "pr-opener" })
-  .instructions("Open one pull request with open_pr from the summaries you are given.")
-  .tools(
-    http({
-      name: "open_pr",
-      description: "Open a pull request with the given summaries.",
-      input: z.object({ summaries: z.array(z.string()) }),
-      url: "https://ci.example.com/pull-requests",
-      credential: "github",
-      approval: "always",
-    }),
-  );
-
-// …
-  .pipe(prWriter, prOpener);
-```
+The Tenant's [tool policy](#tool-policy) decides a flow's HTTP stages as it decides an
+agent's HTTP tool calls: an `ask` rule on `open_pr` pauses the flow's turn until a person
+approves the call, and the flow session's `pending()` lists the wait.
 
 | Stage | Role |
 | --- | --- |
@@ -360,8 +379,7 @@ is refused (`flow.input-mismatch`), and any other fails the stage when it runs
 vault of the flow session's Environment; its answer is the next stage's input. A failure status, a timeout or
 an answer that does not match `output` fails the stage with its code (`http.status`,
 `http.timeout`, `tool.invalid-output`, …). A Loop body that starts with an HTTP stage
-is retried with the Loop's input, not the feedback. `approval: "always"` is not
-supported on a flow stage yet (`flow.approval-unsupported`).
+is retried with the Loop's input, not the feedback.
 
 A Loop may be judged by your service instead of an agent: `http({ url, method?,
 credential?, timeoutMs? })`, with no name or input, is an HTTP verifier. The Runtime
@@ -564,7 +582,7 @@ What the Runtime answers (Host feature `a2a-endpoint`):
   (`UnsupportedOperationError`; the card says `streaming: false`), push
   notifications, the extended card, and approvals. An agent that pauses for an
   approval shows `INPUT_REQUIRED`, refuses a reply, and can be canceled, so do
-  not publish agents with approval-gated tools yet.
+  not publish agents whose tools the Tenant's tool policy asks about yet.
 - The handler calls the Runtime as the partner's subject with the scope
   `sessions:own` only, so one partner never reaches another's tasks. It sends
   no header the partner chose except `A2A-Version` and `A2A-Extensions`. Without
