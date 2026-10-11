@@ -117,13 +117,6 @@ beforeAll(async () => {
     sandbox: { backend: "virtual" },
     modelProvider: scriptedModel(),
   });
-  // The handler opens sessions without naming a sandbox, so they get the Tenant default.
-  const configured = await fetch(`${runtime.url}/v1/tenant/sandbox`, {
-    method: "PUT",
-    headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
-    body: JSON.stringify({ default: "virtual" }),
-  });
-  if (!configured.ok) throw new Error(await configured.text());
   const client = createClient({
     url: runtime.url,
     key: runtime.applicationKey,
@@ -144,6 +137,13 @@ beforeAll(async () => {
     agents: built,
     client,
     subject: (request) => request.headers.get("x-user") ?? undefined,
+    // Each person's sessions run in their own Environment, guarded for them: its sandbox
+    // holds the files the agents write.
+    session: async (subject) => {
+      const environment = `people-${subject}`;
+      await client.environments.put(environment, { kind: "virtual", ownerUserId: subject });
+      return { environment };
+    },
   });
   const listener = toNodeListener(handler);
   server = createServer((req, res) => {

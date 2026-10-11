@@ -12,8 +12,8 @@
 //   port on their Compose addresses, the runtime's and Restate's published ports on the host
 //   address, another pod in the namespace, the API server (10.96.0.1:443), kube-dns,
 //   1.1.1.1:443 and the metadata address 169.254.169.254;
-// - egress-gate, with the pod's egress token: CONNECT to the spec's host is admitted; to a host
-//   outside the spec, to host.docker.internal:5432, to an IP literal, and to the spec's host on a
+// - egress-gate, with the pod's egress token: CONNECT to the recipe's host is admitted; to a host
+//   outside the recipe, to host.docker.internal:5432, to an IP literal, and to the recipe's host on a
 //   port other than 443 or 80 is refused; without a token, 407.
 import assert from "node:assert/strict";
 import { run } from "../lib/repo.mjs";
@@ -67,7 +67,7 @@ try {
     for (const [label, address, port] of closed)
       assert.equal(await reaches(address, port), false, `a sandbox pod must not reach ${label} at ${address}:${port}`);
 
-    step("egress-gate admits only the spec's hosts");
+    step("egress-gate admits only the recipe's hosts");
     const token = await pod.egressToken();
     assert.equal(await connect(`${ALLOWED_HOST}:443`, token), 200, `CONNECT ${ALLOWED_HOST}:443 is admitted`);
     assert.equal(await connect(`${ALLOWED_HOST}:443`), 407, "CONNECT without a token is refused");

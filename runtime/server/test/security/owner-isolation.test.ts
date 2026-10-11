@@ -1,13 +1,13 @@
 /**
- * Owner enforcement: two subjects on one Tenant never reach each other's sessions, nor attach
- * each other's vaults (vaults are the Management API's, which takes no subject, protocol 8).
+ * Owner enforcement: two subjects on one Tenant never reach each other's sessions, nor open a
+ * session on an Environment guarded for the other (its `ownerUserId`, protocol 11).
  * Another owner's resource answers exactly what a missing one does, so a subject cannot learn
  * which ids exist. Requests without `Nylorun-Subject` keep today's answers.
  */
 import { afterAll, beforeAll, expect, it } from "vitest";
 import {
   createSession,
-  createVault,
+  createEnvironment,
   settle,
   startSubjectTenant,
   type SubjectTenant,
@@ -17,8 +17,8 @@ const ada = { subject: "app:ada", scopes: ["sessions:own"] } as const;
 const bao = { subject: "app:bao", scopes: ["sessions:own"] } as const;
 
 let tenant: SubjectTenant;
-let adaVault: { vaultId: string; credentialId: string };
-let baoVault: { vaultId: string; credentialId: string };
+let adaEnvironment: { environmentId: string; secretName: string };
+let baoEnvironment: { environmentId: string; secretName: string };
 
 beforeAll(async () => {
   tenant = await startSubjectTenant();
@@ -30,8 +30,8 @@ beforeAll(async () => {
   });
   expect(turn.status).toBe(200);
   await settle(tenant, "ada-s");
-  adaVault = await createVault(tenant, ada);
-  baoVault = await createVault(tenant, bao);
+  adaEnvironment = await createEnvironment(tenant, ada);
+  baoEnvironment = await createEnvironment(tenant, bao);
 });
 afterAll(async () => {
   await tenant.close();
@@ -124,64 +124,106 @@ it("answers PUT on another owner's session id with 404, not 409", async () => {
   expect(mismatch.status).toBe(409);
 });
 
-it("refuses vault routes to a subject, its own vaults included (protocol 8)", async () => {
-  const { vaultId, credentialId } = adaVault;
-  for (const [method, path] of [
-    ["GET", "/v1/tenant/vaults"],
-    ["GET", `/v1/tenant/vaults/${vaultId}`],
-    ["GET", `/v1/tenant/vaults/${vaultId}/credentials`],
-    ["GET", `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`],
-    ["DELETE", `/v1/tenant/vaults/${vaultId}`],
+it("refuses secret writes to a subject without environments:write, its own Environment included", async () => {
+  const { environmentId, secretName } = adaEnvironment;
+  const body = { requestId: "steal", type: "bearer", url: "https://mcp.example.com/tools", value: "mine" };
+  for (const [method, path, sent] of [
+    ["PUT", `/v1/environments/${environmentId}/secrets/${secretName}`, body],
+    ["DELETE", `/v1/environments/${environmentId}/secrets/${secretName}`, undefined],
+    ["PUT", `/v1/environments/${environmentId}`, { requestId: "take", ownerUserId: null }],
+    ["DELETE", `/v1/environments/${environmentId}`, undefined],
+  ] as const)
+    for (const as of [ada, bao]) {
+      const reply = await tenant.call(method, path, { as, ...(sent ? { body: sent } : {}) });
+      expect(reply.status, `${method} ${path}`).toBe(403);
+    }
+  // Nothing changed: the guard and the secret are still there.
+  const view = await tenant.call("GET", `/v1/environments/${environmentId}`);
+  expect(view.body.ownerUserId).toBe(ada.subject);
+  expect(
+    (await tenant.call("GET", `/v1/environments/${environmentId}/secrets`)).body.secrets.map(
+      (secret: { name: string }) => secret.name
+    )
+  ).toEqual([secretName]);
+  // A subject sees only its own sessions on an Environment.
+  expect((await tenant.call("GET", `/v1/environments/${environmentId}`, { as: bao })).body.sessions).toEqual([]);
+});
+
+it("refuses the Management API to a subject (protocol 8)", async () => {
+  for (const [method, path, body] of [
+    ["POST", "/v1/tenant/credential-coverage", { agentId: "bot", environmentId: adaEnvironment.environmentId }],
+    ["POST", "/v1/tenant/mcp/preview", { url: "https://mcp.example.com/tools", environmentId: adaEnvironment.environmentId }],
+    ["GET", "/v1/tenant", undefined],
   ] as const)
     for (const as of [ada, bao]) {
       // The Management API takes no application key, acting for a subject or not.
-      const reply = await tenant.call(method, path, { as });
+      const reply = await tenant.call(method, path, { as, ...(body ? { body } : {}) });
       expect(reply.status, `${method} ${path}`).toBe(403);
       expect(reply.body.code).toBe("key_role_mismatch");
       // Nor a management key acting for one.
-      const managed = await tenant.call(method, path, { as, key: tenant.runtime.managementKey });
+      const managed = await tenant.call(method, path, {
+        as,
+        key: tenant.runtime.managementKey,
+        ...(body ? { body } : {}),
+      });
       expect(managed.status, `${method} ${path}`).toBe(403);
       expect(managed.body.code).toBe("subject_invalid");
     }
-  expect(
-    (
-      await tenant.call("GET", `/v1/tenant/vaults?ownerUserId=${ada.subject}`, {
-        key: tenant.runtime.managementKey,
-      })
-    ).body.vaults
-  ).toHaveLength(1);
 });
 
-it("does not let a session attach another owner's vault or sandbox", async () => {
-  const vault = await createSession(tenant, "bao-v", bao, {
-    vaultIds: [adaVault.vaultId],
+it("does not let a session name an Environment guarded for another owner", async () => {
+  const other = await createSession(tenant, "bao-v", bao, {
+    environment: adaEnvironment.environmentId,
   });
-  const missingVault = await createSession(tenant, "bao-v", bao, {
-    vaultIds: ["vlt_missing"],
+  const missing = await createSession(tenant, "bao-v", bao, {
+    environment: "env-missing",
   });
-  expect(vault.status).toBe(404);
-  expect(vault.text).toBe(missingVault.text);
-  const sandbox = await createSession(tenant, "bao-x", bao, {
-    sandbox: { session: "ada-s" },
-  });
-  const missingSandbox = await createSession(tenant, "bao-x", bao, {
-    sandbox: { session: "nobody" },
-  });
-  expect(sandbox.status).toBe(404);
-  expect(sandbox.text).toBe(missingSandbox.text);
-  // Own vaults still attach.
+  // Acting for a person: exactly the 404 of a missing Environment.
+  expect(other.status).toBe(404);
+  expect(other.text).toBe(missing.text);
+  expect((await tenant.call("GET", "/v1/sessions/bao-v")).status).toBe(404);
+  // Its own Environment opens.
   const own = await createSession(tenant, "bao-v2", bao, {
-    vaultIds: [baoVault.vaultId],
+    environment: baoEnvironment.environmentId,
   });
   expect(own.status).toBe(200);
-  // Without a subject, the mismatch keeps its 403.
+  expect(own.body.environment).toEqual({ id: baoEnvironment.environmentId, version: 1 });
+  // Without a subject, the mismatch is a 403 that names it.
   const operator = await tenant.call("PUT", "/v1/sessions/op-v", {
     body: {
       requestId: "op-v",
       agentId: "bot",
       ownerUserId: bao.subject,
-      vaultIds: [adaVault.vaultId],
+      environment: adaEnvironment.environmentId,
     },
   });
   expect(operator.status).toBe(403);
+  expect(operator.body.code).toBe("environment_owner_mismatch");
+  // The removed fields are refused, not ignored (protocol 11).
+  for (const extra of [
+    { vaultIds: ["vlt_x"] },
+    { sandbox: { session: "ada-s" } },
+    { credentialSelections: {} },
+  ]) {
+    const refused = await createSession(tenant, "bao-x", bao, extra);
+    expect(refused.status, JSON.stringify(extra)).toBe(400);
+  }
+});
+
+it("refuses a turn when the Environment's guard moves to another owner", async () => {
+  const environmentId = "env-moved";
+  await createEnvironment(tenant, bao, { id: environmentId });
+  expect(
+    (await createSession(tenant, "bao-moved", bao, { environment: environmentId })).status
+  ).toBe(200);
+  const moved = await tenant.call("PUT", `/v1/environments/${environmentId}`, {
+    body: { requestId: "move", ownerUserId: ada.subject },
+  });
+  expect(moved.status).toBe(200);
+  const turn = await tenant.call("POST", "/v1/sessions/bao-moved/commands", {
+    as: bao,
+    body: { requestId: "m-moved", idempotencyKey: "m-moved", type: "message", content: "hi" },
+  });
+  expect(turn.status).toBe(403);
+  expect(turn.body.code).toBe("environment_owner_mismatch");
 });

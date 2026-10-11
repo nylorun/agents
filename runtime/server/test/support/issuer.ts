@@ -2,8 +2,8 @@
  * A trusted issuer for tests (Host feature `trusted-issuers`): an ES256 key pair, the identity
  * file entry that trusts its public key (static `keys`), and `sign`, which mints a token for a
  * subject. The subject template is `{sub}`, so the token's `sub` is the Runtime's subject; its
- * scopes come from the `scp` claim (space-separated), its sandbox grants from the templates the
- * test gives over the claims it signs (`claims`).
+ * scopes come from the `scp` claim (space-separated), its Environment grants from the templates
+ * the test gives over the claims it signs (`claims`).
  */
 import { createPublicKey } from "node:crypto";
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
@@ -18,7 +18,7 @@ export interface TestIssuer {
   readonly configs: readonly TrustedIssuerConfig[];
   /** The identity file's text, for a Host that reads one. */
   readonly file: string;
-  /** A token for `subject` with `scopes`; `claims` fill the sandbox templates. */
+  /** A token for `subject` with `scopes`; `claims` fill the Environment grant templates. */
   sign(
     subject: string,
     scopes: readonly IssuerScope[] | string,
@@ -33,7 +33,9 @@ export async function testIssuer(
     iss?: string;
     /** The agents its tokens reach; absent reaches all. */
     agents?: readonly string[];
-    /** Sandbox grant templates over signed claims, such as `{team}/*`. */
+    /** Environment grant templates over signed claims, such as `{team}/*`. */
+    environments?: readonly string[];
+    /** @deprecated The old name of `environments` (protocol 10); written as `environments:`. */
     sandboxes?: readonly string[];
     /** `maxLifetime`, e.g. `15m`. */
     maxLifetime?: string;
@@ -41,6 +43,7 @@ export async function testIssuer(
 ): Promise<TestIssuer> {
   const name = options.name ?? "test";
   const iss = options.iss ?? TEST_ISSUER;
+  const environments = options.environments ?? options.sandboxes;
   const pair = await generateKeyPair("ES256", { extractable: true });
   const pem = createPublicKey({ key: (await exportJWK(pair.publicKey)) as never, format: "jwk" })
     .export({ type: "spki", format: "pem" })
@@ -61,8 +64,8 @@ ${pem
     scopes: { claim: scp }
     allowedScopes: [${ISSUER_SCOPES.join(", ")}]
 ${options.agents ? `    agents: [${options.agents.map((agent) => JSON.stringify(agent)).join(", ")}]\n` : ""}${
-    options.sandboxes
-      ? `    sandboxes: [${options.sandboxes.map((grant) => JSON.stringify(grant)).join(", ")}]\n`
+    environments
+      ? `    environments: [${environments.map((grant) => JSON.stringify(grant)).join(", ")}]\n`
       : ""
   }    maxLifetime: ${options.maxLifetime ?? "15m"}
 `;

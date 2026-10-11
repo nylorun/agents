@@ -10,7 +10,7 @@ import { testIssuer, type TestIssuer } from "./support/issuer.js";
 import { startTestTenant } from "./support/tenant.js";
 import {
   APP,
-  createVault,
+  createEnvironment,
   startSubjectTenant,
   type SubjectTenant,
 } from "./security/subjects.js";
@@ -20,6 +20,8 @@ let tenant: SubjectTenant;
 let issuer: TestIssuer;
 /** Reaches only the agent `other`. */
 let elsewhere: TestIssuer;
+/** Reaches the Environments `people/{person}` and `shared/*`. */
+let granted: TestIssuer;
 
 const mint = (subject: string, ttlSeconds?: number) =>
   issuer.sign(subject, "sessions:own", ttlSeconds ? { ttlSeconds } : {});
@@ -64,8 +66,13 @@ const asSubject = (subject: string) => ({
 beforeAll(async () => {
   issuer = await testIssuer();
   elsewhere = await testIssuer({ name: "elsewhere", iss: "https://elsewhere.test", agents: ["other"] });
+  granted = await testIssuer({
+    name: "granted",
+    iss: "https://granted.test",
+    environments: ["people/{person}", "shared/*"],
+  });
   tenant = await startSubjectTenant({
-    issuers: createTrustedIssuers([...issuer.configs, ...elsewhere.configs]),
+    issuers: createTrustedIssuers([...issuer.configs, ...elsewhere.configs, ...granted.configs]),
   });
 });
 afterAll(async () => {
@@ -109,12 +116,10 @@ describe("with a trusted issuer's token", () => {
     expect(result.status).toBe(404);
   });
 
-  it("attaches the person's own vaults on the first run, refuses info, and never changes the session", async () => {
-    const token = await mint("app:xia");
-    const { vaultId } = await createVault(tenant, {
-      subject: "app:xia",
-      scopes: ["sessions:own"],
-    });
+  it("opens the session on the person's Environment on the first run, refuses info, and never changes the session", async () => {
+    const token = await granted.sign("app:xia", "sessions:own", { claims: { person: "xia" } });
+    const xia = { subject: "app:xia", scopes: ["sessions:own"] } as const;
+    const { environmentId } = await createEnvironment(tenant, xia, { id: "people/xia" });
     const info = await run(
       tenant.runtime.url,
       "bot",
@@ -122,30 +127,59 @@ describe("with a trusted issuer's token", () => {
       bearer(token)
     );
     expect(info.status).toBe(403);
+    // The removed session options are refused, not ignored (protocol 11).
+    const vaults = await run(
+      tenant.runtime.url,
+      "bot",
+      input("x0", "m0", { forwardedProps: { nylorun: { session: { vaultIds: ["vlt_x"] } } } }),
+      bearer(token)
+    );
+    expect(vaults.status).toBe(400);
     const first = await run(
       tenant.runtime.url,
       "bot",
-      input("x1", "m1", { forwardedProps: { nylorun: { session: { vaultIds: [vaultId] } } } }),
+      input("x1", "m1", { forwardedProps: { nylorun: { session: { environment: environmentId } } } }),
       bearer(token)
     );
     expect(first.status).toBe(200);
     const id = sessionIdFor("app:xia", "bot", "x1");
-    expect((await tenant.call("GET", `/v1/sessions/${id}`)).body.vaultIds).toEqual([vaultId]);
-    // A later run without options keeps the vaults.
-    await run(tenant.runtime.url, "bot", input("x1", "m2"), bearer(token));
-    expect((await tenant.call("GET", `/v1/sessions/${id}`)).body.vaultIds).toEqual([vaultId]);
-    // Another owner's vault is refused.
-    const { vaultId: other } = await createVault(tenant, {
-      subject: "app:yan",
-      scopes: ["sessions:own"],
+    expect((await tenant.call("GET", `/v1/sessions/${id}`)).body.environment).toEqual({
+      id: environmentId,
+      version: 1,
     });
-    const foreign = await run(
+    // A later run without options keeps the Environment.
+    await run(tenant.runtime.url, "bot", input("x1", "m2"), bearer(token));
+    expect((await tenant.call("GET", `/v1/sessions/${id}`)).body.environment).toEqual({
+      id: environmentId,
+      version: 1,
+    });
+    // An Environment the token's grants miss is refused.
+    const { environmentId: ungranted } = await createEnvironment(
+      tenant,
+      { subject: "app:yan", scopes: ["sessions:own"] },
+      { id: "people/yan" }
+    );
+    const missed = await run(
       tenant.runtime.url,
       "bot",
-      input("x2", "m1", { forwardedProps: { nylorun: { session: { vaultIds: [other] } } } }),
+      input("x2", "m1", { forwardedProps: { nylorun: { session: { environment: ungranted } } } }),
       bearer(token)
     );
-    expect(foreign.status).toBe(404);
+    expect(missed.status).toBe(404);
+    // So is one the grants reach but guarded for another owner: the same 404.
+    const { environmentId: foreign } = await createEnvironment(
+      tenant,
+      { subject: "app:yan", scopes: ["sessions:own"] },
+      { id: "shared/yan" }
+    );
+    const guarded = await run(
+      tenant.runtime.url,
+      "bot",
+      input("x3", "m1", { forwardedProps: { nylorun: { session: { environment: foreign } } } }),
+      bearer(token)
+    );
+    expect(guarded.status).toBe(404);
+    expect(guarded.text).toBe(missed.text);
   });
 });
 

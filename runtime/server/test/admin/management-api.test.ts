@@ -1,9 +1,10 @@
 /**
- * The Management API (protocol 8, A2): `/v1/tenant/keys`, and vaults and signing keys under
- * `/v1/tenant`, with a management key, through `@nylorun/admin`'s `createManagementClient`.
+ * The Management API (protocol 8, A2): `/v1/tenant/keys`, credential coverage and signing keys
+ * under `/v1/tenant`, with a management key, through `@nylorun/admin`'s `createManagementClient`.
  * A management key issues application keys, never management keys. Application keys do not
  * reach the Management API, and the old paths (`/v1/vaults`, `/v1/access/signing-keys`) are
- * gone (protocol 8).
+ * gone (protocol 8), as are the vault routes (`/v1/tenant/vaults`, protocol 11): an
+ * Environment's secrets are written on the Runtime API.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AdminError, createAdmin, createManagementClient } from "@nylorun/admin";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
+import { Agent } from "@nylorun/core/define";
 import { runOperate } from "../../src/host/operate.js";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { isolatedTestDatabase } from "../support/store.js";
@@ -115,32 +117,44 @@ describe("the Management API's groups", () => {
     expect(await host.admin.settings.artifacts.get()).toBeDefined();
   });
 
-  it("manages installation vaults and their credentials under /v1/tenant/vaults", async () => {
+  it("checks credential coverage by Environment, and has no vault routes (protocol 11)", async () => {
     const host = await startHost();
-    const vault = await host.admin.vaults.create({
-      name: "tools",
-      idempotencyKey: "tools",
-      scope: "installation",
+    const url = "https://mcp.example.com/mcp";
+    const runtimeApi = async (method: string, path: string, body: unknown) => {
+      const response = await fetch(`${host.url}${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${host.applicationKey}`,
+          [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      expect(response.status, await response.clone().text()).toBe(200);
+    };
+    const agent = Agent({ id: "linear-bot" }).instructions("Triage.").mcp({ linear: { type: "streamable-http", url } }).build();
+    await runtimeApi("PUT", "/v1/agents/linear-bot", { requestId: "agent", manifest: agent.manifest, implementationVersion: "dev" });
+    await runtimeApi("PUT", "/v1/environments/tools", { kind: "none" });
+    await runtimeApi("PUT", "/v1/environments/tools/secrets/linear", { type: "bearer", url, value: "secret" });
+
+    expect(await host.admin.coverage({ agentId: "linear-bot", environmentId: "tools" })).toMatchObject({
+      agentId: "linear-bot",
+      environmentId: "tools",
+      complete: true,
+      entries: [{ kind: "mcp", name: "linear", status: "covered", credential: { environmentId: "tools", name: "linear" } }],
     });
-    expect((await host.admin.vaults.list()).map((v) => v.id)).toContain(vault.id);
-    const credential = await host.admin.vaults.credentials.create(vault.id, {
-      name: "linear",
-      idempotencyKey: "linear",
-      auth: { type: "bearer", url: "https://mcp.example.com/mcp", token: "secret" },
+    expect(await host.admin.coverage({ agentId: "linear-bot" })).toMatchObject({
+      environmentId: null,
+      complete: false,
+      entries: [{ status: "missing" }],
     });
-    expect((await host.admin.vaults.credentials.list(vault.id)).map((c) => c.id)).toEqual([
-      credential.id,
-    ]);
-    await host.admin.vaults.credentials.rotate(vault.id, credential.id, {
-      idempotencyKey: "rotate",
-      auth: { type: "bearer", token: "secret-2" },
+    expect(await refusal(host.admin.coverage({ agentId: "linear-bot", environmentId: "missing" }))).toMatchObject({
+      status: 404,
     });
-    expect(await host.admin.vaults.credentials.delete(vault.id, credential.id)).toEqual({
-      id: credential.id,
-    });
-    expect(await host.admin.vaults.delete(vault.id)).toEqual({ id: vault.id });
-    // Application keys never reach the vaults, and the old paths are gone (protocol 8).
-    expect(await host.status(host.applicationKey, "GET", "/v1/tenant/vaults")).toBe(403);
+    // Application keys never reach coverage; the vault routes and the old paths are gone.
+    expect(await host.status(host.applicationKey, "POST", "/v1/tenant/credential-coverage")).toBe(403);
+    expect(await host.status(host.managementKey, "GET", "/v1/tenant/vaults")).toBe(404);
+    expect(await host.status(host.managementKey, "POST", "/v1/tenant/vaults")).toBe(404);
     expect(await host.status(host.applicationKey, "GET", "/v1/vaults")).toBe(404);
     expect(await host.status(host.managementKey, "GET", "/v1/vaults")).toBe(404);
   });

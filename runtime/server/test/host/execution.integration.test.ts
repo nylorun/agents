@@ -197,13 +197,19 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
       },
     });
     await openSession(runtime, "s1", true);
-    // A second session with a sandbox, so the model's writes run in the Runtime.
+    // A second session on an Environment with a sandbox, so the model's writes run in the Runtime.
+    const environment = await fetch(`${runtime.url}/v1/environments/long`, {
+      method: "PUT",
+      headers: server,
+      body: JSON.stringify({ kind: "virtual" }),
+    });
+    expect(environment.ok, await environment.clone().text()).toBe(true);
     const opened = await fetch(`${runtime.url}/v1/sessions/long`, {
       method: "PUT",
       headers: server,
-      body: JSON.stringify({ requestId: "session-long", agentId: "bot", ownerUserId: "u", sandbox: {} }),
+      body: JSON.stringify({ requestId: "session-long", agentId: "bot", ownerUserId: "u", environment: "long" }),
     });
-    expect(opened.ok).toBe(true);
+    expect(opened.ok, await opened.clone().text()).toBe(true);
     await sendMessage(runtime, "long");
     await until(() => view(runtime, "long"), (v) => v.status === "completed", "completed", 30_000);
     expect(calls).toBe(8);

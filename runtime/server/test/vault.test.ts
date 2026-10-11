@@ -4,6 +4,7 @@ import { openTestSessionStore, withTestSessionStore } from "./support/store.js";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
+import { putEnvironment, putSecret, writeSecret } from "./support/environment-secrets.js";
 
 const KEK = Buffer.alloc(32, 9).toString("base64");
 const ADA_TOKEN = "ada-vault-plaintext-token-7f3c9a2e";
@@ -16,12 +17,12 @@ const server = {
   authorization: `Bearer ${APP}`,
   "content-type": "application/json",
 };
-/** The Management API's key (protocol 8): vaults and the Tenant's settings. */
+/** The Management API's key (protocol 8): the Tenant's settings. */
 const management = {
   authorization: `Bearer ${MANAGEMENT}`,
   "content-type": "application/json",
 };
-/** The application acting for another person: vault and Tenant routes refuse it. */
+/** The application acting for another person: secret writes and Tenant routes refuse it. */
 const actingForBao = {
   ...server,
   "nylorun-subject": "bao",
@@ -66,94 +67,56 @@ async function json(response: Response) {
 it("stores bearer credentials without returning or persisting the plaintext", async () => {
   const runtime = await boot();
   try {
-    const created = await json(
-      await fetch(`${runtime.url}/v1/tenant/vaults`, {
-        method: "POST",
-        headers: management,
-        body: JSON.stringify({
-          requestId: "vault-1",
-          idempotencyKey: "vault-ada",
-          name: "GitHub",
-          ownerUserId: "ada",
-        }),
-      }),
-    );
-    expect(created.status).toBe(200);
-    const vaultId = (created.body as { id: string }).id;
-    const credential = await json(
-      await fetch(`${runtime.url}/v1/tenant/vaults/${vaultId}/credentials`, {
-        method: "POST",
-        headers: management,
-        body: JSON.stringify({
-          requestId: "cred-1",
-          idempotencyKey: "cred-ada",
-          name: "GitHub token",
-          auth: { type: "bearer", url: URL, token: ADA_TOKEN },
-        }),
-      }),
-    );
+    await putEnvironment(runtime.url, server, "ada");
+    const credential = await writeSecret(runtime.url, server, "ada", "github", {
+      type: "bearer",
+      url: URL,
+      value: ADA_TOKEN,
+    });
     expect(credential.status).toBe(200);
     expect(JSON.stringify(credential.body)).not.toContain(ADA_TOKEN);
+    expect(credential.body).toMatchObject({ name: "github", type: "bearer", binding: { url: URL } });
     const read = await json(
-      await fetch(
-        `${runtime.url}/v1/tenant/vaults/${vaultId}/credentials/${(credential.body as { id: string }).id}`,
-        { headers: management },
-      ),
+      await fetch(`${runtime.url}/v1/environments/ada/secrets/github`, { headers: server }),
     );
     expect(read.status).toBe(200);
     expect(JSON.stringify(read.body)).not.toContain(ADA_TOKEN);
-    expect(read.body).toMatchObject({
+    expect(read.body).toEqual(credential.body);
+    const listed = await json(await fetch(`${runtime.url}/v1/environments/ada/secrets`, { headers: server }));
+    expect(listed.body).toEqual({ secrets: [credential.body] });
+    // The same name and type replaces the value; the answer never carries either.
+    const replaced = await writeSecret(runtime.url, server, "ada", "github", {
       type: "bearer",
-      binding: { url: URL },
-      vaultId,
+      url: URL,
+      value: BAO_TOKEN,
     });
-    const replay = await json(
-      await fetch(`${runtime.url}/v1/tenant/vaults`, {
-        method: "POST",
-        headers: management,
-        body: JSON.stringify({
-          requestId: "vault-1b",
-          idempotencyKey: "vault-ada",
-          name: "GitHub",
-          ownerUserId: "ada",
-        }),
-      }),
-    );
-    expect(replay.body).toMatchObject({ id: vaultId });
-    const conflict = await json(
-      await fetch(`${runtime.url}/v1/tenant/vaults`, {
-        method: "POST",
-        headers: management,
-        body: JSON.stringify({
-          requestId: "vault-1c",
-          idempotencyKey: "vault-ada",
-          name: "Other",
-          ownerUserId: "ada",
-        }),
-      }),
-    );
+    expect(replaced.status).toBe(200);
+    expect(replaced.body).toMatchObject({ name: "github", rotatedAt: expect.any(String) });
+    expect(JSON.stringify(replaced.body)).not.toContain(BAO_TOKEN);
+    // A second credential for the URL is refused at write.
+    const conflict = await writeSecret(runtime.url, server, "ada", "github-other", {
+      type: "bearer",
+      url: URL,
+      value: "ada-second-plaintext-token-22ee",
+    });
     expect(conflict.status).toBe(409);
-    const rejected = await json(
-      await fetch(`${runtime.url}/v1/tenant/vaults`, {
-        method: "POST",
-        headers: actingForBao,
-        body: JSON.stringify({
-          requestId: "vault-x",
-          idempotencyKey: "vault-x",
-          name: "GitHub",
-          ownerUserId: "ada",
-        }),
-      }),
-    );
-    expect(rejected.status).toBe(403);
+    expect(conflict.body).toMatchObject({ code: "credential_conflict" });
+    // Acting for a person without environments:write, and with the management key: refused.
+    expect(
+      (await writeSecret(runtime.url, actingForBao, "ada", "x", { type: "bearer", url: URL, value: "t" })).status,
+    ).toBe(403);
+    expect(
+      [401, 403],
+    ).toContain((await writeSecret(runtime.url, management, "ada", "x", { type: "bearer", url: URL, value: "t" })).status);
+    expect((await fetch(`${runtime.url}/v1/environments/ada/secrets/x`, { headers: server })).status).toBe(404);
   } finally {
     await runtime.close();
     await rm(runtime.root, { recursive: true, force: true });
   }
 });
 
-/** Puts agent `bot` and Ada's session `s-ada`, with `vaultId` attached. */
-async function attach(runtime: { url: string }, vaultId: string) {
+/** Puts agent `bot` and Ada's session `s-ada`, naming Environment `environmentId`. */
+async function attach(runtime: { url: string }, environmentId: string) {
   const agent = Agent({ id: "bot", name: "Bot" }).build();
   expect(
     (
@@ -177,7 +140,7 @@ async function attach(runtime: { url: string }, vaultId: string) {
           requestId: "session",
           agentId: "bot",
           ownerUserId: "ada",
-          vaultIds: [vaultId],
+          environment: environmentId,
         }),
       })
     ).ok,
@@ -188,45 +151,22 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   const runtime = await boot({ retainRoot: true });
   const { root, tenantId } = runtime;
   let vaultId = "";
-  let credentialId = "";
   try {
-    vaultId = (
-      (await json(
-        await fetch(`${runtime.url}/v1/tenant/vaults`, {
-          method: "POST",
-          headers: management,
-          body: JSON.stringify({
-            requestId: "v",
-            idempotencyKey: "v",
-            name: "GitHub",
-            ownerUserId: "ada",
-          }),
-        }),
-      )).body as { id: string }
-    ).id;
-    credentialId = (
-      (await json(
-        await fetch(`${runtime.url}/v1/tenant/vaults/${vaultId}/credentials`, {
-          method: "POST",
-          headers: management,
-          body: JSON.stringify({
-            requestId: "c",
-            idempotencyKey: "c",
-            name: "token",
-            auth: { type: "bearer", url: URL, token: ADA_TOKEN },
-          }),
-        }),
-      )).body as { id: string }
-    ).id;
-    await attach(runtime, vaultId);
+    await putEnvironment(runtime.url, server, "ada");
+    await putSecret(runtime.url, server, "ada", "token", { type: "bearer", url: URL, value: ADA_TOKEN });
+    await attach(runtime, "ada");
   } finally {
     await runtime.close();
   }
   // No stored column holds the plaintext.
   const rows = await withTestSessionStore({ root, tenantId }, (store) =>
-    store.tx((t) => t.credentialsForVault(vaultId)),
+    store.tx(async (t) => {
+      vaultId = (await t.vaultOfEnvironment("ada"))!.id;
+      return t.credentialsForVault(vaultId);
+    }),
   );
   expect(rows).toHaveLength(1);
+  const credentialId = rows[0]!.id;
   for (const value of Object.values(rows[0]!))
     expect(
       Buffer.from(
@@ -251,8 +191,7 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   }
   const db = await openTestSessionStore({ root, tenantId });
   await db.tx(async (t) => {
-    const row = await t.getCredential(credentialId);
-    await t.updateCredential(row!.vaultId, credentialId, {
+    await t.updateCredential(vaultId, credentialId, {
       bindingJson: JSON.stringify({ url: "https://mcp.example.com/other" }),
     });
   });
@@ -270,7 +209,7 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   }
 });
 
-it("attaches only the session user's vaults and selects among matching urls", async () => {
+it("sends the credentials of the Environment a session names, behind its owner guard", async () => {
   const runtime = await boot();
   try {
     const agent = Agent({ id: "bot", name: "Bot" }).build();
@@ -287,25 +226,10 @@ it("attaches only the session user's vaults and selects among matching urls", as
         })
       ).ok,
     ).toBe(true);
-    const adaVault = await createBearer(runtime, "ada", "ada-vault", ADA_TOKEN);
-    const baoVault = await createBearer(runtime, "bao", "bao-vault", BAO_TOKEN);
-    const second = await json(
-      await fetch(`${runtime.url}/v1/tenant/vaults/${adaVault.vaultId}/credentials`, {
-        method: "POST",
-        headers: management,
-        body: JSON.stringify({
-          requestId: "ada-2",
-          idempotencyKey: "ada-2",
-          name: "GitHub other",
-          auth: {
-            type: "bearer",
-            url: URL,
-            token: "ada-second-plaintext-token-22ee",
-          },
-        }),
-      }),
-    );
-    const secondId = (second.body as { id: string }).id;
+    await putEnvironment(runtime.url, server, "users/ada", { kind: "none", ownerUserId: "ada" });
+    await putSecret(runtime.url, server, "users/ada", "token", { type: "bearer", url: URL, value: ADA_TOKEN });
+    await putEnvironment(runtime.url, server, "users/bao", { kind: "none", ownerUserId: "bao" });
+    await putSecret(runtime.url, server, "users/bao", "token", { type: "bearer", url: URL, value: BAO_TOKEN });
     const foreign = await json(
       await fetch(`${runtime.url}/v1/sessions/s-ada`, {
         method: "PUT",
@@ -314,11 +238,12 @@ it("attaches only the session user's vaults and selects among matching urls", as
           requestId: "s",
           agentId: "bot",
           ownerUserId: "ada",
-          vaultIds: [baoVault.vaultId],
+          environment: "users/bao",
         }),
       }),
     );
     expect(foreign.status).toBe(403);
+    expect(foreign.body).toMatchObject({ code: "environment_owner_mismatch" });
     const session = await json(
       await fetch(`${runtime.url}/v1/sessions/s-ada`, {
         method: "PUT",
@@ -327,45 +252,26 @@ it("attaches only the session user's vaults and selects among matching urls", as
           requestId: "s2",
           agentId: "bot",
           ownerUserId: "ada",
-          vaultIds: [adaVault.vaultId],
+          environment: "users/ada",
         }),
       }),
     );
     expect(session.status).toBe(200);
-    expect(session.body).toMatchObject({ vaultIds: [adaVault.vaultId] });
+    expect(session.body).toMatchObject({ environment: { id: "users/ada", version: 1 } });
     expect(
       await runtime.authorize("s-ada", { url: "https://mcp.example.com/other" }),
     ).toMatchObject({ status: "unauthenticated", headers: {} });
-    const ambiguous = await runtime.authorize("s-ada", {
-      url: URL,
-      serverName: "github",
+    expect(await runtime.authorize("s-ada", { url: URL, serverName: "github" })).toMatchObject({
+      status: "authorized",
+      headers: { authorization: `Bearer ${ADA_TOKEN}` },
     });
-    expect(ambiguous.status).toBe("refused");
-    if (ambiguous.status === "refused")
-      expect(ambiguous.credentialIds.sort()).toEqual(
-        [adaVault.credentialId, secondId].sort(),
-      );
-    const selected = await json(
-      await fetch(`${runtime.url}/v1/sessions/s-ada`, {
-        method: "PUT",
-        headers: server,
-        body: JSON.stringify({
-          requestId: "s3",
-          agentId: "bot",
-          ownerUserId: "ada",
-          vaultIds: [adaVault.vaultId],
-          credentialSelections: [
-            { serverName: "github", credentialId: secondId },
-          ],
-        }),
-      }),
-    );
-    expect(selected.status).toBe(200);
-    const authorized = await runtime.authorize("s-ada", {
+    // A replaced value is used from the next request.
+    await putSecret(runtime.url, server, "users/ada", "token", {
+      type: "bearer",
       url: URL,
-      serverName: "github",
+      value: "ada-second-plaintext-token-22ee",
     });
-    expect(authorized).toMatchObject({
+    expect(await runtime.authorize("s-ada", { url: URL, serverName: "github" })).toMatchObject({
       status: "authorized",
       headers: { authorization: "Bearer ada-second-plaintext-token-22ee" },
     });
@@ -377,7 +283,7 @@ it("attaches only the session user's vaults and selects among matching urls", as
           requestId: "bao",
           agentId: "bot",
           ownerUserId: "bao",
-          vaultIds: [baoVault.vaultId],
+          environment: "users/bao",
         }),
       }),
     );
@@ -386,13 +292,27 @@ it("attaches only the session user's vaults and selects among matching urls", as
       status: "authorized",
       headers: { authorization: `Bearer ${BAO_TOKEN}` },
     });
+    // A session that names no Environment sends nothing.
+    const bare = await json(
+      await fetch(`${runtime.url}/v1/sessions/s-bare`, {
+        method: "PUT",
+        headers: server,
+        body: JSON.stringify({ requestId: "bare", agentId: "bot", ownerUserId: "ada" }),
+      }),
+    );
+    expect(bare.status).toBe(200);
+    expect(bare.body).toMatchObject({ environment: null });
+    expect(await runtime.authorize("s-bare", { url: URL })).toMatchObject({
+      status: "unauthenticated",
+      headers: {},
+    });
   } finally {
     await runtime.close();
     await rm(runtime.root, { recursive: true, force: true });
   }
 });
 
-it("keeps the host model credential out of user vaults and responses", async () => {
+it("keeps the host model credential out of Environment vaults and responses", async () => {
   const runtime = await boot({ retainRoot: true });
   const secret = "host-model-plaintext-key-77ab";
   try {
@@ -463,15 +383,10 @@ it("keeps the host model credential out of user vaults and responses", async () 
       await fetch(`${runtime.url}/v1/tenant/models`, { headers: management }),
     );
     expect(JSON.stringify(catalog.body)).not.toContain(secret);
+    // The host vault is no Environment's.
     expect(
-      (
-        await json(
-          await fetch(`${runtime.url}/v1/tenant/vaults?ownerUserId=host`, {
-            headers: management,
-          }),
-        )
-      ).body,
-    ).toEqual({ vaults: [] });
+      (await fetch(`${runtime.url}/v1/environments/host/secrets`, { headers: server })).status,
+    ).toBe(404);
     const listed = await json(
       await fetch(`${runtime.url}/v1/tenant/providers`, { headers: management }),
     );
@@ -583,11 +498,11 @@ it("keeps the host model credential out of user vaults and responses", async () 
           requestId: "session",
           agentId: "bot",
           ownerUserId: "ada",
-          vaultIds: ["host"],
+          environment: "host",
         }),
       }),
     );
-    expect(attached.status).toBe(400);
+    expect(attached.status).toBe(404);
   } finally {
     await runtime.close();
     const db = await openTestSessionStore(runtime);
@@ -603,37 +518,3 @@ it("keeps the host model credential out of user vaults and responses", async () 
     await rm(runtime.root, { recursive: true, force: true });
   }
 });
-
-async function createBearer(
-  runtime: { url: string; close(): Promise<void> },
-  ownerUserId: string,
-  key: string,
-  token: string,
-) {
-  const vault = await json(
-    await fetch(`${runtime.url}/v1/tenant/vaults`, {
-      method: "POST",
-      headers: management,
-      body: JSON.stringify({
-        requestId: `${key}-vault`,
-        idempotencyKey: `${key}-vault`,
-        name: "GitHub",
-        ownerUserId,
-      }),
-    }),
-  );
-  const vaultId = (vault.body as { id: string }).id;
-  const credential = await json(
-    await fetch(`${runtime.url}/v1/tenant/vaults/${vaultId}/credentials`, {
-      method: "POST",
-      headers: management,
-      body: JSON.stringify({
-        requestId: `${key}-cred`,
-        idempotencyKey: `${key}-cred`,
-        name: "token",
-        auth: { type: "bearer", url: URL, token },
-      }),
-    }),
-  );
-  return { vaultId, credentialId: (credential.body as { id: string }).id };
-}

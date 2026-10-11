@@ -150,13 +150,13 @@ test("proxy allows /health for SDK compatibility checks", async () => {
   );
 });
 
-test("proxy requires explicit installation vaults on the Management API and lists them without an owner", async () => {
+test("proxy forwards Environment reads and same-origin writes on the Runtime API, as they are", async () => {
   const seen: { path: string; body: string; headers: Record<string, string | string[] | undefined> }[] = [];
   await withUpstream(
     async (req, res) => {
       let body = "";
       for await (const chunk of req) body += chunk;
-      seen.push({ path: req.url ?? "", body, headers: { ...req.headers } });
+      seen.push({ path: `${req.method} ${req.url}`, body, headers: { ...req.headers } });
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
     },
@@ -169,40 +169,109 @@ test("proxy requires explicit installation vaults on the Management API and list
       await once(studio, "listening");
       const address = studio.address();
       assert.ok(address && typeof address === "object");
+      const base = `http://127.0.0.1:${address.port}/_studio/runtime`;
+      const send = (method: string, path: string, body?: unknown, from = origin) =>
+        fetch(base + path, {
+          method,
+          headers: { origin: from, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
       try {
-        const created = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/tenant/vaults`, {
-          method: "POST",
-          headers: { origin, "content-type": "application/json" },
-          body: JSON.stringify({ requestId: "r", idempotencyKey: "k", name: "GitHub", scope: "installation" }),
-        });
-        assert.equal(created.status, 200);
-        assert.deepEqual(JSON.parse(seen[0]!.body), {
-          requestId: "r",
-          idempotencyKey: "k",
-          name: "GitHub",
-          scope: "installation",
-        });
-        const listed = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/tenant/vaults`);
-        assert.equal(listed.status, 200);
-        assert.equal(seen[1]!.path, "/v1/tenant/vaults");
+        const recipe = { requestId: "r", kind: "pod", ownerUserId: "alice", network: { allowedHosts: ["pypi.org"] } };
+        assert.equal((await send("PUT", "/v1/environments/team%2Fbuild", recipe)).status, 200);
+        const secret = { requestId: "r", type: "bearer", url: "https://mcp.example.com/mcp", value: "tok" };
+        assert.equal((await send("PUT", "/v1/environments/team%2Fbuild/secrets/github", secret)).status, 200);
+        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/stop", {})).status, 200);
+        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/reset", {})).status, 200);
+        assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild/secrets/github")).status, 200);
+        assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild")).status, 200);
+        for (const path of [
+          "/v1/environments?limit=50&label=project%3Dbuild",
+          "/v1/environments/team%2Fbuild",
+          "/v1/environments/team%2Fbuild/events?from=2",
+          "/v1/environments/team%2Fbuild/secrets",
+          "/v1/environments/team%2Fbuild/secrets/github",
+        ])
+          assert.equal((await fetch(base + path)).status, 200, path);
+        assert.deepEqual(
+          seen.map((entry) => entry.path),
+          [
+            "PUT /v1/environments/team%2Fbuild",
+            "PUT /v1/environments/team%2Fbuild/secrets/github",
+            "POST /v1/environments/team%2Fbuild/stop",
+            "POST /v1/environments/team%2Fbuild/reset",
+            "DELETE /v1/environments/team%2Fbuild/secrets/github",
+            "DELETE /v1/environments/team%2Fbuild",
+            "GET /v1/environments?limit=50&label=project%3Dbuild",
+            "GET /v1/environments/team%2Fbuild",
+            "GET /v1/environments/team%2Fbuild/events?from=2",
+            "GET /v1/environments/team%2Fbuild/secrets",
+            "GET /v1/environments/team%2Fbuild/secrets/github",
+          ],
+        );
+        // The owner guard is the operator's: an Environment write is not a session's owner.
+        assert.deepEqual(JSON.parse(seen[0]!.body), recipe);
+        assert.deepEqual(JSON.parse(seen[1]!.body), secret);
         for (const { headers } of seen) {
+          assert.equal(headers.authorization, "Bearer server-secret");
           assert.equal(headers["nylorun-subject"], undefined);
           assert.equal(headers["nylorun-scopes"], undefined);
         }
-        for (const body of [{ name: "Old defaults" }, { name: "Personal", ownerUserId: "someone" }, { name: "Conflicting", scope: "installation", ownerUserId: "someone" }]) {
-          const response = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/tenant/vaults`, {
-            method: "POST",
-            headers: { origin, "content-type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          assert.equal(response.status, 400);
-        }
-        const personal = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/tenant/vaults?ownerUserId=local-developer`);
-        assert.equal(personal.status, 400);
-        // The protocol-7 vault paths are not Studio's any more.
-        const legacy = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/vaults`);
-        assert.equal(legacy.status, 404);
-        assert.equal(seen.length, 2, "unsupported owner requests and old paths never reach Runtime");
+        const count = seen.length;
+        // Another origin may not change an Environment.
+        assert.equal((await send("PUT", "/v1/environments/a", { kind: "virtual" }, "https://evil.example")).status, 403);
+        assert.equal((await send("DELETE", "/v1/environments/a", undefined, "https://evil.example")).status, 403);
+        // Nothing else under an Environment, and no protocol-10 sandbox or vault route.
+        for (const [method, path] of [
+          ["POST", "/v1/environments/a"],
+          ["POST", "/v1/environments/a/secrets/x"],
+          ["POST", "/v1/environments/a/files"],
+          ["GET", "/v1/environments/a/files"],
+          ["GET", "/v1/sandboxes"],
+          ["GET", "/v1/sandboxes/a"],
+          ["GET", "/v1/tenant/vaults"],
+          ["POST", "/v1/tenant/vaults"],
+          ["GET", "/v1/vaults"],
+        ] as const)
+          assert.equal((await send(method, path, method === "GET" ? undefined : {})).status, 404, `${method} ${path}`);
+        assert.equal(seen.length, count, "refused requests never reach Runtime");
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});
+
+test("proxy opens a session as Studio's owner, on the Environment the request names", async () => {
+  const bodies: unknown[] = [];
+  await withUpstream(
+    async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      bodies.push(JSON.parse(body));
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret" });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      try {
+        const opened = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/sessions/s1`, {
+          method: "PUT",
+          headers: { origin, "content-type": "application/json" },
+          body: JSON.stringify({ requestId: "r", agentId: "a", ownerUserId: "alice", environment: "team/build" }),
+        });
+        assert.equal(opened.status, 200);
+        assert.deepEqual(bodies, [
+          { requestId: "r", agentId: "a", ownerUserId: "local-developer", environment: "team/build" },
+        ]);
       } finally {
         studio.close();
         await once(studio, "close");
@@ -231,12 +300,12 @@ test("proxy forwards a same-origin MCP tool preview and refuses one from another
       const address = studio.address();
       assert.ok(address && typeof address === "object");
       const url = `http://127.0.0.1:${address.port}/_studio/runtime/v1/tenant/mcp/preview`;
-      const body = JSON.stringify({ url: "https://mcp.example.com/mcp", vaultId: "v1" });
+      const body = JSON.stringify({ url: "https://mcp.example.com/mcp", environmentId: "team/build" });
       try {
         const previewed = await fetch(url, { method: "POST", headers: { origin, "content-type": "application/json" }, body });
         assert.equal(previewed.status, 200);
         assert.equal(seen[0]!.path, "POST /v1/tenant/mcp/preview");
-        assert.deepEqual(JSON.parse(seen[0]!.body), { url: "https://mcp.example.com/mcp", vaultId: "v1" });
+        assert.deepEqual(JSON.parse(seen[0]!.body), { url: "https://mcp.example.com/mcp", environmentId: "team/build" });
         assert.equal(seen[0]!.headers.authorization, "Bearer server-secret");
         const foreign = await fetch(url, {
           method: "POST",
@@ -255,7 +324,7 @@ test("proxy forwards a same-origin MCP tool preview and refuses one from another
   );
 });
 
-test("proxy forwards a credential coverage check against installation vaults only", async () => {
+test("proxy forwards a credential coverage check against an Environment", async () => {
   const seen: { path: string; body: string; headers: Record<string, string | string[] | undefined> }[] = [];
   await withUpstream(
     async (req, res) => {
@@ -263,7 +332,7 @@ test("proxy forwards a credential coverage check against installation vaults onl
       for await (const chunk of req) body += chunk;
       seen.push({ path: `${req.method} ${req.url}`, body, headers: { ...req.headers } });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ agentId: "triage", vaultIds: ["v1"], complete: true, entries: [] }));
+      res.end(JSON.stringify({ agentId: "triage", environmentId: "team/build", complete: true, entries: [] }));
     },
     async (upstreamUrl) => {
       const origin = "http://127.0.0.1:4161";
@@ -278,13 +347,12 @@ test("proxy forwards a credential coverage check against installation vaults onl
       const post = (body: unknown, from = origin) =>
         fetch(url, { method: "POST", headers: { origin: from, "content-type": "application/json" }, body: JSON.stringify(body) });
       try {
-        const checked = await post({ agentId: "triage", vaultIds: ["v1"] });
+        const checked = await post({ agentId: "triage", environmentId: "team/build" });
         assert.equal(checked.status, 200);
         assert.equal(seen[0]!.path, "POST /v1/tenant/credential-coverage");
-        assert.deepEqual(JSON.parse(seen[0]!.body), { agentId: "triage", vaultIds: ["v1"] });
+        assert.deepEqual(JSON.parse(seen[0]!.body), { agentId: "triage", environmentId: "team/build" });
         assert.equal(seen[0]!.headers.authorization, "Bearer server-secret");
-        // Studio manages no person's vault, so it checks none.
-        assert.equal((await post({ agentId: "triage", ownerUserId: "local-developer" })).status, 400);
+        assert.equal(seen[0]!.headers["nylorun-subject"], undefined);
         assert.equal((await post({ agentId: "triage" }, "https://evil.example")).status, 403);
         assert.equal((await fetch(url)).status, 404);
         assert.equal(seen.length, 1);

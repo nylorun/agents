@@ -12,8 +12,8 @@ Runtime client for the linked installation and its one Tenant (the Project link 
 npx nylorun start writes, or NYLORUN_RUNTIME_URL with NYLORUN_SERVER_KEY, and
 NYLORUN_MANAGEMENT_KEY for status, reset, access, configure and doctor):
   status [--json]                         the Tenant, its checks and counts
-  reset [--sessions|--sandboxes|--all] [--yes]
-                                          clear the Tenant's sessions, sandboxes or all its data
+  reset [--sessions|--environments|--all] [--yes]
+                                          clear the Tenant's sessions, Environments or all its data
   access signing-keys list|rotate|revoke  the Tenant's token signing keys (nylo access --help)
   configure                               set the linked Tenant's model provider
   env                                     print the linked Project's NYLORUN_* variables as exports

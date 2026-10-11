@@ -8,22 +8,27 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import type { ZodType } from "zod";
 import {
   ERROR_CODES,
   AcceptedResponseSchema,
-  CredentialInfoSchema,
+  CredentialCoverageSchema,
+  DeleteEnvironmentResponseSchema,
   DeletedResponseSchema,
+  EnvironmentSecretViewSchema,
+  EnvironmentViewSchema,
   HealthResponseSchema,
   HostModelCatalogSchema,
   HostModelViewSchema,
   JwksSchema,
   ListAgentsResponseSchema,
-  ListCredentialsResponseSchema,
+  ListEnvironmentEventsResponseSchema,
+  ListEnvironmentSecretsResponseSchema,
+  ListEnvironmentsResponseSchema,
   ListProvidersResponseSchema,
   ListPublicAgentsResponseSchema,
   ListSessionsResponseSchema,
-  ListVaultsResponseSchema,
   PutAgentResponseSchema,
   ReadyResponseSchema,
   ResetTenantResponseSchema,
@@ -35,7 +40,6 @@ import {
   ModelUsageTotalsSchema,
   ModelBudgetsSchema,
   TenantStatusSchema,
-  VaultInfoSchema,
 } from "@nylorun/core/contracts";
 import { Agent } from "@nylorun/core/define";
 import {
@@ -50,7 +54,7 @@ let rt: EphemeralRuntime;
 
 function app(extra: Record<string, string> = {}): Record<string, string> {
   return {
-    "nylorun-protocol": "5",
+    "nylorun-protocol": String(PROTOCOL_VERSION),
     authorization: `Bearer ${rt.applicationKey}`,
     ...extra,
   };
@@ -58,7 +62,7 @@ function app(extra: Record<string, string> = {}): Record<string, string> {
 
 /** The Management API's key (protocol 8): every `/v1/tenant/*` route takes it alone. */
 function management(): Record<string, string> {
-  return { "nylorun-protocol": "5", authorization: `Bearer ${rt.managementKey}` };
+  return { "nylorun-protocol": String(PROTOCOL_VERSION), authorization: `Bearer ${rt.managementKey}` };
 }
 
 /** Sends the request and returns its body, which must parse to itself with `schema`. */
@@ -126,24 +130,35 @@ it("agents and sessions", async () => {
   await answer(SessionViewSchema, "PUT", "/v1/sessions/s1", {
     body: { requestId: "s1", agentId: "bot", ownerUserId: "app:ann" },
   });
-  // The Tenant's default sandbox, so session `sb` is opened with one.
-  await answer(TenantSandboxViewSchema, "PUT", "/v1/tenant/sandbox", {
-    body: { requestId: "sandbox", default: "virtual" },
+  // An Environment, so session `sb` is opened with a sandbox.
+  await answer(EnvironmentViewSchema, "PUT", "/v1/environments/env", {
+    body: {
+      requestId: "env",
+      kind: "virtual",
+      labels: { team: "a" },
+      network: { allowedHosts: ["registry.npmjs.org"] },
+    },
   });
   await answer(SessionViewSchema, "PUT", "/v1/sessions/sb", {
-    body: { requestId: "sb", agentId: "bot", ownerUserId: "app:ann" },
+    body: { requestId: "sb", agentId: "bot", ownerUserId: "app:ann", environment: "env" },
   });
   await answer(AcceptedResponseSchema, "POST", "/v1/sessions/s1/commands", {
     body: { type: "message", requestId: "m1", idempotencyKey: "m1", content: "Hello" },
   });
   await answer(SessionViewSchema, "GET", "/v1/sessions/s1");
-  await answer(SessionViewSchema, "GET", "/v1/sessions/sb");
+  expect((await answer(SessionViewSchema, "GET", "/v1/sessions/sb")).environment).toEqual({
+    id: "env",
+    version: 1,
+  });
   await answer(ListSessionsResponseSchema, "GET", "/v1/sessions");
   await answer(SessionItemsResponseSchema, "GET", "/v1/sessions/s1/items");
   const outcome = await answer(SandboxToolOutcomeSchema, "POST", "/v1/sessions/sb/sandbox/bash", {
     body: { command: "echo hello" },
   });
   expect(outcome.kind).toBe("completed");
+  await answer(EnvironmentViewSchema, "GET", "/v1/environments/env");
+  await answer(ListEnvironmentsResponseSchema, "GET", "/v1/environments?label=team=a");
+  await answer(ListEnvironmentEventsResponseSchema, "GET", "/v1/environments/env/events");
 });
 
 it("Tenant settings", async () => {
@@ -172,34 +187,52 @@ it("Tenant settings", async () => {
   await answer(TenantSandboxViewSchema, "PUT", "/v1/tenant/sandbox", {
     body: {
       requestId: "limits",
-      default: "virtual",
       limits: { resources: { cpus: 2, memory: "1GiB" }, idle: "5m" },
     },
   });
 });
 
-it("vaults and credentials", async () => {
-  const write = (key: string) => ({ requestId: key, idempotencyKey: key });
-  const vault = await answer(VaultInfoSchema, "POST", "/v1/tenant/vaults", {
-    body: { ...write("vault"), name: "v", ownerUserId: "app:ann", metadata: { team: "a" } },
+it("Environment secrets and credential coverage", async () => {
+  await answer(EnvironmentViewSchema, "PUT", "/v1/environments/keys", {
+    body: { requestId: "keys", kind: "none" },
   });
-  await answer(ListVaultsResponseSchema, "GET", "/v1/tenant/vaults?ownerUserId=app:ann");
-  await answer(VaultInfoSchema, "GET", `/v1/tenant/vaults/${vault.id}`);
-  const credential = await answer(CredentialInfoSchema, "POST", `/v1/tenant/vaults/${vault.id}/credentials`, {
+  const base = "/v1/environments/keys/secrets";
+  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/GITHUB_TOKEN`, {
     body: {
-      ...write("credential"),
-      name: "api",
-      auth: { type: "bearer", url: "https://api.example.com", token: "secret-token" },
+      requestId: "secret",
+      type: "environment_secret",
+      value: "ghp-secret",
+      allowedHosts: ["api.github.com"],
+      inject: { header: "authorization", format: "Bearer {value}" },
     },
   });
-  const path = `/v1/tenant/vaults/${vault.id}/credentials/${credential.id}`;
-  await answer(ListCredentialsResponseSchema, "GET", `/v1/tenant/vaults/${vault.id}/credentials`);
-  await answer(CredentialInfoSchema, "GET", path);
-  await answer(CredentialInfoSchema, "POST", path, {
-    body: { ...write("rotate"), auth: { type: "bearer", token: "rotated-token" } },
+  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/REGION`, {
+    body: { requestId: "variable", type: "environment_variable", value: "eu" },
   });
-  await answer(DeletedResponseSchema, "DELETE", path);
-  await answer(DeletedResponseSchema, "DELETE", `/v1/tenant/vaults/${vault.id}`);
+  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/api`, {
+    body: { requestId: "bearer", type: "bearer", url: "https://api.example.com", value: "secret-token" },
+  });
+  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/gateway`, {
+    body: {
+      requestId: "headers",
+      type: "headers",
+      url: "https://mcp.example.com/tools",
+      headers: { "x-api-key": "secret-key" },
+      via: "https://gateway.example.com/mcp",
+    },
+  });
+  // Again, with a new value: the same credential, re-sealed.
+  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/api`, {
+    body: { requestId: "rotate", type: "bearer", url: "https://api.example.com", value: "rotated-token" },
+  });
+  expect((await answer(ListEnvironmentSecretsResponseSchema, "GET", base)).secrets).toHaveLength(4);
+  await answer(EnvironmentSecretViewSchema, "GET", `${base}/api`);
+  await answer(EnvironmentSecretViewSchema, "GET", `${base}/GITHUB_TOKEN`);
+  await answer(CredentialCoverageSchema, "POST", "/v1/tenant/credential-coverage", {
+    body: { requestId: "coverage", agentId: "bot", environmentId: "keys" },
+  });
+  await answer(DeletedResponseSchema, "DELETE", `${base}/api`);
+  await answer(DeleteEnvironmentResponseSchema, "DELETE", "/v1/environments/keys");
 });
 
 it("access: signing keys, public keys, and the agent list for an issuer token", async () => {

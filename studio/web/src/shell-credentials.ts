@@ -1,8 +1,10 @@
 /**
- * The Credentials page's shell credentials (R2c): what a skill's CLI in a pod sandbox uses. An
- * `environment_secret` is a sealed value the sandbox only sees as `nylorun-managed`; egress-gate
- * sets it as a header on requests to its allowed hosts. An `environment_variable` is a plain,
- * visible value. The Runtime checks every field again; these helpers shape the form's input.
+ * The Credentials page's shell credentials (R2c, D56): what a skill's CLI in an Environment's
+ * sandbox uses. An `environment_secret` is a sealed value the sandbox only sees as
+ * `nylorun-managed`; egress-gate sets it as a header on requests to its allowed hosts. An
+ * `environment_variable` is a plain value the sandbox sees. Either is written with `PUT
+ * /v1/environments/{id}/secrets/{name}`, where the name is the variable's. The Runtime checks
+ * every field again; these helpers shape the form's input.
  */
 
 /** What the CLI reads in the sandbox in place of a secret's value. */
@@ -20,15 +22,15 @@ export interface ShellSecretForm {
   readonly format: string;
 }
 
-export type ShellAuth =
+/** The body of `PUT /v1/environments/{id}/secrets/{name}` for a shell credential. */
+export type ShellSecretRequest =
   | {
       type: "environment_secret";
-      secretName: string;
-      secretValue: string;
+      value: string;
       allowedHosts: string[];
       inject?: { header: string; format: string };
     }
-  | { type: "environment_variable"; variableName: string; variableValue: string };
+  | { type: "environment_variable"; value: string };
 
 export function isShellType(type: string): type is ShellCredentialType {
   return type === "environment_secret" || type === "environment_variable";
@@ -68,34 +70,28 @@ export function injectOf(header: string, format: string): { header: string; form
   return { header: name, format: shape };
 }
 
-/** The `auth` of a new shell credential. */
-export function shellCreateAuth(
+/**
+ * A shell credential's name and body. The same call creates one and replaces its value: a
+ * secret's hosts and header are sent again, as the form holds them.
+ */
+export function shellSecretRequest(
   type: ShellCredentialType,
   form: ShellSecretForm,
-): ShellAuth {
+): { name: string; secret: ShellSecretRequest } {
   const name = form.name.trim();
   if (!name) throw new Error("Name the variable the sandbox sees, such as GH_TOKEN.");
   if (!form.value) throw new Error("Enter a value.");
-  if (type === "environment_variable") return { type, variableName: name, variableValue: form.value };
+  if (type === "environment_variable") return { name, secret: { type, value: form.value } };
   const inject = injectOf(form.header, form.format);
   return {
-    type,
-    secretName: name,
-    secretValue: form.value,
-    allowedHosts: parseAllowedHosts(form.hosts),
-    ...(inject ? { inject } : {}),
+    name,
+    secret: {
+      type,
+      value: form.value,
+      allowedHosts: parseAllowedHosts(form.hosts),
+      ...(inject ? { inject } : {}),
+    },
   };
-}
-
-/** The `auth` of a shell credential's rotation: only its value changes. */
-export function shellRotateAuth(
-  type: ShellCredentialType,
-  value: string,
-): { type: "environment_secret"; secretValue: string } | { type: "environment_variable"; variableValue: string } {
-  if (!value) throw new Error("Enter the new value.");
-  return type === "environment_secret"
-    ? { type, secretValue: value }
-    : { type, variableValue: value };
 }
 
 /** What a request carries for a secret, as the form previews it, with the value masked. */

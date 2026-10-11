@@ -11,6 +11,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent } from "@nylorun/core/define";
 import {
   startEphemeralRuntime,
@@ -26,10 +27,10 @@ const ADMIN_KEY = "matrix-admin-key-00000000000000000";
 const ORIGIN = "https://app.example.com";
 const SUBJECT = "app:ann";
 /**
- * Older clients still send the retired `vaults:own` (protocol 6) and `tenant:settings`
- * (protocol 7); they grant nothing.
+ * Every scope a subject can hold. Older clients still send the retired `vaults:own`
+ * (protocol 6) and `tenant:settings` (protocol 7); they grant nothing.
  */
-const ALL_SCOPES = "agents:read agents:write sessions:own vaults:own tenant:settings";
+const ALL_SCOPES = "agents:read agents:write sessions:own environments:write vaults:own tenant:settings";
 /** A body every schema rejects, so a write that gets past authorization changes nothing. */
 const INVALID = [] as const;
 /** A definition file that is never stored. */
@@ -41,7 +42,8 @@ let root: string;
 let rt: EphemeralRuntime;
 let issuer: TestIssuer;
 let issuerToken: string;
-let vaultId: string;
+/** An Environment that exists, guarded for `SUBJECT`, with no secrets. */
+const ENVIRONMENT = "env-1";
 const secrets: [string, string][] = [];
 
 type Caller =
@@ -70,7 +72,7 @@ const CALLERS: readonly Caller[] = [
 
 function callerHeaders(caller: Caller): Record<string, string> {
   // Protocol 5: nothing names the Tenant.
-  const base = { "nylorun-protocol": "5" };
+  const base = { "nylorun-protocol": String(PROTOCOL_VERSION) };
   const bearer = (key: string) => ({ ...base, authorization: `Bearer ${key}` });
   switch (caller) {
     case "none":
@@ -181,9 +183,9 @@ interface Operation {
   body?: unknown;
 }
 
-/** Every Tenant operation, with ids that exist (`s1`, `bot`, the vault) or never will. */
+/** Every Tenant operation, with ids that exist (`s1`, `bot`, `env-1`) or never will. */
 function tenantOperations(): Operation[] {
-  const vault = `/v1/tenant/vaults/${vaultId}`;
+  const environment = `/v1/environments/${ENVIRONMENT}`;
   return [
     { method: "POST", path: "/v1/sessions/s1/commands", body: INVALID },
     { method: "GET", path: "/v1/agents" },
@@ -198,12 +200,23 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/sessions/s1/items" },
     { method: "GET", path: "/v1/sessions/s1/events" },
     { method: "POST", path: "/v1/sessions/s1/sandbox/bash", body: INVALID },
-    { method: "GET", path: "/v1/sandboxes" },
-    { method: "GET", path: "/v1/sandboxes?label=project=acme" },
-    { method: "PUT", path: "/v1/sandboxes/team%2Fsbx-missing", body: INVALID },
-    { method: "GET", path: "/v1/sandboxes/team%2Fsbx-missing" },
-    { method: "GET", path: "/v1/sandboxes/team%2Fsbx-missing/events" },
-    { method: "DELETE", path: "/v1/sandboxes/team%2Fsbx-missing" },
+    // Environments (protocol 11): writes fail validation or name ids that do not exist.
+    { method: "GET", path: "/v1/environments" },
+    { method: "GET", path: "/v1/environments?label=project=acme" },
+    { method: "GET", path: "/v1/environments?limit=1" },
+    { method: "PUT", path: "/v1/environments/team%2Fenv-missing", body: INVALID },
+    { method: "GET", path: "/v1/environments/team%2Fenv-missing" },
+    { method: "GET", path: "/v1/environments/team%2Fenv-missing/events" },
+    { method: "POST", path: "/v1/environments/team%2Fenv-missing/stop" },
+    { method: "POST", path: "/v1/environments/team%2Fenv-missing/reset" },
+    { method: "DELETE", path: "/v1/environments/team%2Fenv-missing" },
+    { method: "GET", path: environment },
+    { method: "GET", path: `${environment}/events` },
+    { method: "POST", path: `${environment}/stop` },
+    { method: "GET", path: `${environment}/secrets` },
+    { method: "GET", path: `${environment}/secrets/missing` },
+    { method: "PUT", path: `${environment}/secrets/token`, body: INVALID },
+    { method: "DELETE", path: `${environment}/secrets/missing` },
     // File artifacts (protocol 6): an empty name fails validation, so nothing is stored.
     { method: "POST", path: "/v1/artifacts?name=&sessionId=s1", body: INVALID },
     { method: "POST", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions`, body: INVALID },
@@ -234,15 +247,6 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/tenant/model" },
     { method: "PUT", path: "/v1/tenant/model", body: INVALID },
     { method: "PUT", path: "/v1/tenant/model/selection", body: INVALID },
-    { method: "POST", path: "/v1/tenant/vaults", body: INVALID },
-    { method: "GET", path: `/v1/tenant/vaults?ownerUserId=${SUBJECT}` },
-    { method: "GET", path: vault },
-    { method: "DELETE", path: "/v1/tenant/vaults/vlt-missing" },
-    { method: "POST", path: `${vault}/credentials`, body: INVALID },
-    { method: "GET", path: `${vault}/credentials` },
-    { method: "GET", path: `${vault}/credentials/crd-missing` },
-    { method: "POST", path: `${vault}/credentials/crd-missing`, body: INVALID },
-    { method: "DELETE", path: `${vault}/credentials/crd-missing` },
     // A tool preview (R2b C12): the body fails validation, so no server is called.
     { method: "POST", path: "/v1/tenant/mcp/preview", body: INVALID },
     // Credential coverage: the body fails validation, so no definition or vault is read.
@@ -297,7 +301,20 @@ function edgeOperations(): Operation[] {
     { method: "DELETE", path: "/v1/vaults/vlt-missing" },
     { method: "POST", path: "/v1/vaults/vlt-missing/oauth/start", body: INVALID },
     // MCP OAuth connect (protocol 10): gone.
-    { method: "POST", path: `/v1/tenant/vaults/${vaultId}/oauth/start`, body: INVALID },
+    { method: "POST", path: "/v1/tenant/vaults/vlt-missing/oauth/start", body: INVALID },
+    // Vaults on the Management API and sandbox resources (protocol 11): gone, for an
+    // Environment's secrets and Environments.
+    { method: "POST", path: "/v1/tenant/vaults", body: INVALID },
+    { method: "GET", path: `/v1/tenant/vaults?ownerUserId=${SUBJECT}` },
+    { method: "GET", path: "/v1/tenant/vaults/vlt-missing" },
+    { method: "DELETE", path: "/v1/tenant/vaults/vlt-missing" },
+    { method: "POST", path: "/v1/tenant/vaults/vlt-missing/credentials", body: INVALID },
+    { method: "GET", path: "/v1/tenant/vaults/vlt-missing/credentials" },
+    { method: "GET", path: "/v1/tenant/vaults/vlt-missing/credentials/crd-missing" },
+    { method: "GET", path: "/v1/sandboxes" },
+    { method: "PUT", path: "/v1/sandboxes/sbx-missing", body: INVALID },
+    { method: "GET", path: "/v1/sandboxes/sbx-missing" },
+    { method: "DELETE", path: "/v1/sandboxes/sbx-missing" },
     { method: "GET", path: "/v1/oauth/callback?state=matrix-state&code=matrix-code" },
     { method: "GET", path: "/v1/access/signing-keys" },
     { method: "POST", path: "/v1/access/signing-keys/rotate", body: INVALID },
@@ -350,19 +367,12 @@ beforeAll(async () => {
   });
   issuerToken = await issuer.sign(SUBJECT, "sessions:own agents:read", { ttlSeconds: 900 });
   await app("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: SUBJECT });
-  vaultId = String(
-    (await app("POST", "/v1/tenant/vaults", {
-      requestId: "vault",
-      idempotencyKey: "vault",
-      name: "v",
-      ownerUserId: SUBJECT,
-    })).id,
-  );
-  secrets.push(
-    [issuerToken, "<issuer-token>"],
-    [vaultId, "<vault>"],
-    [TENANT, "<tenant>"],
-  );
+  await app("PUT", `/v1/environments/${ENVIRONMENT}`, {
+    requestId: "environment",
+    kind: "none",
+    ownerUserId: SUBJECT,
+  });
+  secrets.push([issuerToken, "<issuer-token>"], [TENANT, "<tenant>"]);
 });
 
 afterAll(async () => {
@@ -390,10 +400,10 @@ describe("route matrix", { timeout: 60_000 }, () => {
   });
 
   it("answers the Host operations, and the Admin API's old paths as unknown routes, as recorded", async () => {
-    const admin = (key: string) => ({ "nylorun-protocol": "5", authorization: `Bearer ${key}` });
+    const admin = (key: string) => ({ "nylorun-protocol": String(PROTOCOL_VERSION), authorization: `Bearer ${key}` });
     const callers: Record<string, Record<string, string>> = {
       none: {},
-      "protocol-only": { "nylorun-protocol": "5" },
+      "protocol-only": { "nylorun-protocol": String(PROTOCOL_VERSION) },
       "wrong-admin": admin("matrix-wrong-admin-key-000000000000"),
       admin: admin(ADMIN_KEY),
       application: callerHeaders("application"),

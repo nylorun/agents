@@ -2,38 +2,48 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
 
 const LOCAL_OWNER = "local-developer";
-/** The Management API's vaults (protocol 8): Studio's key acts as itself there. */
-const VAULTS = "/v1/tenant/vaults";
-/** What an agent's tools would get from the vaults a new session attaches. */
+/** What an agent's tools would get from the Environment a new session names. */
 const COVERAGE = "/v1/tenant/credential-coverage";
+/** One Environment (protocol 11): its id is one percent-encoded path segment. */
+const ENVIRONMENT = String.raw`/v1/environments/[^/]+`;
+const matches = (pattern: string, path: string) =>
+  new RegExp(`^${pattern}$`).test(path);
 
-function isVaultRead(method: string, path: string): boolean {
+/**
+ * Environment reads on the Runtime API: the list (with label filters and pages), one
+ * Environment, its lifecycle events, and its secrets' names, types and bindings (never a
+ * value).
+ */
+function isEnvironmentRead(method: string, path: string): boolean {
   return (
     method === "GET" &&
-    (/^\/v1\/tenant\/vaults$/.test(path) ||
-      /^\/v1\/tenant\/vaults\/[^/]+$/.test(path) ||
-      /^\/v1\/tenant\/vaults\/[^/]+\/credentials$/.test(path) ||
-      /^\/v1\/tenant\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path))
+    (path === "/v1/environments" ||
+      matches(`${ENVIRONMENT}(?:/events|/secrets(?:/[^/]+)?)?`, path))
   );
 }
 
 /**
- * Vault writes, a preview of the tools behind a credential's URL (`POST
- * /v1/tenant/mcp/preview`, R2b C12): it sends the installation vault's credential, and a
- * check of an agent's credentials against installation vaults (`POST
+ * Environment writes on the Runtime API: create or change one (`PUT`), stop or reset it,
+ * delete it, and write or delete one of its secrets.
+ */
+function isEnvironmentWrite(method: string, path: string): boolean {
+  return (
+    (method === "PUT" && matches(`${ENVIRONMENT}(?:/secrets/[^/]+)?`, path)) ||
+    (method === "POST" && matches(`${ENVIRONMENT}/(?:stop|reset)`, path)) ||
+    (method === "DELETE" && matches(`${ENVIRONMENT}(?:/secrets/[^/]+)?`, path))
+  );
+}
+
+/**
+ * Management API checks Studio's key makes as itself: a preview of the tools behind a URL
+ * (`POST /v1/tenant/mcp/preview`, R2b C12), which may send an Environment's credential, and
+ * an agent's credential coverage against an Environment (`POST
  * /v1/tenant/credential-coverage`), which reads no secret.
  */
-function isVaultWrite(method: string, path: string): boolean {
+function isManagementCheck(method: string, path: string): boolean {
   return (
-    (method === "POST" &&
-      (path === "/v1/tenant/mcp/preview" ||
-        path === COVERAGE ||
-        /^\/v1\/tenant\/vaults$/.test(path) ||
-        /^\/v1\/tenant\/vaults\/[^/]+\/credentials$/.test(path) ||
-        /^\/v1\/tenant\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path))) ||
-    (method === "DELETE" &&
-      (/^\/v1\/tenant\/vaults\/[^/]+$/.test(path) ||
-        /^\/v1\/tenant\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path)))
+    method === "POST" &&
+    (path === "/v1/tenant/mcp/preview" || path === COVERAGE)
   );
 }
 
@@ -76,7 +86,7 @@ export async function proxyRuntime(
     method === "POST" && /^\/v1\/artifacts\/[^/]+\/links$/.test(path);
   const resourceRead =
     method === "GET" &&
-    (/^\/v1\/sandboxes(?:\/[^/]+(?:\/events)?)?$/.test(path) ||
+    (isEnvironmentRead(method, path) ||
       /^\/v1\/artifacts(?:\/[^/]+(?:\/versions\/(?:latest|[1-9]\d*)\/(?:content|tree|diff|zip|files\/[^/]+))?)?$/.test(
         path,
       ));
@@ -93,7 +103,6 @@ export async function proxyRuntime(
       path === "/v1/tenant/model" ||
       path === "/v1/tenant/models" ||
       path === "/v1/tenant/providers" ||
-      isVaultRead(method, path) ||
       resourceRead ||
       capabilityRead);
   const write =
@@ -102,19 +111,25 @@ export async function proxyRuntime(
   const tenantWrite =
     method === "PUT" &&
     (path === "/v1/tenant/model" || path === "/v1/tenant/model/selection");
-  const vaultWrite = isVaultWrite(method, path);
+  const managementCheck = isManagementCheck(method, path);
+  const environmentWrite = isEnvironmentWrite(method, path);
   if (
     !health &&
     !read &&
     !write &&
     !tenantWrite &&
-    !vaultWrite &&
+    !managementCheck &&
+    !environmentWrite &&
     !artifactLink
   )
     return fail(404, "Unsupported Studio operation");
   const requestOrigin = request.headers.origin;
   if (
-    (write || tenantWrite || vaultWrite || artifactLink) &&
+    (write ||
+      tenantWrite ||
+      managementCheck ||
+      environmentWrite ||
+      artifactLink) &&
     (requestOrigin === undefined || !allowed.has(requestOrigin))
   )
     return fail(403, "Studio mutations require a same-origin request");
@@ -123,7 +138,8 @@ export async function proxyRuntime(
     write ||
     tenantWrite ||
     artifactLink ||
-    (vaultWrite && method === "POST")
+    managementCheck ||
+    (environmentWrite && method !== "DELETE")
   ) {
     if (!request.headers["content-type"]?.startsWith("application/json"))
       return fail(415, "JSON required");
@@ -157,31 +173,17 @@ export async function proxyRuntime(
         expiresIn: 60,
         ...(value.file === undefined ? {} : { file: value.file }),
       };
-    } else if (vaultWrite && path === VAULTS && method === "POST") {
-      if (value.scope !== "installation" || value.ownerUserId !== undefined)
-        return fail(400, "Studio creates installation vaults only");
-    } else if (path === COVERAGE) {
-      if (value.ownerUserId !== undefined)
-        return fail(400, "Studio checks installation vaults only");
-    } else if (!tenantWrite && !vaultWrite && method === "PUT")
+    } else if (write && method === "PUT")
+      // Studio's sessions are its local developer's; an Environment's owner guard is the
+      // operator's to set, so Environment writes pass as they are.
       value.ownerUserId = LOCAL_OWNER;
-    else if (
-      !tenantWrite &&
-      !vaultWrite &&
-      !["message", "cancel"].includes(value.type)
-    )
+    else if (write && !["message", "cancel"].includes(value.type))
       return fail(
         400,
         "This Studio release supports message and cancel commands",
       );
     body = JSON.stringify(value);
   }
-  if (
-    path === VAULTS &&
-    method === "GET" &&
-    incoming.searchParams.has("ownerUserId")
-  )
-    return fail(400, "Studio lists installation vaults only");
   const controller = new AbortController();
   response.on("close", () => controller.abort());
   try {

@@ -71,7 +71,13 @@ async function open(provider: ModelProvider, rollover?: { steps: number }) {
   await client.saveAgent(Agent({ id: "bot", name: "Bot" }).instructions("Help.").build(), {
     implementationVersion: "dev",
   });
-  const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada", sandbox: {} });
+  await client.environments.put("env-s1", { kind: "virtual" });
+  const session = await client.createSession({
+    id: "s1",
+    agentId: "bot",
+    ownerUserId: "ada",
+    environment: "env-s1",
+  });
   const ref = { root: runtime.root, tenantId: runtime.tenantId };
   const row = () => withTestSessionStore(ref, (store) => store.tx((t) => t.get<any>("sessions", "s1")));
   const events = () =>

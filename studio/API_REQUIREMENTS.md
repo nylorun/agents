@@ -2,7 +2,9 @@
 
 Studio uses only the public Runtime and Management APIs through its authenticated
 same-origin proxy. This change adds no database connection, storage client,
-Runtime route or SDK method. Sandboxes and artifacts are read-only in this increment.
+Runtime route or SDK method. Artifacts are read-only in this increment; Environments
+(protocol 11) are created, changed, stopped, reset and deleted through their public
+routes.
 
 ## Required parallel PR: artifact pagination
 
@@ -37,18 +39,25 @@ session-scoped lists. This is the only API blocker for the browsing design.
 
 | Studio view | Public API / SDK |
 | --- | --- |
-| Sandbox table and labels | `sandboxes.page()` → `GET /v1/sandboxes?limit=50&label=…&cursor=…` |
-| Sandbox metadata | `sandboxes.get()` → `GET /v1/sandboxes/{id}` |
-| Attached sessions | `sessions.page({ sandboxId })` → `GET /v1/sessions?limit=50&sandboxId=…` |
-| Lifecycle events, manual refresh | `sandboxes.events({ from })` → `GET /v1/sandboxes/{id}/events?from=…` |
+| Environment table and labels | `environments.page()` → `GET /v1/environments?limit=50&label=…&cursor=…` |
+| Environment metadata and recipe | `environments.get()` → `GET /v1/environments/{id}` |
+| New Environment, Edit recipe | `environments.put(id, recipe)` → `PUT /v1/environments/{id}` |
+| Stop, Reset (pods), Delete | `environments.stop()`, `.reset()`, `.delete()` → `POST /v1/environments/{id}/stop`, `POST …/reset`, `DELETE /v1/environments/{id}` |
+| Secrets (names, types, bindings) | `environments.secrets.list()` → `GET /v1/environments/{id}/secrets` |
+| Credentials forms | `environments.secrets.put()`, `.delete()` → `PUT`, `DELETE /v1/environments/{id}/secrets/{name}` |
+| Sessions that name it | `sessions.page({ environmentId })` → `GET /v1/sessions?limit=50&environmentId=…` |
+| Lifecycle events, manual refresh | `environments.events({ from })` → `GET /v1/environments/{id}/events?from=…` |
+| New session's Environment picker | `environments.list()` → `GET /v1/environments`; Management `coverage({ agentId, environmentId })` → `POST /v1/tenant/credential-coverage` |
+| Preview tools | Management `mcp.preview({ url, environmentId })` → `POST /v1/tenant/mcp/preview` |
 | Session artifact list | `artifacts.list({ sessionId })` → `GET /v1/artifacts?sessionId=…` |
 | Artifact metadata and versions | `artifacts.get()` → `GET /v1/artifacts/{id}` |
 | Pinned file preview | `artifacts.download({ version, range })` → version `content` |
 | Exported folder files and changes | `artifacts.tree()`, `.file()`, `.diff()` → version `tree`, `files/{encodedPath}`, `diff` |
 | Native streamed download | `artifacts.link({ version, file?, expiresIn: 60 })` → authenticated `POST /v1/artifacts/{id}/links`, then public `GET /v1/artifact-links/{token}` |
 
-All version reads and download links name an explicit numbered version. Sandbox
-IDs and folder file paths remain single encoded path segments. Studio holds the
+All version reads and download links name an explicit numbered version. Environment
+IDs (which may hold `/`), secret names and folder file paths remain single encoded
+path segments. Studio holds the
 installation key on the server. The Runtime capability is the credential for a
 native download, including in an embed; metadata and link minting still require
 Studio authentication. Tokens expire after 60 seconds and are never logged by
@@ -56,9 +65,9 @@ Studio or put in application navigation state.
 
 ## Later work
 
-Sandbox event reads currently return all events from a sequence. Studio reads
+Environment event reads currently return all events from a sequence. Studio reads
 on opening Events and on explicit Refresh, accumulates by sequence, and never
-polls or attaches a sandbox SSE stream. Bounded event pages would improve large
+polls or attaches an Environment SSE stream. Bounded event pages would improve large
 histories, but are not a blocker for this increment.
 
 Artifact version histories and folder trees are also ordinary existing reads.

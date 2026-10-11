@@ -127,7 +127,8 @@ async function boot(
 async function start(
   runtime: { url: string },
   manifest: unknown,
-  sandbox?: Record<string, unknown>
+  /** The recipe of an Environment the session names, created first; none without one. */
+  environment?: Record<string, unknown>
 ) {
   const put = await fetch(`${runtime.url}/v1/agents/bot`, {
     method: "PUT",
@@ -139,6 +140,14 @@ async function start(
     }),
   });
   expect(put.ok, await put.clone().text()).toBe(true);
+  if (environment) {
+    const created = await fetch(`${runtime.url}/v1/environments/env-s1`, {
+      method: "PUT",
+      headers: serverHeaders,
+      body: JSON.stringify({ requestId: "environment", ...environment }),
+    });
+    expect(created.ok, await created.clone().text()).toBe(true);
+  }
   const session = await fetch(`${runtime.url}/v1/sessions/s1`, {
     method: "PUT",
     headers: serverHeaders,
@@ -146,10 +155,10 @@ async function start(
       requestId: "session",
       agentId: "bot",
       ownerUserId: "ada",
-      ...(sandbox ? { sandbox } : {}),
+      ...(environment ? { environment: "env-s1" } : {}),
     }),
   });
-  expect(session.ok).toBe(true);
+  expect(session.ok, await session.clone().text()).toBe(true);
   const message = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
     method: "POST",
     headers: serverHeaders,
@@ -284,8 +293,8 @@ it("gives an agent used as a tool its own MCP servers and the session's sandbox"
         },
       });
     const bot = Agent({ id: "bot", tools: [coder] }).build();
-    // The session is opened with a sandbox; the agent it uses as a tool shares it.
-    await start(runtime, bot.manifest, {});
+    // The session names an Environment with a sandbox; the agent it uses as a tool shares it.
+    await start(runtime, bot.manifest, { kind: "virtual" });
     const done = await until(runtime, ["completed", "failed", "uncertain"]);
     expect(done.status).toBe("completed");
     expect(done.mcpSnapshot.mcpTools).toEqual([

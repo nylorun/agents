@@ -1,3 +1,127 @@
+# Environments replace sandboxes and vaults (protocol 11): a fresh start
+
+**Upgrading deletes your sandboxes, their disks and every vault except the model's, and closes
+every open session.** Sessions keep their history (read, stream and export it as before), but
+take no new turn: a message, approval or answer is `409 session_closed`. List what you have
+before you upgrade (below), then recreate Environments and write their secrets again. Secret
+values cannot be exported, so have them at hand.
+
+An Environment is where sessions run: one sandbox (kind `virtual`, `pod` or `none`) with a recipe
+that can change, and one vault of secrets for its shell, MCP servers and HTTP tools. The app
+decides who uses which Environment (one per person, per project or per session): the Runtime
+stores it by id, holds its lifecycle and checks only grants, the optional owner guard and serial
+turns. Clients and SDKs of this release send `Nylorun-Protocol: 11`, and the Runtime accepts
+protocol 11 only: an older client is answered `426` naming the protocol it needs. Upgrade the
+Runtime, `@nylorun/agents`, `@nylorun/admin`, `nylorun` and Studio together.
+
+## Before you upgrade: list what you have
+
+With the old release still running, an application key in `NYLORUN_KEY` and a management key in
+`NYLORUN_MANAGEMENT_KEY`:
+
+```bash
+curl -s -H "Authorization: Bearer $NYLORUN_KEY" -H "Nylorun-Protocol: 10" "$NYLORUN_URL/v1/sandboxes" > sandboxes.json
+curl -s -H "Authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "Nylorun-Protocol: 10" "$NYLORUN_URL/v1/tenant/vaults" > vaults.json
+for vault in $(node -p "JSON.parse(require('fs').readFileSync('vaults.json')).vaults.map(v => v.id).join(' ')"); do
+  curl -s -H "Authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "Nylorun-Protocol: 10" "$NYLORUN_URL/v1/tenant/vaults/$vault/credentials" > "credentials-$vault.json"
+done
+```
+
+`sandboxes.json` has each sandbox's id, kind, labels and spec; the credential files have each
+credential's name, type and binding (URL, hosts, header), never its value. A pod sandbox's files
+go with its volume: push or copy out what you need first.
+
+## What changes
+
+| Protocol 10 | Protocol 11 |
+| --- | --- |
+| `PUT /v1/sandboxes/{id}` (create or find, spec fixed) | `PUT /v1/environments/{id}`: create, find or change. `kind` and `storage` are fixed; a change of image, resources, network, harness or lifecycle bumps `version` |
+| `GET /v1/sandboxes`, `/{id}`, `/{id}/events`, `POST .../stop`, `.../reset`, `DELETE` | The same under `/v1/environments`; `DELETE` also deletes the vault |
+| `network.allow` | `network.allowedHosts`, which applies within seconds |
+| `image`, `resources` fixed | Change them: a pod gets them when it next starts from stopped (`appliedVersion` says what runs) |
+| `lifecycle.ttl` (from creation), Tenant `limits.ttl`, `lifecycle.onExpiry`, `sandbox_expired` | `lifecycle.deleteAfter`: deletes an Environment unused that long (no turn, change, secret write, stop or reset). `lifecycle.idle` per Environment, at most the Tenant's |
+| — | Kind `none`: a vault and no compute, for agents with remote MCP servers and HTTP tools only |
+| — | `ownerUserId`: the owner guard. Only that owner's sessions may name the Environment |
+| Vaults under `/v1/tenant/vaults` (Management API): user vaults, installation vaults, credentials by id, rotate | One vault per Environment, written on the Runtime API: `PUT /v1/environments/{id}/secrets/{name}` creates or replaces, `GET .../secrets` lists names, types and bindings, `DELETE .../secrets/{name}`. No value is ever read back |
+| `CreateCredentialRequest` `{ name, auth: { type, ... } }` | `PutEnvironmentSecretRequest`: `{ type: "environment_secret", value, allowedHosts, inject? }`, `{ type: "environment_variable", value }` (the name is the variable), `{ type: "bearer", url, value, via?, identity? }`, `{ type: "headers", url, headers, via?, identity? }` (the name is a label) |
+| `409 credential_conflict` at session open | At the secret write: a second `environment_secret` for a host, or a second `bearer`/`headers` credential for a URL |
+| `PutSessionRequest.sandbox` (`false`, `{ id }`, `{ session }`, inline; omitted = Tenant default), `vaultIds`, `credentialSelections` | `environment: "<id>"`, or nothing: no sandbox and no credentials. The removed fields are a `400` |
+| `SessionView.vaultIds`, `credentialSelections`, `sandboxOwnerId`, `sandboxId`, `sandbox`, `sandboxSource` | `SessionView.environment: { id, version } \| null`, and `closedReason` on a closed session |
+| Tenant setting `sandbox.config`: `default`, `limits.sandboxes`, `limits.ttl`, `lifecycle.onExpiry` | `environments.config` (still `PUT /v1/tenant/sandbox`): `limits.environments`; the other three are gone |
+| `POST /v1/tenant/credential-coverage { agentId, ownerUserId?, vaultIds?, credentialSelections? }` | `{ agentId, environmentId }`; each entry is `covered` or `missing` |
+| `POST /v1/tenant/mcp/preview { url, vaultId? }` | `{ url, environmentId? }` |
+| Error codes `sandbox_busy`, `sandbox_unavailable`, `sandbox_lost`, `sandbox_not_granted`, `sandbox_expired` | `environment_busy`, `environment_unavailable`, `environment_lost`, `environment_not_granted`; new `environment_owner_mismatch` and `session_closed` |
+| Session events `sandbox.state`, `sandbox.exec`, `sandbox.attached` | `environment.state`, `environment.exec`, `environment.attached` (also the Harness API's claims) |
+| Lifecycle stream `nylorun.sandbox-event/1` (`sandbox.*`, `sandboxId`) | `nylorun.environment-event/1` (`environment.*`, `environmentId`); no `expired` |
+| Scope `sandboxes:write`; identity file `sandboxes: [...]` grants; `/v1/me` `sandboxes` | `environments:write`; `environments: [...]`; `/v1/me` `environments`. The old spellings are refused, with a message naming the new one |
+| `@nylorun/agents` `client.sandboxes.ensure`, `forSession`; `createSession({ sandbox, vaultIds })` | `client.environments.put`, `.secrets.put`, `.forSession`; `createSession({ environment })` |
+| `@nylorun/admin` `admin.vaults.*`, `admin.vaults.coverage` | `admin.coverage({ agentId, environmentId })` |
+| Reset scope `sandboxes` | `environments` |
+
+## Recreate what you need
+
+One Environment per person, with their keys, as an app server does it:
+
+```ts
+import { createClient } from "@nylorun/agents";
+
+const client = await createClient();
+await client.environments.put("users/alice/web", {
+  kind: "pod",
+  image: "node:22-bookworm",
+  network: { allowedHosts: ["github.com", "api.github.com", "registry.npmjs.org"] },
+  ownerUserId: "alice",
+  lifecycle: { deleteAfter: "30d" },
+});
+await client.environments.secrets.put("users/alice/web", "GH_TOKEN", {
+  type: "environment_secret",
+  value: process.env.ALICE_GITHUB_TOKEN!,
+  allowedHosts: ["github.com", "api.github.com"],
+  inject: { header: "Authorization", format: "Basic {base64:x-access-token:{value}}" },
+});
+await client.environments.secrets.put("users/alice/web", "linear", {
+  type: "bearer",
+  url: "https://mcp.linear.app/mcp",
+  value: process.env.ALICE_LINEAR_KEY!,
+});
+const session = await client.createSession({
+  agentId: "coder",
+  ownerUserId: "alice",
+  environment: "users/alice/web",
+});
+```
+
+Where each old shape goes:
+
+- **An installation vault** every session attached: write its credentials into each Environment
+  that needs them. A key many Environments share is written into each; shared references are a
+  later addition, if asked for.
+- **A user vault**: the person's own Environment (`users/<person>/<name>`) with `ownerUserId` set
+  to them. A token caller's grants (`environments: ["users/{sub}/*"]`) keep each person to theirs.
+- **The Tenant's default sandbox**: create the Environment and name it on every session. A default
+  is a mapping, so it is the app's.
+- **An inline sandbox, or a sandbox shared with `{ session }`**: `client.environments.forSession()`
+  gives a session an Environment of its own and deletes it on `release()`; two sessions share one
+  by naming the same id.
+- **A sandbox resource**: an Environment with the same id, `network.allow` renamed
+  `network.allowedHosts`, and `lifecycle.ttl` replaced by `lifecycle.deleteAfter`.
+- **An MCP-only agent**: a `kind: "none"` Environment holds its keys.
+
+## Operators
+
+- **Identity files**: rename each issuer's `sandboxes:` grants to `environments:` and
+  `sandboxes:write` in `allowedScopes` (and in your identity provider's scope mappings) to
+  `environments:write`, in the same window as the upgrade. The Runtime refuses to start with the
+  old names, and a token whose only write scope is `sandboxes:write` is `403 insufficient_scope`.
+- **Pods**: the Runtime no longer knows the pods of the sandboxes it dropped. Delete them from
+  the Tenant's namespace once the new release runs, for example
+  `kubectl delete sandboxes.agents.x-k8s.io --all -n <namespace>` (their volumes go with them).
+- **Studio**: the Sandboxes view is now Environments, with a create form, stop, reset and delete,
+  and the Credentials forms write an Environment's secrets. New session picks an Environment
+  instead of vaults.
+- A virtual Environment's recipe applies to the sessions opened after a change; a pod's image and
+  resources at its next start from stopped, its network within seconds.
+
 # `nylo` ships in `nylorun`; `@nylorun/cli` is deprecated
 
 The Runtime client, `nylo`, moved into the `nylorun` package as its second command. One package
@@ -888,7 +1012,7 @@ What to do:
    `client.createVault({ scope: "installation", … })`, or `nylorun mcp connect <url>` for an
    OAuth MCP server. Keep each person's own credentials in your secret store and answer for them
    from a resolver (`NYLORUN_RESOLVER_URL`, `NYLORUN_RESOLVER_TOKEN` on the gateway;
-   [SELF_HOSTING.md](./SELF_HOSTING.md#the-credential-resolver)). Existing person vaults stay
+   SELF_HOSTING.md; removed in protocol 10). Existing person vaults stay
    attachable to their owner's sessions; `client.listVaults()` takes an optional owner.
 6. **Studio embedding.** The embed message `open.babai` is now `open.session` (`{ sessionId }`):
    it asks the embedding app to open that session in its own UI. Embedding is opt-in: no origin

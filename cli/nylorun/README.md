@@ -48,12 +48,12 @@ nylorun studio [--tenant <name>] [--no-open]   # sign a browser in to Studio on 
 nylorun reset [--tenant <name>] [--yes]        # delete the Tenant's volumes, Tenant directory and vault key; the next start creates it anew
 nylorun ls [--json]                # the Tenants on this machine, with their state, memory and URLs
 nylorun delete <tenant> --yes      # remove a Tenant: containers, volumes, Host root and vault key
-nylorun sandbox ls [--tenant <name>] [--label <key=value>]... [--json]   # the running Tenant's sandboxes
-nylorun sandbox rm <id> [--tenant <name>]   # delete a sandbox and its files
+nylorun sandbox ls [--tenant <name>] [--label <key=value>]... [--json]   # the running Tenant's Environments
+nylorun sandbox rm <id> [--tenant <name>]   # delete an Environment: its sandbox, files and vault
 nylorun key put <id> [--management] [--tenant <name>]   # create or rotate the Tenant's application key <id> (--management: a management key); prints it once
 nylorun key list [--tenant <name>] [--json] # the Tenant's keys: id, role, when issued
 nylorun key rm <id> [--tenant <name>]       # delete a key: it stops working at once
-nylorun mcp inspect <url> [--server <name>] [--vault <id>] [--sse] [--tenant <name>] [--json]   # a remote MCP server's tools, with the installation vault's credential
+nylorun mcp inspect <url> [--server <name>] [--environment <id>] [--sse] [--tenant <name>] [--json]   # a remote MCP server's tools, with an Environment's credential
 nylorun doctor [--json]            # prerequisites and the Tenant's health
 nylorun telemetry [status|enable|disable]   # Studio's anonymous usage analytics
 nylorun sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]
@@ -64,8 +64,10 @@ nylorun sandbox status [--tenant <name>] [--json]   # pods on a Kubernetes conte
 `up` and `down` are the Docker Compose spellings of `start` and `stop`: `down`
 stops the containers and keeps the volumes, so no Tenant data is lost. Removed
 commands exit 2 naming the replacement: `nylorun dev` and the MCP OAuth `connect`
-subcommand of `nylorun mcp` (protocol 10: add a key or a gateway credential to a
-vault instead, and preview the server with `nylorun mcp inspect`).
+subcommand of `nylorun mcp` (protocol 10: write a key or a gateway credential as
+an Environment's secret instead, and preview the server with
+`nylorun mcp inspect --environment <id>`), and `--vault` of `nylorun mcp inspect`
+(protocol 11: `--environment <id>`).
 `nylorun configure`, `nylorun status --env` and `nylorun doctor sandbox` exit 2
 naming `nylo configure`, `nylo env` and `nylo doctor sandbox`.
 `nylorun status` and `nylorun reset` are not `nylo status` and `nylo reset`: see
@@ -201,26 +203,28 @@ application key. `nylorun sandbox` and `nylorun mcp` use the linked project's ke
 
 ## MCP servers
 
-An agent names its MCP servers by URL; the operator gives each URL a vault
-credential, a `bearer` token or a `headers` map, with `via` and an identity
-header when an MCP gateway holds each person's sign-in. Add it on Studio's
-Credentials page or with `@nylorun/admin` (no `nylorun` command adds one); the
-whole flow, with gateway recipes, is in
+An agent names its MCP servers by URL; a session gets a credential for a URL from
+the Environment it is opened on (`createSession({ environment })`): a secret of that
+Environment, a `bearer` token or a `headers` map, with `via` and an identity
+header when an MCP gateway holds each person's sign-in. Write it with
+`client.environments.secrets.put(id, name, secret)` of `@nylorun/agents` (the
+Runtime API, an application key) or in Studio; no `nylorun` command writes one.
+The whole flow, with gateway recipes, is in
 [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools).
 
 `nylorun mcp inspect <url>` shows what a remote MCP server offers before an
 agent names it, through the running Tenant's Management API
 (`POST /v1/tenant/mcp/preview`, with the management key). The Runtime connects
-with the installation vault's credential for `<url>` (`--vault <id>` picks the
-vault when several hold one), lists the tools within 15 s and calls none. It
+with Environment `<id>`'s credential for `<url>` when `--environment <id>` names one
+(without it, no credential is sent), lists the tools within 15 s and calls none. It
 prints a table of each tool's model name, input schema size, hints
 (`read-only`, `destructive`, `idempotent`) and description, then the tools
 renamed for the model. `--server` is the server name your manifest uses (default:
 the host's name, `linear` for `mcp.linear.app`); `--sse` speaks the older SSE
 transport; `--json` prints the Runtime's answer. A server that answers `401`
 needs a credential: it says so, and names the server's sign-in from its
-protected-resource metadata, since such a server needs a key in a vault or an
-MCP gateway that holds each person's sign-in. A server it cannot list exits 1 with
+protected-resource metadata, since such a server needs a key in an Environment's
+secrets or an MCP gateway that holds each person's sign-in. A server it cannot list exits 1 with
 the reason (`mcp.unreachable` for an address the Runtime refuses).
 
 ## The containers
@@ -313,17 +317,20 @@ on every start and writes the result to `NYLORUN_STUDIO_ANALYTICS_ID` in
 
 ## Sandboxes
 
-A session gets a sandbox when it is opened with one, or when the Tenant's
-default names one (`PUT /v1/tenant/sandbox`). A local Tenant runs them on the
-Runtime's **virtual** backend: an emulated shell in the Runtime process, with no
-extra containers. It is not a VM or container boundary.
+A session gets a sandbox from the Environment it is opened on
+(`createSession({ environment: id })`; protocol 11): an Environment has its own id
+(`PUT /v1/environments/{id}`, `client.environments` in `@nylorun/agents`), one
+sandbox and one vault of secrets, and outlives the sessions that name it. A session
+opened on none has no sandbox. Kind `virtual` (the default) runs on the Runtime's
+**virtual** backend: an emulated shell in the Runtime process, with no extra
+containers. It is not a VM or container boundary. Kind `pod` runs in a pod on a
+cluster (below).
 
-A sandbox can also be a resource with its own id (`PUT /v1/sandboxes/{id}`,
-`client.sandboxes` in `@nylorun/agents`) that sessions attach to and that
-outlives them. `nylorun sandbox ls` lists the running Tenant's sandboxes with
-their state, attached sessions and labels; `nylorun sandbox rm <id>` deletes one
-and its files (refused while a turn runs in it). Neither starts a stopped Tenant
-(exit 3).
+`nylorun sandbox ls` lists the running Tenant's Environments with their kind,
+state, sessions and labels; `nylorun sandbox rm <id>` deletes one, with its files
+and vault (refused while a turn runs in it). Neither starts a stopped Tenant
+(exit 3). The Tenant's limits for Environments (`limits.environments`, `idle`,
+resources, network) are `PUT /v1/tenant/sandbox` on the Management API.
 
 ### Pods on a cluster (preview)
 
@@ -338,8 +345,8 @@ lets pods reach only three ports on the Docker host, and adds the `sandboxes`
 service to the Tenant: the one container holding the cluster credentials
 (`<Host root>/sandboxes/`). On kind under Linux, pass `--host-address 172.17.0.1`.
 `nylorun sandbox disable` removes the service (`--delete-namespace` also deletes
-the namespace and every sandbox in it). Sessions keep using the virtual backend
-in this release.
+the namespace and every sandbox in it). Sessions run in a pod when their
+Environment has kind `pod` (`client.environments.put(id, { kind: "pod" })`).
 
 ## Host root
 
@@ -374,7 +381,7 @@ is not this one: use `npx -p nylorun nylo`. The deprecated
 
 ```sh
 nylo status [--json]                  # the Tenant, its checks and counts
-nylo reset [--sessions|--sandboxes|--all] [--yes]
+nylo reset [--sessions|--environments|--all] [--yes]
 nylo access signing-keys …            # the Tenant's signing keys: list, rotate, revoke
 nylo configure                        # set or replace the Tenant's model provider
 nylo env                              # export lines for the linked Project
@@ -414,7 +421,7 @@ Both commands have a `status` and a `reset`, which act on different things:
 | --- | --- | --- |
 | Acts on | the local Tenant on this machine (`--tenant`, `NYLORUN_TENANT` or the link), through Docker and `nylorun-operate` in its runtime container | the linked installation, local or remote, through the Management API with a management key |
 | `status` | the containers, endpoints and Runtime health, and the Tenant's state: it answers when the Tenant is stopped or not open, and says why | the open Tenant's checks, counts and sandbox backend (`GET /v1/tenant`); when the Tenant does not answer it fails and points at `nylorun status` |
-| `reset` | deletes all the Tenant's data: volumes, `tenant/` and the vault key; the next `start` creates it anew, with a new id, and relinks the project | clears the sessions (the default), the sandboxes or all the data (`--all`) after draining work in flight; the Tenant, its keys and the Project link are kept |
+| `reset` | deletes all the Tenant's data: volumes, `tenant/` and the vault key; the next `start` creates it anew, with a new id, and relinks the project | clears the sessions (the default), the Environments (`--environments`) or all the data (`--all`) after draining work in flight; the Tenant, its keys and the Project link are kept |
 
 `nylo reset --all` asks first; pass `--yes` when not in a terminal.
 `nylorun reset` asks too, or takes `--yes`.

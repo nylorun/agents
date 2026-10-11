@@ -7,7 +7,7 @@ import {
   resourceRuntime,
   TENANT,
   SESSION,
-  SANDBOX,
+  ENVIRONMENT,
 } from "./support/resource-runtime.ts";
 
 async function withStudio(
@@ -17,6 +17,7 @@ async function withStudio(
     requests: Awaited<ReturnType<typeof resourceRuntime>>["requests"],
   ) => Promise<void>,
   mobile = false,
+  mutates = false,
 ) {
   const runtime = await resourceRuntime();
   const studio = await startStudioServer({
@@ -39,13 +40,14 @@ async function withStudio(
     page.on("pageerror", (error) => errors.push(error.message));
     await run(page, studio.url + `/tenants/${TENANT}`, runtime.requests);
     assert.deepEqual(errors, []);
-    assert.deepEqual(
-      runtime.requests.filter(
-        (r) => r.method !== "GET" && !r.path.endsWith("/links"),
-      ),
-      [],
-      "resource browsing never mutates a session, sandbox or artifact",
-    );
+    if (!mutates)
+      assert.deepEqual(
+        runtime.requests.filter(
+          (r) => r.method !== "GET" && !r.path.endsWith("/links"),
+        ),
+        [],
+        "resource browsing never mutates a session, Environment or artifact",
+      );
     assert.equal(
       runtime.requests.filter((r) => r.path === "/v1/artifacts").length,
       0,
@@ -58,39 +60,45 @@ async function withStudio(
   }
 }
 
-test("sandboxes work before agent registration: server paging, label navigation, events and sessions", async () => {
+test("Environments work before agent registration: server paging, label navigation, secrets, events and sessions", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
     // No agent is registered; the session list still lists the Tenant's sessions.
     await page
       .getByRole("heading", { name: "Sessions", exact: true })
       .waitFor();
-    await page.getByRole("link", { name: "Sandboxes", exact: true }).click();
-    await page.getByRole("button", { name: SANDBOX, exact: true }).waitFor();
-    await page.getByRole("button", { name: "Load more sandboxes" }).click();
+    await page.getByRole("link", { name: "Environments", exact: true }).click();
+    await page.getByRole("button", { name: ENVIRONMENT, exact: true }).waitFor();
+    await page.getByRole("button", { name: "Load more Environments" }).click();
     await page.getByRole("button", { name: "z-last", exact: true }).waitFor();
     assert.ok(
-      requests.some((r) => r.path === "/v1/sandboxes?limit=50&cursor=page2"),
+      requests.some((r) => r.path === "/v1/environments?limit=50&cursor=page2"),
     );
     await page
-      .getByRole("textbox", { name: "Sandbox labels" })
+      .getByRole("textbox", { name: "Environment labels" })
       .fill("project=build");
     await page.getByRole("button", { name: "Apply labels" }).click();
     await page.waitForURL(/label=project%3Dbuild/);
-    await page.getByRole("button", { name: SANDBOX, exact: true }).click();
+    await page.getByRole("button", { name: ENVIRONMENT, exact: true }).click();
     await page.getByText("Virtual workspace;", { exact: false }).waitFor();
     assert.ok(page.url().includes("selected=team%2Fbuild"));
+    // A virtual Environment has no pod to stop or reset.
+    assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).count(), 0);
+    await page.getByRole("tab", { name: "Secrets", exact: true }).click();
+    await page.getByText("github", { exact: true }).waitFor();
+    await page.getByText("https://api.githubcopilot.com/mcp/", { exact: true }).waitFor();
     await page.getByRole("tab", { name: "Events", exact: true }).click();
-    await page.getByText("0 · sandbox.created", { exact: false }).waitFor();
+    await page.getByText("0 · environment.created", { exact: false }).waitFor();
     await page.getByRole("button", { name: "Refresh events" }).click();
-    await page.getByText("1 · sandbox.suspended", { exact: false }).waitFor();
+    await page.getByText("1 · environment.attached", { exact: false }).waitFor();
     assert.deepEqual(
       requests
-        .filter((r) => r.path.includes("/sandboxes/team%2Fbuild/events"))
+        .filter((r) => r.path.includes("/environments/team%2Fbuild/events"))
         .map((r) => r.path),
       [
-        "/v1/sandboxes/team%2Fbuild/events?from=0",
-        "/v1/sandboxes/team%2Fbuild/events?from=1",
+        "/v1/environments/team%2Fbuild/events?from=0",
+        "/v1/environments/team%2Fbuild/events?from=1",
       ],
     );
     await page.getByRole("tab", { name: "Sessions", exact: true }).click();
@@ -103,12 +111,104 @@ test("sandboxes work before agent registration: server paging, label navigation,
       .getByRole("button", { name: "report.html", exact: true })
       .click();
     await page.getByText("Report version 2", { exact: true }).waitFor();
-    assert.ok(requests.some((r) => r.path.includes("sandboxId=team%2Fbuild")));
+    assert.ok(requests.some((r) => r.path.includes("environmentId=team%2Fbuild")));
     await page
-      .getByRole("link", { name: `Sandbox: ${SANDBOX}`, exact: true })
+      .getByRole("link", { name: `Environment: ${ENVIRONMENT}`, exact: true })
       .click();
     await page.getByRole("tab", { name: "Details", exact: true }).waitFor();
   });
+});
+
+test("an Environment is created from the recipe form, its recipe edited, and it is deleted", async () => {
+  await withStudio(
+    async (page, base, requests) => {
+      await page.goto(base + "/environments");
+      await page.getByRole("button", { name: "New Environment" }).click();
+      const sheet = page.getByRole("dialog", { name: "New Environment" });
+      await sheet.getByRole("textbox", { name: "ID", exact: true }).fill("users/alice/web");
+      await sheet.getByRole("combobox", { name: "Kind" }).selectOption("virtual");
+      await sheet.getByRole("textbox", { name: "Memory" }).fill("2GiB");
+      await sheet.getByRole("textbox", { name: "Allowed hosts" }).fill("pypi.org, api.github.com");
+      await sheet.getByRole("textbox", { name: "Labels" }).fill("project=web");
+      await sheet.getByRole("textbox", { name: "Owner (optional)" }).fill("local-developer");
+      await sheet.getByRole("textbox", { name: "Delete after" }).fill("30d");
+      await sheet.getByRole("button", { name: "Create Environment" }).click();
+      await page.waitForURL(/selected=users%2Falice%2Fweb/);
+      const created = requests.find(
+        (r) => r.method === "PUT" && r.path === "/v1/environments/users%2Falice%2Fweb",
+      );
+      assert.ok(created);
+      const { requestId: _id, ...recipe } = created.body as Record<string, unknown>;
+      assert.deepEqual(recipe, {
+        kind: "virtual",
+        labels: { project: "web" },
+        resources: { memory: "2GiB" },
+        network: { allowedHosts: ["pypi.org", "api.github.com"] },
+        ownerUserId: "local-developer",
+        lifecycle: { deleteAfter: "30d" },
+      });
+
+      await page.goto(base + `/environments?selected=${encodeURIComponent(ENVIRONMENT)}`);
+      await page.getByRole("button", { name: "Edit recipe" }).click();
+      const edit = page.getByRole("dialog", { name: `Edit ${ENVIRONMENT}` });
+      await edit.getByRole("textbox", { name: "Idle" }).fill("30m");
+      await edit.getByRole("button", { name: "Save recipe" }).click();
+      await edit.waitFor({ state: "hidden" });
+      const edited = requests.find(
+        (r) => r.method === "PUT" && r.path === "/v1/environments/team%2Fbuild",
+      );
+      assert.ok(edited);
+      const { requestId: _edit, ...change } = edited.body as Record<string, unknown>;
+      // Kind and storage are fixed: an edit sends neither.
+      assert.deepEqual(change, {
+        labels: { project: "build" },
+        resources: { cpus: 1, memory: "1024MiB" },
+        network: { allowedHosts: ["pypi.org"] },
+        ownerUserId: null,
+        lifecycle: { idle: "30m" },
+      });
+
+      page.once("dialog", (dialog) => void dialog.accept());
+      await page.getByRole("button", { name: "Delete", exact: true }).click();
+      await page.waitForURL((url) => !url.searchParams.has("selected"));
+      assert.ok(
+        requests.some((r) => r.method === "DELETE" && r.path === "/v1/environments/team%2Fbuild"),
+      );
+    },
+    false,
+    true,
+  );
+});
+
+test("the Credentials page lists and writes an Environment's secrets", async () => {
+  await withStudio(
+    async (page, base, requests) => {
+      await page.goto(base + `/settings/credentials?environment=${encodeURIComponent(ENVIRONMENT)}`);
+      await page.getByRole("combobox", { name: "Environment" }).waitFor();
+      await page.getByText("github", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Add credential" }).click();
+      const sheet = page.getByRole("dialog", { name: "Add credential" });
+      await sheet.getByRole("combobox", { name: "Type" }).selectOption("environment_secret");
+      await sheet.getByRole("textbox", { name: "Variable name" }).fill("GH_TOKEN");
+      await sheet.getByRole("textbox", { name: "Allowed hosts" }).fill("api.github.com");
+      await sheet.getByLabel("Secret value").fill("ghp_secret_value");
+      await sheet.getByRole("button", { name: "Save credential" }).click();
+      await sheet.waitFor({ state: "hidden" }).catch(() => undefined);
+      const written = requests.find(
+        (r) => r.method === "PUT" && r.path === "/v1/environments/team%2Fbuild/secrets/GH_TOKEN",
+      );
+      assert.ok(written, JSON.stringify(requests.map((r) => `${r.method} ${r.path}`)));
+      const { requestId: _id, ...body } = written.body as Record<string, unknown>;
+      assert.deepEqual(body, {
+        type: "environment_secret",
+        value: "ghp_secret_value",
+        allowedHosts: ["api.github.com"],
+      });
+      assert.equal(requests.some((r) => r.path.startsWith("/v1/tenant/vaults")), false);
+    },
+    false,
+    true,
+  );
 });
 
 test("artifacts pin versions, escape HTML, browse folder files and diff, and stream native downloads", async () => {

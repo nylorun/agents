@@ -31,8 +31,8 @@
  *    stopped, and sandboxes whose session or Environment is gone are removed, by the
  *    workspace capability (`harness-api/workspace.ts`: here, or in the harness that serves
  *    workspaces). Idle MCP connections of the in-process harness are closed. As often as the
- *    orphan scan, pod Environments whose change stalled get a reconcile (`reconcileStalePods`),
- *    and Environments unused for their `lifecycle.deleteAfter` are deleted
+ *    orphan scan, pod Environments whose change stalled get a reconcile (`reconcileStalePods`).
+ *    Environments unused for their `lifecycle.deleteAfter` are deleted
  *    (`sweepUnusedEnvironments`).
  * 5. **Control signals.** Signals on the control bus older than `SIGNAL_RETENTION_MS` are
  *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
@@ -131,9 +131,10 @@ export async function sweep(ctx: TenantContext): Promise<void> {
               pass.podsAt = now.getTime();
             },
           ] satisfies Step,
-          ["environments", () => sweepUnusedEnvironments(ctx, now.getTime())] satisfies Step,
         ]
       : []),
+    // Environments unused for their `lifecycle.deleteAfter`: one query when none is due.
+    ["environments", () => sweepUnusedEnvironments(ctx, now.getTime())],
     // A harness elsewhere closes its own idle MCP connections.
     ["mcp", async () => ctx.mcp?.sweep()],
     [

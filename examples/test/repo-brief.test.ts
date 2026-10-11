@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { createClient } from "@nylorun/agents";
+import { PROTOCOL_VERSION, createClient } from "@nylorun/agents";
 import { toNodeListener } from "@nylorun/agents/ag-ui";
 import { codeToolRefusal, type AgentManifest } from "@nylorun/core/define";
 import { startEphemeralRuntime, type EphemeralRuntime } from "@nylorun/runtime";
@@ -186,7 +186,7 @@ beforeAll(async () => {
     method: "PUT",
     headers: {
       authorization: `Bearer ${runtime.managementKey}`,
-      "nylorun-protocol": "10",
+      "nylorun-protocol": String(PROTOCOL_VERSION),
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -222,7 +222,13 @@ it("declares no code the Runtime would have to call", () => {
 it("researches, writes, checks and publishes a brief in one turn", { timeout: 60_000 }, async () => {
   const client = createClient({ url: runtime.url, key: runtime.applicationKey });
   await client.saveAgent(createRepoBrief({ toolsUrl, mcpUrl }));
-  const session = await client.createSession({ agentId: "repo-brief", ownerUserId: "ada", sandbox: {} });
+  // The writer's shell is a virtual Environment's (protocol 11); the flow's linked sessions inherit it.
+  await client.environments.put("users/ada/repo-brief", { kind: "virtual" });
+  const session = await client.createSession({
+    agentId: "repo-brief",
+    ownerUserId: "ada",
+    environment: "users/ada/repo-brief",
+  });
   const events: { type: string; sessionId: string; payload: any }[] = [];
   const done = (async () => {
     for await (const event of session.observe()) {
@@ -273,7 +279,7 @@ it("researches, writes, checks and publishes a brief in one turn", { timeout: 60
   // skill's check script in the session's sandbox, where it passed.
   const writer = agents.find((e) => e.payload.path === "research/writer")!.payload.sessionId as string;
   const response = await fetch(`${runtime.url}/v1/sessions/${writer}/items`, {
-    headers: { authorization: `Bearer ${runtime.applicationKey}`, "nylorun-protocol": "10" },
+    headers: { authorization: `Bearer ${runtime.applicationKey}`, "nylorun-protocol": String(PROTOCOL_VERSION) },
   });
   const { items } = (await response.json()) as { items: { type: string; payload: any }[] };
   const [skill, now, check] = items.filter((item) => item.type === "tool.completed").map((item) => item.payload);

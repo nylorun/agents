@@ -21,7 +21,7 @@ import { tenantTokenIssuer } from "@nylorun/core/contracts";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
 import { startEgress } from "../../src/host/gates.js";
 import type { TenantVault, TenantVaults } from "../../src/gates/tenant-vaults.js";
-import type { SandboxPodState } from "../../src/store/types.js";
+import type { Environment, SandboxPodState } from "../../src/store/types.js";
 
 let runs: RunFixture;
 let echo: TcpServer;
@@ -359,7 +359,7 @@ describe("egress-gate", () => {
 });
 
 describe("egress-gate helpers", () => {
-  it("reads a pod sandbox's host epoch, pod and allowlist; nothing once deleted, lost or expired", async () => {
+  it("reads a pod Environment's host epoch, pod and applied allowlist; nothing once deleted or lost", async () => {
     const now = new Date().toISOString();
     const pod = (patch: Partial<SandboxPodState> = {}): SandboxPodState => ({
       k8sName: "sbx-x-g0",
@@ -371,27 +371,44 @@ describe("egress-gate helpers", () => {
       rev: 1,
       ...patch,
     });
-    const row = (id: string, kind: "virtual" | "pod", allow?: string[], state?: SandboxPodState) => ({
+    const recipe = (allowedHosts?: string[]) => ({
+      harness: "nylorun",
+      lifecycle: {},
+      ...(allowedHosts ? { network: { allowedHosts } } : {}),
+    });
+    const row = (
+      id: string,
+      kind: "virtual" | "pod",
+      allow?: string[],
+      state?: SandboxPodState,
+      asked: string[] | undefined = allow,
+    ): Environment => ({
       id,
       kind,
-      spec: { network: { preset: "none" as const, ...(allow ? { allow } : {}) } },
       labels: {},
+      recipe: recipe(asked),
+      applied: recipe(allow),
+      version: 1,
+      appliedVersion: 1,
+      lastUsedAt: now,
       createdAt: now,
       updatedAt: now,
       ...(state ? { pod: state } : {}),
     });
     await runs.store.tx(async (t) => {
-      await t.createSandboxResource(row("egress-pod", "pod", ["*.example.com"], pod()), 100);
-      await t.createSandboxResource(row("egress-pod-none", "pod", undefined, pod({ podUid: undefined, hostEpoch: 0 })), 100);
-      await t.createSandboxResource(row("egress-pod-deleted", "pod", ["a.example.com"], pod({ desired: "deleted" })), 100);
-      await t.createSandboxResource(row("egress-pod-lost", "pod", ["a.example.com"], pod({ observed: "lost" })), 100);
-      await t.createSandboxResource(row("egress-pod-expired", "pod", ["a.example.com"], pod({ observed: "expired" })), 100);
-      await t.createSandboxResource(row("egress-virtual", "virtual", ["example.com"]), 100);
+      await t.createEnvironment(row("egress-pod", "pod", ["*.example.com"], pod()), 100);
+      await t.createEnvironment(row("egress-pod-none", "pod", undefined, pod({ podUid: undefined, hostEpoch: 0 })), 100);
+      // A recipe change not yet applied to the pod: the gate reads what the pod runs.
+      await t.createEnvironment(row("egress-pod-pending", "pod", ["a.example.com"], pod(), ["b.example.com"]), 100);
+      await t.createEnvironment(row("egress-pod-deleted", "pod", ["a.example.com"], pod({ desired: "deleted" })), 100);
+      await t.createEnvironment(row("egress-pod-lost", "pod", ["a.example.com"], pod({ observed: "lost" })), 100);
+      await t.createEnvironment(row("egress-virtual", "virtual", ["example.com"]), 100);
     });
     const store = storeEgressSandboxes(runs.store);
     expect(await store.live("egress-pod")).toEqual({ epoch: 4, podUid: "pod-7", allow: ["*.example.com"] });
     expect(await store.live("egress-pod-none")).toEqual({ epoch: 0, allow: [] });
-    for (const id of ["egress-pod-deleted", "egress-pod-lost", "egress-pod-expired", "egress-virtual", "egress-unknown"])
+    expect(await store.live("egress-pod-pending")).toEqual({ epoch: 4, podUid: "pod-7", allow: ["a.example.com"] });
+    for (const id of ["egress-pod-deleted", "egress-pod-lost", "egress-virtual", "egress-unknown"])
       expect(await store.live(id), id).toBeUndefined();
   });
 

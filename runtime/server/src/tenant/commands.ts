@@ -142,6 +142,13 @@ export async function command(
         cascadeCancelIds.push(agentId);
       }
     } else {
+      // A session opened before protocol 11 (migration 0020) keeps its history but takes no turn.
+      if (s.closedReason !== undefined)
+        fail(
+          409,
+          "This session was opened before protocol 11: open a new session that names an Environment.",
+          { code: "session_closed" }
+        );
       if (command.type === "message") {
         if (!["idle", "completed", "failed", "cancelled"].includes(s.status))
           fail(409, "Session has active or unresolved work");

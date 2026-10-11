@@ -277,7 +277,7 @@ describe.skipIf(!STACK_ENABLED)("Restate execution", () => {
     for (let i = 0; i < 2; i++) {
       await execution.timer(tenantId, timerKey, at);
       await execution.sandbox(tenantId, "sb-keyed", { kind: "reconcile", key: "signal:row-1" });
-      await execution.sandbox(tenantId, "sb-keyed", { kind: "arm", timer: "ttl", at: Date.now() + 3_600_000 });
+      await execution.sandbox(tenantId, "sb-keyed", { kind: "arm", timer: "idle", at: Date.now() + 3_600_000 });
       await execution.sandbox(tenantId, "sb-free", { kind: "reconcile" });
     }
     await eventually(() => expect(fired).toHaveLength(1));

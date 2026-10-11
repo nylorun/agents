@@ -108,8 +108,8 @@ export interface McpGateError {
   /**
    * How the request failed, coded (R2b C1, C7): the loop's `McpCallFailed`, which a tool call
    * turns into a failed outcome the model sees (`mcp.lost` only for a read-only or idempotent
-   * tool). `credential_rejected` for a `401`, with the server and the scope of the vault whose
-   * credential was sent. Its message has no credential value in it (C8).
+   * tool). `credential_rejected` for a `401`, with the server. Its message has no credential
+   * value in it (C8).
    */
   readonly failure?: McpCallFailure;
 }

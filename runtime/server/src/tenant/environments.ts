@@ -517,6 +517,8 @@ export async function resetEnvironment(
   scope: AuthScope,
 ): Promise<EnvironmentView> {
   reachable(environmentGrantsOf(scope), id);
+  // A missing Environment is a 404, and one of another kind a 400, with or without sandbox pods.
+  await ctx.store.tx((t) => podEnvironment(t, id));
   await requirePods(ctx.pods, "Resetting a pod Environment");
   return ctx.store.tx(async (t) => {
     const environment = await podEnvironment(t, id);

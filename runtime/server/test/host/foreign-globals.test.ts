@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getRequestListener } from "@hono/node-server";
 import { expect, it, vi } from "vitest";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent } from "@nylorun/core/define";
 import { testPool } from "../support/store.js";
 
@@ -29,7 +30,7 @@ it("answers normally in a process whose Request and Response @hono/node-server r
   });
   try {
     const headers = {
-      "nylorun-protocol": "4",
+      "nylorun-protocol": String(PROTOCOL_VERSION),
       "nylorun-tenant": rt.tenantId,
       authorization: `Bearer ${rt.applicationKey}`,
       "content-type": "application/json",

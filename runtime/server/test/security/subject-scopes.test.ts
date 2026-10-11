@@ -11,14 +11,14 @@ import { Agent } from "@nylorun/core/define";
 import { findTenantRoute } from "../../src/api/http/app.js";
 import {
   ALL_SCOPES,
-  createVault,
+  createEnvironment,
   startSubjectTenant,
   type SubjectTenant,
 } from "./subjects.js";
 
 let tenant: SubjectTenant;
-let vaultId: string;
-let credentialId: string;
+let environmentId: string;
+let secretName: string;
 beforeAll(async () => {
   tenant = await startSubjectTenant();
   const owner = { subject: "app:owner", scopes: ["sessions:own"] } as const;
@@ -26,7 +26,8 @@ beforeAll(async () => {
     as: owner,
     body: { requestId: "owned", agentId: "bot", ownerUserId: "app:owner" },
   });
-  ({ vaultId, credentialId } = await createVault(tenant, owner));
+  ({ environmentId, secretName } = await createEnvironment(tenant, owner));
+  await createEnvironment(tenant, owner, { id: "doomed" });
 });
 afterAll(async () => {
   await tenant.close();
@@ -72,35 +73,66 @@ const routes = (): Route[] => [
     body: () => ({ requestId: "c", idempotencyKey: "c", type: "cancel" }),
   },
   {
-    method: "POST",
-    path: "/v1/tenant/vaults",
-    needs: "never",
-    body: (subject) => ({
-      requestId: "v",
-      idempotencyKey: `v-${subject}`,
-      name: "v",
-      ownerUserId: subject,
-    }),
+    method: "GET",
+    path: "/v1/environments",
+    needs: ["sessions:own", "environments:write"],
   },
-  { method: "GET", path: "/v1/tenant/vaults", needs: "never" },
-  { method: "GET", path: `/v1/tenant/vaults/${vaultId}`, needs: "never" },
-  { method: "DELETE", path: `/v1/tenant/vaults/${vaultId}`, needs: "never" },
-  { method: "GET", path: `/v1/tenant/vaults/${vaultId}/credentials`, needs: "never" },
-  { method: "POST", path: `/v1/tenant/vaults/${vaultId}/credentials`, needs: "never" },
+  {
+    method: "PUT",
+    path: "/v1/environments/probe-env",
+    needs: ["environments:write"],
+    body: () => ({ requestId: "probe-env", kind: "none" }),
+  },
   {
     method: "GET",
-    path: `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`,
-    needs: "never",
+    path: `/v1/environments/${environmentId}`,
+    needs: ["sessions:own", "environments:write"],
   },
   {
-    method: "POST",
-    path: `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`,
-    needs: "never",
+    method: "GET",
+    path: `/v1/environments/${environmentId}/events`,
+    needs: ["sessions:own", "environments:write"],
+  },
+  {
+    method: "GET",
+    path: `/v1/environments/${environmentId}/secrets`,
+    needs: ["sessions:own", "environments:write"],
+  },
+  {
+    method: "GET",
+    path: `/v1/environments/${environmentId}/secrets/${secretName}`,
+    needs: ["sessions:own", "environments:write"],
+  },
+  {
+    method: "PUT",
+    path: `/v1/environments/${environmentId}/secrets/probe`,
+    needs: ["environments:write"],
+    body: () => ({
+      requestId: "probe-secret",
+      type: "bearer",
+      url: "https://probe.example.com/tools",
+      value: "probe-token",
+    }),
   },
   {
     method: "DELETE",
-    path: `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`,
+    path: `/v1/environments/${environmentId}/secrets/probe`,
+    needs: ["environments:write"],
+  },
+  { method: "POST", path: `/v1/environments/${environmentId}/stop`, needs: ["environments:write"] },
+  { method: "POST", path: `/v1/environments/${environmentId}/reset`, needs: ["environments:write"] },
+  { method: "DELETE", path: "/v1/environments/doomed", needs: ["environments:write"] },
+  {
+    method: "POST",
+    path: "/v1/tenant/credential-coverage",
     needs: "never",
+    body: () => ({ agentId: "bot", environmentId }),
+  },
+  {
+    method: "POST",
+    path: "/v1/tenant/mcp/preview",
+    needs: "never",
+    body: () => ({ url: "https://mcp.example.com/tools", environmentId }),
   },
   // `tenant:settings` is retired (protocol 8): no scope reaches the Tenant's settings.
   { method: "GET", path: "/v1/tenant", needs: "never" },
@@ -146,7 +178,13 @@ describe("route declarations", () => {
       ["DELETE", "v1/agents/bot"],
       ["POST", "v1/sessions"],
       ["GET", "v1/sessions/s/items/extra"],
-      ["PATCH", "v1/tenant/vaults/v"],
+      ["PATCH", "v1/environments/e"],
+      // The vault and sandbox paths are gone (protocol 11).
+      ["GET", "v1/tenant/vaults"],
+      ["POST", "v1/tenant/vaults"],
+      ["GET", "v1/tenant/vaults/v/credentials"],
+      ["GET", "v1/sandboxes"],
+      ["PUT", "v1/sandboxes/s"],
       // The old vault and signing-key paths are gone (protocol 8).
       ["GET", "v1/vaults"],
       ["GET", "v1/access/signing-keys"],
@@ -179,13 +217,13 @@ it("refuses a route without its scope before reading the request", async () => {
   expect(agents.body.agents.map((a: { agentId: string }) => a.agentId)).toEqual(["bot"]);
   expect((await tenant.call("GET", "/v1/sessions/fresh")).status).toBe(404);
   expect((await tenant.call("GET", "/v1/sessions/owned")).status).toBe(200);
+  expect((await tenant.call("GET", "/v1/environments/probe-env")).status).toBe(404);
+  expect((await tenant.call("GET", "/v1/environments/doomed")).status).toBe(200);
   expect(
-    (
-      await tenant.call("GET", "/v1/tenant/vaults?ownerUserId=app:probe", {
-        key: tenant.runtime.managementKey,
-      })
-    ).body.vaults
-  ).toEqual([]);
+    (await tenant.call("GET", `/v1/environments/${environmentId}/secrets`)).body.secrets.map(
+      (secret: { name: string }) => secret.name
+    )
+  ).toEqual([secretName]);
 });
 
 it("passes a route with any one of its scopes", async () => {
@@ -209,4 +247,19 @@ it("answers a subject on a route the table does not know with 404", async () => 
     as: { subject: "app:probe", scopes: ALL_SCOPES },
   });
   expect(reply.status).toBe(404);
+});
+
+it("refuses the protocol 10 scope sandboxes:write with a 400 naming environments:write", async () => {
+  for (const scopes of ["sandboxes:write", "sessions:own sandboxes:write"]) {
+    const reply = await tenant.call("GET", "/v1/environments", {
+      as: { subject: "app:probe", scopes },
+    });
+    expect(reply.status, scopes).toBe(400);
+    expect(reply.text, scopes).toContain("environments:write");
+  }
+  // The new name passes.
+  const renamed = await tenant.call("GET", "/v1/environments", {
+    as: { subject: "app:probe", scopes: "environments:write" },
+  });
+  expect(renamed.status).toBe(200);
 });

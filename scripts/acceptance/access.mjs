@@ -9,16 +9,19 @@
  * @nylorun/core, @nylorun/agents, @nylorun/admin and nylorun.
  *
  * A1  three subjects (admin, builder, member) on one Tenant, each acting
- *     through `app.as(...)`: a session with the person's vault (created with the
- *     management key: vaults are the Management API, protocol 8) and a turn
- *     that pauses for approval of an HTTP tool, which the Runtime then calls on a
+ *     through `app.as(...)`: a session on the person's own Environment (kind
+ *     `none`, owner-guarded, with a bearer secret; created with the application
+ *     key: Environments are the Runtime API's, protocol 11) and a turn that
+ *     pauses for approval of an HTTP tool, which the Runtime then calls on a
  *     service of this script, and completes
  * A2  concurrent event streams: each subject receives only its own events
  * A3  every Tenant route, called by each subject against the others'
- *     resources, answers the 404 or 403 of the scope and owner tables (the
- *     Management API, `/v1/tenant/*` with its vaults: `403 key_role_mismatch`
- *     for every subject), and no body names another subject's ids; the
- *     management key acts for no subject and reaches no Runtime API route
+ *     resources, answers the 404 or 403 of the scope and owner tables (another
+ *     owner's Environment: readable, unchangeable without `environments:write`,
+ *     and no session of the caller's may name it; the Management API,
+ *     `/v1/tenant/*`: `403 key_role_mismatch` for every subject), and no body
+ *     names another subject's session ids; the management key acts for no subject
+ *     and reaches no Runtime API route
  * A4  a stub app server strips the Nylorun-* headers its client sends; the
  *     Runtime sees the signed-in person
  */
@@ -26,7 +29,6 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { z } from "zod";
-import { createManagementClient } from "@nylorun/admin";
 import { Agent, createClient } from "@nylorun/agents";
 import { startToolService } from "../lib/tool-service.mjs";
 import { ensureImages, eventually, runtimeHeaders, withStack } from "../lib/stack.mjs";
@@ -34,7 +36,7 @@ import { withResetTenant } from "../lib/stack-tenant.mjs";
 
 // No subject scope reaches the Management API (`tenant:settings` is retired, protocol 8).
 const SUBJECTS = {
-  admin: ["agents:write", "sessions:own", "sandboxes:write"],
+  admin: ["agents:write", "sessions:own", "environments:write"],
   builder: ["agents:write", "sessions:own"],
   member: ["agents:read", "sessions:own"],
 };
@@ -73,39 +75,25 @@ function subjectHeaders(as) {
   return as ? { "Nylorun-Subject": as.name, "Nylorun-Scopes": as.scopes.join(" ") } : {};
 }
 
-/** A1: each subject's own vault (the operator's to create), session and approved turn. */
+/**
+ * A1: each subject's own Environment (the app's to create, owner-guarded to the person, with a
+ * bearer secret), session on it and approved turn.
+ */
 async function a1(runtime, tenant, app) {
-  const management = createManagementClient({ url: runtime, key: tenant.managementKey });
   const people = {};
   for (const [role, scopes] of Object.entries(SUBJECTS)) {
     const name = `app:${role}`;
     const client = app.as(name, { scopes });
-    const vault = await management.vaults.create({
-      name: `${role}'s vault`,
-      ownerUserId: name,
-      idempotencyKey: `vault-${role}`,
-    });
-    const credential = await management.vaults.credentials.create(vault.id, {
-      name: "token",
-      idempotencyKey: `cred-${role}`,
-      auth: { type: "bearer", url: "https://mcp.example.com/tools", token: `secret-${role}` },
+    const environmentId = `users/${role}/desk`;
+    await app.environments.put(environmentId, { kind: "none", ownerUserId: name, labels: { role } });
+    await app.environments.secrets.put(environmentId, "token", {
+      type: "bearer",
+      url: "https://mcp.example.com/tools",
+      value: `secret-${role}`,
     });
     const id = `sess-${role}-${randomUUID().slice(0, 8)}`;
-    await client.createSession({
-      id,
-      agentId: "desk",
-      ownerUserId: name,
-      vaultIds: [vault.id],
-    });
-    people[role] = {
-      role,
-      name,
-      scopes,
-      client,
-      sessionId: id,
-      vaultId: vault.id,
-      credentialId: credential.id,
-    };
+    await client.createSession({ id, agentId: "desk", ownerUserId: name, environment: environmentId });
+    people[role] = { role, name, scopes, client, sessionId: id, environmentId };
   }
   return people;
 }
@@ -130,12 +118,30 @@ async function runTurns(runtime, tenant, people) {
   }
 }
 
-/** Every route a subject might call on `other`'s resources, and what it must answer. */
-function crossRoutes(other) {
+/**
+ * Every route `caller` might call on `other`'s resources, and what it must answer. An
+ * application key acting for a subject reaches every Environment (the app decides who uses
+ * which): it reads another owner's, changes one only with `environments:write` (a caller with
+ * it is not sent the changes), and opens no session on one another owner guards (the 404).
+ */
+function crossRoutes(caller, other) {
   const s = `/v1/sessions/${other.sessionId}`;
-  const v = `/v1/tenant/vaults/${other.vaultId}`;
-  const c = `${v}/credentials/${other.credentialId}`;
+  const e = `/v1/environments/${encodeURIComponent(other.environmentId)}`;
   const command = (body) => ({ requestId: randomUUID(), idempotencyKey: randomUUID(), ...body });
+  const writes = caller.scopes.includes("environments:write")
+    ? []
+    : [
+        ["PUT", e, 403, { requestId: randomUUID(), kind: "none", labels: { taken: "yes" } }],
+        ["DELETE", e, 403],
+        ["POST", `${e}/stop`, 403, {}],
+        [
+          "PUT",
+          `${e}/secrets/token`,
+          403,
+          { requestId: randomUUID(), type: "bearer", url: "https://mcp.example.com/tools", value: "x" },
+        ],
+        ["DELETE", `${e}/secrets/token`, 403],
+      ];
   return [
     ["GET", s, 404],
     ["GET", `${s}/items`, 404],
@@ -144,24 +150,18 @@ function crossRoutes(other) {
     ["POST", `${s}/commands`, 404, command({ type: "approve", interactionId: "i", approved: true })],
     ["POST", `${s}/commands`, 404, command({ type: "respond", interactionId: "i", value: 1 })],
     ["POST", `${s}/commands`, 404, command({ type: "cancel" })],
-    // Vault routes are the Management API (protocol 8): an application key, acting for a
-    // subject or not, is refused before anything is read.
-    ["GET", v, 403],
-    ["DELETE", v, 403],
-    ["GET", `${v}/credentials`, 403],
+    // Another owner's Environment: its view lists none of that owner's sessions to the caller,
+    // and its secrets list names and bindings, never a value.
+    ["GET", e, 200],
+    ["GET", `${e}/secrets`, 200],
+    ...writes,
+    // The owner guard: a session of the caller's naming it is the opaque 404.
     [
-      "POST",
-      `${v}/credentials`,
-      403,
-      {
-        requestId: randomUUID(),
-        idempotencyKey: randomUUID(),
-        name: "t",
-        auth: { type: "bearer", url: "https://mcp.example.com/tools", token: "x" },
-      },
+      "PUT",
+      `/v1/sessions/sess-${caller.role}-on-${other.role}-${randomUUID().slice(0, 8)}`,
+      404,
+      { requestId: randomUUID(), agentId: "desk", ownerUserId: caller.name, environment: other.environmentId },
     ],
-    ["GET", c, 403],
-    ["DELETE", c, 403],
   ];
 }
 
@@ -182,7 +182,7 @@ const SCOPED = [
 ];
 
 async function a3(runtime, tenant, people) {
-  const management = createManagementClient({ url: runtime, key: tenant.managementKey });
+  const app = createClient({ url: runtime, key: tenant.env.NYLORUN_SERVER_KEY });
   const call = async (as, method, path, body, key = tenant.env.NYLORUN_SERVER_KEY) => {
     const response = await fetch(`${runtime}${path}`, {
       method,
@@ -204,13 +204,13 @@ async function a3(runtime, tenant, people) {
   let checked = 0;
   for (const caller of everyone) {
     const others = everyone.filter((p) => p !== caller);
-    const foreign = others.flatMap((p) => [p.sessionId, p.vaultId, p.credentialId]);
+    const foreign = others.flatMap((p) => [p.sessionId, `secret-${p.role}`]);
     const clean = (reply, what) => {
       for (const id of foreign)
         assert.ok(!reply.text.includes(id), `${caller.role}: ${what} names another subject's ${id}`);
     };
     for (const other of others)
-      for (const [method, path, expected, body] of crossRoutes(other)) {
+      for (const [method, path, expected, body] of crossRoutes(caller, other)) {
         const reply = await call(caller, method, path, body);
         assert.equal(reply.status, expected, `${caller.role} ${method} ${path}: ${reply.text}`);
         clean(reply, `${method} ${path}`);
@@ -234,14 +234,17 @@ async function a3(runtime, tenant, people) {
       [caller.sessionId],
       `${caller.role} lists only its session`,
     );
-    const vaults = await call(caller, "GET", "/v1/tenant/vaults");
-    assert.equal(vaults.status, 403, `${caller.role} lists no vaults`);
-    roleRefused(vaults, `${caller.role} GET /v1/tenant/vaults`);
-    for (const other of others)
-      assert.equal(
-        (await call(caller, "GET", `/v1/tenant/vaults?ownerUserId=${encodeURIComponent(other.name)}`)).status,
-        403,
-      );
+    // Every Environment is listed (the application key reaches them all), each with only the
+    // caller's own sessions: `clean` checks no other subject's session id is in the body.
+    const environments = await call(caller, "GET", "/v1/environments");
+    assert.equal(environments.status, 200, environments.text);
+    clean(environments, "GET /v1/environments");
+    assert.deepEqual(
+      JSON.parse(environments.text)
+        .environments.flatMap((environment) => environment.sessions.map((s) => s.id)),
+      [caller.sessionId],
+      `${caller.role} sees only its own session on the Environments`,
+    );
     // A retired scope still parses and grants nothing: `tenant:settings` reaches no setting.
     const retired = await call(
       { name: caller.name, scopes: [...caller.scopes, "tenant:settings"] },
@@ -259,22 +262,32 @@ async function a3(runtime, tenant, people) {
     }
   }
   // The application key alone reaches no Management API route either.
-  const unscoped = await call(undefined, "GET", "/v1/tenant/vaults");
+  const unscoped = await call(undefined, "GET", "/v1/tenant");
   assert.equal(unscoped.status, 403, unscoped.text);
-  roleRefused(unscoped, "the application key GET /v1/tenant/vaults");
+  roleRefused(unscoped, "the application key GET /v1/tenant");
   // The management key acts as itself only, and only on the Management API.
   const managementKey = tenant.managementKey;
-  const forSubject = await call(people.admin, "GET", "/v1/tenant/vaults", undefined, managementKey);
+  const forSubject = await call(people.admin, "GET", "/v1/tenant", undefined, managementKey);
   assert.equal(forSubject.status, 403, `a management key acting for a subject: ${forSubject.text}`);
   assert.equal(JSON.parse(forSubject.text).code, "subject_invalid");
   const onRuntime = await call(undefined, "GET", "/v1/sessions", undefined, managementKey);
   assert.equal(onRuntime.status, 403, `a management key on the Runtime API: ${onRuntime.text}`);
   assert.equal(JSON.parse(onRuntime.text).code, "key_role_mismatch");
-  checked += 3;
-  // Every session is still there for its owner, and every vault for the operator.
+  const environmentsWithManagement = await call(undefined, "GET", "/v1/environments", undefined, managementKey);
+  assert.equal(environmentsWithManagement.status, 403, environmentsWithManagement.text);
+  assert.equal(JSON.parse(environmentsWithManagement.text).code, "key_role_mismatch");
+  checked += 4;
+  // Every session is still there for its owner, and every Environment, unchanged, with its
+  // secret, for the app.
   for (const person of everyone) {
     assert.equal((await call(person, "GET", `/v1/sessions/${person.sessionId}`)).status, 200);
-    assert.equal((await management.vaults.get(person.vaultId)).id, person.vaultId);
+    const environment = await app.environments.get(person.environmentId);
+    assert.deepEqual(environment.labels, { role: person.role });
+    assert.equal(environment.ownerUserId, person.name);
+    assert.deepEqual(
+      (await app.environments.secrets.list(person.environmentId)).map((secret) => secret.name),
+      ["token"],
+    );
   }
   return checked;
 }

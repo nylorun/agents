@@ -57,24 +57,28 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
         })
       ).status,
     ).toBe(200);
-    const vault = await getJson(`${url}/v1/tenant/vaults`, {
-      method: "POST",
-      headers: tenant.managementHeaders(),
+    // An Environment with a secret in its vault, named for its Tenant.
+    const environment = await getJson(`${url}/v1/environments/env-${tenant.name}`, {
+      method: "PUT",
+      headers: tenant.headers(),
+      body: JSON.stringify({ requestId: randomUUID(), kind: "none", ownerUserId: "user-1" }),
+    });
+    expect(environment.status).toBe(200);
+    const secret = await getJson(`${url}/v1/environments/env-${tenant.name}/secrets/api`, {
+      method: "PUT",
+      headers: tenant.headers(),
       body: JSON.stringify({
         requestId: randomUUID(),
-        idempotencyKey: `vault-${tenant.id}`,
-        name: `Vault ${tenant.name}`,
-        ownerUserId: "user-1",
+        type: "bearer",
+        url: "https://api.example.com",
+        value: `secret-of-${tenant.name}`,
       }),
     });
-    expect(vault.status).toBe(200);
-    (tenant as { vaultId?: string }).vaultId = (
-      vault.body as { id: string }
-    ).id;
+    expect(secret.status).toBe(200);
   }
 
-  const vaultA = (a as { vaultId?: string }).vaultId!;
-  const vaultB = (b as { vaultId?: string }).vaultId!;
+  const environmentA = `env-${a.name}`;
+  const environmentB = `env-${b.name}`;
 
   const routes: Array<{
     label: string;
@@ -133,10 +137,44 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
       expectAScoped: true,
     },
     {
-      label: "A auth + B vault id",
+      label: "A auth + B Environment id",
       init: {
-        path: `/v1/tenant/vaults/${vaultB}`,
+        path: `/v1/environments/${environmentB}`,
+        headers: a.headers(),
+      },
+      expectAScoped: true,
+    },
+    {
+      label: "A auth + B Environment's secrets",
+      init: {
+        path: `/v1/environments/${environmentB}/secrets`,
+        headers: a.headers(),
+      },
+      expectAScoped: true,
+    },
+    {
+      label: "A auth + B Environment's secret",
+      init: {
+        path: `/v1/environments/${environmentB}/secrets/api`,
+        headers: a.headers(),
+      },
+      expectAScoped: true,
+    },
+    {
+      label: "A auth + Environment list still A-only",
+      init: {
+        path: "/v1/environments",
+        headers: a.headers(),
+      },
+      expectAScoped: true,
+    },
+    {
+      label: "A auth + B Environment's credential coverage",
+      init: {
+        method: "POST",
+        path: "/v1/tenant/credential-coverage",
         headers: a.managementHeaders(),
+        body: JSON.stringify({ agentId: agentA.manifest.id, environmentId: environmentB }),
       },
       expectAScoped: true,
     },
@@ -197,7 +235,8 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
       const text = result.raw;
       expect(text, route.label).not.toContain(b.id);
       expect(text, route.label).not.toContain("sess-b");
-      expect(text, route.label).not.toContain(vaultB);
+      expect(text, route.label).not.toContain(environmentB);
+      expect(text, route.label).not.toContain(`secret-of-${b.name}`);
       expect(text, route.label).not.toContain(agentB.manifest.id);
       if (route.init.path === "/v1/agents") {
         expect(text).toContain(agentA.manifest.id);
@@ -208,25 +247,37 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
     } else if (result.status === 404) {
       // Misses inside A must not reveal B's existence via a distinct body.
       expect(result.raw, route.label).not.toContain(b.id);
-      expect(result.raw, route.label).not.toContain(vaultB);
+      expect(result.raw, route.label).not.toContain(`secret-of-${b.name}`);
     }
   }
 
-  // Positive control: A can still read its own vault/session.
+  // Deleting B's Environment id in A deletes nothing: A has none by that id.
+  const deleted = await getJson(`${host.url}/v1/environments/${environmentB}`, {
+    method: "DELETE",
+    headers: a.headers(),
+  });
+  expect(deleted.status).toBe(200);
+  expect(deleted.body).toEqual({ id: environmentB, deleted: false });
+
+  // Positive control: A can still read its own Environment and session.
   const ownSession = await getJson(`${host.url}/v1/sessions/sess-a`, {
     headers: a.headers(),
   });
   expect(ownSession.status).toBe(200);
-  const ownVault = await getJson(`${host.url}/v1/tenant/vaults/${vaultA}`, {
-    headers: a.managementHeaders(),
+  const ownEnvironment = await getJson(`${host.url}/v1/environments/${environmentA}/secrets/api`, {
+    headers: a.headers(),
   });
-  expect(ownVault.status).toBe(200);
+  expect(ownEnvironment.status).toBe(200);
 
   // B still has its own session after the fuzz, on its own Host; A's key reaches nothing there.
   const bSession = await getJson(`${other.url}/v1/sessions/sess-b`, {
     headers: b.headers(),
   });
   expect(bSession.status).toBe(200);
+  const bEnvironment = await getJson(`${other.url}/v1/environments/${environmentB}/secrets/api`, {
+    headers: b.headers(),
+  });
+  expect(bEnvironment.status).toBe(200);
   const crossed = await getJson(`${other.url}/v1/sessions/sess-b`, {
     headers: a.headers(),
   });

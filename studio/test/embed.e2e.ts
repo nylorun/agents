@@ -31,7 +31,7 @@ async function listen(server: Server, port = 0): Promise<number> {
 
 /**
  * Just enough Runtime for the dashboard to open one session. `listsMissing`
- * answers `{}` where the dashboard expects provider and vault lists.
+ * answers `{}` where the dashboard expects provider and Environment lists.
  */
 async function fakeRuntime({ listsMissing = false } = {}) {
   const session = {
@@ -42,10 +42,7 @@ async function fakeRuntime({ listsMissing = false } = {}) {
     implementationVersion: "1",
     status: "idle",
     activeTurnId: null,
-    vaultIds: [],
-    credentialSelections: [],
-    sandboxOwnerId: null,
-    sandbox: null,
+    environment: null,
     mcpSnapshot: null,
     mcpDiagnostics: [],
     uncertainEffects: [],
@@ -78,11 +75,11 @@ async function fakeRuntime({ listsMissing = false } = {}) {
       return; // held open, like a live stream
     }
     if (path.endsWith("/items")) return res.end(JSON.stringify({ items: [], cursor: null }));
-    if (listsMissing && ["/v1/tenant/providers", "/v1/tenant/models", "/v1/tenant/vaults"].includes(path))
+    if (listsMissing && ["/v1/tenant/providers", "/v1/tenant/models", "/v1/environments"].includes(path))
       return res.end(JSON.stringify({}));
     if (path === "/v1/tenant/providers" || path === "/v1/tenant/models")
       return res.end(JSON.stringify({ providers: [] }));
-    if (path === "/v1/tenant/vaults") return res.end(JSON.stringify({ vaults: [] }));
+    if (path === "/v1/environments") return res.end(JSON.stringify({ environments: [] }));
     if (path === "/v1/tenant/model") return res.end(JSON.stringify({ configured: false }));
     res.end(JSON.stringify({}));
   });
@@ -225,10 +222,10 @@ for (const [name, browserType] of [
         assert.equal(await frame.evaluate(() => document.documentElement.style.getPropertyValue("--primary")), "#3366ff");
 
         // The app navigates; Studio reports the route back.
-        await page.evaluate((route) => (window as any).__post("navigate", { route }), `/tenants/${TENANT}/vault`);
-        await waitForMessage(page, (m) => m.kind === "route.changed" && m.route === `/tenants/${TENANT}/vault`, "vault route");
+        await page.evaluate((route) => (window as any).__post("navigate", { route }), `/tenants/${TENANT}/environments`);
+        await waitForMessage(page, (m) => m.kind === "route.changed" && m.route === `/tenants/${TENANT}/environments`, "environments route");
         // A route outside the installation's one Tenant is refused.
-        await page.evaluate(() => (window as any).__post("navigate", { route: "/tenants/tn_other/vault" }));
+        await page.evaluate(() => (window as any).__post("navigate", { route: "/tenants/tn_other/environments" }));
         await waitForMessage(page, (m) => m.kind === "error" && m.code === "route_other_tenant", "route_other_tenant");
 
         // No token in storage or cookies.
@@ -311,7 +308,7 @@ test("a normal browser tab on loopback opens the one Tenant with no sign-in, and
   }
 });
 
-test("a Runtime answering {} for provider and vault lists leaves the dashboard rendered", async () => {
+test("a Runtime answering {} for provider and Environment lists leaves the dashboard rendered", async () => {
   const browser = await chromium.launch();
   try {
     await withStack(
@@ -332,8 +329,8 @@ test("a Runtime answering {} for provider and vault lists leaves the dashboard r
         await page.getByText("The Runtime did not return connected model providers.").waitFor();
         await page.getByText("Agent One").first().waitFor();
 
-        await page.goto(`${studioUrl}/tenants/${TENANT}/vault`);
-        await page.getByText("The Runtime did not return the Tenant's vaults.").waitFor();
+        await page.goto(`${studioUrl}/tenants/${TENANT}/settings/credentials`);
+        await page.getByText("The Runtime did not return the Tenant's Environments.").waitFor();
         assert.equal(await page.getByText("Something went wrong in this view").count(), 0);
         assert.deepEqual(pageErrors, []);
       },
