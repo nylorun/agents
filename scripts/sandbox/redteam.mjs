@@ -99,7 +99,7 @@ try {
 
     step("the Harness API listener serves neither the Runtime API nor the Management API");
     for (const [label, token] of [["host", hostToken], ["run", runToken]])
-      for (const path of ["/v1/sessions", "/v1/tenant", "/v1/tenant/keys", "/v1/tenant/vaults", "/nylorun/v1/keys/sign"]) {
+      for (const path of ["/v1/sessions", "/v1/tenant", "/v1/tenant/keys", "/v1/environments", "/nylorun/v1/keys/sign"]) {
         const status = await http(host, ports.harness, "GET", path, bearer(token));
         assert.ok(!(status >= 200 && status < 400), `GET ${path} with a ${label} token on the Harness API answered ${status}`);
       }

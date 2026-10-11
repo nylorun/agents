@@ -16,10 +16,9 @@ export type SandboxReport = {
     version?: string;
   }[];
   defaultImage?: string;
-  /** The Tenant's sandbox configuration (Runtimes with Sandboxes v3). */
+  /** The Tenant's Environment settings in force (`environments.config`, protocol 11). */
   config?: {
-    default: "none" | "virtual" | Record<string, unknown>;
-    limits?: { network?: readonly string[] };
+    limits?: { network?: readonly string[]; idle?: string; environments?: number };
   };
 };
 
@@ -70,14 +69,21 @@ export async function doctorSandbox(options: { json: boolean }): Promise<void> {
       ? "auto (npx nylorun start seeds the Tenant's sandbox.backend from .env NYLORUN_SANDBOX)"
       : report.preference,
   ]);
-  if (report.config)
+  rows.push([
+    "sessions",
+    "get a sandbox only on an Environment (createSession({ environment }) names one)",
+  ]);
+  const limits = report.config?.limits;
+  if (limits)
     rows.push([
-      "default",
-      report.config.default === "none"
-        ? "none: sessions get a sandbox only when opened with one (set a default with PUT /v1/tenant/sandbox)"
-        : report.config.default === "virtual"
-          ? "virtual: sessions that name no sandbox get one"
-          : "a Tenant sandbox: sessions that name no sandbox get it",
+      "limits",
+      [
+        limits.idle ? `idle ${limits.idle}` : undefined,
+        limits.environments === undefined ? undefined : `${limits.environments} environments`,
+        limits.network ? `${limits.network.length} allowed hosts` : undefined,
+      ]
+        .filter((item) => item !== undefined)
+        .join(", ") || "-",
     ]);
   rows.push([
     "selected",

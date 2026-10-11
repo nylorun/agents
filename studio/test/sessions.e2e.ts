@@ -1,6 +1,6 @@
 /**
  * Opening sessions in the dashboard, in Chromium: a session an application
- * created (another owner, a sandbox, info) opens and shows its history, and a
+ * created (another owner, an Environment, info) opens and shows its history, and a
  * flow's child session, whose agent is embedded and not registered, opens from
  * the Workflow tree. Only "New session" creates a session.
  *
@@ -62,9 +62,26 @@ function event(sessionId: string, type: string, payload: unknown) {
 
 type Creation = Record<string, unknown>;
 
-/** Session creation identity as the Runtime compares it (no requestId, vaults or selections). */
+const time = "2026-10-10T00:00:00.000Z";
+const environmentView = (id: string, ownerUserId: string | null) => ({
+  id,
+  kind: "virtual",
+  labels: {},
+  recipe: { resources: { cpus: 1, memory: "1024MiB" }, network: { allowedHosts: [] }, harness: "nylorun", lifecycle: {} },
+  version: 1,
+  appliedVersion: 1,
+  ownerUserId,
+  state: "ready",
+  lastUsedAt: time,
+  sessions: [],
+  createdAt: time,
+  updatedAt: time,
+});
+const ENVIRONMENTS = [environmentView("team/build", null), environmentView("users/alice", "app:alice")];
+
+/** Session creation identity as the Runtime compares it (no requestId). */
 function identity(creation: Creation): string {
-  const { requestId: _r, vaultIds: _v, credentialSelections: _c, ...rest } = creation;
+  const { requestId: _r, ...rest } = creation;
   return JSON.stringify(rest, Object.keys(rest).sort());
 }
 
@@ -72,12 +89,12 @@ function identity(creation: Creation): string {
  * A Runtime that keeps sessions like the real one: `PUT` on an existing
  * session with other creation parameters answers 409, an unknown session 404.
  */
-async function fakeRuntime() {
+async function fakeRuntime(environments = false) {
   const sessions = new Map<string, { creation: Creation; items: unknown[] }>([
     [
       ALICE_SESSION,
       {
-        creation: { agentId: AGENT, ownerUserId: "app:alice", sandbox: {}, info: { tier: "gold" } },
+        creation: { agentId: AGENT, ownerUserId: "app:alice", environment: "team/build", info: { tier: "gold" } },
         items: [
           event(ALICE_SESSION, "command.message", { type: "message", content: "Where is order 42?" }),
           event(ALICE_SESSION, "turn.completed", { output: "Order 42 ships today." }),
@@ -103,6 +120,7 @@ async function fakeRuntime() {
     ],
   ]);
   const puts: { id: string; body: Creation }[] = [];
+  const coverage: (string | null)[] = [];
   const view = (id: string) => {
     const creation = sessions.get(id)!.creation;
     return {
@@ -113,10 +131,7 @@ async function fakeRuntime() {
       implementationVersion: "1",
       status: "idle",
       activeTurnId: null,
-      vaultIds: [],
-      credentialSelections: [],
-      sandboxOwnerId: null,
-      sandbox: creation.sandbox ?? null,
+      environment: typeof creation.environment === "string" ? { id: creation.environment, version: 1 } : null,
       mcpSnapshot: null,
       mcpDiagnostics: [],
       uncertainEffects: [],
@@ -182,17 +197,49 @@ async function fakeRuntime() {
       }
       return send(200, view(id));
     }
+    if (path === "/v1/environments") return send(200, { environments: environments ? ENVIRONMENTS : [] });
+    if (path === "/v1/environments/team%2Fbuild") return send(200, ENVIRONMENTS[0]);
+    if (path === "/v1/tenant/credential-coverage") {
+      const { agentId, environmentId } = JSON.parse(raw) as { agentId: string; environmentId?: string };
+      coverage.push(environmentId ?? null);
+      const covered = environmentId === "team/build";
+      return send(200, {
+        agentId,
+        environmentId: environmentId ?? null,
+        complete: covered,
+        // Only the Tenant with Environments has an agent that declares an MCP server.
+        entries: !environments ? [] : [
+          {
+            kind: "mcp",
+            name: "tickets",
+            serverName: "tickets",
+            url: "https://mcp.tickets.example/mcp",
+            required: false,
+            status: covered ? "covered" : "missing",
+            ...(covered ? { credential: { environmentId, name: "tickets" } } : {}),
+            message: covered ? "Sends tickets." : "Called without a credential.",
+          },
+        ],
+      });
+    }
     if (path === "/v1/tenant/providers" || path === "/v1/tenant/models") return send(200, { providers: [] });
-    if (path === "/v1/tenant/vaults") return send(200, { vaults: [] });
     if (path === "/v1/tenant/model") return send(200, { configured: false });
     send(200, {});
   });
   const port = await listen(server);
-  return { url: `http://127.0.0.1:${port}`, puts, close: () => (server.closeAllConnections(), server.close()) };
+  return { url: `http://127.0.0.1:${port}`, puts, coverage, close: () => (server.closeAllConnections(), server.close()) };
 }
 
-async function withStudio(run: (context: { page: Page; studioUrl: string; puts: { id: string; body: Creation }[] }) => Promise<void>) {
-  const runtime = await fakeRuntime();
+async function withStudio(
+  run: (context: {
+    page: Page;
+    studioUrl: string;
+    puts: { id: string; body: Creation }[];
+    coverage: (string | null)[];
+  }) => Promise<void>,
+  environments = false,
+) {
+  const runtime = await fakeRuntime(environments);
   const studio = await startStudioServer({
     runtimeUrl: runtime.url,
     adminKey: ADMIN_KEY,
@@ -212,7 +259,7 @@ async function withStudio(run: (context: { page: Page; studioUrl: string; puts: 
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto(url);
     await page.waitForURL(`${studio.url}/tenants/${TENANT}`);
-    await run({ page, studioUrl: studio.url, puts: runtime.puts });
+    await run({ page, studioUrl: studio.url, puts: runtime.puts, coverage: runtime.coverage });
     assert.deepEqual(pageErrors, []);
   } finally {
     await browser.close();
@@ -221,11 +268,12 @@ async function withStudio(run: (context: { page: Page; studioUrl: string; puts: 
   }
 }
 
-test("a session an application created for another owner, with a sandbox and info, opens with its history", async () => {
+test("a session an application created for another owner, on an Environment and with info, opens with its history", async () => {
   await withStudio(async ({ page, studioUrl, puts }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
     await page.locator("article", { hasText: "Where is order 42?" }).waitFor();
     await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
+    await page.getByRole("link", { name: "Environment: team/build", exact: true }).waitFor();
     assert.equal(await page.getByText("Runtime HTTP 409").count(), 0);
     assert.deepEqual(puts, [], "opening an existing session never PUTs it");
   });
@@ -285,7 +333,7 @@ test("the session list shows every session and filters on an agent, from the tab
   });
 });
 
-test("New session creates the session for the local developer", async () => {
+test("New session creates the session for the local developer, with no Environment when the Tenant has none", async () => {
   await withStudio(async ({ page, puts }) => {
     await page.getByRole("button", { name: "New session" }).click();
     await page.getByRole("menuitem", { name: "Orders" }).click();
@@ -294,7 +342,39 @@ test("New session creates the session for the local developer", async () => {
     assert.equal(puts.length, 1);
     assert.equal(puts[0]!.body.agentId, AGENT);
     assert.equal(puts[0]!.body.ownerUserId, "local-developer");
+    assert.equal(puts[0]!.body.environment, undefined);
   });
+});
+
+test("New session names the Environment picked, checks its coverage, and refuses one guarded for another owner", async () => {
+  await withStudio(async ({ page, studioUrl, puts, coverage }) => {
+    const sheet = page.getByRole("dialog", { name: "New session · Orders" });
+    const start = async () => {
+      await page.goto(`${studioUrl}/tenants/${TENANT}`);
+      await page.getByRole("button", { name: "New session" }).click();
+      await page.getByRole("menuitem", { name: "Orders" }).click();
+      await sheet.waitFor();
+    };
+    // None: no sandbox, no credentials.
+    await start();
+    await sheet.getByText("No credential", { exact: true }).waitFor();
+    assert.equal(await sheet.getByRole("radio", { name: /users\/alice/u }).isDisabled(), true);
+    await sheet.getByRole("button", { name: "Start session" }).click();
+    await page.getByRole("textbox", { name: "Message" }).waitFor();
+    assert.equal(puts.length, 1);
+    assert.equal(puts[0]!.body.environment, undefined);
+    // An Environment: its coverage, then a session that names it.
+    await start();
+    await sheet.getByRole("radio", { name: /team\/build/u }).check();
+    await sheet.getByText("Covered", { exact: true }).waitFor();
+    await sheet.getByText("Sends tickets", { exact: true }).waitFor();
+    await sheet.getByRole("button", { name: "Start session" }).click();
+    await page.getByRole("link", { name: "Environment: team/build", exact: true }).waitFor();
+    assert.equal(puts.length, 2);
+    assert.equal(puts[1]!.body.environment, "team/build");
+    assert.equal(puts[1]!.body.ownerUserId, "local-developer");
+    assert.ok(coverage.includes("team/build"));
+  }, true);
 });
 
 test("a flow node in the Workflow tree opens its child session, whose agent is not registered", async () => {

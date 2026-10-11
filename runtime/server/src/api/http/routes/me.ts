@@ -35,7 +35,7 @@ export function describeCaller(scope: AuthScope): MeBody {
         subject: scope.subject,
         scopes: ordered(scope.scopes),
         agents: scope.agents === "*" ? "*" : [...scope.agents].sort(),
-        sandboxes: [...(scope.sandboxes ?? [])],
+        environments: [...(scope.environments ?? [])],
         via: `issuer:${scope.issuer}`,
       };
     case "management":

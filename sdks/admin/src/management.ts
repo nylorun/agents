@@ -1,17 +1,16 @@
 /**
  * The Management API client (`/v1/tenant/*`, protocol 8): the Tenant's settings, models,
- * vaults, MCP server previews, signing keys and application keys, with a management key. It imports nothing from
+ * credential coverage, MCP server previews, signing keys and application keys, with a
+ * management key. An Environment's secrets are written on the Runtime API
+ * (`@nylorun/agents`, `client.environments.secrets`). It imports nothing from
  * Node, so a browser app that reaches the Runtime through its own proxy (Studio) uses it too:
  * `@nylorun/admin/client`. `createAdmin()` in the package's main entry finds the URL and key.
  */
 import { parseBody, requestHeaders } from "@nylorun/core/transport";
 import {
   ModelCallExportPageSchema,
-  type CreateCredentialRequest,
-  type CreateVaultRequest,
   type CredentialCoverage,
   type CredentialCoverageRequest,
-  type CredentialInfo,
   type HostModelCatalog,
   type HostModelView,
   type ListProvidersResponse,
@@ -26,10 +25,9 @@ import {
   type PutModelBudgetsRequest,
   type PutOperatorKeyResponse,
   type PutTenantArtifactsRequest,
-  type PutTenantSandboxRequest,
+  type PutTenantEnvironmentsRequest,
   type ResetTenantRequest,
   type ResetTenantResponse,
-  type RotateCredentialRequest,
   type SeedTenantConfigRequest,
   type SeedTenantConfigResponse,
   type SelectHostModelRequest,
@@ -37,7 +35,6 @@ import {
   type TenantArtifactsView,
   type TenantSandboxView,
   type TenantStatus,
-  type VaultInfo,
 } from "@nylorun/core/contracts";
 import { AdminError, rejection } from "./errors.js";
 
@@ -60,7 +57,7 @@ export interface ManagementTenant {
   status(): Promise<TenantStatus>;
   /** Seeds the Tenant's configuration where it is unset (`nylorun start` does this). */
   seed(request: Body<SeedTenantConfigRequest>): Promise<SeedTenantConfigResponse>;
-  /** Resets the Tenant's sessions, sandboxes or both. */
+  /** Resets the Tenant's sessions, Environments or both. */
   reset(request: Body<ResetTenantRequest>): Promise<ResetTenantResponse>;
 }
 
@@ -100,37 +97,11 @@ export interface ManagementModels {
   };
 }
 
-export interface ManagementVaults {
-  create(request: Body<CreateVaultRequest>): Promise<VaultInfo>;
-  /** The installation vaults, after `ownerUserId`'s when it is given. */
-  list(ownerUserId?: string): Promise<VaultInfo[]>;
-  get(vaultId: string): Promise<VaultInfo>;
-  delete(vaultId: string): Promise<{ id: string }>;
-  readonly credentials: {
-    create(vaultId: string, request: Body<CreateCredentialRequest>): Promise<CredentialInfo>;
-    list(vaultId: string): Promise<CredentialInfo[]>;
-    get(vaultId: string, credentialId: string): Promise<CredentialInfo>;
-    /** Rotates the credential's secret. */
-    rotate(
-      vaultId: string,
-      credentialId: string,
-      request: Body<RotateCredentialRequest>,
-    ): Promise<CredentialInfo>;
-    delete(vaultId: string, credentialId: string): Promise<{ id: string }>;
-  };
-  /**
-   * Which credential each remote MCP server and HTTP tool of the saved agent `agentId` would get
-   * in a session that attaches `vaultIds` (default none), chosen as its calls choose one. A
-   * `missing` entry lists the vaults that hold one in `available`. Host feature
-   * `credential-coverage`.
-   */
-  coverage(request: Body<CredentialCoverageRequest>): Promise<CredentialCoverage>;
-}
-
 export interface ManagementMcp {
   /**
    * A remote MCP server's tools before an agent names it (R2b C12): the Runtime connects with
-   * the installation vault's credential for `url`, lists the tools and closes; it never calls
+   * the credential for `url` in the vault of `environmentId` (none without one), lists the
+   * tools and closes; it never calls
    * one. Each tool has the name the model would call it, made with `name` (default: from the
    * URL's host). A server that needs a person's sign-in answers `authRequired`, with its
    * protected-resource metadata. A server that cannot be listed rejects with
@@ -153,7 +124,8 @@ export interface ManagementSigningKeys {
 export interface ManagementSettings {
   readonly sandbox: {
     get(): Promise<TenantSandboxView>;
-    put(request: Body<PutTenantSandboxRequest>): Promise<TenantSandboxView>;
+    /** The Tenant's Environment settings: limits, the pods' stop grace and placement. */
+    put(request: Body<PutTenantEnvironmentsRequest>): Promise<TenantSandboxView>;
   };
   readonly artifacts: {
     get(): Promise<TenantArtifactsView>;
@@ -173,7 +145,12 @@ export class ManagementClient {
   readonly tenant: ManagementTenant;
   readonly keys: ManagementKeys;
   readonly models: ManagementModels;
-  readonly vaults: ManagementVaults;
+  /**
+   * Which secret of Environment `environmentId` each remote MCP server and HTTP tool of the
+   * saved agent `agentId` would get in a session that names it (`covered`), or none
+   * (`missing`). Host feature `credential-coverage`.
+   */
+  readonly coverage: (request: Body<CredentialCoverageRequest>) => Promise<CredentialCoverage>;
   readonly mcp: ManagementMcp;
   readonly signingKeys: ManagementSigningKeys;
   readonly settings: ManagementSettings;
@@ -227,35 +204,7 @@ export class ManagementClient {
         put: (request) => call("PUT", "/v1/tenant/budgets", withId(request)),
       },
     };
-    const vault = (vaultId: string) => `/v1/tenant/vaults/${segment(vaultId)}`;
-    const credential = (vaultId: string, credentialId: string) =>
-      `${vault(vaultId)}/credentials/${segment(credentialId)}`;
-    this.vaults = {
-      create: (request) => call("POST", "/v1/tenant/vaults", withId(request)),
-      list: async (ownerUserId) =>
-        (
-          await call<{ vaults: VaultInfo[] }>(
-            "GET",
-            ownerUserId === undefined
-              ? "/v1/tenant/vaults"
-              : `/v1/tenant/vaults?ownerUserId=${segment(ownerUserId)}`,
-          )
-        ).vaults,
-      get: (vaultId) => call("GET", vault(vaultId)),
-      delete: (vaultId) => call("DELETE", vault(vaultId)),
-      credentials: {
-        create: (vaultId, request) =>
-          call("POST", `${vault(vaultId)}/credentials`, withId(request)),
-        list: async (vaultId) =>
-          (await call<{ credentials: CredentialInfo[] }>("GET", `${vault(vaultId)}/credentials`))
-            .credentials,
-        get: (vaultId, credentialId) => call("GET", credential(vaultId, credentialId)),
-        rotate: (vaultId, credentialId, request) =>
-          call("POST", credential(vaultId, credentialId), withId(request)),
-        delete: (vaultId, credentialId) => call("DELETE", credential(vaultId, credentialId)),
-      },
-      coverage: (request) => call("POST", "/v1/tenant/credential-coverage", withId(request)),
-    };
+    this.coverage = (request) => call("POST", "/v1/tenant/credential-coverage", withId(request));
     this.mcp = {
       preview: (request) => call("POST", "/v1/tenant/mcp/preview", request),
     };

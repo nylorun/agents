@@ -40,7 +40,7 @@ import { uploadArtifact } from "../artifacts/service.js";
 import { DEFAULT_CONTENT_TYPE } from "../blob/index.js";
 import { sandboxCapabilityOf } from "../sandbox/manager.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
-import { sandboxLookup, sessionOf, type TenantContext } from "./context.js";
+import { sessionOf, type TenantContext } from "./context.js";
 import { HttpError } from "./http.js";
 import { manifestFor } from "./session.js";
 import { jsonBytes, utf8Boundary } from "./tool-results.js";
@@ -75,14 +75,13 @@ export async function callSaveArtifact(
   const artifactId = typeof input.artifactId === "string" ? input.artifactId : undefined;
   const { s, workspace, limits, ours } = await ctx.store.tx(async (t) => {
     const s = await sessionOf(t, request.sessionId);
-    const lookup = await sandboxLookup(t, s.id);
     // A new version only of an artifact of this session.
     const ours =
       artifactId === undefined ||
       (isArtifactId(artifactId) && (await t.artifact(artifactId))?.sessionId === s.id);
     return {
       s,
-      workspace: sandboxWorkspaceOf(s, lookup),
+      workspace: sandboxWorkspaceOf(s),
       limits: await readArtifactLimits(t),
       ours,
     };
@@ -103,7 +102,7 @@ export async function callSaveArtifact(
         id: workspace.ownerId,
         activeTurnId: s.activeTurnId,
         manifest: s.manifest,
-        ...(workspace.sandboxId === undefined ? {} : { sandboxId: workspace.sandboxId }),
+        ...(workspace.environmentId === undefined ? {} : { environmentId: workspace.environmentId }),
       },
       capability,
       path,

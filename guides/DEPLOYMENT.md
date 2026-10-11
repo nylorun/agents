@@ -62,10 +62,11 @@ application key, and calls the Runtime API for each person with
 ([sdks/agents/README.md](../sdks/agents/README.md#acting-for-a-person-app-servers); a
 complete web backend is in
 [examples](../examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
-enforces the scopes and each subject's ownership of sessions itself. Vaults
-are the installation's: operators manage them through the Management API with a
-management key, and the app server attaches them to sessions by id (`vaultIds`)
-([Credentials](#credentials)).
+enforces the scopes and each subject's ownership of sessions itself. Sessions
+run in **Environments**: the app server creates them (one per person, per
+project or per session, by an id it chooses), writes each one's secrets on the
+Runtime API, and names one when it opens a session (`environment`)
+([Environments](#environments), [Credentials](#credentials)).
 
 - Keep the Runtime off the network. An app server on the same machine calls
   `http://localhost:<port>` (the URL `nylorun start` prints). An app server
@@ -89,7 +90,8 @@ management key, and the app server attaches them to sessions by id (`vaultIds`)
   rotate or delete one without touching the others; the Runtime keeps only its
   hash. An app server needs no management key and never the admin key: an
   application key reaches only the Runtime API, so a leaked one cannot reset the
-  Tenant, read vaults or rotate signing keys. No key is derived from the admin
+  Tenant, change its settings or rotate signing keys. It can write and delete
+  Environments and their secrets, but no key reads a secret back. No key is derived from the admin
   key but Studio's: an earlier Host's derived keys are no longer registered, and
   those already in a database keep working as ordinary application keys until
   you replace them.
@@ -132,17 +134,19 @@ issuers:
     # Optional, with their defaults: {sub}, { claim: scope }, every scope but studio.
     subject: "u:{sub}"                           # the owner of the person's sessions; scalar claims only
     scopes: { claim: nylorun_scopes }            # or { fixed: [sessions:own, agents:read] }
-    allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
+    allowedScopes: [agents:read, sessions:own, environments:write, studio]
     agents: [support]                            # absent reaches every agent
-    sandboxes: ["{org_id}/*"]                    # grant templates; absent reaches none
+    environments: ["users/{sub}/*"]              # grant templates; absent reaches none
 ```
 
 - Tokens must be RS256, ES256 or EdDSA, at most 16 KiB, with `exp`; how long they live is
   the identity provider's setting.
   Their scopes are the claim's, limited to `allowedScopes` (`agents:read`,
-  `sessions:own`, `sandboxes:write`, and `studio`, an operator scope for
-  Studio). A sandbox grant whose
-  claim is missing, or is not one id segment, reaches nothing.
+  `sessions:own`, `environments:write`, and `studio`, an operator scope for
+  Studio). An Environment grant whose
+  claim is missing, or is not one id segment, reaches nothing. A file that still
+  says `sandboxes:` or `sandboxes:write` (protocol 10) stops the runtime, naming
+  the new spelling.
 - A malformed file stops the runtime, naming the issuer and the field; a
   subject template must reference a claim, or everyone would be one person. A
   key the file does not define (such as `maxLifetime`, removed in protocol 9)
@@ -293,13 +297,54 @@ On the app server's machine:
 This is one Runtime on one server, operated by hand: no replicas, managed
 backups, Helm charts or upgrade automation.
 
-## Sandboxes
+## Environments
 
-A Runtime runs sessions' sandboxes on the in-process **virtual** backend: an
-emulated bash with a virtual filesystem, whose `/workspace` is kept under the
-Tenant's directory. It is not a VM or container boundary. Egress is limited to
-the exact hosts the session's sandbox allows, and a sandbox cannot name an
-image. `npx -p nylorun nylo doctor sandbox` reports the backend in use.
+A session runs in an **Environment** (protocol 11): one sandbox and one vault,
+under an id the app chooses (`users/alice/web`, `projects/acme`), created with
+`PUT /v1/environments/{id}` (`client.environments.put` in `@nylorun/agents`) and
+named when a session opens (`environment: "<id>"`). A session that names none
+has no sandbox and no credentials. Upgrading from protocol 10, which had sandbox
+resources and vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start).
+
+- **Kind**, fixed when it is created: `virtual` (the default), an emulated bash
+  with a virtual filesystem in the harness container, whose `/workspace` is kept
+  under the Tenant's directory and which is not a VM or container boundary;
+  `pod`, a container with its own volume on the Tenant's cluster, once sandbox
+  pods are enabled (`nylorun sandbox enable`); or `none`, a vault and no
+  compute, for agents that use only remote MCP servers and HTTP tools.
+- **Recipe**: `image`, `resources` and `storage` (pods only; `storage` is fixed),
+  `network.allowedHosts`, `harness` and `lifecycle`. A `PUT` with a different
+  recipe bumps its `version`. Network changes apply within seconds; a pod gets a
+  new image or resources when it next starts from stopped (`appliedVersion` says
+  what runs), and a virtual Environment's change reaches the sessions opened
+  after it. Egress is limited to the hosts the Environment allows, within the
+  Tenant's `limits.network`; private networks, loopback, the host and cloud
+  metadata endpoints are always blocked.
+- **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn
+  (at most the Tenant's `limits.idle`); `lifecycle.deleteAfter` deletes the
+  Environment, its vault and its disk once it has gone that long unused (no
+  turn, change, secret write, stop or reset). The default is never.
+- **Owner guard**: with `ownerUserId` set, only that owner's sessions may name
+  the Environment, checked when a session opens and at every turn start
+  (`403 environment_owner_mismatch`; a caller acting for a person gets the
+  `404` of a missing one).
+- **Turns** run one at a time per Environment with a sandbox: a second
+  session's turn is `409 environment_busy` until the first ends (the sessions of
+  one flow count as one). Sessions on one Environment share its `/workspace`.
+- **Who reaches it**: an application key reaches every Environment; acting for
+  a person, changing one needs `environments:write`. A trusted issuer's token
+  reaches only the ids its issuer grants (the identity file's `environments`
+  templates). The Tenant holds at most `limits.environments` (default 100),
+  set with `PUT /v1/tenant/sandbox` (Tenant setting `environments.config`).
+
+`GET /v1/environments?label=k=v` lists them, `POST .../stop` and `.../reset`
+stop a pod or give it a new, empty volume, and `DELETE` removes the Environment
+with its vault and files. `npx nylorun sandbox ls | rm` does the same on a local
+Tenant, and `npx -p nylorun nylo doctor sandbox` reports the sandbox backend in
+use. Each Environment's lifecycle events (`environment.created`, `.attached`,
+`.deleted`, a pod's `.running`, `.suspended`, `.lost`, …) are at
+`GET /v1/environments/{id}/events`; a session's own log records
+`environment.attached`, `environment.state` and `environment.exec`.
 
 ## Postgres for session events
 
@@ -403,7 +448,7 @@ The gateway is also the Tool Gate. Tool calls that leave the loop cross it, so
 the runtime container never holds an MCP credential or calls a tool's server:
 
 - **Remote MCP servers** (`streamable-http` and `sse`): the gateway opens the
-  connection, authorizes it from the session's attached vaults and runs
+  connection, authorizes it from the vault of the session's Environment and runs
   `tools/list` and `tools/call`. `nylorun logs gateway`
   shows one `mcp_request` line per request, never arguments, results or
   credentials. Nylorun accepts remote MCP servers only: there are no stdio
@@ -418,8 +463,8 @@ the runtime container never holds an MCP credential or calls a tool's server:
   never run again.
 
 The gateway also runs `keys`, the only process that reads the vault key: it
-runs every vault write that touches a secret (creating and rotating a
-credential, setting and selecting the host model), signs every token
+runs every vault write that touches a secret (writing an Environment's
+secret, setting and selecting the host model), signs every token
 (capability links, run and host tokens, signing-key rotation) and runs MCP tool
 previews, which send a vault credential. The runtime reaches
 it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
@@ -434,43 +479,42 @@ services in a later release.
 ## MCP servers and HTTP tools
 
 An agent names its remote MCP servers and HTTP tools by URL, and its manifest never holds a
-secret. The operator decides, per URL, how this installation reaches each one, with a credential
-in a vault. The same agent can then use a key on a laptop and an MCP gateway in production, with
-no change to its manifest. For each server:
+secret. Whoever sets up an Environment decides, per URL, how its sessions reach each one, with a
+credential in the Environment's vault. The same agent can then use a key on a laptop and an MCP
+gateway in production, with no change to its manifest. For each server:
 
-1. **Add a credential** for its URL ([Credentials](#credentials)), or none for a public server.
+1. **Write a credential** for its URL into the Environment ([Credentials](#credentials)), or none
+   for a public server.
 2. **Preview its tools** with that credential ([Previewing a server](#previewing-a-server)).
 3. **Set its tools** in the agent's manifest: which are enabled, which need approval, which are
    deferred ([Tools, results and errors](#tools-results-and-errors)).
-4. **Attach the vault** to the sessions that need it: `vaultIds` when your app server opens one.
-   Check first that the vaults cover the agent ([Checking an agent's credentials](#checking-an-agents-credentials)).
+4. **Name the Environment** on the sessions that need it: `environment` when your app server
+   opens one. Check first that it covers the agent
+   ([Checking an agent's credentials](#checking-an-agents-credentials)).
 
-Upgrading from protocol 9, which had an MCP OAuth connect and a credential resolver:
+An agent with only remote MCP servers and HTTP tools needs no sandbox: give it an Environment of
+kind `none`, a vault and no compute. Upgrading from protocol 10, which had user and installation
+vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start);
+from protocol 9, which had an MCP OAuth connect and a credential resolver:
 [MIGRATION.md](./MIGRATION.md#mcp-credentials-from-vaults-only-protocol-10).
 
 ### Credentials
 
-A session's MCP and HTTP tool credentials come from the session's attached vaults
-(`vaultIds`), matched by the URL the agent names:
+A session's MCP and HTTP tool credentials come from the vault of the session's Environment,
+matched by the URL the agent names. A session without an Environment sends none. Each
+Environment has exactly one vault, created and deleted with it; there is no vault shared between
+Environments, so a key many Environments use is written into each.
 
-- An **installation vault** (`POST /v1/tenant/vaults` with `scope: "installation"`, or
-  `admin.vaults.create` in `@nylorun/admin`; Studio's Credentials page creates these) holds
-  the installation's own credentials, such as shared tool keys and gateway keys. Any session may
-  attach one.
-- A **person's vault** (owner `ownerUserId`) holds that person's own keys, and attaches only to
-  that person's sessions.
+Secrets are written on the Runtime API, by name: `PUT /v1/environments/{id}/secrets/{name}`
+(`client.environments.secrets.put` in `@nylorun/agents`), with an application key, or acting for
+a person with `environments:write`. `GET .../secrets` lists names, types and bindings, and
+`DELETE .../secrets/{name}` removes one. A credential for a tool is bound to one URL, the one the
+manifest names, and its name is a label (1–64 letters, digits, `.`, `_` and `-`). It is one of
+two types:
 
-A create request without `scope` makes a person's vault when it names `ownerUserId`, and an
-installation vault when it doesn't.
-
-Vault routes are the Management API's and take only a management key (protocol 8): an
-application key, alone or acting for a person, gets `403 key_role_mismatch`.
-
-A credential is bound to one URL, the one the manifest names, and is one of two kinds:
-
-| Kind | `auth` | Sends |
+| `type` | Body | Sends |
 | --- | --- | --- |
-| `bearer` | `{ type: "bearer", url, token }` | `Authorization: Bearer <token>` |
+| `bearer` | `{ type: "bearer", url, value }` | `Authorization: Bearer <value>` |
 | `headers` | `{ type: "headers", url, headers: { … } }` | Every header of the map: an `x-api-key`, two keys at once (Datadog's API and application keys), or a scheme other than `Bearer` |
 
 Either kind may add:
@@ -482,32 +526,28 @@ Either kind may add:
 - **`identity: { header }`**: a header that carries the session owner's subject, for a gateway
   that keeps each person's accounts ([Reaching a person's accounts](#reaching-a-persons-accounts)).
 
-Add one on Studio's Credentials page (in the sidebar), with `@nylorun/admin`, or with
-`POST /v1/tenant/vaults/{vaultId}/credentials` and a management key:
+Write one on Studio's Credentials page (in the sidebar), with `@nylorun/agents`, or with
+`PUT /v1/environments/{id}/secrets/{name}`:
 
 ```ts
-await admin.vaults.credentials.create(vaultId, {
-  name: "tickets",
-  idempotencyKey: "tickets",
-  auth: {
-    type: "headers",
-    url: "https://mcp.tickets.example/mcp",
-    headers: { "x-api-key": process.env.TICKETS_KEY!, "x-account-id": process.env.TICKETS_ACCOUNT! },
-  },
+await client.environments.secrets.put("projects/acme", "tickets", {
+  type: "headers",
+  url: "https://mcp.tickets.example/mcp",
+  headers: { "x-api-key": process.env.TICKETS_KEY!, "x-account-id": process.env.TICKETS_ACCOUNT! },
 });
 ```
 
-- Values are sealed with the vault key. No answer, event or log line holds one: a credential is
-  listed with its header names, `via` and identity header only.
-- A rotation (`admin.vaults.credentials.rotate`) replaces the token or the whole header map, and
-  keeps `via` and `identity` unless it gives them (`null` removes one).
+- Values are sealed with the vault key and write-only. No answer, event or log line holds one: a
+  credential is listed with its header names, `via` and identity header only.
+- A `PUT` to an existing name replaces the credential: its value, URL, `via` and identity header
+  together. The next request uses the new value.
+- One URL has at most one credential per Environment: a second `bearer` or `headers` credential
+  for the same URL is `409 credential_conflict` at the write.
 - The transport's own headers (`Content-Type`, `Accept`, `Mcp-Session-Id`, …), `Idempotency-Key`
   and `Nylorun-*` are refused. A credential header replaces a manifest header of the same name.
-- When two attached vaults hold a credential for one URL, the session's `credentialSelections`
-  picks one by server name (an HTTP tool's `credential`).
-- An MCP server with no credential in the session's vaults is called without one: a server that
+- An MCP server with no credential in the Environment's vault is called without one: a server that
   needs one answers `401`, and `mcp.discovered` reports it for that session. An HTTP tool that
-  names a `credential` the vaults lack fails with `http.credential`, and is not sent.
+  names a `credential` the vault lacks fails with `http.credential`, and is not sent.
 
 ### Reaching a person's accounts
 
@@ -517,20 +557,32 @@ server takes:
 
 | The server takes | The credential | In |
 | --- | --- | --- |
-| A key the person made, such as a personal access token (GitHub, Linear, Supabase) | `bearer` or `headers` | The person's vault |
-| Only the person's sign-in, with OAuth (Notion, Slack, Gmail) | A gateway credential: the MCP gateway's key, `via` and an identity header | An installation vault |
-| A client id and secret, exchanged for a short-lived token (MongoDB Atlas, Google service accounts) | A gateway credential | An installation vault |
+| A key the person made, such as a personal access token (GitHub, Linear, Supabase) | `bearer` or `headers` | The person's own Environment |
+| Only the person's sign-in, with OAuth (Notion, Slack, Gmail) | A gateway credential: the MCP gateway's key, `via` and an identity header | Each Environment whose sessions use the server |
+| A client id and secret, exchanged for a short-lived token (MongoDB Atlas, Google service accounts) | A gateway credential | Each Environment whose sessions use the server |
 
 In a survey of the 50 most used remote MCP servers (2026-10-07), half, and 7 of the top 10, took
 only a person's sign-in, so an MCP gateway is how most installations reach a person's tools.
 
 #### A person's own key
 
-Create the person's vault with a management key (`admin.vaults.create({ name, ownerUserId })`),
-add their key as a `bearer` or `headers` credential bound to the server's URL, and pass the
-vault's id in `vaultIds` when your app server opens their sessions. A key acts as whoever made it:
-put a person's own token only in their vault, and a key that acts for the organization in an
-installation vault.
+Give the person an Environment of their own, with the owner guard set to them, write their key
+into it as a `bearer` or `headers` credential bound to the server's URL, and name it when your app
+server opens their sessions:
+
+```ts
+await client.environments.put("users/alice/tools", { kind: "none", ownerUserId: "alice" });
+await client.environments.secrets.put("users/alice/tools", "linear", {
+  type: "bearer",
+  url: "https://mcp.linear.app/mcp",
+  value: process.env.ALICE_LINEAR_KEY!,
+});
+await client.createSession({ agentId: "triage", ownerUserId: "alice", environment: "users/alice/tools" });
+```
+
+A key acts as whoever made it: put a person's own token only in an Environment that only their
+sessions may name (`ownerUserId`), and a key that acts for the organization in the Environments
+your app gives everyone.
 
 #### A gateway credential
 
@@ -540,16 +592,12 @@ MCP's URL elicitation, and the model passes it on). The installation reaches the
 with one key, and the Runtime names the person in a header:
 
 ```ts
-await admin.vaults.credentials.create(toolsVaultId, {
-  name: "notion",
-  idempotencyKey: "notion",
-  auth: {
-    type: "bearer",
-    url: "https://mcp.notion.com/mcp", // what the manifest names
-    token: process.env.GATEWAY_KEY!, // the gateway's key
-    via: "https://gateway.internal/mcp/notion", // where the requests go
-    identity: { header: "X-User-Id" }, // the session owner, filled in by the Runtime
-  },
+await client.environments.secrets.put("users/u_7c41/web", "notion", {
+  type: "bearer",
+  url: "https://mcp.notion.com/mcp", // what the manifest names
+  value: process.env.GATEWAY_KEY!, // the gateway's key
+  via: "https://gateway.internal/mcp/notion", // where the requests go
+  identity: { header: "X-User-Id" }, // the session owner, filled in by the Runtime
 });
 ```
 
@@ -568,8 +616,10 @@ X-User-Id: u_7c41
   Check that your MCP gateway does not treat a missing id as an administrator or a default user.
 - The value comes from the session record. Nothing the model or a manifest says changes it: the
   run token names no owner, and a manifest header of the same name is replaced.
-- The MCP gateway's key can name any person. Keep it in an installation vault, give it only the
-  scopes your agents need, and rotate it like any other key.
+- The MCP gateway's key can name any person. No call reads it back from a vault, and a `PUT`
+  that changes its `via` must send a value too, so whoever can write an Environment cannot
+  redirect a key they do not hold. Give it only the scopes your agents need, and rotate it like
+  any other key (write it again into each Environment that holds it).
 - Every tool argument and result passes through the MCP gateway.
 - A `401` from the MCP gateway is `credential_rejected` to the model, and is not retried.
 
@@ -583,7 +633,7 @@ one against the vendor's current docs before you rely on it.
 and refreshes each person's tokens, and asks for consent with URL elicitation.
 
 ```json
-{ "type": "bearer", "url": "<the server's own URL>", "token": "<Arcade API key>",
+{ "type": "bearer", "url": "<the server's own URL>", "value": "<Arcade API key>",
   "via": "https://api.arcade.dev/mcp/<slug>", "identity": { "header": "Arcade-User-ID" } }
 ```
 
@@ -593,7 +643,7 @@ accepts. How a call names the person was not clear from its docs: check that bef
 identity header.
 
 ```json
-{ "type": "bearer", "url": "https://mcp.notion.com/mcp", "token": "<a service token ToolHive accepts>",
+{ "type": "bearer", "url": "https://mcp.notion.com/mcp", "value": "<a service token ToolHive accepts>",
   "via": "https://toolhive.internal/notion/mcp" }
 ```
 
@@ -632,47 +682,45 @@ query string). These were described from vendor docs on 2026-10-07 and have not 
 #### Servers that exchange a client id and secret
 
 Some servers take a client id and secret that must be exchanged for a short-lived token (MongoDB
-Atlas and Google service accounts, PayPal). A vault credential is a static header and the Runtime
+Atlas and Google service accounts, PayPal). An Environment's credential is a static header and the Runtime
 refreshes nothing, so reach these through a gateway or a proxy that does the exchange, with a
 `via` credential as above.
 
 ### Checking an agent's credentials
 
-Before you open sessions, ask what a session of a saved agent would send with the vaults you
-will attach:
+Before you open sessions, ask what a session of a saved agent would send in the Environment it
+will name, with a management key:
 
 ```ts
-const coverage = await admin.vaults.coverage({ agentId: "triage", vaultIds: [toolsVaultId] });
+const coverage = await admin.coverage({ agentId: "triage", environmentId: "projects/acme" });
 for (const entry of coverage.entries) console.log(entry.status, entry.name, entry.message);
 ```
 
-`POST /v1/tenant/credential-coverage` (Host feature `credential-coverage`) lists every remote MCP
-server and every HTTP tool `credential` the agent declares: its own, its subagents' and a flow's
-stages and agents. For each one, the vault decides as a call would (the same URL comparison and
-the same `credentialSelections` rule):
+`POST /v1/tenant/credential-coverage` with `{ agentId, environmentId }` (Host feature
+`credential-coverage`) lists every remote MCP server and every HTTP tool `credential` the agent
+declares: its own, its subagents' and a flow's stages and agents. For each one, the Environment's
+vault decides as a call would (the same URL comparison):
 
 | `status` | A session would |
 | --- | --- |
-| `covered` | Send `credential` (its vault, its name and its `via`) |
-| `missing` | Call an MCP server without a credential, which only a public server accepts, or fail an HTTP tool with `http.credential`. `available` lists the vaults the session could attach that hold one |
-| `ambiguous` | Refuse each call: several attached credentials are bound to the URL. Pick one with `credentialSelections` |
-| `selection_mismatch` | Refuse each call: the selection names a credential not bound to the URL |
+| `covered` | Send `credential` (its Environment, its name and its `via`) |
+| `missing` | Call an MCP server without a credential, which only a public server accepts, or fail an HTTP tool with `http.credential` |
 
-`complete` is true when every entry is `covered`. Pass `ownerUserId` to check a person's session:
-their vaults may be attached and are listed in `available`. The attachment is checked as a session
-PUT checks it, so another person's vault is `403` here too. Nothing reads a secret or calls a
-server. Studio's **New session** runs this check for its vault picker.
+`complete` is true when every entry is `covered`. Without `environmentId` every entry is
+`missing`, as for a session that names no Environment. Nothing reads a secret or calls a server.
+Studio's **New session** runs this check for the Environment it picks.
 
 ### Previewing a server
 
 ```sh
-nylorun mcp inspect https://mcp.linear.app/mcp --server linear
+nylorun mcp inspect https://mcp.linear.app/mcp --server linear --environment projects/acme
 ```
 
-`nylorun mcp inspect <url>` connects with the installation vault's credential for the URL (its
-headers and `via`, never an identity header), lists the server's tools within 15 s, and calls
-none. So do `admin.mcp.preview(…)`, `POST /v1/tenant/mcp/preview` and **Preview tools** on
-Studio's Credentials page. It shows each tool's model name (as a manifest naming the server
+`nylorun mcp inspect <url> --environment <id>` connects with that Environment's credential for
+the URL (its headers and `via`, never an identity header), or with none when you name no
+Environment, lists the server's tools within 15 s, and calls none. So do
+`admin.mcp.preview({ url, environmentId })`, `POST /v1/tenant/mcp/preview` with
+`{ url, environmentId }` and **Preview tools** on Studio's Credentials page. It shows each tool's model name (as a manifest naming the server
 `--server` would give it), its hints and the size of its input schema, and the tools renamed for
 the model. A server that answers `401` needs a credential: the preview says so and shows the
 server's sign-in metadata (RFC 9728), so you know to add a key or reach it through a gateway. Use
@@ -734,31 +782,31 @@ name no deferred tool has, and `tool.invalid-arguments` for arguments that do no
 tool's input schema, without running it. An HTTP tool's other failures are `http.status`,
 `http.timeout`, `http.refused`, `http.unreachable`, `http.lost`, `http.credential` and
 `http.too-large`. A `credential_rejected` error names the server (or the HTTP tool's
-`credential`) and the scope of the vault whose credential was sent, never a value.
+`credential`), never a value.
 
 ## Credentials for skills
 
-A skill that runs a CLI (`gh`, `glab`, `aws`, `curl`) in a pod sandbox authenticates with a
-vault credential whose value never enters the sandbox. Two credential kinds, in the same vaults
-as MCP credentials, attached to sessions the same way (`vaultIds`):
+A skill that runs a CLI (`gh`, `glab`, `aws`, `curl`) in a pod Environment authenticates with
+a credential whose value never enters the sandbox. Two more secret types live in the same
+Environment vault as MCP credentials; for both, the secret's name is the variable's name
+(`PUT /v1/environments/{id}/secrets/GH_TOKEN`):
 
-- **`environment_secret`** `{ secretName, secretValue, allowedHosts, inject? }`: every command
-  sees `$<secretName>` set to `nylorun-managed`, a fixed sentinel. When a command sends HTTPS to
-  one of `allowedHosts` (exact host names, port 443), egress-gate sets the credential's header
-  on each request: `inject.header` (default `Authorization`) with `inject.format` (default
+- **`environment_secret`** `{ type, value, allowedHosts, inject? }`: every command sees
+  `$<name>` set to `nylorun-managed`, a fixed sentinel. When a command sends HTTPS to one of
+  `allowedHosts` (exact host names, port 443), egress-gate sets the credential's header on each
+  request: `inject.header` (default `Authorization`) with `inject.format` (default
   `Bearer {value}`; `{base64:…}` encodes a part, so `Basic {base64:x-access-token:{value}}`
-  works). The value is read from the vault on every request, so a rotation applies to the next
-  one. Listing a credential never shows its value.
-- **`environment_variable`** `{ variableName, variableValue }`: a plain variable every command
-  sees, such as a region or an organization name. Its value is visible to anyone who can list
-  the vault.
+  works). The value is read from the vault on every request, so a new value applies to the next
+  one.
+- **`environment_variable`** `{ type, value }`: a plain variable every command sees, such as a
+  region or an organization name. Its value is not listed, but every command in the sandbox can
+  read it.
 
 ```bash
-curl -X POST "$RUNTIME/v1/tenant/vaults/$VAULT/credentials" \
-  -H "Authorization: Bearer $MANAGEMENT_KEY" -H "Content-Type: application/json" \
-  -d '{"requestId":"gh","idempotencyKey":"gh","name":"github","auth":{
-        "type":"environment_secret","secretName":"GH_TOKEN","secretValue":"ghp_…",
-        "allowedHosts":["api.github.com","github.com"]}}'
+curl -X PUT "$RUNTIME/v1/environments/users%2Falice%2Fweb/secrets/GH_TOKEN" \
+  -H "Authorization: Bearer $NYLORUN_SERVER_KEY" -H "Nylorun-Protocol: 11" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"environment_secret","value":"ghp_…","allowedHosts":["api.github.com","github.com"]}'
 ```
 
 How it works: pods trust one installation egress CA (keys holds its key; the join answer
@@ -769,13 +817,13 @@ for that host, sets the header and forwards the request over verified TLS to the
 checked. Every other host stays an opaque tunnel. A CLI that pins certificates or ignores those
 variables cannot use this path; HTTP/2-only and WebSocket endpoints are not served on it.
 
-Session open is refused with `409 credential_conflict` when two attached credentials set the
-same variable, two secrets are bound to the same host, or a sandbox would serve secrets of two
-owners (sessions sharing a sandbox must then have one owner). Pod sandboxes only: a virtual
-sandbox gets the variables but no header. A refused release is a `502` to the CLI and an
-`egress_credential_refused` line in the gateway's log, never a session event. Create, rotate and
-delete them in Studio's Credentials page (type **Secret** or **Variable**), with the Management
-API, or with `@nylorun/admin`.
+A second `environment_secret` bound to a host another one already has is refused at the write
+with `409 credential_conflict`. Every session on the Environment gets its secrets, so set the
+owner guard (`ownerUserId`) on an Environment that holds a person's own token. Pod Environments
+only: a virtual one gets the variables but no header. A refused release is a `502` to the CLI and
+an `egress_credential_refused` line in the gateway's log, never a session event. Write, replace
+and delete them in Studio's Credentials page (type **Secret** or **Variable**), with
+`client.environments.secrets` in `@nylorun/agents`, or on the Runtime API.
 
 ## The harness: agent turns, MCP servers and workspaces
 

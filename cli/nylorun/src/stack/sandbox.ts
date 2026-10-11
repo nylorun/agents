@@ -1,19 +1,20 @@
 /**
- * `nylorun sandbox ls | rm`: the running local Tenant's sandbox resources (Host feature
- * `sandboxes`), through its Tenant API with an operator key (`runningTenantApi`). Neither starts the
- * Tenant. `nylorun sandbox enable|disable|status` (sandbox pods on a cluster, F7.2) live in
- * `../sandbox/commands.ts`.
+ * `nylorun sandbox ls | rm`: the running local Tenant's Environments (protocol 11: each holds one
+ * sandbox and one vault), through its Runtime API with the application key (`runningTenantApi`).
+ * Neither starts the Tenant. `nylorun sandbox enable|disable|status` (sandbox pods on a cluster,
+ * F7.2) live in `../sandbox/commands.ts`.
  */
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
-import type { SandboxView } from "@nylorun/core/contracts";
+import type { EnvironmentView } from "@nylorun/core/contracts";
 import { CliError } from "../errors.js";
 import { runSandboxCommand, sandboxUsage as clusterUsage } from "../sandbox/commands.js";
 import { spawnKubectl } from "../sandbox/kubectl.js";
 import { parseStackFlags, runningTenantApi, type StackDeps, type TenantApi } from "./commands.js";
 
 export const sandboxUsage = `  sandbox ls [--tenant <name>] [--label <key=value>]... [--json]
-                                      the Tenant's sandboxes: id, kind, state, attached sessions and labels
-  sandbox rm <id> [--tenant <name>]   delete a sandbox and its files (refused while a turn runs in it)
+                                      the Tenant's Environments: id, kind, state, sessions and labels
+  sandbox rm <id> [--tenant <name>]   delete an Environment: its sandbox, files and vault
+                                      (refused while a turn runs in it)
 ${clusterUsage}`;
 
 const usageError = (message: string) => new CliError(message, 2);
@@ -35,9 +36,9 @@ async function call(
     signal: AbortSignal.timeout(15_000),
   });
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (response.status === 404 && path === "/v1/sandboxes")
+  if (response.status === 404 && /^\/v1\/environments(\?|$)/.test(path))
     throw new CliError(
-      `Tenant ${api.name} runs a Runtime without sandboxes. Update it: npx nylorun@latest start.`,
+      `Tenant ${api.name} runs a Runtime without Environments. Update it: npx nylorun@latest start.`,
       1,
     );
   if (!response.ok && response.status !== 404)
@@ -71,24 +72,24 @@ async function ls(deps: StackDeps, args: readonly string[]): Promise<number> {
   const name = flags.values.get("--tenant");
   const api = await runningTenantApi(deps, name === undefined ? {} : { name });
   const search = query.toString();
-  const { body } = await call(deps, api, "GET", `/v1/sandboxes${search ? `?${search}` : ""}`);
-  const sandboxes = (body.sandboxes ?? []) as SandboxView[];
+  const { body } = await call(deps, api, "GET", `/v1/environments${search ? `?${search}` : ""}`);
+  const environments = (body.environments ?? []) as EnvironmentView[];
   if (flags.booleans.has("--json")) {
-    deps.out(JSON.stringify(sandboxes, null, 2));
+    deps.out(JSON.stringify(environments, null, 2));
     return 0;
   }
-  if (sandboxes.length === 0) {
-    deps.out(`No sandboxes on Tenant ${api.name}.`);
+  if (environments.length === 0) {
+    deps.out(`No Environments on Tenant ${api.name}.`);
     return 0;
   }
   const rows = [
     ["ID", "KIND", "STATE", "SESSIONS", "LABELS"],
-    ...sandboxes.map((sandbox) => [
-      sandbox.id,
-      sandbox.kind,
-      sandbox.state,
-      String(sandbox.sessions.length),
-      labelsText(sandbox.labels),
+    ...environments.map((environment) => [
+      environment.id,
+      environment.kind,
+      environment.state,
+      String(environment.sessions.length),
+      labelsText(environment.labels),
     ]),
   ];
   const widths = rows[0]!.map((_, column) =>
@@ -114,13 +115,13 @@ async function rm(deps: StackDeps, args: readonly string[]): Promise<number> {
     deps,
     api,
     "DELETE",
-    `/v1/sandboxes/${encodeURIComponent(id)}`,
+    `/v1/environments/${encodeURIComponent(id)}`,
   );
   if (status === 404 || body.deleted !== true) {
-    deps.err(`No sandbox ${id} on Tenant ${api.name}.`);
+    deps.err(`No Environment ${id} on Tenant ${api.name}.`);
     return 1;
   }
-  deps.out(`Deleted sandbox ${id} and its files.`);
+  deps.out(`Deleted Environment ${id}: its sandbox, files and vault.`);
   return 0;
 }
 

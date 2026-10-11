@@ -66,7 +66,7 @@ it("stops a sandbox once it has been idle for its timeout, and reattaches on the
 
   await manager.sweep({ now: Date.now() + 61_000, sessionExists });
   expect(await store.tx((t) => t.get("sandboxes", key))).toMatchObject({ state: "stopped" });
-  expect(events.at(-1)).toMatchObject({ sessionId: "s1", type: "sandbox.state", state: "stopped" });
+  expect(events.at(-1)).toMatchObject({ sessionId: "s1", type: "environment.state", state: "stopped" });
 
   // The next call reattaches; the files are still there.
   expect((await run("s1", "b.txt")).kind).toBe("completed");

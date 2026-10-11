@@ -11,7 +11,7 @@ import {
 import { readAccess, readStoreOf } from "../../../reads/access.js";
 import { requireApplication, requirePrincipal } from "../../../tenant/auth.js";
 import { fail } from "../../../tenant/http.js";
-import { sandboxGrantsOf } from "../../../tenant/sandboxes.js";
+import { environmentGrantsOf } from "../../../tenant/environments.js";
 import type { TenantEnv } from "../app.js";
 import { tenantRoute } from "../define.js";
 import { jsonResponse } from "../respond.js";
@@ -24,7 +24,7 @@ export const sessionPageQuery = pageQuery
   .extend({
     agentId: z.string().optional(),
     status: z.enum(SESSION_STATUSES).optional(),
-    sandboxId: z.string().optional(),
+    environmentId: z.string().optional(),
     ownerUserId: z.string().optional(),
   })
   .strict();
@@ -42,7 +42,7 @@ export async function sessionPage(
   if (filters.ownerUserId !== undefined) requireApplication(scope);
   return readStoreOf(ctx).sessions(filters, { limit, cursor }, readAccess(scope));
 }
-export async function sandboxPage(
+export async function environmentPage(
   ctx: TenantEnv["Bindings"]["tenant"],
   scope: TenantEnv["Variables"]["scope"],
   query: Record<string, string>,
@@ -53,11 +53,11 @@ export async function sandboxPage(
     query,
   );
   if (limit === undefined) return fail(400, "Pagination requires limit");
-  return readStoreOf(ctx).sandboxes(
+  return readStoreOf(ctx).environments(
     labels,
     { limit, cursor },
     readAccess(scope),
-    sandboxGrantsOf(scope),
+    environmentGrantsOf(scope),
   );
 }
 export function readRoutes(api: OpenAPIHono<TenantEnv>): void {

@@ -6,6 +6,7 @@ test("a page view carries the route's shape: ids become :id", () => {
   assert.equal(pagePath("/tenants/t_9f2/agents/support-bot/sessions/0b7e-4c"), "/tenants/:id/agents/:id/sessions/:id");
   assert.equal(pagePath("/tenants/t_9f2/sessions/s1/"), "/tenants/:id/sessions/:id");
   assert.equal(pagePath("/tenants/t_9f2/vault"), "/tenants/:id/vault");
+  assert.equal(pagePath("/tenants/t_9f2/environments"), "/tenants/:id/environments");
   assert.equal(pagePath("/tenants/t_9f2/settings"), "/tenants/:id/settings");
   assert.equal(pagePath("/tenants/t_9f2/agents/sessions"), "/tenants/:id/agents/sessions");
   assert.equal(pagePath("/"), "/");

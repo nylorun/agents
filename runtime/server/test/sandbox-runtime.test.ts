@@ -49,13 +49,20 @@ async function register(runtime: { url: string }, manifest: unknown) {
   expect(response.ok, await response.clone().text()).toBe(true);
 }
 
+/** Opens session `id` on an Environment of its own (`ws/<id>`, kind virtual). */
 async function openSession(runtime: { url: string }, id: string) {
+  const environment = await fetch(`${runtime.url}/v1/environments/${encodeURIComponent(`ws/${id}`)}`, {
+    method: "PUT",
+    headers: serverHeaders,
+    body: JSON.stringify({ kind: "virtual" }),
+  });
+  expect(environment.ok, await environment.clone().text()).toBe(true);
   const response = await fetch(`${runtime.url}/v1/sessions/${id}`, {
     method: "PUT",
     headers: serverHeaders,
-    body: JSON.stringify({ requestId: `session-${id}`, agentId: "bot", ownerUserId: "ada", sandbox: {} }),
+    body: JSON.stringify({ requestId: `session-${id}`, agentId: "bot", ownerUserId: "ada", environment: `ws/${id}` }),
   });
-  expect(response.ok).toBe(true);
+  expect(response.ok, await response.clone().text()).toBe(true);
 }
 
 async function say(runtime: { url: string }, id: string, content: string) {
@@ -124,11 +131,11 @@ it("runs built-in sandbox tools in the Runtime", async () => {
     expect(JSON.stringify(results.at(-1))).toContain('\\"stdout\\":\\"7\\\\n\\"');
     const history = await items(runtime, "s1");
     expect(history.some((item) => item.type.startsWith("action."))).toBe(false);
-    expect(history.filter((item) => item.type === "sandbox.state").map((item) => item.payload.state)).toEqual([
+    expect(history.filter((item) => item.type === "environment.state").map((item) => item.payload.state)).toEqual([
       "creating",
       "running",
     ]);
-    const execs = history.filter((item) => item.type === "sandbox.exec");
+    const execs = history.filter((item) => item.type === "environment.exec");
     expect(execs.map((item) => item.payload.tool)).toEqual(["write", "bash"]);
     expect(execs[1]!.payload).toMatchObject({ exitCode: 0, outcome: "completed" });
   } finally {
@@ -146,7 +153,7 @@ it("runs built-in sandbox tools in the Runtime", async () => {
     expect(session.status).toBe("completed");
     expect(JSON.stringify(results.at(-1))).toContain("north,3");
     const history = await items(again, "s1");
-    expect(history.filter((item) => item.type === "sandbox.state").at(-2)?.payload).toMatchObject({
+    expect(history.filter((item) => item.type === "environment.state").at(-2)?.payload).toMatchObject({
       state: "creating",
       reattach: true,
     });
@@ -227,7 +234,7 @@ it("deletes sandboxes of an ephemeral Runtime on close", async () => {
   await say(runtime, "s1", "write");
   expect((await until(runtime, "s1", ["completed", "failed", "uncertain"])).status).toBe("completed");
   const history = await items(runtime, "s1");
-  expect(history.some((item) => item.type === "sandbox.exec")).toBe(true);
+  expect(history.some((item) => item.type === "environment.exec")).toBe(true);
   await runtime.close();
   const { readdirSync } = await import("node:fs");
   expect(readdirSync(root)).toEqual([]);

@@ -1,6 +1,6 @@
 /**
- * R2b C12: `POST /v1/tenant/mcp/preview` lists a remote MCP server's tools with the installation
- * vault's credential for its URL, and calls none. With `NYLORUN_TEST_MODEL_GATE=http` the keys
+ * R2b C12: `POST /v1/tenant/mcp/preview` lists a remote MCP server's tools with the credential
+ * for its URL in the vault of the Environment the request names (none without one), and calls none. With `NYLORUN_TEST_MODEL_GATE=http` the keys
  * service in the gates service runs it; otherwise the Tenant does, in process.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -13,6 +13,7 @@ import { McpPreviewSchema } from "@nylorun/core/contracts";
 import { previewMcpServer, previewServerName } from "../src/mcp/preview.js";
 import { HttpError } from "../src/tenant/http.js";
 import { startTestTenant } from "./support/tenant.js";
+import { putEnvironment, putSecret } from "./support/environment-secrets.js";
 
 const API_KEY = "preview-api-key-plaintext-1a2b3c4d";
 const APP_KEY = "preview-app-key-plaintext-5e6f7a8b";
@@ -117,9 +118,9 @@ let refusing: Runtime;
 let keyed: Awaited<ReturnType<typeof mcpServer>>;
 let gateway: Awaited<ReturnType<typeof mcpServer>>;
 let open: Awaited<ReturnType<typeof mcpServer>>;
-let shared: string;
-let other: string;
-let ada: string;
+/** The Environments holding the credentials. */
+const SHARED = "shared";
+const OTHER = "other";
 
 async function post(on: Runtime, path: string, body: unknown, headers = on.managementHeaders()) {
   const response = await fetch(`${on.url}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
@@ -129,25 +130,8 @@ async function post(on: Runtime, path: string, body: unknown, headers = on.manag
 
 const preview = (body: Record<string, unknown>, on = runtime) => post(on, "/v1/tenant/mcp/preview", body);
 
-async function vault(name: string, scope: "installation" | "user") {
-  const created = await post(runtime, "/v1/tenant/vaults", {
-    requestId: name,
-    idempotencyKey: name,
-    name,
-    ...(scope === "installation" ? { scope } : { ownerUserId: "u:ada" }),
-  });
-  expect(created.status, created.text).toBe(200);
-  return created.body.id as string;
-}
-
-async function credential(vaultId: string, key: string, auth: Record<string, unknown>) {
-  const created = await post(runtime, `/v1/tenant/vaults/${vaultId}/credentials`, {
-    requestId: key,
-    idempotencyKey: key,
-    name: key,
-    auth,
-  });
-  expect(created.status, created.text).toBe(200);
+async function credential(environmentId: string, name: string, body: Record<string, unknown>) {
+  await putSecret(runtime.url, runtime.headers(), environmentId, name, body as never);
 }
 
 beforeAll(async () => {
@@ -158,21 +142,19 @@ beforeAll(async () => {
   ]);
   runtime = await startTestTenant();
   refusing = await startTestTenant({ delivery: { privateAddresses: "refuse" } });
-  shared = await vault("shared", "installation");
-  other = await vault("other", "installation");
-  ada = await vault("ada", "user");
-  await credential(shared, "keyed", { type: "headers", url: keyed.url, headers: { "X-API-Key": API_KEY, "X-App-Key": APP_KEY } });
-  await credential(shared, "vendor", {
+  await putEnvironment(runtime.url, runtime.headers(), SHARED);
+  await putEnvironment(runtime.url, runtime.headers(), OTHER);
+  await credential(SHARED, "keyed", { type: "headers", url: keyed.url, headers: { "X-API-Key": API_KEY, "X-App-Key": APP_KEY } });
+  await credential(SHARED, "vendor", {
     type: "headers",
     url: VENDOR_URL,
     headers: { "x-api-key": GATEWAY_KEY },
     via: gateway.url,
     identity: { header: "x-user-id" },
   });
-  // The same URL in two installation vaults: a preview must be told which.
-  await credential(shared, "open-a", { type: "bearer", url: open.url, token: "open-token-a-plaintext" });
-  await credential(other, "open-b", { type: "bearer", url: open.url, token: "open-token-b-plaintext" });
-  await credential(ada, "ada-keyed", { type: "headers", url: keyed.url, headers: { "x-api-key": "ada-key-plaintext-0000" } });
+  // The same URL in two Environments: a preview sends the one of the Environment it names.
+  await credential(SHARED, "open-a", { type: "bearer", url: open.url, value: "open-token-a-plaintext" });
+  await credential(OTHER, "open-b", { type: "bearer", url: open.url, value: "open-token-b-plaintext" });
 });
 
 afterAll(async () => {
@@ -182,8 +164,8 @@ afterAll(async () => {
 });
 
 describe("POST /v1/tenant/mcp/preview", () => {
-  it("lists a key server's tools with the installation vault's header credential, and calls none", async () => {
-    const answer = await preview({ url: keyed.url, name: "tracker" });
+  it("lists a key server's tools with the Environment's header credential, and calls none", async () => {
+    const answer = await preview({ url: keyed.url, name: "tracker", environmentId: SHARED });
     expect(answer.status, answer.text).toBe(200);
     expect(McpPreviewSchema.parse(answer.body)).toEqual(answer.body);
     expect(answer.body).toMatchObject({
@@ -212,7 +194,7 @@ describe("POST /v1/tenant/mcp/preview", () => {
   });
 
   it("renames a dotted tool name, and lists the rename", async () => {
-    const answer = await preview({ url: keyed.url, name: "tracker" });
+    const answer = await preview({ url: keyed.url, name: "tracker", environmentId: SHARED });
     expect(answer.status, answer.text).toBe(200);
     expect(answer.body.renamed).toEqual([{ serverToolName: "issues.create", name: "tracker__issues_create" }]);
     expect(answer.body.tools).toContainEqual(
@@ -221,7 +203,7 @@ describe("POST /v1/tenant/mcp/preview", () => {
   });
 
   it("names the server after the URL's host when the request names none", async () => {
-    const answer = await preview({ url: keyed.url });
+    const answer = await preview({ url: keyed.url, environmentId: SHARED });
     expect(answer.status, answer.text).toBe(200);
     expect(answer.body.name).toBe("127_0_0_1");
     expect(answer.body.tools).toContainEqual(expect.objectContaining({ modelName: "127_0_0_1__search" }));
@@ -229,7 +211,7 @@ describe("POST /v1/tenant/mcp/preview", () => {
 
   it("sends a gateway credential's requests to its via, without an identity header", async () => {
     const before = gateway.seen.length;
-    const answer = await preview({ url: VENDOR_URL, name: "vendor" });
+    const answer = await preview({ url: VENDOR_URL, name: "vendor", environmentId: SHARED });
     expect(answer.status, answer.text).toBe(200);
     expect(answer.body.tools).toHaveLength(2);
     const requests = gateway.seen.slice(before);
@@ -280,23 +262,44 @@ describe("POST /v1/tenant/mcp/preview", () => {
     expect(open.seen.length).toBe(before);
   });
 
-  it("says which vault to use when two installation vaults hold the URL, and uses the one named", async () => {
-    const ambiguous = await preview({ url: open.url, name: "open" });
-    expect(ambiguous.status, ambiguous.text).toBe(409);
-    expect(ambiguous.body).toMatchObject({ code: "request_rejected", details: { reason: "ambiguous" } });
-    const before = open.seen.length;
-    const chosen = await preview({ url: open.url, name: "open", vaultId: other });
-    expect(chosen.status, chosen.text).toBe(200);
-    expect(chosen.body.credentialSent).toBe(true);
-    for (const request of open.seen.slice(before))
-      expect(request.headers.authorization).toBe("Bearer open-token-b-plaintext");
-    expect(chosen.text).not.toContain("open-token-b-plaintext");
+  it("sends no credential without an Environment, and the named Environment's one", async () => {
+    let before = open.seen.length;
+    const bare = await preview({ url: open.url, name: "open" });
+    expect(bare.status, bare.text).toBe(200);
+    expect(bare.body.credentialSent).toBe(false);
+    expect(open.seen.length).toBeGreaterThan(before);
+    for (const request of open.seen.slice(before)) expect(request.headers.authorization).toBeUndefined();
+    // A key server answers 401 without its key: authRequired, and no credential was sent.
+    const locked = await preview({ url: keyed.url, name: "tracker" });
+    expect(locked.status, locked.text).toBe(200);
+    expect(locked.body).toMatchObject({ credentialSent: false, tools: [], authRequired: {} });
+
+    for (const [environmentId, token] of [
+      [OTHER, "open-token-b-plaintext"],
+      [SHARED, "open-token-a-plaintext"],
+    ] as const) {
+      before = open.seen.length;
+      const chosen = await preview({ url: open.url, name: "open", environmentId });
+      expect(chosen.status, chosen.text).toBe(200);
+      expect(chosen.body.credentialSent).toBe(true);
+      expect(open.seen.length).toBeGreaterThan(before);
+      for (const request of open.seen.slice(before)) expect(request.headers.authorization).toBe(`Bearer ${token}`);
+      expect(chosen.text).not.toContain(token);
+    }
   });
 
-  it("refuses a person's vault, a missing vault and a bad request", async () => {
-    expect((await preview({ url: keyed.url, vaultId: ada })).status).toBe(400);
-    expect((await preview({ url: keyed.url, vaultId: "vlt-missing" })).status).toBe(404);
-    for (const body of [{}, { url: "not a url" }, { url: "ftp://x.test/mcp" }, { url: keyed.url, name: "a.b" }, { url: keyed.url, extra: 1 }]) {
+  it("refuses a missing Environment and a bad request", async () => {
+    expect((await preview({ url: keyed.url, environmentId: "missing" })).status).toBe(404);
+    for (const body of [
+      {},
+      { url: "not a url" },
+      { url: "ftp://x.test/mcp" },
+      { url: keyed.url, name: "a.b" },
+      { url: keyed.url, extra: 1 },
+      { url: keyed.url, environmentId: "not an id" },
+      // Protocol 11: the request names an Environment, not a vault.
+      { url: keyed.url, vaultId: SHARED },
+    ]) {
       const answer = await preview(body);
       expect(answer.status, JSON.stringify(body)).toBe(400);
     }
@@ -316,8 +319,7 @@ describe("previewMcpServer", () => {
     });
     await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
     const vault = {
-      listVaults: async () => [],
-      getVault: async () => {
+      listEnvironmentSecrets: async () => {
         throw new Error("not called");
       },
       authorize: async () => {

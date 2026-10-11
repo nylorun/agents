@@ -14,7 +14,7 @@ import {
   PutModelBudgetsRequestSchema,
   type ModelBudget,
   PutHostModelRequestSchema,
-  PutTenantSandboxRequestSchema,
+  PutTenantEnvironmentsRequestSchema,
   ResetTenantRequestSchema,
   SeedTenantConfigRequestSchema,
   SelectHostModelRequestSchema,
@@ -27,7 +27,7 @@ import {
   ModelUsageTotals,
   PutModelBudgetsRequest,
   PutHostModelRequest,
-  PutTenantSandboxRequest,
+  PutTenantEnvironmentsRequest,
   ResetTenantRequest,
   ResetTenantResponse,
   SeedTenantConfigRequest,
@@ -60,7 +60,7 @@ import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
-import { rearmPodTimers } from "../../../tenant/sandboxes.js";
+import { rearmPodTimers } from "../../../tenant/environments.js";
 
 /** Every Management API route (`/v1/tenant/*`): a management key, acting as itself (protocol 8). */
 const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
@@ -169,7 +169,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Tenant"],
       summary: "Reset the Tenant",
       description:
-        "Deletes its sessions, its sandboxes, or both, after draining or cancelling the turns in progress. The Tenant stays open.",
+        "Deletes its sessions, its Environments (with their vaults), or both, after draining or cancelling the turns in progress. The Tenant stays open.",
       request: { body: body(ResetTenantRequest) },
       responses: { 200: json(ResetTenantResponse, "Reset") },
     },
@@ -179,7 +179,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       await drain(ctx, request.activeWork, 30_000);
       // A sessions reset moves the Tenant to a new basin generation, so a session created
       // again with the same id, during or after the reset, starts in an empty basin at 0.
-      const sessionsReset = request.scope !== "sandboxes";
+      const sessionsReset = request.scope !== "environments";
       await resetTenant(
         {
           store: ctx.store,
@@ -242,7 +242,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       method: "get",
       path: "/v1/tenant/sandbox",
       tags: ["Tenant"],
-      summary: "Get the Tenant's sandbox configuration",
+      summary: "Get the Tenant's sandbox backend and Environment settings",
       responses: { 200: json(TenantSandboxView, "The backend in use and the configuration in force") },
     },
     async (c) => jsonResponse(200, await sandboxView(c.env.tenant)),
@@ -255,14 +255,15 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       method: "put",
       path: "/v1/tenant/sandbox",
       tags: ["Tenant"],
-      summary: "Set the Tenant's sandbox configuration",
-      description: "What a session gets when it names no sandbox, and the limits every session's sandbox must fit.",
-      request: { body: body(PutTenantSandboxRequest) },
+      summary: "Set the Tenant's Environment settings",
+      description:
+        "The limits every Environment's recipe must fit, the pods' stop grace and where harnesses may run (Tenant setting `environments.config`).",
+      request: { body: body(PutTenantEnvironmentsRequest) },
       responses: { 200: json(TenantSandboxView, "The configuration now in force") },
     },
     async (c) => {
       const ctx = c.env.tenant;
-      const { requestId: _requestId, ...config } = PutTenantSandboxRequestSchema.parse(
+      const { requestId: _requestId, ...config } = PutTenantEnvironmentsRequestSchema.parse(
         await readJson(c.req.raw),
       );
       const errors = sandboxConfigErrors(effectiveSandboxConfig(config));

@@ -60,7 +60,14 @@ export function mountKeysRoutes<E extends Env>(
 }
 
 function errorOf(error: unknown): KeysError {
-  if (error instanceof VaultError) return { kind: "vault", status: error.status, message: error.message };
+  if (error instanceof VaultError)
+    return {
+      kind: "vault",
+      status: error.status,
+      message: error.message,
+      ...(error.rejection.code === undefined ? {} : { code: error.rejection.code }),
+      ...(error.rejection.details === undefined ? {} : { details: error.rejection.details }),
+    };
   if (error instanceof HttpError)
     return {
       kind: "http",

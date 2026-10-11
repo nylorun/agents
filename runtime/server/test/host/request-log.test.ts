@@ -8,6 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent } from "@nylorun/core/define";
 import { createHostLogger } from "../../src/host/logger.js";
 import {
@@ -25,7 +26,7 @@ let rt: EphemeralRuntime;
 const lines: string[] = [];
 
 const app = {
-  "nylorun-protocol": "5",
+  "nylorun-protocol": String(PROTOCOL_VERSION),
   authorization: `Bearer ${APPLICATION_KEY}`,
 };
 
@@ -92,10 +93,10 @@ it("logs each request's outcome as recorded", async () => {
     body: "x",
   });
   await fetch(`${rt.url}/v1/agents`, { headers: { ...app, "nylorun-protocol": "1" } });
-  await fetch(`${rt.url}/v1/agents`, { headers: { "nylorun-protocol": "5" } });
-  // A protocol 4 client naming another Tenant: the opaque 404, without the id it named.
+  await fetch(`${rt.url}/v1/agents`, { headers: { "nylorun-protocol": String(PROTOCOL_VERSION) } });
+  // A client naming another Tenant: the opaque 404, without the id it named.
   await fetch(`${rt.url}/v1/agents`, {
-    headers: { ...app, "nylorun-protocol": "4", "nylorun-tenant": `tn_${"0".repeat(22)}dead` },
+    headers: { ...app, "nylorun-protocol": String(PROTOCOL_VERSION), "nylorun-tenant": `tn_${"0".repeat(22)}dead` },
   });
   await fetch(`${rt.url}/v1/agents`, { headers: app });
   await fetch(`${rt.url}/v1/sessions/s1?cursor=secret-query`, { headers: app });
@@ -105,7 +106,7 @@ it("logs each request's outcome as recorded", async () => {
   });
   // The Admin API is gone (protocol 8): the admin key is an unknown key there, as anywhere.
   await fetch(`${rt.url}/v1/admin/status`, {
-    headers: { "nylorun-protocol": "4", authorization: `Bearer ${ADMIN_KEY}` },
+    headers: { "nylorun-protocol": String(PROTOCOL_VERSION), authorization: `Bearer ${ADMIN_KEY}` },
   });
   const stream = new AbortController();
   const events = await fetch(`${rt.url}/v1/sessions/s1/events`, {

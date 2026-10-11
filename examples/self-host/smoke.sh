@@ -3,9 +3,11 @@
 # Tenant with identity.yaml, plus this directory's Compose stack. Needs bash, curl and node.
 #
 #   1. Keycloak signs ben (a member) and ada (with the studio scope) in.
-#   2. ben's token is a trusted issuer's: GET /v1/me renders its subject, scopes and sandbox grants.
+#   2. ben's token is a trusted issuer's: GET /v1/me renders its subject, scopes and Environment
+#      grants.
 #   3. A backend's operator key acts for any subject (Nylorun-Subject); browsers cannot use it.
-#   4. ben's token sees only ben's sessions, and reaches no vault route.
+#   4. ben's token sees only ben's sessions and the Environments his grant reaches, and reaches
+#      no Management API route.
 #   5. Studio, through oauth2-proxy, admits ada (studio scope) and refuses ben.
 #
 # Environment (defaults match compose.yaml): NYLORUN_TENANT (selfhost), NYLORUN_CLI (npx --yes
@@ -17,7 +19,7 @@ TENANT=${NYLORUN_TENANT:-selfhost}
 NYLORUN=${NYLORUN_CLI:-npx --yes nylorun}
 KEYCLOAK_URL=${KEYCLOAK_URL:-http://localhost:8180}
 PROXY_URL=${PROXY_URL:-http://localhost:4180}
-PROTOCOL=10
+PROTOCOL=11
 RUN="$(date +%s)-$$"
 
 work=$(mktemp -d)
@@ -81,12 +83,12 @@ check 'v.via === "issuer:keycloak"' "ben's token is issuer keycloak's"
 check 'v.subject.startsWith("u:")' "ben's subject is u:<sub>"
 check 'v.scopes.includes("sessions:own") && v.scopes.includes("agents:read") && !v.scopes.includes("studio")' \
   "ben holds sessions:own and agents:read, not studio"
-check 'JSON.stringify(v.sandboxes) === JSON.stringify(["acme/*"])' "ben reaches only the sandboxes acme/*"
+check 'JSON.stringify(v.environments) === JSON.stringify(["acme/*"])' "ben reaches only the Environments acme/*"
 BEN_SUBJECT=$(body | js 'v.subject')
 rt GET /v1/me "$ADA"
 expect 200 "GET /v1/me with ada's token"
 check 'v.scopes.includes("studio")' "ada holds studio"
-pass "GET /v1/me: ben is $BEN_SUBJECT with sessions:own, agents:read and sandboxes acme/*; ada has studio"
+pass "GET /v1/me: ben is $BEN_SUBJECT with sessions:own, agents:read and Environments acme/*; ada has studio"
 
 rt GET /v1/me "$BEN" -H "Origin: http://localhost:5173"
 expect 200 "ben's token from a browser (Origin)"
@@ -120,6 +122,14 @@ for pair in "$OWN|$BEN_SUBJECT" "$OTHER|$OTHER_SUBJECT"; do
 done
 pass "the operator key created a session for $BEN_SUBJECT and one for $OTHER_SUBJECT"
 
+# Two Environments (no sandbox): one inside ben's grant (acme/*), one outside it.
+for env in "acme/smoke-$RUN" "other/smoke-$RUN"; do
+  rt PUT "/v1/environments/${env/\//%2F}" "$KEY" -H "content-type: application/json" \
+    -d "$(json_of '{ requestId: a[0], kind: "none" }' "env-$env-$RUN")"
+  expect 200 "PUT /v1/environments/$env with the operator key"
+done
+pass "the operator key created the Environments acme/smoke-$RUN and other/smoke-$RUN"
+
 # 4. ben sees only his own sessions.
 rt GET /v1/sessions "$BEN"
 expect 200 "GET /v1/sessions with ben's token"
@@ -131,9 +141,16 @@ expect 404 "another person's session with ben's token"
 rt PUT "/v1/sessions/smoke-$RUN-steal" "$BEN" -H "content-type: application/json" \
   -d "$(json_of '{ requestId: a[0], agentId: a[1], ownerUserId: a[2] }' "steal-$RUN" "$AGENT" "$OTHER_SUBJECT")"
 expect 403 "a session for another owner with ben's token"
-rt GET /v1/tenant/vaults "$BEN"
-expect 403 "GET /v1/tenant/vaults (the Management API) with ben's token"
-pass "ben's token lists only his sessions, gets 404 for another's, and reaches no vault route"
+rt GET "/v1/environments/acme%2Fsmoke-$RUN" "$BEN"
+expect 200 "an Environment in ben's grant (acme/*) with ben's token"
+rt GET "/v1/environments/other%2Fsmoke-$RUN" "$BEN"
+expect 404 "an Environment outside ben's grant with ben's token"
+rt PUT "/v1/environments/acme%2Fsmoke-$RUN" "$BEN" -H "content-type: application/json" \
+  -d "$(json_of '{ requestId: a[0], kind: "none", labels: { by: "ben" } }' "env-ben-$RUN")"
+expect 403 "changing an Environment without environments:write with ben's token"
+rt GET /v1/tenant "$BEN"
+expect 403 "GET /v1/tenant (the Management API) with ben's token"
+pass "ben's token lists only his sessions, gets 404 for another's, reaches only the Environments acme/*, and no Management API route"
 
 # 5. Studio through oauth2-proxy (Studio verifies the forwarded token with GET /v1/me).
 call GET "$PROXY_URL/_studio/hello"

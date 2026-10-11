@@ -3,15 +3,18 @@
  * agent, run end to end over the Runtime and Management APIs, the way an operator and an app
  * would. The operator previews a server's tools, then saves the agent. The agent reaches
  *
- * - `keyed`, an MCP server taking two headers, from an installation vault (`headers`);
- * - `personal`, one taking the session owner's own token, from their user vault (`bearer`);
- * - `vendor`, named `https://vendor.test/mcp` in the manifest, which the installation's credential
- *   sends to a fake gateway (`via`) with the owner in an identity header;
+ * - `keyed`, an MCP server taking two headers (`headers`);
+ * - `personal`, one taking the session owner's own token (`bearer`), which only the owner's
+ *   Environment holds;
+ * - `vendor`, named `https://vendor.test/mcp` in the manifest, whose credential sends it to a
+ *   fake gateway (`via`) with the owner in an identity header;
  * - `locked`, which answers `401` to a call; `catalog`, whose tools are deferred; and `down`,
  *   which stops listening before it is called;
  * - two HTTP tools: `refund` through the same kind of gateway, and `void_refund`, which is `401`.
  *
- * Each case checks what the model saw, what the servers received, and that no credential value
+ * The app maps sessions to Environments (protocol 11): an installation session names `shared`,
+ * Ada's sessions name her own `users/ada`, which holds the shared keys and her token. Each case
+ * checks what the model saw, what the servers received, and that no credential value
  * reached the session's record. With `NYLORUN_TEST_MODEL_GATE=http` the gates service makes every
  * call; otherwise the Tenant does, in process.
  */
@@ -27,6 +30,7 @@ import type { ModelCall, PromptContentPart } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 import { withTestSessionStore } from "./support/store.js";
+import { putEnvironment, putSecret } from "./support/environment-secrets.js";
 
 const APP = "r2b-exit-app-key-aaaaaaaaaaaaaaaa";
 const API_KEY = "exit-api-key-plaintext-1a2b3c4d";
@@ -166,8 +170,9 @@ let locked: Awaited<ReturnType<typeof mcpServer>>;
 let catalog: Awaited<ReturnType<typeof mcpServer>>;
 let down: Awaited<ReturnType<typeof mcpServer>>;
 let billing: Awaited<ReturnType<typeof billingService>>;
-let shared: string;
-let ada: string;
+/** The installation's Environment, and Ada's own (guarded for her sessions). */
+const SHARED = "shared";
+const ADA = "users/ada";
 const sessionIds: string[] = [];
 
 async function management(path: string, body: unknown) {
@@ -180,14 +185,9 @@ async function management(path: string, body: unknown) {
   return { status: response.status, text, body: JSON.parse(text) as Record<string, any> };
 }
 
-async function credential(vaultId: string, name: string, auth: Record<string, unknown>) {
-  const created = await management(`/v1/tenant/vaults/${vaultId}/credentials`, {
-    requestId: name,
-    idempotencyKey: name,
-    name,
-    auth,
-  });
-  expect(created.status, created.text).toBe(200);
+async function credential(environmentIds: readonly string[], name: string, body: Record<string, unknown>) {
+  for (const environmentId of environmentIds)
+    await putSecret(runtime.url, runtime.headers(), environmentId, name, body as never);
 }
 
 /** Every event of a session's record, the internal ones included, as JSON. */
@@ -200,7 +200,7 @@ const recordOf = (id: string) =>
 
 /**
  * Opens a session of the agent for `owner`, has the model make `script`'s calls, and waits for
- * the turn. Ada's sessions attach her vault beside the installation's.
+ * the turn. Ada's sessions name her Environment; an installation session the shared one.
  */
 async function run(owner: "u:ada" | "installation", ...script: Step[]) {
   steps = [...script];
@@ -212,7 +212,7 @@ async function run(owner: "u:ada" | "installation", ...script: Step[]) {
     id,
     agentId: "exit",
     ownerUserId: owner,
-    vaultIds: owner === "installation" ? [shared] : [shared, ada],
+    environment: owner === "installation" ? SHARED : ADA,
   });
   await session.input("go", { idempotencyKey: `m-${id}` });
   const deadline = Date.now() + 30_000;
@@ -290,27 +290,29 @@ beforeAll(async () => {
   runtime = await startTestTenant({ applicationKey: APP, modelProvider: model });
   client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
 
-  // The operator's part: an installation vault, Ada's vault, and a credential per server URL.
-  shared = (await management("/v1/tenant/vaults", { requestId: "v", idempotencyKey: "v", name: "Shared", scope: "installation" })).body.id;
-  ada = (await management("/v1/tenant/vaults", { requestId: "a", idempotencyKey: "a", name: "Ada", ownerUserId: "u:ada" })).body.id;
-  await credential(shared, "keyed", { type: "headers", url: keyed.url, headers: { "X-API-Key": API_KEY, "X-App-Key": APP_KEY } });
-  await credential(ada, "personal", { type: "bearer", url: personal.url, token: ADA_TOKEN });
-  await credential(shared, "vendor", {
+  // The app's part: the installation's Environment, Ada's, and a credential per server URL in
+  // each; Ada's own token only in hers.
+  await putEnvironment(runtime.url, runtime.headers(), SHARED);
+  await putEnvironment(runtime.url, runtime.headers(), ADA, { kind: "none", ownerUserId: "u:ada" });
+  const both = [SHARED, ADA];
+  await credential(both, "keyed", { type: "headers", url: keyed.url, headers: { "X-API-Key": API_KEY, "X-App-Key": APP_KEY } });
+  await credential([ADA], "personal", { type: "bearer", url: personal.url, value: ADA_TOKEN });
+  await credential(both, "vendor", {
     type: "headers",
     url: VENDOR_URL,
     headers: { "x-gateway-key": GATEWAY_KEY },
     via: gateway.url,
     identity: { header: "X-User-Id" },
   });
-  await credential(shared, "locked", { type: "bearer", url: locked.url, token: LOCKED_TOKEN });
-  await credential(shared, "billing", {
+  await credential(both, "locked", { type: "bearer", url: locked.url, value: LOCKED_TOKEN });
+  await credential(both, "billing", {
     type: "headers",
     url: BILLING_URL,
     headers: { "x-api-key": BILLING_KEY },
     via: `${billing.url}/refunds`,
     identity: { header: "X-User-Id" },
   });
-  await credential(shared, "void", { type: "headers", url: `${billing.url}/void`, headers: { "x-api-key": BILLING_KEY } });
+  await credential(both, "void", { type: "headers", url: `${billing.url}/void`, headers: { "x-api-key": BILLING_KEY } });
 }, 60_000);
 
 afterAll(async () => {
@@ -320,7 +322,7 @@ afterAll(async () => {
 
 describe("the R2b exit", () => {
   it("the operator previews a server's tools, then saves the agent", async () => {
-    const preview = await management("/v1/tenant/mcp/preview", { url: keyed.url, name: "keyed" });
+    const preview = await management("/v1/tenant/mcp/preview", { url: keyed.url, name: "keyed", environmentId: SHARED });
     expect(preview.status, preview.text).toBe(200);
     expect(preview.body).toMatchObject({ credentialSent: true, serverInfo: { name: "keyed" } });
     expect(preview.body.tools.map((tool: { serverToolName: string }) => tool.serverToolName)).toEqual(
@@ -329,7 +331,7 @@ describe("the R2b exit", () => {
     expect(preview.body.renamed).toEqual([{ serverToolName: "issues.create", name: "keyed__issues_create" }]);
     expect(keyed.seen.map((request) => request.method)).not.toContain("tools/call");
     // The gateway's server previews through its via, with no identity: no person asked.
-    const vendor = await management("/v1/tenant/mcp/preview", { url: VENDOR_URL, name: "vendor" });
+    const vendor = await management("/v1/tenant/mcp/preview", { url: VENDOR_URL, name: "vendor", environmentId: SHARED });
     expect(vendor.status, vendor.text).toBe(200);
     expect(vendor.body.tools).toEqual([expect.objectContaining({ modelName: "vendor__echo" })]);
     expect(gateway.seen.at(-1)!.headers["x-user-id"]).toBeUndefined();
@@ -358,7 +360,7 @@ describe("the R2b exit", () => {
     expect(saved.status, await saved.text()).toBeLessThan(300);
   });
 
-  it("a person's session: two headers from the installation vault, a bearer from their vault, and a gateway with their identity", async () => {
+  it("a person's session: two headers and a bearer from their Environment, and a gateway with their identity", async () => {
     const gatewayBefore = gateway.seen.length;
     const billingBefore = billing.seen.length;
     const result = await run(
@@ -412,7 +414,7 @@ describe("the R2b exit", () => {
     const requests = [...gateway.seen.slice(gatewayBefore), ...billing.seen.slice(billingBefore)];
     expect(requests.length).toBeGreaterThan(1);
     for (const request of requests) expect(request.headers["x-user-id"]).toBeUndefined();
-    // Ada's vault is not attached, so her server has no credential here.
+    // The shared Environment holds no token of Ada's, so her server has no credential here.
     expect(serverOf(result.discovered, "personal").outcome).not.toBe("connected");
   });
 
@@ -422,9 +424,11 @@ describe("the R2b exit", () => {
     expect(result.status).toBe("completed");
     for (const item of seen) expect(item).toMatchObject({ status: "failed", payload: { kind: "failed", code: "credential_rejected" } });
     expect(result.completed).toEqual([
-      expect.objectContaining({ error: expect.objectContaining({ code: "credential_rejected", server: "locked", vault: "installation" }) }),
-      expect.objectContaining({ error: expect.objectContaining({ code: "credential_rejected", server: "void", vault: "installation" }) }),
+      expect.objectContaining({ error: expect.objectContaining({ code: "credential_rejected", server: "locked" }) }),
+      expect.objectContaining({ error: expect.objectContaining({ code: "credential_rejected", server: "void" }) }),
     ]);
+    // Protocol 11: the error names no vault scope.
+    for (const item of result.completed) expect(item.error).not.toHaveProperty("vault");
     expect(locked.called("echo")).toBe(1);
     expect(locked.seen.find((request) => request.tool)!.headers.authorization).toBe(`Bearer ${LOCKED_TOKEN}`);
     expect(billing.seen.filter((request) => request.path === "/void").length - voidBefore).toBe(1);

@@ -1,65 +1,66 @@
 /**
- * Resolves the sandbox a session asks for when it is opened against its Tenant's configuration.
- * Pure: the caller supplies the configuration and who is asking. Every problem is
- * reported, not only the first, so one response lists all of them.
+ * Resolves an Environment's recipe (`PUT /v1/environments/{id}`) against its Tenant's limits,
+ * and the sandbox spec a recipe gives the session's sandbox capability and the pod. Pure: the
+ * caller supplies the configuration. Every problem is reported, not only the first, so one
+ * response lists all of them.
  */
-import type { SandboxInlineRequest } from "@nylorun/core/contracts";
-import type { SandboxManifest } from "@nylorun/core/define";
+import type {
+  EnvironmentKind,
+  EnvironmentLifecycle,
+  EnvironmentRecipe,
+} from "@nylorun/core/contracts";
+import { parseSandboxDuration, type SandboxManifest } from "@nylorun/core/define";
+import { HARNESS_ID } from "./placement.js";
+import type { PodSandboxSpec } from "./pods/spec.js";
 import { memoryMiB, type EffectiveSandboxConfig } from "./tenant-config.js";
 
-export type SandboxSource = "default" | "inline";
-
-export type SandboxResolution =
-  | { readonly kind: "none" }
-  | { readonly kind: "sandbox"; readonly spec: SandboxManifest; readonly source: SandboxSource }
-  | { readonly kind: "error"; readonly status: 400 | 403; readonly errors: readonly string[] };
-
-export interface ResolveSandboxInput {
-  /** `PutSessionRequest.sandbox` other than `{ session }`, which the caller handles. */
-  readonly request: false | SandboxInlineRequest | undefined;
-  readonly config: EffectiveSandboxConfig;
-  /** The request acts for a subject (`Nylorun-Subject`) rather than as the application. */
-  readonly actingForSubject: boolean;
-  /**
-   * The sandbox's kind. Default `virtual`, which runs no images and allows exact host names
-   * only; a `pod` (F7.2) takes an image and `*.suffix` hosts.
-   */
-  readonly kind?: "virtual" | "pod";
+/** What a `PUT` asks of the recipe: the request's fields, over the existing recipe's. */
+export interface RecipeRequest {
+  readonly image?: string;
+  readonly resources?: { readonly cpus?: number; readonly memory?: string };
+  readonly storage?: string;
+  readonly network?: { readonly allowedHosts?: readonly string[] };
+  readonly harness?: string;
+  readonly lifecycle?: EnvironmentLifecycle;
 }
 
-export const SUBJECT_INLINE_MESSAGE =
-  "Defining a sandbox needs an application key. Use the Tenant default, or open the session from the application backend.";
+export type RecipeResolution =
+  | { readonly kind: "recipe"; readonly recipe: EnvironmentRecipe }
+  | { readonly kind: "error"; readonly errors: readonly string[] };
 
-export function resolveSandbox(input: ResolveSandboxInput): SandboxResolution {
-  const { request, config } = input;
-  if (request === false) return { kind: "none" };
-  if (request === undefined) {
-    const fallback = config.default;
-    if (fallback === "none") return { kind: "none" };
-    return build(fallback === "virtual" ? {} : fallback, "default", input);
-  }
-  if (input.actingForSubject)
-    return { kind: "error", status: 403, errors: [SUBJECT_INLINE_MESSAGE] };
-  return build(request, "inline", input);
-}
-
-function build(
-  request: SandboxInlineRequest,
-  source: SandboxSource,
-  input: ResolveSandboxInput
-): SandboxResolution {
-  const { limits } = input.config;
+/** The recipe `request` asks for an Environment of `kind`, or every reason it cannot have it. */
+export function resolveRecipe(
+  kind: EnvironmentKind,
+  request: RecipeRequest,
+  config: EffectiveSandboxConfig,
+): RecipeResolution {
+  const { limits } = config;
   const errors: string[] = [];
-  const pod = input.kind === "pod";
+  const pod = kind === "pod";
+  const harness = request.harness ?? HARNESS_ID;
+  if (harness !== HARNESS_ID) errors.push(`harness ${harness} is not available: only ${HARNESS_ID} is.`);
+  const lifecycle = request.lifecycle ?? {};
+  const idle = lifecycle.idle === undefined ? undefined : parseSandboxDuration(lifecycle.idle);
+  if (idle !== undefined && idle > (parseSandboxDuration(limits.idle) ?? Infinity))
+    errors.push(`lifecycle.idle is ${lifecycle.idle}; this Tenant allows at most ${limits.idle}.`);
+  if (kind === "none") {
+    for (const field of ["image", "resources", "storage", "network"] as const)
+      if (request[field] !== undefined)
+        errors.push(`${field} is for an Environment with a sandbox: kind none has none.`);
+    if (errors.length > 0) return { kind: "error", errors };
+    return { kind: "recipe", recipe: { harness, lifecycle: { ...lifecycle } } };
+  }
   if (request.image !== undefined && !pod)
-    errors.push("sandbox.image is not supported: the virtual sandbox has no images.");
-  const allow = (request.network?.allow ?? []).map((host) => host.toLowerCase());
+    errors.push("image is for kind pod: a virtual Environment runs no images.");
+  if (request.storage !== undefined && !pod)
+    errors.push("storage is for kind pod: a virtual Environment has no volume.");
+  const allow = (request.network?.allowedHosts ?? []).map((host) => host.toLowerCase());
   for (const host of allow) {
     if (!withinCeiling(host, limits.network))
-      errors.push(`sandbox.network.allow includes ${host}, which this Tenant does not allow.`);
+      errors.push(`network.allowedHosts includes ${host}, which this Tenant does not allow.`);
     else if (host.startsWith("*.") && !pod)
       errors.push(
-        `sandbox.network.allow includes ${host}; the virtual sandbox allows exact host names only, such as ${host.slice(2)}.`
+        `network.allowedHosts includes ${host}; a virtual Environment allows exact host names only, such as ${host.slice(2)}.`,
       );
   }
   const cpus = request.resources?.cpus ?? limits.defaultResources.cpus;
@@ -68,22 +69,45 @@ function build(
       ? limits.defaultResources.memoryMiB
       : memoryMiB(request.resources.memory);
   if (cpus > limits.resources.cpus)
-    errors.push(
-      `sandbox.resources.cpus asks for ${cpus}; this Tenant allows at most ${limits.resources.cpus}.`
-    );
+    errors.push(`resources.cpus asks for ${cpus}; this Tenant allows at most ${limits.resources.cpus}.`);
   if (memory > limits.resources.memoryMiB)
     errors.push(
-      `sandbox.resources.memory asks for ${memory}MiB; this Tenant allows at most ${limits.resources.memoryMiB}MiB.`
+      `resources.memory asks for ${memory}MiB; this Tenant allows at most ${limits.resources.memoryMiB}MiB.`,
     );
-  if (errors.length > 0) return { kind: "error", status: 400, errors };
-  const unique = [...new Set(allow)].sort();
-  const spec: SandboxManifest = {
-    ...(request.image === undefined ? {} : { image: request.image }),
-    network: { preset: "none", ...(unique.length > 0 ? { allow: unique } : {}) },
-    resources: { cpus, memory: `${memory}MiB` },
-    idle: limits.idle,
+  if (errors.length > 0) return { kind: "error", errors };
+  return {
+    kind: "recipe",
+    recipe: {
+      ...(request.image === undefined ? {} : { image: request.image }),
+      resources: { cpus, memory: `${memory}MiB` },
+      ...(request.storage === undefined ? {} : { storage: request.storage }),
+      network: { allowedHosts: [...new Set(allow)].sort() },
+      harness,
+      lifecycle: { ...lifecycle },
+    },
   };
-  return { kind: "sandbox", spec, source };
+}
+
+/**
+ * The sandbox spec of a recipe: what the session's sandbox capability pins and the virtual
+ * workspace runs. Idle is the Environment's `lifecycle.idle`, else the Tenant's.
+ */
+export function sandboxSpecOf(recipe: EnvironmentRecipe, tenantIdle: string): SandboxManifest {
+  const allow = recipe.network?.allowedHosts ?? [];
+  return {
+    ...(recipe.image === undefined ? {} : { image: recipe.image }),
+    network: { preset: "none", ...(allow.length > 0 ? { allow: [...allow] } : {}) },
+    ...(recipe.resources === undefined ? {} : { resources: { ...recipe.resources } }),
+    idle: recipe.lifecycle.idle ?? tenantIdle,
+  };
+}
+
+/** The pod's spec of a recipe: its sandbox spec and its volume's size. */
+export function podSandboxSpecOf(recipe: EnvironmentRecipe, tenantIdle: string): PodSandboxSpec {
+  return {
+    ...sandboxSpecOf(recipe, tenantIdle),
+    ...(recipe.storage === undefined ? {} : { storage: recipe.storage }),
+  };
 }
 
 /** Whether `host` (a name or `*.suffix` pattern) is inside one of the ceiling's patterns. */
@@ -108,14 +132,5 @@ export function sandboxConfigErrors(config: EffectiveSandboxConfig): string[] {
     errors.push("limits.defaultResources.cpus is above limits.resources.cpus.");
   if (limits.defaultResources.memoryMiB > limits.resources.memoryMiB)
     errors.push("limits.defaultResources.memory is above limits.resources.memory.");
-  if (config.default !== "none" && config.default !== "virtual") {
-    const resolved = resolveSandbox({
-      request: undefined,
-      config,
-      actingForSubject: false,
-    });
-    if (resolved.kind === "error")
-      errors.push(...resolved.errors.map((message) => `default: ${message}`));
-  }
   return errors;
 }

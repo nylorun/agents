@@ -25,7 +25,6 @@ import type {
   FlowCheckpoint,
 } from "@nylorun/harness/run";
 import type { AgentManifest, JsonValue, SandboxManifest } from "@nylorun/core/define";
-import type { CredentialSelection } from "@nylorun/core/contracts";
 import type { OutboxRequest, SessionStore, StoredSession, Tx } from "../store/types.js";
 import type { FlowLimits } from "../core/limits.js";
 import type { ModelProvider } from "../core/provider.js";
@@ -84,25 +83,32 @@ export interface Session {
    */
   lastTurnId?: string;
   creation: unknown;
-  vaultIds?: readonly string[];
-  credentialSelections?: readonly CredentialSelection[];
   mcpSnapshot?: McpSnapshot;
   mcpDiagnostics?: readonly McpDiagnostic[];
-  /** Session id that keys the shared sandbox; absent means this session owns it. */
-  sandboxOwnerId?: string;
   /**
-   * The sandbox resource the session is attached to (`sandbox: { id }`): its workspace is the
-   * sandbox's, shared with every session attached to it, and it outlives the session.
+   * The Environment the session names (`environment`, protocol 11): its sandbox is the
+   * session's (the Environment's id keys the workspace) and its vault holds the session's
+   * credentials. It outlives the session.
    */
-  sandboxId?: string;
+  environmentId?: string;
+  /** The Environment's recipe version when the session opened (shown, never enforced). */
+  environmentVersion?: number;
   /**
-   * The sandbox chosen when the session was opened, resolved against the Tenant's limits, or
-   * inherited from the session it shares with. Absent when the session has no sandbox or its
-   * definition declares one (`.sandbox()`).
+   * A flow agent's linked session: the session whose turn opened the flow tree. Its sessions
+   * share the tree's Environment, and their turns nest in the root's, so they do not hold the
+   * Environment against each other (`checkEnvironmentTurn`).
+   */
+  flowRootId?: string;
+  /**
+   * The Environment's sandbox spec when the session opened (kinds `virtual` and `pod`).
+   * Absent without an Environment, or for kind `none`.
    */
   sandbox?: SandboxManifest;
-  /** Where `sandbox` came from: `sandbox` is a sandbox resource's spec. */
-  sandboxSource?: "default" | "inline" | "shared" | "sandbox";
+  /**
+   * Why the session takes no new turn: `protocol_11` for a session opened before protocol 11
+   * (migration 0020). Its history stays readable.
+   */
+  closedReason?: string;
 }
 
 export type AuthScope =
@@ -115,7 +121,7 @@ export type AuthScope =
   | { kind: "management"; principalId: string }
   /**
    * A trusted issuer's token (Host feature `trusted-issuers`, F9-D12): one subject, with the
-   * issuer's scopes, agents and sandbox grants, until `expiresAt` (ms). Only its expiry ends it.
+   * issuer's scopes, agents and Environment grants, until `expiresAt` (ms). Only its expiry ends it.
    */
   | {
       kind: "token";
@@ -125,8 +131,8 @@ export type AuthScope =
       /** The issuer's scopes the token holds, which may add `studio`. */
       scopes: ReadonlySet<IssuerScope>;
       agents: ReadonlySet<string> | "*";
-      /** The sandboxes it reaches: exact ids or `p/*` prefixes. Absent or empty reaches none. */
-      sandboxes?: readonly string[];
+      /** The Environments it reaches: exact ids or `p/*` prefixes. Absent or empty reaches none. */
+      environments?: readonly string[];
       expiresAt: number;
       /** The token's `jti`, or a hash of it. */
       tokenId: string;
@@ -234,7 +240,7 @@ export interface TenantContext {
   abortLocal(sessionId: string, turnId?: string): void;
   /**
    * Sandbox pods (F7.2): the sandboxes service and the Runtime image pods copy the engine from.
-   * Absent without a cluster (`nylorun sandbox enable`): kind `pod` is `sandbox_unavailable`.
+   * Absent without a cluster (`nylorun sandbox enable`): kind `pod` is `environment_unavailable`.
    */
   readonly pods?: TenantPods;
   /**
@@ -327,25 +333,6 @@ export function loadSession(
   access?: SessionAccess
 ): Promise<Session> {
   return ctx.store.tx((t) => sessionOf(t, id, access));
-}
-
-/**
- * A synchronous lookup over `start` and every session its `sandboxOwnerId` chain names, for
- * the sandbox-sharing helpers, which walk that chain synchronously.
- */
-export async function sandboxLookup(
-  t: Tx,
-  start: string | undefined
-): Promise<(id: string) => Session | undefined> {
-  const found = new Map<string, Session>();
-  let id = start;
-  while (id && !found.has(id)) {
-    const session = await t.get<Session>("sessions", id);
-    if (!session) break;
-    found.set(id, session);
-    id = session.sandboxOwnerId;
-  }
-  return (sid) => found.get(sid);
 }
 
 /** The sandboxes service a Tenant drives its pod sandboxes with (`TenantContext.pods`). */

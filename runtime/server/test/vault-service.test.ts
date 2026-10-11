@@ -1,11 +1,12 @@
-import { describe, expect, it } from "vitest";
-import type { SessionStore, Tx } from "../src/store/types.js";
+import { afterEach, describe, expect, it } from "vitest";
+import type { PutEnvironmentSecretRequest } from "@nylorun/core/contracts";
+import type { Environment, SessionStore, Tx } from "../src/store/types.js";
 import { VaultError } from "../src/vault/error.js";
 import { HostModelVault } from "../src/vault/host-model.js";
 import { VaultService } from "../src/vault/service.js";
 import { sessionCredentials } from "../src/vault/sources.js";
 import { hostModelCatalog } from "../src/model/catalog.js";
-import { createTestSessionStore } from "./support/store.js";
+import { createTestSessionStore, dropTestTenant } from "./support/store.js";
 
 const KEK = Buffer.alloc(32, 9);
 const ADA_TOKEN = "ada-vault-plaintext-token-7f3c9a2e";
@@ -34,8 +35,37 @@ function tracked(inner: SessionStore) {
   return { store, inTx: () => open > 0 };
 }
 
+/** An Environment row of kind `none`, as `putEnvironment` writes one. */
+function environmentRow(id: string): Environment {
+  const now = new Date().toISOString();
+  const recipe = { harness: "nylorun", lifecycle: {} };
+  return {
+    id,
+    kind: "none",
+    labels: {},
+    recipe,
+    applied: recipe,
+    version: 1,
+    appliedVersion: 1,
+    lastUsedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/** Each test's store: closed and its database dropped after the test, not all at the file's end. */
+const opened: SessionStore[] = [];
+afterEach(async () => {
+  for (const store of opened.splice(0)) {
+    await store.close();
+    await dropTestTenant(store.tenantId);
+  }
+});
+
 async function setup() {
-  const { store, inTx } = tracked(await createTestSessionStore());
+  const inner = await createTestSessionStore();
+  opened.push(inner);
+  const { store, inTx } = tracked(inner);
   const kekCalls: boolean[] = [];
   const vault = new VaultService({
     store,
@@ -53,29 +83,29 @@ async function setup() {
       return KEK;
     },
   });
-  return { vault, hostModel, store, read, kekCalls };
+  /** Creates Environment `id` and its vault, as `PUT /v1/environments/{id}` does. */
+  const environment = async (id: string) => {
+    await store.tx(async (t) => {
+      expect(await t.createEnvironment(environmentRow(id), 100)).toBe("created");
+      await vault.createEnvironmentVault(t, id, "application");
+    });
+    return (await read((t) => t.vaultOfEnvironment(id)))!.id;
+  };
+  return { vault, hostModel, store, read, kekCalls, environment };
 }
 
+/** Environment `environmentId` with a `bearer` secret `name` for `url`. */
 async function bearer(
   vault: VaultService,
-  ownerUserId: string,
-  key: string,
+  environment: (id: string) => Promise<string>,
+  environmentId: string,
   token: string,
   url = URL,
+  name = "token",
 ) {
-  const created = await vault.createVault({
-    requestId: `${key}-vault`,
-    idempotencyKey: `${key}-vault`,
-    name: "GitHub",
-    ownerUserId,
-  });
-  const credential = await vault.createCredential(created.id, {
-    requestId: `${key}-cred`,
-    idempotencyKey: `${key}-cred`,
-    name: "token",
-    auth: { type: "bearer", url, token },
-  });
-  return { vaultId: created.id, credentialId: credential.id };
+  const vaultId = await environment(environmentId);
+  await vault.putEnvironmentSecret(environmentId, name, { type: "bearer", url, value: token }, "application");
+  return { vaultId, environmentId, name };
 }
 
 async function status(promise: Promise<unknown>): Promise<number | undefined> {
@@ -88,230 +118,253 @@ async function status(promise: Promise<unknown>): Promise<number | undefined> {
   }
 }
 
+async function rejection(promise: Promise<unknown>): Promise<VaultError> {
+  try {
+    await promise;
+  } catch (error) {
+    if (error instanceof VaultError) return error;
+    throw error;
+  }
+  throw new Error("expected a VaultError");
+}
+
+/** The id of the credential named `name` in vault `vaultId`. */
+async function credentialId(read: <T>(fn: (t: Tx) => Promise<T>) => Promise<T>, vaultId: string, name: string) {
+  return (await read((t) => t.credentialByName(vaultId, name)))!.id;
+}
+
 describe("VaultService administration", () => {
-  it("creates vaults idempotently and audits the create", async () => {
-    const { vault, read } = await setup();
-    const body = {
-      requestId: "vault-1",
-      idempotencyKey: "vault-ada",
-      name: "GitHub",
-      ownerUserId: "ada",
-      metadata: { team: "core" },
-    };
-    const created = await vault.createVault(body);
-    expect(created).toMatchObject({
-      name: "GitHub",
-      ownerUserId: "ada",
-      metadata: { team: "core" },
-    });
-    expect(await vault.createVault({ ...body, requestId: "vault-1b" })).toEqual(
-      created,
-    );
-    expect(
-      await status(vault.createVault({ ...body, requestId: "c", name: "Other" })),
-    ).toBe(409);
-    expect(await vault.getVault(created.id)).toEqual(created);
-    expect(await vault.listVaults("ada")).toEqual([created]);
-    expect(await vault.listVaults("bao")).toEqual([]);
-    const audit = await read((t) => t.vaultAudit());
-    expect(audit).toEqual([
+  it("creates an Environment's vault in the caller's transaction, audits it, and rolls back with it", async () => {
+    const { vault, store, read, environment } = await setup();
+    await expect(
+      store.tx(async (t) => {
+        await t.createEnvironment(environmentRow("rolled-back"), 100);
+        await vault.createEnvironmentVault(t, "rolled-back", "application");
+        throw new Error("environment write failed");
+      }),
+    ).rejects.toThrow("environment write failed");
+    expect(await read((t) => t.vaultOfEnvironment("rolled-back"))).toBeUndefined();
+    expect(await read((t) => t.vaultAudit())).toEqual([]);
+
+    const vaultId = await environment("ada/github");
+    expect(await read((t) => t.getVault(vaultId))).toMatchObject({ environmentId: "ada/github" });
+    expect(await vault.listEnvironmentSecrets("ada/github")).toEqual([]);
+    expect(await status(vault.listEnvironmentSecrets("bao/github"))).toBe(404);
+    expect(await read((t) => t.vaultAudit())).toEqual([
       expect.objectContaining({
         actor: "application",
         action: "create",
-        vaultId: created.id,
+        vaultId,
+        target: "ada/github",
         outcome: "created",
       }),
     ]);
   });
 
-  it("takes the scope from the owner when none is given", async () => {
-    const { vault, read } = await setup();
-    const shared = await vault.createVault({ requestId: "s", idempotencyKey: "s", name: "Shared" });
-    expect(shared.ownerUserId).toBe("installation");
-    expect((await read((t) => t.getVault(shared.id)))?.scope).toBe("installation");
-    const own = await vault.createVault({ requestId: "o", idempotencyKey: "o", name: "Own", ownerUserId: "ada" });
-    expect(own.ownerUserId).toBe("ada");
-    expect((await read((t) => t.getVault(own.id)))?.scope).toBe("user");
-  });
-
-  it("stores credentials sealed and never returns the plaintext", async () => {
-    const { vault, read } = await setup();
-    const { vaultId, credentialId } = await bearer(vault, "ada", "a", ADA_TOKEN);
-    const info = await vault.getCredential(vaultId, credentialId);
-    expect(info).toMatchObject({
-      id: credentialId,
-      vaultId,
-      type: "bearer",
-      binding: { url: URL },
-    });
+  it("stores secrets sealed and never returns the plaintext", async () => {
+    const { vault, read, environment } = await setup();
+    const { vaultId } = await bearer(vault, environment, "ada", ADA_TOKEN);
+    const info = await vault.getEnvironmentSecret("ada", "token");
+    expect(info).toMatchObject({ name: "token", type: "bearer", binding: { url: URL } });
+    expect(info.rotatedAt).toBeUndefined();
     expect(JSON.stringify(info)).not.toContain(ADA_TOKEN);
-    expect(await vault.listCredentials(vaultId)).toEqual([info]);
-    const row = await read((t) => t.getCredential(credentialId));
-    expect(Buffer.from(row!.ciphertext).includes(Buffer.from(ADA_TOKEN))).toBe(
-      false,
-    );
+    expect(await vault.listEnvironmentSecrets("ada")).toEqual([info]);
+    const row = await read((t) => t.credentialByName(vaultId, "token"));
+    expect(Buffer.from(row!.ciphertext).includes(Buffer.from(ADA_TOKEN))).toBe(false);
     expect(JSON.stringify(row)).not.toContain(ADA_TOKEN);
-    expect(await status(vault.getCredential("other", credentialId))).toBe(404);
+    await environment("bao");
+    expect(await status(vault.getEnvironmentSecret("bao", "token"))).toBe(404);
+    expect(await status(vault.getEnvironmentSecret("missing", "token"))).toBe(404);
   });
 
-  it("rotates and deletes credentials with audit rows", async () => {
-    const { vault, read } = await setup();
-    const { vaultId, credentialId } = await bearer(vault, "ada", "a", ADA_TOKEN);
-    const rotated = await vault.rotateCredential(vaultId, credentialId, {
-      requestId: "r",
-      idempotencyKey: "r",
-      auth: { type: "bearer", token: "rotated-token-5511" },
-    });
+  it("replaces a secret by name, deletes it, and audits each", async () => {
+    const { vault, read, environment } = await setup();
+    const { vaultId } = await bearer(vault, environment, "ada", ADA_TOKEN);
+    const id = await credentialId(read, vaultId, "token");
+    const rotated = await vault.putEnvironmentSecret(
+      "ada",
+      "token",
+      { type: "bearer", url: URL, value: "rotated-token-5511" },
+      "u:ada",
+    );
     expect(rotated.rotatedAt).toBeDefined();
-    const session = { sessionId: "s1", vaultIds: [vaultId], credentialSelections: [] };
-    expect(await vault.authorize({ ...session, url: URL })).toMatchObject({
+    // The same name and type keeps the credential.
+    expect(await credentialId(read, vaultId, "token")).toBe(id);
+    expect(await vault.authorize({ sessionId: "s1", environmentId: "ada", url: URL })).toMatchObject({
       status: "authorized",
       headers: { authorization: "Bearer rotated-token-5511" },
     });
-    expect(await vault.deleteCredential(vaultId, credentialId)).toEqual({
-      id: credentialId,
+    expect(await vault.deleteEnvironmentSecret("ada", "token", "u:ada")).toEqual({ id: "token" });
+    expect(await status(vault.deleteEnvironmentSecret("ada", "token", "u:ada"))).toBe(404);
+    expect(await vault.authorize({ sessionId: "s1", environmentId: "ada", url: URL })).toEqual({
+      status: "unauthenticated",
+      url: URL,
+      headers: {},
     });
-    expect(await status(vault.deleteCredential(vaultId, credentialId))).toBe(404);
-    const actions = (await read((t) => t.vaultAudit({ vaultId }))).map(
-      (row) => `${row.action}:${row.outcome}`,
-    );
-    expect(actions).toEqual([
+    const audit = await read((t) => t.vaultAudit({ vaultId }));
+    expect(audit.map((row) => `${row.action}:${row.outcome}`)).toEqual([
       "create:created",
       "create:created",
       "rotate:rotated",
       "use:approved",
       "delete:deleted",
     ]);
+    expect(audit.slice(2).filter((row) => row.action !== "use").map((row) => row.actor)).toEqual(["u:ada", "u:ada"]);
+    expect(audit.slice(1).every((row) => row.credentialId === id)).toBe(true);
   });
 
-  it("deletes a vault with its credentials and audits each", async () => {
-    const { vault, read } = await setup();
-    const { vaultId, credentialId } = await bearer(vault, "ada", "a", ADA_TOKEN);
-    expect(await vault.deleteVault(vaultId)).toEqual({ id: vaultId });
-    expect(await status(vault.getVault(vaultId))).toBe(404);
-    expect(await read((t) => t.getCredential(credentialId))).toBeUndefined();
-    const deletes = (await read((t) => t.vaultAudit({ vaultId }))).filter(
-      (row) => row.action === "delete",
+  it("replaces a secret of another type under the same name with a new credential", async () => {
+    const { vault, read, environment } = await setup();
+    const { vaultId } = await bearer(vault, environment, "ada", ADA_TOKEN);
+    const id = await credentialId(read, vaultId, "token");
+    const replaced = await vault.putEnvironmentSecret(
+      "ada",
+      "token",
+      { type: "headers", url: URL, headers: { "X-Api-Key": BAO_TOKEN } },
+      "application",
     );
-    expect(deletes.map((row) => row.credentialId)).toEqual([credentialId, null]);
-  });
-});
-
-describe("VaultService attachment", () => {
-  it("checks ownership, scope and selections inside the caller's transaction", async () => {
-    const { vault, store } = await setup();
-    const ada = await bearer(vault, "ada", "a", ADA_TOKEN);
-    const bao = await bearer(vault, "bao", "b", BAO_TOKEN);
-    const check = (
-      vaultIds: string[],
-      selections: { serverName: string; credentialId: string }[] = [],
-    ) => status(store.tx((t) => vault.assertAttachment(t, "ada", vaultIds, selections)));
-    expect(await check([ada.vaultId])).toBeUndefined();
-    expect(await check([bao.vaultId])).toBe(403);
-    expect(await check(["missing"])).toBe(404);
-    expect(await check([ada.vaultId, ada.vaultId])).toBe(400);
+    expect(replaced).toMatchObject({ type: "headers", headerNames: ["x-api-key"] });
+    expect(replaced.rotatedAt).toBeUndefined();
+    const next = await credentialId(read, vaultId, "token");
+    expect(next).not.toBe(id);
+    expect(await read((t) => t.getCredential(id))).toBeUndefined();
+    expect(await vault.authorize({ environmentId: "ada", url: URL })).toMatchObject({
+      status: "authorized",
+      headers: { "x-api-key": BAO_TOKEN },
+    });
     expect(
-      await check(
-        [ada.vaultId],
-        [{ serverName: "github", credentialId: bao.credentialId }],
-      ),
-    ).toBe(400);
-    expect(
-      await check(
-        [ada.vaultId],
-        [
-          { serverName: "github", credentialId: ada.credentialId },
-          { serverName: "github", credentialId: ada.credentialId },
-        ],
-      ),
-    ).toBe(400);
-  });
-
-  it("records the attachment in the caller's transaction and rolls back with it", async () => {
-    const { vault, store, read } = await setup();
-    const ada = await bearer(vault, "ada", "a", ADA_TOKEN);
-    await expect(
-      store.tx(async (t) => {
-        await vault.recordAttachment(t, "s-rolled-back", [ada.vaultId]);
-        throw new Error("session write failed");
-      }),
-    ).rejects.toThrow("session write failed");
-    await store.tx((t) => vault.recordAttachment(t, "s1", [ada.vaultId]));
-    const attach = (await read((t) => t.vaultAudit())).filter(
-      (row) => row.action === "attach",
-    );
-    expect(attach).toEqual([
-      expect.objectContaining({
-        sessionId: "s1",
-        target: ada.vaultId,
-        outcome: "attached",
-      }),
+      (await read((t) => t.vaultAudit({ vaultId }))).map((row) => [row.action, row.credentialId]),
+    ).toEqual([
+      ["create", null],
+      ["create", id],
+      ["delete", id],
+      ["create", next],
+      ["use", next],
     ]);
+  });
+
+  it("refuses a second credential for a URL or a host (credential_conflict), and writes nothing", async () => {
+    const { vault, read, environment } = await setup();
+    const { vaultId } = await bearer(vault, environment, "ada", ADA_TOKEN);
+    // The same URL, normalized: the default port and the case of the host do not make another.
+    for (const [name, url] of [
+      ["second", URL],
+      ["third", "https://MCP.example.com:443/github"],
+    ] as const) {
+      const refused = await rejection(
+        vault.putEnvironmentSecret("ada", name, { type: "headers", url, headers: { "x-api-key": "k" } }, "application"),
+      );
+      expect(refused.status).toBe(409);
+      expect(refused.rejection).toEqual({ code: "credential_conflict", details: { url: URL, existing: "token" } });
+    }
+    // Another path is another URL.
+    await vault.putEnvironmentSecret(
+      "ada",
+      "other",
+      { type: "bearer", url: "https://mcp.example.com/other", value: BAO_TOKEN },
+      "application",
+    );
+
+    await vault.putEnvironmentSecret(
+      "ada",
+      "GH_TOKEN",
+      { type: "environment_secret", value: "gh-secret-value", allowedHosts: ["api.github.com", "uploads.github.com"] },
+      "application",
+    );
+    const overlap = await rejection(
+      vault.putEnvironmentSecret(
+        "ada",
+        "GITHUB_TOKEN",
+        { type: "environment_secret", value: "another-value", allowedHosts: ["UPLOADS.github.com"] } as PutEnvironmentSecretRequest,
+        "application",
+      ),
+    );
+    expect(overlap.status).toBe(409);
+    expect(overlap.rejection).toEqual({
+      code: "credential_conflict",
+      details: { host: "uploads.github.com", existing: "GH_TOKEN" },
+    });
+    // Replacing the one bound to the host is no conflict with itself.
+    await vault.putEnvironmentSecret(
+      "ada",
+      "GH_TOKEN",
+      { type: "environment_secret", value: "gh-secret-rotated", allowedHosts: ["uploads.github.com"] },
+      "application",
+    );
+    // Another Environment's vault is another vault.
+    await bearer(vault, environment, "bao", BAO_TOKEN);
+    expect((await vault.listEnvironmentSecrets("ada")).map((secret) => secret.name)).toEqual([
+      "GH_TOKEN",
+      "other",
+      "token",
+    ]);
+    expect(
+      (await read((t) => t.vaultAudit({ vaultId }))).map((row) => `${row.action}:${row.outcome}`),
+    ).toEqual(["create:created", "create:created", "create:created", "create:created", "rotate:rotated"]);
+  });
+
+  it("deletes an Environment's vault with its credentials and audits each", async () => {
+    const { vault, store, read, environment } = await setup();
+    const { vaultId } = await bearer(vault, environment, "ada", ADA_TOKEN);
+    const id = await credentialId(read, vaultId, "token");
+    await store.tx((t) => vault.deleteEnvironmentVault(t, "ada", "u:ada"));
+    expect(await read((t) => t.getVault(vaultId))).toBeUndefined();
+    expect(await read((t) => t.getCredential(id))).toBeUndefined();
+    const deletes = (await read((t) => t.vaultAudit({ vaultId }))).filter((row) => row.action === "delete");
+    expect(deletes.map((row) => [row.credentialId, row.actor, row.target])).toEqual([
+      [id, "u:ada", "ada"],
+      [null, "u:ada", "ada"],
+    ]);
+    // A session that names it sends nothing and is refused: its vault is gone.
+    expect(await vault.authorize({ sessionId: "s1", environmentId: "ada", url: URL })).toMatchObject({
+      status: "refused",
+      reason: "vault_missing",
+    });
+    // Deleting it again is a no-op.
+    await store.tx((t) => vault.deleteEnvironmentVault(t, "ada", "u:ada"));
+  });
+
+  it("refuses a name its type does not allow, and a reserved variable", async () => {
+    const { vault, environment } = await setup();
+    await environment("ada");
+    expect(
+      await status(vault.putEnvironmentSecret("ada", "has space", { type: "bearer", url: URL, value: "t" }, "application")),
+    ).toBe(400);
+    expect(
+      await status(vault.putEnvironmentSecret("ada", "1BAD", { type: "environment_variable", value: "v" }, "application")),
+    ).toBe(400);
+    expect(
+      await status(vault.putEnvironmentSecret("ada", "PATH", { type: "environment_variable", value: "v" }, "application")),
+    ).toBe(400);
+    expect(await vault.listEnvironmentSecrets("ada")).toEqual([]);
   });
 });
 
 describe("VaultService authorize", () => {
-  it("leaves unmatched urls unauthenticated and refuses ambiguous matches", async () => {
-    const { vault, read, kekCalls } = await setup();
-    const ada = await bearer(vault, "ada", "a", ADA_TOKEN);
-    const second = await vault.createCredential(ada.vaultId, {
-      requestId: "a2",
-      idempotencyKey: "a2",
-      name: "GitHub other",
-      auth: { type: "bearer", url: URL, token: "ada-second-plaintext-token-22ee" },
-    });
-    const session = { sessionId: "s1", vaultIds: [ada.vaultId] };
+  it("leaves unmatched urls and sessions without an Environment unauthenticated", async () => {
+    const { vault, read, kekCalls, environment } = await setup();
+    const { vaultId } = await bearer(vault, environment, "ada", ADA_TOKEN);
+    const id = await credentialId(read, vaultId, "token");
     expect(
-      await vault.authorize({
-        ...session,
-        credentialSelections: [],
-        url: "https://mcp.example.com/other",
-      }),
+      await vault.authorize({ sessionId: "s1", environmentId: "ada", url: "https://mcp.example.com/other" }),
     ).toEqual({
       status: "unauthenticated",
       url: "https://mcp.example.com/other",
       headers: {},
     });
-    const ambiguous = await vault.authorize({
-      ...session,
-      credentialSelections: [],
+    expect(await vault.authorize({ sessionId: "s1", url: URL })).toEqual({
+      status: "unauthenticated",
       url: URL,
-      serverName: "github",
+      headers: {},
     });
-    expect(ambiguous).toMatchObject({ status: "refused", reason: "ambiguous" });
-    if (ambiguous.status === "refused")
-      expect(ambiguous.credentialIds.sort()).toEqual(
-        [ada.credentialId, second.id].sort(),
-      );
-    const mismatch = await vault.authorize({
-      ...session,
-      credentialSelections: [{ serverName: "github", credentialId: "nope" }],
-      url: URL,
-      serverName: "github",
-    });
-    expect(mismatch).toMatchObject({
-      status: "refused",
-      reason: "selection_mismatch",
-    });
-    const selected = await vault.authorize({
-      ...session,
-      credentialSelections: [{ serverName: "github", credentialId: second.id }],
-      url: URL,
-      serverName: "github",
-    });
-    expect(selected).toEqual({
+    expect(await vault.authorize({ sessionId: "s1", environmentId: "ada", url: URL })).toEqual({
       status: "authorized",
       url: URL,
-      headers: { authorization: "Bearer ada-second-plaintext-token-22ee" },
-      vault: "user",
+      headers: { authorization: `Bearer ${ADA_TOKEN}` },
     });
-    const uses = (await read((t) => t.vaultAudit())).filter(
-      (row) => row.action === "use",
-    );
-    expect(uses.map((row) => [row.outcome, row.credentialId])).toEqual([
-      ["refused", null],
-      ["refused", null],
-      ["approved", second.id],
+    const uses = (await read((t) => t.vaultAudit())).filter((row) => row.action === "use");
+    expect(uses.map((row) => [row.outcome, row.credentialId, row.sessionId])).toEqual([
+      ["approved", id, "s1"],
     ]);
     expect(JSON.stringify(uses)).not.toContain("plaintext");
     expect(kekCalls.every((inTx) => !inTx)).toBe(true);
@@ -319,12 +372,7 @@ describe("VaultService authorize", () => {
 
   it("refuses a missing vault and audits the refusal", async () => {
     const { vault, read } = await setup();
-    const result = await vault.authorize({
-      sessionId: "s1",
-      vaultIds: ["gone"],
-      credentialSelections: [],
-      url: URL,
-    });
+    const result = await vault.authorize({ sessionId: "s1", environmentId: "gone", url: URL });
     expect(result).toEqual({
       status: "refused",
       url: URL,
@@ -337,30 +385,22 @@ describe("VaultService authorize", () => {
   });
 
   it("refuses a credential whose binding no longer matches its ciphertext", async () => {
-    const { vault, read } = await setup();
-    const ada = await bearer(vault, "ada", "a", ADA_TOKEN);
+    const { vault, read, environment } = await setup();
+    const { vaultId } = await bearer(vault, environment, "ada", ADA_TOKEN);
+    const id = await credentialId(read, vaultId, "token");
     const other = "https://mcp.example.com/other";
-    await read((t) =>
-      t.updateCredential(ada.vaultId, ada.credentialId, {
-        bindingJson: JSON.stringify({ url: other }),
-      }),
-    );
-    const refused = await vault.authorize({
-      sessionId: "s1",
-      vaultIds: [ada.vaultId],
-      credentialSelections: [],
-      url: other,
-    });
+    await read((t) => t.updateCredential(vaultId, id, { bindingJson: JSON.stringify({ url: other }) }));
+    const refused = await vault.authorize({ sessionId: "s1", environmentId: "ada", url: other });
     expect(refused).toEqual({
       status: "refused",
       url: other,
-      credentialIds: [ada.credentialId],
+      credentialIds: [id],
       reason: "unreadable",
     });
     expect(JSON.stringify(refused)).not.toContain(ADA_TOKEN);
     expect((await read((t) => t.vaultAudit())).at(-1)).toMatchObject({
       action: "use",
-      credentialId: ada.credentialId,
+      credentialId: id,
       outcome: "refused",
     });
   });
@@ -371,46 +411,38 @@ describe("VaultService header and gateway credentials (R2b C2)", () => {
   const DD_APP = "datadog-app-key-plaintext-6b5a4f3e";
   const GATEWAY = "https://gateway.example.com/mcp/datadog";
 
-  async function installation(vault: VaultService) {
-    return vault.createVault({
-      requestId: "inst",
-      idempotencyKey: "inst",
-      name: "Shared",
-      scope: "installation",
-    });
-  }
-
   it("creates, lists and authorizes a header map with via and an identity header, sealed", async () => {
-    const { vault, read } = await setup();
-    const shared = await installation(vault);
-    const info = await vault.createCredential(shared.id, {
-      requestId: "dd",
-      idempotencyKey: "dd",
-      name: "datadog",
-      auth: {
+    const { vault, read, environment } = await setup();
+    const vaultId = await environment("shared");
+    const info = await vault.putEnvironmentSecret(
+      "shared",
+      "datadog",
+      {
         type: "headers",
         url: URL,
         headers: { "DD-API-KEY": DD_API, "DD-APPLICATION-KEY": DD_APP },
         via: GATEWAY,
         identity: { header: "X-User-Id" },
       },
-    });
+      "application",
+    );
     expect(info).toMatchObject({
+      name: "datadog",
       type: "headers",
       binding: { url: URL },
       headerNames: ["dd-api-key", "dd-application-key"],
       via: GATEWAY,
       identity: { header: "x-user-id" },
     });
-    expect(await vault.listCredentials(shared.id)).toEqual([info]);
+    expect(await vault.listEnvironmentSecrets("shared")).toEqual([info]);
     for (const secret of [DD_API, DD_APP]) {
       expect(JSON.stringify(info)).not.toContain(secret);
-      const row = await read((t) => t.getCredential(info.id));
+      const row = await read((t) => t.credentialByName(vaultId, "datadog"));
       expect(JSON.stringify(row)).not.toContain(secret);
       expect(Buffer.from(row!.ciphertext).includes(Buffer.from(secret))).toBe(false);
     }
     // Matched by the manifest's URL, never by `via`.
-    const session = { sessionId: "s1", vaultIds: [shared.id], credentialSelections: [] };
+    const session = { sessionId: "s1", environmentId: "shared" };
     expect(await vault.authorize({ ...session, url: GATEWAY })).toMatchObject({
       status: "unauthenticated",
     });
@@ -420,84 +452,72 @@ describe("VaultService header and gateway credentials (R2b C2)", () => {
       headers: { "dd-api-key": DD_API, "dd-application-key": DD_APP },
       via: GATEWAY,
       identity: { header: "x-user-id" },
-      vault: "installation",
     });
   });
 
-  it("rotates the secret and keeps via and identity unless the rotation changes them", async () => {
-    const { vault } = await setup();
-    const shared = await installation(vault);
-    const created = await vault.createCredential(shared.id, {
-      requestId: "dd",
-      idempotencyKey: "dd",
-      name: "datadog",
-      auth: { type: "headers", url: URL, headers: { "x-api-key": DD_API }, via: GATEWAY, identity: { header: "x-user-id" } },
-    });
-    const session = { sessionId: "s1", vaultIds: [shared.id], credentialSelections: [], url: URL };
-    const kept = await vault.rotateCredential(shared.id, created.id, {
-      requestId: "r1",
-      idempotencyKey: "r1",
-      auth: { type: "headers", headers: { "x-api-key": "rotated-api-key-1234", "x-account": "acct-0001" } },
+  it("replaces the secret with its routing: via and identity are what the last write sent", async () => {
+    const { vault, environment } = await setup();
+    await environment("shared");
+    const put = (body: Record<string, unknown>) =>
+      vault.putEnvironmentSecret(
+        "shared",
+        "datadog",
+        { type: "headers", url: URL, ...body } as PutEnvironmentSecretRequest,
+        "application",
+      );
+    await put({ headers: { "x-api-key": DD_API }, via: GATEWAY, identity: { header: "x-user-id" } });
+    const session = { sessionId: "s1", environmentId: "shared", url: URL };
+    const kept = await put({
+      headers: { "x-api-key": "rotated-api-key-1234", "x-account": "acct-0001" },
+      via: GATEWAY,
+      identity: { header: "x-user-id" },
     });
     expect(kept).toMatchObject({ via: GATEWAY, identity: { header: "x-user-id" }, headerNames: ["x-api-key", "x-account"] });
+    expect(kept.rotatedAt).toBeDefined();
     expect(await vault.authorize(session)).toMatchObject({
       headers: { "x-api-key": "rotated-api-key-1234", "x-account": "acct-0001" },
       via: GATEWAY,
     });
-    const moved = await vault.rotateCredential(shared.id, created.id, {
-      requestId: "r2",
-      idempotencyKey: "r2",
-      auth: { type: "headers", headers: { "x-api-key": "rotated-api-key-5678" }, via: "https://other.example.com/mcp", identity: null },
-    });
+    const moved = await put({ headers: { "x-api-key": "rotated-api-key-5678" }, via: "https://other.example.com/mcp" });
     expect(moved.via).toBe("https://other.example.com/mcp");
     expect(moved.identity).toBeUndefined();
-    const direct = await vault.rotateCredential(shared.id, created.id, {
-      requestId: "r3",
-      idempotencyKey: "r3",
-      auth: { type: "headers", headers: { "x-api-key": "rotated-api-key-9999" }, via: null },
-    });
+    const direct = await put({ headers: { "x-api-key": "rotated-api-key-9999" } });
     expect(direct.via).toBeUndefined();
-    const used = await vault.authorize(session);
-    expect(used).toEqual({ status: "authorized", url: URL, headers: { "x-api-key": "rotated-api-key-9999" }, vault: "installation" });
-    expect(
-      await status(
-        vault.rotateCredential(shared.id, created.id, {
-          requestId: "r4",
-          idempotencyKey: "r4",
-          auth: { type: "bearer", token: "a-bearer-token" },
-        }),
-      ),
-    ).toBe(409);
+    expect(await vault.authorize(session)).toEqual({
+      status: "authorized",
+      url: URL,
+      headers: { "x-api-key": "rotated-api-key-9999" },
+    });
   });
 
-  it("accepts the same kinds in a user vault", async () => {
-    const { vault } = await setup();
-    const { vaultId } = await bearer(vault, "ada", "a", ADA_TOKEN, "https://mcp.example.com/unused");
-    const created = await vault.createCredential(vaultId, {
-      requestId: "h",
-      idempotencyKey: "h",
-      name: "own",
-      auth: { type: "bearer", url: URL, token: BAO_TOKEN, via: GATEWAY, identity: { header: "x-user-id" } },
-    });
+  it("accepts a bearer token with via and an identity header", async () => {
+    const { vault, environment } = await setup();
+    await bearer(vault, environment, "ada", ADA_TOKEN, "https://mcp.example.com/unused");
+    const created = await vault.putEnvironmentSecret(
+      "ada",
+      "own",
+      { type: "bearer", url: URL, value: BAO_TOKEN, via: GATEWAY, identity: { header: "x-user-id" } },
+      "application",
+    );
     expect(created).toMatchObject({ type: "bearer", via: GATEWAY, identity: { header: "x-user-id" } });
     expect(created.headerNames).toBeUndefined();
-    expect(await vault.authorize({ sessionId: "s1", vaultIds: [vaultId], credentialSelections: [], url: URL })).toMatchObject({
+    expect(await vault.authorize({ sessionId: "s1", environmentId: "ada", url: URL })).toMatchObject({
       headers: { authorization: `Bearer ${BAO_TOKEN}` },
-      vault: "user",
+      via: GATEWAY,
     });
   });
 
   it("refuses the transport's headers and Nylorun-* in the map and as the identity header", async () => {
-    const { vault } = await setup();
-    const shared = await installation(vault);
+    const { vault, environment } = await setup();
+    await environment("shared");
     const create = (key: string, auth: Record<string, unknown>) =>
       status(
-        vault.createCredential(shared.id, {
-          requestId: key,
-          idempotencyKey: key,
-          name: key,
-          auth: { type: "headers", url: URL, headers: { "x-api-key": "k" }, ...auth } as never,
-        }),
+        vault.putEnvironmentSecret(
+          "shared",
+          key,
+          { type: "headers", url: URL, headers: { "x-api-key": "k" }, ...auth } as PutEnvironmentSecretRequest,
+          "application",
+        ),
       );
     for (const name of ["Content-Type", "mcp-session-id", "Host", "Nylorun-Session-Id", "idempotency-key"])
       expect(await create(`h-${name}`, { headers: { [name]: "v" } }), name).toBe(400);
@@ -505,29 +525,29 @@ describe("VaultService header and gateway credentials (R2b C2)", () => {
       expect(await create(`i-${header}`, { identity: { header } }), header).toBe(400);
     expect(
       await status(
-        vault.createCredential(shared.id, {
-          requestId: "b",
-          idempotencyKey: "b",
-          name: "b",
-          auth: { type: "bearer", url: URL, token: "t", identity: { header: "Authorization" } },
-        }),
+        vault.putEnvironmentSecret(
+          "shared",
+          "b",
+          { type: "bearer", url: URL, value: "t", identity: { header: "Authorization" } },
+          "application",
+        ),
       ),
     ).toBe(400);
-    expect(await vault.listCredentials(shared.id)).toEqual([]);
+    expect(await vault.listEnvironmentSecrets("shared")).toEqual([]);
   });
 });
 
 describe("sessionCredentials identity header (R2b C2)", () => {
   it("names a person's session owner, and nobody for an installation session", async () => {
-    const { vault } = await setup();
-    const shared = await vault.createVault({ requestId: "i", idempotencyKey: "i", name: "Shared", scope: "installation" });
-    await vault.createCredential(shared.id, {
-      requestId: "g",
-      idempotencyKey: "g",
-      name: "gateway",
-      auth: { type: "bearer", url: URL, token: ADA_TOKEN, via: "https://gateway.example.com/mcp", identity: { header: "X-User-Id" } },
-    });
-    const person = await sessionCredentials(vault, { id: "s1", ownerUserId: "u:ada", vaultIds: [shared.id] }, { url: URL });
+    const { vault, environment } = await setup();
+    await environment("shared");
+    await vault.putEnvironmentSecret(
+      "shared",
+      "gateway",
+      { type: "bearer", url: URL, value: ADA_TOKEN, via: "https://gateway.example.com/mcp", identity: { header: "X-User-Id" } },
+      "application",
+    );
+    const person = await sessionCredentials(vault, { id: "s1", ownerUserId: "u:ada", environmentId: "shared" }, { url: URL });
     expect(person).toMatchObject({
       status: "authorized",
       headers: { authorization: `Bearer ${ADA_TOKEN}`, "x-user-id": "u:ada" },
@@ -535,16 +555,22 @@ describe("sessionCredentials identity header (R2b C2)", () => {
     });
     const scheduled = await sessionCredentials(
       vault,
-      { id: "s2", ownerUserId: "installation", vaultIds: [shared.id] },
+      { id: "s2", ownerUserId: "installation", environmentId: "shared" },
       { url: URL },
     );
     expect(scheduled.status === "authorized" && scheduled.headers).toEqual({ authorization: `Bearer ${ADA_TOKEN}` });
+    // A session that names no Environment sends nothing.
+    expect(await sessionCredentials(vault, { id: "s3", ownerUserId: "u:ada" }, { url: URL })).toEqual({
+      status: "unauthenticated",
+      url: URL,
+      headers: {},
+    });
   });
 });
 
 describe("VaultService host model", () => {
-  it("keeps the host model credential out of user vaults and responses", async () => {
-    const { vault, hostModel, store, read } = await setup();
+  it("keeps the host model credential out of Environment vaults and responses", async () => {
+    const { vault, hostModel, read } = await setup();
     const secret = "host-model-plaintext-key-77ab";
     expect(await vault.getHostModel()).toEqual({ configured: false });
     expect(await hostModel.readHostModel()).toBeUndefined();
@@ -573,11 +599,13 @@ describe("VaultService host model", () => {
       authType: "api_key",
       credential: { type: "api_key", key: secret },
     });
-    expect(await vault.listVaults("host")).toEqual([]);
-    expect(await status(vault.getVault("host"))).toBe(404);
-    expect(
-      await status(store.tx((t) => vault.assertAttachment(t, "ada", ["host"], []))),
-    ).toBe(400);
+    // The host vault is no Environment's: no secret route and no session reaches it.
+    expect(await status(vault.listEnvironmentSecrets("host"))).toBe(404);
+    expect(await status(vault.getEnvironmentSecret("host", "custom"))).toBe(404);
+    expect(await vault.authorize({ sessionId: "s1", environmentId: "host", url: "https://models.example.test/v1" })).toMatchObject({
+      status: "refused",
+      reason: "vault_missing",
+    });
 
     const openaiModel =
       hostModelCatalog().providers.find((provider) => provider.id === "openai")

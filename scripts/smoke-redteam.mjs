@@ -7,7 +7,7 @@
 // NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name prebuilt images (CI). Needs the CLI and
 // @nylorun/admin built.
 //
-// 1. A stub model on the Tenant's network; session A (an agent with a sandbox) runs bash, and
+// 1. A stub model on the Tenant's network; session A (on a virtual Environment) runs bash, and
 //    session B (another agent) answers once.
 // 2. The harness service is stopped, and runtime/server/test/redteam/harness.mjs runs in a container
 //    of the harness service's own definition (image, user, environment, mounts, network):
@@ -74,9 +74,14 @@ try {
         });
       const A = "redteam-a";
       const B = "redteam-b";
+      // Session A's sandbox is a virtual Environment's (protocol 11).
+      await request(runtimeUrl, tenant, `/v1/environments/${A}`, {
+        method: "PUT",
+        body: { requestId: randomUUID(), kind: "virtual" },
+      });
       await request(runtimeUrl, tenant, `/v1/sessions/${A}`, {
         method: "PUT",
-        body: { requestId: randomUUID(), agentId: "agent-a", ownerUserId: "redteam", sandbox: {} },
+        body: { requestId: randomUUID(), agentId: "agent-a", ownerUserId: "redteam", environment: A },
       });
       await request(runtimeUrl, tenant, `/v1/sessions/${B}`, {
         method: "PUT",

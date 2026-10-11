@@ -333,9 +333,13 @@ try {
 
       // 5b. The harness killed mid `bash`: the workspace call is lost with it, so the effect is
       // uncertain and the session waits for a decision; nothing runs it twice.
+      await request(runtimeUrl, tenant, "/v1/environments/s3", {
+        method: "PUT",
+        body: { requestId: randomUUID(), kind: "virtual" },
+      });
       await request(runtimeUrl, tenant, "/v1/sessions/s3", {
         method: "PUT",
-        body: { requestId: randomUUID(), agentId: "bot", ownerUserId: "failure-smoke", sandbox: {} },
+        body: { requestId: randomUUID(), agentId: "bot", ownerUserId: "failure-smoke", environment: "s3" },
       });
       await request(runtimeUrl, tenant, "/v1/sessions/s3/commands", {
         method: "POST",

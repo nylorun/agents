@@ -28,7 +28,7 @@ export interface WorkspaceSession {
   /** The session that owns the workspace (one hop through `sandboxOwnerId`). */
   readonly ownerId: string;
   /** The sandbox resource the workspace belongs to, when the owner is attached to one. */
-  readonly sandboxId?: string;
+  readonly environmentId?: string;
   /** The session's pinned manifest: its sandbox capability carries the sandbox's spec. */
   readonly manifest: AgentManifest;
 }
@@ -79,7 +79,7 @@ export function sandboxWorkspaceReader(sandbox: WorkspaceFiles): WorkspaceReader
         id: session.ownerId,
         activeTurnId: session.turnId,
         manifest: session.manifest,
-        ...(session.sandboxId === undefined ? {} : { sandboxId: session.sandboxId }),
+        ...(session.environmentId === undefined ? {} : { environmentId: session.environmentId }),
       },
     };
   };

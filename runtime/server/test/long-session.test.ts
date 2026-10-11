@@ -90,11 +90,12 @@ it.each([
       await client.saveAgent(Agent({ id: "writer", name: "Writer" }).instructions("Write files.").build(), {
         implementationVersion: "dev",
       });
+      await client.environments.put("env-long", { kind: "virtual" });
       const session = await client.createSession({
         id: "long",
         agentId: "writer",
         ownerUserId: "ada",
-        sandbox: {},
+        environment: "env-long",
       });
       for (let turn = 0; turn < TURNS; turn++) {
         await session.input(`Write batch ${turn}.`, { idempotencyKey: `m${turn}` });

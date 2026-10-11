@@ -32,7 +32,7 @@
  *    head).
  * 2. A transaction that touches several sessions locks them in ascending id
  *    order, with `lockSessions` (`./locking.ts`), before writing any of them.
- * 3. A sandbox resource's row (`sandboxResource(id, { lock: true })`, which orders its
+ * 3. An Environment's row (`environment(id, { lock: true })`, which orders its
  *    lifecycle stream) is locked after every session row the transaction locks, never
  *    before one.
  *
@@ -73,14 +73,14 @@ import type {
   EventPayload,
   EventType,
   LiveEvent,
-  SandboxEvent,
-  SandboxEventPayload,
-  SandboxEventType,
+  EnvironmentEvent,
+  EnvironmentEventPayload,
+  EnvironmentEventType,
   SessionEventOf,
 } from "@nylorun/core/contracts";
 import type { RecordReader } from "../../streams/relay/types.js";
 import type { SandboxSignal, SandboxTimer, Wake, WakeReason } from "../../execution/types.js";
-import { appendEvent, appendSandboxEvent } from "../../record/index.js";
+import { appendEnvironmentEvent, appendEvent } from "../../record/index.js";
 import { OwnershipLostError, PrincipalRoleConflict } from "../ownership.js";
 import type {
   ArtifactRow,
@@ -100,7 +100,7 @@ import type {
   PrincipalRow,
   ResetScope,
   SandboxDoc,
-  SandboxResource,
+  Environment,
   SandboxPodPatch,
   SessionDoc,
   SessionEffectFilter,
@@ -135,7 +135,7 @@ import { followControlSignals, pruneSignals, writeSignal } from "./control.js";
 import { database, driverError, type Database, type Transaction } from "./db.js";
 import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
 import { createPostgresRecordReader } from "./record.js";
-import { postgresRecordWriter, postgresSandboxRecordWriter } from "./record-writer.js";
+import { postgresEnvironmentRecordWriter, postgresRecordWriter } from "./record-writer.js";
 import {
   artifacts,
   artifactVersions,
@@ -150,8 +150,8 @@ import {
   modelUsage,
   principals,
   sandboxes,
-  sandboxEvents,
-  sandboxResources,
+  environmentEvents,
+  environments,
   sessionEvents,
   sessionLogHeads,
   sessions,
@@ -381,12 +381,17 @@ function ownership(row: SessionOwnershipRow): SessionOwnership {
   };
 }
 
-function sandboxResourceOf(row: typeof sandboxResources.$inferSelect): SandboxResource {
+function environmentOf(row: typeof environments.$inferSelect): Environment {
   return {
     id: row.id,
     kind: row.kind,
-    spec: row.spec as SandboxResource["spec"],
     labels: row.labels as Record<string, string>,
+    recipe: row.recipe as Environment["recipe"],
+    applied: row.applied as Environment["applied"],
+    version: row.version,
+    appliedVersion: row.appliedVersion,
+    ...(row.ownerUserId !== null ? { ownerUserId: row.ownerUserId } : {}),
+    lastUsedAt: new Date(row.lastUsedAt).toISOString(),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...(row.k8sName !== null && row.desired !== null && row.observed !== null
@@ -401,7 +406,6 @@ function sandboxResourceOf(row: typeof sandboxResources.$inferSelect): SandboxRe
             ...(row.joinTokenHash !== null ? { joinTokenHash: row.joinTokenHash } : {}),
             rev: row.rev,
             ...(row.lastActiveAt ? { lastActiveAt: row.lastActiveAt.toISOString() } : {}),
-            ...(row.expiresAt ? { expiresAt: row.expiresAt.toISOString() } : {}),
             ...(row.startedAt ? { startedAt: row.startedAt.toISOString() } : {}),
             ...(row.reason !== null ? { reason: row.reason } : {}),
             ...(row.retiring !== null ? { retiring: row.retiring } : {}),
@@ -413,10 +417,10 @@ function sandboxResourceOf(row: typeof sandboxResources.$inferSelect): SandboxRe
 }
 
 /** A pod patch as column values: ISO times become dates, `null` clears. */
-function podColumns(patch: SandboxPodPatch): Partial<typeof sandboxResources.$inferInsert> {
+function podColumns(patch: SandboxPodPatch): Partial<typeof environments.$inferInsert> {
   const date = (value: string | null | undefined) =>
     value === undefined ? undefined : value === null ? null : new Date(value);
-  const columns: Partial<typeof sandboxResources.$inferInsert> = {
+  const columns: Partial<typeof environments.$inferInsert> = {
     k8sName: patch.k8sName,
     volumeGen: patch.volumeGen,
     desired: patch.desired,
@@ -426,7 +430,6 @@ function podColumns(patch: SandboxPodPatch): Partial<typeof sandboxResources.$in
     joinTokenHash: patch.joinTokenHash,
     rev: patch.rev,
     lastActiveAt: date(patch.lastActiveAt),
-    expiresAt: date(patch.expiresAt),
     startedAt: date(patch.startedAt),
     reason: patch.reason,
     retiring: patch.retiring,
@@ -840,126 +843,137 @@ class PostgresTx implements Tx {
     return this.bodies<T>(sandboxes);
   }
 
-  // --- sandbox resources ---------------------------------------------------
+  // --- Environments ----------------------------------------------------------
 
-  async sandboxResource(
+  async environment(
     id: string,
     options: { lock?: boolean } = {},
-  ): Promise<SandboxResource | undefined> {
+  ): Promise<Environment | undefined> {
     this.check();
-    const query = this.db.select().from(sandboxResources).where(eq(sandboxResources.id, id));
+    const query = this.db.select().from(environments).where(eq(environments.id, id));
     const [row] = options.lock ? await query.for("update") : await query;
-    return row && sandboxResourceOf(row);
+    return row && environmentOf(row);
   }
 
-  async createSandboxResource(
-    row: SandboxResource,
+  async createEnvironment(
+    row: Environment,
     limit: number,
   ): Promise<"created" | "exists" | "limit"> {
     this.check();
     // Every create takes this lock, so two never both see room for one more.
-    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('nylorun.sandbox_resources'))`);
+    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('nylorun.environments'))`);
     const [found] = await this.db
-      .select({ id: sandboxResources.id })
-      .from(sandboxResources)
-      .where(eq(sandboxResources.id, row.id));
+      .select({ id: environments.id })
+      .from(environments)
+      .where(eq(environments.id, row.id));
     if (found) return "exists";
-    const [counted] = await this.db.select({ n: count() }).from(sandboxResources);
+    const [counted] = await this.db.select({ n: count() }).from(environments);
     if ((counted?.n ?? 0) >= limit) return "limit";
-    const { pod, ...resource } = row;
-    await this.db.insert(sandboxResources).values({ ...resource, ...(pod ? podColumns(pod) : {}) });
+    const { pod, ownerUserId, ...environment } = row;
+    await this.db.insert(environments).values({
+      ...environment,
+      ownerUserId: ownerUserId ?? null,
+      ...(pod ? podColumns(pod) : {}),
+    });
     return "created";
   }
 
-  async updateSandboxSpec(id: string, spec: SandboxResource["spec"], updatedAt: string): Promise<void> {
-    this.check();
-    await this.db.update(sandboxResources).set({ spec, updatedAt }).where(eq(sandboxResources.id, id));
-  }
-
-  async updateSandboxPod(id: string, patch: SandboxPodPatch, updatedAt: string): Promise<void> {
-    this.check();
-    await this.db
-      .update(sandboxResources)
-      .set({ ...podColumns(patch), updatedAt })
-      .where(eq(sandboxResources.id, id));
-  }
-
-  async updateSandboxLabels(
+  async updateEnvironment(
     id: string,
-    labels: Record<string, string>,
+    patch: {
+      labels?: Record<string, string>;
+      recipe?: Environment["recipe"];
+      version?: number;
+      applied?: Environment["applied"];
+      appliedVersion?: number;
+      ownerUserId?: string | null;
+      lastUsedAt?: string;
+    },
     updatedAt: string,
   ): Promise<void> {
     this.check();
+    const columns = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    );
     await this.db
-      .update(sandboxResources)
-      .set({ labels, updatedAt })
-      .where(eq(sandboxResources.id, id));
+      .update(environments)
+      .set({ ...columns, updatedAt })
+      .where(eq(environments.id, id));
   }
 
-  async deleteSandboxResource(id: string): Promise<void> {
+  async updateEnvironmentPod(id: string, patch: SandboxPodPatch, updatedAt: string): Promise<void> {
     this.check();
-    await this.db.delete(sandboxResources).where(eq(sandboxResources.id, id));
+    await this.db
+      .update(environments)
+      .set({ ...podColumns(patch), updatedAt })
+      .where(eq(environments.id, id));
   }
 
-  async listSandboxResources(
+  async deleteEnvironment(id: string): Promise<void> {
+    this.check();
+    // Its vault and credentials go with it (ON DELETE CASCADE).
+    await this.db.delete(environments).where(eq(environments.id, id));
+  }
+
+  async listEnvironments(
     filter: { labels?: Record<string, string> } = {},
-  ): Promise<SandboxResource[]> {
+  ): Promise<Environment[]> {
     this.check();
     const labels = filter.labels;
     const rows = await this.db
       .select()
-      .from(sandboxResources)
+      .from(environments)
       .where(
         labels === undefined || Object.keys(labels).length === 0
           ? undefined
-          : sql`nylorun.doc(${sandboxResources.labels}) @> ${toJson(labels)}::jsonb`,
+          : sql`nylorun.doc(${environments.labels}) @> ${toJson(labels)}::jsonb`,
       )
-      .orderBy(sandboxResources.id);
-    return rows.map(sandboxResourceOf);
+      .orderBy(environments.id);
+    return rows.map(environmentOf);
   }
 
-  async sessionsOnSandbox<T extends SessionDoc = SessionDoc>(
-    sandboxId: string,
+  async sessionsOnEnvironment<T extends SessionDoc = SessionDoc>(
+    environmentId: string,
   ): Promise<StoredSession<T>[]> {
     this.check();
     const rows = await this.sessions()
-      .where(eq(sessions.sandboxId, sandboxId))
+      .where(eq(sessions.environmentId, environmentId))
       .orderBy(sessions.id);
     return rows.map((row) => storedSession<T>(row));
   }
 
-  async sandboxEvent<T extends SandboxEventType>(
-    sandboxId: string,
+  async environmentEvent<T extends EnvironmentEventType>(
+    environmentId: string,
     type: T,
-    payload: SandboxEventPayload<T>,
-  ): Promise<SandboxEvent> {
+    payload: EnvironmentEventPayload<T>,
+  ): Promise<EnvironmentEvent> {
     this.check();
-    return appendSandboxEvent(postgresSandboxRecordWriter(this.db), {
+    return appendEnvironmentEvent(postgresEnvironmentRecordWriter(this.db), {
       tenantId: this.tenantId,
-      sandboxId,
+      environmentId,
       time: this.now(),
       type,
       payload,
     });
   }
 
-  async sandboxEvents(
-    sandboxId: string,
+  async environmentEvents(
+    environmentId: string,
     options: { fromSeq?: number; limit?: number } = {},
-  ): Promise<SandboxEvent[]> {
+  ): Promise<EnvironmentEvent[]> {
     this.check();
     const rows = await this.db
-      .select({ body: sandboxEvents.body })
-      .from(sandboxEvents)
+      .select({ body: environmentEvents.body })
+      .from(environmentEvents)
       .where(
         and(
-          eq(sandboxEvents.sandboxId, sandboxId),
-          options.fromSeq === undefined ? undefined : gte(sandboxEvents.seq, options.fromSeq),
+          eq(environmentEvents.environmentId, environmentId),
+          options.fromSeq === undefined ? undefined : gte(environmentEvents.seq, options.fromSeq),
         ),
       )
-      .orderBy(sandboxEvents.seq)
+      .orderBy(environmentEvents.seq)
       .limit(options.limit ?? 1000);
-    return rows.map((row) => row.body as SandboxEvent);
+    return rows.map((row) => row.body as EnvironmentEvent);
   }
 
   private async effectBodies<T>(where: SQL | undefined): Promise<T[]> {
@@ -1156,22 +1170,13 @@ class PostgresTx implements Tx {
     return row;
   }
 
-  async vaultsByOwner(ownerUserId: string): Promise<VaultRow[]> {
+  async vaultOfEnvironment(environmentId: string): Promise<VaultRow | undefined> {
     this.check();
-    return this.db
+    const [row] = await this.db
       .select()
       .from(vaults)
-      .where(and(eq(vaults.ownerUserId, ownerUserId), eq(vaults.scope, "user")))
-      .orderBy(vaults.createdAt, vaults.id);
-  }
-
-  async installationVaults(): Promise<VaultRow[]> {
-    this.check();
-    return this.db
-      .select()
-      .from(vaults)
-      .where(eq(vaults.scope, "installation"))
-      .orderBy(vaults.createdAt, vaults.id);
+      .where(eq(vaults.environmentId, environmentId));
+    return row;
   }
 
   async updateVaultMetadata(
@@ -1199,6 +1204,15 @@ class PostgresTx implements Tx {
       .select()
       .from(vaultCredentials)
       .where(eq(vaultCredentials.id, id));
+    return row;
+  }
+
+  async credentialByName(vaultId: string, name: string): Promise<VaultCredentialRow | undefined> {
+    this.check();
+    const [row] = await this.db
+      .select()
+      .from(vaultCredentials)
+      .where(and(eq(vaultCredentials.vaultId, vaultId), eq(vaultCredentials.name, name)));
     return row;
   }
 
@@ -1652,10 +1666,11 @@ class PostgresTx implements Tx {
         basinGeneration: sql`${tenant.basinGeneration} + 1`,
       });
     }
-    if (scope === "sandboxes" || scope === "all") {
+    if (scope === "environments" || scope === "all") {
       await db.delete(sandboxes);
-      await db.delete(sandboxResources);
-      await db.delete(sandboxEvents);
+      // Their vaults and credentials go with them (ON DELETE CASCADE).
+      await db.delete(environments);
+      await db.delete(environmentEvents);
       await db.delete(sandboxSignals);
     }
     if (scope === "all") {
@@ -1665,7 +1680,6 @@ class PostgresTx implements Tx {
       await db.delete(modelUsage);
       await db.delete(modelBudgets);
       await db.delete(artifacts);
-      await db.delete(vaults).where(ne(vaults.scope, "host"));
     }
   }
 }

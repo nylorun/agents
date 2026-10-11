@@ -229,27 +229,43 @@ it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () 
   TenantStatusSchema.parse(await status.json());
 });
 
-it("reset sandboxes renames then clears the sandboxes directory (A17)", async () => {
+it("reset environments deletes the Environments, then renames and clears the sandboxes directory (A17)", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
   const sandboxes = join(runtime.root, "tenant", "sandboxes");
   writeFileSync(join(sandboxes, "marker.txt"), "keep-me-not");
+  const created = await fetch(`${runtime.url}/v1/environments/e1`, {
+    method: "PUT",
+    headers: runtime.headers(),
+    body: JSON.stringify({ requestId: randomUUID(), kind: "virtual" }),
+  });
+  expect(created.status).toBe(200);
+
+  // The protocol 10 scope is refused, not read as another.
+  const old = await fetch(`${runtime.url}/v1/tenant/reset`, {
+    method: "POST",
+    headers: runtime.managementHeaders(),
+    body: JSON.stringify({ requestId: randomUUID(), scope: "sandboxes", activeWork: "drain" }),
+  });
+  expect(old.status).toBe(400);
+  expect(existsSync(join(sandboxes, "marker.txt"))).toBe(true);
 
   const reset = await fetch(`${runtime.url}/v1/tenant/reset`, {
     method: "POST",
     headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
-      scope: "sandboxes",
+      scope: "environments",
       activeWork: "drain",
     }),
   });
   expect(reset.status).toBe(200);
   expect(existsSync(join(sandboxes, "marker.txt"))).toBe(false);
   expect(existsSync(sandboxes)).toBe(true);
+  expect((await fetch(`${runtime.url}/v1/environments/e1`, { headers: runtime.headers() })).status).toBe(404);
 });
 
-it("reset all clears definitions, user vaults and tenant log (A17)", async () => {
+it("reset all clears definitions, Environments with their secrets, and tenant log (A17)", async () => {
   const runtime = await startTestTenant({ applicationKey: "reset-all-key-16chars" });
   closers.push(runtime);
 
@@ -263,17 +279,23 @@ it("reset all clears definitions, user vaults and tenant log (A17)", async () =>
     }),
   });
 
-  const vault = await fetch(`${runtime.url}/v1/tenant/vaults`, {
-    method: "POST",
-    headers: runtime.managementHeaders(),
+  const environment = await fetch(`${runtime.url}/v1/environments/user-1`, {
+    method: "PUT",
+    headers: runtime.headers(),
+    body: JSON.stringify({ requestId: randomUUID(), kind: "none", ownerUserId: "user-1" }),
+  });
+  expect(environment.status).toBe(200);
+  const secret = await fetch(`${runtime.url}/v1/environments/user-1/secrets/api`, {
+    method: "PUT",
+    headers: runtime.headers(),
     body: JSON.stringify({
       requestId: randomUUID(),
-      idempotencyKey: "vault-1",
-      name: "user-vault",
-      ownerUserId: "user-1",
+      type: "bearer",
+      url: "https://api.example.com",
+      value: "user-1-token",
     }),
   });
-  expect(vault.status).toBe(200);
+  expect(secret.status).toBe(200);
 
   await fetch(`${runtime.url}/v1/tenant/config/seed`, {
     method: "PUT",
@@ -313,10 +335,13 @@ it("reset all clears definitions, user vaults and tenant log (A17)", async () =>
   expect(status.counts.sessions).toBe(0);
   expect(status.model.configured).toBe(true);
 
-  const vaults = await fetch(`${runtime.url}/v1/tenant/vaults?ownerUserId=user-1`, {
-    headers: runtime.managementHeaders(),
+  const environments = await fetch(`${runtime.url}/v1/environments`, {
+    headers: runtime.headers(),
   });
-  expect((await vaults.json()).vaults).toEqual([]);
+  expect((await environments.json()).environments).toEqual([]);
+  expect(
+    (await fetch(`${runtime.url}/v1/environments/user-1/secrets/api`, { headers: runtime.headers() })).status,
+  ).toBe(404);
 
   const log = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
   expect(log).toBe("");

@@ -45,8 +45,10 @@ describe("the Management API client", () => {
     for (const name of ["status", "adminUrl", "listTenants", "getTenant", "deleteTenant", "createTenant"])
       expect(name in admin, name).toBe(false);
     expect("OPERATOR_KEYS_FEATURE" in sdk).toBe(false);
-    for (const group of ["tenant", "keys", "models", "vaults", "mcp", "signingKeys", "settings"] as const)
+    for (const group of ["tenant", "keys", "models", "coverage", "mcp", "signingKeys", "settings"] as const)
       expect(admin[group], group).toBeDefined();
+    // Protocol 11: an Environment's secrets are written on the Runtime API; no vault routes here.
+    expect("vaults" in admin).toBe(false);
   });
 
   it("previews an MCP server's tools, and rejects a failed preview with its failure code", async () => {
@@ -77,8 +79,8 @@ describe("the Management API client", () => {
     });
     try {
       const admin = createAdmin({ url: server.url, key: MANAGEMENT_KEY });
-      await expect(admin.mcp.preview({ url: preview.url, vaultId: "v1" })).resolves.toEqual(preview);
-      expect(bodies).toEqual([{ url: preview.url, vaultId: "v1" }]);
+      await expect(admin.mcp.preview({ url: preview.url, environmentId: "users/ada/web" })).resolves.toEqual(preview);
+      expect(bodies).toEqual([{ url: preview.url, environmentId: "users/ada/web" }]);
       await expect(admin.mcp.preview({ url: "https://down.test/mcp" })).rejects.toMatchObject({
         name: "AdminError",
         code: "mcp_preview_failed",
@@ -93,7 +95,7 @@ describe("the Management API client", () => {
   it("checks an agent's credential coverage with a request id", async () => {
     const coverage = {
       agentId: "triage",
-      vaultIds: ["v1"],
+      environmentId: "users/ada/web",
       complete: true,
       entries: [
         {
@@ -103,10 +105,8 @@ describe("the Management API client", () => {
           url: "https://mcp.linear.app/mcp",
           required: false,
           status: "covered",
-          credential: { vaultId: "v1", vaultName: "tools", credentialId: "c1", credentialName: "linear" },
-          matches: [{ vaultId: "v1", vaultName: "tools", credentialId: "c1", credentialName: "linear" }],
-          available: [],
-          message: "Sends 'linear' from vault 'tools'.",
+          credential: { environmentId: "users/ada/web", name: "linear" },
+          message: "Sends 'linear' from Environment users/ada/web.",
         },
       ],
     };
@@ -121,8 +121,8 @@ describe("the Management API client", () => {
     });
     try {
       const admin = createAdmin({ url: server.url, key: MANAGEMENT_KEY });
-      await expect(admin.vaults.coverage({ agentId: "triage", vaultIds: ["v1"] })).resolves.toEqual(coverage);
-      expect(bodies).toEqual([{ requestId: expect.any(String), agentId: "triage", vaultIds: ["v1"] }]);
+      await expect(admin.coverage({ agentId: "triage", environmentId: "users/ada/web" })).resolves.toEqual(coverage);
+      expect(bodies).toEqual([{ requestId: expect.any(String), agentId: "triage", environmentId: "users/ada/web" }]);
     } finally {
       await server.close();
     }

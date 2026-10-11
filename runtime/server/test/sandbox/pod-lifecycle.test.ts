@@ -1,12 +1,13 @@
 /**
- * The pod sandbox lifecycle as a pure decision (F7.2, D34): create, ready, failed, idle, TTL
- * (retain and delete), lost, delete and reset's retiring Sandbox.
+ * A pod Environment's lifecycle as a pure decision (F7.2, D34, protocol 11): create, ready,
+ * failed, idle, lost, delete and reset's retiring Sandbox. No TTL: an unused Environment is
+ * deleted by the Tenant sweep (`lifecycle.deleteAfter`), not here.
  */
 import { describe, expect, it } from "vitest";
 import type { PodStatus } from "../../src/sandbox/pods/client.js";
 import { decide, opIdOf, READY_DEADLINE_MS, type PodFacts, type PodRow } from "../../src/sandbox/pods/lifecycle.js";
 import { podName } from "../../src/sandbox/pods/name.js";
-import { podSpecOf } from "../../src/sandbox/pods/spec.js";
+import { podLifecycleConfig, podSpecOf } from "../../src/sandbox/pods/spec.js";
 
 const T0 = Date.parse("2026-10-03T10:00:00Z");
 const NAME = "sbx-aaaaaaaaaaaaaaaa-g0";
@@ -15,8 +16,12 @@ function row(pod: Partial<PodRow["pod"]> = {}): PodRow {
   return {
     id: "s1",
     kind: "pod",
-    spec: {},
     labels: {},
+    recipe: { harness: "nylorun", lifecycle: {} },
+    applied: { harness: "nylorun", lifecycle: {} },
+    version: 1,
+    appliedVersion: 1,
+    lastUsedAt: new Date(T0).toISOString(),
     createdAt: new Date(T0).toISOString(),
     updatedAt: new Date(T0).toISOString(),
     pod: {
@@ -53,7 +58,7 @@ const gone: PodStatus = { name: NAME, exists: false, deleting: false, ready: fal
 function facts(over: Partial<PodFacts>): PodFacts {
   return {
     row: row(),
-    config: { onExpiry: "retain", idleMs: 60_000 },
+    config: { idleMs: 60_000 },
     status: status(),
     busy: false,
     now: T0 + 1_000,
@@ -88,7 +93,7 @@ describe("pod lifecycle", () => {
       facts({ status: status({ ready: false, reason: "ImagePullBackOff", message: "no such image" }), now: T0 + READY_DEADLINE_MS + 1 }),
     );
     expect(decision.patch).toMatchObject({ observed: "failed", reason: "ImagePullBackOff: no such image" });
-    expect(decision.events).toEqual([{ type: "sandbox.failed", payload: { reason: "ImagePullBackOff: no such image" } }]);
+    expect(decision.events).toEqual([{ type: "environment.failed", payload: { reason: "ImagePullBackOff: no such image" } }]);
   });
 
   it("suspends an idle pod, and re-arms the timer of one used since", () => {
@@ -96,7 +101,7 @@ describe("pod lifecycle", () => {
     const idle = decide(facts({ row: base, trigger: "idle", now: T0 + 61_000 }));
     expect(idle.patch).toMatchObject({ desired: "suspended", rev: 2, hostEpoch: 4 });
     expect(idle.apply).toEqual({ mode: "Suspended", rotateJoin: false });
-    expect(idle.events).toEqual([{ type: "sandbox.suspended", payload: { reason: "idle" } }]);
+    expect(idle.events).toEqual([{ type: "environment.suspended", payload: { reason: "idle" } }]);
     const early = decide(facts({ row: base, trigger: "idle", now: T0 + 30_000 }));
     expect(early.patch.desired).toBeUndefined();
     expect(early.arm).toContainEqual({ timer: "idle", at: T0 + 60_000 });
@@ -113,23 +118,28 @@ describe("pod lifecycle", () => {
     expect(suspended.patch).toMatchObject({ observed: "suspended" });
   });
 
-  it("expires at its TTL: the epoch moves; retain keeps it, delete deletes it", () => {
-    const expiring = row({ observed: "running", podUid: "uid-1", hostEpoch: 2, expiresAt: new Date(T0 + 60_000).toISOString() });
-    expect(decide(facts({ row: expiring })).arm).toContainEqual({ timer: "ttl", at: T0 + 60_000 });
-    const retained = decide(facts({ row: expiring, now: T0 + 60_000, trigger: "ttl" }));
-    expect(retained.patch).toMatchObject({ observed: "expired", hostEpoch: 3 });
-    expect(retained.events).toEqual([{ type: "sandbox.expired", payload: { onExpiry: "retain" } }]);
-    expect(retained.delete).toEqual([]);
-    const deleted = decide(facts({ row: expiring, now: T0 + 60_000, config: { onExpiry: "delete", idleMs: 60_000 } }));
-    expect(deleted.patch).toMatchObject({ observed: "expired", desired: "deleted" });
-    expect(deleted.delete).toEqual([NAME]);
+  it("never expires: a running pod past any age arms only its idle timer", () => {
+    const old = row({ observed: "running", podUid: "uid-1", hostEpoch: 2, lastActiveAt: new Date(T0).toISOString() });
+    const decision = decide(facts({ row: old, trigger: "idle", now: T0 + 30_000 }));
+    expect(decision.arm).toEqual([{ timer: "idle", at: T0 + 60_000 }]);
+    expect(decision.patch).toEqual({});
+    expect(decision.events).toEqual([]);
+    expect(decision.delete).toEqual([]);
+  });
+
+  it("idles after the Environment's lifecycle.idle, at most the Tenant's", () => {
+    const tenant = { limits: { idle: "15m" } };
+    expect(podLifecycleConfig(tenant).idleMs).toBe(15 * 60_000);
+    expect(podLifecycleConfig(tenant, { lifecycle: { idle: "5m" } }).idleMs).toBe(5 * 60_000);
+    expect(podLifecycleConfig(tenant, { lifecycle: { idle: "1h" } }).idleMs).toBe(15 * 60_000);
+    expect(podLifecycleConfig({}, { lifecycle: {} }).idleMs).toBe(15 * 60_000);
   });
 
   it("is lost when a joined incarnation's volume or Sandbox is gone, and stays lost", () => {
     const joined = row({ observed: "running", podUid: "uid-1", hostEpoch: 5 });
     const pvc = decide(facts({ row: joined, status: status({ volume: "missing", ready: false }) }));
     expect(pvc.patch).toMatchObject({ observed: "lost", hostEpoch: 6 });
-    expect(pvc.events[0]?.type).toBe("sandbox.lost");
+    expect(pvc.events[0]?.type).toBe("environment.lost");
     expect(pvc.delete).toEqual([NAME]);
     const vanished = decide(facts({ row: joined, status: gone }));
     expect(vanished.patch.observed).toBe("lost");
@@ -164,10 +174,10 @@ describe("pod lifecycle", () => {
 
   it("renders the service's PUT body with the Tenant's lifecycle settings", () => {
     const body = podSpecOf({
-      sandboxId: "team/a",
+      environmentId: "team/a",
       spec: { image: "node:24", resources: { cpus: 2, memory: "2GiB" }, storage: "10GiB" } as never,
-      pod: row({ rev: 7, expiresAt: "2026-10-04T10:00:00.000Z" }).pod,
-      config: { lifecycle: { onExpiry: "delete", stopGrace: "20s" } },
+      pod: row({ rev: 7 }).pod,
+      config: { lifecycle: { stopGrace: "20s" } },
       mode: "Running",
       harnessImage: "ghcr.io/nylorun/runtime:0.15",
       joinToken: "secret",
@@ -181,8 +191,7 @@ describe("pod lifecycle", () => {
       memoryMiB: 2048,
       storageGiB: 10,
       stopGraceSeconds: 20,
-      shutdownTime: "2026-10-04T10:00:00Z",
-      shutdownPolicy: "Delete",
+      shutdownPolicy: "Retain",
       env: { NYLORUN_SANDBOX_ID: "team/a", NYLORUN_HARNESS_ROOT: "/harness" },
       joinToken: "secret",
     });

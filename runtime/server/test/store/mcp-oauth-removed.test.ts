@@ -1,6 +1,8 @@
 /**
  * Protocol 10: migration `0016_mcp_oauth_removed` drops `oauth_pending` and deletes the vault's
  * `oauth` credentials, each with an audit row, and the Host names each one in a boot warning.
+ * The boot applies migrations through 0016 only: protocol 11's `0020_environments` later deletes
+ * every vault but the host's (checked last).
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,14 +20,12 @@ it("deletes oauth credentials with an audit row each, and warns once naming each
   const db = await emptyTestDatabase();
   const tenantId = newTenantId();
   const create = { tenantId, name: "upgrade", principals: () => [] };
+  const at = shippedMigrations().findIndex((migration) => migration.tag === "0016_mcp_oauth_removed");
   const old = await openTenantDatabase({
     sql: db.sql,
     create,
     // The database as protocol 9 left it.
-    migrations: shippedMigrations().slice(
-      0,
-      shippedMigrations().findIndex((migration) => migration.tag === "0016_mcp_oauth_removed"),
-    ),
+    migrations: shippedMigrations().slice(0, at),
   });
   await old.store.close();
   await db.sql`insert into nylorun.vaults (id, name, owner_user_id, created_at, scope)
@@ -45,18 +45,22 @@ it("deletes oauth credentials with an audit row each, and warns once naming each
     warn: (message, fields) => warnings.push([message, fields]),
     error: () => {},
   };
-  const open = createPostgresTenantOpener({
-    hostRoot: root,
-    sql: db.sql,
-    create,
-    configFor: configForRoot(root),
-    logger,
-    openRuntime: async (_config, opened) => {
-      await opened.reads?.close();
-      await opened.store.close();
-      return {} as never;
-    },
-  });
+  const opener = (migrations?: ReturnType<typeof shippedMigrations>) =>
+    createPostgresTenantOpener({
+      hostRoot: root,
+      sql: db.sql,
+      create,
+      configFor: configForRoot(root),
+      logger,
+      ...(migrations ? { migrations } : {}),
+      openRuntime: async (_config, opened) => {
+        await opened.reads?.close();
+        await opened.store.close();
+        return {} as never;
+      },
+    });
+  // The Host of protocol 10: migrations through 0016.
+  const open = opener(shippedMigrations().slice(0, at + 1));
   try {
     await open();
     expect(warnings).toEqual([
@@ -91,6 +95,13 @@ it("deletes oauth credentials with an audit row each, and warns once naming each
     warnings.length = 0;
     await open();
     expect(warnings).toEqual([]);
+
+    // Protocol 11 (0020) deletes every vault but the host's, with its credentials, and warns
+    // nothing more about oauth.
+    await opener()();
+    expect(warnings).toEqual([]);
+    expect(await db.sql`select id from nylorun.vaults`).toEqual([]);
+    expect(await db.sql`select id from nylorun.vault_credentials`).toEqual([]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

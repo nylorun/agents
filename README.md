@@ -82,7 +82,7 @@ every page is also available as Markdown by appending `.md` to its URL.
 | Package | Folder | Role |
 | --- | --- | --- |
 | [`@nylorun/agents`](https://www.npmjs.com/package/@nylorun/agents) | [`sdks/agents`](./sdks/agents) | Agents SDK: define agents, save them, open sessions; AG-UI and A2A handlers |
-| [`@nylorun/admin`](https://www.npmjs.com/package/@nylorun/admin) | [`sdks/admin`](./sdks/admin) | Admin SDK for the Management API: models, vaults, signing keys, application keys |
+| [`@nylorun/admin`](https://www.npmjs.com/package/@nylorun/admin) | [`sdks/admin`](./sdks/admin) | Admin SDK for the Management API: models, credential coverage, MCP previews, signing keys, application keys |
 | [`nylorun`](https://www.npmjs.com/package/nylorun) | [`cli/nylorun`](./cli/nylorun) | Runs the local Runtime (`up`, `down`, `status`, `logs`, `studio`, `key`); `nylo`, the Runtime client |
 | [`@nylorun/cli`](https://www.npmjs.com/package/@nylorun/cli) | [`cli/legacy`](./cli/legacy) | Deprecated: runs nylorun's `nylo` for one more release |
 | [`@nylorun/create-agent`](https://www.npmjs.com/package/@nylorun/create-agent) | [`cli/create-agent`](./cli/create-agent) | `npm create @nylorun/agent`: project scaffolding and compatibility pins |

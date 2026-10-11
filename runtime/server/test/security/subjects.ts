@@ -106,47 +106,43 @@ export async function createSession(
 }
 
 /**
- * A vault owned by `as.subject`, with one bearer credential, created with the management key:
- * vaults are the Management API's (protocol 8).
+ * An Environment guarded for `as.subject` (`ownerUserId`), with one bearer credential in its
+ * vault, created with the application key alone: only `as.subject`'s sessions may name it
+ * (protocol 11). Its id is `env-<subject>`, unless `id` names another.
  */
-export async function createVault(
+export async function createEnvironment(
   tenant: SubjectTenant,
-  as: As
-): Promise<{ vaultId: string; credentialId: string }> {
-  const key = tenant.runtime.managementKey;
-  const vault = await tenant.call("POST", "/v1/tenant/vaults", {
-    key,
+  as: As,
+  options: { id?: string; url?: string; kind?: "virtual" | "none" } = {}
+): Promise<{ environmentId: string; secretName: string }> {
+  const environmentId = options.id ?? `env-${as.subject.replace(/[^A-Za-z0-9._-]/g, "-")}`;
+  const path = `/v1/environments/${encodeURIComponent(environmentId)}`;
+  const environment = await tenant.call("PUT", path, {
     body: {
-      requestId: `vault-${as.subject}`,
-      idempotencyKey: `vault-${as.subject}`,
-      name: `${as.subject}'s vault`,
+      requestId: `env-${environmentId}`,
+      kind: options.kind ?? "none",
       ownerUserId: as.subject,
     },
   });
-  if (vault.status !== 200)
-    throw new Error(`creating a vault failed: ${vault.status} ${vault.text}`);
-  const credential = await tenant.call(
-    "POST",
-    `/v1/tenant/vaults/${vault.body.id}/credentials`,
+  if (environment.status !== 200)
+    throw new Error(
+      `creating an Environment failed: ${environment.status} ${environment.text}`
+    );
+  const secret = await tenant.call(
+    "PUT",
+    `${path}/secrets/token`,
     {
-      key,
       body: {
-        requestId: `cred-${as.subject}`,
-        idempotencyKey: `cred-${as.subject}`,
-        name: "token",
-        auth: {
-          type: "bearer",
-          url: "https://mcp.example.com/tools",
-          token: `secret-of-${as.subject}`,
-        },
+        requestId: `secret-${environmentId}`,
+        type: "bearer",
+        url: options.url ?? "https://mcp.example.com/tools",
+        value: `secret-of-${as.subject}`,
       },
     }
   );
-  if (credential.status !== 200)
-    throw new Error(
-      `creating a credential failed: ${credential.status} ${credential.text}`
-    );
-  return { vaultId: vault.body.id, credentialId: credential.body.id };
+  if (secret.status !== 200)
+    throw new Error(`creating a secret failed: ${secret.status} ${secret.text}`);
+  return { environmentId, secretName: "token" };
 }
 
 /** Waits until the session reaches one of `statuses`, read with the application key. */

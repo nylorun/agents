@@ -1,12 +1,12 @@
 /**
  * The keys seam (blueprint §14, F4.2): everything that needs the vault key. Vault writes that
- * touch a secret (creating and rotating a credential, setting and selecting the host model;
+ * touch a secret (writing an Environment's secret, setting and selecting the host model;
  * rotation and selection decrypt the old secret first) and all token signing (capability
  * links, run and host tokens, signing-key rotation) run here, whole, so the process that calls them never
  * holds the key or a private signing key.
  *
- * A tool preview (R2b C12, `previewMcp`) runs here too: it sends an installation vault's
- * credential to the server it lists, so the process that reads the plaintext makes the request.
+ * A tool preview (R2b C12, `previewMcp`) runs here too: it sends an Environment's credential to
+ * the server it lists, so the process that reads the plaintext makes the request.
  *
  * Two implementations: `inProcessKeys` (embedding, the ephemeral Runtime, tests, and the gates
  * service itself, which serves the HTTP routes with it), and `httpKeys` (`client.ts`), the
@@ -15,13 +15,12 @@
 import { EgressAuthority } from "./egress-ca.js";
 import { SignJWT } from "jose";
 import type {
-  CreateCredentialRequest,
-  CredentialInfo,
+  EnvironmentSecretView,
   HostModelView,
   McpPreview,
   McpPreviewRequest,
+  PutEnvironmentSecretRequest,
   PutHostModelRequest,
-  RotateCredentialRequest,
   SelectHostModelRequest,
   SigningKeyView,
 } from "@nylorun/core/contracts";
@@ -44,8 +43,13 @@ export interface Signed {
 }
 
 export interface Keys {
-  createCredential(vaultId: string, body: CreateCredentialRequest): Promise<CredentialInfo>;
-  rotateCredential(vaultId: string, id: string, body: RotateCredentialRequest): Promise<CredentialInfo>;
+  /** `PUT /v1/environments/{id}/secrets/{name}` (`VaultService.putEnvironmentSecret`). */
+  putEnvironmentSecret(
+    environmentId: string,
+    name: string,
+    body: PutEnvironmentSecretRequest,
+    actor: string,
+  ): Promise<EnvironmentSecretView>;
   putHostModel(body: PutHostModelRequest): Promise<HostModelView>;
   selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>;
   /** Signs with the current key, creating the Tenant's keys if it has none. */
@@ -55,7 +59,7 @@ export interface Keys {
   /** Creates the current and standby keys when the Tenant has none. */
   ensureSigningKeys(): Promise<void>;
   /**
-   * Lists a remote MCP server's tools with the installation vault's credential for its URL
+   * Lists a remote MCP server's tools with the Environment's credential for its URL
    * (R2b C12, `mcp/preview.ts`); never calls a tool.
    */
   previewMcp(body: McpPreviewRequest): Promise<McpPreview>;
@@ -70,8 +74,7 @@ export interface Keys {
 
 /** The operations, by the name the HTTP route carries. */
 export const KEYS_OPERATIONS = [
-  "createCredential",
-  "rotateCredential",
+  "putEnvironmentSecret",
   "putHostModel",
   "selectHostModel",
   "sign",
@@ -99,8 +102,8 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
   const { store, vault, signingKeys, kek } = options;
   const egress = new EgressAuthority(store, kek);
   return {
-    createCredential: (vaultId, body) => vault.createCredential(vaultId, body),
-    rotateCredential: (vaultId, id, body) => vault.rotateCredential(vaultId, id, body),
+    putEnvironmentSecret: (environmentId, name, body, actor) =>
+      vault.putEnvironmentSecret(environmentId, name, body, actor),
     putHostModel: (body) => vault.putHostModel(body),
     selectHostModel: (body) => vault.selectHostModel(body),
     async sign(request) {

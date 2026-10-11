@@ -91,11 +91,12 @@ it("writes message.assistant per model step and tool.completed for Runtime-run t
   try {
     const agent = Agent({ id: "bot", name: "Bot" }).instructions("Write, then read.").build();
     await client.saveAgent(agent, { implementationVersion: "dev" });
+    await client.environments.put("env-s1", { kind: "virtual" });
     const session = await client.createSession({
       id: "s1",
       agentId: "bot",
       ownerUserId: "ada",
-      sandbox: {},
+      environment: "env-s1",
     });
     await session.input("write then read", { idempotencyKey: "m1" });
     expect((await settle(session, ["completed", "failed"])).status).toBe(

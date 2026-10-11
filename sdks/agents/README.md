@@ -1,7 +1,7 @@
 # @nylorun/agents
 
 Runtime API client package: definition authoring and a session client. The Tenant's
-settings, models, vaults, signing keys and application keys are the Management
+settings, models, credential coverage, signing keys and application keys are the Management
 API's, through [`@nylorun/admin`](../admin/README.md). Depends only on `@nylorun/core` among Nylorun
 packages. A developer application's production tree should contain only this
 package and `@nylorun/core` from Nylorun. Vocabulary:
@@ -14,7 +14,7 @@ package and `@nylorun/core` from Nylorun. Vocabulary:
 import { createClient } from "@nylorun/agents";
 import { agents } from "../agents/index.js";
 
-const client = createClient();
+const client = await createClient();
 for (const agent of agents) await client.saveAgent(agent);
 ```
 
@@ -47,7 +47,7 @@ const refundOrder = http({
   output: z.object({ refundId: z.string() }), // optional
   url: "https://billing.example.com/refunds",
   method: "POST", // default; or PUT, PATCH
-  credential: "billing", // optional: a vault credential bound to this URL
+  credential: "billing", // optional: the session's Environment holds a credential for this URL
   timeoutMs: 20_000, // default 60000, at most 300000
   approval: "always", // optional: each call waits for session.approve()
 });
@@ -66,10 +66,9 @@ restart, so your service can drop duplicates. A `2xx` JSON answer is the output
 address or a mismatched output is a tool error the model sees. A call whose
 answer was lost with the gateway is `uncertain` and never sent again.
 
-`credential` works as for a remote MCP server: the session's attached vaults
-must hold a credential bound to the tool's exact URL (a `credentialSelections`
-entry whose `serverName` is the `credential` picks one when several are), else
-the call fails before it is sent (`http.credential`). A credential with `via`
+`credential` works as for a remote MCP server: the vault of the session's
+Environment must hold a credential bound to the tool's exact URL, else the call
+fails before it is sent (`http.credential`). A credential with `via`
 sends the call there instead, such as a gateway, with the session owner in its
 identity header, and a `401` is `credential_rejected` to the model, not retried. `approval: "always"` pauses the turn for `session.approve()`; a
 denied call never runs and the model sees the denial. A remote MCP server takes
@@ -170,39 +169,41 @@ Each key names a server; its `name` defaults to the key and, when given, must eq
 
 Set a server's tools one by one with `tools`, keyed by the server's own tool names, `"*"` for the rest: `{ "*": { enabled: false }, search_issues: { enabled: true }, create_issue: { enabled: true, approval: "always" } }` is an allowlist with one approval. When an agent's MCP tools would fill more than a tenth of the model's context window, the Runtime defers them: the model finds them with `tool_search` and runs them with `tool_call`. `deferred: true` or `false`, on a tool or on the server, decides instead. Either setting makes the manifest v6 (see MIGRATION.md).
 
-A manifest never carries a server's credential, and its `headers` hold no secret. The operator gives the server's URL a vault credential (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in), and the session's attached vaults supply it: [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun mcp inspect` for listing a server's tools first. After `saveAgent`, `admin.vaults.coverage({ agentId, vaultIds })` in `@nylorun/admin` says which credential each server and HTTP tool would get from the vaults you will pass in `vaultIds` ([Checking an agent's credentials](../../guides/DEPLOYMENT.md#checking-an-agents-credentials)). The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
+A manifest never carries a server's credential, and its `headers` hold no secret. You write a credential for the server's URL into an Environment (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in, with `client.environments.secrets.put`), and sessions that name the Environment use it: [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun mcp inspect` for listing a server's tools first. After `saveAgent`, `admin.coverage({ agentId, environmentId })` in `@nylorun/admin` says which credential each server and HTTP tool would get in that Environment ([Checking an agent's credentials](../../guides/DEPLOYMENT.md#checking-an-agents-credentials)). The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
 
-Give a session a sandbox when you open it. The agent declares nothing, so the same agent runs with or without one, in any Tenant:
-
-```ts
-const session = await client.createSession({
-  agentId: "analyst",
-  ownerUserId,
-  sandbox: {
-    network: { allow: ["pypi.org", "files.pythonhosted.org"] }, // no egress unless you list hosts
-    resources: { cpus: 2, memory: "2GiB" },
-  },
-});
-```
-
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process. The Runtime decides where the sandbox runs: today an emulated shell in the Runtime process, which is not a VM boundary and takes no `image`.
-
-`sandbox` takes `false` for none, `{ id }` to attach a sandbox resource (below), or an inline sandbox as above; omit it for the Tenant's default. `{ session }`, sharing another session's sandbox, still works and is deprecated. The Runtime checks it against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. A caller acting for a user (`app.as(...)`) can't define one inline; it gets the Tenant's default or `false`. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
-
-A sandbox can also be a resource with its own id, which outlives the sessions attached to it (Host feature `sandboxes`). Whether it serves one session, one person or a project is your choice:
+A session runs in an **Environment**: one sandbox and one vault, with an id you choose, which outlives the sessions that name it (protocol 11). The agent declares nothing, so the same agent runs with or without one, in any Tenant. Whether an Environment serves one session, one person or a project is your app's choice:
 
 ```ts
-// One per session: created with the session, deleted by release().
-const { session, release } = await client.sandboxes.forSession({
-  session: { agentId: "analyst", ownerUserId },
-  spec: { network: { allow: ["pypi.org"] } },
+// One per person or project: get-or-create by id (or change its recipe), write its secrets, open sessions on it.
+await client.environments.put("users/alice/web", {
+  kind: "virtual", // the default; "pod" for a container with its own volume, "none" for a vault without compute
+  network: { allowedHosts: ["pypi.org", "files.pythonhosted.org"] }, // no egress unless you list hosts
+  ownerUserId: "alice", // the owner guard: only alice's sessions may name it
+  labels: { team: "data" },
+  lifecycle: { deleteAfter: "30d" }, // deleted once unused this long
 });
-// One per person or project: get-or-create by id, then attach sessions to it.
-await client.sandboxes.ensure("team-a/proj-42", { labels: { project: "acme" } });
-await client.createSession({ agentId: "analyst", ownerUserId, sandbox: { id: "team-a/proj-42" } });
+await client.environments.secrets.put("users/alice/web", "GH_TOKEN", {
+  type: "environment_secret",
+  value: process.env.ALICE_GITHUB_TOKEN!,
+  allowedHosts: ["api.github.com"],
+});
+const session = await client.createSession({ agentId: "analyst", ownerUserId: "alice", environment: "users/alice/web" });
+
+// One per session: created with the session (id `sessions/<session id>`), deleted by release().
+const { session: scratch, release } = await client.environments.forSession({
+  session: { agentId: "analyst", ownerUserId: "alice" },
+  recipe: { network: { allowedHosts: ["pypi.org"] } },
+});
+await release();
 ```
 
-Sessions attached to one sandbox share its `/workspace`, and one turn runs in it at a time: a second session's turn is refused with `409 sandbox_busy` until the first ends. Deleting a session only detaches it. A spec is fixed once the sandbox exists; `labels` can change. `client.sandboxes.list({ labels })`, `get(id)` and `delete(id)` manage them, and `npx nylorun sandbox ls | rm` does the same on a local Tenant. A trusted issuer's token reaches only the sandboxes its issuer grants (the identity file's `sandboxes` templates, exact ids or prefixes ending in `/*`), checked at every turn start; creating and deleting through one needs `sandboxes:write`. The Tenant holds at most `limits.sandboxes` of them (`PUT /v1/tenant/sandbox`, default 100).
+With a sandbox (kind `virtual` or `pod`), the model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process. A `virtual` Environment is an emulated shell in the Runtime's harness, which is not a VM boundary and takes no `image`; a `pod` runs `image` with its own volume (`storage`) once the Tenant has sandbox pods (`nylorun sandbox enable`). Kind `none` has a vault and no sandbox, for agents that use only remote MCP servers and HTTP tools. A session that names no Environment has no sandbox and no credentials.
+
+`kind` and `storage` are fixed once the Environment exists (a different one is a `409`); `labels` replace, and any other change bumps its `version`: network changes apply within seconds, a pod gets a new `image` or `resources` when it next starts from stopped, and a virtual one's change reaches the sessions opened after it. The Runtime checks a recipe against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. `lifecycle.idle` stops a pod after that long without a turn (at most the Tenant's); `lifecycle.deleteAfter` deletes the Environment, its vault and its files once nothing has used it that long. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
+
+Secrets are write-only: `client.environments.secrets.put(id, name, secret)` creates or replaces one, and `list`, `get` and `delete` never return a value. An `environment_secret` (`{ value, allowedHosts, inject? }`) shows its name to commands as the sentinel `nylorun-managed`, and egress-gate sets its header on HTTPS requests to `allowedHosts` (pods only); an `environment_variable` (`{ value }`) is a plain variable; `bearer` (`{ url, value, via?, identity? }`) and `headers` (`{ url, headers, via?, identity? }`) are credentials for the MCP servers and HTTP tools at `url`. A second secret for one host, or a second credential for one URL, is `409 credential_conflict` at the write ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#credentials)).
+
+Sessions on one Environment share its `/workspace`, and one turn runs in it at a time: a second session's turn is refused with `409 environment_busy` until the first ends. Deleting a session only detaches it. With `ownerUserId` set, a session of another owner is `403 environment_owner_mismatch` (a caller acting for a person gets the `404` of a missing Environment), checked when it opens and at every turn start. `client.environments.list({ labels })`, `page`, `get(id)`, `events(id)`, `stop(id)`, `reset(id)` and `delete(id)` manage them, and `npx nylorun sandbox ls | rm` does the same on a local Tenant. Acting for a person (`app.as(...)`), changing an Environment or its secrets needs `environments:write`. A trusted issuer's token reaches only the Environments its issuer grants (the identity file's `environments` templates, exact ids or prefixes ending in `/*`), checked at every turn start. The Tenant holds at most `limits.environments` of them (`PUT /v1/tenant/sandbox`, default 100).
 
 Add an agent with `.subagents()` to let the model delegate to it:
 
@@ -329,8 +330,8 @@ body. Its input is the previous output, which must match the tool's `input` (an
 object); a mismatch the build can see, such as an agent with no `.output()` before it,
 is refused (`flow.input-mismatch`), and any other fails the stage when it runs
 (`tool.invalid-input`). The Runtime makes the request as for an agent's HTTP tool, with
-`Nylorun-Agent-Id` set to the flow agent's id and `credential` taken from the flow
-session's vaults; its answer is the next stage's input. A failure status, a timeout or
+`Nylorun-Agent-Id` set to the flow agent's id and `credential` taken from the
+vault of the flow session's Environment; its answer is the next stage's input. A failure status, a timeout or
 an answer that does not match `output` fails the stage with its code (`http.status`,
 `http.timeout`, `tool.invalid-output`, …). A Loop body that starts with an HTTP stage
 is retried with the Loop's input, not the feedback. `approval: "always"` is not
@@ -377,10 +378,10 @@ may appear once per flow; use it again under a new id with `writer.withId("final
 engine: the Runtime runs flows from their manifests alone, so `saveAgent` refuses a flow
 agent with one. Use an HTTP stage instead.
 
-The agents in a flow share one sandbox: open the flow's session with it,
-`createSession({ …, sandbox: { … } })`, and every agent in the flow uses it. Share it
-with other sessions by opening them all on one sandbox resource
-(`sandbox: { id }`, see `client.sandboxes`), and call
+The agents in a flow share one Environment: open the flow's session on it,
+`createSession({ …, environment: id })`, and every linked session in the flow
+inherits it; turns within one flow do not block each other. Other sessions share
+it by naming the same id (see `client.environments`). Call the sandbox
 built-ins via `session.sandbox` (application).
 Observe with `session.observe({ follow: true })` to merge linked agent streams;
 `pending()` lists waits across the tree. Studio renders the manifest tree and
@@ -446,8 +447,8 @@ createServer(toNodeListener(agui)).listen(3000);
 
 `run`, `history`, `reattach` and `cancel` are also on the handler for your own
 routing. The default `client` is `createClient()`; pass `client` to use another
-one, and `session(subject, agentId)` to add the person's `vaultIds`,
-`credentialSelections` or `info`. They apply when the thread's session is
+one, and `session(subject, agentId)` to add the person's `environment` (their
+Environment's id: its sandbox and its vault's credentials) or `info`. They apply when the thread's session is
 created, on its first run; later runs keep them. Whatever the browser sends in
 `forwardedProps.nylorun` is replaced.
 
@@ -601,7 +602,7 @@ keeps its application key to itself and names the person on each call:
 ```ts
 import { createClient } from "@nylorun/agents";
 
-const app = createClient(); // the application key, on the server only
+const app = await createClient(); // the application key, on the server only
 
 // Per request, after your own sign-in:
 const person = app.as(`app:${user.id}`, { scopes: ["sessions:own"] });
@@ -621,13 +622,14 @@ compatibility check, so calling `as()` per request is cheap.
 | `sessions:own` | The person's own sessions: create, list, read, stream, message, approve, respond, cancel; and their artifacts |
 | `agents:read` | Listing the Tenant's agents |
 | `agents:write` | Saving agents; listing agents |
+| `environments:write` | Creating, changing, stopping, resetting and deleting Environments, and writing their secrets (reading them takes `sessions:own` or this) |
 
 No scope reaches the sandbox tool routes; call them without `as()`. `tenant:settings` is retired (protocol 8): it grants
-nothing, and no subject reaches the Management API (`/v1/tenant/*`). Vaults are
-the installation's, created through the Management API with a management key
-(`admin.vaults.create({ scope: "installation", … })` in
-[`@nylorun/admin`](../admin/README.md)); a session attaches them with
-`vaultIds`, and a person's own keys go in their user vault
+nothing, and no subject reaches the Management API (`/v1/tenant/*`).
+`sandboxes:write` (protocol 10) is refused with a message naming
+`environments:write`. Credentials live in Environments: the server writes a
+person's own keys into their Environment (with `ownerUserId` set to them) and
+names it when it opens their sessions
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#credentials)). A subject is 1–200 visible ASCII
 characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act
@@ -645,7 +647,7 @@ and revoking them is management: `admin.signingKeys.list()`, `.rotate()`
 A web page or an app calls the Runtime directly with the JWT your identity
 provider gave the person: list the provider in the Runtime's identity file
 ([Trusted issuers](../../guides/DEPLOYMENT.md#trusted-issuers)), and the Runtime takes the
-token's subject, scopes, agents and sandbox grants from it. Nylorun mints no
+token's subject, scopes, agents and Environment grants from it. Nylorun mints no
 token and ships no browser client: use your provider's SDK for sign-in and send
 the token as `Authorization: Bearer <token>` with `Nylorun-Protocol`, through a
 reverse proxy that answers CORS (the Runtime sends no CORS headers). An expired

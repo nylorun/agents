@@ -1,13 +1,12 @@
 /**
- * A Tenant's sandbox configuration, stored as Tenant setting `sandbox.config`: the sandbox a
- * session gets when it names none, and the limits every session's sandbox must fit. Unset
+ * A Tenant's Environment settings, stored as Tenant setting `environments.config`: the limits
+ * every Environment's recipe must fit, the pods' stop grace and the harness placement. Unset
  * fields take the defaults below.
  */
 import {
-  TenantSandboxConfigSchema,
-  type SandboxInlineRequest,
-  type SandboxPlacementHost,
-  type TenantSandboxConfig,
+  TenantEnvironmentsConfigSchema,
+  type PlacementHost,
+  type TenantEnvironmentsConfig,
 } from "@nylorun/core/contracts";
 import { parseSandboxSize } from "@nylorun/core/define";
 import {
@@ -16,14 +15,17 @@ import {
   DEV_PRESET_HOSTS,
 } from "./policy.js";
 
-export const SANDBOX_CONFIG_SETTING = "sandbox.config";
+export const ENVIRONMENTS_CONFIG_SETTING = "environments.config";
 
-/** The most a session may ask for when the Tenant sets no maximum. */
+/** The Tenant's settings, as stored (`environments.config`). */
+export type TenantSandboxConfig = TenantEnvironmentsConfig;
+
+/** The most an Environment may ask for when the Tenant sets no maximum. */
 export const DEFAULT_MAX_CPUS = 4;
 export const DEFAULT_MAX_MEMORY_MIB = 8192;
 export const DEFAULT_SANDBOX_IDLE = "15m";
-/** The most sandbox resources a Tenant holds when it sets no limit. */
-export const DEFAULT_MAX_SANDBOXES = 100;
+/** The most Environments a Tenant holds when it sets no limit. */
+export const DEFAULT_MAX_ENVIRONMENTS = 100;
 
 export interface SandboxResourcesLimit {
   readonly cpus: number;
@@ -32,21 +34,18 @@ export interface SandboxResourcesLimit {
 
 /** A configuration with every default applied. */
 export interface EffectiveSandboxConfig {
-  readonly default: "none" | "virtual" | SandboxInlineRequest;
   readonly limits: {
     readonly network: readonly string[];
     readonly resources: SandboxResourcesLimit;
     readonly defaultResources: SandboxResourcesLimit;
     readonly idle: string;
-    /** The most sandbox resources (`PUT /v1/sandboxes/{id}`) the Tenant may hold. */
-    readonly sandboxes: number;
-    /** Pods: the longest `lifecycle.ttl`. */
-    readonly ttl?: string;
+    /** The most Environments the Tenant may hold. */
+    readonly environments: number;
   };
   /** Pods (F7.2, D36). */
-  readonly lifecycle: { readonly onExpiry: "retain" | "delete"; readonly stopGrace: string };
+  readonly lifecycle: { readonly stopGrace: string };
   /** Where each harness may run (D38). */
-  readonly placement: Readonly<Record<string, { readonly hosts: readonly SandboxPlacementHost[] }>>;
+  readonly placement: Readonly<Record<string, { readonly hosts: readonly PlacementHost[] }>>;
 }
 
 interface SettingsReader {
@@ -74,7 +73,6 @@ function resources(
 export function effectiveSandboxConfig(config: TenantSandboxConfig): EffectiveSandboxConfig {
   const limits = config.limits ?? {};
   return {
-    default: config.default ?? "none",
     limits: {
       network: limits.network ?? DEV_PRESET_HOSTS,
       resources: resources(limits.resources, {
@@ -86,27 +84,23 @@ export function effectiveSandboxConfig(config: TenantSandboxConfig): EffectiveSa
         memoryMiB: DEFAULT_SANDBOX_MEMORY_MIB,
       }),
       idle: limits.idle ?? DEFAULT_SANDBOX_IDLE,
-      sandboxes: limits.sandboxes ?? DEFAULT_MAX_SANDBOXES,
-      ...(limits.ttl === undefined ? {} : { ttl: limits.ttl }),
+      environments: limits.environments ?? DEFAULT_MAX_ENVIRONMENTS,
     },
-    lifecycle: {
-      onExpiry: config.lifecycle?.onExpiry ?? "retain",
-      stopGrace: config.lifecycle?.stopGrace ?? "10s",
-    },
+    lifecycle: { stopGrace: config.lifecycle?.stopGrace ?? "10s" },
     placement: config.placement ?? { "*": { hosts: ["harness-container", "sandbox"] } },
   };
 }
 
 /** The stored configuration, or `{}` when the Tenant has none. */
 export async function readSandboxConfig(t: SettingsReader): Promise<TenantSandboxConfig> {
-  const raw = await t.getSetting(SANDBOX_CONFIG_SETTING);
+  const raw = await t.getSetting(ENVIRONMENTS_CONFIG_SETTING);
   if (raw === undefined) return {};
-  return TenantSandboxConfigSchema.parse(JSON.parse(raw));
+  return TenantEnvironmentsConfigSchema.parse(JSON.parse(raw));
 }
 
 export async function writeSandboxConfig(
   t: SettingsWriter,
   config: TenantSandboxConfig
 ): Promise<void> {
-  await t.putSetting(SANDBOX_CONFIG_SETTING, JSON.stringify(config));
+  await t.putSetting(ENVIRONMENTS_CONFIG_SETTING, JSON.stringify(config));
 }

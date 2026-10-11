@@ -28,10 +28,12 @@
  *    for a Tenant not open on its Worker, an invocation an operator killed, Restate's state
  *    wiped (§17.11), or a parked outbox row.
  * 4. **Sandboxes.** Idle sandboxes are stopped, records of compute no longer held are marked
- *    stopped, and sandboxes whose session or sandbox resource is gone are removed, by the
+ *    stopped, and sandboxes whose session or Environment is gone are removed, by the
  *    workspace capability (`harness-api/workspace.ts`: here, or in the harness that serves
  *    workspaces). Idle MCP connections of the in-process harness are closed. As often as the
- *    orphan scan, pod sandboxes whose change stalled get a reconcile (`reconcileStalePods`).
+ *    orphan scan, pod Environments whose change stalled get a reconcile (`reconcileStalePods`).
+ *    Environments unused for their `lifecycle.deleteAfter` are deleted
+ *    (`sweepUnusedEnvironments`).
  * 5. **Control signals.** Signals on the control bus older than `SIGNAL_RETENTION_MS` are
  *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
  * 6. **Hooks.** Callbacks registered with `ctx.onSweep`.
@@ -41,6 +43,7 @@
  * step does not stop the others; the first error is rethrown at the end so the execution
  * reports it.
  */
+import { sweepUnusedEnvironments } from "./environments.js";
 import {
   pendingAgentEffects,
   reconcilePendingAgentEffect,
@@ -116,7 +119,7 @@ export async function sweep(ctx: TenantContext): Promise<void> {
           sessionExists: async (id) =>
             !!(await ctx.store.tx((t) => t.get("sessions", id))),
           sandboxExists: async (id) =>
-            (await ctx.store.tx((t) => t.sandboxResource(id))) !== undefined,
+            (await ctx.store.tx((t) => t.environment(id))) !== undefined,
         }),
     ],
     ...(checkPods
@@ -130,6 +133,8 @@ export async function sweep(ctx: TenantContext): Promise<void> {
           ] satisfies Step,
         ]
       : []),
+    // Environments unused for their `lifecycle.deleteAfter`: one query when none is due.
+    ["environments", () => sweepUnusedEnvironments(ctx, now.getTime())],
     // A harness elsewhere closes its own idle MCP connections.
     ["mcp", async () => ctx.mcp?.sweep()],
     [
@@ -284,17 +289,14 @@ const STALE_POD_MS = 60_000;
 async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> {
   if (!ctx.pods) return;
   const stale = await ctx.store.tx(async (t) =>
-    (await t.listSandboxResources()).filter((row) => {
+    (await t.listEnvironments()).filter((row) => {
       const pod = row.pod;
       if (!pod || now.getTime() - Date.parse(row.updatedAt) < STALE_POD_MS) return false;
-      const expiring =
-        pod.expiresAt !== undefined && Date.parse(pod.expiresAt) <= now.getTime() && pod.observed !== "expired";
       return (
         pod.desired === "deleted" ||
         pod.retiring !== undefined ||
         pod.observed === "creating" ||
         pod.observed === "deleting" ||
-        expiring ||
         (pod.desired === "suspended" && pod.observed !== "suspended") ||
         // Running, but its engine is not connected: the pod may be gone, or its volume.
         (pod.desired === "running" && pod.observed === "running" && !ctx.harness.hosting(row.id))

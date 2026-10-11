@@ -1,34 +1,32 @@
 /**
- * The Runtime vault (docs/design/runtime/vault.md, architecture §12.9):
- * administer vaults and credentials, attach them to sessions, and authorize
- * outbound MCP calls. Storage is the async Session Store (`store/types.ts`);
- * this module holds no SQL.
+ * The Runtime vault (docs/design/runtime/vault.md, D56): one vault per Environment, created and
+ * deleted with it, holding the Environment's secrets; and the host vault, which holds the model
+ * credential. Storage is the async Session Store (`store/types.ts`); this module holds no SQL.
  *
  * ## Public surface
  *
  * ```ts
  * new VaultService({ store: SessionStore, kek: () => Buffer })
  *
- * // Administration: each opens its own transaction and writes its audit rows
- * // in that transaction. Creates and rotations replay by idempotency key.
- * createVault(body: CreateVaultRequest): Promise<VaultInfo>
- * listVaults(ownerUserId: string | undefined, options?: { installation?: boolean }): Promise<VaultInfo[]>
- * getVault(id: string): Promise<VaultInfo>
- * deleteVault(id: string): Promise<{ id: string }>
- * createCredential(vaultId: string, body: CreateCredentialRequest): Promise<CredentialInfo>
- * listCredentials(vaultId: string): Promise<CredentialInfo[]>
- * getCredential(vaultId: string, id: string): Promise<CredentialInfo>
- * rotateCredential(vaultId: string, id: string, body: RotateCredentialRequest): Promise<CredentialInfo>
- * deleteCredential(vaultId: string, id: string): Promise<{ id: string }>
+ * // An Environment's vault, in the caller's transaction (`tenant/environments.ts`).
+ * createEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void>
+ * deleteEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void>
  *
- * // Attachment: run inside the caller's session PUT transaction.
- * assertAttachment(t: Tx, ownerUserId: string, vaultIds: readonly string[], selections: readonly CredentialSelection[], options?: { opaque?: boolean }): Promise<void>
- * recordAttachment(t: Tx, sessionId: string, vaultIds: readonly string[]): Promise<void>
+ * // Its secrets (`/v1/environments/{id}/secrets`): each opens its own transaction and writes its
+ * // audit rows in it. A put needs the vault key, so callers reach it through `Keys`.
+ * putEnvironmentSecret(environmentId, name, body: PutEnvironmentSecretRequest, actor): Promise<EnvironmentSecretView>
+ * listEnvironmentSecrets(environmentId): Promise<EnvironmentSecretView[]>
+ * getEnvironmentSecret(environmentId, name): Promise<EnvironmentSecretView>
+ * deleteEnvironmentSecret(environmentId, name, actor): Promise<{ id: string }>
+ *
+ * // The shell's variables of a session's sandbox, in the caller's transaction (R2c).
+ * environmentVariables(t: Tx, environmentId: string | undefined): Promise<Record<string, string>>
  *
  * // Use: opens its own transactions; never call it inside one. `sessionCredentials`
  * // (`vault/sources.ts`) calls it for a session's MCP servers and HTTP tools; a tool preview
- * // (R2b C12, `mcp/preview.ts`) for no session.
- * authorize(input: { sessionId?; vaultIds; credentialSelections; url; serverName? }): Promise<AuthorizeResult>
+ * // (R2b C12, `mcp/preview.ts`) for no session; egress-gate releases shell secrets.
+ * authorize(input: { sessionId?; environmentId?; url }): Promise<AuthorizeResult>
+ * releaseEnvironmentSecret(input: { environmentId; host }): Promise<…>
  *
  * // Coverage: what `authorize` would decide for each URL a manifest names, in one transaction,
  * // with no secret read and no audit row.
@@ -45,12 +43,12 @@
  * (`vault/host-model.ts`), which only the Model Gate uses: this service seals the host model's
  * credential but never reads it back.
  *
- * ## Scopes
+ * ## One credential per host and per URL
  *
- * - `user`: one person's vault (owner `ownerUserId`), attachable only to that person's sessions.
- * - `installation` (`INSTALLATION_OWNER`): the installation's own, created by application keys
- *   only, attachable to any session. Subject and token callers never see one.
- * - `host`: the model vault (`HOST_VAULT_ID`), never listed or attached.
+ * A secret write is refused (`409 credential_conflict`) when another `environment_secret` of the
+ * vault is bound to one of its hosts, or another `bearer` or `headers` credential to its URL, so
+ * a release or a tool call never has two to choose from. Names are unique per vault: for the
+ * shell kinds the name is the variable, so no variable is set twice.
  *
  * ## Transactions and I/O
  *
@@ -58,56 +56,46 @@
  *   filesystem (it creates the key file on first use), so methods that
  *   encrypt or decrypt resolve the KEK before opening their transaction and
  *   do only in-memory crypto inside it.
- * - `authorize` reads the attached vaults and the matching credential rows
- *   (ciphertext only) in one transaction and decides there. A refusal decided
- *   from those rows (missing vault, ambiguous, selection mismatch) writes its
- *   audit row in that same transaction. Decryption happens after it commits,
- *   so the plaintext never enters a transaction. The `use`/`approved` audit
- *   row is written in a final transaction before the header is returned: if
- *   that write fails, `authorize` rejects and no header leaves the vault, so
- *   every approved use has an audit row. Unreadable ciphertext is audited in
- *   its own transaction before the refusal is returned.
+ * - `authorize` reads the Environment's vault and the credential bound to the URL (ciphertext
+ *   only) in one transaction. Decryption happens after it commits, so the plaintext never
+ *   enters a transaction. The `use`/`approved` audit row is written in a final transaction
+ *   before the header is returned: if that write fails, `authorize` rejects and no header
+ *   leaves the vault, so every approved use has an audit row. Unreadable ciphertext is audited
+ *   in its own transaction before the refusal is returned.
  *
  * ## Credentials (R2b C2)
  *
- * A credential is bound to the URL a manifest names and sends a `bearer` token or a `headers`
- * map, both sealed. Its `via` (where requests go, such as a gateway) and `identity` (the header
- * that names the session owner) are not secret: they live unsealed in the binding, beside the
- * URL and the header names, and a rotation keeps them unless it changes them. The seal's AAD
- * binds the type and URL only, and matching is by URL only, so `via` never decides which
- * credential is chosen.
+ * A tool credential is bound to the URL a manifest names and sends a `bearer` token or a
+ * `headers` map, both sealed. Its `via` (where requests go, such as a gateway) and `identity`
+ * (the header that names the session owner) are not secret: they live unsealed in the binding,
+ * beside the URL and the header names. The seal's AAD binds the vault, credential id, type and
+ * URL only, and matching is by URL only, so `via` never decides which credential is chosen.
  */
 import { createHash, randomUUID } from "node:crypto";
 import {
   ENVIRONMENT_SECRET_DEFAULT_INJECT,
   ENVIRONMENT_SECRET_SENTINEL,
-  INSTALLATION_OWNER,
+  environmentSecretNameError,
   renderInjectFormat,
-  vaultScopeOf,
 } from "@nylorun/core/contracts";
 import type {
   CoverageCredential,
-  CreateCredentialRequest,
-  CreateVaultRequest,
   CredentialCoverage,
   CredentialCoverageEntry,
   CredentialCoverageRequest,
   CredentialIdentity,
-  CredentialInfo,
-  CredentialSelection,
   EnvironmentSecretInject,
+  EnvironmentSecretView,
   HostModelProviderInfo,
   HostModelView,
+  PutEnvironmentSecretRequest,
   PutHostModelRequest,
   CustomModelSettings,
-  RotateCredentialRequest,
   SelectHostModelRequest,
-  VaultInfo,
 } from "@nylorun/core/contracts";
 import type { AgentManifest, WorkflowManifest } from "@nylorun/core/define";
 import { canonical } from "../store/canonical.js";
 import type {
-  SessionDoc,
   SessionStore,
   Tx,
   VaultCredentialRow,
@@ -186,8 +174,6 @@ export type AuthorizeResult =
       via?: string;
       /** The header that names the session owner; `sessionCredentials` adds it. */
       identity?: CredentialIdentity;
-      /** The scope of the vault the credential is in. */
-      vault: "installation" | "user";
     }
   | {
       status: "refused";
@@ -221,307 +207,186 @@ export class VaultService {
     this.kek = options.kek;
   }
 
-  // --- administration --------------------------------------------------------
+  // --- an Environment's vault (caller's transaction) ------------------------------
 
-  async createVault(body: CreateVaultRequest): Promise<VaultInfo> {
-    return this.store.tx((t) =>
-      this.replay(t, `create-vault:${body.idempotencyKey}`, body, async () => {
-        const installation = vaultScopeOf(body) === "installation";
-        const ownerUserId = installation ? INSTALLATION_OWNER : body.ownerUserId;
-        if (!ownerUserId) throw new VaultError(400, "ownerUserId is required for a user vault");
-        const row: VaultRow = {
-          id: randomUUID(),
-          name: body.name,
-          ownerUserId,
-          metadataJson: body.metadata ? JSON.stringify(body.metadata) : null,
-          createdAt: new Date().toISOString(),
-          scope: installation ? "installation" : "user",
-        };
-        await t.insertVault(row);
-        await this.audit(t, {
-          actor: "application",
-          action: "create",
-          vaultId: row.id,
-          outcome: "created",
-        });
-        return vaultInfoOf(row);
-      }),
-    );
+  /** Creates Environment `environmentId`'s vault (D56), in the transaction that creates it. */
+  async createEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void> {
+    const row: VaultRow = {
+      id: randomUUID(),
+      name: environmentId,
+      metadataJson: null,
+      createdAt: new Date().toISOString(),
+      environmentId,
+    };
+    await t.insertVault(row);
+    await this.audit(t, { actor, action: "create", vaultId: row.id, target: environmentId, outcome: "created" });
   }
 
   /**
-   * One person's vaults, then (with `installation`) the installation vaults. No owner lists
-   * the installation vaults only.
+   * Deletes Environment `environmentId`'s vault and its credentials, with their audit rows, in
+   * the transaction that deletes the Environment: no release or tool call finds them after it
+   * commits.
    */
-  async listVaults(
-    ownerUserId: string | undefined,
-    options: { installation?: boolean } = {},
-  ): Promise<VaultInfo[]> {
-    return this.store.tx(async (t) => {
-      const own = ownerUserId === undefined ? [] : await t.vaultsByOwner(ownerUserId);
-      const shared = options.installation ? await t.installationVaults() : [];
-      return [...own, ...shared].map(vaultInfoOf);
-    });
-  }
-
-  async getVault(id: string): Promise<VaultInfo> {
-    return this.store.tx((t) => this.vaultInfo(t, id));
-  }
-
-  async deleteVault(id: string): Promise<{ id: string }> {
-    return this.store.tx(async (t) => {
-      await this.vaultInfo(t, id);
-      for (const credential of await t.credentialsForVault(id)) {
-        await this.audit(t, {
-          actor: "application",
-          action: "delete",
-          vaultId: id,
-          credentialId: credential.id,
-          outcome: "deleted",
-        });
-      }
-      await t.deleteVault(id);
+  async deleteEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void> {
+    const vault = await t.vaultOfEnvironment(environmentId);
+    if (!vault) return;
+    for (const credential of await t.credentialsForVault(vault.id))
       await this.audit(t, {
-        actor: "application",
+        actor,
         action: "delete",
-        vaultId: id,
+        vaultId: vault.id,
+        credentialId: credential.id,
+        target: environmentId,
         outcome: "deleted",
       });
-      return { id };
-    });
+    await t.deleteVault(vault.id);
+    await this.audit(t, { actor, action: "delete", vaultId: vault.id, target: environmentId, outcome: "deleted" });
   }
 
-  async createCredential(
-    vaultId: string,
-    body: CreateCredentialRequest,
-  ): Promise<CredentialInfo> {
+  // --- an Environment's secrets ----------------------------------------------------
+
+  /**
+   * `PUT /v1/environments/{id}/secrets/{name}`: creates or replaces one credential. The same
+   * name and type keeps the credential's id and re-seals its value and binding; another type
+   * replaces it. Refused (`409 credential_conflict`) when another credential of the vault is
+   * bound to one of its hosts or to its URL. Runs under the Environment row's lock, which also
+   * orders it with session opens and deletes, and counts as the Environment's use.
+   */
+  async putEnvironmentSecret(
+    environmentId: string,
+    name: string,
+    body: PutEnvironmentSecretRequest,
+    actor: string,
+  ): Promise<EnvironmentSecretView> {
+    const invalid = environmentSecretNameError(body.type, name);
+    if (invalid) throw new VaultError(400, invalid);
+    let payload: SecretPayload;
+    let binding: CredentialBinding;
+    if (body.type === "environment_secret" || body.type === "environment_variable")
+      ({ payload, binding } = environmentCredential(name, body));
+    else {
+      const url = normalizeVaultUrl(body.url);
+      payload = payloadOf(body);
+      binding = bindingOf(url, payload, body);
+    }
     const kek = this.kek();
-    return this.store.tx((t) =>
-      this.replay(
-        t,
-        `create-credential:${vaultId}:${body.idempotencyKey}`,
-        body,
-        async () => {
-          await this.vaultInfo(t, vaultId);
-          const id = randomUUID();
-          const type = body.auth.type;
-          let payload: SecretPayload;
-          let binding: CredentialBinding;
-          if (body.auth.type === "environment_secret" || body.auth.type === "environment_variable") {
-            ({ payload, binding } = environmentCredential(body.auth));
-          } else {
-            const url = normalizeVaultUrl(body.auth.url);
-            payload = payloadOf(body.auth);
-            binding = bindingOf(url, payload, body.auth);
-          }
-          const sealed = encryptSecret(
-            kek,
-            credentialAad(vaultId, id, type, binding),
-            Buffer.from(JSON.stringify(payload), "utf8"),
-          );
-          const row: UserCredentialRow = {
-            id,
-            vaultId,
-            name: body.name,
-            type,
-            bindingJson: JSON.stringify(binding),
-            expiresAt: null,
-            createdAt: new Date().toISOString(),
-            rotatedAt: null,
-            ...sealed,
-          };
-          await t.insertCredential(row);
-          await this.audit(t, {
-            actor: "application",
-            action: "create",
-            vaultId,
-            credentialId: id,
-            outcome: "created",
-          });
-          return credentialInfoOf(row);
-        },
-      ),
-    );
-  }
-
-  async listCredentials(vaultId: string): Promise<CredentialInfo[]> {
     return this.store.tx(async (t) => {
-      await this.vaultInfo(t, vaultId);
-      return (await t.credentialsForVault(vaultId))
+      const vault = await this.environmentVault(t, environmentId, { lock: true });
+      const now = new Date().toISOString();
+      const others = (await t.credentialsForVault(vault.id))
         .filter(isUserCredential)
-        .map(credentialInfoOf);
+        .filter((row) => row.name !== name);
+      conflictOf(body.type, binding, others);
+      const existing = await t.credentialByName(vault.id, name);
+      let row: UserCredentialRow;
+      if (existing && isUserCredential(existing) && existing.type === body.type) {
+        row = await this.writePayload(t, kek, existing, payload, binding, now);
+        await this.audit(t, { actor, action: "rotate", vaultId: vault.id, credentialId: row.id, outcome: "rotated" });
+      } else {
+        if (existing) {
+          await t.deleteCredential(vault.id, existing.id);
+          await this.audit(t, { actor, action: "delete", vaultId: vault.id, credentialId: existing.id, outcome: "deleted" });
+        }
+        const id = randomUUID();
+        const sealed = encryptSecret(
+          kek,
+          credentialAad(vault.id, id, body.type, binding),
+          Buffer.from(JSON.stringify(payload), "utf8"),
+        );
+        row = {
+          id,
+          vaultId: vault.id,
+          name,
+          type: body.type,
+          bindingJson: JSON.stringify(binding),
+          expiresAt: null,
+          createdAt: now,
+          rotatedAt: null,
+          ...sealed,
+        };
+        await t.insertCredential(row);
+        await this.audit(t, { actor, action: "create", vaultId: vault.id, credentialId: id, outcome: "created" });
+      }
+      await t.updateEnvironment(environmentId, { lastUsedAt: now }, now);
+      return secretViewOf(row);
     });
   }
 
-  async getCredential(vaultId: string, id: string): Promise<CredentialInfo> {
-    return this.store.tx(async (t) =>
-      credentialInfoOf(await this.credentialRow(t, vaultId, id)),
-    );
-  }
-
-  async rotateCredential(
-    vaultId: string,
-    id: string,
-    body: RotateCredentialRequest,
-  ): Promise<CredentialInfo> {
-    const kek = this.kek();
-    return this.store.tx((t) =>
-      this.replay(
-        t,
-        `rotate:${vaultId}:${id}:${body.idempotencyKey}`,
-        body,
-        async () => {
-          const row = await this.credentialRow(t, vaultId, id);
-          if (row.type !== body.auth.type)
-            throw new VaultError(409, "Credential type cannot change");
-          const current = credentialBinding(row);
-          let next: SecretPayload;
-          let binding: CredentialBinding;
-          if (body.auth.type === "environment_secret") {
-            next = { value: body.auth.secretValue };
-            binding = current;
-          } else if (body.auth.type === "environment_variable") {
-            next = {};
-            binding = { ...current, variableValue: body.auth.variableValue };
-          } else {
-            next = payloadOf(body.auth);
-            binding = bindingOf(current.url!, next, {
-              via: body.auth.via === undefined ? current.via : body.auth.via,
-              identity: body.auth.identity === undefined ? current.identity : body.auth.identity,
-            });
-          }
-          const updated = await this.writePayload(
-            t,
-            kek,
-            row,
-            next,
-            binding,
-            new Date().toISOString(),
-          );
-          await this.audit(t, {
-            actor: "application",
-            action: "rotate",
-            vaultId,
-            credentialId: id,
-            outcome: "rotated",
-          });
-          return credentialInfoOf(updated);
-        },
-      ),
-    );
-  }
-
-  async deleteCredential(vaultId: string, id: string): Promise<{ id: string }> {
+  /** The Environment's secrets: names, types and bindings, never values. */
+  async listEnvironmentSecrets(environmentId: string): Promise<EnvironmentSecretView[]> {
     return this.store.tx(async (t) => {
-      await this.credentialRow(t, vaultId, id);
-      await t.deleteCredential(vaultId, id);
-      await this.audit(t, {
-        actor: "application",
-        action: "delete",
-        vaultId,
-        credentialId: id,
-        outcome: "deleted",
-      });
-      return { id };
+      const vault = await this.environmentVault(t, environmentId);
+      return (await t.credentialsForVault(vault.id))
+        .filter(isUserCredential)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(secretViewOf);
     });
   }
 
-  // --- attachment (caller's transaction) --------------------------------------
-
-  /**
-   * Checks a session's vaults and selections. Run in the session PUT transaction. `opaque`
-   * (a request acting for a subject) reports another owner's vault as the 404 of a missing one.
-   */
-  async assertAttachment(
-    t: Tx,
-    ownerUserId: string,
-    vaultIds: readonly string[],
-    selections: readonly CredentialSelection[],
-    options: { opaque?: boolean } = {},
-  ): Promise<void> {
-    if (new Set(vaultIds).size !== vaultIds.length)
-      throw new VaultError(400, "Duplicate vault id");
-    if (new Set(selections.map((item) => item.serverName)).size !== selections.length)
-      throw new VaultError(400, "Duplicate credential selection");
-    for (const id of vaultIds) {
-      const vault = await t.getVault(id);
-      if (!vault) throw new VaultError(404, "Vault not found");
-      if (vault.scope === "host")
-        throw new VaultError(400, "Host vault cannot be attached to a session");
-      // Any session may use the installation's own vaults (F9-D13).
-      if (vault.scope === "installation") continue;
-      if (vault.ownerUserId !== ownerUserId)
-        throw options.opaque
-          ? new VaultError(404, "Vault not found")
-          : new VaultError(403, "Vault belongs to another user");
-    }
-    for (const selection of selections) {
-      const row = await t.getCredential(selection.credentialId);
-      if (!row || !vaultIds.includes(row.vaultId))
-        throw new VaultError(400, "Credential is not in an attached vault");
-    }
+  async getEnvironmentSecret(environmentId: string, name: string): Promise<EnvironmentSecretView> {
+    return this.store.tx(async (t) => {
+      const vault = await this.environmentVault(t, environmentId);
+      const row = await t.credentialByName(vault.id, name);
+      if (!row || !isUserCredential(row)) throw new VaultError(404, "Secret not found");
+      return secretViewOf(row);
+    });
   }
 
-  /** Writes the `attach` audit row. Run in the session PUT transaction. */
-  async recordAttachment(
-    t: Tx,
-    sessionId: string,
-    vaultIds: readonly string[],
-  ): Promise<void> {
-    await this.audit(t, {
-      actor: "application",
-      action: "attach",
-      sessionId,
-      target: vaultIds.join(","),
-      outcome: "attached",
+  async deleteEnvironmentSecret(
+    environmentId: string,
+    name: string,
+    actor: string,
+  ): Promise<{ id: string }> {
+    return this.store.tx(async (t) => {
+      const vault = await this.environmentVault(t, environmentId, { lock: true });
+      const row = await t.credentialByName(vault.id, name);
+      if (!row || !isUserCredential(row)) throw new VaultError(404, "Secret not found");
+      await t.deleteCredential(vault.id, row.id);
+      await this.audit(t, { actor, action: "delete", vaultId: vault.id, credentialId: row.id, outcome: "deleted" });
+      const now = new Date().toISOString();
+      await t.updateEnvironment(environmentId, { lastUsedAt: now }, now);
+      return { id: name };
     });
   }
 
   /**
    * The variables a session's sandbox commands get (R2c, D50): each `environment_secret`'s name
-   * set to the sentinel, each `environment_variable`'s value, and each host a secret is bound to
-   * with that secret's credential id. `conflict` says why they are ambiguous: two credentials with one variable name, or two
-   * secrets bound to one host. Reads rows only; no plaintext. Run in the caller's transaction.
+   * set to the sentinel, and each `environment_variable`'s value, from the Environment's vault.
+   * Reads rows only; no plaintext. Run in the caller's transaction.
    */
-  async sessionEnvironment(
+  async environmentVariables(
     t: Tx,
-    vaultIds: readonly string[],
-  ): Promise<{ environment: Record<string, string>; secretHosts: Record<string, string>; conflict?: string }> {
+    environmentId: string | undefined,
+  ): Promise<Record<string, string>> {
+    if (environmentId === undefined) return {};
+    const vault = await t.vaultOfEnvironment(environmentId);
+    if (!vault) return {};
     const environment: Record<string, string> = {};
-    const hosts = new Map<string, string>();
-    let conflict: string | undefined;
-    for (const vaultId of vaultIds)
-      for (const row of await t.credentialsForVault(vaultId)) {
-        if (row.type !== "environment_secret" && row.type !== "environment_variable") continue;
-        const binding = JSON.parse(row.bindingJson) as CredentialBinding;
-        const name = row.type === "environment_secret" ? binding.secretName! : binding.variableName!;
-        if (name in environment) conflict ??= `Two attached credentials set the variable ${name}`;
-        environment[name] = row.type === "environment_secret" ? ENVIRONMENT_SECRET_SENTINEL : binding.variableValue!;
-        for (const host of row.type === "environment_secret" ? binding.allowedHosts ?? [] : []) {
-          if (hosts.has(host) && hosts.get(host) !== row.id)
-            conflict ??= `Two attached environment_secret credentials are bound to ${host}`;
-          hosts.set(host, row.id);
-        }
-      }
-    return { environment, secretHosts: Object.fromEntries([...hosts].sort()), ...(conflict ? { conflict } : {}) };
+    for (const row of await t.credentialsForVault(vault.id)) {
+      if (row.type !== "environment_secret" && row.type !== "environment_variable") continue;
+      const binding = JSON.parse(row.bindingJson) as CredentialBinding;
+      if (row.type === "environment_secret") environment[binding.secretName!] = ENVIRONMENT_SECRET_SENTINEL;
+      else environment[binding.variableName!] = binding.variableValue!;
+    }
+    return environment;
   }
 
   /**
-   * The header egress-gate sets on a request from `sandboxId` to `host` (R2c, D50): the
-   * `environment_secret` bound to `host` among the vaults of the sessions using the sandbox, its
-   * value unsealed and rendered into its format. `none` when no secret is bound to the host;
-   * `refused` when two are, or the sealed value cannot be read. One query and one unseal per
-   * call; nothing is cached (E3). Plaintext exists only in the returned header.
+   * The header egress-gate sets on a request from Environment `environmentId`'s sandbox to
+   * `host` (R2c, D50): the `environment_secret` of its vault bound to `host`, its value unsealed
+   * and rendered into its format. `none` when no secret is bound to the host; `refused` when the
+   * sealed value cannot be read. One query and one unseal per call; nothing is cached (E3).
+   * Plaintext exists only in the returned header.
    */
   async releaseEnvironmentSecret(input: {
-    sandboxId: string;
+    environmentId: string;
     host: string;
   }): Promise<
     | { status: "none" }
     | { status: "released"; header: string; value: string; credentialId: string }
     | { status: "refused"; reason: "ambiguous" | "unreadable" }
   > {
-    const found = await this.store.tx((t) => sandboxSecretsFor(t, input.sandboxId, input.host));
+    const found = await this.store.tx((t) => environmentSecretsFor(t, input.environmentId, input.host));
     if (found.length === 0) return { status: "none" };
     if (found.length > 1) return { status: "refused", reason: "ambiguous" };
     const row = found[0]!;
@@ -537,35 +402,30 @@ export class VaultService {
     return { status: "released", header: inject.header, value: renderInjectFormat(inject.format, payload.value), credentialId: row.id };
   }
 
-  /** Whether any `environment_secret` of the sessions using `sandboxId` is bound to `host`. */
-  async environmentSecretBound(sandboxId: string, host: string): Promise<boolean> {
-    return (await this.store.tx((t) => sandboxSecretsFor(t, sandboxId, host))).length > 0;
+  /** Whether an `environment_secret` of Environment `environmentId` is bound to `host`. */
+  async environmentSecretBound(environmentId: string, host: string): Promise<boolean> {
+    return (await this.store.tx((t) => environmentSecretsFor(t, environmentId, host))).length > 0;
   }
 
   // --- use ---------------------------------------------------------------------
 
+  /**
+   * The headers a request to `url` carries: the credential of the Environment's vault bound to
+   * it, or none (`unauthenticated`) without an Environment or such a credential.
+   */
   async authorize(input: {
     /** The session the request is made for; absent for a tool preview (R2b C12). */
     sessionId?: string;
-    vaultIds: readonly string[];
-    credentialSelections: readonly CredentialSelection[];
+    environmentId?: string;
     url: string;
-    serverName?: string;
   }): Promise<AuthorizeResult> {
     const url = normalizeVaultUrl(input.url);
+    const environmentId = input.environmentId;
+    if (environmentId === undefined) return { status: "unauthenticated", url, headers: {} };
     const decided = await this.store.tx(
-      async (
-        t,
-      ): Promise<
-        { result: AuthorizeResult } | { row: UserCredentialRow; vault: "installation" | "user" }
-      > => {
-        const scopes = new Map<string, string>();
-        for (const id of input.vaultIds) {
-          const found = await t.getVault(id);
-          if (found) {
-            scopes.set(id, found.scope);
-            continue;
-          }
+      async (t): Promise<{ result: AuthorizeResult } | { row: UserCredentialRow }> => {
+        const vault = await t.vaultOfEnvironment(environmentId);
+        if (!vault) {
           await this.audit(t, {
             actor: "host",
             action: "use",
@@ -573,49 +433,28 @@ export class VaultService {
             target: url,
             outcome: "refused",
           });
-          return {
-            result: {
-              status: "refused",
-              url,
-              credentialIds: [],
-              reason: "vault_missing",
-            },
-          };
+          return { result: { status: "refused", url, credentialIds: [], reason: "vault_missing" } };
         }
-        const matches: VaultCredentialRow[] = [];
-        for (const vaultId of input.vaultIds)
-          for (const row of await t.credentialsForVault(vaultId))
-            if (bindingUrl(row) === url) matches.push(row);
-        matches.sort((a, b) => a.id.localeCompare(b.id));
-        if (matches.length === 0)
-          return { result: { status: "unauthenticated", url, headers: {} } };
-        const selection = input.serverName
-          ? input.credentialSelections.find(
-              (item) => item.serverName === input.serverName,
-            )
-          : undefined;
-        const chosen = choose(matches, selection);
-        if (chosen.kind === "refused") {
+        const matches = (await t.credentialsForVault(vault.id))
+          .filter(isUserCredential)
+          .filter((row) => bindingUrl(row) === url)
+          .sort((a, b) => a.id.localeCompare(b.id));
+        if (matches.length === 0) return { result: { status: "unauthenticated", url, headers: {} } };
+        if (matches.length > 1) {
+          // Refused at write (D56); kept as a guard.
           await this.audit(t, {
             actor: "host",
             action: "use",
+            vaultId: vault.id,
             sessionId: input.sessionId,
             target: url,
             outcome: "refused",
           });
           return {
-            result: {
-              status: "refused",
-              url,
-              credentialIds: chosen.credentialIds,
-              reason: chosen.reason,
-            },
+            result: { status: "refused", url, credentialIds: matches.map((row) => row.id), reason: "ambiguous" },
           };
         }
-        return {
-          row: chosen.row as UserCredentialRow,
-          vault: scopes.get(chosen.row.vaultId) === "installation" ? "installation" : "user",
-        };
+        return { row: matches[0]! };
       },
     );
     if ("result" in decided) return decided.result;
@@ -639,22 +478,10 @@ export class VaultService {
           outcome: "refused",
         }),
       );
-      return {
-        status: "refused",
-        url,
-        credentialIds: [row.id],
-        reason: "unreadable",
-      };
+      return { status: "refused", url, credentialIds: [row.id], reason: "unreadable" };
     }
     const headers = sendHeaders(row, payload);
-    if (!headers) {
-      return {
-        status: "refused",
-        url,
-        credentialIds: [row.id],
-        reason: "unreadable",
-      };
-    }
+    if (!headers) return { status: "refused", url, credentialIds: [row.id], reason: "unreadable" };
     await this.store.tx((t) =>
       this.audit(t, {
         actor: "host",
@@ -673,71 +500,42 @@ export class VaultService {
       headers,
       ...(binding.via === undefined ? {} : { via: binding.via }),
       ...(binding.identity === undefined ? {} : { identity: binding.identity }),
-      vault: decided.vault,
     };
   }
 
   // --- coverage --------------------------------------------------------------------
 
   /**
-   * What a session of `request.ownerUserId` that attaches `request.vaultIds` would send for each
-   * URL `manifest` names (`credentialNeeds`), decided as `authorize` decides a call: the attached
-   * vaults' credentials bound to the URL, then the selection for the need's `serverName`. The
-   * attachment is checked as a session PUT checks it. Reads no secret, writes no audit row.
+   * What a session that names `request.environmentId` would send for each URL `manifest` names
+   * (`credentialNeeds`), decided as `authorize` decides a call: the credential of the
+   * Environment's vault bound to the URL. Reads no secret, writes no audit row.
    */
   async coverage(
     manifest: AgentManifest | WorkflowManifest,
     request: CredentialCoverageRequest,
   ): Promise<CredentialCoverage> {
-    const owner = request.ownerUserId ?? INSTALLATION_OWNER;
-    const vaultIds = request.vaultIds ?? [];
-    const selections = request.credentialSelections ?? [];
+    const environmentId = request.environmentId;
     return this.store.tx(async (t) => {
-      await this.assertAttachment(t, owner, vaultIds, selections);
-      // The vaults this session may attach: its owner's, then the installation's.
-      const vaults = [
-        ...(owner === INSTALLATION_OWNER ? [] : await t.vaultsByOwner(owner)),
-        ...(await t.installationVaults()),
-      ];
-      const credentials: { vault: VaultRow; row: VaultCredentialRow; url?: string }[] = [];
-      for (const vault of vaults)
+      const credentials: { row: VaultCredentialRow; url?: string }[] = [];
+      if (environmentId !== undefined) {
+        const vault = await this.environmentVault(t, environmentId);
         for (const row of await t.credentialsForVault(vault.id))
-          credentials.push({ vault, row, url: bindingUrl(row) });
-      const attached = new Set(vaultIds);
+          if (isUserCredential(row)) credentials.push({ row, url: bindingUrl(row) });
+      }
       const entries = credentialNeeds(manifest).map((need): CredentialCoverageEntry => {
         let url: string;
         try {
           url = normalizeVaultUrl(need.url);
         } catch (error) {
           if (!(error instanceof VaultError)) throw error;
-          return coverageEntry(need, need.url, "missing", [], [], undefined, error.message);
+          return coverageEntry(need, need.url, undefined, environmentId, error.message);
         }
-        const bound = credentials.filter((item) => item.url === url);
-        const matches = bound
-          .filter((item) => attached.has(item.vault.id))
-          .sort((a, b) => a.row.id.localeCompare(b.row.id));
-        const available = bound.filter((item) => !attached.has(item.vault.id)).map(coverageCredential);
-        if (matches.length === 0)
-          return coverageEntry(need, url, "missing", [], available);
-        const chosen = choose(
-          matches.map((item) => item.row),
-          selections.find((item) => item.serverName === need.serverName),
-        );
-        const listed = matches.map(coverageCredential);
-        if (chosen.kind === "refused")
-          return coverageEntry(
-            need,
-            url,
-            chosen.reason === "ambiguous" ? "ambiguous" : "selection_mismatch",
-            listed,
-            available,
-          );
-        const credential = listed.find((item) => item.credentialId === chosen.row.id)!;
-        return coverageEntry(need, url, "covered", listed, available, credential);
+        const bound = credentials.find((item) => item.url === url);
+        return coverageEntry(need, url, bound && coverageCredential(environmentId!, bound.row), environmentId);
       });
       return {
         agentId: request.agentId,
-        vaultIds: [...vaultIds],
+        environmentId: environmentId ?? null,
         complete: entries.every((entry) => entry.status === "covered"),
         entries,
       };
@@ -896,23 +694,32 @@ export class VaultService {
     return { ...row, ...patch };
   }
 
-  private async vaultInfo(t: Tx, id: string): Promise<VaultInfo> {
-    const row = await t.getVault(id);
-    if (!row || row.scope === "host") throw new VaultError(404, "Vault not found");
-    return vaultInfoOf(row);
+  /**
+   * The vault of a live Environment (not being deleted), or the 404 of a missing one. With
+   * `lock`, the Environment's row is locked until the transaction ends.
+   */
+  private async environmentVault(
+    t: Tx,
+    environmentId: string,
+    options: { lock?: boolean } = {},
+  ): Promise<VaultRow> {
+    const environment = await t.environment(environmentId, options);
+    const vault =
+      environment && environment.pod?.desired !== "deleted"
+        ? await t.vaultOfEnvironment(environmentId)
+        : undefined;
+    if (!vault) throw new VaultError(404, "Environment not found");
+    return vault;
   }
 
   private async ensureHostVault(t: Tx): Promise<void> {
-    const existing = await t.getVault(HOST_VAULT_ID);
-    if (existing?.scope === "host") return;
-    if (existing) throw new VaultError(409, "Host vault id is already used");
+    if (await t.getVault(HOST_VAULT_ID)) return;
     await t.insertVault({
       id: HOST_VAULT_ID,
       name: "Host",
-      ownerUserId: "host",
       metadataJson: null,
       createdAt: new Date().toISOString(),
-      scope: "host",
+      environmentId: null,
     });
   }
 
@@ -1029,17 +836,6 @@ export class VaultService {
     for (const id of new Set(ids)) await t.deleteCredential(HOST_VAULT_ID, id);
   }
 
-  private async credentialRow(
-    t: Tx,
-    vaultId: string,
-    id: string,
-  ): Promise<UserCredentialRow> {
-    const row = await t.getCredential(id);
-    if (!row || row.vaultId !== vaultId || !isUserCredential(row))
-      throw new VaultError(404, "Credential not found");
-    return row;
-  }
-
   private async audit(t: Tx, entry: AuditEntry): Promise<void> {
     await t.insertVaultAudit({
       id: randomUUID(),
@@ -1064,48 +860,32 @@ function bindingUrl(row: VaultCredentialRow): string | undefined {
 }
 
 /** Where a credential is, for coverage: never its value. */
-function coverageCredential(item: { vault: VaultRow; row: VaultCredentialRow }): CoverageCredential {
-  const via = (JSON.parse(item.row.bindingJson) as { via?: string }).via;
-  return {
-    vaultId: item.vault.id,
-    vaultName: item.vault.name,
-    credentialId: item.row.id,
-    credentialName: item.row.name,
-    ...(via === undefined ? {} : { via }),
-  };
+function coverageCredential(environmentId: string, row: VaultCredentialRow): CoverageCredential {
+  const via = (JSON.parse(row.bindingJson) as { via?: string }).via;
+  return { environmentId, name: row.name, ...(via === undefined ? {} : { via }) };
 }
 
 /** One coverage entry, with the sentence that says what the session would do. */
 function coverageEntry(
   need: CredentialNeed,
   url: string,
-  status: CredentialCoverageEntry["status"],
-  matches: CoverageCredential[],
-  available: CoverageCredential[],
-  credential?: CoverageCredential,
+  credential: CoverageCredential | undefined,
+  environmentId: string | undefined,
   invalid?: string,
 ): CredentialCoverageEntry {
   const required = need.kind === "http";
-  const elsewhere = [...new Set(available.map((item) => `'${item.vaultName}'`))];
-  const attach =
-    elsewhere.length === 0
-      ? ""
-      : elsewhere.length === 1
-        ? ` Vault ${elsewhere[0]} holds one: attach it.`
-        : ` Vaults ${elsewhere.join(", ")} hold one: attach one of them.`;
+  const where =
+    environmentId === undefined
+      ? "Without an Environment, no credential is sent"
+      : `Environment ${environmentId} holds no credential for this URL`;
   const message =
     invalid !== undefined
       ? `No credential can be bound to this URL (${invalid}).`
-      : status === "covered"
-        ? `Sends '${credential!.credentialName}' from vault '${credential!.vaultName}'${credential!.via ? ` through ${credential!.via}` : ""}.`
-        : status === "missing"
-          ? (required
-              ? "No attached vault holds a credential for this URL: each call fails with http.credential."
-              : "No attached vault holds a credential for this URL: the server is called without one, which only a public server accepts.") +
-            attach
-          : status === "ambiguous"
-            ? `${matches.length} attached credentials are bound to this URL: select one for '${need.serverName}' (credentialSelections), or each call is refused.`
-            : `The credential selection for '${need.serverName}' names no attached credential bound to this URL: each call is refused.`;
+      : credential !== undefined
+        ? `Sends '${credential.name}' from Environment ${credential.environmentId}${credential.via ? ` through ${credential.via}` : ""}.`
+        : required
+          ? `${where}: each call fails with http.credential.`
+          : `${where}: the server is called without one, which only a public server accepts.`;
   return {
     kind: need.kind,
     ...(need.agentId === undefined ? {} : { agentId: need.agentId }),
@@ -1114,46 +894,62 @@ function coverageEntry(
     serverName: need.serverName,
     url,
     required,
-    status,
+    status: credential === undefined ? "missing" : "covered",
     ...(credential === undefined ? {} : { credential }),
-    matches,
-    available,
     message,
   };
 }
 
-function vaultInfoOf(row: VaultRow): VaultInfo {
-  return {
-    id: row.id,
-    name: row.name,
-    ownerUserId: row.ownerUserId,
-    ...(row.metadataJson
-      ? { metadata: JSON.parse(row.metadataJson) as Record<string, string> }
-      : {}),
-    createdAt: row.createdAt,
-  };
+/**
+ * Refuses a write that would bind a second credential to a host or a URL (D56): `others` are
+ * the vault's other credentials.
+ */
+function conflictOf(
+  type: PutEnvironmentSecretRequest["type"],
+  binding: CredentialBinding,
+  others: readonly UserCredentialRow[],
+): void {
+  if (type === "environment_secret") {
+    for (const row of others) {
+      if (row.type !== "environment_secret") continue;
+      const hosts = credentialBinding(row).allowedHosts ?? [];
+      const host = (binding.allowedHosts ?? []).find((item) => hosts.includes(item));
+      if (host !== undefined)
+        throw new VaultError(409, `${row.name} is already bound to ${host}`, {
+          code: "credential_conflict",
+          details: { host, existing: row.name },
+        });
+    }
+  } else if (type === "bearer" || type === "headers") {
+    const existing = others.find(
+      (row) => (row.type === "bearer" || row.type === "headers") && credentialBinding(row).url === binding.url,
+    );
+    if (existing)
+      throw new VaultError(409, `${existing.name} is already bound to ${binding.url}`, {
+        code: "credential_conflict",
+        details: { url: binding.url, existing: existing.name },
+      });
+  }
 }
 
 function credentialBinding(row: UserCredentialRow): CredentialBinding {
   return JSON.parse(row.bindingJson) as CredentialBinding;
 }
 
-function credentialInfoOf(row: UserCredentialRow): CredentialInfo {
+/** A secret as `GET .../secrets/{name}` shows it: never its value. */
+function secretViewOf(row: UserCredentialRow): EnvironmentSecretView {
   const binding = credentialBinding(row);
   return {
-    id: row.id,
-    vaultId: row.vaultId,
     name: row.name,
     type: row.type,
     binding:
       row.type === "environment_secret"
         ? {
-            secretName: binding.secretName!,
             allowedHosts: binding.allowedHosts!,
             inject: binding.inject ?? { ...ENVIRONMENT_SECRET_DEFAULT_INJECT },
           }
         : row.type === "environment_variable"
-          ? { variableName: binding.variableName!, variableValue: binding.variableValue! }
+          ? {}
           : { url: binding.url! },
     ...(binding.headerNames === undefined ? {} : { headerNames: binding.headerNames }),
     ...(binding.via === undefined ? {} : { via: binding.via }),
@@ -1265,40 +1061,11 @@ export function readHostPayload(
   }
 }
 
-function choose(
-  matches: VaultCredentialRow[],
-  selection: CredentialSelection | undefined,
-):
-  | { kind: "use"; row: VaultCredentialRow }
-  | { kind: "refused"; credentialIds: string[]; reason: string } {
-  const ids = matches.map((row) => row.id);
-  if (matches.length === 1) {
-    const only = matches[0]!;
-    if (selection && selection.credentialId !== only.id)
-      return {
-        kind: "refused",
-        credentialIds: ids,
-        reason: "selection_mismatch",
-      };
-    return { kind: "use", row: only };
-  }
-  if (!selection)
-    return { kind: "refused", credentialIds: ids, reason: "ambiguous" };
-  const chosen = matches.find((row) => row.id === selection.credentialId);
-  if (!chosen)
-    return {
-      kind: "refused",
-      credentialIds: ids,
-      reason: "selection_mismatch",
-    };
-  return { kind: "use", row: chosen };
-}
-
-/** The sealed part of a create or rotate: a token, or a header map with lower-cased names. */
+/** The sealed part of a tool credential: a token, or a header map with lower-cased names. */
 function payloadOf(
-  auth: { type: "bearer"; token: string } | { type: "headers"; headers: Record<string, string> },
+  auth: { type: "bearer"; value: string } | { type: "headers"; headers: Record<string, string> },
 ): SecretPayload {
-  if (auth.type === "bearer") return { token: auth.token };
+  if (auth.type === "bearer") return { token: auth.value };
   return {
     headers: Object.fromEntries(
       Object.entries(auth.headers).map(([name, value]) => [name.toLowerCase(), value]),
@@ -1403,21 +1170,22 @@ function credentialAad(
   );
 }
 
-/** The sealed payload and unsealed binding of an environment credential (R2c). */
+/** The sealed payload and unsealed binding of a shell credential named `name` (R2c). */
 function environmentCredential(
-  auth:
-    | { type: "environment_secret"; secretName: string; secretValue: string; allowedHosts: string[]; inject?: EnvironmentSecretInject }
-    | { type: "environment_variable"; variableName: string; variableValue: string },
+  name: string,
+  body:
+    | { type: "environment_secret"; value: string; allowedHosts: string[]; inject?: EnvironmentSecretInject }
+    | { type: "environment_variable"; value: string },
 ): { payload: SecretPayload; binding: CredentialBinding } {
-  if (auth.type === "environment_variable")
-    return { payload: {}, binding: { variableName: auth.variableName, variableValue: auth.variableValue } };
-  if (auth.inject) checkCredentialHeaders([auth.inject.header.toLowerCase()], undefined);
+  if (body.type === "environment_variable")
+    return { payload: {}, binding: { variableName: name, variableValue: body.value } };
+  if (body.inject) checkCredentialHeaders([body.inject.header.toLowerCase()], undefined);
   return {
-    payload: { value: auth.secretValue },
+    payload: { value: body.value },
     binding: {
-      secretName: auth.secretName,
-      allowedHosts: auth.allowedHosts.map((host) => host.toLowerCase()),
-      ...(auth.inject ? { inject: { header: auth.inject.header, format: auth.inject.format } } : {}),
+      secretName: name,
+      allowedHosts: body.allowedHosts.map((host) => host.toLowerCase()),
+      ...(body.inject ? { inject: { header: body.inject.header, format: body.inject.format } } : {}),
     },
   };
 }
@@ -1427,20 +1195,14 @@ function requestHash(body: unknown): string {
   return canonical(rest);
 }
 
-/**
- * The `environment_secret` credentials bound to `host` in the vaults of every session on the
- * sandbox (R2c). A session between turns counts: it can run again, and what it started may
- * still run. Session open keeps them to one owner and one credential per host.
- */
-async function sandboxSecretsFor(t: Tx, sandboxId: string, host: string): Promise<UserCredentialRow[]> {
+/** The `environment_secret` credentials of Environment `environmentId` bound to `host` (R2c). */
+async function environmentSecretsFor(t: Tx, environmentId: string, host: string): Promise<UserCredentialRow[]> {
   const lower = host.toLowerCase();
-  const vaultIds = new Set<string>();
-  for (const session of await t.sessionsOnSandbox<SessionDoc & { vaultIds?: readonly string[] }>(sandboxId))
-    for (const vaultId of session.vaultIds ?? []) vaultIds.add(vaultId);
-  const matches: UserCredentialRow[] = [];
-  for (const vaultId of vaultIds)
-    for (const row of await t.credentialsForVault(vaultId))
-      if (row.type === "environment_secret" && (credentialBinding(row as UserCredentialRow).allowedHosts ?? []).includes(lower))
-        matches.push(row as UserCredentialRow);
-  return matches;
+  const vault = await t.vaultOfEnvironment(environmentId);
+  if (!vault) return [];
+  return (await t.credentialsForVault(vault.id)).filter(
+    (row): row is UserCredentialRow =>
+      row.type === "environment_secret" &&
+      (credentialBinding(row as UserCredentialRow).allowedHosts ?? []).includes(lower),
+  );
 }

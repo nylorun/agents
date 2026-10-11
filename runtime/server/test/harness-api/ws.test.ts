@@ -134,7 +134,8 @@ it("runs a turn with bash in a harness service with its own sandbox and no store
 
   const agent = Agent({ id: "bot", name: "Bot" }).instructions("Use the sandbox.").build();
   expect((await api("PUT", "/v1/agents/bot", { requestId: "a", manifest: agent.manifest, implementationVersion: "dev" })).status).toBe(200);
-  expect((await api("PUT", "/v1/sessions/s1", { requestId: "s", agentId: "bot", ownerUserId: "u", sandbox: {} })).status).toBe(200);
+  expect((await api("PUT", "/v1/environments/ws%2Fu", { kind: "virtual" })).status).toBe(200);
+  expect((await api("PUT", "/v1/sessions/s1", { requestId: "s", agentId: "bot", ownerUserId: "u", environment: "ws/u" })).status).toBe(200);
   await api("POST", "/v1/sessions/s1/commands", { type: "message", requestId: "m", idempotencyKey: "m", content: "go" });
   let view: any;
   for (let i = 0; i < 400; i += 1) {
@@ -146,11 +147,11 @@ it("runs a turn with bash in a harness service with its own sandbox and no store
 
   // The harness's sandbox events are in the session's log, and its workspace's row in core's table.
   const items = (await api("GET", "/v1/sessions/s1/items")).body.items as { type: string; payload: any }[];
-  expect(items.filter((item) => item.type === "sandbox.state").map((item) => item.payload.state)).toEqual([
+  expect(items.filter((item) => item.type === "environment.state").map((item) => item.payload.state)).toEqual([
     "creating",
     "running",
   ]);
-  expect(items.find((item) => item.type === "sandbox.exec")?.payload).toMatchObject({ tool: "bash", outcome: "completed" });
+  expect(items.find((item) => item.type === "environment.exec")?.payload).toMatchObject({ tool: "bash", outcome: "completed" });
   const rows = await withTestSessionStore(runtime, (store) => store.tx((t) => t.listSandboxes<any>()));
   expect(rows).toEqual([expect.objectContaining({ sessionId: "s1", state: "running", backend: "virtual" })]);
 

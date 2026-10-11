@@ -47,17 +47,22 @@ export async function statusCommand(args: readonly string[]): Promise<void> {
   console.log(`sandbox  ${body.sandbox.backend ?? "none"}`);
 }
 
-const RESET_USAGE = "Usage: nylo reset [--sessions|--sandboxes|--all] [--yes]";
-const SCOPES = { "--sessions": "sessions", "--sandboxes": "sandboxes", "--all": "all" } as const;
+const RESET_USAGE = "Usage: nylo reset [--sessions|--environments|--all] [--yes]";
+const SCOPES = { "--sessions": "sessions", "--environments": "environments", "--all": "all" } as const;
 
-/** `nylo reset [--sessions|--sandboxes|--all] [--yes]`; `--all` asks first. */
+/** `nylo reset [--sessions|--environments|--all] [--yes]`; `--all` asks first. */
 export async function resetCommand(args: readonly string[]): Promise<void> {
   const yes = args.includes("--yes");
   const flags = args.filter((a) => a !== "--yes");
+  if (flags.includes("--sandboxes"))
+    throw new CliError(
+      "--sandboxes is now --environments (protocol 11): nylo reset --environments deletes the Tenant's Environments, their vaults and files.",
+      2,
+    );
   if (flags.some((f) => !(f in SCOPES)) || args.filter((a) => a === "--yes").length > 1)
     throw new CliError(RESET_USAGE, 2);
   if (flags.length > 1)
-    throw new CliError("Pass only one of --sessions, --sandboxes, --all.", 2);
+    throw new CliError("Pass only one of --sessions, --environments, --all.", 2);
   const scope = flags.length ? SCOPES[flags[0] as keyof typeof SCOPES] : "sessions";
   const connection = await linkedConnection(projectRoot());
   const tenant = connection.link?.tenant;

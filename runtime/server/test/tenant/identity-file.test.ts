@@ -15,7 +15,7 @@ const BASE = {
   jwks: "https://sso.acme.dev/realms/eng/protocol/openid-connect/certs",
   subject: '"u:{sub}"',
   scopes: "{ claim: nylorun_scopes }",
-  allowedScopes: "[agents:read, sessions:own, sandboxes:write, studio]",
+  allowedScopes: "[agents:read, sessions:own, environments:write, studio]",
 };
 
 function file(overrides: Record<string, string | undefined> = {}, extra = ""): string {
@@ -52,7 +52,7 @@ function keysBlock(pems: string[]): string {
 describe("parseIdentityFile", () => {
   it("reads the issuers of the plan's example", () => {
     const [issuer] = parseIdentityFile(
-      file({ agents: "[support]", sandboxes: '["{org_id}/*"]' }),
+      file({ agents: "[support]", environments: '["{org_id}/*"]' }),
       "identity.yaml",
     );
     expect(issuer).toEqual({
@@ -62,9 +62,9 @@ describe("parseIdentityFile", () => {
       jwks: BASE.jwks,
       subject: "u:{sub}",
       scopes: { claim: "nylorun_scopes" },
-      allowedScopes: ["agents:read", "sessions:own", "sandboxes:write", "studio"],
+      allowedScopes: ["agents:read", "sessions:own", "environments:write", "studio"],
       agents: ["support"],
-      sandboxes: ["{org_id}/*"],
+      environments: ["{org_id}/*"],
     });
   });
 
@@ -75,8 +75,27 @@ describe("parseIdentityFile", () => {
     expect(issuer).toMatchObject({
       subject: "{sub}",
       scopes: { claim: "scope" },
-      allowedScopes: ["agents:read", "sessions:own", "sandboxes:write"],
+      allowedScopes: ["agents:read", "sessions:own", "environments:write"],
     });
+  });
+
+  it("refuses the protocol 10 names at load, naming the new ones (protocol 11)", () => {
+    const grants = refusal(file({ sandboxes: '["{org_id}/*"]' }));
+    expect(grants).toContain("identity.yaml: issuer keycloak");
+    expect(grants).toContain("sandboxes");
+    expect(grants).toContain("renamed environments");
+    // Even an empty list: it is never read as no grants.
+    expect(refusal(file({ sandboxes: "[]" }))).toContain("renamed environments");
+    for (const scopes of [
+      { allowedScopes: "[agents:read, sandboxes:write]" },
+      { allowedScopes: "[sessions:own, sandboxes:write]", scopes: "{ fixed: [sandboxes:write] }" },
+      { scopes: "{ fixed: [sandboxes:write] }" },
+    ]) {
+      const message = refusal(file(scopes));
+      expect(message, JSON.stringify(scopes)).toContain("issuer keycloak");
+      expect(message, JSON.stringify(scopes)).toContain("sandboxes:write");
+      expect(message, JSON.stringify(scopes)).toContain("renamed environments:write");
+    }
   });
 
   it("ignores keys it does not define, with a warning naming each", () => {
@@ -134,8 +153,8 @@ describe("parseIdentityFile", () => {
       [{ keys: keysBlock([pem("rsa", { modulusLength: 1024 })]), jwks: undefined }, "keys[0]"],
       [{ keys: keysBlock([pem("ec", { namedCurve: "P-384" })]), jwks: undefined }, "keys[0]"],
       [{ subject: '"u:{sub"' }, "subject"],
-      [{ sandboxes: '["{org}/../x"]' }, "sandboxes"],
-      [{ sandboxes: `[${Array.from({ length: 17 }, (_, i) => `"s${i}"`).join(", ")}]` }, "sandboxes"],
+      [{ environments: '["{org}/../x"]' }, "environments"],
+      [{ environments: `[${Array.from({ length: 17 }, (_, i) => `"s${i}"`).join(", ")}]` }, "environments"],
       [{ issuer: "urn:nylorun:tenant:tn_x" }, "issuer"],
       [{ audience: undefined }, "audience"],
     ];

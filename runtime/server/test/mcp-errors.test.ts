@@ -14,6 +14,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { Agent, createClient, http, type AgentsClient } from "@nylorun/agents";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
+import { putEnvironment, putSecret } from "./support/environment-secrets.js";
 
 const APP = "mcp-errors-app-key-aaaaaaaaaaaaaa";
 const TOKEN = "mcp-bearer-plaintext-0a1b2c3d4e5f";
@@ -156,16 +157,8 @@ let client: AgentsClient;
 let faulty: Awaited<ReturnType<typeof faultyServer>>;
 let vanishing: Awaited<ReturnType<typeof vanishingServer>>;
 let service: Awaited<ReturnType<typeof echoService>>;
-let shared: string;
-
-async function management(path: string, body: unknown) {
-  const response = await fetch(`${runtime.url}${path}`, {
-    method: "POST",
-    headers: runtime.managementHeaders(),
-    body: JSON.stringify(body),
-  });
-  return { status: response.status, body: (await response.json()) as Record<string, any> };
-}
+/** The Environment whose secrets hold every credential. */
+const SHARED = "shared";
 
 async function register(id: string, manifest: unknown) {
   return fetch(`${runtime.url}/v1/agents/${id}`, {
@@ -181,7 +174,7 @@ async function run(agentId: string, tool: string) {
   next = tool;
   seenByModel = undefined;
   sessions += 1;
-  const session = await client.createSession({ id: `err-${sessions}`, agentId, ownerUserId: "u:ada", vaultIds: [shared] });
+  const session = await client.createSession({ id: `err-${sessions}`, agentId, ownerUserId: "u:ada", environment: SHARED });
   await session.input("go", { idempotencyKey: `m${sessions}` });
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -220,19 +213,13 @@ beforeAll(async () => {
       )
       .build(),
   );
-  shared = (await management("/v1/tenant/vaults", { requestId: "v", idempotencyKey: "v", name: "Shared", scope: "installation" })).body.id;
-  for (const [name, auth] of [
-    ["faulty", { type: "bearer", url: faulty.url, token: TOKEN }],
+  await putEnvironment(runtime.url, runtime.headers(), SHARED);
+  for (const [name, body] of [
+    ["faulty", { type: "bearer", url: faulty.url, value: TOKEN }],
     ["echo", { type: "headers", url: `${service.url}/ok`, headers: { "x-api-key": HTTP_KEY } }],
     ["echo-fail", { type: "headers", url: `${service.url}/fail`, headers: { "x-api-key": HTTP_KEY } }],
   ] as const) {
-    const created = await management(`/v1/tenant/vaults/${shared}/credentials`, {
-      requestId: name,
-      idempotencyKey: name,
-      name,
-      auth,
-    });
-    expect(created.status, JSON.stringify(created.body)).toBe(200);
+    await putSecret(runtime.url, runtime.headers(), SHARED, name, body);
   }
 });
 

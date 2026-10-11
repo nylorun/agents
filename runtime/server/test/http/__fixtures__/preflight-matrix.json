@@ -47,27 +47,67 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/sandboxes": {
+  "GET /v1/environments": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/sandboxes?label=project=acme": {
+  "GET /v1/environments?label=project=acme": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "PUT /v1/sandboxes/team%2Fsbx-missing": {
+  "GET /v1/environments?limit=1": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/sandboxes/team%2Fsbx-missing": {
+  "PUT /v1/environments/team%2Fenv-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/sandboxes/team%2Fsbx-missing/events": {
+  "GET /v1/environments/team%2Fenv-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "DELETE /v1/sandboxes/team%2Fsbx-missing": {
+  "GET /v1/environments/team%2Fenv-missing/events": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "POST /v1/environments/team%2Fenv-missing/stop": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "POST /v1/environments/team%2Fenv-missing/reset": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "DELETE /v1/environments/team%2Fenv-missing": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/environments/env-1": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/environments/env-1/events": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "POST /v1/environments/env-1/stop": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/environments/env-1/secrets": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/environments/env-1/secrets/missing": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "PUT /v1/environments/env-1/secrets/token": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "DELETE /v1/environments/env-1/secrets/missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
@@ -180,42 +220,6 @@
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/tenant/model/selection": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "POST /v1/tenant/vaults": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "GET /v1/tenant/vaults?ownerUserId=app:ann": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "GET /v1/tenant/vaults/<vault>": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "DELETE /v1/tenant/vaults/vlt-missing": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "POST /v1/tenant/vaults/<vault>/credentials": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "GET /v1/tenant/vaults/<vault>/credentials": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "GET /v1/tenant/vaults/<vault>/credentials/crd-missing": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "POST /v1/tenant/vaults/<vault>/credentials/crd-missing": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "DELETE /v1/tenant/vaults/<vault>/credentials/crd-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },

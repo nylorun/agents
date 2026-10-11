@@ -70,7 +70,7 @@ must name that Tenant, and any other id is an unknown Tenant (`404`).
 A Tenant with no agents shows its name, full Tenant id and Runtime connection
 status, with a short link to the documentation. Developers can use the SDK, CLI
 or any Runtime API client; the agent list appears when the first agent registers.
-Existing sessions open with their original owner and sandbox settings.
+Existing sessions open with their original owner and Environment.
 The dashboard calls the Runtime through
 `/_studio/tenants/<id>/runtime/…`, which the server forwards with Studio's key
 (`deriveStudioToken(adminKey)`, derived from the admin key in memory; role
@@ -86,38 +86,49 @@ agents listed under Sessions in the sidebar, with **New session** for a
 registered agent; `/tenants/<id>/sessions?agent=<agentId>` is the filtered list,
 and `/tenants/<id>/agents/<agentId>` opens it. Each session shows chat beside an
 **Events** inspector, an Artifacts tab and an optional Agent Manifest tab.
-**Sandboxes** and **Artifacts** sit under Sessions in the sidebar. The sidebar's header
+**Environments** and **Artifacts** sit under Sessions in the sidebar. The sidebar's header
 shows the Tenant and the Runtime's status; selecting the Tenant opens its
 Overview. **Models** and **Credentials** have their own entries at the bottom
-of the sidebar. Credentials lists installation vaults and
-manages their URL-bound credentials through the Management API
-(`@nylorun/admin/client`, `/v1/tenant/vaults`): a Bearer token or a Headers map
-(name and value rows), with an optional gateway URL (`via`) and identity header,
-and **Preview tools** on each one lists the MCP server's tools behind its URL
-(`POST /v1/tenant/mcp/preview`). Overview and Models use it too;
-secret reads return metadata only. **New session** on an agent whose MCP
-servers or HTTP tools take a credential opens a vault picker first. It lists the
-installation vaults, ticks the ones that hold the agent's credentials, and shows
-what each server and tool would get (`POST /v1/tenant/credential-coverage`):
-covered, no credential (an MCP server is called without one) or a call that would
-fail. Where several attached credentials match one URL, you pick one. The session
-starts with those `vaultIds` and `credentialSelections`. An agent that takes no
-credential, or a Runtime without the `credential-coverage` feature, starts its
-session at once. Studio manages no person's vault: a person's own keys go in their
-user vault, which only their sessions attach, through the SDK or API.
+of the sidebar. Credentials picks an Environment (`?environment=<id>`) and
+manages the secrets of its vault through the Runtime API
+(`PUT|DELETE /v1/environments/{id}/secrets/{name}`): a Bearer token or a Headers
+map (name and value rows) bound to a URL, with an optional gateway URL (`via`)
+and identity header, or a shell secret or variable for skills' CLIs in its
+sandbox. A `PUT` replaces the secret, so rotating sends the whole credential
+again. **Preview tools** on a URL-bound one lists the MCP server's tools behind
+it with that Environment's credential (`POST /v1/tenant/mcp/preview`, Management
+API, which Overview and Models use too); secret reads return names, types and
+bindings, never values. There are no user or installation vaults. **New
+session** opens an Environment picker first when the Tenant has Environments or
+the agent's MCP servers or HTTP tools take a credential: **None** (no sandbox, no
+credentials) or one Environment, with what each server and tool would get from
+its secrets (`POST /v1/tenant/credential-coverage { agentId, environmentId }`):
+covered, no credential (an MCP server is called without one) or a call that
+would fail. An Environment whose owner guard names another owner than Studio's
+(`local-developer`) cannot be picked. The session opens with `environment: <id>`.
+Otherwise the session starts at once, without an Environment.
 
 Settings links use `/tenants/<id>/settings/overview`, `/settings/models` and
 `/settings/credentials` under the same Tenant prefix. Legacy `/settings` and
 `/vault` links redirect to Models and Credentials respectively, including embeds.
 Token streaming, media and an approvals UI are deferred.
 
-## Sandboxes and artifacts
+## Environments and artifacts
 
-The sidebar includes Sandboxes and Artifacts even before agents register.
-Sandbox rows open a resizable right-hand inspector (a sheet on narrow screens)
-with metadata, paged related sessions and manually refreshed lifecycle events.
-Session links open the dedicated session page; sandbox and artifact inspectors
-preserve their selection and tabs in the URL.
+The sidebar includes Environments and Artifacts even before agents register.
+The Environments table lists each one's kind and state, recipe version (and the
+version a pod still runs), owner guard, labels, sessions and last use, with
+server paging and label filters. **New Environment** opens a form built from the
+recipe (`PUT /v1/environments/{id}`): id, kind (`virtual`, `pod` or `none`),
+image and storage for a pod, CPUs and memory, allowed hosts, labels, owner
+guard, and `lifecycle.idle` and `lifecycle.deleteAfter`. Rows open a resizable
+right-hand inspector (a sheet on narrow screens) with metadata and the recipe,
+the vault's secrets (names, types and bindings, never values), paged sessions
+that name it and manually refreshed lifecycle events, and **Edit recipe** (the
+same form; kind and storage are fixed), **Stop** and **Reset** for a pod, and
+**Delete**. Old `/sandboxes` links redirect to `/environments`. Session links
+open the dedicated session page; Environment and artifact inspectors preserve
+their selection and tabs in the URL.
 
 Artifacts are browsable by session or known artifact ID. The inspector pins a
 numbered version and shows metadata, version history, bounded previews, exported
@@ -131,7 +142,7 @@ buffer is used for downloads.
 Tenant-wide artifact browsing awaits the public paged artifact API described in
 [API_REQUIREMENTS.md](API_REQUIREMENTS.md). Studio never requests an unbounded
 tenant artifact list or accesses databases, Kubernetes or object storage.
-Uploads, deletion, sharing and sandbox lifecycle controls are deferred.
+Artifact uploads, deletion and sharing are deferred.
 
 Run `npm run check --workspace @nylorun/studio` for package and unit checks, and
 `npm run test:e2e --workspace @nylorun/studio` for public-API browser fixtures

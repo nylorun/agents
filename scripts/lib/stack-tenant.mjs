@@ -15,7 +15,7 @@ import { runtimeHeaders } from "./stack.mjs";
 export const FIXTURE_MODEL_FEATURE = "tenant-fixture-model";
 
 /**
- * Reset everything in the Tenant (sessions, sandboxes, agents, vaults),
+ * Reset everything in the Tenant (sessions, Environments with their vaults, agents),
  * cancelling its active work. Its settings stay.
  * @param {{ runtimeUrl: string, managementKey: string }} options
  */

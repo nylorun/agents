@@ -58,8 +58,8 @@ interface SandboxState {
   /** Pending runs not yet on the tail (before `start`). */
   pending: SandboxTrigger[];
   attempts: number;
-  /** `idle`, `ttl` and the reconcile's own `retry`; a later time replaces an earlier one. */
-  timers: Map<"idle" | "ttl" | "retry", { at: number; handle?: NodeJS.Timeout }>;
+  /** `idle` and the reconcile's own `retry`; a later time replaces an earlier one. */
+  timers: Map<"idle" | "retry", { at: number; handle?: NodeJS.Timeout }>;
 }
 
 /**
@@ -124,7 +124,7 @@ export class MemoryExecution implements DurableExecution {
     else this.runSandbox(state, "reconcile");
   }
 
-  private armSandbox(state: SandboxState, timer: "idle" | "ttl" | "retry", at: number): void {
+  private armSandbox(state: SandboxState, timer: "idle" | "retry", at: number): void {
     const existing = state.timers.get(timer);
     if (existing?.handle) clearTimeout(existing.handle);
     const entry: { at: number; handle?: NodeJS.Timeout } = { at };

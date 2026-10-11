@@ -2,7 +2,7 @@
  * Trusted issuers (Host feature `trusted-issuers`, F9 I2): JWTs from the operator's identity
  * provider, configured in the identity file, verified against an in-test JWKS server or static
  * keys. Covers what verification refuses, the JWKS cache and outage, what an issuer token
- * reaches (its own sessions, its agents, its sandbox grants), browsers, and `GET /v1/me` for
+ * reaches (its own sessions, its agents, its Environment grants), browsers, and `GET /v1/me` for
  * every credential.
  */
 import { createPublicKey } from "node:crypto";
@@ -128,9 +128,9 @@ issuers:
     jwks: http://127.0.0.1:${port}/certs
     subject: "u:{sub}"
     scopes: { claim: nylorun_scopes }
-    allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
+    allowedScopes: [agents:read, sessions:own, environments:write, studio]
     agents: [bot]
-    sandboxes: ["{org}/*", "shared"]
+    environments: ["{org}/*", "shared"]
   - name: fixed
     issuer: ${STATIC_ISS}
     audience: api
@@ -183,7 +183,7 @@ describe("verification", () => {
       subject: "u:alice",
       scopes: ["agents:read", "sessions:own", "studio"],
       agents: ["bot"],
-      sandboxes: ["acme/*", "shared"],
+      environments: ["acme/*", "shared"],
       via: "issuer:idp",
     });
   });
@@ -205,7 +205,7 @@ describe("verification", () => {
       subject: "s:pat@acme.dev",
       scopes: ["sessions:own"],
       agents: "*",
-      sandboxes: [],
+      environments: [],
       via: "issuer:fixed",
     });
   });
@@ -333,17 +333,17 @@ describe("what an issuer token reaches", () => {
     expect([403, 404]).toContain(refused.status);
   });
 
-  it("reaches only the sandboxes its rendered grants name", async () => {
+  it("reaches only the Environments its rendered grants name", async () => {
     for (const id of ["acme/box", "globex/box", "shared"])
-      expect((await app("PUT", `/v1/sandboxes/${encodeURIComponent(id)}`, {})).status).toBe(200);
+      expect((await app("PUT", `/v1/environments/${encodeURIComponent(id)}`, {})).status).toBe(200);
     const alice = await as("alice");
-    expect((await call("GET", `/v1/sandboxes/${encodeURIComponent("acme/box")}`, alice)).status).toBe(200);
-    expect((await call("GET", `/v1/sandboxes/${encodeURIComponent("globex/box")}`, alice)).status).toBe(404);
-    const listed = await call("GET", "/v1/sandboxes", alice);
-    expect(listed.body.sandboxes.map((item: { id: string }) => item.id).sort()).toEqual(["acme/box", "shared"]);
+    expect((await call("GET", `/v1/environments/${encodeURIComponent("acme/box")}`, alice)).status).toBe(200);
+    expect((await call("GET", `/v1/environments/${encodeURIComponent("globex/box")}`, alice)).status).toBe(404);
+    const listed = await call("GET", "/v1/environments", alice);
+    expect(listed.body.environments.map((item: { id: string }) => item.id).sort()).toEqual(["acme/box", "shared"]);
     // A claim that is not one id segment renders no grant: it never widens the template.
     const sneaky = await as("mallory", { org: "globex/box/.." });
-    expect((await call("GET", "/v1/me", sneaky)).body.sandboxes).toEqual(["shared"]);
+    expect((await call("GET", "/v1/me", sneaky)).body.environments).toEqual(["shared"]);
   });
 
   it("is accepted from a browser, with no toggle (protocol 7)", async () => {
@@ -365,6 +365,7 @@ describe("GET /v1/me", () => {
     expect(alone.status).toBe(200);
     expect(alone.body).toMatchObject({ agents: "*", via: `application:${runtime.principalId}` });
     expect(alone.body.subject).toBeUndefined();
+    expect(alone.body.environments).toBeUndefined();
     expect(alone.body.sandboxes).toBeUndefined();
     const acting = await call("GET", "/v1/me", runtime.applicationKey, {
       headers: { [SUBJECT_HEADER]: "u:carol", [SCOPES_HEADER]: "sessions:own agents:read" },

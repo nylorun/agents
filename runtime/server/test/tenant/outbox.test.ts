@@ -81,11 +81,11 @@ async function until<T>(read: () => Promise<T> | T, ok: (value: T) => boolean, w
   throw new Error(`timed out waiting for ${what}`);
 }
 
-it("loses no pod sandbox reconcile or timer to a crash between commit and send: the next process sends them", async () => {
-  // Process A creates a pod sandbox, then dies before its signals reach the execution.
+it("loses no pod Environment reconcile or timer to a crash between commit and send: the next process sends them", async () => {
+  // Process A creates a pod Environment, then dies before its signals reach the execution.
   const crashed = sandboxExecution(true);
   const a = await boot(crashed, { retainRoot: true });
-  const created = await fetch(`${a.url}/v1/sandboxes/sb1`, {
+  const created = await fetch(`${a.url}/v1/environments/sb1`, {
     method: "PUT",
     headers,
     body: JSON.stringify({ kind: "pod" }),
@@ -114,7 +114,7 @@ it("loses no pod sandbox reconcile or timer to a crash between commit and send: 
   }
 });
 
-it("revokes a pod sandbox's host on every process with the Tenant open, not only the one that moved its epoch", async () => {
+it("revokes a pod Environment's host on every process with the Tenant open, not only the one that moved its epoch", async () => {
   const a = await boot(sandboxExecution(false), { retainRoot: true });
   // Process B serves the same Tenant (another API node): the host may be connected there.
   const b = await boot(sandboxExecution(false), { hostRoot: a.root, tenantId: a.tenantId });
@@ -123,13 +123,13 @@ it("revokes a pod sandbox's host on every process with the Tenant open, not only
     const server = (runtime.handle as unknown as { ctx: { harness: { revokeHost: Function } } }).ctx.harness;
     server.revokeHost = (sandboxId: string, epoch: number) => revoked.push({ node, sandboxId, epoch });
   }
-  const created = await fetch(`${a.url}/v1/sandboxes/sb1`, {
+  const created = await fetch(`${a.url}/v1/environments/sb1`, {
     method: "PUT",
     headers,
     body: JSON.stringify({ kind: "pod" }),
   });
   expect(created.status).toBe(200);
-  const stopped = await fetch(`${a.url}/v1/sandboxes/sb1/stop`, { method: "POST", headers });
+  const stopped = await fetch(`${a.url}/v1/environments/sb1/stop`, { method: "POST", headers });
   expect(stopped.status).toBe(200);
   await until(() => revoked, (calls) => calls.length >= 2, "both processes revoked");
   expect(revoked.sort((x, y) => x.node.localeCompare(y.node))).toEqual([

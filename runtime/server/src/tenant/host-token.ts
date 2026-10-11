@@ -220,16 +220,15 @@ export async function verifyHostToken(
 
 /**
  * Why a host's claims are stale, or undefined while they are its sandbox's current host: the
- * sandbox exists as a pod sandbox, is not deleted, lost or expired, and its epoch and pod are
+ * sandbox exists as a pod Environment, is not deleted or lost, and its epoch and pod are
  * the token's. One indexed read of the sandbox's row.
  */
 export async function staleHost(store: SessionStore, claims: HostClaims): Promise<string | undefined> {
-  const row = await store.tx((t) => t.sandboxResource(claims.sandboxId));
+  const row = await store.tx((t) => t.environment(claims.sandboxId));
   const pod = row?.pod;
   if (!row || row.kind !== "pod" || !pod) return "the sandbox is gone";
   if (pod.desired === "deleted") return "the sandbox was deleted";
   if (pod.observed === "lost") return "the sandbox was lost";
-  if (pod.observed === "expired") return "the sandbox expired";
   if (pod.hostEpoch !== claims.epoch) return "another host holds the sandbox now";
   if (pod.podUid !== claims.podUid) return "the token is another pod's";
   return undefined;

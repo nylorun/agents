@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import type { CredentialInfo, VaultInfo } from "@nylorun/agents";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import type { EnvironmentSecretView, EnvironmentView } from "@nylorun/agents";
 import { KeyRound, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,27 +27,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createTenantManagementClient } from "@/proxy-client";
+import {
+  createTenantClient,
+  createTenantManagementClient,
+} from "@/proxy-client";
 import { listFrom } from "@/runtime-body.ts";
 import {
   DEFAULT_INJECT,
   SHELL_SECRET_SENTINEL,
   headerPreview,
   isShellType,
-  shellCreateAuth,
-  shellRotateAuth,
+  shellSecretRequest,
 } from "@/shell-credentials.ts";
 
 const SECRET_MASK = "••••••••••••••••";
 
-type PanelMode = "add-vault" | "add-credential" | "view" | "update" | "delete" | "preview";
+type PanelMode = "add" | "view" | "update" | "delete" | "preview";
 
-type Row = {
-  vault: VaultInfo;
-  credential: CredentialInfo;
-};
-
-type CredentialType = CredentialInfo["type"];
+type CredentialType = EnvironmentSecretView["type"];
 
 /** One row of a Headers credential's form. */
 type HeaderRow = { name: string; value: string };
@@ -58,17 +56,15 @@ const TYPE_LABELS: Record<CredentialType, string> = {
   environment_variable: "Variable",
 };
 
-/** A shell credential (R2c): what a skill's CLI uses in a pod sandbox, not an MCP server. */
-function isShellCredential(credential: CredentialInfo): boolean {
-  return isShellType(credential.type);
-}
+/** The name of a `bearer` or `headers` credential: a label (the Runtime checks it again). */
+const TOOL_NAME_PATTERN = "[A-Za-z0-9._\\-]{1,64}";
 
 /** What a credential is for: its URL, or the variable a shell credential sets and where. */
-function bindingOf(credential: CredentialInfo): string {
+function bindingOf(credential: EnvironmentSecretView): string {
   const { binding } = credential;
   if (binding.url) return binding.url;
-  if (binding.secretName) return `$${binding.secretName} → ${(binding.allowedHosts ?? []).join(", ")}`;
-  return binding.variableName ? `$${binding.variableName} = ${binding.variableValue ?? ""}` : "";
+  if (binding.allowedHosts) return `$${credential.name} → ${binding.allowedHosts.join(", ")}`;
+  return `$${credential.name}`;
 }
 
 /** True when the Runtime's answer contains one of the secrets just sent. */
@@ -77,10 +73,10 @@ function leaks(info: unknown, secrets: readonly string[]): boolean {
   return secrets.some((value) => value.length >= 8 && text.includes(value));
 }
 
-const client = (tenantId: string) => createTenantManagementClient(tenantId);
+const management = (tenantId: string) => createTenantManagementClient(tenantId);
 
 /** What the Runtime found behind a credential's URL (R2b C12). */
-type McpPreview = Awaited<ReturnType<ReturnType<typeof client>["mcp"]["preview"]>>;
+type McpPreview = Awaited<ReturnType<ReturnType<typeof management>["mcp"]["preview"]>>;
 
 /** A tool's annotations, as a few words. */
 function toolHints(annotations: Record<string, unknown> | undefined): string {
@@ -102,22 +98,27 @@ function formatWhen(value?: string): string {
   }).format(parsed);
 }
 
-/** The Management client's errors carry the Runtime's message. */
+/** The clients' errors carry the Runtime's message. */
 function messageOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
-  const [vaults, setVaults] = useState<VaultInfo[]>([]);
-  const [rows, setRows] = useState<Row[]>([]);
-  const [selectedVaultId, setSelectedVaultId] = useState<string>("");
+/**
+ * The Credentials page (protocol 11, D56): the secrets of one Environment's vault, picked with
+ * `?environment=`. There are no user or installation vaults: an Environment's secrets reach the
+ * sessions that name it.
+ */
+export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) {
+  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
+  const [query, setQuery] = useSearchParams();
+  const [environments, setEnvironments] = useState<EnvironmentView[]>();
+  const [rows, setRows] = useState<EnvironmentSecretView[]>([]);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [pending, setPending] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [panelMode, setPanelMode] = useState<PanelMode>("add-credential");
-  const [active, setActive] = useState<Row | undefined>();
-  const [vaultName, setVaultName] = useState("");
+  const [panelMode, setPanelMode] = useState<PanelMode>("add");
+  const [active, setActive] = useState<EnvironmentSecretView | undefined>();
   const [credentialName, setCredentialName] = useState("");
   const [bindingUrl, setBindingUrl] = useState("");
   const [credentialType, setCredentialType] = useState<CredentialType>("bearer");
@@ -126,68 +127,70 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
   const [via, setVia] = useState("");
   const [identityHeader, setIdentityHeader] = useState("");
   const [confirmName, setConfirmName] = useState("");
-  // Shell credentials (R2c): the variable's name, a secret's hosts and header.
-  const [shellName, setShellName] = useState("");
+  // Shell credentials (R2c): a secret's hosts and header.
   const [shellHosts, setShellHosts] = useState("");
   const [shellHeader, setShellHeader] = useState("");
   const [shellFormat, setShellFormat] = useState("");
   const [preview, setPreview] = useState<McpPreview | undefined>();
 
-  const refresh = useCallback(async () => {
-    const sdk = client(tenantId);
-    const nextVaults = listFrom<VaultInfo>(
-      { vaults: await sdk.vaults.list() },
-      "vaults",
-      "The Runtime did not return the Tenant's vaults.",
+  const requested = query.get("environment") ?? "";
+  const selectedId =
+    environments?.some((environment) => environment.id === requested)
+      ? requested
+      : (environments?.[0]?.id ?? "");
+  const selected = environments?.find((environment) => environment.id === selectedId);
+
+  const selectEnvironment = (id: string) => {
+    const next = new URLSearchParams(query);
+    if (id) next.set("environment", id);
+    else next.delete("environment");
+    setQuery(next, { replace: true });
+  };
+
+  const refreshEnvironments = useCallback(async () => {
+    setEnvironments(
+      listFrom<EnvironmentView>(
+        { environments: await sdk.environments.list() },
+        "environments",
+        "The Runtime did not return the Tenant's Environments.",
+      ),
     );
-    setVaults(nextVaults);
-    setSelectedVaultId((current) =>
-      current && nextVaults.some((vault) => vault.id === current)
-        ? current
-        : (nextVaults[0]?.id ?? ""),
-    );
-    if (nextVaults.length === 0) {
+  }, [sdk]);
+
+  const refreshSecrets = useCallback(async () => {
+    if (!selectedId) {
       setRows([]);
       return;
     }
-    const credentials = await Promise.all(
-      nextVaults.map(async (vault) => {
-        const listedCredentials = listFrom<CredentialInfo>(
-          { credentials: await sdk.vaults.credentials.list(vault.id) },
-          "credentials",
-          "The Runtime did not return the vault's credentials.",
-        );
-        return listedCredentials.map((credential) => ({
-          vault,
-          credential,
-        }));
-      }),
+    setRows(
+      listFrom<EnvironmentSecretView>(
+        { secrets: await sdk.environments.secrets.list(selectedId) },
+        "secrets",
+        "The Runtime did not return the Environment's secrets.",
+      ),
     );
-    setRows(credentials.flat());
-  }, [tenantId]);
+  }, [sdk, selectedId]);
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      try {
-        await refresh();
-        if (!cancelled) setError("");
-      } catch (cause) {
-        if (!cancelled) setError(messageOf(cause));
-      }
-    })();
+    refreshEnvironments().then(
+      () => !cancelled && setError(""),
+      (cause: unknown) => !cancelled && setError(messageOf(cause)),
+    );
     return () => {
       cancelled = true;
     };
-  }, [refresh]);
+  }, [refreshEnvironments]);
 
-  const visible = selectedVaultId
-    ? rows.filter((row) => row.vault.id === selectedVaultId)
-    : rows;
-  const selectedVault = vaults.find((vault) => vault.id === selectedVaultId);
+  useEffect(() => {
+    let cancelled = false;
+    refreshSecrets().catch((cause: unknown) => !cancelled && setError(messageOf(cause)));
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshSecrets]);
 
   function resetForm() {
-    setVaultName("");
     setCredentialName("");
     setBindingUrl("");
     setCredentialType("bearer");
@@ -196,7 +199,6 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     setVia("");
     setIdentityHeader("");
     setConfirmName("");
-    setShellName("");
     setShellHosts("");
     setShellHeader("");
     setShellFormat("");
@@ -224,28 +226,23 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     return headers;
   }
 
-  function openPanel(mode: PanelMode, row?: Row) {
+  function openPanel(mode: PanelMode, row?: EnvironmentSecretView) {
     setError("");
     setSaved("");
     resetForm();
     setPanelMode(mode);
     setActive(row);
     if (row) {
-      setCredentialName(row.credential.name);
-      setBindingUrl(row.credential.binding.url ?? "");
-      setCredentialType(row.credential.type);
-      setHeaderRows(
-        (row.credential.headerNames ?? [""]).map((name) => ({ name, value: "" })),
-      );
-      setVia(row.credential.via ?? "");
-      setIdentityHeader(row.credential.identity?.header ?? "");
-      const { binding } = row.credential;
-      setShellName(binding.secretName ?? binding.variableName ?? "");
+      const { binding } = row;
+      setCredentialName(row.name);
+      setBindingUrl(binding.url ?? "");
+      setCredentialType(row.type);
+      setHeaderRows((row.headerNames ?? [""]).map((name) => ({ name, value: "" })));
+      setVia(row.via ?? "");
+      setIdentityHeader(row.identity?.header ?? "");
       setShellHosts((binding.allowedHosts ?? []).join(", "));
       setShellHeader(binding.inject?.header ?? "");
       setShellFormat(binding.inject?.format ?? "");
-      // A variable is visible: rotating it starts from its value.
-      if (row.credential.type === "environment_variable") setSecret(binding.variableValue ?? "");
     }
     setPanelOpen(true);
   }
@@ -255,110 +252,69 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     setError("");
     setSaved("");
     setPending(true);
-    const sdk = client(tenantId);
     const secretValue = secret;
+    // A PUT replaces the credential: the gateway and identity header are what the form holds.
     const routing = {
       ...(via.trim() ? { via: via.trim() } : {}),
       ...(identityHeader.trim() ? { identity: { header: identityHeader.trim() } } : {}),
     };
     try {
-      if (panelMode === "add-vault") {
-        await sdk.vaults.create({
-          name: vaultName.trim(),
-          scope: "installation",
-          idempotencyKey: crypto.randomUUID(),
-        });
-        setSaved(`Created vault “${vaultName.trim()}”.`);
-      } else if (panelMode === "add-credential") {
-        if (!selectedVaultId) throw new Error("Create a vault first.");
+      if (panelMode === "add" || panelMode === "update") {
+        if (!selectedId) throw new Error("Create an Environment first.");
+        const updating = panelMode === "update";
         if (isShellType(credentialType)) {
-          const created = await sdk.vaults.credentials.create(selectedVaultId, {
-            name: credentialName.trim(),
-            idempotencyKey: crypto.randomUUID(),
-            auth: shellCreateAuth(credentialType, {
-              name: shellName,
-              hosts: shellHosts,
-              value: secretValue,
-              header: shellHeader,
-              format: shellFormat,
-            }),
+          const { name, secret: body } = shellSecretRequest(credentialType, {
+            name: credentialName,
+            hosts: shellHosts,
+            value: secretValue,
+            header: shellHeader,
+            format: shellFormat,
           });
-          if (credentialType === "environment_secret" && leaks(created, [secretValue]))
+          const written = await sdk.environments.secrets.put(selectedId, name, body);
+          if (leaks(written, [secretValue]))
             throw new Error("The Runtime returned the credential secret.");
           setSaved(
             credentialType === "environment_secret"
-              ? `Saved “${created.name}”. Sandboxes see $${shellName.trim()} as ${SHELL_SECRET_SENTINEL}.`
-              : `Saved “${created.name}”.`,
+              ? updating
+                ? `Rotated “${written.name}”. The next request uses the new value.`
+                : `Saved “${written.name}”. Commands in the sandbox see $${written.name} as ${SHELL_SECRET_SENTINEL}.`
+              : updating
+                ? `Changed “${written.name}”. Commands see the new value from the next turn.`
+                : `Saved “${written.name}”.`,
           );
-          setSecret("");
-          setPanelOpen(false);
-          await refresh();
-          return;
+        } else {
+          const name = credentialName.trim();
+          const url = bindingUrl.trim();
+          const headers = credentialType === "headers" ? headerMap() : undefined;
+          if (!headers && !secretValue) throw new Error("Enter the token.");
+          const written = await sdk.environments.secrets.put(
+            selectedId,
+            name,
+            headers
+              ? { type: "headers", url, headers, ...routing }
+              : { type: "bearer", url, value: secretValue, ...routing },
+          );
+          if (leaks(written, headers ? Object.values(headers) : [secretValue]))
+            throw new Error("The Runtime returned the credential secret.");
+          setSaved(
+            updating
+              ? `Rotated “${written.name}”.`
+              : `Saved “${written.name}”. Secrets stay encrypted in the Environment's vault.`,
+          );
         }
-        const url = bindingUrl.trim();
-        const headers = credentialType === "headers" ? headerMap() : undefined;
-        const created = await sdk.vaults.credentials.create(selectedVaultId, {
-          name: credentialName.trim(),
-          idempotencyKey: crypto.randomUUID(),
-          auth: headers
-            ? { type: "headers", url, headers, ...routing }
-            : { type: "bearer", url, token: secretValue, ...routing },
-        });
-        if (leaks(created, headers ? Object.values(headers) : [secretValue]))
-          throw new Error("The Runtime returned the credential secret.");
-        setSaved(
-          `Saved “${created.name}”. Secrets stay encrypted in the Runtime vault.`,
-        );
-      } else if (panelMode === "update" && active && isShellType(active.credential.type)) {
-        const updated = await sdk.vaults.credentials.rotate(active.vault.id, active.credential.id, {
-          idempotencyKey: crypto.randomUUID(),
-          auth: shellRotateAuth(active.credential.type, secretValue),
-        });
-        if (active.credential.type === "environment_secret" && leaks(updated, [secretValue]))
-          throw new Error("The Runtime returned the credential secret.");
-        setSaved(
-          active.credential.type === "environment_secret"
-            ? `Rotated “${updated.name}”. The next request uses the new value.`
-            : `Changed “${updated.name}”. Commands see the new value from the next turn.`,
-        );
-      } else if (panelMode === "update" && active) {
-        // Rotation keeps the gateway and identity header unless the form changed them; a
-        // cleared field removes them.
-        const change = {
-          ...(via.trim() !== (active.credential.via ?? "")
-            ? { via: via.trim() || null }
-            : {}),
-          ...(identityHeader.trim() !== (active.credential.identity?.header ?? "")
-            ? { identity: identityHeader.trim() ? { header: identityHeader.trim() } : null }
-            : {}),
-        };
-        const headers = active.credential.type === "headers" ? headerMap() : undefined;
-        const updated = await sdk.vaults.credentials.rotate(
-          active.vault.id,
-          active.credential.id,
-          {
-            idempotencyKey: crypto.randomUUID(),
-            auth: headers
-              ? { type: "headers", headers, ...change }
-              : { type: "bearer", token: secretValue, ...change },
-          },
-        );
-        if (leaks(updated, headers ? Object.values(headers) : [secretValue]))
-          throw new Error("The Runtime returned the credential secret.");
-        setSaved(`Rotated “${updated.name}”.`);
       } else if (panelMode === "delete" && active) {
-        if (confirmName.trim() !== active.credential.name)
+        if (confirmName.trim() !== active.name)
           throw new Error("Type the credential name to confirm deletion.");
-        await sdk.vaults.credentials.delete(active.vault.id, active.credential.id);
-        setSaved(`Deleted “${active.credential.name}”.`);
-      } else if (panelMode === "view" || panelMode === "preview") {
+        await sdk.environments.secrets.delete(selectedId, active.name);
+        setSaved(`Deleted “${active.name}”.`);
+      } else {
         setPanelOpen(false);
         return;
       }
       setSecret("");
       setHeaderRows([{ name: "", value: "" }]);
       setPanelOpen(false);
-      await refresh();
+      await refreshSecrets();
     } catch (cause) {
       setError(messageOf(cause));
     } finally {
@@ -367,17 +323,17 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
   }
 
   /**
-   * Lists the tools of the MCP server at the credential's URL, connecting with this vault's
-   * credential; the Runtime calls no tool.
+   * Lists the tools of the MCP server at the credential's URL, connecting with this
+   * Environment's credential; the Runtime calls no tool.
    */
-  async function previewTools(row: Row) {
+  async function previewTools(row: EnvironmentSecretView) {
     openPanel("preview", row);
     setPending(true);
     try {
       setPreview(
-        await client(tenantId).mcp.preview({
-          url: row.credential.binding.url ?? "",
-          vaultId: row.vault.id,
+        await management(tenantId).mcp.preview({
+          url: row.binding.url ?? "",
+          environmentId: selectedId,
         }),
       );
     } catch (cause) {
@@ -387,69 +343,27 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     }
   }
 
-  async function deleteVault() {
-    if (!selectedVault) return;
-    const label = selectedVault.name;
-    if (
-      !window.confirm(
-        `Delete vault “${label}” and all of its credentials? This cannot be undone.`,
-      )
-    )
-      return;
-    setError("");
-    setSaved("");
-    setPending(true);
-    try {
-      await client(tenantId).vaults.delete(selectedVault.id);
-      setSelectedVaultId("");
-      setSaved(`Deleted vault “${label}”.`);
-      await refresh();
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setPending(false);
-    }
-  }
-
   const panelTitle =
-    panelMode === "add-vault"
-      ? "New vault"
-      : panelMode === "add-credential"
-        ? "Add credential"
-        : panelMode === "update"
+    panelMode === "add"
+      ? "Add credential"
+      : panelMode === "update"
         ? credentialType === "environment_variable"
           ? "Change value"
           : "Rotate credential"
-          : panelMode === "delete"
-            ? "Delete credential"
-            : panelMode === "preview"
-              ? "Server tools"
-              : "Credential details";
+        : panelMode === "delete"
+          ? "Delete credential"
+          : panelMode === "preview"
+            ? "Server tools"
+            : "Credential details";
 
   const secretLabel = panelMode === "update" ? "New token" : "Token";
-  const editing = panelMode === "add-credential" || panelMode === "update";
+  const editing = panelMode === "add" || panelMode === "update";
   const shell = isShellType(credentialType);
-  const adding = panelMode === "add-credential";
+  const adding = panelMode === "add";
 
-  /** A shell credential's fields: its variable, and a secret's hosts, header and value. */
+  /** A shell credential's fields: a secret's hosts and header, and the value. */
   const shellFields = (
     <>
-      <label className="grid gap-1 text-sm">
-        Variable name
-        <Input
-          value={shellName}
-          onChange={(event) => setShellName(event.target.value)}
-          placeholder={credentialType === "environment_secret" ? "GH_TOKEN" : "REGION"}
-          className="font-mono"
-          required={adding}
-          readOnly={!adding}
-        />
-        {adding && credentialType === "environment_secret" ? (
-          <span className="text-xs text-muted-foreground">
-            Commands in the sandbox see it as {SHELL_SECRET_SENTINEL}, never the value.
-          </span>
-        ) : null}
-      </label>
       {credentialType === "environment_secret" ? (
         <>
           <label className="grid gap-1 text-sm">
@@ -459,13 +373,13 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
               onChange={(event) => setShellHosts(event.target.value)}
               placeholder="api.github.com, github.com"
               className="font-mono"
-              required={adding}
-              readOnly={!adding}
+              required={editing}
+              readOnly={!editing}
             />
-            {adding ? (
+            {editing ? (
               <span className="text-xs text-muted-foreground">
                 Exact host names, separated by commas. Only HTTPS requests to these hosts
-                carry the secret; the sandbox's network allowlist must include them too.
+                carry the secret; the Environment's network allowlist must include them too.
               </span>
             ) : null}
           </label>
@@ -477,7 +391,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                 onChange={(event) => setShellHeader(event.target.value)}
                 placeholder={DEFAULT_INJECT.header}
                 className="font-mono"
-                readOnly={!adding}
+                readOnly={!editing}
               />
             </label>
             <label className="grid gap-1 text-sm">
@@ -487,13 +401,13 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                 onChange={(event) => setShellFormat(event.target.value)}
                 placeholder={DEFAULT_INJECT.format}
                 className="font-mono"
-                readOnly={!adding}
+                readOnly={!editing}
               />
             </label>
           </div>
           <div className="-mt-2 grid gap-0.5 text-xs text-muted-foreground">
             <code className="break-all font-mono">{headerPreview(shellHeader, shellFormat)}</code>
-            {adding ? (
+            {editing ? (
               <span>
                 Set on every request, replacing the CLI's own. For Basic auth, encode a part
                 with <code className="font-mono">{"{base64:user:{value}}"}</code>.
@@ -502,7 +416,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
           </div>
         </>
       ) : null}
-      {editing || credentialType === "environment_variable" ? (
+      {editing ? (
         <label className="grid gap-1 text-sm">
           {credentialType === "environment_secret"
             ? panelMode === "update"
@@ -517,8 +431,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             value={secret}
             onChange={(event) => setSecret(event.target.value)}
             className={credentialType === "environment_variable" ? "font-mono" : undefined}
-            required={editing}
-            readOnly={!editing}
+            required
           />
         </label>
       ) : null}
@@ -531,68 +444,55 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
         <div>
           <h1 className="text-2xl font-semibold">Credentials</h1>
           <p className="mt-2 text-muted-foreground">
-            Manage this Runtime installation's credentials for remote MCP
-            servers and HTTP tools, and the secrets and variables skills' CLIs
-            use in pod sandboxes. Secrets stay encrypted in the Runtime vault;
-            reads return metadata only.
+            Each Environment has its own vault: credentials for remote MCP servers and
+            HTTP tools, and the secrets and variables skills' CLIs use in its sandbox.
+            Sessions that name the Environment use them. Secrets stay encrypted in the
+            Runtime; reads return metadata only.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={() => openPanel("add-vault")}
-            disabled={pending}
-          >
-            <Plus />
-            New vault
-          </Button>
-          <Button
-            onClick={() => openPanel("add-credential")}
-            disabled={pending || vaults.length === 0}
-          >
-            <Plus />
-            Add credential
-          </Button>
-        </div>
+        <Button
+          onClick={() => openPanel("add")}
+          disabled={pending || !selected}
+        >
+          <Plus />
+          Add credential
+        </Button>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="grid min-w-56 flex-1 gap-1 text-sm">
-          Installation vault
+          Environment
           <select
             className="h-9 rounded-md border bg-transparent px-3"
-            value={selectedVaultId}
-            onChange={(event) => setSelectedVaultId(event.target.value)}
-            disabled={vaults.length === 0}
+            value={selectedId}
+            onChange={(event) => selectEnvironment(event.target.value)}
+            disabled={!environments?.length}
           >
-            {vaults.length === 0 ? (
-              <option value="">No vaults yet</option>
+            {!environments?.length ? (
+              <option value="">
+                {environments ? "No Environments yet" : "Loading Environments…"}
+              </option>
             ) : (
-              vaults.map((vault) => (
-                <option key={vault.id} value={vault.id}>
-                  {vault.name}
+              environments.map((environment) => (
+                <option key={environment.id} value={environment.id}>
+                  {environment.id} · {environment.kind}
                 </option>
               ))
             )}
           </select>
         </label>
-        {selectedVault ? (
-          <Button
-            variant="outline"
-            onClick={() => void deleteVault()}
-            disabled={pending}
+        <Button variant="outline" asChild>
+          <Link
+            to={
+              selected
+                ? `/environments?${new URLSearchParams({ selected: selected.id })}`
+                : "/environments"
+            }
           >
-            <Trash2 />
-            Delete vault
-          </Button>
-        ) : null}
+            {selected ? "Open Environment" : "Environments"}
+          </Link>
+        </Button>
       </div>
-      {selectedVault ? (
-        <p className="break-all text-sm text-muted-foreground">
-          Vault ID:{" "}
-          <code className="font-mono text-xs text-foreground">{selectedVault.id}</code>
-        </p>
-      ) : null}
 
       {error && !panelOpen ? (
         <p role="alert" className="text-sm text-red-600">
@@ -613,38 +513,40 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {vaults.length === 0 ? (
+            {environments !== undefined && environments.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={5}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  Create a vault to store credentials.
+                  Create an Environment on the{" "}
+                  <Link className="text-primary underline underline-offset-4" to="/environments">
+                    Environments page
+                  </Link>{" "}
+                  to store credentials.
                 </TableCell>
               </TableRow>
-            ) : visible.length === 0 ? (
+            ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={5}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  No credentials in this vault yet.
+                  No credentials in this Environment yet.
                 </TableCell>
               </TableRow>
             ) : (
-              visible.map((row) => (
-                <TableRow key={row.credential.id}>
+              rows.map((row) => (
+                <TableRow key={row.name}>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <KeyRound className="size-3.5 text-muted-foreground" />
-                      <span className="font-medium">{row.credential.name}</span>
+                      <span className="font-medium">{row.name}</span>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">
-                      {TYPE_LABELS[row.credential.type] ?? row.credential.type}
-                    </Badge>
-                    {row.credential.via ? (
+                    <Badge variant="outline">{TYPE_LABELS[row.type] ?? row.type}</Badge>
+                    {row.via ? (
                       <Badge variant="outline" className="ml-1">
                         Gateway
                       </Badge>
@@ -652,45 +554,35 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                   </TableCell>
                   <TableCell
                     className="max-w-xs truncate font-mono text-xs"
-                    title={bindingOf(row.credential)}
+                    title={bindingOf(row)}
                   >
-                    {bindingOf(row.credential)}
+                    {bindingOf(row)}
                   </TableCell>
-                  <TableCell>
-                    {formatWhen(row.credential.rotatedAt)}
-                  </TableCell>
+                  <TableCell>{formatWhen(row.rotatedAt)}</TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`${row.credential.name} actions`}
+                          aria-label={`${row.name} actions`}
                         >
                           <MoreHorizontal />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={() => openPanel("view", row)}
-                        >
+                        <DropdownMenuItem onSelect={() => openPanel("view", row)}>
                           View
                         </DropdownMenuItem>
-                        {isShellCredential(row.credential) ? null : (
-                          <DropdownMenuItem
-                            onSelect={() => void previewTools(row)}
-                          >
+                        {isShellType(row.type) ? null : (
+                          <DropdownMenuItem onSelect={() => void previewTools(row)}>
                             Preview tools
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem
-                          onSelect={() => openPanel("update", row)}
-                        >
-                          {row.credential.type === "environment_variable" ? "Change value" : "Rotate"}
+                        <DropdownMenuItem onSelect={() => openPanel("update", row)}>
+                          {row.type === "environment_variable" ? "Change value" : "Rotate"}
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => openPanel("delete", row)}
-                        >
+                        <DropdownMenuItem onSelect={() => openPanel("delete", row)}>
                           Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -709,25 +601,24 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
         </summary>
         <div className="mt-3 space-y-3 text-muted-foreground">
           <p>
-            These credentials belong to this Runtime installation. Attach a
-            vault when creating a session to use its credentials. Declare the
-            MCP server in your agent with the matching destination URL.
+            A session that names an Environment sends its credentials: a credential goes
+            only to the URL it is bound to. Declare the MCP server in your agent with the
+            matching destination URL. A session without an Environment sends none.
           </p>
           <pre className="whitespace-pre-wrap break-all rounded-md border bg-background p-3 text-xs text-foreground">
-            {`await client.createSession({\n  agentId: "assistant",\n  ownerUserId: "developer",\n  vaultIds: [${JSON.stringify(selectedVault?.id ?? "vault-id")}],\n});`}
+            {`await client.environments.secrets.put(${JSON.stringify(selected?.id ?? "environment-id")}, "github", {\n  type: "bearer",\n  url: "https://api.githubcopilot.com/mcp/",\n  value: process.env.GITHUB_TOKEN,\n});\nawait client.createSession({\n  agentId: "assistant",\n  ownerUserId: "developer",\n  environment: ${JSON.stringify(selected?.id ?? "environment-id")},\n});`}
           </pre>
           <p>
-            A skill's CLI in a pod sandbox sees a secret's variable as{" "}
+            A skill's CLI in the sandbox sees a secret's variable as{" "}
             <code className="font-mono text-xs text-foreground">{SHELL_SECRET_SENTINEL}</code>
-            , never its value: when the CLI calls one of the secret's hosts over
-            HTTPS, the Runtime's egress gate sets the real header. A variable's
-            value is visible to the sandbox and to anyone who can read this vault.
+            , never its value: when the CLI calls one of the secret's hosts over HTTPS, the
+            Runtime's egress gate sets the real header. A variable's value is visible to the
+            sandbox.
           </p>
           <p>
-            Studio's New session lets you pick the vaults to attach, and shows
-            which of the agent's servers and tools each one covers. A person's
-            own keys go in their user vault, which only their sessions attach.
-            Model-provider credentials are managed in the Models tab.
+            Studio's New session lets you pick the Environment, and shows which of the
+            agent's servers and tools it covers. Model-provider credentials are managed in
+            the Models tab.
           </p>
           <a
             className="text-primary underline underline-offset-4"
@@ -750,54 +641,21 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                 : panelMode === "preview"
                   ? "The Runtime connected with this credential and listed the server's tools. It called none."
                   : panelMode === "delete"
-                  ? "Type the credential name to confirm. This cannot be undone."
-                  : credentialType === "environment_variable"
-                    ? "A variable is not secret: the sandbox and anyone who can read this vault see its value."
-                    : "The Runtime encrypts secrets in the vault. Studio never keeps a copy."}
+                    ? "Type the credential name to confirm. This cannot be undone."
+                    : credentialType === "environment_variable"
+                      ? "A variable is not secret: the sandbox sees its value."
+                      : `The Runtime encrypts secrets in ${selectedId || "the Environment"}'s vault. Studio never keeps a copy.`}
             </SheetDescription>
           </SheetHeader>
           <form
-            className="flex flex-1 flex-col gap-4 px-4"
+            className="flex flex-1 flex-col gap-4 overflow-y-auto px-4"
             onSubmit={(event) => void submit(event)}
           >
-            {panelMode === "add-vault" ? (
-              <label className="grid gap-1 text-sm">
-                Vault name
-                <Input
-                  value={vaultName}
-                  onChange={(event) => setVaultName(event.target.value)}
-                  required
-                  autoFocus
-                />
-              </label>
-            ) : null}
-
-            {panelMode === "add-credential" ||
-            panelMode === "view" ||
-            panelMode === "update" ||
-            panelMode === "delete" ? (
+            {panelMode !== "preview" ? (
               <>
-                {panelMode === "add-credential" ? (
-                  <label className="grid gap-1 text-sm">
-                    Name
-                    <Input
-                      value={credentialName}
-                      onChange={(event) =>
-                        setCredentialName(event.target.value)
-                      }
-                      required
-                      autoFocus
-                    />
-                  </label>
-                ) : (
-                  <label className="grid gap-1 text-sm">
-                    Name
-                    <Input value={credentialName} readOnly />
-                  </label>
-                )}
                 <label className="grid gap-1 text-sm">
                   Type
-                  {panelMode === "add-credential" ? (
+                  {adding ? (
                     <select
                       className="h-9 rounded-md border bg-transparent px-3"
                       value={credentialType}
@@ -809,7 +667,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                         <option value="bearer">Bearer token</option>
                         <option value="headers">Headers</option>
                       </optgroup>
-                      <optgroup label="Skills in pod sandboxes">
+                      <optgroup label="Skills in the sandbox">
                         <option value="environment_secret">Secret</option>
                         <option value="environment_variable">Variable</option>
                       </optgroup>
@@ -818,6 +676,34 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                     <Input value={TYPE_LABELS[credentialType] ?? credentialType} readOnly />
                   )}
                 </label>
+                <label className="grid gap-1 text-sm">
+                  {shell ? "Variable name" : "Name"}
+                  <Input
+                    value={credentialName}
+                    onChange={(event) => setCredentialName(event.target.value)}
+                    placeholder={
+                      shell
+                        ? credentialType === "environment_secret"
+                          ? "GH_TOKEN"
+                          : "REGION"
+                        : "github"
+                    }
+                    pattern={shell ? undefined : TOOL_NAME_PATTERN}
+                    className={shell ? "font-mono" : undefined}
+                    required={adding}
+                    readOnly={!adding}
+                    autoFocus={adding}
+                  />
+                  {adding ? (
+                    <span className="text-xs text-muted-foreground">
+                      {shell
+                        ? credentialType === "environment_secret"
+                          ? `The variable commands in the sandbox see, as ${SHELL_SECRET_SENTINEL}, never the value.`
+                          : "The variable commands in the sandbox see."
+                        : "A label: 1–64 letters, digits, '.', '_' or '-'. Saving a name again replaces it."}
+                    </span>
+                  ) : null}
+                </label>
                 {shell ? null : (
                   <label className="grid gap-1 text-sm">
                     Destination URL
@@ -825,15 +711,15 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                       value={bindingUrl}
                       onChange={(event) => setBindingUrl(event.target.value)}
                       placeholder="https://mcp.example.com/mcp"
-                      required={panelMode === "add-credential"}
-                      readOnly={panelMode !== "add-credential"}
+                      required={adding}
+                      readOnly={!adding}
                     />
                   </label>
                 )}
                 {shell ? shellFields : null}
-                {panelMode === "view" && credentialType !== "environment_variable" ? (
+                {panelMode === "view" || panelMode === "delete" ? (
                   <label className="grid gap-1 text-sm">
-                    Secret
+                    {credentialType === "environment_variable" ? "Value" : "Secret"}
                     <Input
                       type="password"
                       value={SECRET_MASK}
@@ -841,7 +727,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                       autoComplete="off"
                     />
                     <span className="text-xs text-muted-foreground">
-                      Masked. The Runtime never returns plaintext secrets.
+                      Masked. The Runtime never returns a credential's value.
                     </span>
                   </label>
                 ) : null}
@@ -916,10 +802,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                         </Button>
                       </>
                     ) : (
-                      <Input
-                        value={(active?.credential.headerNames ?? []).join(", ")}
-                        readOnly
-                      />
+                      <Input value={(active?.headerNames ?? []).join(", ")} readOnly />
                     )}
                   </fieldset>
                 ) : null}
@@ -952,14 +835,13 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                     {editing ? (
                       <span className="text-xs text-muted-foreground">
                         Each request names the session's owner in this header.
-                        Installation sessions send none.
                       </span>
                     ) : null}
                   </label>
                 ) : null}
                 {panelMode === "delete" ? (
                   <label className="grid gap-1 text-sm">
-                    Type “{active?.credential.name}” to confirm
+                    Type “{active?.name}” to confirm
                     <Input
                       value={confirmName}
                       onChange={(event) => setConfirmName(event.target.value)}
@@ -970,20 +852,14 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                 ) : null}
                 {panelMode === "view" && active ? (
                   <p className="text-sm text-muted-foreground">
-                    Created {formatWhen(active.credential.createdAt)}
-                    {active.credential.rotatedAt
-                      ? ` · Rotated ${formatWhen(active.credential.rotatedAt)}`
-                      : ""}
+                    Created {formatWhen(active.createdAt)}
+                    {active.rotatedAt ? ` · Rotated ${formatWhen(active.rotatedAt)}` : ""}
                   </p>
                 ) : null}
               </>
-            ) : null}
-
-            {panelMode === "preview" ? (
+            ) : (
               <div className="grid gap-3 text-sm">
-                <p className="break-all font-mono text-xs">
-                  {active?.credential.binding.url}
-                </p>
+                <p className="break-all font-mono text-xs">{active?.binding.url}</p>
                 {pending ? (
                   <p className="text-muted-foreground">Listing the server's tools…</p>
                 ) : null}
@@ -1058,7 +934,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                   </>
                 ) : null}
               </div>
-            ) : null}
+            )}
 
             {error && panelOpen ? (
               <p role="alert" className="text-sm text-red-600">
@@ -1089,15 +965,13 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
                 >
                   {pending
                     ? "Saving"
-                    : panelMode === "add-vault"
-                      ? "Create vault"
-                      : panelMode === "add-credential"
-                        ? "Save credential"
-                        : panelMode === "update"
-                          ? credentialType === "environment_variable"
-                            ? "Save value"
-                            : "Rotate credential"
-                          : "Delete credential"}
+                    : panelMode === "add"
+                      ? "Save credential"
+                      : panelMode === "update"
+                        ? credentialType === "environment_variable"
+                          ? "Save value"
+                          : "Rotate credential"
+                        : "Delete credential"}
                 </Button>
               )}
             </SheetFooter>

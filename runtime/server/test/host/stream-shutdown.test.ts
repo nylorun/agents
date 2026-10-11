@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent } from "@nylorun/core/define";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import type { NodeBindings } from "../../src/tenant/types.js";
@@ -22,7 +23,7 @@ it("close() ends open event streams instead of waiting for their clients", async
   const rt = await startEphemeralRuntime({ database: testPool(), hostRoot: root, model: { kind: "fixture" } });
   try {
     const headers = {
-      "nylorun-protocol": "4",
+      "nylorun-protocol": String(PROTOCOL_VERSION),
       "nylorun-tenant": rt.tenantId,
       authorization: `Bearer ${rt.applicationKey}`,
       "content-type": "application/json",

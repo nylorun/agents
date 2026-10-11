@@ -319,7 +319,7 @@ export function createHarnessApiServer(
     const record = event.record;
     if (
       record &&
-      (event.type !== "sandbox.state" ||
+      (event.type !== "environment.state" ||
         record.sessionId !== event.sessionId ||
         !record.key.startsWith(workspacePrefix(ctx.config.tenantId)) ||
         (connection.host !== undefined &&

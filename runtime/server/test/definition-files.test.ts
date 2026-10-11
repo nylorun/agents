@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent, AgentsClient } from "@nylorun/agents";
 import { DEFINITION_FILE_MAX_BYTES } from "@nylorun/core/contracts";
 import { DELEGATE_INPUT_SCHEMA } from "@nylorun/core/define";
@@ -15,7 +16,7 @@ import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "definition-files-application-key-aaaa";
-const auth = { authorization: `Bearer ${APP}`, "nylorun-protocol": "10" };
+const auth = { authorization: `Bearer ${APP}`, "nylorun-protocol": String(PROTOCOL_VERSION) };
 const json = { ...auth, "content-type": "application/json" };
 
 const closers: (() => Promise<void>)[] = [];
@@ -142,7 +143,7 @@ describe("PUT and HEAD /v1/files/{file}", () => {
   it("takes an application key only", async () => {
     const runtime = await boot();
     const file = sha256(LABELS);
-    const management = { authorization: `Bearer ${runtime.managementKey}`, "nylorun-protocol": "10" };
+    const management = { authorization: `Bearer ${runtime.managementKey}`, "nylorun-protocol": String(PROTOCOL_VERSION) };
     const managed = await put(runtime, file, LABELS, management);
     expect(managed.status).toBe(403);
     expect(await managed.json()).toMatchObject({ code: "key_role_mismatch" });
@@ -218,7 +219,8 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     await client.saveAgent(agent, { implementationVersion: "dev" });
     for (const contents of [SKILL_MD, LABELS, LOGO, SCRIPT])
       expect((await head(runtime, sha256(contents))).status).toBe(200);
-    const session = await client.createSession({ agentId: "triager", ownerUserId: "ada", sandbox: false });
+    // No Environment: no sandbox.
+    const session = await client.createSession({ agentId: "triager", ownerUserId: "ada" });
     await session.input("Triage this.", { idempotencyKey: "m1" });
     expect(await settle(runtime, session.id)).toBe("completed");
     const [loaded, labels, logo, unknown] = await toolOutcomes(runtime, session.id);
@@ -253,7 +255,8 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     const agent = Agent({ id: "triager", instructions: "Triage." }).skills(skillsFolder()).build();
     const client = new AgentsClient({ url: runtime.url, key: APP });
     await client.saveAgent(agent, { implementationVersion: "dev" });
-    const session = await client.createSession({ agentId: "triager", ownerUserId: "ada", sandbox: {} });
+    await client.environments.put("triage", { kind: "virtual" });
+    const session = await client.createSession({ agentId: "triager", ownerUserId: "ada", environment: "triage" });
     await session.input("Triage this.", { idempotencyKey: "m1" });
     expect(await settle(runtime, session.id)).toBe("completed");
     const [loaded, ran, logo] = await toolOutcomes(runtime, session.id);

@@ -1,7 +1,7 @@
 import type {
   ModelCallExportPage,
   ModelCallsPage,
-  SandboxPage,
+  EnvironmentPage,
   SessionManifestView,
   SessionPage,
   SessionListItem,
@@ -12,7 +12,7 @@ export type ReadAccess = { owner?: string; agents?: readonly string[] };
 export type SessionFilters = {
   agentId?: string;
   status?: SessionListItem["status"];
-  sandboxId?: string;
+  environmentId?: string;
   ownerUserId?: string;
 };
 export type PageOptions = { limit: number; cursor?: string };
@@ -28,11 +28,11 @@ export interface ReadStore {
     access: ReadAccess,
   ): Promise<ModelCallsPage>;
   exportModel(after: string | undefined, limit: number): Promise<ModelCallExportPage>;
-  sandboxes(
+  environments(
     labels: Record<string, string>,
     page: PageOptions,
     access: ReadAccess,
     grants?: readonly string[],
-  ): Promise<SandboxPage>;
+  ): Promise<EnvironmentPage>;
   close(): Promise<void>;
 }

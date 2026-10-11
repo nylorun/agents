@@ -158,6 +158,7 @@ interface TimerInput {
   at: number;
 }
 /** A sandbox timer: one of the pod's, or the reconcile's own retry. */
+/** `ttl`: a timer armed before protocol 11 (no TTL since); it fires as a reconcile. */
 type SandboxTimerName = "idle" | "ttl" | "retry";
 interface SandboxTimerInput {
   timer: SandboxTimerName;
@@ -495,7 +496,7 @@ export class RestateExecution implements DurableExecution {
         fire: async (ctx: restate.ObjectContext, input: SandboxTimerInput) => {
           if ((await ctx.get<number>(`at:${input.timer}`)) !== input.at) return;
           ctx.clear(`at:${input.timer}`);
-          await runSandbox(ctx, input.timer === "retry" ? "reconcile" : input.timer);
+          await runSandbox(ctx, input.timer === "idle" ? "idle" : "reconcile");
         },
       },
       options: serviceOptions,

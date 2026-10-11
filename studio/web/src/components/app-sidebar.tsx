@@ -126,7 +126,7 @@ export function AppSidebar({
   /** The agent the session list is filtered on, or the open session's agent. */
   activeAgentId?: string;
   settingsSection?: SettingsSection;
-  resourceActive?: "sandboxes" | "artifacts";
+  resourceActive?: "environments" | "artifacts";
 }>) {
   const agents = sessionAgents(connection);
   return (
@@ -215,8 +215,8 @@ export function AppSidebar({
                   ) : null}
                 </SidebarMenuSub>
               </SidebarMenuItem>
-              {(["sandboxes", "artifacts"] as const).map((resource) => {
-                const label = resource === "sandboxes" ? "Sandboxes" : "Artifacts";
+              {(["environments", "artifacts"] as const).map((resource) => {
+                const label = resource === "environments" ? "Environments" : "Artifacts";
                 return (
                   <SidebarMenuItem key={resource}>
                     <SidebarMenuButton
@@ -225,7 +225,7 @@ export function AppSidebar({
                       tooltip={label}
                     >
                       <Link to={`/${resource}`}>
-                        {resource === "sandboxes" ? <Box /> : <Files />}
+                        {resource === "environments" ? <Box /> : <Files />}
                         <span>{label}</span>
                       </Link>
                     </SidebarMenuButton>

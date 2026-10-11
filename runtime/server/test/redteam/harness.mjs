@@ -321,11 +321,11 @@ for (const [method, params] of Object.entries(notHeld))
 const unheldIntent = await refusal(api.request("effect.intent", intent(unheld, SESSION_B)));
 report("effect.intent for an unheld run: run_not_held", unheldIntent === "run_not_held", unheldIntent);
 const claimB = await refusal(
-  api.request("event", { sessionId: SESSION_B, turnId: null, type: "sandbox.state", payload: { state: "running" } }),
+  api.request("event", { sessionId: SESSION_B, turnId: null, type: "environment.state", payload: { state: "running" } }),
 );
 report("a claim for an unheld session: run_not_held", claimB === "run_not_held", claimB);
 const claimRun = await refusal(
-  api.request("event", { runId: unheld, sessionId: SESSION_B, turnId: null, type: "sandbox.exec", payload: {} }),
+  api.request("event", { runId: unheld, sessionId: SESSION_B, turnId: null, type: "environment.exec", payload: {} }),
 );
 report("a claim naming an unheld run: run_not_held", claimRun === "run_not_held", claimRun);
 
@@ -340,7 +340,7 @@ report("leased session A's run", run.sessionId === SESSION_A && typeof run.token
 const runIntent = await refusal(api.request("effect.intent", intent(run.runId, SESSION_B)));
 report("an intent of session B under A's run: invalid", runIntent === "invalid", runIntent);
 const claimOther = await refusal(
-  api.request("event", { runId: run.runId, sessionId: SESSION_B, turnId: null, type: "sandbox.state", payload: {} }),
+  api.request("event", { runId: run.runId, sessionId: SESSION_B, turnId: null, type: "environment.state", payload: {} }),
 );
 report("a claim for session B under A's run: run_not_held", claimOther === "run_not_held", claimOther);
 const now = new Date().toISOString();
@@ -349,7 +349,7 @@ const foreignRecord = await refusal(
     runId: run.runId,
     sessionId: SESSION_A,
     turnId: run.turnId,
-    type: "sandbox.state",
+    type: "environment.state",
     payload: { state: "running" },
     record: {
       key: `tn_00000000000000000000000000/${SESSION_A}`,

@@ -146,12 +146,18 @@ describe("nylo status|reset on the linked installation", { timeout: 20_000 }, ()
     expect(all.code).toBe(2);
     expect(all.stderr).toContain("pass --yes");
     expect((await nylo(["reset", "--all", "--yes"], root)).code).toBe(0);
+    expect((await nylo(["reset", "--environments"], root)).code).toBe(0);
     expect(host.requests.filter((r) => r.url === "/v1/tenant/reset").map((r) => r.body.scope)).toEqual([
       "sessions",
       "all",
+      "environments",
     ]);
     for (const args of [["reset", "--all", "--sessions"], ["reset", "--everything"]])
       expect((await nylo(args, root)).code).toBe(2);
+    // Protocol 11 renamed the scope: --sandboxes names its replacement.
+    const sandboxes = await nylo(["reset", "--sandboxes"], root);
+    expect(sandboxes.code).toBe(2);
+    expect(sandboxes.stderr).toContain("--environments");
   });
 
   it("endpoints is a usage error: Action endpoints are gone", async () => {

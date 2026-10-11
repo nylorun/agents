@@ -60,18 +60,23 @@ it("C3: the Admin API's old paths require the protocol first, as any route does"
   expect(bad.status).toBe(426);
 });
 
-it("P13: the Host serves protocol 4 to 10 clients", async () => {
+it("P13: the Host serves protocol 11 clients only, and refuses 4 to 10 and 12 with 426", async () => {
   const { url } = await startTestHost({ module: createFakeModule() });
   for (const version of ["4", "5", "6", "7", "8", "9", "10"]) {
-    const { status } = await getJson(`${url}/v1/agents`, {
+    const { status, body } = await getJson(`${url}/v1/agents`, {
       headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: version },
     });
-    expect(status, `protocol ${version}`).toBe(200);
+    expect(status, `protocol ${version}`).toBe(426);
+    expect(ProtocolRejectedResponseSchema.parse(body).protocol).toMatchObject({ min: 11, max: 11 });
   }
   const eleven = await getJson(`${url}/v1/agents`, {
     headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "11" },
   });
-  expect(eleven.status).toBe(426);
+  expect(eleven.status).toBe(200);
+  const twelve = await getJson(`${url}/v1/agents`, {
+    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "12" },
+  });
+  expect(twelve.status).toBe(426);
   // Only a capability link is served without the header (protocol 6).
   const { [PROTOCOL_HEADER]: _protocol, ...unversioned } = tenantHeaders();
   const link = await getJson(`${url}/v1/artifact-links/not-a-token`, { headers: unversioned });

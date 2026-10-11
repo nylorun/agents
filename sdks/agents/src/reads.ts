@@ -8,7 +8,7 @@ import type { Transport } from "./http.js";
 export type SessionPageOptions = {
   agentId?: string;
   status?: SessionListItem["status"];
-  sandboxId?: string;
+  environmentId?: string;
   ownerUserId?: string;
   limit?: number;
   cursor?: string;

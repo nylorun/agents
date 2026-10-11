@@ -43,7 +43,7 @@ import {
 } from "./context.js";
 import { fail } from "./http.js";
 import { accessOf } from "./auth.js";
-import { checkSandboxTurn } from "./sandboxes.js";
+import { checkEnvironmentTurn } from "./environments.js";
 import { rebaseSessionState, turnManifestOf, variantStore } from "./session.js";
 import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
@@ -142,12 +142,19 @@ export async function command(
         cascadeCancelIds.push(agentId);
       }
     } else {
+      // A session opened before protocol 11 (migration 0020) keeps its history but takes no turn.
+      if (s.closedReason !== undefined)
+        fail(
+          409,
+          "This session was opened before protocol 11: open a new session that names an Environment.",
+          { code: "session_closed" }
+        );
       if (command.type === "message") {
         if (!["idle", "completed", "failed", "cancelled"].includes(s.status))
           fail(409, "Session has active or unresolved work");
         // Every turn start on a sandbox: it exists, the token's grants reach it, and no other
         // session's turn holds it.
-        await checkSandboxTurn(t, s, scope, ctx);
+        await checkEnvironmentTurn(t, s, scope, ctx);
         s.turnStartState = s.state;
         // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
         if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };

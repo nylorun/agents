@@ -17,7 +17,7 @@ import {
 } from "drizzle-orm";
 import type {
   ModelCall,
-  SandboxView,
+  EnvironmentView,
   SessionListItem,
   SessionManifestView,
   SessionUsageTotals,
@@ -30,7 +30,7 @@ import { database, driverError, type Transaction } from "./db.js";
 import { createPostgresReadClient, type PostgresClient } from "./connect.js";
 import {
   modelUsage,
-  sandboxResources,
+  environments,
   sandboxes,
   sessions,
   sessionEvents,
@@ -44,7 +44,7 @@ const sessionFields = {
   status: sessions.status,
   activeTurnId: sql<string | null>`${sessions.body}->>'activeTurnId'`,
   lastTurnId: sql<string | null>`${sessions.body}->>'lastTurnId'`,
-  sandboxId: sessions.sandboxId,
+  environmentId: sessions.environmentId,
   createdAt: sessions.createdAt,
 };
 function accessWhere(access: ReadAccess): SQL | undefined {
@@ -151,9 +151,9 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
               position,
               filters.agentId === undefined ? undefined : eq(sessions.agentId, filters.agentId),
               filters.status === undefined ? undefined : eq(sessions.status, filters.status),
-              filters.sandboxId === undefined
+              filters.environmentId === undefined
                 ? undefined
-                : eq(sessions.sandboxId, filters.sandboxId),
+                : eq(sessions.environmentId, filters.environmentId),
               filters.ownerUserId === undefined
                 ? undefined
                 : eq(sessions.ownerUserId, filters.ownerUserId),
@@ -294,9 +294,9 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
           asOf: new Date().toISOString(),
         };
       }),
-    sandboxes: (labels, page, access, grants) =>
+    environments: (labels, page, access, grants) =>
       read(async (tx) => {
-        const cursor = readCursor(tenantId, "sandboxes", labels);
+        const cursor = readCursor(tenantId, "environments", labels);
         const key = keyOf(cursor.decode(page.cursor), 1);
         const allowed =
           grants === undefined
@@ -304,26 +304,26 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
             : or(
                 ...grants.map((grant) =>
                   grant.endsWith("/*")
-                    ? sql`starts_with(${sandboxResources.id}, ${grant.slice(0, -1)})`
-                    : eq(sandboxResources.id, grant),
+                    ? sql`starts_with(${environments.id}, ${grant.slice(0, -1)})`
+                    : eq(environments.id, grant),
                 ),
               );
         const rows = await tx
           .select()
-          .from(sandboxResources)
+          .from(environments)
           .where(
             and(
               grants?.length === 0 ? sql`false` : allowed,
-              key ? gt(sandboxResources.id, key[0]!) : undefined,
-              or(isNull(sandboxResources.desired), ne(sandboxResources.desired, "deleted")),
+              key ? gt(environments.id, key[0]!) : undefined,
+              or(isNull(environments.desired), ne(environments.desired, "deleted")),
               ...Object.entries(labels).map(
-                ([k, v]) => sql`${sandboxResources.labels}::jsonb->>${k} = ${v}`,
+                ([k, v]) => sql`${environments.labels}::jsonb->>${k} = ${v}`,
               ),
             ),
           )
-          .orderBy(asc(sandboxResources.id))
+          .orderBy(asc(environments.id))
           .limit(page.limit + 1);
-        const items: SandboxView[] = [];
+        const items: EnvironmentView[] = [];
         for (const row of rows.slice(0, page.limit)) {
           const [related] = await tx
             .select({
@@ -332,7 +332,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
               >`coalesce(json_agg(json_build_object('id', ${sessions.id}, 'activeTurnId', ${sessions.body}->>'activeTurnId') order by ${sessions.id}), '[]'::json)`,
             })
             .from(sessions)
-            .where(and(eq(sessions.sandboxId, row.id), accessWhere(access)));
+            .where(and(eq(sessions.environmentId, row.id), accessWhere(access)));
           const [compute] = await tx
             .select({ body: sandboxes.body })
             .from(sandboxes)
@@ -343,14 +343,19 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
             id: row.id,
             kind: row.kind,
             labels: row.labels as Record<string, string>,
-            spec: row.spec as Record<string, unknown>,
+            recipe: row.recipe as EnvironmentView["recipe"],
+            version: row.version,
+            appliedVersion: row.appliedVersion,
+            ownerUserId: row.ownerUserId,
             state: isPod
               ? row.observed === "running"
                 ? "running"
                 : row.observed === "creating"
                   ? "creating"
                   : "stopped"
-              : ((compute?.body as { state?: SandboxView["state"] } | undefined)?.state ?? "ready"),
+              : row.kind === "none"
+                ? "ready"
+                : ((compute?.body as { state?: string } | undefined)?.state ?? "ready"),
             ...(isPod
               ? {
                   pod: {
@@ -358,11 +363,11 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
                     observed: row.observed,
                     volumeGeneration: row.volumeGen,
                     hostEpoch: row.hostEpoch,
-                    ...(row.expiresAt ? { expiresAt: new Date(row.expiresAt).toISOString() } : {}),
                     ...(row.reason ? { reason: row.reason } : {}),
-                  } as SandboxView["pod"],
+                  } as EnvironmentView["pod"],
                 }
               : {}),
+            lastUsedAt: new Date(row.lastUsedAt).toISOString(),
             sessions: related!.items,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
@@ -370,7 +375,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
         }
         const last = items.at(-1);
         return {
-          sandboxes: items,
+          environments: items,
           nextCursor: rows.length > page.limit && last ? cursor.encode([last.id]) : null,
         };
       }),

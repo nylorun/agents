@@ -1,8 +1,13 @@
+/**
+ * An Environment's recipe resolved against the Tenant's limits (`resolveRecipe`, protocol 11),
+ * and the sandbox spec a recipe gives a session (`sandboxSpecOf`) and a pod (`podSandboxSpecOf`).
+ */
 import { describe, expect, it } from "vitest";
 import {
-  resolveSandbox,
+  podSandboxSpecOf,
+  resolveRecipe,
   sandboxConfigErrors,
-  SUBJECT_INLINE_MESSAGE,
+  sandboxSpecOf,
   withinCeiling,
 } from "../../src/sandbox/resolve.js";
 import { effectiveSandboxConfig } from "../../src/sandbox/tenant-config.js";
@@ -15,96 +20,168 @@ const config = effectiveSandboxConfig({
     idle: "10m",
   },
 });
-const base = { config, actingForSubject: false } as const;
 
-describe("resolveSandbox", () => {
-  it("gives no sandbox for false, and for an unset Tenant default", () => {
-    expect(resolveSandbox({ ...base, request: false })).toEqual({ kind: "none" });
-    expect(resolveSandbox({ ...base, request: undefined })).toEqual({ kind: "none" });
-  });
-
-  it("applies the Tenant default when the request omits the sandbox", () => {
-    const virtual = effectiveSandboxConfig({ default: "virtual" });
-    expect(resolveSandbox({ ...base, config: virtual, request: undefined })).toEqual({
-      kind: "sandbox",
-      source: "default",
-      spec: {
-        network: { preset: "none" },
+describe("resolveRecipe", () => {
+  it("resolves a virtual recipe within the limits, with no egress unless asked", () => {
+    expect(
+      resolveRecipe(
+        "virtual",
+        {
+          network: { allowedHosts: ["API.github.com", "registry.npmjs.org", "api.github.com"] },
+          resources: { cpus: 2 },
+        },
+        config,
+      ),
+    ).toEqual({
+      kind: "recipe",
+      recipe: {
         resources: { cpus: 2, memory: "1024MiB" },
-        idle: "15m",
+        network: { allowedHosts: ["api.github.com", "registry.npmjs.org"] },
+        harness: "nylorun",
+        lifecycle: {},
       },
     });
-  });
-
-  it("resolves an inline sandbox within the limits, with no egress unless asked", () => {
-    const resolved = resolveSandbox({
-      ...base,
-      request: {
-        network: { allow: ["API.github.com", "registry.npmjs.org", "api.github.com"] },
-        resources: { cpus: 2 },
+    // Nothing asked: the Tenant's default resources and no hosts.
+    expect(resolveRecipe("virtual", {}, config)).toEqual({
+      kind: "recipe",
+      recipe: {
+        resources: { cpus: 1, memory: "1024MiB" },
+        network: { allowedHosts: [] },
+        harness: "nylorun",
+        lifecycle: {},
       },
     });
-    expect(resolved).toEqual({
-      kind: "sandbox",
-      source: "inline",
-      spec: {
-        network: { preset: "none", allow: ["api.github.com", "registry.npmjs.org"] },
-        resources: { cpus: 2, memory: "1024MiB" },
-        idle: "10m",
-      },
-    });
-    expect(resolveSandbox({ ...base, request: {} })).toMatchObject({
-      spec: { network: { preset: "none" } },
+    // The built-in defaults without Tenant settings.
+    expect(resolveRecipe("virtual", {}, effectiveSandboxConfig({}))).toMatchObject({
+      recipe: { resources: { cpus: 2, memory: "1024MiB" } },
     });
   });
 
   it("reports every problem at once", () => {
-    const resolved = resolveSandbox({
-      ...base,
-      request: {
-        image: "node:24",
-        network: { allow: ["api.openai.com", "*.example.com"] },
-        resources: { cpus: 8, memory: "16GiB" },
-      },
-    });
-    expect(resolved).toEqual({
+    expect(
+      resolveRecipe(
+        "virtual",
+        {
+          image: "node:24",
+          storage: "5GiB",
+          network: { allowedHosts: ["api.openai.com", "*.example.com"] },
+          resources: { cpus: 8, memory: "16GiB" },
+          harness: "codex",
+          lifecycle: { idle: "1h" },
+        },
+        config,
+      ),
+    ).toEqual({
       kind: "error",
-      status: 400,
       errors: [
-        "sandbox.image is not supported: the virtual sandbox has no images.",
-        "sandbox.network.allow includes api.openai.com, which this Tenant does not allow.",
-        "sandbox.network.allow includes *.example.com; the virtual sandbox allows exact host names only, such as example.com.",
-        "sandbox.resources.cpus asks for 8; this Tenant allows at most 4.",
-        "sandbox.resources.memory asks for 16384MiB; this Tenant allows at most 8192MiB.",
+        "harness codex is not available: only nylorun is.",
+        "lifecycle.idle is 1h; this Tenant allows at most 10m.",
+        "image is for kind pod: a virtual Environment runs no images.",
+        "storage is for kind pod: a virtual Environment has no volume.",
+        "network.allowedHosts includes api.openai.com, which this Tenant does not allow.",
+        "network.allowedHosts includes *.example.com; a virtual Environment allows exact host names only, such as example.com.",
+        "resources.cpus asks for 8; this Tenant allows at most 4.",
+        "resources.memory asks for 16384MiB; this Tenant allows at most 8192MiB.",
       ],
     });
   });
 
-  it("lets a pod's egress-gate match *.suffix patterns within the Tenant's ceiling", () => {
-    const request = { network: { allow: ["*.example.com", "api.github.com"] } };
-    expect(resolveSandbox({ ...base, kind: "pod", request })).toMatchObject({
-      kind: "sandbox",
-      spec: { network: { preset: "none", allow: ["*.example.com", "api.github.com"] } },
+  it("lets a pod's egress-gate match *.suffix patterns within the Tenant's ceiling, and takes an image and storage", () => {
+    expect(
+      resolveRecipe(
+        "pod",
+        {
+          image: "node:24",
+          storage: "10GiB",
+          network: { allowedHosts: ["*.example.com", "api.github.com"] },
+          lifecycle: { idle: "5m", deleteAfter: "30d" },
+        },
+        config,
+      ),
+    ).toEqual({
+      kind: "recipe",
+      recipe: {
+        image: "node:24",
+        resources: { cpus: 1, memory: "1024MiB" },
+        storage: "10GiB",
+        network: { allowedHosts: ["*.example.com", "api.github.com"] },
+        harness: "nylorun",
+        lifecycle: { idle: "5m", deleteAfter: "30d" },
+      },
     });
-    expect(resolveSandbox({ ...base, kind: "pod", request: { network: { allow: ["*.github.com"] } } })).toEqual({
+    expect(resolveRecipe("pod", { network: { allowedHosts: ["*.github.com"] } }, config)).toEqual({
       kind: "error",
-      status: 400,
-      errors: ["sandbox.network.allow includes *.github.com, which this Tenant does not allow."],
+      errors: ["network.allowedHosts includes *.github.com, which this Tenant does not allow."],
     });
   });
 
-  it("refuses an inline sandbox from a caller acting for a subject, but not the default", () => {
-    expect(resolveSandbox({ ...base, actingForSubject: true, request: {} })).toEqual({
-      kind: "error",
-      status: 403,
-      errors: [SUBJECT_INLINE_MESSAGE],
+  it("gives kind none no sandbox fields: only its harness and lifecycle", () => {
+    expect(resolveRecipe("none", { lifecycle: { deleteAfter: "7d" } }, config)).toEqual({
+      kind: "recipe",
+      recipe: { harness: "nylorun", lifecycle: { deleteAfter: "7d" } },
     });
-    const virtual = effectiveSandboxConfig({ default: "virtual" });
     expect(
-      resolveSandbox({ ...base, config: virtual, actingForSubject: true, request: undefined })
-    ).toMatchObject({ kind: "sandbox", source: "default" });
-    expect(resolveSandbox({ ...base, actingForSubject: true, request: false })).toEqual({
-      kind: "none",
+      resolveRecipe(
+        "none",
+        { image: "node:24", resources: { cpus: 1 }, storage: "1GiB", network: { allowedHosts: [] } },
+        config,
+      ),
+    ).toEqual({
+      kind: "error",
+      errors: [
+        "image is for an Environment with a sandbox: kind none has none.",
+        "resources is for an Environment with a sandbox: kind none has none.",
+        "storage is for an Environment with a sandbox: kind none has none.",
+        "network is for an Environment with a sandbox: kind none has none.",
+      ],
+    });
+  });
+});
+
+describe("sandboxSpecOf", () => {
+  it("gives the session's sandbox the recipe's hosts, resources and idle, else the Tenant's idle", () => {
+    expect(
+      sandboxSpecOf(
+        {
+          resources: { cpus: 2, memory: "1024MiB" },
+          network: { allowedHosts: ["api.github.com"] },
+          harness: "nylorun",
+          lifecycle: {},
+        },
+        "10m",
+      ),
+    ).toEqual({
+      network: { preset: "none", allow: ["api.github.com"] },
+      resources: { cpus: 2, memory: "1024MiB" },
+      idle: "10m",
+    });
+    expect(
+      sandboxSpecOf(
+        { network: { allowedHosts: [] }, harness: "nylorun", lifecycle: { idle: "2m" } },
+        "10m",
+      ),
+    ).toEqual({ network: { preset: "none" }, idle: "2m" });
+  });
+
+  it("gives a pod its image and its volume's size too", () => {
+    expect(
+      podSandboxSpecOf(
+        {
+          image: "node:24",
+          resources: { cpus: 1, memory: "512MiB" },
+          storage: "10GiB",
+          network: { allowedHosts: ["*.example.com"] },
+          harness: "nylorun",
+          lifecycle: {},
+        },
+        "15m",
+      ),
+    ).toEqual({
+      image: "node:24",
+      network: { preset: "none", allow: ["*.example.com"] },
+      resources: { cpus: 1, memory: "512MiB" },
+      idle: "15m",
+      storage: "10GiB",
     });
   });
 });
@@ -121,17 +198,17 @@ describe("withinCeiling", () => {
 });
 
 describe("sandboxConfigErrors", () => {
-  it("rejects a default outside the limits and defaults above the maximum", () => {
-    const errors = sandboxConfigErrors(
-      effectiveSandboxConfig({
-        default: { network: { allow: ["api.openai.com"] } },
-        limits: { resources: { cpus: 2 }, defaultResources: { cpus: 3 } },
-      })
-    );
-    expect(errors).toEqual([
+  it("rejects default resources above the maximum", () => {
+    expect(
+      sandboxConfigErrors(
+        effectiveSandboxConfig({
+          limits: { resources: { cpus: 2, memory: "1GiB" }, defaultResources: { cpus: 3, memory: "2GiB" } },
+        })
+      )
+    ).toEqual([
       "limits.defaultResources.cpus is above limits.resources.cpus.",
-      "default: sandbox.network.allow includes api.openai.com, which this Tenant does not allow.",
-      "default: sandbox.resources.cpus asks for 3; this Tenant allows at most 2.",
+      "limits.defaultResources.memory is above limits.resources.memory.",
     ]);
+    expect(sandboxConfigErrors(effectiveSandboxConfig({}))).toEqual([]);
   });
 });
