@@ -12,7 +12,13 @@ import { connect, createServer as createTcpServer, type Server as TcpServer, typ
 import { connect as tlsConnect, type TLSSocket } from "node:tls";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { EgressCredentialRelease, EgressCredentials } from "../../src/gates/egress-credentials.js";
-import { isEgressBlocked, startEgressGate, type EgressGate } from "../../src/gates/egress.js";
+import {
+  isEgressBlocked,
+  startEgressGate,
+  type EgressConnection,
+  type EgressGate,
+  type EgressRecord,
+} from "../../src/gates/egress.js";
 import { createCertificateAuthority, issueLeafCertificate, leafKeyPair } from "../../src/keys/x509.js";
 import { mintEgressToken, verifyEgressToken, type EgressTokenKeyCache } from "../../src/sandbox/egress-token.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
@@ -54,7 +60,7 @@ const credentials = (overrides: Partial<EgressCredentials> = {}): EgressCredenti
 });
 
 const gates: EgressGate[] = [];
-async function gate(overrides: Partial<EgressCredentials> = {}): Promise<EgressGate> {
+async function gate(overrides: Partial<EgressCredentials> = {}, record?: EgressRecord): Promise<EgressGate> {
   const keys: EgressTokenKeyCache = new Map();
   const started = await startEgressGate({
     listen: { host: "127.0.0.1", port: 0 },
@@ -66,6 +72,7 @@ async function gate(overrides: Partial<EgressCredentials> = {}): Promise<EgressG
     blocked: (address) => address !== "127.0.0.1" && isEgressBlocked(address),
     dial: (address) => connect({ host: address, port: echoPort }),
     credentials: credentials(overrides),
+    ...(record ? { record } : {}),
   });
   gates.push(started);
   return started;
@@ -236,5 +243,41 @@ describe("egress-gate credentials (R2c)", () => {
     const [chunk] = (await once(socket, "data")) as [Buffer];
     expect(chunk.toString()).toBe("GET / HTTP/1.1\r\n\r\n");
     expect(releases).toBe(0);
+  });
+
+  it("records a credential connection once: its requests and the credentials set, by id only (R7.3)", async () => {
+    vault.set("api.bound.test", { status: "released", header: "Authorization", value: "Bearer real-1", credentialId: "cred_1" });
+    const written: EgressConnection[] = [];
+    const proxy = await gate({}, {
+      holder: async () => ({ sessionId: "s1", turnId: "turn-1" }),
+      write: async (_holder, connection) => void written.push(connection),
+    });
+    const { socket } = await connectThrough(proxy, "api.bound.test:443");
+    const secure = await tlsThrough(socket, "api.bound.test");
+    await get(secure, "api.bound.test", { authorization: "Bearer nylorun-managed", "x-tool": "gh" });
+    vault.set("api.bound.test", { status: "released", header: "Authorization", value: "Bearer real-2", credentialId: "cred_2" });
+    await get(secure, "api.bound.test", {}, "payload");
+    await get(secure, "api.bound.test", {});
+    secure.destroy();
+    for (let i = 0; i < 250 && written.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(written).toHaveLength(1);
+    expect(written[0]).toMatchObject({
+      environmentId: "sbx_1",
+      host: "api.bound.test",
+      port: 443,
+      outcome: "allowed",
+      mode: "credential",
+      credentialBound: true,
+      requests: 3,
+    });
+    expect([...written[0]!.credentialIds!].sort()).toEqual(["cred_1", "cred_2"]);
+    expect(written[0]!.bytesUp).toBeGreaterThan(0);
+    expect(written[0]!.bytesDown).toBeGreaterThan(0);
+    const json = JSON.stringify(written);
+    for (const secret of ["real-1", "real-2", "nylorun-managed", "/user", "payload", "x-tool", "hello"])
+      expect(json).not.toContain(secret);
+    // The connection's log line stays.
+    expect(logs).toContainEqual({ message: "egress_terminated", fields: { sandboxId: "sbx_1", host: "api.bound.test" } });
   });
 });

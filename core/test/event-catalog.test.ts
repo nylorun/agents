@@ -70,7 +70,7 @@ describe("event catalog", () => {
 
   it("names a source and a version for every type", () => {
     for (const type of EVENT_TYPES) {
-      expect(["loop", "api"]).toContain(EVENT_CATALOG[type].source);
+      expect(["loop", "api", "egress-gate"]).toContain(EVENT_CATALOG[type].source);
       expect(EVENT_CATALOG[type].version).toBeGreaterThan(0);
     }
   });

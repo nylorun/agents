@@ -1005,6 +1005,39 @@ export const DeleteEnvironmentResponseSchema = z
   .strict();
 export type DeleteEnvironmentResponse = z.infer<typeof DeleteEnvironmentResponseSchema>;
 
+/**
+ * One connection a pod Environment opened through egress-gate (track R7, Q6): written when it
+ * closes, or at once when the gate refused it. The session log of the turn holding the
+ * Environment when it opened gets it as `egress.connection`; with no turn holding it, the
+ * Environment's own stream gets it as `environment.egress` (Q7).
+ *
+ * `startedAt` is the gate's clock at CONNECT and `durationMs` runs from there to the close, so
+ * the span is the gate's own measurement. `bytesUp` is what the sandbox sent, `bytesDown` what it
+ * got. `mode: "credential"` is a host an `environment_secret` is bound to (R2c): the gate read
+ * each request (`requests`) and set a credential on it (`credentialIds`, ids only). It never
+ * carries a header value, a URL path or a body.
+ */
+export const EgressConnectionPayloadSchema = z
+  .object({
+    environmentId: z.string(),
+    host: z.string(),
+    port: z.number().int(),
+    outcome: z.enum(["allowed", "refused"]),
+    /** Why the gate refused it, as in its `egress_refused` log line (`host_not_allowed`, …). */
+    reason: z.string().optional(),
+    /** The HTTP status a refusal answered the CONNECT with. */
+    status: z.number().int().optional(),
+    mode: z.enum(["tunnel", "credential"]),
+    credentialBound: z.boolean(),
+    credentialIds: z.array(z.string()).optional(),
+    requests: z.number().int().nonnegative().optional(),
+    bytesUp: z.number().int().nonnegative(),
+    bytesDown: z.number().int().nonnegative(),
+    durationMs: z.number().nonnegative(),
+    startedAt: z.string(),
+  })
+  .passthrough();
+
 /** The schema id of an Environment's lifecycle events (its stream in the record). */
 export const ENVIRONMENT_EVENT_SCHEMA = "nylorun.environment-event/1";
 export const ENVIRONMENT_EVENT_TYPES = [
@@ -1019,6 +1052,8 @@ export const ENVIRONMENT_EVENT_TYPES = [
   "environment.lost",
   "environment.reset",
   "environment.failed",
+  // egress-gate, while no turn holds the Environment (R7, Q7).
+  "environment.egress",
 ] as const;
 export type EnvironmentEventType = (typeof ENVIRONMENT_EVENT_TYPES)[number];
 /** The payload of each Environment lifecycle event. */
@@ -1046,6 +1081,8 @@ export const ENVIRONMENT_EVENT_PAYLOADS = {
   "environment.reset": z.object({ volumeGeneration: z.number().int() }).passthrough(),
   /** The pod did not become ready. */
   "environment.failed": z.object({ reason: z.string() }).passthrough(),
+  /** A connection through egress-gate while no turn held the Environment (`egress.connection`'s payload). */
+  "environment.egress": EgressConnectionPayloadSchema,
 } as const satisfies Record<EnvironmentEventType, z.ZodType>;
 export type EnvironmentEventPayload<T extends EnvironmentEventType> = z.infer<
   (typeof ENVIRONMENT_EVENT_PAYLOADS)[T]
@@ -2273,6 +2310,7 @@ export const EVENT_CATALOG = {
   "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1 },
   "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1 },
   "environment.attached": { payload: EnvironmentAttachedPayloadSchema, source: "api", version: 1 },
+  "egress.connection": { payload: EgressConnectionPayloadSchema, source: "egress-gate", version: 1 },
   "node.started": { payload: NodeStartedPayloadSchema, source: "loop", version: 1 },
   "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1 },
   "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1 },
