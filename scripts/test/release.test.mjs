@@ -48,6 +48,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       runtime: "0.1.0-beta.1",
       studio: "0.3.0-beta.1",
       nylorun: "0.1.0-beta.1",
+      "harness-conformance": "0.1.0-beta",
       "create-agent": "0.1.0-beta.1",
     })) {
       await mkdir(join(directory, packagePath(name)), { recursive: true });
@@ -342,6 +343,8 @@ test("publication waits for the engines together, then publishes the creator", a
     core: "0.2.0-beta",
     harness: "0.11.0-beta",
     runtime: "0.2.0-beta",
+    // Depends on nothing here and is no creator pin: it publishes with the engines.
+    "harness-conformance": "0.1.0-beta",
     "create-agent": "0.2.0-beta",
   };
   const plan = {
@@ -387,9 +390,11 @@ test("publication waits for the engines together, then publishes the creator", a
     "publish core",
     "publish harness",
     "publish runtime",
+    "publish harness-conformance",
     "wait core",
     "wait harness",
     "wait runtime",
+    "wait harness-conformance",
     "publish create-agent",
     "wait create-agent",
   ]);

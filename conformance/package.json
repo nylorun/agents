@@ -1,7 +1,6 @@
 {
   "name": "@nylorun/harness-conformance",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.0.0",
   "description": "Conformance checks for a harness of the Nylorun Runtime, run against a live Runtime through its public APIs.",
   "type": "module",
   "license": "Apache-2.0",
@@ -24,11 +23,13 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json",
-    "check": "npm run format:check && npm run build && npm test",
+    "check": "npm run format:check && npm run build && npm test && node scripts/check-package.mjs",
     "test": "vitest run",
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\"",
     "format": "prettier --write .",
@@ -40,5 +41,9 @@
     "prettier": "^3.9.9",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^5.0.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

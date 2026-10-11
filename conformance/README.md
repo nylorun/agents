@@ -2,19 +2,26 @@
 
 `@nylorun/harness-conformance` checks a harness of the Nylorun Runtime against the Harness API (track R4, R4.7). It is a black box: it drives a live Runtime only through the public Runtime API (an application key) and Management API (a management key), with `fetch`, and reads back what the Runtime recorded: the session's events, its metered model calls, its journaled tool calls and its sandbox routes. It never imports Runtime code, so a harness written in any language is checked the same way as ours.
 
-It is private to this repository for now: build it from the repository root and run its `dist/cli.js`. Publishing it to npm is a follow-up.
+It is published on npm (Node 24 or later), with the command `nylorun-harness-conformance`.
 
 ## Run it
 
 Start the Runtime, connect the harness under test with its own token (`nylorun-operate harness token put <id>`), keep our harness connected beside it, then:
 
 ```sh
-npm run build --workspace @nylorun/harness-conformance
-node conformance/dist/cli.js \
+npx @nylorun/harness-conformance \
   --runtime http://127.0.0.1:4000 --key "$NYLORUN_API_KEY" --manage-key "$NYLORUN_MANAGEMENT_KEY" \
   --harness acme-mini [--profile container|pod] [--image <ref>] \
   [--restart "docker restart acme-mini"] [--long] [--workspace] \
   [--mcp-url <url> --mcp-tool <name> [--mcp-args <json>]] [--secret <value>]... [--only HC01,HC05] [--json]
+```
+
+Until the first release reaches npm, or to check against unreleased changes, run it from a checkout of this repository, from its root:
+
+```sh
+npm run build --workspace @nylorun/harness-conformance
+node conformance/dist/cli.js --runtime http://127.0.0.1:4000 --key "$NYLORUN_API_KEY" \
+  --manage-key "$NYLORUN_MANAGEMENT_KEY" --harness acme-mini
 ```
 
 `NYLORUN_RUNTIME_URL`, `NYLORUN_API_KEY` and `NYLORUN_MANAGEMENT_KEY` stand in for the first three options.
@@ -26,7 +33,7 @@ the server as `conformance` (so `conformance__echo` for a tool `echo`).
 
 It prints a table, or with `--json` one line per check: `{id, ok, detail, section, status, class, ms}`, where `status` is `pass`, `fail`, `skipped` or `n/a`. It exits 0 when every check that applies passed, 1 when one failed, 2 on a usage error.
 
-From code, `runConformance(options)` runs the same checks and returns the report; `runtime/server/test/harness-api/conformance.test.ts` runs it against our harness and the example on every change.
+From code, `runConformance(options)` (`import { runConformance } from "@nylorun/harness-conformance"`) runs the same checks and returns the report; `runtime/server/test/harness-api/conformance.test.ts` runs it against our harness and the example on every change.
 
 ## How a check runs
 

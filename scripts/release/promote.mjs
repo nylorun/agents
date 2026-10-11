@@ -5,8 +5,12 @@ import { promoteCandidates } from "./model.mjs";
 import { isImageOnly } from "./pins.mjs";
 import { registry } from "./registry.mjs";
 
+const UNRELEASED = "0.0.0";
+
 // Promote to latest: every npm package's version on this main checkout, each
-// already published by a beta release. Image-only packages have no npm tag.
+// already published by a beta release. Image-only packages have no npm tag, and
+// neither has a package that was never released (0.0.0, until the beta release
+// that consumes its first changeset).
 const messages = [];
 try {
   if (
@@ -17,9 +21,11 @@ try {
       "Promotion is only available through the Promote to latest workflow on main.",
     );
   const versions = {};
-  for (const name of packages)
-    if (!(await isImageOnly(root, name)))
-      versions[name] = (await readJson(join(root, packagePath(name), "package.json"))).version;
+  for (const name of packages) {
+    if (await isImageOnly(root, name)) continue;
+    const { version } = await readJson(join(root, packagePath(name), "package.json"));
+    if (version !== UNRELEASED) versions[name] = version;
+  }
   await promoteCandidates(versions, registry, (message) => {
     messages.push(message);
     console.log(message);
