@@ -9,6 +9,9 @@
  * - `conformance:text`: one text answer, `conformance ok`.
  * - `conformance:tool <name> <json>`: one call of the offered tool `<name>` with `<json>` as its
  *   arguments; once the tool's result is in the prompt, a text answer that quotes it.
+ * - `conformance:unoffered <name> <json>`: the same call of a tool `<name>` the call does *not*
+ *   offer (a model that names a tool it was never given), for the check that such a call runs
+ *   nothing; once a result is in the prompt, a text answer that quotes it.
  * - `conformance:budget`: a `budget_exhausted` failure.
  * - `conformance:slow <seconds>`: a text answer after that long (at most 60 s), or nothing once
  *   the call is aborted, for cancel checks.
@@ -50,13 +53,15 @@ async function conformance(
   switch (kind) {
     case "text":
       return candidate(call, "conformance ok");
-    case "tool": {
+    case "tool":
+    case "unoffered": {
       if (last?.kind === "tool-result")
         return candidate(call, `conformance tool ${last.status}: ${textOf(last.content, true)}`);
       const space = rest.indexOf(" ");
       const name = space < 0 ? rest : rest.slice(0, space);
-      if (!call.tools.some((tool) => tool.name === name))
-        return candidate(call, `conformance: no tool ${name} is offered`);
+      const offered = call.tools.some((tool) => tool.name === name);
+      if (kind === "tool" && !offered) return candidate(call, `conformance: no tool ${name} is offered`);
+      if (kind === "unoffered" && offered) return candidate(call, `conformance: tool ${name} is offered`);
       let args: unknown = {};
       try {
         if (space >= 0) args = JSON.parse(rest.slice(space + 1));

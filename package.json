@@ -13,7 +13,8 @@
     "studio",
     "cli/nylorun",
     "cli/legacy",
-    "cli/create-agent"
+    "cli/create-agent",
+    "conformance"
   ],
   "engines": {
     "node": "^24.0.0",

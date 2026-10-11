@@ -138,9 +138,13 @@ Rules for a web backend:
 - The Runtime stays off the network: see
   [Serving people through an app server](../guides/DEPLOYMENT.md#serving-people-through-an-app-server).
 
+## A harness of your own
+
+[`harness-minimal/`](./harness-minimal/) is a harness written only against the published Harness API (`@nylorun/core/harness-api`), without our engine: it leases turns from the Runtime, calls the Model Gate, runs `bash`, and journals each call. It is a package of its own, with its own tests and Dockerfile; its README says how to run it beside the Runtime.
+
 ## Tests
 
-`npm test` runs the examples' tests. The AG-UI and Repo brief tests start an
+`npm test` runs the examples' tests (not `harness-minimal/`'s, which run in that package). The AG-UI and Repo brief tests start an
 in-process Runtime (`startEphemeralRuntime`) whose Tenant lives in a database of its own
 on the runtime test stack's Postgres ([`test/database.ts`](./test/database.ts)). Start that
 stack first, from the repository root (it needs Docker; the runtime's `npm test` starts it

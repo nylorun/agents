@@ -1,0 +1,44 @@
+{
+  "name": "@nylorun/harness-conformance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Conformance checks for a harness of the Nylorun Runtime, run against a live Runtime through its public APIs.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nylorun/agents.git",
+    "directory": "conformance"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "bin": {
+    "nylorun-harness-conformance": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json",
+    "check": "npm run format:check && npm run build && npm test",
+    "test": "vitest run",
+    "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "prettier": "^3.9.9",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "^5.0.2"
+  }
+}

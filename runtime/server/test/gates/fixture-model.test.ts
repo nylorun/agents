@@ -48,6 +48,16 @@ describe("fixture model", () => {
     });
   });
 
+  it("calls a tool that is not offered on conformance:unoffered, and never one that is", async () => {
+    expect(await fixtureAnswer(call([user('conformance:unoffered nylorun_conformance_unoffered {"x":1}')], [bash]))).toMatchObject({
+      output: [{ type: "tool-call", name: "nylorun_conformance_unoffered", args: { x: 1 } }],
+      finishReason: "tool-calls",
+    });
+    expect(await fixtureAnswer(call([user("conformance:unoffered bash {}")], [bash]))).toMatchObject({
+      output: [{ type: "text", text: "conformance: tool bash is offered" }],
+    });
+  });
+
   it("fails with budget_exhausted on conformance:budget", async () => {
     expect(await fixtureAnswer(call([user("conformance:budget")]))).toMatchObject({
       kind: "failed",
