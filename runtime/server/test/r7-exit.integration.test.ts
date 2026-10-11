@@ -168,7 +168,7 @@ describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
   const copy = `${slot}_copy`;
   let turns = 0;
 
-  const turn = async (): Promise<{ turnId: string; status: string }> => {
+  const turn = async (): Promise<{ turnId: string; status: string; error?: string }> => {
     turns += 1;
     const sent = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
       method: "POST",
@@ -177,12 +177,12 @@ describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
     });
     expect(sent.ok, await sent.clone().text()).toBe(true);
     const { turnId } = (await sent.json()) as { turnId: string };
-    let status = "";
+    let session: { status: string; error?: string } = { status: "" };
     await until("the turn to end", async () => {
-      ({ status } = (await (await fetch(`${runtime.url}/v1/sessions/s1`, { headers })).json()) as { status: string });
-      return ["completed", "failed", "cancelled"].includes(status);
+      session = (await (await fetch(`${runtime.url}/v1/sessions/s1`, { headers })).json()) as typeof session;
+      return ["completed", "failed", "cancelled"].includes(session.status);
     }, 60_000);
-    return { turnId, status };
+    return { turnId, status: session.status, ...(session.error ? { error: JSON.stringify(session.error) } : {}) };
   };
   const route = async (turnId: string): Promise<OtlpSpan[]> => {
     const body = (await (await fetch(`${runtime.url}/v1/sessions/s1/turns/${turnId}/trace`, { headers })).json()) as any;
@@ -271,7 +271,7 @@ describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
 
   it("puts one trace per turn in the collector, with a span for every model, tool and egress crossing", async () => {
     const ended = await turn();
-    expect(ended.status).toBe("completed");
+    expect(ended.status, ended.error).toBe("completed");
     first = ended.turnId;
     // egress-gate records a tunnel when it closes, after the command's answer.
     await until("the tunnel's record", async () => (await route(first)).some((span) => span.name.startsWith("CONNECT")));
@@ -313,7 +313,7 @@ describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
     try {
       const before = await currentLsn(runtime.tenantId);
       const ended = await turn();
-      expect(ended.status).toBe("completed");
+      expect(ended.status, ended.error).toBe("completed");
       await until("the drop to be logged", () => logged.some((entry) => entry.message === "trace_export_dropped"), 60_000);
       await until("the slot to move past the turn", async () => {
         const confirmed = await confirmedOf(runtime.tenantId, slot);
