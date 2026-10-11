@@ -46,7 +46,7 @@ import {
 } from "@nylorun/harness/run";
 import type { JsonValue } from "@nylorun/core/define";
 import type { EventWriter, LiveEvent } from "@nylorun/core/contracts";
-import { redactTokens } from "../record/redact.js";
+import { redactTokens } from "../harness-api/redact.js";
 import {
   aggregateWaits,
   cancelSiblingWork,

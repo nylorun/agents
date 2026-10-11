@@ -62,7 +62,7 @@ import type { RunOf } from "../tenant/run-grants.js";
 import { abortKind } from "../tenant/worker.js";
 import { readDefinitionFile } from "../tenant/definition-files.js";
 import { recordIntent, recordOutcome } from "./record.js";
-import { redactTokens } from "../record/redact.js";
+import { redactTokens } from "./redact.js";
 import { beat, renewEveryMs, tokenOf } from "./renew.js";
 
 /** Who is on the other end of a connection. */

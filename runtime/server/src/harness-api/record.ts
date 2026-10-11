@@ -58,7 +58,7 @@ import {
 } from "../tenant/effects.js";
 import { assistantMessage, contextCompacted, modelFailed } from "../tenant/transcript.js";
 import { abortKind } from "../tenant/worker.js";
-import { redactTokens } from "../record/redact.js";
+import { redactTokens } from "./redact.js";
 import { toolCallDecision } from "../gates/policy.js";
 import type { Tx } from "../store/types.js";
 import {
