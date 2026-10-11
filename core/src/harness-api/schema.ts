@@ -14,6 +14,7 @@ import {
 import { HarnessApiError } from "./errors.js";
 import { EffectOutcomeSchema } from "../contracts.js";
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
+import { McpSnapshotSchema } from "./mcp.js";
 
 const id = z.string().min(1).max(512);
 const runId = z.object({ runId: id });
@@ -144,7 +145,8 @@ export const RunRoutingSchema = z
   .object({
     /** The session's pinned manifest: an effect's agent resolves against it. */
     rootManifest: document,
-    mcpSnapshot: z.unknown().optional(),
+    /** The session's MCP snapshot, once its first run recorded one (`session.mcp`). */
+    mcpSnapshot: McpSnapshotSchema.optional(),
     /** The session's sandbox: the session, and the Environment whose sandbox it is. */
     sandbox: z
       .object({
@@ -159,6 +161,14 @@ export const RunRoutingSchema = z
       })
       .strict()
       .optional(),
+  })
+  .strict();
+
+/** W3C trace context: `traceparent`, and `tracestate` when the trace carries one. */
+export const TraceContextSchema = z
+  .object({
+    traceparent: z.string().regex(/^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/),
+    tracestate: z.string().max(512).optional(),
   })
   .strict();
 
@@ -180,10 +190,20 @@ export const TurnStartSchema = z
       .object({
         yieldAfter: z.object({ steps: z.number().optional(), ms: z.number().optional() }).strict().optional(),
         flowLimits: z.unknown().optional(),
+        /**
+         * Informational: the Tenant answers model calls with the fixture model. The Model Gate
+         * answers them itself (R4.3), so a harness calls the gate as for any model.
+         */
         fixtureModel: z.boolean(),
       })
       .strict(),
     routing: RunRoutingSchema,
+    /**
+     * The turn's trace context (R4.10), when the Runtime traces: a harness may send it as
+     * `traceparent` on its gate calls and as `TRACEPARENT` to the processes it starts, so its own
+     * spans join the turn's trace. The Runtime never ingests a harness's spans.
+     */
+    trace: TraceContextSchema.optional(),
   })
   .strict();
 
@@ -302,8 +322,8 @@ export const harnessRequests = {
     result: empty,
   },
   "session.mcp": {
-    params: runId.extend({ snapshot: z.unknown().optional(), diagnostics: z.array(z.unknown()) }).strict(),
-    result: z.object({ snapshot: z.unknown(), sessionTools: z.array(z.unknown()) }).strict(),
+    params: runId.extend({ snapshot: McpSnapshotSchema.optional(), diagnostics: z.array(z.unknown()) }).strict(),
+    result: z.object({ snapshot: McpSnapshotSchema.optional(), sessionTools: z.array(z.unknown()) }).strict(),
   },
   /**
    * A definition file's bytes, base64 (track R2 M4): one the run's definition names, for the

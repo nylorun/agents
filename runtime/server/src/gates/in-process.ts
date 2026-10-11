@@ -12,6 +12,8 @@ import type { HostModelSecret } from "../vault/service.js";
 import { createMeter } from "./meter.js";
 import type { ModelGate, ModelGateRequest } from "./model-gate.js";
 import { artifactFiles, type FileResolver } from "../artifacts/files.js";
+import { usesFixtureModel } from "../tenant/model-setting.js";
+import { fixtureAnswer } from "./fixture-model.js";
 import type { BlobStore } from "../blob/index.js";
 
 export interface InProcessModelGateOptions {
@@ -61,8 +63,22 @@ export function tenantModelGate(options: {
   });
   const meter = createMeter({ logger: options.logger });
   return {
-    call: (request, signal) => meter.call(options.store, request, () => gate.call(request, signal)),
+    call: (request, signal) => meter.call(options.store, request, () => serve(options.store, gate, request, signal)),
   };
+}
+
+/**
+ * Serves one call: from the fixture model while the Tenant's `model.fixture` setting is on (R4.3),
+ * else from `gate`. Read per call, so a seed applies to the next call.
+ */
+export async function serve(
+  store: SessionStore,
+  gate: ModelGate,
+  request: ModelGateRequest,
+  signal: AbortSignal,
+): ReturnType<ModelGate["call"]> {
+  if (await store.tx((t) => usesFixtureModel(t))) return fixtureAnswer(request.call, signal);
+  return gate.call(request, signal);
 }
 
 export function inProcessModelGate(options: InProcessModelGateOptions): ModelGate {

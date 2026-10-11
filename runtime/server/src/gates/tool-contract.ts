@@ -1,7 +1,7 @@
 /**
  * The Tool Gate's wire format (blueprint §12, F4.1): the routes the loop calls on the gates
- * service for remote MCP servers and HTTP tools. Internal, like the model call route
- * (`contract.ts`): same optional Tenant header, not in the published OpenAPI documents.
+ * service for remote MCP servers and HTTP tools. Like the model call route (`contract.ts`): same
+ * optional Tenant header, bodies published in `@nylorun/core/harness-api` (R4.5).
  *
  * Credentials (F5). A session's MCP requests carry its run token, and the gate takes the
  * session from it: `server.sessionId` is then absent (or the token's). Core's credential
@@ -38,63 +38,23 @@
  * `200 {ok: true, result}` with the tool outcome (a failed request is a failed outcome the
  * model sees), or `{ok: false, error: {uncertain: true}}` for a call another gateway process holds.
  */
-import { z } from "zod";
 import type { McpCallFailure } from "../mcp/connect.js";
 
-export const MCP_CONNECT_PATH = "/nylorun/v1/mcp/connect";
-export const MCP_LIST_PATH = "/nylorun/v1/mcp/list";
-export const MCP_CLOSE_PATH = "/nylorun/v1/mcp/close";
-export const TOOL_CALLS_PATH = "/nylorun/v1/tool-calls";
-export const HTTP_CALLS_PATH = "/nylorun/v1/http-calls";
-
-/** Largest tool call body the gate reads. */
-export const MAX_TOOL_BODY_BYTES = 8 * 1024 * 1024;
-
-export const McpServerRefSchema = z.object({
-  /** Required with core's credential; a run token names the session itself. */
-  sessionId: z.string().min(1).optional(),
-  agentId: z.string().min(1).optional(),
-  capabilityId: z.string().min(1),
-  serverName: z.string().min(1),
-});
-
-export const McpServerBodySchema = z.object({ server: McpServerRefSchema });
-
-export const McpListBodySchema = z.object({
-  server: McpServerRefSchema,
-  cursor: z.string().optional(),
-});
-
-export const ToolCallBodySchema = z.object({
-  server: McpServerRefSchema,
-  effectId: z.string().min(1),
-  name: z.string().min(1),
-  arguments: z.record(z.string(), z.unknown()),
-});
-
-export type ToolCallBody = z.infer<typeof ToolCallBodySchema>;
-
-export const HttpCallBodySchema = z.object({
-  tool: z.union([
-    z.object({
-      /** Required with core's credential; a run token names the session itself. */
-      sessionId: z.string().min(1).optional(),
-      agentId: z.string().min(1).optional(),
-      capabilityId: z.string().min(1),
-      toolName: z.string().min(1),
-    }),
-    z.object({
-      sessionId: z.string().min(1).optional(),
-      /** A flow's HTTP stage or HTTP verifier. */
-      stage: z.string().min(1),
-    }),
-  ]),
-  effectId: z.string().min(1),
-  turnId: z.string().min(1),
-  input: z.unknown(),
-});
-
-export type HttpCallBody = z.infer<typeof HttpCallBodySchema>;
+export {
+  HTTP_CALLS_PATH,
+  HttpCallBodySchema,
+  MAX_TOOL_BODY_BYTES,
+  MCP_CLOSE_PATH,
+  MCP_CONNECT_PATH,
+  MCP_LIST_PATH,
+  McpListBodySchema,
+  McpServerBodySchema,
+  McpServerRefSchema,
+  TOOL_CALLS_PATH,
+  ToolCallBodySchema,
+  type HttpCallBody,
+  type ToolCallBody,
+} from "@nylorun/core/harness-api";
 
 /** Why an MCP request failed, as the loop's diagnostics read it (`mcp/connect.ts`). */
 export interface McpGateError {

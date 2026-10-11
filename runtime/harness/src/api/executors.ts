@@ -1,4 +1,4 @@
-import type { ParamsOf, ResultOf, RunGrant, TurnStart } from "@nylorun/core/harness-api";
+import type { McpSnapshot, ParamsOf, ResultOf, RunGrant, TurnStart } from "@nylorun/core/harness-api";
 import type { DurableSessionTool, HostEffect } from "../run/durable.js";
 
 /** A run as the harness holds it: the lease, what it started from, and its signal. */
@@ -53,5 +53,5 @@ export type McpRecorder = (
 /** The session's MCP snapshot and tools after `prepare`. */
 export interface PreparedRun {
   readonly sessionTools: readonly DurableSessionTool[];
-  readonly mcpSnapshot?: unknown;
+  readonly mcpSnapshot?: McpSnapshot;
 }

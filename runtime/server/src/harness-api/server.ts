@@ -245,7 +245,13 @@ export function createHarnessApiServer(
     async (method: string, params: unknown, signal: AbortSignal): Promise<unknown> => {
       const p = params as Record<string, unknown>;
       if (method === "hello") {
-        const { capabilities } = p as ParamsOf<"hello">;
+        const { api, capabilities } = p as ParamsOf<"hello">;
+        // R3's next version adds a window of supported versions; until then there is one.
+        if (api !== HARNESS_API_VERSION)
+          throw new HarnessApiError(
+            "invalid",
+            `unsupported Harness API version ${api}: this Runtime speaks ${HARNESS_API_VERSION}`
+          );
         connection.workspace = capabilities.workspace !== undefined;
         return {
           api: HARNESS_API_VERSION,

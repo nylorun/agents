@@ -16,6 +16,7 @@ import type {
   RequestTypes,
   RunGrantSchema,
   RunRoutingSchema,
+  TraceContextSchema,
   TurnOutputSchema,
   TurnStartSchema,
   WorkspaceBytesCallSchema,
@@ -66,6 +67,9 @@ export type RunGrant = z.infer<typeof RunGrantSchema>;
 
 /** Where a harness sends the session's tool calls. */
 export type RunRouting = z.infer<typeof RunRoutingSchema>;
+
+/** W3C trace context a turn carries (R4.10). */
+export type TraceContext = z.infer<typeof TraceContextSchema>;
 
 /** What a run starts from: `turn.start` (message, continue, resume) or `approval.answer`. */
 export type TurnStart = z.infer<typeof TurnStartSchema>;

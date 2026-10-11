@@ -1,7 +1,8 @@
 /**
  * The Tenant-level fixture model (`tenant/model-setting.ts`): `fixtureModel: true` through
  * `PUT /v1/tenant/config/seed` makes that Tenant's model calls use the Runtime's fixture
- * model; another Tenant on the same Host keeps its own model path.
+ * model; another Tenant on the same Host keeps its own model path. The Model Gate answers it
+ * (R4.3), so each call is metered like any model's.
  */
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
@@ -151,6 +152,16 @@ it("uses the fixture model for the seeded Tenant only; another Tenant on the Hos
     output: { status: "shipped" },
   });
   expect(service.calls.map((call) => call.input)).toEqual([{ orderId: "demo-123" }]);
+  // Metered at the gate: one usage row per model call (the tool call, then the answer).
+  const calls = (await (
+    await fetch(`${fixtureTenant.url}/v1/sessions/s1/calls/model`, { headers: fixtureTenant.headers() })
+  ).json()) as { calls: { provider: string | null; usage: { totalTokens: number; costUsd: number } | null }[] };
+  expect(calls.calls).toHaveLength(2);
+  for (const call of calls.calls) {
+    expect(call.provider).toBe("fixture");
+    expect(call.usage?.totalTokens).toBeGreaterThan(0);
+    expect(call.usage?.costUsd).toBe(0);
+  }
 
   const completed = await until(
     () => items(otherTenant),

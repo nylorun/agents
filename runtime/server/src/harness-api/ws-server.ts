@@ -25,18 +25,18 @@ import { WebSocketServer } from "ws";
 import {
   HARNESS_API_HEADER,
   HARNESS_API_PATH,
+  HARNESS_API_TRANSPORT,
   HARNESS_MAX_PAYLOAD,
-  wsPort,
-  type WsPortOptions,
-} from "../harness/ws-port.js";
+  HOST_JOIN_PATH,
+  HOST_RENEW_PATH,
+} from "@nylorun/core/harness-api";
+import { wsPort, type WsPortOptions } from "../harness/ws-port.js";
 import { tokenType } from "../tenant/jwt.js";
 import { HOST_TOKEN_TYP } from "../tenant/host-token.js";
 import { HostAuthError, type HostAuthority, type HostJoinRequest } from "../sandbox/join.js";
 import type { HarnessPeer } from "./server.js";
 
-/** Where a pod's engine exchanges its join token, and renews its host token. */
-export const HOST_JOIN_PATH = `${HARNESS_API_PATH}/host/join`;
-export const HOST_RENEW_PATH = `${HARNESS_API_PATH}/host/renew`;
+export { HOST_JOIN_PATH, HOST_RENEW_PATH };
 /** A join's body is small. */
 const MAX_JOIN_BODY = 8 * 1024;
 
@@ -182,8 +182,8 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
     const hostToken = bearer !== undefined && options.hosts && tokenType(bearer) === HOST_TOKEN_TYP;
     if (!hostToken && !bearerMatches(request.headers.authorization, options.token))
       return refuse(socket, 401, "Unauthorized", { "WWW-Authenticate": "Bearer" });
-    if (request.headers[HARNESS_API_HEADER] !== "1")
-      return refuse(socket, 426, "Upgrade Required", { [HARNESS_API_HEADER]: "1" });
+    if (request.headers[HARNESS_API_HEADER] !== HARNESS_API_TRANSPORT)
+      return refuse(socket, 426, "Upgrade Required", { [HARNESS_API_HEADER]: HARNESS_API_TRANSPORT });
     const host = hostToken
       ? options.hosts!().then(async (authority) => {
           if (!authority) return undefined;

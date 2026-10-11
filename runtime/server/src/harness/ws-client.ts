@@ -9,7 +9,8 @@
 import { createChannel, type HarnessChannel, type RequestHandler } from "@nylorun/core/harness-api";
 import { createHarness, type Harness, type HarnessOptions } from "@nylorun/harness/api";
 import { WebSocket } from "ws";
-import { HARNESS_API_HEADER, HARNESS_MAX_PAYLOAD, wsPort, type WsPortOptions } from "./ws-port.js";
+import { HARNESS_API_HEADER, HARNESS_API_TRANSPORT, HARNESS_MAX_PAYLOAD } from "@nylorun/core/harness-api";
+import { wsPort, type WsPortOptions } from "./ws-port.js";
 
 export interface HarnessClientOptions
   extends Omit<HarnessOptions, "channel" | "logger"> {
@@ -56,7 +57,7 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
     const token = typeof options.token === "string" ? options.token : await options.token();
     return new Promise<WebSocket>((resolve, reject) => {
       const socket = new WebSocket(options.url, {
-        headers: { authorization: `Bearer ${token}`, [HARNESS_API_HEADER]: "1" },
+        headers: { authorization: `Bearer ${token}`, [HARNESS_API_HEADER]: HARNESS_API_TRANSPORT },
         maxPayload: HARNESS_MAX_PAYLOAD,
         handshakeTimeout: 10_000,
       });

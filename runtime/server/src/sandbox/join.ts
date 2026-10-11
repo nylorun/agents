@@ -32,6 +32,7 @@
  * which check failed.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
+import type { HostJoinAnswer, HostJoinRequest } from "@nylorun/core/harness-api";
 import { isEnvironmentId } from "@nylorun/core/contracts";
 import type { Environment } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
@@ -44,25 +45,7 @@ import {
   type HostTokenKeyCache,
 } from "../tenant/host-token.js";
 
-export interface HostJoinRequest {
-  readonly sandboxId: string;
-  readonly podUid: string;
-  readonly joinToken: string;
-  /** The id the engine keeps on the volume (`/harness/volume-id`). */
-  readonly volumeId?: string;
-}
-
-/** What `join` and `renew` answer. */
-export interface HostJoinAnswer {
-  readonly hostToken: string;
-  readonly egressToken: string;
-  readonly sandboxId: string;
-  readonly epoch: number;
-  /** ISO time the tokens expire. */
-  readonly expiresAt: string;
-  /** The egress CA certificate (PEM) the sandbox trusts (R2c). */
-  readonly caCertificate: string;
-}
+export type { HostJoinAnswer, HostJoinRequest } from "@nylorun/core/harness-api";
 
 /** A refused join, renewal or host connection. */
 export class HostAuthError extends Error {

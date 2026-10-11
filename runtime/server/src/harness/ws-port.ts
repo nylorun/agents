@@ -7,12 +7,12 @@
 import type { Frame, Port } from "@nylorun/core/harness-api";
 import { WebSocket } from "ws";
 
-/** The URL path of the Harness API, and the header naming its version. */
-export const HARNESS_API_PATH = "/nylorun/harness/v1";
-export const HARNESS_API_HEADER = "nylorun-harness-api";
-
-/** Largest frame either end accepts. */
-export const HARNESS_MAX_PAYLOAD = 64 * 1024 * 1024;
+export {
+  HARNESS_API_HEADER,
+  HARNESS_API_PATH,
+  HARNESS_API_TRANSPORT,
+  HARNESS_MAX_PAYLOAD,
+} from "@nylorun/core/harness-api";
 
 export const DEFAULT_PING_MS = 30_000;
 export const DEFAULT_SILENCE_MS = 90_000;

@@ -15,6 +15,7 @@
 import {
   HarnessApiError,
   effectRequestHash,
+  isEffectIdOf,
   type EffectIntent,
   type IntentAnswer,
   type OutcomeAnswer,
@@ -92,10 +93,9 @@ export async function bulkOutcomes(
   session: Pick<Session, "id">,
   checkpoint: { turnId: string; segment: number }
 ): Promise<RecordedOutcome[]> {
-  const prefix = `${checkpoint.turnId}:${checkpoint.segment}:`;
   const rows = await t.effectsForTurn<StoredEffect>(session.id, checkpoint.turnId, ["completed"]);
   return rows
-    .filter((row) => row.request.effectId.startsWith(prefix) && row.outcome)
+    .filter((row) => isEffectIdOf(row.request.effectId, checkpoint.turnId, checkpoint.segment) && row.outcome)
     .map((row) => ({ effectId: row.request.effectId, requestHash: hashOf(row), outcome: row.outcome! }));
 }
 

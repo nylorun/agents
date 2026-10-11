@@ -34,7 +34,7 @@ function attach(runtime: Started): HarnessChannel {
   return channels.harness;
 }
 
-const hello = { api: 1, name: "test", version: "0", capabilities: {} };
+const hello = { api: 2, name: "test", version: "0", capabilities: {} };
 
 it("binds a run to its connection, and offers it again when that connection is lost", async () => {
   const runtime = await boot({ harness: "remote", ownerLeaseMs: 300 });
@@ -115,4 +115,14 @@ it("takes over from a lost harness: the call it was running is uncertain, never 
   expect(effects.map((effect) => effect.status)).toEqual(["uncertain"]);
   expect(session.owner).toBeNull();
   expect((await types(runtime)).filter((type) => type === "effect.uncertain")).toHaveLength(1);
+});
+
+it("refuses a hello whose api is not this Runtime's Harness API version", async () => {
+  const runtime = await boot({ harness: "remote" });
+  cleanups.push(() => runtime.close());
+  const channel = attach(runtime);
+  await expect(channel.request("hello", { ...hello, api: 1 })).rejects.toMatchObject({
+    code: "invalid",
+    message: expect.stringContaining("unsupported Harness API version 1"),
+  });
 });

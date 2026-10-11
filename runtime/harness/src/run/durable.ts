@@ -1,4 +1,5 @@
 import { HarnessError } from "@nylorun/core/define";
+import { effectIdOf } from "@nylorun/core/harness-api";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { ExecutionInput, ExecutionState, RunResult } from "../types/execution.js";
 import type { JsonObject, JsonValue } from "@nylorun/core/define";
@@ -160,7 +161,7 @@ export async function runDurable(options: {
     identity: string,
     target: Pick<HostEffect, "capabilityId" | "toolName" | "agent"> = {},
   ): Promise<EffectOutcome> => {
-    const effectId = `${checkpoint.turnId}:${checkpoint.segment}:${kind}:${identity}`;
+    const effectId = effectIdOf(checkpoint.turnId, checkpoint.segment, kind, identity);
     const request: HostEffect = JSON.parse(
       JSON.stringify({
         effectId,

@@ -49,17 +49,18 @@ export interface ToolRouting {
 /**
  * Call the model for one effect. A provider failure comes back as a failure outcome
  * (Model Calls §6), whichever provider serves the call; only an abort throws, and the
- * advance decides what the abort means.
+ * advance decides what the abort means. `atGate` sends the call to the Model Gate even when the
+ * Tenant's model is not from the vault: the Tenant's fixture model is answered there (R4.3).
  */
 export async function invokeModel(
   route: ModelRoute,
   request: HostEffect,
   signal: AbortSignal,
-  model?: ModelProvider
+  options: { readonly atGate?: boolean } = {}
 ): Promise<unknown> {
+  const atGate = route.useVaultModel || options.atGate === true;
   try {
-    if (model) return await model(request, signal);
-    if (!route.useVaultModel) return await route.modelProvider(request, signal);
+    if (!atGate) return await route.modelProvider(request, signal);
     return await route.modelGate.call(
       {
         tenantId: route.tenantId,
@@ -76,7 +77,7 @@ export async function invokeModel(
     if (signal.aborted) {
       // A call that outlives this process stops only when told to: on a user cancel. After a
       // shutdown or a lost lease the next owner re-sends it and picks up its outcome (P1.2).
-      if (!model && route.useVaultModel && runAbortKind(signal) === "cancel" && route.modelGate.cancel)
+      if (atGate && runAbortKind(signal) === "cancel" && route.modelGate.cancel)
         await route.modelGate.cancel({
           tenantId: route.tenantId,
           sessionId: request.sessionId,
