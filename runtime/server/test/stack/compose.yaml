@@ -8,6 +8,11 @@
 # The BlobStore suite runs against its RustFS when NYLORUN_TEST_S3_ENDPOINT is set
 # (http://127.0.0.1:59000 by default; CI's integration job sets it).
 #
+# The R7 exit test's stock OpenTelemetry Collector is in the `traces` profile, so the other jobs
+# do not start it: `NYLORUN_TEST_PROFILES=traces npm run test:stack:up -w @nylorun/runtime`. It
+# writes what it receives to NYLORUN_TEST_OTEL_DIR (default /tmp/nylorun-test-otel), which
+# `up.mjs` creates writable for it.
+#
 # Throwaway state: no volumes, and s2-lite keeps streams in memory. Every
 # service publishes on loopback only. Ports can be overridden with the
 # NYLORUN_TEST_*_PORT variables, which the integration tests read too.
@@ -73,3 +78,14 @@ services:
       retries: 60
     tmpfs:
       - /data:uid=10001,gid=10001,mode=0700 # the image runs as rustfs (10001)
+
+  otel-collector: # the R7 exit test's stock collector (profile `traces`), file exporter
+    image: otel/opentelemetry-collector:0.161.0
+    profiles: [traces]
+    command: ["--config=/etc/otelcol/nylorun.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/nylorun.yaml:ro
+      - ${NYLORUN_TEST_OTEL_DIR:-/tmp/nylorun-test-otel}:/out
+    ports:
+      - "127.0.0.1:${NYLORUN_TEST_OTEL_PORT:-54318}:4318" # OTLP/HTTP
+      - "127.0.0.1:${NYLORUN_TEST_OTEL_HEALTH_PORT:-54133}:13133" # health

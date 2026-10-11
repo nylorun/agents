@@ -4,7 +4,11 @@
 //
 //   node test/stack/up.mjs        # npm run test:stack:up
 //   node test/stack/up.mjs down   # npm run test:stack:down
+//
+// NYLORUN_TEST_PROFILES (comma-separated) adds Compose profiles: `traces` starts the R7 exit
+// test's OpenTelemetry Collector, writing to NYLORUN_TEST_OTEL_DIR.
 import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync } from "node:fs";
 import { connect } from "node:net";
 import { fileURLToPath } from "node:url";
 
@@ -16,10 +20,17 @@ const endpoints = {
   restateAdmin: `http://127.0.0.1:${port("NYLORUN_TEST_RESTATE_ADMIN_PORT", 59070)}`,
   s2: `http://127.0.0.1:${port("NYLORUN_TEST_S2_PORT", 58090)}`,
   s3: `http://127.0.0.1:${port("NYLORUN_TEST_S3_PORT", 59000)}`,
+  otelHealth: `http://127.0.0.1:${port("NYLORUN_TEST_OTEL_HEALTH_PORT", 54133)}`,
 };
+const profiles = (process.env.NYLORUN_TEST_PROFILES ?? "")
+  .split(",")
+  .map((profile) => profile.trim())
+  .filter(Boolean);
+const otelDir = process.env.NYLORUN_TEST_OTEL_DIR ?? "/tmp/nylorun-test-otel";
 
 function docker(args) {
-  const result = spawnSync("docker", ["compose", "-f", compose, ...args], {
+  const profileArgs = profiles.flatMap((profile) => ["--profile", profile]);
+  const result = spawnSync("docker", ["compose", "-f", compose, ...profileArgs, ...args], {
     stdio: "inherit",
   });
   if (result.error) throw result.error;
@@ -63,6 +74,7 @@ async function waitReady(timeoutMs = 120_000) {
     "restate ingress": () => httpOk(`${endpoints.restateIngress}/restate/health`),
     s2: () => httpOk(`${endpoints.s2}/health`),
     rustfs: () => httpOk(`${endpoints.s3}/health`),
+    ...(profiles.includes("traces") ? { "otel collector": () => httpOk(endpoints.otelHealth) } : {}),
   };
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -80,13 +92,19 @@ async function waitReady(timeoutMs = 120_000) {
 try {
   const command = process.argv[2] ?? "up";
   if (command === "up") {
+    // The collector runs as its own user: its output directory must be writable for it.
+    if (profiles.includes("traces")) {
+      mkdirSync(otelDir, { recursive: true });
+      chmodSync(otelDir, 0o777);
+    }
     docker(["up", "--detach", "--wait", "--wait-timeout", "120"]);
     await waitReady();
     console.log(
       `Test stack ready: postgres 127.0.0.1:${endpoints.postgres}, restate ${endpoints.restateIngress} (admin ${endpoints.restateAdmin}), s2 ${endpoints.s2}, rustfs ${endpoints.s3}`,
     );
   } else if (command === "down") {
-    docker(["down", "--volumes", "--remove-orphans"]);
+    // Every profile's services, started or not.
+    docker(["--profile", "traces", "down", "--volumes", "--remove-orphans"]);
   } else {
     throw new Error("Usage: up.mjs [up|down]");
   }

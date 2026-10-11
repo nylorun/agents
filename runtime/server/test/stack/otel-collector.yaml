@@ -1,0 +1,20 @@
+# The stock OpenTelemetry Collector of the R7 exit test (`r7-exit.integration.test.ts`): OTLP/HTTP
+# in, every batch appended as one OTLP JSON line to /out/traces.jsonl (the file exporter).
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+exporters:
+  file:
+    path: /out/traces.jsonl
+    flush_interval: 100ms
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [file]
