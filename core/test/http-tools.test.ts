@@ -97,7 +97,7 @@ describe("the manifest's HTTP tools", () => {
     ).not.toEqual([]);
   });
 
-  it("rebuilds an HTTP tool from its manifest without an implementation, keeping the hash", () => {
+  it("rebuilds an HTTP tool from its manifest without an implementation, keeping the hash, a pinned approval included", () => {
     const json = manifest({
       outputSchema: { type: "object", properties: { ok: { type: "boolean" } } },
       http: { url: "https://billing.example.com/refunds", credential: "billing" },
@@ -108,7 +108,8 @@ describe("the manifest's HTTP tools", () => {
     expect(hashManifest(restored.manifest)).toBe(hashManifest(json));
     const tool = restored.getBinding().tools[0]!;
     expect(httpToolOf(tool)).toEqual({ http: json.capabilities[0]!.tools[0]!.http, approval: "always" });
-    expect(tool.approval?.({} as never)).toBe(true);
+    // The Tool Gate holds such a call (R5 step 2): the tool itself never asks.
+    expect(tool.approval).toBeUndefined();
   });
 });
 
@@ -118,9 +119,10 @@ describe("http()", () => {
     expect(() =>
       http({ name: "refund", input: z.object({}), url: "https://example.com/x", timeoutMs: 1_000_000 }),
     ).toThrow(/timeoutMs/);
+    // Tool approvals are the Tenant's tool policy (R5 step 2).
     expect(() =>
-      http({ name: "refund", input: z.object({}), url: "https://example.com/x", approval: "sometimes" as never }),
-    ).toThrow(/approval/);
+      http({ name: "refund", input: z.object({}), url: "https://example.com/x", approval: "always" } as never),
+    ).toThrow(/approval was removed/);
   });
 
   it("has no implementation in this process", async () => {

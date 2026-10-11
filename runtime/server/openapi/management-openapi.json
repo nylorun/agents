@@ -24,7 +24,8 @@
         "credential-coverage",
         "tool-calls",
         "environment-setup",
-        "environment-disk-versions"
+        "environment-disk-versions",
+        "tool-policy"
       ]
     },
     "description": "For operators: the Tenant's models, vaults, signing keys, settings and application keys, at `/v1/tenant/*` on the Tenant's URL, through `@nylorun/admin`. Every operation takes a management key, acting as itself: never for a subject and never from a browser. Management keys are issued only on the Tenant's machine (`nylorun key put <id> --management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`."
@@ -166,6 +167,48 @@
           "protocol"
         ],
         "additionalProperties": false
+      },
+      "JsonValue": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          },
+          {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ]
       },
       "TenantArtifactsView": {
         "type": "object",
@@ -1405,6 +1448,202 @@
         },
         "required": [
           "budgets"
+        ],
+        "additionalProperties": false
+      },
+      "ToolPolicy": {
+        "type": "object",
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "effect": {
+                  "type": "string",
+                  "enum": [
+                    "allow",
+                    "ask",
+                    "deny"
+                  ]
+                },
+                "tool": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "server": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "mcp",
+                    "http"
+                  ]
+                },
+                "agent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "when": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "equals": {
+                        "$ref": "#/components/schemas/JsonValue"
+                      },
+                      "in": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/JsonValue"
+                        },
+                        "minItems": 1
+                      },
+                      "gt": {
+                        "type": "number"
+                      },
+                      "gte": {
+                        "type": "number"
+                      },
+                      "lt": {
+                        "type": "number"
+                      },
+                      "lte": {
+                        "type": "number"
+                      },
+                      "matches": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                }
+              },
+              "required": [
+                "effect"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "rules",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "PutToolPolicyRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "effect": {
+                  "type": "string",
+                  "enum": [
+                    "allow",
+                    "ask",
+                    "deny"
+                  ]
+                },
+                "tool": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "server": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "mcp",
+                    "http"
+                  ]
+                },
+                "agent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "when": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "equals": {
+                        "$ref": "#/components/schemas/JsonValue"
+                      },
+                      "in": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/JsonValue"
+                        },
+                        "minItems": 1
+                      },
+                      "gt": {
+                        "type": "number"
+                      },
+                      "gte": {
+                        "type": "number"
+                      },
+                      "lt": {
+                        "type": "number"
+                      },
+                      "lte": {
+                        "type": "number"
+                      },
+                      "matches": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                }
+              },
+              "required": [
+                "effect"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "rules"
         ],
         "additionalProperties": false
       },
@@ -4260,6 +4499,217 @@
         }
       }
     },
+    "/v1/tenant/tool-policy": {
+      "get": {
+        "tags": [
+          "Tool policy"
+        ],
+        "summary": "Get the Tenant's tool policy",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rules the Tool Gate applies to every MCP and HTTP tool call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tool policy"
+        ],
+        "summary": "Set the Tenant's tool policy",
+        "description": "Replaces every rule. The Tool Gate applies them to each MCP and HTTP tool call of every harness, before it sends the call: the strictest rule that matches decides. `deny` refuses the call (the model gets `tool.denied`), `ask` holds it and pauses the turn until a person answers it with an `approve` command on the session, `allow` runs it. A call no rule matches runs. A rule matches when every selector it sets matches: `tool` (the name the model calls it by; `*` matches any run of characters), `server` (an MCP server's name), `kind` (`mcp` or `http`), `agent` (the agent that calls it) and `when` (fields of the call's input by dotted path, each tested with `equals`, `in`, `gt`, `gte`, `lt`, `lte` or `matches`). Sandbox tools never cross the gate. An empty list allows every call.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `11`"
+            },
+            "required": true,
+            "description": "The protocol version, `11`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutToolPolicyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The policy now in force",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tenant/credential-coverage": {
       "post": {
         "tags": [
@@ -5278,6 +5728,10 @@
     {
       "name": "Models",
       "description": "Model providers, their credentials, the model the Tenant uses, what it spent, every model call for export, and the budgets that cap it. `admin.models`."
+    },
+    {
+      "name": "Tool policy",
+      "description": "The rules the Tool Gate applies to every MCP and HTTP tool call of every harness: refuse it, hold it for a person's approval, or run it. `admin.toolPolicy`."
     },
     {
       "name": "Credential coverage",

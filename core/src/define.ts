@@ -68,6 +68,7 @@ export {
   type DeferredServerNote,
 } from "./definition/tools-capability.js";
 export { codeToolRefusal, codeToolsOf } from "./definition/code-tools.js";
+export { approvalRefusal, approvalsOf } from "./definition/approval.js";
 export type { CodeTool } from "./definition/code-tools.js";
 export { CapabilityBuilder, isCapabilityBuilder } from "./definition/capability.js";
 export type { CapabilityIdentity, CapabilityOptions } from "./definition/capability.js";

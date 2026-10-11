@@ -211,6 +211,14 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
+  "GET /v1/tenant/tool-policy": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "PUT /v1/tenant/tool-policy": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
   "GET /v1/tenant/model": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"

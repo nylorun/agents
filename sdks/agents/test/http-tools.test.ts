@@ -1,7 +1,7 @@
 /**
  * R2 M3: `http()` declares a tool the Runtime runs as an HTTP request. It projects into the
- * manifest with `http` (and `approval`), and has no implementation. R2 M6: `saveAgent` refuses
- * a tool that would run your code.
+ * manifest with `http`, and has no implementation. R2 M6: `saveAgent` refuses a tool that would
+ * run your code. R5 step 2: approval is the Tenant's tool policy, not the tool's.
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -19,11 +19,10 @@ const refund = http({
   method: "PUT",
   credential: "billing",
   timeoutMs: 20_000,
-  approval: "always",
 });
 
 describe("http()", () => {
-  it("projects into the agent's manifest with its target and approval, and no implementation", () => {
+  it("projects into the agent's manifest with its target, and no implementation", () => {
     const agent = Agent({ id: "orders", name: "Orders" }).tools(refund).build();
     const tools = agent.manifest.capabilities.flatMap((item) => item.tools ?? []);
     expect(tools).toEqual([
@@ -38,7 +37,6 @@ describe("http()", () => {
           credential: "billing",
           timeoutMs: 20_000,
         },
-        approval: "always",
       },
     ]);
     expect(AgentManifestSchema.safeParse(agent.manifest).success).toBe(true);

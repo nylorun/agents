@@ -13,6 +13,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { HttpAgent } from "@ag-ui/client";
 import { createClient } from "@nylorun/agents";
+import { createManagementClient } from "@nylorun/admin";
 import { startEphemeralRuntime, type EphemeralRuntime } from "@nylorun/runtime";
 import { createSupportApp } from "../src/ag-ui/app.js";
 import { testDatabase } from "./database.js";
@@ -37,7 +38,8 @@ beforeAll(async () => {
     url: runtime.url,
     key: runtime.applicationKey,
   });
-  const app = createSupportApp({ client });
+  const admin = createManagementClient({ url: runtime.url, key: runtime.managementKey });
+  const app = createSupportApp({ client, admin });
   server = createServer(app.listener);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

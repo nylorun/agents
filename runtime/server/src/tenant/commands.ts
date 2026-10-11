@@ -35,6 +35,7 @@ import {
 } from "../core/flow-host.js";
 import { resolveMessageManifest } from "../core/turn-manifest.js";
 import { canonical } from "../store/canonical.js";
+import type { Tx } from "../store/types.js";
 import {
   lockedSession,
   type AuthScope,
@@ -42,7 +43,7 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
-import { settleToolRow } from "../harness-api/tool-journal.js";
+import { settleToolRow, type ToolRow } from "../harness-api/tool-journal.js";
 import { accessOf } from "./auth.js";
 import { checkEnvironmentTurn } from "./environments.js";
 import { rebaseSessionState, turnManifestOf, variantStore } from "./session.js";
@@ -83,6 +84,8 @@ export async function command(
       return existing.response;
     }
     let event: LiveEvent;
+    // A tool call the Tool Gate held, which this `approve` answers (R5 step 2).
+    let held: ToolRow | undefined;
     // The turn a `cancel` ended, if one was active.
     let cancelledTurnId: string | null = null;
     if (command.type === "cancel") {
@@ -106,7 +109,7 @@ export async function command(
         for (const effect of await t.effectsForTurn<any>(
           id,
           cancelledTurnId,
-          ["invoking"]
+          ["invoking", "held"]
         )) {
           // A tool call ends `cancelled` with its `tool.completed` (R5.1); it may have run.
           if (effect.request.kind === "tool") {
@@ -217,6 +220,24 @@ export async function command(
             });
           }
         }
+      } else if (
+        command.type === "approve" &&
+        (held = await heldCall(t, s, command.interactionId)) !== undefined
+      ) {
+        // A tool call the Tool Gate held for approval (R5 step 2). Approved: the replay sends it
+        // again and the gate runs it. Denied: it fails to the model as `tool.denied`, unsent.
+        if (s.status !== "paused") fail(409, "Session is not awaiting a response");
+        if (command.approved) {
+          held.status = "invoking";
+          const by = principalOf(scope);
+          held.approval = { approved: true, at: new Date().toISOString(), ...(by ? { by } : {}) };
+          await t.put("effects", held.request.effectId, held);
+        } else
+          await settleToolRow(t, s, held, {
+            kind: "failed",
+            code: "tool.denied",
+            message: "A person denied this call; it was not sent.",
+          });
       } else if (isWorkflowManifest(s.manifest)) {
         // Approvals owned by linked agent sessions must be answered there (WF-R52).
         const conflict = await foreignInteractionConflict({
@@ -278,9 +299,10 @@ export async function command(
       }
       s.status = "runnable";
       s.waits = undefined;
-      // A flow answers each interaction in the same segment: the interaction names the cause.
+      // A flow answers each interaction in the same segment, as a held tool call's approval is
+      // answered (R5 step 2): the interaction names the cause.
       const cause =
-        command.type !== "message" && isWorkflowManifest(s.manifest)
+        command.type !== "message" && (isWorkflowManifest(s.manifest) || held !== undefined)
           ? command.interactionId
           : s.checkpoint!.segment;
       const commandWake = {
@@ -335,4 +357,19 @@ export async function command(
     }
   }
   return response;
+}
+
+/** The held tool call of the session's active turn that `interactionId` names (R5 step 2). */
+async function heldCall(t: Tx, s: Session, interactionId: string): Promise<ToolRow | undefined> {
+  const row = await t.get<ToolRow>("effects", interactionId);
+  if (row?.status !== "held") return undefined;
+  if (row.request.sessionId !== s.id || row.request.turnId !== s.activeTurnId) return undefined;
+  return row;
+}
+
+/** Who answered: the principal (its subject, when it acts for one), or the token's subject. */
+function principalOf(scope: AuthScope): string | undefined {
+  if (scope.kind === "token") return `${scope.issuer}:${scope.subject}`;
+  if (scope.kind === "subject") return `${scope.principalId}:${scope.subject}`;
+  return "principalId" in scope ? scope.principalId : undefined;
 }

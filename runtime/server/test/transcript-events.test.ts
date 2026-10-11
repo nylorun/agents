@@ -12,6 +12,7 @@ import {
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 import { startToolServer } from "./support/tool-server.js";
+import { setToolPolicy } from "./support/tool-policy.js";
 
 const APP = "transcript-events-app-token-aaaa";
 
@@ -169,12 +170,12 @@ it("pauses for approval on an HTTP tool with an output schema, with the call id 
       service.tool("save", {
         input: z.object({ note: z.string() }),
         output: z.object({ saved: z.literal(true) }),
-        approval: "always",
       })
     )
     .build();
   try {
     await client.saveAgent(agent, { implementationVersion: "dev" });
+    await setToolPolicy(runtime, [{ effect: "ask", tool: "save" }]);
     const session = await client.createSession({
       id: "s1",
       agentId: "notes",

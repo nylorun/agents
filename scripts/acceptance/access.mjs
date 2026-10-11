@@ -49,7 +49,7 @@ function pass(id, message) {
 
 /**
  * The fixture model calls `lookup_order` on a turn's first step, then answers. The tool is an
- * HTTP tool of `service`, which waits for approval on every call.
+ * HTTP tool of `service`; the Tenant's tool policy (`DESK_APPROVAL`) holds every call for approval.
  */
 function deskAgent(service) {
   return Agent({ id: "desk", name: "Desk" })
@@ -57,10 +57,23 @@ function deskAgent(service) {
       service.tool("lookup_order", {
         input: z.object({ orderId: z.string() }),
         output: z.object({ status: z.string() }),
-        approval: "always",
       }),
     )
     .build();
+}
+
+/** The Tenant's tool policy rule that holds each of the desk's lookups for a person (R5 step 2). */
+const DESK_APPROVAL = { effect: "ask", tool: "lookup_order", agent: "desk" };
+
+/** Replaces the Tenant's tool policy, with the management key. */
+async function setToolPolicy(runtime, managementKey, rules) {
+  const response = await fetch(`${runtime}/v1/tenant/tool-policy`, {
+    method: "PUT",
+    headers: runtimeHeaders(managementKey, { "content-type": "application/json" }),
+    body: JSON.stringify({ rules }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  assert.ok(response.ok, `setting the tool policy: ${response.status} ${await response.text()}`);
 }
 
 async function session(runtime, tenant, id, as) {
@@ -354,6 +367,7 @@ try {
       const service = await startToolService({ lookup_order: () => ({ status: "shipped" }) });
       try {
         await app.saveAgent(deskAgent(service));
+        await setToolPolicy(runtime, tenant.managementKey, [DESK_APPROVAL]);
         const people = await a1(runtime, tenant, app);
 
         // A2: every subject streams its own session while all three turns run.

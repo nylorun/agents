@@ -10,6 +10,7 @@ import type { ModelProvider } from "../src/core/provider.js";
 import { sessionIdFor } from "../src/api/ag-ui/session-id.js";
 import { startTestTenant } from "./support/tenant.js";
 import { startToolServer, type ToolServer } from "./support/tool-server.js";
+import { setToolPolicy } from "./support/tool-policy.js";
 
 /**
  * Phase 0 and Phase 1 exit gates: an AG-UI client drives the handler against a Runtime,
@@ -91,7 +92,6 @@ function agents(service: ToolServer) {
       service.tool("save", {
         input: z.object({ note: z.string() }),
         output: z.object({ saved: z.literal(true) }),
-        approval: "always",
       })
     )
     .build();
@@ -132,6 +132,8 @@ beforeAll(async () => {
   });
   const built = agents(service);
   for (const agent of built) await client.saveAgent(agent, { implementationVersion: "dev" });
+  // The guarded agent's save waits for a person (R5 step 2).
+  await setToolPolicy(runtime, [{ effect: "ask", tool: "save", agent: "guarded" }]);
   const handler = createAgUiHandler({
     basePath: "/api/agui",
     agents: built,

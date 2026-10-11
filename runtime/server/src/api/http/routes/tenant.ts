@@ -12,6 +12,7 @@ import { z } from "zod";
 import {
   ModelUsageQuerySchema,
   PutModelBudgetsRequestSchema,
+  PutToolPolicyRequestSchema,
   type ModelBudget,
   PutHostModelRequestSchema,
   PutTenantEnvironmentsRequestSchema,
@@ -26,6 +27,8 @@ import {
   ModelBudgets,
   ModelUsageTotals,
   PutModelBudgetsRequest,
+  PutToolPolicyRequest,
+  ToolPolicy,
   PutHostModelRequest,
   PutTenantEnvironmentsRequest,
   ResetTenantRequest,
@@ -37,6 +40,7 @@ import {
   TenantStatus,
 } from "../../components.js";
 import { periodStart } from "../../../gates/meter.js";
+import { readToolPolicy, TOOL_POLICY_SETTING } from "../../../gates/policy.js";
 import { hostModelCatalog } from "../../../model/catalog.js";
 import { sandboxConfigErrors } from "../../../sandbox/resolve.js";
 import {
@@ -348,6 +352,40 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
         return t.listModelBudgets();
       });
       return jsonResponse(200, { budgets: rows.map(budgetView) });
+    },
+  );
+
+  tenantRoute(
+    api,
+    MANAGEMENT,
+    {
+      method: "get",
+      path: "/v1/tenant/tool-policy",
+      tags: ["Tenant"],
+      summary: "Get the Tenant's tool policy",
+      responses: { 200: json(ToolPolicy, "The rules the Tool Gate applies to every MCP and HTTP tool call") },
+    },
+    async (c) => jsonResponse(200, await c.env.tenant.store.tx((t) => readToolPolicy(t))),
+  );
+
+  tenantRoute(
+    api,
+    MANAGEMENT,
+    {
+      method: "put",
+      path: "/v1/tenant/tool-policy",
+      tags: ["Tenant"],
+      summary: "Set the Tenant's tool policy",
+      description:
+        "Replaces every rule. The Tool Gate applies them to each MCP and HTTP tool call of every harness, before it sends the call: the strictest rule that matches decides. `deny` refuses the call (the model gets `tool.denied`), `ask` holds it and pauses the turn until a person answers it with an `approve` command on the session, `allow` runs it. A call no rule matches runs. A rule matches when every selector it sets matches: `tool` (the name the model calls it by; `*` matches any run of characters), `server` (an MCP server's name), `kind` (`mcp` or `http`), `agent` (the agent that calls it) and `when` (fields of the call's input by dotted path, each tested with `equals`, `in`, `gt`, `gte`, `lt`, `lte` or `matches`). Sandbox tools never cross the gate. An empty list allows every call.",
+      request: { body: body(PutToolPolicyRequest) },
+      responses: { 200: json(ToolPolicy, "The policy now in force") },
+    },
+    async (c) => {
+      const { rules } = PutToolPolicyRequestSchema.parse(await readJson(c.req.raw));
+      const policy = { rules, updatedAt: new Date().toISOString() };
+      await c.env.tenant.store.tx((t) => t.putSetting(TOOL_POLICY_SETTING, JSON.stringify(policy)));
+      return jsonResponse(200, policy);
     },
   );
 

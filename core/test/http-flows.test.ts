@@ -125,11 +125,10 @@ describe("an HTTP stage", () => {
     expect(codesOf(() => Agent({ id: "d" }).pipe(refund).build())).toEqual([]);
   });
 
-  it("refuses approval for now", () => {
-    const approved = http({ name: "approved", input: z.object({}), url: "https://example.com/x", approval: "always" });
-    expect(codesOf(() => Agent({ id: "d" }).pipe(approved).build())).toEqual([
-      "flow.approval-unsupported: HTTP stage 'approved': approval on a flow stage is not supported yet",
-    ]);
+  it("refuses approval on a stage: tool approvals are the Tenant's tool policy (R5 step 2)", () => {
+    expect(() =>
+      http({ name: "approved", input: z.object({}), url: "https://example.com/x", approval: "always" } as never)
+    ).toThrow(/approval was removed/);
     expect(
       issues({
         kind: "workflow",

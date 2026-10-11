@@ -139,7 +139,7 @@ function serverOf(manifest: AgentManifest, tool: McpToolRecord): McpServerManife
 }
 
 /** The tool's settings in `manifest` (R2b C9); the defaults when its server is not there. */
-function settingsOf(manifest: AgentManifest, tool: McpToolRecord): ResolvedMcpToolSettings {
+export function mcpToolSettingsIn(manifest: AgentManifest, tool: McpToolRecord): ResolvedMcpToolSettings {
   const server = serverOf(manifest, tool);
   return server ? mcpToolSettings(server, tool.serverToolName) : { enabled: true, approval: "never" };
 }
@@ -154,8 +154,8 @@ function reachesDeferred(manifest: AgentManifest, agentId: string | undefined): 
  * The tools of a snapshot, as the engine gets them for a turn whose manifest is `manifest` (the
  * session's pin, or a turn variant that tightened its MCP servers' tools):
  *
- * - a tool its settings disable is left out (R2b C9); one whose approval resolves to `always`
- *   waits for approval on each call;
+ * - a tool its settings disable is left out (R2b C9); the Tool Gate holds a call its approval
+ *   or the Tenant's tool policy asks a person about (R5 step 2);
  * - a deferred tool (R2b C10) is marked so, out of the model's list, and its agent gets
  *   `tool_search`, with the note on the servers it holds deferred tools of, and `tool_call` in
  *   its `nylorun.tools` capability. An agent whose turn has no such capability keeps its tools in
@@ -172,7 +172,7 @@ export function sessionToolsOf(
   const deferred = new Map<string | undefined, DurableSessionTool[]>();
   const notes = new Map<string | undefined, Map<string, number>>();
   for (const tool of snapshot.mcpTools) {
-    const settings = settingsOf(manifest, tool);
+    const settings = mcpToolSettingsIn(manifest, tool);
     if (!settings.enabled) continue;
     const defer = tool.deferred === true && reachesDeferred(manifest, tool.agentId);
     const entry: DurableSessionTool = {
@@ -182,7 +182,6 @@ export function sessionToolsOf(
       ...(tool.description === undefined ? {} : { description: tool.description }),
       inputSchema: tool.inputSchema,
       ...(tool.outputSchema === undefined ? {} : { outputSchema: tool.outputSchema }),
-      ...(settings.approval === "always" ? { approval: "always" as const } : {}),
       ...(defer ? { deferred: true } : {}),
     };
     if (!defer) {
@@ -237,7 +236,7 @@ export function pinDeferral(
 ): McpSnapshot {
   const limit = contextWindow * CHARS_PER_TOKEN * DEFER_CONTEXT_SHARE;
   const listed = new Map<string | undefined, number>();
-  const set = snapshot.mcpTools.map((tool) => settingsOf(manifest, tool).deferred);
+  const set = snapshot.mcpTools.map((tool) => mcpToolSettingsIn(manifest, tool).deferred);
   snapshot.mcpTools.forEach((tool, i) => {
     if (set[i] === true) return;
     const size = JSON.stringify({ name: tool.name, description: tool.description ?? "", inputSchema: tool.inputSchema }).length;
@@ -273,7 +272,7 @@ export function mcpToolOf(
 
 /** True when the tool's settings in `manifest` leave it enabled (R2b C9). */
 export function isEnabledIn(manifest: AgentManifest, tool: McpToolRecord): boolean {
-  return settingsOf(manifest, tool).enabled;
+  return mcpToolSettingsIn(manifest, tool).enabled;
 }
 
 /** The manifest of the agent an effect belongs to: the root, or an agent it uses as a tool. */

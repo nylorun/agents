@@ -3,11 +3,13 @@ import { z } from "zod";
 import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
 import { startTestTenant } from "./support/tenant.js";
 import { startToolServer, type ToolServer } from "./support/tool-server.js";
+import { setToolPolicy } from "./support/tool-policy.js";
 
 /**
- * An approval-gated HTTP tool (`approval: "always"`) with an output schema pauses for the
- * approval instead of failing as `tool.invalid-output`; approving makes the call and checks
- * its answer against the schema, and denying reports `denied` without calling the service.
+ * An HTTP tool with an output schema that the Tenant's tool policy asks about (R5 step 2)
+ * pauses for the approval instead of failing as `tool.invalid-output`; approving makes the call
+ * and checks its answer against the schema, and denying fails it as `tool.denied` without
+ * calling the service.
  */
 
 const APP = "tool-approval-output-app-token-aaa";
@@ -32,7 +34,6 @@ beforeAll(async () => {
         description: "Look up an order.",
         input: z.object({ orderId: z.string() }),
         output: z.object({ orderId: z.string(), status: z.string() }),
-        approval: "always",
       })
     )
     .build();
@@ -64,6 +65,7 @@ beforeAll(async () => {
     tenant: runtime.tenantId,
   });
   await client.saveAgent(agent, { implementationVersion: "v1" });
+  await setToolPolicy(runtime, [{ effect: "ask", tool: "lookup_order" }]);
 });
 
 afterAll(async () => {
@@ -119,7 +121,7 @@ it("pauses an approval-gated tool with an output schema, then completes it on ap
   await session.input("look up A-1", { idempotencyKey: "msg-approve" });
   const wait = await pausedWait(session);
   expect(wait).toMatchObject({
-    interaction: { kind: "approval", prompt: "Approve lookup_order?" },
+    interaction: { kind: "approval", prompt: expect.stringContaining("Approve lookup_order?") },
   });
   const before = await session.history();
   expect(before.items.some((item) => item.type === "turn.paused")).toBe(true);
@@ -142,7 +144,7 @@ it("pauses an approval-gated tool with an output schema, then completes it on ap
   expect(after.items.some((item) => item.type === "turn.completed")).toBe(true);
 });
 
-it("reports a denied approval to the model as denied, not as an invalid output", async () => {
+it("reports a denied approval to the model as tool.denied, not as an invalid output", async () => {
   const session = await client.createSession({
     id: "deny",
     agentId: "orders",
@@ -156,16 +158,13 @@ it("reports a denied approval to the model as denied, not as an invalid output",
     idempotencyKey: "deny-1",
   });
   await settled(session);
-  // The harness settles a rejected approval gate itself; the service is never called.
+  // Core settles a denied call itself; the service is never called.
   expect(service.calls.length).toBe(runsBefore);
-  expect(lastToolResult).toMatchObject({
-    kind: "tool-result",
-    toolName: "lookup_order",
-    status: "denied",
-  });
-  expect(await toolResults(session)).not.toContainEqual(
-    expect.objectContaining({ error: expect.anything() })
-  );
+  expect(lastToolResult).toMatchObject({ kind: "tool-result", toolName: "lookup_order" });
+  expect(JSON.stringify(lastToolResult)).toContain("tool.denied");
+  expect(await toolResults(session)).toEqual([
+    expect.objectContaining({ status: "failed", error: expect.objectContaining({ code: "tool.denied" }) }),
+  ]);
   const history = await session.history();
   expect(history.items.some((item) => item.type === "turn.completed")).toBe(
     true

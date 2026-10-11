@@ -94,6 +94,7 @@ it("describes and groups the tags, every operation in one of them, in the order 
     "Tenant",
     "Application keys",
     "Models",
+    "Tool policy",
     "Credential coverage",
     "MCP servers",
     "Signing keys",
