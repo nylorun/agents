@@ -29,6 +29,7 @@ COPY studio/package.json studio/
 COPY cli/nylorun/package.json cli/nylorun/
 COPY cli/legacy/package.json cli/legacy/
 COPY cli/create-agent/package.json cli/create-agent/
+COPY conformance/package.json conformance/
 RUN npm ci --ignore-scripts \
       -w @nylorun/core -w @nylorun/agents -w @nylorun/admin -w @nylorun/studio
 COPY scripts scripts

@@ -1,12 +1,17 @@
 import { join } from "node:path";
 import { root, packages, npm, script, node, packagePath } from "./lib/repo.mjs";
 
+// The harness conformance suite (conformance/) is a private workspace for now: built and
+// tested here, outside the release's package list.
+const CONFORMANCE = "@nylorun/harness-conformance";
 async function build() {
   for (const name of packages) await script("build", name);
+  await npm(["run", "build", "--workspace", CONFORMANCE]);
 }
 async function tests() {
   for (const name of ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli", "create-agent"])
     await script("test", name);
+  await npm(["test", "--workspace", CONFORMANCE]);
   await script("test:tooling");
   await npm(["test"], { cwd: join(root, "examples") });
 }
