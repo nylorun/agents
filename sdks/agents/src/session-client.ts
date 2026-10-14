@@ -572,9 +572,11 @@ export {
   EnvironmentManifestsClient,
   EnvironmentSecretsClient,
   EnvironmentsClient,
+  environmentFiles,
   environmentManifest,
 } from "./environments.js";
 export type {
+  EnvironmentFileBytes,
   EnvironmentInput,
   EnvironmentManifestInput,
   EnvironmentSecretInput,

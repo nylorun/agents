@@ -440,6 +440,19 @@ before they save):
   session opens: an Environment of the wrong kind, none at all, or a vault
   without one of the secrets is `409 environment_unsuitable` with
   `details.missing`. The agent still names no Environment.
+- **Files by hash.** A `files` entry may name files by content hash instead
+  of an artifact version: `{ "path": "/workspace/kit", "files": { "bin/run.sh":
+  "sha256:…" } }` copies each file under `path` before `setup` runs. Upload
+  each one first with `PUT /v1/files/sha256:<hex>` (at most 10 MiB);
+  `environmentFiles(path, contents)` in `@nylorun/agents` hashes them and
+  `manifests.save(manifest, { files: kit.bytes })` uploads what the Runtime
+  lacks. A manifest by hash moves to another installation with its files.
+- **The image, by digest.** The first time a pod of an Environment is ready,
+  the Runtime records the workload image it pulled by digest (the view's
+  `pod.imageDigest`), and every later pod of that Environment, after a stop, a
+  relaunch or a reset, runs that digest: a tag that moves never changes what
+  an Environment runs. A fork pulls the tag afresh. An image loaded onto the
+  node without a registry pins nothing.
 - **Forking onto a new version.** An Environment never changes what it runs,
   so it moves to a new version by a fork: `POST /v1/environments/{id}/fork`
   with `{ "id": "users/alice/analyst-2" }` (`client.environments.fork()`) makes

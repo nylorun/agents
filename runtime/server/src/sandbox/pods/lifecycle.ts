@@ -27,12 +27,26 @@
  *
  * - **Setup** (R2d step 2): a failed setup (`sandbox/setup.ts`) leaves the pod `failed` with a
  *   reason that starts `setup:`, even while the pod is ready, until a turn start asks it to run.
+ * - **Image** (Q14): the first ready pod's workload image is recorded by digest (`imageDigest`),
+ *   and every later apply runs that digest, so a stop, relaunch or reset never pulls another
+ *   image under the same tag. An image id with no repository (a locally loaded image) pins nothing.
  *
  * An unused Environment is deleted by the Tenant sweep (`lifecycle.deleteAfter`), not here.
  */
 import type { EnvironmentEventPayload, EnvironmentEventType } from "@nylorun/core/contracts";
 import type { Environment, SandboxPodPatch, SandboxPodState } from "../../store/types.js";
 import type { PodStatus } from "./client.js";
+
+/**
+ * The pullable reference of the image id a container status names (`repo@sha256:…`), or
+ * undefined for one without a repository, such as an image loaded onto the node.
+ */
+export function imageDigestOf(imageID: string | undefined): string | undefined {
+  const id = imageID?.replace(/^docker-pullable:\/\//, "");
+  if (!id) return undefined;
+  const at = id.indexOf("@sha256:");
+  return at > 0 && /^[0-9a-f]{64}$/.test(id.slice(at + 8)) ? id : undefined;
+}
 
 /** A setup failure's `reason` starts with this (`sandbox/setup.ts`); it is sticky. */
 export const SETUP_FAILED = "setup:";
@@ -215,6 +229,9 @@ export function decide(facts: PodFacts): PodDecision {
         patch.observed = "running";
         patch.reason = null;
       }
+      // The image it runs, pinned by digest from now on (Q14).
+      const digest = pod.imageDigest === undefined ? imageDigestOf(status.imageID) : undefined;
+      if (digest !== undefined) patch.imageDigest = digest;
       return done();
     }
     const startedAt = Date.parse(pod.startedAt ?? row.updatedAt);

@@ -27,7 +27,7 @@ import {
 import { canonical } from "./utils/canonical.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId };
-import { DEFINITION_FILE_MAX_BYTES, skillFilesIssue } from "./utils/definition-files.js";
+import { DEFINITION_FILE_MAX_BYTES, isDefinitionFileHash, skillFilesIssue } from "./utils/definition-files.js";
 export type { AgentManifest } from "./types/manifest.js";
 export type { WorkflowManifest } from "./types/workflow.js";
 export { PROTOCOL_VERSION, ERROR_CODES } from "./compatibility.js";
@@ -732,13 +732,46 @@ export type EnvironmentSetupCommand = z.infer<typeof EnvironmentSetupCommandSche
  * is made or reset, before the setup commands. A file artifact is written at `path`; a folder
  * artifact is unpacked under it.
  */
-export const EnvironmentFileSchema = z
-  .object({
-    artifactId: z.string().refine(isArtifactId, { message: "artifactId must be an artifact id" }),
-    version: z.number().int().positive(),
-    path: absoluteWorkspacePath("path"),
-  })
-  .strict();
+/** The most files one `files` entry by hash names (Q6). */
+export const ENVIRONMENT_FILES_MAX = 1000;
+/** A file's path inside a `files` entry by hash: relative, `/`-separated, without `.` or `..`. */
+const relativeFilePath = z
+  .string()
+  .min(1)
+  .max(1024)
+  .refine(
+    (value) =>
+      !value.startsWith("/") && !value.includes("\0") && value.split("/").every((segment) => segment !== "" && segment !== "." && segment !== ".."),
+    { message: "a file's path is relative, without empty, . or .. segments" },
+  );
+/**
+ * One input file entry (pods only): an artifact version copied to `path` (a file artifact, or a
+ * folder's files under it), or (Q6) files by content hash, each `sha256:<hex>` of a definition
+ * file the Tenant holds (`PUT /v1/files/sha256:<hex>`, at most 10 MiB each), copied under `path`
+ * at its relative path. A manifest by hash moves to another Tenant with its files.
+ */
+export const EnvironmentFileSchema = z.union([
+  z
+    .object({
+      artifactId: z.string().refine(isArtifactId, { message: "artifactId must be an artifact id" }),
+      version: z.number().int().positive(),
+      path: absoluteWorkspacePath("path"),
+    })
+    .strict(),
+  z
+    .object({
+      path: absoluteWorkspacePath("path"),
+      files: z
+        .record(
+          relativeFilePath,
+          z.string().refine(isDefinitionFileHash, { message: "each file is sha256:<64 lowercase hex>" }),
+        )
+        .refine((files) => Object.keys(files).length >= 1 && Object.keys(files).length <= ENVIRONMENT_FILES_MAX, {
+          message: `files names 1 to ${ENVIRONMENT_FILES_MAX} files`,
+        }),
+    })
+    .strict(),
+]);
 export type EnvironmentFile = z.infer<typeof EnvironmentFileSchema>;
 
 /**
@@ -898,6 +931,11 @@ export const EnvironmentPodViewSchema = z
     hostEpoch: z.number().int().nonnegative(),
     /** Why it failed, or was lost. */
     reason: z.string().optional(),
+    /**
+     * The workload image by digest (`repo@sha256:…`), pinned the first time a pod was ready
+     * (Q14): every later pod runs it. Absent before then, or for an image with no repository.
+     */
+    imageDigest: z.string().optional(),
   })
   .strict();
 export type EnvironmentPodView = z.infer<typeof EnvironmentPodViewSchema>;

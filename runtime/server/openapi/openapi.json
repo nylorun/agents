@@ -17033,27 +17033,52 @@
                     "files": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "artifactId": {
-                            "type": "string"
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "artifactId": {
+                                "type": "string"
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 1024
+                              }
+                            },
+                            "required": [
+                              "artifactId",
+                              "version",
+                              "path"
+                            ],
+                            "additionalProperties": false
                           },
-                          "version": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0
-                          },
-                          "path": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 1024
+                          {
+                            "type": "object",
+                            "properties": {
+                              "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 1024
+                              },
+                              "files": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "path",
+                              "files"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "artifactId",
-                          "version",
-                          "path"
-                        ],
-                        "additionalProperties": false
+                        ]
                       }
                     },
                     "secrets": {
@@ -17334,6 +17359,9 @@
                     },
                     "reason": {
                       "type": "string"
+                    },
+                    "imageDigest": {
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -17565,27 +17593,52 @@
               "files": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "artifactId": {
-                      "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "artifactId": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024
+                        }
+                      },
+                      "required": [
+                        "artifactId",
+                        "version",
+                        "path"
+                      ],
+                      "additionalProperties": false
                     },
-                    "version": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0
-                    },
-                    "path": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 1024
+                    {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024
+                        },
+                        "files": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "files"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": [
-                    "artifactId",
-                    "version",
-                    "path"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               },
               "secrets": {
@@ -17866,6 +17919,9 @@
               },
               "reason": {
                 "type": "string"
+              },
+              "imageDigest": {
+                "type": "string"
               }
             },
             "required": [
@@ -18076,27 +18132,52 @@
           "files": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "artifactId": {
-                  "type": "string"
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "artifactId": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    }
+                  },
+                  "required": [
+                    "artifactId",
+                    "version",
+                    "path"
+                  ],
+                  "additionalProperties": false
                 },
-                "version": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0
-                },
-                "path": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 1024
+                {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    "files": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "files"
+                  ],
+                  "additionalProperties": false
                 }
-              },
-              "required": [
-                "artifactId",
-                "version",
-                "path"
-              ],
-              "additionalProperties": false
+              ]
             },
             "maxItems": 16
           },
@@ -18736,27 +18817,52 @@
                       "files": {
                         "type": "array",
                         "items": {
-                          "type": "object",
-                          "properties": {
-                            "artifactId": {
-                              "type": "string"
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "artifactId": {
+                                  "type": "string"
+                                },
+                                "version": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0
+                                },
+                                "path": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 1024
+                                }
+                              },
+                              "required": [
+                                "artifactId",
+                                "version",
+                                "path"
+                              ],
+                              "additionalProperties": false
                             },
-                            "version": {
-                              "type": "integer",
-                              "exclusiveMinimum": 0
-                            },
-                            "path": {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 1024
+                            {
+                              "type": "object",
+                              "properties": {
+                                "path": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 1024
+                                },
+                                "files": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "path",
+                                "files"
+                              ],
+                              "additionalProperties": false
                             }
-                          },
-                          "required": [
-                            "artifactId",
-                            "version",
-                            "path"
-                          ],
-                          "additionalProperties": false
+                          ]
                         }
                       },
                       "secrets": {
@@ -19036,6 +19142,9 @@
                         "minimum": 0
                       },
                       "reason": {
+                        "type": "string"
+                      },
+                      "imageDigest": {
                         "type": "string"
                       }
                     },
@@ -19721,27 +19830,52 @@
                     "files": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "artifactId": {
-                            "type": "string"
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "artifactId": {
+                                "type": "string"
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 1024
+                              }
+                            },
+                            "required": [
+                              "artifactId",
+                              "version",
+                              "path"
+                            ],
+                            "additionalProperties": false
                           },
-                          "version": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0
-                          },
-                          "path": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 1024
+                          {
+                            "type": "object",
+                            "properties": {
+                              "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 1024
+                              },
+                              "files": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "path",
+                              "files"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "artifactId",
-                          "version",
-                          "path"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       "maxItems": 16
                     },
@@ -20073,27 +20207,52 @@
                   "files": {
                     "type": "array",
                     "items": {
-                      "type": "object",
-                      "properties": {
-                        "artifactId": {
-                          "type": "string"
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "artifactId": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "path": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1024
+                            }
+                          },
+                          "required": [
+                            "artifactId",
+                            "version",
+                            "path"
+                          ],
+                          "additionalProperties": false
                         },
-                        "version": {
-                          "type": "integer",
-                          "exclusiveMinimum": 0
-                        },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 1024
+                        {
+                          "type": "object",
+                          "properties": {
+                            "path": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1024
+                            },
+                            "files": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "path",
+                            "files"
+                          ],
+                          "additionalProperties": false
                         }
-                      },
-                      "required": [
-                        "artifactId",
-                        "version",
-                        "path"
-                      ],
-                      "additionalProperties": false
+                      ]
                     },
                     "maxItems": 16
                   },
@@ -20511,27 +20670,52 @@
           "files": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "artifactId": {
-                  "type": "string"
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "artifactId": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    }
+                  },
+                  "required": [
+                    "artifactId",
+                    "version",
+                    "path"
+                  ],
+                  "additionalProperties": false
                 },
-                "version": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0
-                },
-                "path": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 1024
+                {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    "files": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "files"
+                  ],
+                  "additionalProperties": false
                 }
-              },
-              "required": [
-                "artifactId",
-                "version",
-                "path"
-              ],
-              "additionalProperties": false
+              ]
             },
             "maxItems": 16
           },
@@ -20826,27 +21010,52 @@
               "files": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "artifactId": {
-                      "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "artifactId": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024
+                        }
+                      },
+                      "required": [
+                        "artifactId",
+                        "version",
+                        "path"
+                      ],
+                      "additionalProperties": false
                     },
-                    "version": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0
-                    },
-                    "path": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 1024
+                    {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024
+                        },
+                        "files": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "files"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": [
-                    "artifactId",
-                    "version",
-                    "path"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 "maxItems": 16
               },

@@ -158,6 +158,7 @@ async function viewOf(
             volumeGeneration: pod.volumeGen,
             hostEpoch: pod.hostEpoch,
             ...(pod.reason ? { reason: pod.reason } : {}),
+            ...(pod.imageDigest ? { imageDigest: pod.imageDigest } : {}),
           },
         }
       : {}),
@@ -245,6 +246,15 @@ function recipeRequest(body: PutEnvironmentRequest, existing?: Environment): Rec
 export async function fileErrors(t: Tx, files: EnvironmentRecipe["files"]): Promise<string[]> {
   const errors: string[] = [];
   for (const file of files ?? []) {
+    if ("files" in file) {
+      // Files by hash (Q6): each a definition file the Tenant holds.
+      const wanted = [...new Set(Object.values(file.files))];
+      const held = await t.heldDefinitionFiles(wanted);
+      for (const [path, sha256] of Object.entries(file.files))
+        if (!held.has(sha256))
+          errors.push(`files: ${file.path}/${path} names ${sha256}, which the Tenant does not hold: upload it first (PUT /v1/files/${sha256}).`);
+      continue;
+    }
     const artifact = await t.artifact(file.artifactId);
     if (!artifact || artifact.sessionId !== null)
       errors.push(`files: ${file.artifactId} is not an artifact of the Tenant (an artifact of a session cannot be one).`);

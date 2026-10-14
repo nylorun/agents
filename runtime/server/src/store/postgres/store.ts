@@ -421,6 +421,7 @@ function environmentOf(row: typeof environments.$inferSelect): Environment {
             ...(row.reason !== null ? { reason: row.reason } : {}),
             ...(row.retiring !== null ? { retiring: row.retiring } : {}),
             ...(row.volumeId !== null ? { volumeId: row.volumeId } : {}),
+            ...(row.imageDigest !== null ? { imageDigest: row.imageDigest } : {}),
           },
         }
       : {}),
@@ -456,6 +457,7 @@ function podColumns(patch: SandboxPodPatch): Partial<typeof environments.$inferI
     reason: patch.reason,
     retiring: patch.retiring,
     volumeId: patch.volumeId,
+    imageDigest: patch.imageDigest,
   };
   return Object.fromEntries(Object.entries(columns).filter(([, value]) => value !== undefined));
 }

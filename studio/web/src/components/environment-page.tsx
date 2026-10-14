@@ -398,21 +398,28 @@ function EnvironmentSetup({ environment: s }: { environment: EnvironmentView }) 
           <ol className="grid gap-2">
             {files.map((file, index) => (
               <li
-                key={`${file.artifactId}:${file.version}:${file.path}`}
+                key={`${index}:${file.path}`}
                 className="grid gap-1 rounded-md border p-3 text-sm"
               >
                 <span className="font-mono text-xs text-muted-foreground">
                   {index + 1}. → {file.path}
                 </span>
-                <Link
-                  className="break-all font-mono underline underline-offset-4"
-                  to={`/artifacts?${new URLSearchParams({
-                    selected: file.artifactId,
-                    version: String(file.version),
-                  })}`}
-                >
-                  {file.artifactId} · v{file.version}
-                </Link>
+                {"files" in file ? (
+                  // Files by content hash (Q6): definition files, listed by path.
+                  <span className="break-all font-mono text-xs">
+                    {Object.keys(file.files).sort().join(", ")}
+                  </span>
+                ) : (
+                  <Link
+                    className="break-all font-mono underline underline-offset-4"
+                    to={`/artifacts?${new URLSearchParams({
+                      selected: file.artifactId,
+                      version: String(file.version),
+                    })}`}
+                  >
+                    {file.artifactId} · v{file.version}
+                  </Link>
+                )}
               </li>
             ))}
           </ol>

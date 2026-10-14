@@ -7,7 +7,8 @@
  * (`/harness/setup.json`), so a resume never runs it again and a reset (a new volume) does.
  *
  * Input files come only through the routes here, indexed into the applied recipe's `files`:
- * a pod reads the artifact versions its own recipe names, and nothing else of the Object store.
+ * a pod reads the artifact versions and the definition files by hash (Q6) its own recipe names,
+ * and nothing else of the Object store.
  *
  * A failed command fails the pod (`observed: failed`, a reason that starts `setup:`, and
  * `environment.failed` with the command, its exit code and the end of its output): the turn that
@@ -18,6 +19,8 @@
 import type { EnvironmentRecipe, FolderManifest } from "@nylorun/core/contracts";
 import { parseSandboxDuration } from "@nylorun/core/define";
 import { contentKey, readManifest } from "../artifacts/folders.js";
+import { contentTypeFor } from "../artifacts/media-types.js";
+import { definitionFileKey } from "../tenant/definition-files.js";
 import type { Environment, Tx } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
 import { SETUP_FAILED } from "./pods/lifecycle.js";
@@ -160,10 +163,34 @@ export async function setupFile(
   index: number,
   path: string | undefined,
 ): Promise<SetupFile | undefined> {
-  const found = await ctx.store.tx(async (t) => {
+  const entry = await ctx.store.tx(async (t) => {
     const environment = await t.environment(id);
-    const file = environment?.applied.files?.[index] as NonNullable<EnvironmentRecipe["files"]>[number] | undefined;
-    if (!file) return undefined;
+    return environment?.applied.files?.[index] as NonNullable<EnvironmentRecipe["files"]>[number] | undefined;
+  });
+  if (!entry) return undefined;
+  if ("files" in entry) {
+    // Files by hash (Q6): a folder of definition files.
+    if (path === undefined) {
+      const sizes = await ctx.store.tx(async (t) => {
+        const found = new Map<string, number>();
+        for (const sha256 of new Set(Object.values(entry.files))) {
+          const row = await t.definitionFile(sha256);
+          if (row) found.set(sha256, row.size);
+        }
+        return found;
+      });
+      return {
+        kind: "folder",
+        entries: Object.entries(entry.files).map(([item, sha256]) => ({ path: item, size: sizes.get(sha256) ?? 0 })),
+      };
+    }
+    const sha256 = Object.hasOwn(entry.files, path) ? entry.files[path] : undefined;
+    if (sha256 === undefined) return undefined;
+    const got = await ctx.blobs.get(definitionFileKey(sha256));
+    return got ? { kind: "file", contentType: contentTypeFor(path), body: got.body } : undefined;
+  }
+  const file = entry;
+  const found = await ctx.store.tx(async (t) => {
     const artifact = await t.artifact(file.artifactId);
     if (!artifact || artifact.sessionId !== null) return undefined;
     const version = await t.artifactVersion(file.artifactId, file.version);
@@ -183,8 +210,8 @@ export async function setupFile(
         .filter((entry) => entry.type === undefined)
         .map((entry) => ({ path: entry.path, size: entry.size })),
     };
-  const entry = manifest.entries.find((item) => item.path === path && item.type === undefined);
-  if (!entry) return undefined;
-  const got = await ctx.blobs.get(contentKey(entry.sha256));
-  return got ? { kind: "file", contentType: entry.contentType, body: got.body } : undefined;
+  const listed = manifest.entries.find((item) => item.path === path && item.type === undefined);
+  if (!listed) return undefined;
+  const got = await ctx.blobs.get(contentKey(listed.sha256));
+  return got ? { kind: "file", contentType: listed.contentType, body: got.body } : undefined;
 }

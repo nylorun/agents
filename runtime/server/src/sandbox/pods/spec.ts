@@ -69,7 +69,8 @@ export interface PodSpecInput {
 export function podSpecOf(input: PodSpecInput): PodSpec {
   const { spec, pod, config } = input;
   const lifecycle = podLifecycleConfig(config);
-  const image = spec.image;
+  // Pinned by digest once a pod ran it (Q14).
+  const image = pod.imageDigest ?? spec.image;
   const ours = (input.harness ?? DEFAULT_HARNESS) === DEFAULT_HARNESS;
   return {
     opId: opIdOf(pod),
