@@ -2,7 +2,8 @@
 
 Studio uses only the public Runtime and Management APIs through its authenticated
 same-origin proxy. This change adds no database connection, storage client,
-Runtime route or SDK method. Artifacts are read-only in this increment; Environments
+Runtime route or SDK method. Artifacts are read-only except a message's attachments,
+uploaded into its session (protocol 12); Environments
 (protocol 11) are created, changed, stopped, reset and deleted, and their disk versions
 kept, restored, forked and deleted, through their public routes.
 
@@ -42,6 +43,9 @@ and inspector link it to that Environment.
 | Pinned file preview | `artifacts.download({ version, range })` → version `content` |
 | Exported folder files and changes | `artifacts.tree()`, `.file()`, `.diff()` → version `tree`, `files/{encodedPath}`, `diff` |
 | Native streamed download | `artifacts.link({ version, file?, expiresIn: 60 })` → authenticated `POST /v1/artifacts/{id}/links`, then public `GET /v1/artifact-links/{token}` |
+| Message attachments | `artifacts.upload(file, { name, sessionId, contentType })` → `POST /v1/artifacts?name=…&sessionId=…` (the proxy keeps only those two, checks `GET /v1/sessions/{id}`, needs `Content-Length`, refuses over `maxUploadBytes`, 32 MiB, and streams the body); then `session.inputParts([text?, …{ type: "file", artifactId, version }])` → `POST /v1/sessions/{id}/commands`; `422 attachment_unsupported` names refused files |
+| Composer file picker | Management `models.providers()` → `GET /v1/tenant/providers` (`inputs` of the selected model, protocol 12; absent means text and images) |
+| Model inputs (Model settings) | Management `models.setInputs()` → `PUT /v1/tenant/models/inputs` (allowed by the proxy) |
 
 All version reads and download links name an explicit numbered version. Environment
 IDs (which may hold `/`), secret names and folder file paths remain single encoded

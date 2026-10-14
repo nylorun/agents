@@ -79,6 +79,13 @@ test("artifact links preserve explicit versions and round-trip ids; no guessed l
   assert.deepEqual(artifactReferences(event), [
     { artifactId: "a/b", version: 2, name: "a/b" },
   ]);
+  assert.deepEqual(
+    artifactReferences({
+      type: "command.message",
+      payload: { parts: [{ type: "file", artifactId: "a", version: 3, name: "chart.png" }] },
+    }),
+    [{ artifactId: "a", version: 3, name: "chart.png" }],
+  );
   const created = {
     type: "artifact.version.created",
     payload: { artifactId: "a", version: 1, name: "Report" },

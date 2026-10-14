@@ -72,6 +72,18 @@ test("summarizes message and action payloads", () => {
   );
 });
 
+test("summarizes a message with parts as its text and a count of its files", () => {
+  const parts = (...items) => ({ type: "command.message", payload: { type: "message", parts: items } });
+  const file = (artifactId) => ({ type: "file", artifactId, version: 1 });
+  assert.equal(
+    eventSummary(parts({ type: "text", text: "Compare" }, file("a"), { type: "text", text: "these" }, file("b"))),
+    "Compare these · 2 files",
+  );
+  assert.equal(eventSummary(parts({ type: "text", text: "Read this" }, file("a"))), "Read this · 1 file");
+  assert.equal(eventSummary(parts(file("a"))), "1 file");
+  assert.equal(eventSummary(parts({ type: "text", text: "Just text" })), "Just text");
+});
+
 test("mergeStudioEvents prefers committed and keeps newest first", () => {
   const older = {
     ...base,

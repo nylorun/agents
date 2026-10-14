@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import type { ManagementModels } from "@nylorun/admin/client";
 import { createTenantManagementClient } from "@/proxy-client";
 import { listFrom } from "@/runtime-body.ts";
+import { DEFAULT_MODEL_INPUTS } from "@/attachments";
 
 type HostModelProviderInfo = Awaited<
   ReturnType<ManagementModels["providers"]>
@@ -26,7 +27,16 @@ type ModelOption = {
   modelName: string;
   baseUrl?: string;
   active: boolean;
+  /** What the model reads (protocol 12); absent from an older Runtime. */
+  inputs?: readonly string[];
 };
+
+/** A list of input names, or undefined (an older Runtime sends none). */
+function inputsOf(value: unknown): readonly string[] | undefined {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? (value as string[])
+    : undefined;
+}
 
 function optionKey(providerId: string, modelId: string): string {
   return `${providerId}\0${modelId}`;
@@ -36,10 +46,13 @@ export function SessionModelPicker({
   tenantId,
   disabled = false,
   className,
+  onInputs,
 }: Readonly<{
   tenantId: string;
   disabled?: boolean;
   className?: string;
+  /** The active model's inputs, whenever they are read; text and images by default. */
+  onInputs?: (inputs: readonly string[]) => void;
 }>) {
   const api = useMemo(() => createTenantManagementClient(tenantId).models, [tenantId]);
   const [open, setOpen] = useState(false);
@@ -88,6 +101,12 @@ export function SessionModelPicker({
           ? listed.models
           : [{ id: provider.model, name: provider.model }];
       for (const model of models) {
+        const active = provider.active && provider.model === model.id;
+        // The provider reports its selected model's inputs, overrides included; the catalog, each model's.
+        const inputs =
+          (provider.model === model.id
+            ? inputsOf((provider as { inputs?: unknown }).inputs)
+            : undefined) ?? inputsOf((model as { inputs?: unknown }).inputs);
         next.push({
           key: optionKey(provider.id, model.id),
           providerId: provider.id,
@@ -95,7 +114,8 @@ export function SessionModelPicker({
           modelId: model.id,
           modelName: model.name,
           ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
-          active: provider.active && provider.model === model.id,
+          active,
+          ...(inputs ? { inputs } : {}),
         });
       }
     }
@@ -103,6 +123,10 @@ export function SessionModelPicker({
   }, [catalog, providers]);
 
   const active = options.find((item) => item.active) ?? options[0];
+  const activeInputs = (active?.inputs ?? DEFAULT_MODEL_INPUTS).join(",");
+  useEffect(() => {
+    onInputs?.(activeInputs.split(","));
+  }, [activeInputs, onInputs]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return options;

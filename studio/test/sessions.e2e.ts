@@ -26,6 +26,12 @@ const CHILD_AGENT = "logistics-planner";
 const ALICE_SESSION = "s-alice";
 const FLOW_SESSION = "s-flow";
 const CHILD_SESSION = "wf_0123456789abcdef01234567";
+const FILES_SESSION = "s-files";
+/** A 1×1 PNG. */
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 async function listen(server: Server): Promise<number> {
   server.listen(0, "127.0.0.1");
@@ -61,6 +67,9 @@ function event(sessionId: string, type: string, payload: unknown) {
 }
 
 type Creation = Record<string, unknown>;
+type Upload = { query: string; contentType: string; length: string; bytes: Buffer };
+type Command = { sessionId: string; body: Record<string, any> };
+type StoredArtifact = { id: string; name: string; contentType: string; sessionId: string; bytes: Buffer };
 
 const time = "2026-10-10T00:00:00.000Z";
 const environmentView = (id: string, ownerUserId: string | null) => ({
@@ -118,7 +127,38 @@ async function fakeRuntime(environments = false) {
         items: [event(CHILD_SESSION, "turn.completed", { output: "Route via Rotterdam." })],
       },
     ],
+    [
+      FILES_SESSION,
+      {
+        creation: { agentId: AGENT, ownerUserId: "app:alice" },
+        items: [
+          event(FILES_SESSION, "command.message", {
+            type: "message",
+            parts: [
+              { type: "text", text: "What does this diagram show?" },
+              { type: "file", artifactId: "art_seed", version: 1 },
+            ],
+          }),
+        ],
+      },
+    ],
   ]);
+  const artifacts = new Map<string, StoredArtifact>([
+    ["art_seed", { id: "art_seed", name: "diagram.png", contentType: "image/png", sessionId: FILES_SESSION, bytes: PNG }],
+  ]);
+  const uploads: Upload[] = [];
+  const commands: Command[] = [];
+  const artifactView = (a: StoredArtifact) => ({
+    artifactId: a.id,
+    kind: "file",
+    name: a.name,
+    contentType: a.contentType,
+    sessionId: a.sessionId,
+    latestVersion: 1,
+    createdAt: time,
+    updatedAt: time,
+    versions: [{ version: 1, size: a.bytes.length, sha256: "0".repeat(64), contentType: a.contentType, source: "upload", createdAt: time }],
+  });
   const puts: { id: string; body: Creation }[] = [];
   const coverage: (string | null)[] = [];
   const view = (id: string) => {
@@ -139,9 +179,11 @@ async function fakeRuntime(environments = false) {
   };
   const protocol = { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] };
   const server = createServer(async (req, res) => {
-    let raw = "";
-    for await (const chunk of req) raw += chunk;
-    const path = (req.url ?? "").split("?")[0]!;
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const bytes = Buffer.concat(chunks);
+    const raw = bytes.toString("utf8");
+    const [path = "", query = ""] = (req.url ?? "").split("?");
     const send = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
@@ -177,6 +219,48 @@ async function fakeRuntime(environments = false) {
           activeTurnId: null,
         })),
       });
+    if (req.method === "POST" && path === "/v1/artifacts") {
+      const params = new URLSearchParams(query);
+      const contentType = req.headers["content-type"] ?? "";
+      uploads.push({ query, contentType, length: req.headers["content-length"] ?? "", bytes });
+      const stored = {
+        id: `art_${uploads.length}`,
+        name: params.get("name")!,
+        contentType,
+        sessionId: params.get("sessionId")!,
+        bytes,
+      };
+      artifacts.set(stored.id, stored);
+      const view = artifactView(stored);
+      return send(201, { artifact: view, version: view.versions[0] });
+    }
+    const artifactMatch = /^\/v1\/artifacts\/([^/]+)(\/versions\/1\/content)?$/u.exec(path);
+    if (artifactMatch) {
+      const stored = artifacts.get(decodeURIComponent(artifactMatch[1]!));
+      if (!stored) return send(404, { code: "not_found", message: "Artifact not found" });
+      if (!artifactMatch[2]) return send(200, artifactView(stored));
+      res.writeHead(200, { "content-type": stored.contentType, "content-length": String(stored.bytes.length) });
+      return res.end(stored.bytes);
+    }
+    const commandMatch = /^\/v1\/sessions\/([^/]+)\/commands$/u.exec(path);
+    if (req.method === "POST" && commandMatch) {
+      const body = JSON.parse(raw) as Record<string, any>;
+      commands.push({ sessionId: decodeURIComponent(commandMatch[1]!), body });
+      // Like a model that reads text and images: a video is refused at accept.
+      const refused = (body.parts ?? [])
+        .filter((part: any) => part.type === "file" && artifacts.get(part.artifactId)?.contentType.startsWith("video/"))
+        .map((part: any) => {
+          const stored = artifacts.get(part.artifactId)!;
+          return { artifactId: stored.id, name: stored.name, mediaType: stored.contentType, reason: "this model does not read video" };
+        });
+      if (refused.length)
+        return send(422, {
+          code: "attachment_unsupported",
+          message: "The model does not read one of the message's files.",
+          details: { parts: refused },
+        });
+      return send(202, { accepted: true, eventId: `ev_${seq++}` });
+    }
     const match = /^\/v1\/sessions\/([^/]+)(\/items|\/events)?$/u.exec(path);
     if (match) {
       const id = decodeURIComponent(match[1]!);
@@ -222,12 +306,25 @@ async function fakeRuntime(environments = false) {
         ],
       });
     }
-    if (path === "/v1/tenant/providers" || path === "/v1/tenant/models") return send(200, { providers: [] });
+    // Protocol 12: the selected model's inputs.
+    if (path === "/v1/tenant/providers")
+      return send(200, {
+        providers: [{ id: "openai", name: "OpenAI", model: "gpt-test", active: true, inputs: ["text", "image", "pdf"] }],
+      });
+    if (path === "/v1/tenant/models")
+      return send(200, { providers: [{ id: "openai", name: "OpenAI", models: [{ id: "gpt-test", name: "GPT Test" }] }] });
     if (path === "/v1/tenant/model") return send(200, { configured: false });
     send(200, {});
   });
   const port = await listen(server);
-  return { url: `http://127.0.0.1:${port}`, puts, coverage, close: () => (server.closeAllConnections(), server.close()) };
+  return {
+    url: `http://127.0.0.1:${port}`,
+    puts,
+    coverage,
+    uploads,
+    commands,
+    close: () => (server.closeAllConnections(), server.close()),
+  };
 }
 
 async function withStudio(
@@ -236,6 +333,8 @@ async function withStudio(
     studioUrl: string;
     puts: { id: string; body: Creation }[];
     coverage: (string | null)[];
+    uploads: Upload[];
+    commands: Command[];
   }) => Promise<void>,
   environments = false,
 ) {
@@ -259,7 +358,14 @@ async function withStudio(
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto(url);
     await page.waitForURL(`${studio.url}/tenants/${TENANT}`);
-    await run({ page, studioUrl: studio.url, puts: runtime.puts, coverage: runtime.coverage });
+    await run({
+      page,
+      studioUrl: studio.url,
+      puts: runtime.puts,
+      coverage: runtime.coverage,
+      uploads: runtime.uploads,
+      commands: runtime.commands,
+    });
     assert.deepEqual(pageErrors, []);
   } finally {
     await browser.close();
@@ -314,7 +420,7 @@ test("the session list shows every session and filters on an agent, from the tab
     const rows = (count: number) =>
       page.waitForFunction((n) => document.querySelectorAll("tbody tr").length === n, count);
     await page.getByRole("link", { name: ALICE_SESSION, exact: true }).waitFor();
-    await rows(3);
+    await rows(4);
     await page.getByRole("button", { name: "Filter by agent" }).click();
     await page.getByRole("menuitemcheckbox", { name: /^Shipping/u }).click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${FLOW}`);
@@ -392,5 +498,118 @@ test("a flow node in the Workflow tree opens its child session, whose agent is n
     await page.getByRole("tab", { name: "Agent", exact: true }).click();
     await page.getByText(CHILD_AGENT).first().waitFor();
     assert.deepEqual(puts, []);
+  });
+});
+
+test("files attached to a message are uploaded into the session, then sent as its file parts", async () => {
+  await withStudio(async ({ page, studioUrl, uploads, commands }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
+    const picker = page.locator('input[type="file"]');
+    // The model reads text, images and PDFs.
+    assert.equal(
+      await picker.getAttribute("accept"),
+      "text/*,.md,.json,.csv,.txt,image/*,application/pdf",
+    );
+    await picker.setInputFiles([
+      { name: "chart.png", mimeType: "image/png", buffer: PNG },
+      { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("ship by Friday") },
+    ]);
+    const chips = page.locator('[data-slot="attachment"]');
+    await chips.filter({ hasText: "chart.png" }).locator("img").waitFor();
+    await chips.filter({ hasText: "notes.txt" }).getByText("14 B").waitFor();
+    // Files alone can be sent; remove one, attach it again.
+    await page.getByRole("button", { name: "Remove notes.txt" }).click();
+    assert.equal(await chips.count(), 1);
+    await picker.setInputFiles([{ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("ship by Friday") }]);
+    await page.getByRole("textbox", { name: "Message" }).fill("Summarise these");
+    await page.getByRole("button", { name: "Send" }).click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-slot="attachment"]').length === 0);
+    assert.equal(await page.getByRole("textbox", { name: "Message" }).inputValue(), "");
+    assert.deepEqual(
+      uploads.map(({ query, contentType, length }) => ({ query, contentType, length })),
+      [
+        { query: `name=chart.png&sessionId=${ALICE_SESSION}`, contentType: "image/png", length: String(PNG.length) },
+        { query: `name=notes.txt&sessionId=${ALICE_SESSION}`, contentType: "text/plain", length: "14" },
+      ],
+    );
+    assert.deepEqual(uploads[0]!.bytes, PNG, "sent as it is: not resized or converted");
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0]!.sessionId, ALICE_SESSION);
+    assert.equal(typeof commands[0]!.body.idempotencyKey, "string");
+    assert.deepEqual(commands[0]!.body.parts, [
+      { type: "text", text: "Summarise these" },
+      { type: "file", artifactId: "art_1", version: 1 },
+      { type: "file", artifactId: "art_2", version: 1 },
+    ]);
+  });
+});
+
+test("a file the model does not read keeps the draft, says why, and is not uploaded again on resend", async () => {
+  await withStudio(async ({ page, studioUrl, uploads, commands }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
+    const picker = page.locator('input[type="file"]');
+    await picker.setInputFiles([
+      { name: "clip.mp4", mimeType: "video/mp4", buffer: Buffer.from("not really a video") },
+      { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("ship by Friday") },
+    ]);
+    const message = page.getByRole("textbox", { name: "Message" });
+    await message.fill("What happens here?");
+    await page.getByRole("button", { name: "Send" }).click();
+    await page.getByRole("alert").filter({ hasText: "The model does not read one of the message's files." }).waitFor();
+    const chips = page.locator('[data-slot="attachment"]');
+    await chips.filter({ hasText: "clip.mp4" }).getByText("this model does not read video").waitFor();
+    assert.equal(await chips.filter({ hasText: "notes.txt" }).getByText("14 B").count(), 1);
+    assert.equal(await message.inputValue(), "What happens here?");
+    assert.equal(uploads.length, 2);
+    assert.equal(commands.length, 1);
+    // Without the video, the same draft goes; the text file is not uploaded twice.
+    await page.getByRole("button", { name: "Remove clip.mp4" }).click();
+    await page.getByRole("button", { name: "Send" }).click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-slot="attachment"]').length === 0);
+    assert.equal(uploads.length, 2);
+    assert.equal(commands.length, 2);
+    assert.deepEqual(commands[1]!.body.parts, [
+      { type: "text", text: "What happens here?" },
+      { type: "file", artifactId: "art_2", version: 1 },
+    ]);
+    assert.notEqual(commands[1]!.body.idempotencyKey, commands[0]!.body.idempotencyKey);
+  });
+});
+
+test("a message's files show their name, type and an image's thumbnail, and open the artifact", async () => {
+  await withStudio(async ({ page, studioUrl }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${FILES_SESSION}`);
+    const article = page.locator("article", { hasText: "What does this diagram show?" });
+    const preview = article.locator('[data-slot="attachment-preview"]');
+    await preview.getByText("diagram.png").waitFor();
+    await preview.getByText("image/png · 70 B").waitFor();
+    await preview.getByRole("img", { name: "diagram.png" }).waitFor();
+    await preview.click();
+    await page.waitForURL(/inspector=artifacts&artifact=art_seed&artifactVersion=1/u);
+  });
+});
+
+test("a file dropped on the message card or pasted into it is attached", async () => {
+  await withStudio(async ({ page, studioUrl, uploads }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
+    const card = page.locator('[data-slot="composer-card"]');
+    const transfer = await page.evaluateHandle(() => {
+      const data = new DataTransfer();
+      data.items.add(new File(["a,b"], "rows.csv", { type: "text/csv" }));
+      return data;
+    });
+    await card.dispatchEvent("dragover", { dataTransfer: transfer });
+    await page.locator('[data-slot="composer-card"][data-dragging]').waitFor();
+    await card.dispatchEvent("drop", { dataTransfer: transfer });
+    await page.locator('[data-slot="composer-card"]:not([data-dragging])').waitFor();
+    await page.locator('[data-slot="attachment"]', { hasText: "rows.csv" }).waitFor();
+    await page.getByRole("textbox", { name: "Message" }).evaluate((textarea, clipboardData) => {
+      textarea.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+    }, transfer);
+    await page.waitForFunction(() => document.querySelectorAll('[data-slot="attachment"]').length === 2);
+    assert.equal(uploads.length, 0, "nothing is uploaded until the message is sent");
   });
 });

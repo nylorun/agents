@@ -112,8 +112,22 @@ without an Environment says it has no sandbox and no secrets.
 Settings links use `/tenants/<id>/settings/overview` and `/settings/models`
 under the same Tenant prefix; a legacy `/settings` link redirects to Models.
 A session paused on a tool call the Tenant's tool policy holds shows an approval card with the
-tool, why it is held and its input, with **Approve** and **Deny**. Token streaming and media are
-deferred.
+tool, why it is held and its input, with **Approve** and **Deny**. Token streaming is deferred.
+
+### Attachments
+
+The message card's paperclip, a paste or a drop attaches files; each shows as a chip
+(an image's thumbnail, else a file icon, with its name and size) until the message is
+sent. The picker offers what the active model reads, from its provider's `inputs`
+(text and images when the Runtime does not say). Studio sends files as they are: it
+resizes and converts nothing. On **Send** each new file is uploaded into the session
+(`POST /v1/artifacts?name=…&sessionId=…` through the proxy, which checks the session
+exists, needs a `Content-Length` and streams the bytes, refusing a file over
+`maxUploadBytes`, 32 MiB by default), then the message goes as text and file parts
+(`session.inputParts`). When the Runtime refuses a file the model does not read
+(`422 attachment_unsupported`), the draft and its chips stay, the refused chips say
+why, and a resend reuses the files already uploaded. In the chat, a message's files
+show their name, type and an image's thumbnail, and open the artifact.
 
 ## Environments
 
@@ -182,8 +196,8 @@ that exact version. Text previews stop at 256 KiB; raster images at 10 MiB. HTML
 and SVG appear as escaped source. Downloads stream through the proxy as
 attachments using a 60-second capability minted by the existing Runtime API,
 including in embeds. No full-file browser buffer is used for downloads. Studio
-never accesses databases, Kubernetes or object storage. Artifact uploads,
-deletion and sharing are deferred.
+never accesses databases, Kubernetes or object storage. Uploads are a message's
+attachments only; deletion and sharing are deferred.
 
 Run `npm run check --workspace @nylorun/studio` for package and unit checks, and
 `npm run test:e2e --workspace @nylorun/studio` for public-API browser fixtures

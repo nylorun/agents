@@ -86,8 +86,17 @@ export function eventLabel(event: Pick<LiveEvent, "type">): string {
 export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string {
   const payload = record(event.payload);
   switch (event.type) {
-    case "command.message":
-      return compact(payload.content);
+    case "command.message": {
+      if (!Array.isArray(payload.parts)) return compact(payload.content);
+      const parts = payload.parts.map(record);
+      const text = parts
+        .filter((part) => part.type === "text" && typeof part.text === "string")
+        .map((part) => part.text as string)
+        .join(" ");
+      const files = parts.filter((part) => part.type === "file").length;
+      const count = files === 0 ? "" : `${files} ${files === 1 ? "file" : "files"}`;
+      return [text ? compact(text) : "", count].filter(Boolean).join(" · ") || "—";
+    }
     case "command.cancel":
       return text(payload.reason, "Cancel requested.");
     case "command.approve":
