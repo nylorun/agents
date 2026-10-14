@@ -8,8 +8,7 @@ write another, in any language, from this page alone.
 
 This page is the reference, section by section, and then a guide to building one.
 [`examples/harness-minimal`](../examples/harness-minimal/README.md) is a complete harness of about
-800 lines that depends only on `ws` and `@nylorun/core/harness-api`. The conformance suite in
-[`conformance/`](../conformance/README.md) (`npx @nylorun/harness-conformance`) checks a harness against a live Runtime; each check names the section below that it enforces.
+800 lines that depends only on `ws` and `@nylorun/core/harness-api`.
 
 The Harness API is southbound: from the Runtime down to a loop. It is not a northbound API for
 calling vendor agents, and it is not the Runtime API your app uses.
@@ -297,28 +296,17 @@ What a custom harness cannot do in v2:
    `NYLORUN_HARNESS_TOKEN`. Create an Environment with `harness: "minimal"`
    (`PUT /v1/environments/{id}`) and open sessions on it. Sessions on other Environments keep
    running ours.
-3. **Check it.** Run the conformance suite from npm:
-
-   ```bash
-   npx @nylorun/harness-conformance --runtime http://localhost:4000 --key "$NYLORUN_API_KEY" --manage-key "$NYLORUN_MANAGEMENT_KEY" --harness minimal
-   ```
-
-   Or, from a checkout of this repository (before its first release reaches npm, or to check
-   against unreleased changes):
-
-   ```bash
-   npm run build --workspace @nylorun/harness-conformance
-   ```
-
-   ```bash
-   node conformance/dist/cli.js --runtime http://localhost:4000 --key "$NYLORUN_API_KEY" --manage-key "$NYLORUN_MANAGEMENT_KEY" --harness minimal
-   ```
-
-   It seeds the fixture model and runs deterministic turns. Every required check must pass.
+3. **Check it.** On a Tenant for testing, turn on the fixture model
+   (`PUT /v1/tenant/config/seed {fixtureModel: true}`, a management key) and send scripted turns:
+   `fixture:text` answers `fixture ok`, and `fixture:tool bash {"command":"echo hi"}` calls
+   `bash` once. Then read what the Runtime recorded: the turn ends `turn.completed` with
+   `source: {kind: "harness", id: "minimal"}`, `GET /v1/sessions/{id}/calls/model` has one
+   metered call per model answer, and `GET /v1/sessions/{id}/calls/tool` has one journaled call
+   per command.
 4. **Ship it as a pod image.** Build the harness into the image your agents' tools need (uid
    1000, read-only root, `HOME=/harness/home`), push it, and use a pod Environment:
-   `{kind: "pod", image: "<your image>", harness: "minimal"}`. Then run conformance with
-   `--profile pod --image <your image>`.
+   `{kind: "pod", image: "<your image>", harness: "minimal"}`. Then send the same turns to a
+   session on it.
 5. **Restrict where harnesses run.** The Tenant's placement
    (`PUT /v1/tenant/sandbox {placement}`) maps harness ids to hosts. `"*": {hosts: []}`
    refuses any harness it does not name.

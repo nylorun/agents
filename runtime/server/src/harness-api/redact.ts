@@ -1,5 +1,5 @@
 /**
- * Keeps the Runtime's own tokens out of the record (track R4, conformance HC14). A harness runs
+ * Keeps the Runtime's own tokens out of the record (track R4). A harness runs
  * model-written commands with the egress token in their proxy variables, and holds its run and
  * host tokens; a command that prints its environment, or a model that repeats it, would put
  * them into a tool result, an assistant message or a transcript edit. Core replaces every

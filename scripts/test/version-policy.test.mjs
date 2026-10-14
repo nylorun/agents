@@ -18,8 +18,6 @@ const versions = {
   runtime: "0.1.0-beta.1",
   studio: "0.3.0-beta.1",
   nylorun: "0.1.0-beta.1",
-  // Never released yet: its first changeset publishes 0.1.0-beta.
-  "harness-conformance": "0.0.0",
   "create-agent": "0.1.0-beta.1",
 };
 const pins = {
@@ -166,29 +164,6 @@ test("an Admin release advances Studio and nylorun, which depend on it, and not 
   assert.equal(plan.compatibility.admin, "0.2.0-beta");
 });
 
-test("the conformance suite releases alone, with the creator, and is no creator pin", () => {
-  const { plan, releases } = planVersions(versions, pins, [intent("harness-conformance", "minor")]);
-  // It depends on no package here and none depends on it: only the creator follows.
-  assert.deepEqual(plan.packages, {
-    "harness-conformance": "0.1.0-beta",
-    "create-agent": "0.1.1-beta",
-  });
-  assert.deepEqual(plan.compatibility, pins);
-  assert.equal(
-    releases.find((release) => release.name === "@nylorun/harness-conformance").newVersion,
-    "0.1.0-beta",
-  );
-  assert.equal(packageName("harness-conformance"), "@nylorun/harness-conformance");
-  assert.equal(packageDirectory("@nylorun/harness-conformance"), "harness-conformance");
-  // Nothing else releases it.
-  for (const name of ["core", "harness", "agents", "admin", "runtime", "studio", "nylorun"])
-    assert.equal(
-      planVersions(versions, pins, [intent(name)]).plan.packages["harness-conformance"],
-      undefined,
-      name,
-    );
-});
-
 test("the creator pins exactly core, harness, agents, admin and runtime", () => {
   assert.deepEqual([...CREATOR_PINS], ["core", "harness", "agents", "admin", "runtime"]);
   assert.throws(
@@ -304,7 +279,6 @@ test("D1: protocol change after 1.0 requires major bumps", () => {
     runtime: "1.0.0",
     studio: "1.0.0",
     nylorun: "1.0.0",
-    "harness-conformance": "1.0.0",
     "create-agent": "1.0.0",
   };
   const stablePins = {

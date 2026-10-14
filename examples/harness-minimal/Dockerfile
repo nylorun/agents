@@ -26,7 +26,6 @@ COPY studio/package.json studio/
 COPY cli/nylorun/package.json cli/nylorun/
 COPY cli/legacy/package.json cli/legacy/
 COPY cli/create-agent/package.json cli/create-agent/
-COPY conformance/package.json conformance/
 # runtime/harness brings the TypeScript 7 compiler the workspace builds with.
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts --no-audit --no-fund --workspace core --workspace runtime/harness

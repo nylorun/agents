@@ -35,7 +35,6 @@ COPY studio/package.json studio/
 COPY cli/nylorun/package.json cli/nylorun/
 COPY cli/legacy/package.json cli/legacy/
 COPY cli/create-agent/package.json cli/create-agent/
-COPY conformance/package.json conformance/
 
 FROM manifests AS build
 RUN --mount=type=cache,target=/root/.npm \

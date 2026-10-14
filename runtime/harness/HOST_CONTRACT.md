@@ -68,7 +68,7 @@ Frames: `{t:"req",id,m,p}`, `{t:"res",id,ok,r|e:{code,message}}`, `{t:"msg",m,p}
 
 A Runtime below F6.1 compares journal rows by their full request: downgrading one with a turn in flight can fail that turn with drift.
 
-**Build your own harness.** A harness is any program that speaks this contract; it does not need `@nylorun/harness`. [`examples/harness-minimal`](../../examples/harness-minimal/) is one, written only against `@nylorun/core/harness-api`: it runs beside the Runtime with its own token (`nylorun-operate harness token put <id>`) and takes the sessions of Environments whose `harness` is its id, or runs as a pod Environment's `image`. The conformance suite [`conformance/`](../../conformance/) (`@nylorun/harness-conformance`) checks a harness against a live Runtime through the public Runtime and Management APIs only, on the fixture model's markers: run binding, the effect journal and replay, metering at the Model Gate, cancel, routing beside ours and who wrote each event (HC01–HC19). `runtime/server/test/harness-api/conformance.test.ts` runs it against ours and the example.
+**Build your own harness.** A harness is any program that speaks this contract; it does not need `@nylorun/harness`. [`examples/harness-minimal`](../../examples/harness-minimal/) is one, written only against `@nylorun/core/harness-api`: it runs beside the Runtime with its own token (`nylorun-operate harness token put <id>`) and takes the sessions of Environments whose `harness` is its id, or runs as a pod Environment's `image`. `runtime/server/test/harness-api/conformance.test.ts` runs it against ours and the example.
 
 ## Definitions, validation, compatibility
 
