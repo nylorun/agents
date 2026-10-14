@@ -25,27 +25,24 @@ afterEach(async () => {
 });
 
 const manifest = {
+  manifestSchemaVersion: 7,
   id: "bot",
-  capabilities: [
-    { id: "agent", type: "agent", instructions: ["Be brief."] },
-    {
-      id: "nylorun.sandbox",
-      type: "agent",
-      instructions: ["You have a sandbox."],
-      tools: [
-        {
-          name: "bash",
-          description: "Run a bash command.",
-          inputSchema: {
-            type: "object",
-            properties: { command: { type: "string" } },
-            required: ["command"],
-          },
+  instructions: ["Be brief."],
+  runtime: {
+    sandbox: {},
+    instructions: ["You have a sandbox."],
+    tools: [
+      {
+        name: "bash",
+        description: "Run a bash command.",
+        inputSchema: {
+          type: "object",
+          properties: { command: { type: "string" } },
+          required: ["command"],
         },
-      ],
-      sandbox: {},
-    },
-  ],
+      },
+    ],
+  },
 };
 
 const turn = (input: string, outcomes: RecordedOutcome[] = []): TurnStart => ({
@@ -125,7 +122,9 @@ function fakeCore(
     const p = params as Record<string, any>;
     switch (method) {
       case "hello":
-        return { api: 2, tenantId: "tenant", sandbox: { backend: null }, renewEveryMs: 60_000 };
+        // Harness API 3: what the harness offers is `features` (it was `capabilities`).
+        expect(p).toMatchObject({ api: 3, name: "minimal", features: {} });
+        return { api: 3, tenantId: "tenant", sandbox: { backend: null }, renewEveryMs: 60_000 };
       case "lease":
         if (leased) return new Promise(() => undefined);
         leased = true;
@@ -231,7 +230,6 @@ it("runs bash journaled intent first, and replays a completed outcome without ru
   expect(first.intents[1]).toMatchObject({
     effectId: toolId,
     kind: "tool",
-    capabilityId: "nylorun.sandbox",
     toolName: "bash",
     input: { command: message.slice(4) },
     context: { callId: "call-1", invocationId: "t1:0:0:call-1", stepId: "t1:0:0" },

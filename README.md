@@ -91,7 +91,7 @@ every page is also available as Markdown by appending `.md` to its URL.
 | [`@nylorun/core`](https://www.npmjs.com/package/@nylorun/core) | [`core`](./core) | Shared definitions, contracts and manifest identity |
 | `ghcr.io/nylorun/studio` (image only) | [`studio`](./studio) | The dashboard |
 | `ghcr.io/nylorun/sandboxes` (image only) | [`sandboxes`](./sandboxes) | Go service that runs pod sandboxes on Kubernetes |
-| Not published | [`examples`](./examples) | Capability demos on the generated project shell |
+| Not published | [`examples`](./examples) | Feature demos on the generated project shell |
 
 ## Self-hosting
 

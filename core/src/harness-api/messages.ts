@@ -30,10 +30,7 @@ import type {
   harnessRequests,
 } from "./schema.js";
 
-export const HARNESS_API_VERSION = 2;
-
-/** The capability id of the tools a harness declares and runs itself (`capabilities.tools`, R4.2). */
-export const HARNESS_TOOLS_CAPABILITY = "harness";
+export const HARNESS_API_VERSION = 3;
 
 /** The most state a custom harness may keep per session (R4.2): its serialized JSON, in bytes. */
 export const MAX_HARNESS_STATE_BYTES = 256 * 1024;

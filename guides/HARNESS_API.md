@@ -44,11 +44,11 @@ Which token:
 
 ## §2 Work: hello, lease, renew, release
 
-- `hello {api: 2, name, version, capabilities}` is the first request.
+- `hello {api: 3, name, version, features}` is the first request.
   - `name` is the harness id: `^[a-z][a-z0-9-]{1,62}$`, and the one the credential is for.
-  - `capabilities.tools` declares tools the harness runs itself (§4).
-  - `capabilities.workspace` declares that it serves workspaces (§10, optional).
-  - The answer is `{api: 2, tenantId, sandbox: {backend}, renewEveryMs}`.
+  - `features.tools` declares tools the harness runs itself (§4).
+  - `features.workspace` declares that it serves workspaces (§10, optional).
+  - The answer is `{api: 3, tenantId, sandbox: {backend}, renewEveryMs}`.
   - Core refuses another `api` and a name that is not the credential's harness.
 - `lease {}` waits until core offers a run, then answers `{run: RunGrant, input: TurnStart}`.
   - Core offers a session's runs only to connections of the harness the session pinned when it
@@ -67,7 +67,16 @@ Which token:
 
 - `type` and `engine`: `turn.start` or `approval.answer`; `agent` or `flow`. A custom harness
   gets agent turns only: flows run in our harness.
-- `manifest`: the turn's agent manifest (the session's, or a variant a message named).
+- `manifest`: the turn's agent manifest (v7: the session's, or a variant a message named). It is
+  flat:
+  - the agent's own `instructions`, `tools`, `skills` and `mcpServers`. A skill or a server that
+    came from an Agent Plugin carries `plugin: {name, version?}`;
+  - `runtime`, which the Runtime wrote when the session pinned the agent: the session's
+    `sandbox` spec, the `tools` the Runtime serves (the sandbox tools, `save_artifact`,
+    `read_artifact`, `load_skill` and `read_skill_resource`) and the `instructions` that go
+    with them (the skill catalog, the sandbox's and the artifacts' notes). Offer the model the
+    agent's tools and `runtime.tools`, and put `instructions` before `runtime.instructions`.
+  - A variant never sets `runtime`: the turn runs with the pin's.
 - `checkpoint` (`HarnessCheckpointSchema`): `sessionId`, `turnId`, `segment`, `manifestHash`,
   `input` and `state`.
   - `input` is the turn's message: a string, `{text, metadata?}`, `{content, metadata?}`, or
@@ -127,10 +136,11 @@ What an intent carries:
   - a tool effect may name its `stepId`, which shares one result budget among the step's calls.
 - **Kinds:**
   - `model`;
-  - `tool` with `capabilityId` and `toolName`. That is a manifest tool, an MCP tool from the
-    snapshot, a sandbox tool, or a tool you declared in `hello` (capability `harness`,
-    `HARNESS_TOOLS_CAPABILITY`). Any other tool is answered `completed` with a
-    `tool.unavailable` failure and never runs.
+  - `tool` with `toolName`. Tools are known by name: a manifest tool (`tools` or
+    `runtime.tools`), an MCP tool from the snapshot (`server__tool`), or a tool you declared in
+    `hello`. Any other tool is answered `completed` with a `tool.unavailable` failure and never
+    runs. A tool you declare may not take a name the agent or the Runtime already uses: the
+    turn fails at its start.
   - `delegation` and `agent` belong to our engine's subagents and flows.
 
 ## §5 Gates
@@ -189,7 +199,7 @@ End each segment with one output request (`TurnOutputSchema`):
 | `waiting` | `turn.waiting` | An effect is `pending`: core waits for it. |
 | `uncertain` | `turn.waiting` | An effect is `uncertain`. |
 | `yielded` | `checkpoint` | The turn goes on in a new segment: same turn, next segment. |
-| `paused` | `turn.paused` | Our engine only, in v2. |
+| `paused` | `turn.paused` | Our engine only, in v3. |
 
 The output also carries:
 
@@ -252,15 +262,15 @@ root, with `/workspace`, `/harness`, `/tmp` and `/skills` writable.
 
 ## §10 Workspace (optional)
 
-A harness that declares `capabilities.workspace` serves sandbox workspaces: core sends it
+A harness that declares `features.workspace` serves sandbox workspaces: core sends it
 `workspace.read`, `workspace.write`, `workspace.exec`, `workspace.report`, `workspace.sweep` and
 `workspace.remove`.
 
 - A pod's host serves its own pod.
 - A session's workspace off a pod is served by its own harness, if that harness declared the
-  capability: our harness's workspaces are never a custom harness's files. Sweeps and removes go
+  feature: our harness's workspaces are never a custom harness's files. Sweeps and removes go
   to ours.
-- Without the capability, core answers `save_artifact`, the turn-end export and the session
+- Without the feature, core answers `save_artifact`, the turn-end export and the session
   sandbox routes with "missing", and turns still run.
 
 ## §11 Versioning
@@ -268,13 +278,15 @@ A harness that declares `capabilities.workspace` serves sandbox workspaces: core
 There are three numbers:
 
 - the transport (path and header): 1;
-- the messages: `HARNESS_API_VERSION`, 2;
+- the messages: `HARNESS_API_VERSION`, 3;
 - the Runtime protocol, which only the Runtime and Management APIs carry.
 
-v2 is frozen: its schemas are strict, so a field is added only in a new version. The next
-version adds a window of supported versions (N and N−1).
+v3 is frozen: its schemas are strict, so a field is added only in a new version. Core speaks one
+version: a harness that says `api: 2` is refused. v3 renamed `hello.capabilities` to `features`,
+removed `capabilityId` from effects, gate calls and MCP records, and gives the harness flat
+manifests (protocol 13). The next version adds a window of supported versions (N and N−1).
 
-What a custom harness cannot do in v2:
+What a custom harness cannot do in v3:
 
 - pause the turn itself (the tool policy's approvals work without it, §7);
 - run flows;

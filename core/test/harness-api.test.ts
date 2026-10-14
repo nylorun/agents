@@ -26,7 +26,7 @@ const effect = (fields: Partial<EffectIntent> = {}): EffectIntent => ({
 describe("effect request hash", () => {
   it("ignores key order and undefined members", () => {
     const a = effect();
-    const b = JSON.parse(JSON.stringify({ context: a.context, ...a, capabilityId: undefined }));
+    const b = JSON.parse(JSON.stringify({ context: a.context, ...a, toolName: undefined }));
     expect(effectRequestHash(b)).toBe(effectRequestHash(a));
     expect(effectRequestHash(a)).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -67,7 +67,7 @@ describe("memory channel", () => {
         const messages: unknown[] = [];
         harness.listen((method, params) => messages.push([method, params]));
         await expect(
-          harness.request("hello", { api: 1, name: "test", version: "0", capabilities: {} })
+          harness.request("hello", { api: HARNESS_API_VERSION, name: "test", version: "0", features: {} })
         ).resolves.toMatchObject({ renewEveryMs: 10 });
         await expect(harness.request("lease.renew", { runId: "r1" })).rejects.toMatchObject({
           code: "run_not_held",
@@ -119,6 +119,40 @@ describe("memory channel", () => {
   });
 });
 
+describe("Harness API 3", () => {
+  it("names features in hello, not capabilities", async () => {
+    const { validateParams } = await import("../src/harness-api/index.js");
+    expect(HARNESS_API_VERSION).toBe(3);
+    const hello = { api: 3, name: "h", version: "0" };
+    expect(() =>
+      validateParams("hello", {
+        ...hello,
+        features: { workspace: true, tools: [{ name: "browse", inputSchema: { type: "object" } }] },
+      })
+    ).not.toThrow();
+    expect(() => validateParams("hello", { ...hello, capabilities: {} })).toThrow(HarnessApiError);
+  });
+
+  it("names a tool effect by its tool alone", async () => {
+    const { EffectIntentSchema } = await import("../src/harness-api/index.js");
+    const tool = effect({ kind: "tool", toolName: "bash", effectId: "t1:0:tool:c1", input: {} });
+    expect(EffectIntentSchema.safeParse(tool).success).toBe(true);
+    expect(EffectIntentSchema.safeParse({ ...tool, capabilityId: "nylorun.sandbox" }).success).toBe(false);
+  });
+
+  it("names an HTTP tool call by agent and tool, and an MCP server by its name", async () => {
+    const { HttpCallBodySchema, McpServerRefSchema, McpToolRecordSchema } = await import(
+      "../src/harness-api/index.js"
+    );
+    const call = HttpCallBodySchema.parse({ effectId: "e", turnId: "t1", tool: { toolName: "refund" }, input: {} });
+    expect(call.tool).toEqual({ toolName: "refund" });
+    expect(McpServerRefSchema.parse({ serverName: "docs", capabilityId: "mcp" } as never)).toEqual({
+      serverName: "docs",
+    });
+    expect(McpToolRecordSchema.shape).not.toHaveProperty("capabilityId");
+  });
+});
+
 describe("published contract (R4.5)", () => {
   it("derives effect ids from the turn and segment, and tells a segment's own", async () => {
     const { effectIdOf, isEffectIdOf } = await import("../src/harness-api/index.js");
@@ -165,7 +199,7 @@ describe("published contract (R4.5)", () => {
     ).toBe(false);
     expect(
       ToolCallBodySchema.safeParse({
-        server: { capabilityId: "c", serverName: "docs" },
+        server: { serverName: "docs" },
         effectId: "e",
         name: "search",
         arguments: {},

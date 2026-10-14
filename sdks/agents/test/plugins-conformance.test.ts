@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { loadPlugin, PluginError } from "../src/plugins/load.js";
 import { plugin } from "../src/plugins/plugin.js";
+import { runtimeManifestFor } from "@nylorun/core/define";
 import { Agent } from "../src/builder.js";
 
 const PLUGIN_SCHEMA =
@@ -198,7 +199,7 @@ it("warns when the agent is built that a plugin's MCP server was skipped, and wh
   const warnings = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
   try {
     const agent = Agent({ id: "bot", name: "Bot" }).plugin(directory).build();
-    const servers = agent.manifest.capabilities.find((item) => item.id === "tools")?.mcpServers;
+    const servers = agent.manifest.mcpServers;
     expect(Object.keys(servers ?? {})).toEqual(["local"]);
     expect(warnings).toHaveBeenCalledTimes(1);
     expect(warnings).toHaveBeenCalledWith(
@@ -253,7 +254,7 @@ it("skips a skill whose SKILL.md resolves outside the package", () => {
 it("composes skills and MCP into one agent without putting the skill body in the prompt", async () => {
   const tools = root();
   const docs = root();
-  write(tools, "plugin.json", manifest("repository-tools", { description: "Repository MCP" }));
+  write(tools, "plugin.json", manifest("repository-tools", { version: "1.2.0", description: "Repository MCP" }));
   write(
     tools,
     "mcp.json",
@@ -283,42 +284,40 @@ it("composes skills and MCP into one agent without putting the skill body in the
     .plugin(tools)
     .plugin(docs)
     .build();
-  const repository = agent.manifest.capabilities.find((item) => item.id === "repository-tools");
-  const documentation = agent.manifest.capabilities.find((item) => item.id === "documentation");
-  expect(repository).toMatchObject({
-    type: "agent-plugin",
-    description: "Repository MCP",
-    mcpServers: {
-      github: {
-        name: "github",
-        type: "streamable-http",
-        url: "https://mcp.example.com/github",
-      },
+  expect(agent.manifest).not.toHaveProperty("capabilities");
+  expect(agent.manifest.mcpServers).toEqual({
+    github: {
+      name: "github",
+      type: "streamable-http",
+      url: "https://mcp.example.com/github",
+      headers: { "X-Tenant": "public" },
+      plugin: { name: "repository-tools", version: "1.2.0" },
     },
   });
-  expect(documentation?.type).toBe("agent-plugin");
-  expect(documentation?.instructions?.join("\n")).toContain("<name>triage</name>");
-  expect(documentation?.instructions?.join("\n")).not.toContain("Body stays stored.");
-  expect(documentation?.skills?.triage).toEqual({
+  expect(agent.manifest.skills?.triage).toEqual({
     name: "triage",
     description: "Triage an issue. Use when labeling.",
     files: {
       "SKILL.md": expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       "references/labels.md": expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
     },
+    plugin: { name: "documentation" },
   });
+  // The agent's own instructions only: the Runtime adds the skill catalog and the skill tools.
+  expect(agent.manifest.instructions).toEqual(["Use lookup_order for orders."]);
+  expect(agent.manifest.tools ?? []).toEqual([]);
   expect(JSON.stringify(agent.manifest)).not.toContain(realpathSync(tools));
   expect(JSON.stringify(agent.manifest)).not.toContain("Body stays stored.");
   expect(JSON.stringify(agent.manifest)).not.toContain("# Labels");
-  // The Runtime serves the skill tools; the declaration carries the files' bytes to upload.
-  expect(documentation?.tools?.map((item) => item.name)).toEqual(["load_skill", "read_skill_resource"]);
-  const declaration = agent.getBinding().declarations.find((item) => item.id === "documentation");
-  expect(Object.keys(declaration?.skillFiles ?? {}).sort()).toEqual(
-    Object.values(documentation!.skills!.triage!.files).sort()
+  const runtime = runtimeManifestFor(agent.manifest);
+  expect(runtime?.instructions?.join("\n")).toContain("<name>triage</name>");
+  expect(runtime?.instructions?.join("\n")).not.toContain("Body stays stored.");
+  expect(runtime?.tools?.map((item) => item.name)).toEqual(["load_skill", "read_skill_resource"]);
+  // The part carries the files' bytes to upload.
+  const part = agent.getBinding().parts.find((item) => item.id === "plugin:documentation");
+  expect(Object.keys(part?.skillFiles ?? {}).sort()).toEqual(
+    Object.values(agent.manifest.skills!.triage!.files).sort()
   );
-  await expect(
-    agent.getBinding().tools.find((item) => item.name === "load_skill")!.execute({ name: "triage" }, {} as never)
-  ).rejects.toThrow("Skills are served by the Nylorun Runtime");
 });
 
 it("advertises one load_skill for every plugin skill", () => {
@@ -332,7 +331,7 @@ it("advertises one load_skill for every plugin skill", () => {
     .plugin(first)
     .plugin(second)
     .build();
-  const loads = agent.manifest.capabilities.flatMap((item) => item.tools ?? []).filter((item) => item.name === "load_skill");
+  const loads = (runtimeManifestFor(agent.manifest)?.tools ?? []).filter((item) => item.name === "load_skill");
   expect(loads).toHaveLength(1);
   expect(loads[0]!.inputSchema).toMatchObject({ properties: { name: { enum: ["summary", "triage"] } } });
 });

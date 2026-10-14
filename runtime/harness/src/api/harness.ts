@@ -33,7 +33,7 @@ export interface HarnessOptions {
   readonly name?: string;
   readonly version?: string;
   /** What `hello` declares: `workspace` when this harness serves the Tenant's workspaces. */
-  readonly capabilities?: { readonly workspace?: unknown };
+  readonly features?: { readonly workspace?: unknown };
   /** Sees core's answer to `hello` (the Tenant, the sandbox backend preference). */
   onHello?(answer: ResultOf<"hello">): void;
   /** Sees every grant a run gets: when it is leased, and each renewal with a new run token. */
@@ -174,10 +174,10 @@ export function createHarness(options: HarnessOptions): Harness {
         api: HARNESS_API_VERSION,
         name: options.name ?? DEFAULT_HARNESS,
         version: options.version ?? "0",
-        capabilities:
-          options.capabilities?.workspace === undefined
+        features:
+          options.features?.workspace === undefined
             ? {}
-            : { workspace: options.capabilities.workspace },
+            : { workspace: options.features.workspace },
       });
       renewEveryMs = hello.renewEveryMs;
       options.onHello?.(hello);

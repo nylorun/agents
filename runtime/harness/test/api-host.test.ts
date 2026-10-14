@@ -18,7 +18,6 @@ const effect = {
   turnId: "t1",
   agentId: "bot",
   manifestHash: "h",
-  capabilityId: "billing",
   toolName: "refund",
   input: { charge: "ch_1" },
   context: { callId: "call-1", invocationId: "inv-1" },

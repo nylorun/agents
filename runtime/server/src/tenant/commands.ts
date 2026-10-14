@@ -175,11 +175,14 @@ export async function command(
         cascadeCancelIds.push(agentId);
       }
     } else {
-      // A session opened before protocol 11 (migration 0020) keeps its history but takes no turn.
+      // A session opened before protocol 11 (migration 0020) or 13 (migration 0024) keeps its
+      // history but takes no turn.
       if (s.closedReason !== undefined)
         fail(
           409,
-          "This session was opened before protocol 11: open a new session that names an Environment.",
+          s.closedReason === "protocol_11"
+            ? "This session was opened before protocol 11: open a new session that names an Environment."
+            : "This session was opened before protocol 13, on a manifest the Runtime no longer runs: register the agent again (manifest 7) and open a new session.",
           { code: "session_closed" }
         );
       if (command.type === "message") {

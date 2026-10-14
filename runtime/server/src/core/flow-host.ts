@@ -116,7 +116,7 @@ export function isWorkflowManifest(
   );
 }
 
-/** Flow tool-node effect: `tool` with path/key and no agent capabilityId. */
+/** Flow tool-node effect: `tool` with path/key and no tool name (an agent's tool call names one). */
 export function isFlowToolEffect(request: HostEffect): boolean {
   return (
     request.kind === "tool" &&
@@ -124,7 +124,7 @@ export function isFlowToolEffect(request: HostEffect): boolean {
     request.path.length > 0 &&
     typeof request.key === "string" &&
     request.key.length > 0 &&
-    request.capabilityId === undefined
+    request.toolName === undefined
   );
 }
 

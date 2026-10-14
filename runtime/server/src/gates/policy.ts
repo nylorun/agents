@@ -101,8 +101,7 @@ export function pinnedApproval(
 ): boolean {
   const mcp = mcpToolOf(snapshot, request);
   if (mcp) return mcpToolSettingsIn(manifest, mcp).approval === "always";
-  if (request.capabilityId === undefined) return false;
-  return declaredHttpTool(manifest, request.agent?.id, request.capabilityId, request.toolName)?.approval === "always";
+  return declaredHttpTool(manifest, request.agent?.id, request.toolName)?.approval === "always";
 }
 
 function matches(rule: ToolRule, call: PolicyCall): boolean {

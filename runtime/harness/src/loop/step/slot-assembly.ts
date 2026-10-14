@@ -1,8 +1,8 @@
 import { HarnessError, type HarnessErrorCode } from "@nylorun/core/define";
 
 export interface SlotOwner {
-  readonly middlewareId: string;
-  readonly middlewareOrder: number;
+  readonly partId: string;
+  readonly partOrder: number;
   readonly slot: string;
   readonly order: number;
 }
@@ -22,8 +22,8 @@ export class SlotDraft<Value> {
   readonly #slots = new Map<string, SlotDeclaration<Value>>();
 
   set(input: {
-    readonly middlewareId: string;
-    readonly middlewareOrder: number;
+    readonly partId: string;
+    readonly partOrder: number;
     readonly slot: string;
     readonly value: Value;
     readonly order?: number;
@@ -34,7 +34,7 @@ export class SlotDraft<Value> {
     readonly label: string;
   }): void {
     checkedSlot(input.slot, input.invalidSlot, input.label);
-    const base = slotOwner(input.middlewareId, input.middlewareOrder, input.slot);
+    const base = slotOwner(input.partId, input.partOrder, input.slot);
     const key = slotKey(base);
     const prior = this.#slots.get(key);
     const owner = withOrder(base, input.order, prior?.owner.order, input.invalidOrder, input.label);
@@ -57,12 +57,12 @@ export class SlotDraft<Value> {
   }
 }
 
-export function slotOwner(middlewareId: string, middlewareOrder: number, slot: string): SlotOwner {
-  return Object.freeze({ middlewareId, middlewareOrder, slot, order: 0 });
+export function slotOwner(partId: string, partOrder: number, slot: string): SlotOwner {
+  return Object.freeze({ partId, partOrder, slot, order: 0 });
 }
 
 export function slotKey(value: SlotOwner): string {
-  return `${value.middlewareId}\u0000${value.slot}`;
+  return `${value.partId}\u0000${value.slot}`;
 }
 
 export function checkedSlot(value: string, code: HarnessErrorCode, label: string): void {
@@ -92,7 +92,7 @@ export function withOrder(
 export function compareSlotOwners(left: SlotOwner, right: SlotOwner): number {
   return (
     left.order - right.order ||
-    left.middlewareOrder - right.middlewareOrder ||
+    left.partOrder - right.partOrder ||
     left.slot.localeCompare(right.slot)
   );
 }

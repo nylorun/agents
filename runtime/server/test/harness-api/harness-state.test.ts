@@ -1,11 +1,11 @@
 /**
  * Harness-owned state (R4.2): a custom harness's turn state is stored as it sent it, capped, and
- * handed back only to it; it cannot pause for approvals in Harness API 2; and the tools it
- * declares in `hello` are journaled like built-ins, so the log records what really ran.
+ * handed back only to it; it cannot pause for approvals; and the tools it declares in `hello`
+ * (`features.tools`) are journaled like built-ins, by name, so the log records what really ran. A
+ * declared tool whose name a tool of the turn's agents has fails the turn (Harness API 3).
  */
 import { afterEach, expect, it } from "vitest";
 import {
-  HARNESS_TOOLS_CAPABILITY,
   effectRequestHash,
   memoryChannels,
   type EffectIntent,
@@ -41,11 +41,11 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
 }
 
 /** A Runtime with only a custom harness, `acme-mini`, connected, and session s1 on its Environment. */
-async function start() {
+async function start(tools: readonly object[] = [patch]) {
   const runtime = await boot({ harness: "remote" });
   cleanups.push(() => runtime.close());
   const acme = attach(runtime);
-  await acme.request("hello", { api: 2, name: "acme-mini", version: "0", capabilities: { tools: [patch] } });
+  await acme.request("hello", { api: 3, name: "acme-mini", version: "0", features: { tools } });
   expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "none", harness: "acme-mini" })).status).toBe(200);
   await openSession(runtime, "seed");
   expect(
@@ -120,7 +120,6 @@ it("journals a tool the harness declared, and records an undeclared one as unava
     agentId: "bot",
     manifestHash: checkpoint.manifestHash,
     kind: "tool",
-    capabilityId: HARNESS_TOOLS_CAPABILITY,
     toolName,
     input: { patch: "--- a\n+++ b" },
     context: { callId: `c${n}`, invocationId: `i${n}` },
@@ -172,7 +171,6 @@ it("says who wrote each event: the client's command, the harness's claims, core'
     agentId: "bot",
     manifestHash: checkpoint.manifestHash,
     kind: "tool",
-    capabilityId: HARNESS_TOOLS_CAPABILITY,
     toolName,
     input: {},
     context: { callId: `c${n}`, invocationId: `i${n}` },
@@ -208,4 +206,19 @@ it("says who wrote each event: the client's command, the harness's claims, core'
   expect(by("tool.completed", "rm_rf")).toMatchObject({ source: { kind: "core" }, evidence: "observed", runId: run.runId });
   expect(by("turn.completed")).toMatchObject({ source: { kind: "harness", id: "acme-mini" }, evidence: "claimed" });
   expect(by("environment.attached")).toMatchObject({ source: { kind: "core" }, evidence: "observed" });
+});
+
+it("fails the turn when a tool the harness declared takes the name of a tool of the agent's", async () => {
+  // Every agent session has read_artifact in its runtime block (protocol 12).
+  const { runtime, acme } = await start([patch, { name: "read_artifact", inputSchema: { type: "object" } }]);
+  let leased = false;
+  void acme.request("lease", {}).then(() => (leased = true), () => undefined);
+  await message(runtime, 1);
+  await until(() => view(runtime), (v) => v.status === "failed" || v.status === "idle", "refused turn");
+  expect(leased).toBe(false);
+  const items = (await call(runtime, "GET", "/v1/sessions/s1/items")).body.items as {
+    type: string;
+    payload: Record<string, unknown>;
+  }[];
+  expect(JSON.stringify(items.find((item) => item.type === "turn.failed")?.payload)).toContain("read_artifact");
 });

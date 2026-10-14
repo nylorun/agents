@@ -5,7 +5,6 @@
  */
 import {
   type AgentManifest,
-  type CapabilityManifest,
   type SandboxManifest,
   type WorkflowManifest,
 } from "@nylorun/core/define";
@@ -25,24 +24,21 @@ export function sessionSandboxSpec(session: SessionSandboxRef): SandboxManifest 
   return session.sandbox ?? sandboxSpecOf(session.manifest);
 }
 
-/** Sandbox spec declared on an agent capability or a workflow manifest. */
+/** The sandbox spec of a pinned agent manifest (its `runtime` block) or a workflow manifest. */
 export function sandboxSpecOf(
   manifest: AgentManifest | WorkflowManifest | Record<string, unknown> | undefined
 ): SandboxManifest | undefined {
   if (!manifest || typeof manifest !== "object") return undefined;
   if ((manifest as { kind?: unknown }).kind === "workflow")
     return (manifest as WorkflowManifest).sandbox;
-  const capabilities = (manifest as AgentManifest).capabilities;
-  if (!Array.isArray(capabilities)) return undefined;
-  for (const capability of capabilities)
-    if (capability.sandbox) return capability.sandbox;
-  return undefined;
+  return (manifest as AgentManifest).runtime?.sandbox;
 }
 
 /**
- * Where a definition document declares a sandbox: agent capabilities, the agents inlined as
- * tools or embedded in a flow agent, and a workflow's `sandbox`. Definitions no longer declare
- * one (Sandboxes v3), so registration refuses any of these.
+ * Where a definition document declares a sandbox: a workflow's `sandbox`, and the agents embedded
+ * in a flow agent. Definitions no longer declare one (Sandboxes v3), so registration refuses any
+ * of these. An agent manifest cannot: its sandbox is in the `runtime` block, which the schema
+ * refuses at registration.
  */
 export function declaredSandboxes(manifest: unknown, into: string[] = []): string[] {
   if (!manifest || typeof manifest !== "object") return into;
@@ -51,29 +47,38 @@ export function declaredSandboxes(manifest: unknown, into: string[] = []): strin
     kind?: string;
     sandbox?: unknown;
     agents?: Record<string, unknown>;
-    capabilities?: { id: string; sandbox?: unknown; tools?: { agent?: unknown }[] }[];
+    tools?: { agent?: unknown }[];
   };
   if (document.kind === "workflow") {
     if (document.sandbox !== undefined) into.push(`flow agent '${document.id}'`);
     for (const agent of Object.values(document.agents ?? {})) declaredSandboxes(agent, into);
     return into;
   }
-  for (const capability of document.capabilities ?? []) {
-    if (capability.sandbox !== undefined)
-      into.push(`'${document.id}' (capability '${capability.id}')`);
-    for (const tool of capability.tools ?? []) declaredSandboxes(tool.agent, into);
-  }
+  for (const tool of document.tools ?? []) declaredSandboxes(tool.agent, into);
   return into;
 }
 
-/** Synthetic capability so SandboxManager.run can use a workflow (or shared) spec. */
-export function capabilityForSandbox(sandbox: SandboxManifest): CapabilityManifest {
-  return {
-    id: "sandbox",
-    type: "agent",
-    sandbox,
-    tools: [],
+/**
+ * The agents of a definition document that set `runtime`: the document itself, the agents it
+ * uses as tools and those embedded in a flow agent. Only the Runtime writes that block, when it
+ * pins a session's manifest, so registration refuses any of these.
+ */
+export function authoredRuntimeBlocks(manifest: unknown, into: string[] = []): string[] {
+  if (!manifest || typeof manifest !== "object") return into;
+  const document = manifest as {
+    id?: string;
+    kind?: string;
+    runtime?: unknown;
+    agents?: Record<string, unknown>;
+    tools?: { agent?: unknown }[];
   };
+  if (document.kind === "workflow") {
+    for (const agent of Object.values(document.agents ?? {})) authoredRuntimeBlocks(agent, into);
+    return into;
+  }
+  if (document.runtime !== undefined) into.push(`'${document.id}'`);
+  for (const tool of document.tools ?? []) authoredRuntimeBlocks(tool.agent, into);
+  return into;
 }
 
 /**

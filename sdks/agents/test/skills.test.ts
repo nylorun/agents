@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runtimeManifestFor } from "@nylorun/core/define";
 import { Agent } from "../src/builder.js";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import { expect, it } from "vitest";
@@ -42,7 +43,7 @@ it("loads an agentskills.io catalog as files named by hash, binary included, wit
   write(root, "triage/.git/HEAD", "ref: main");
 
   const declaration = skills(root);
-  expect(declaration.id).toBe(realpathSync(root).split(/[/\\]/).pop());
+  expect(declaration.id).toBe(`skills:${realpathSync(root).split(/[/\\]/).pop()}`);
   expect(declaration.skills?.triage).toEqual({
     name: "triage",
     description: "Triage an issue. Use when labeling.",
@@ -60,8 +61,8 @@ it("loads an agentskills.io catalog as files named by hash, binary included, wit
   const source = declaration.skillFiles![sha256(logo)]!;
   expect(source.size).toBe(logo.length);
   expect(await source.read()).toEqual(logo);
-  expect(declaration.instructions?.join("\n")).toContain("<name>triage</name>");
-  expect(declaration.instructions?.join("\n")).not.toContain("Body stays stored.");
+  // The Runtime adds the skill catalog; the part has no instructions of its own.
+  expect(declaration.instructions).toBeUndefined();
 
   const agent = Agent({
     id: "assistant",
@@ -71,18 +72,16 @@ it("loads an agentskills.io catalog as files named by hash, binary included, wit
     .skills(root)
     .build();
 
-  const capability = agent.manifest.capabilities.find(
-    (item) => item.id === declaration.id
-  );
-  expect(capability?.skills?.triage?.files).toEqual(declaration.skills?.triage?.files);
-  expect(capability?.tools?.map((item) => item.name)).toEqual(["load_skill", "read_skill_resource"]);
+  expect(agent.manifest.skills?.triage?.files).toEqual(declaration.skills?.triage?.files);
+  expect(agent.manifest.skills?.triage).not.toHaveProperty("plugin");
   expect(JSON.stringify(agent.manifest)).not.toContain("Body stays stored.");
   expect(JSON.stringify(agent.manifest)).not.toContain("# Labels");
-  // The Runtime serves the skill tools; in this process they only say so.
-  const load = agent.getBinding().tools.find((item) => item.name === "load_skill");
-  await expect(load!.execute({ name: "triage" }, {} as never)).rejects.toThrow(
-    "Skills are served by the Nylorun Runtime"
-  );
+  // The Runtime adds the skill tools and the catalog when it pins the agent.
+  expect(agent.manifest.tools ?? []).toEqual([]);
+  const runtime = runtimeManifestFor(agent.manifest);
+  expect(runtime?.tools?.map((item) => item.name)).toEqual(["load_skill", "read_skill_resource"]);
+  expect(runtime?.instructions?.join("\n")).toContain("<name>triage</name>");
+  expect(runtime?.instructions?.join("\n")).not.toContain("Body stays stored.");
 });
 
 it("uploads the skill files the Runtime lacks, binary included, before saving the agent", async () => {
@@ -115,7 +114,7 @@ it("uploads the skill files the Runtime lacks, binary included, before saving th
       }
       if (path === "/v1/agents/assistant" && init?.method === "PUT") {
         const body = JSON.parse(String(init.body));
-        for (const hash of Object.values(body.manifest.capabilities[1].skills.triage.files))
+        for (const hash of Object.values(body.manifest.skills.triage.files))
           expect(held.has(hash as string)).toBe(true);
         return Response.json({ agentId: "assistant", manifestHash: "x", implementationVersion: "dev" });
       }

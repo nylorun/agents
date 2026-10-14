@@ -104,7 +104,6 @@ export async function previewMcpServer(
       callTool: () => Promise.reject(new Error("A preview never calls a tool")),
     };
     const listed = await listMcpTools(listing, {
-      capabilityId: "preview",
       serverName: name,
       taken: new Set(),
       signal,

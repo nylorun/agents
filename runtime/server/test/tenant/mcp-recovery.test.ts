@@ -193,7 +193,7 @@ it("finishes a turn whose owner died mid MCP call: the next advance re-sends the
   const refused = await fetch(`${runtime.gate!.url}/nylorun/v1/tool-calls`, {
     method: "POST",
     headers: { authorization: `Bearer ${staleToken}`, "content-type": "application/json" },
-    body: JSON.stringify({ server: { capabilityId: "c", serverName: "s" }, effectId: "late", name: "slow", arguments: {} }),
+    body: JSON.stringify({ server: { serverName: "s" }, effectId: "late", name: "slow", arguments: {} }),
   });
   expect(refused.status).toBe(409);
   expect(await refused.json()).toMatchObject({ error: { code: "run_stale" } });

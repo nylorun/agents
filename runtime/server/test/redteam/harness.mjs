@@ -263,7 +263,7 @@ const gate = "http://gateway:4100/nylorun/v1";
 const withHarnessToken = [
   ["gateway keys/sign", `${gate}/keys/sign`, { args: [{ typ: "nylorun-run+jwt", claims: {} }] }],
   ["gateway model-calls", `${gate}/model-calls`, { effectId: "e", invocationId: "i", call: { prompt: [], tools: [] } }],
-  ["gateway mcp/connect", `${gate}/mcp/connect`, { server: { sessionId: SESSION_B, capabilityId: "c", serverName: "s" } }],
+  ["gateway mcp/connect", `${gate}/mcp/connect`, { server: { sessionId: SESSION_B, serverName: "s" } }],
 ];
 for (const [name, url, body] of withHarnessToken) {
   const answer = await http(url, { method: "POST", headers: bearer(TOKEN), body });
@@ -293,7 +293,7 @@ report("Harness API checks the Host", (await upgrade("/nylorun/harness/v1", { ..
 
 // 7. Runs this connection does not hold.
 const api = await harnessConnection();
-const hello = await api.request("hello", { api: 2, name: "nylorun", version: "0", capabilities: {} });
+const hello = await api.request("hello", { api: 3, name: "nylorun", version: "0", features: {} });
 const tenantId = hello.tenantId;
 const unheld = randomUUID();
 const intent = (runId, sessionId) => ({
@@ -377,7 +377,7 @@ report("a model call naming session B under A's token is refused", namingB.statu
 const mcpB = await http(`${gate}/mcp/connect`, {
   method: "POST",
   headers: runHeaders,
-  body: { server: { sessionId: SESSION_B, capabilityId: "c", serverName: "s" } },
+  body: { server: { sessionId: SESSION_B, serverName: "s" } },
 });
 report("MCP connect for session B under A's token: 403", mcpB.status === 403, `${mcpB.status} ${mcpB.text.slice(0, 160)}`);
 

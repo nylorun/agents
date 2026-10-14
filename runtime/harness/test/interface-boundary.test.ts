@@ -98,7 +98,7 @@ describe("public interface boundaries", () => {
         expect(descriptor).toMatchObject({
           name: "double",
           description: "Double a number",
-          owner: { middlewareId: "agent", slot: "agent" },
+          owner: { partId: "agent", slot: "agent" },
           inputSchema: { jsonSchema: { type: "object" } },
           outputSchema: { jsonSchema: { type: "object" } },
         });

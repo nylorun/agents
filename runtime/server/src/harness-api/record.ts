@@ -19,7 +19,6 @@
  * harness and the Tool Gate reads with the row.
  */
 import {
-  HARNESS_TOOLS_CAPABILITY,
   HarnessApiError,
   effectRequestHash,
   isEffectIdOf,
@@ -38,7 +37,7 @@ import {
   settleAgentEffect,
   type FlowEffect,
 } from "../core/flow-host.js";
-import { sandboxCapabilityOf } from "../sandbox/capability.js";
+import { sandboxToolSpec } from "../sandbox/runtime-tools.js";
 import { abortOn, isReadArtifactCall, isSaveArtifactCall } from "../harness/calls.js";
 import { callReadArtifact, callSaveArtifact } from "../tenant/artifact-tool.js";
 import {
@@ -88,7 +87,7 @@ export interface RecordScope {
   readonly ctx: TenantContext;
   readonly lease: Lease;
   readonly signal: AbortSignal;
-  /** The tools the run's harness declared it runs itself (`hello` `capabilities.tools`, R4.2). */
+  /** The tools the run's harness declared it runs itself (`hello` `features.tools`, R4.2), by name. */
   readonly nativeTools?: ReadonlySet<string>;
   /**
    * Who reported what this scope records (R4.9): the run's harness, so the events derived from
@@ -228,17 +227,17 @@ export async function recordIntent(
         (mcpToolOf(s.mcpSnapshot, request, turnManifestOf(s)) !== undefined ||
           // HTTP tools (R2 M3) cross the Tool Gate.
           isHttpToolCall(s.manifest, request) ||
-          sandboxCapabilityOf(agentManifest, request.capabilityId, request.toolName) !== undefined ||
+          sandboxToolSpec(agentManifest, request.toolName) !== undefined ||
           // `save_artifact` (F8.1) runs beside the sandbox tools, as do `read_artifact` (R2b
           // C11) and the skill tools (R2 M4).
           isSaveArtifactCall(agentManifest, request) ||
           isReadArtifactCall(agentManifest, request) ||
           isSkillToolCall(agentManifest, request) ||
           // `tool_search` (R2b C10) reads the session's pinned MCP snapshot: core serves it.
-          isToolSearchCall(agentManifest, request) ||
-          // A tool the run's harness declared and runs itself (R4.2, Q3).
-          (request.capabilityId === HARNESS_TOOLS_CAPABILITY &&
-            scope.nativeTools?.has(request.toolName ?? "") === true)));
+          isToolSearchCall(s.mcpSnapshot, request) ||
+          // A tool the run's harness declared and runs itself (R4.2, Q3), by its name: the turn
+          // refuses a native tool whose name another tool of the agent's has (`harness-api/server.ts`).
+          (request.toolName !== undefined && scope.nativeTools?.has(request.toolName) === true)));
     if (!executed) {
       // A tool that would run the developer's code: refused at save (a turn's manifest only
       // removes tools), so this is a backstop, as is an MCP tool the turn disabled, which the
@@ -276,13 +275,13 @@ export async function recordIntent(
     }
     await t.put("effects", request.effectId, row);
     // `save_artifact` writes the Tenant's artifacts: core runs it, reading the file through the
-    // workspace capability, wherever the sandbox is.
+    // workspace feature, wherever the sandbox is.
     if (request.kind === "tool" && isSaveArtifactCall(agentManifest, request)) return "save";
     // `read_artifact` reads the session's artifacts: core serves it, with or without a sandbox.
     if (isReadArtifactCall(agentManifest, request)) return "read";
     // The skill tools read the agent's definition files: core serves them.
     if (isSkillToolCall(agentManifest, request)) return { skill: agentManifest };
-    if (isToolSearchCall(agentManifest, request)) return "search";
+    if (isToolSearchCall(s.mcpSnapshot, request)) return "search";
     return { status: "execute", ...(row.traceparent ? { traceparent: row.traceparent } : {}) };
   });
   if (answer === "save") return runInCore(scope, request, () => callSaveArtifact(scope.ctx, request, scope.signal));
@@ -530,8 +529,8 @@ async function shaped(scope: RecordScope, effectId: string, value: unknown): Pro
     const effect = await t.get<StoredEffect>("effects", effectId);
     if (!s || !effect || effect.status === "completed") return undefined;
     const request = effect.request as HostEffect;
-    // An agent's tool; a flow's HTTP stage or verifier names no capability, and its output is data.
-    if (request.kind !== "tool" || request.capabilityId === undefined) return undefined;
+    // An agent's tool; a flow's HTTP stage or verifier names no tool, and its output is data.
+    if (request.kind !== "tool" || request.toolName === undefined) return undefined;
     const mcp = mcpToolOf(s.mcpSnapshot, request) !== undefined;
     if (!mcp && !isHttpToolCall(s.manifest, request)) return undefined;
     const step = stepOf(request);

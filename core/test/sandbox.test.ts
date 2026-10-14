@@ -6,61 +6,51 @@ import {
   isSandboxHostPattern,
   parseSandboxDuration,
   parseSandboxSize,
-  sandboxCapabilityManifest,
+  runtimeManifestFor,
 } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
 import { addPart } from "./support/parts.js";
 
-/** A session's pinned manifest: the definition plus the capability the Runtime adds. */
+/** A session's pinned manifest: the definition plus the `runtime` block the Runtime adds. */
 const pinned = (sandbox: Record<string, unknown> = {}) => ({
-  manifestSchemaVersion: 5 as const,
+  manifestSchemaVersion: 7 as const,
   id: "analyst",
-  capabilities: [sandboxCapabilityManifest(sandbox)],
+  runtime: runtimeManifestFor({}, { sandbox })!,
 });
 
-it("fails the build when a capability declares a sandbox", () => {
+it("fails the build when a part declares a sandbox", () => {
   expect(() =>
     addPart(Agent({ id: "analyst" }), {
       id: "sandbox",
       instructions: [SANDBOX_INSTRUCTIONS],
-      tools: createSandboxTools(),
       sandbox: { image: "node:24" },
     } as never).build()
-  ).toThrow(/declares a sandbox\. Agents no longer declare one/);
+  ).toThrow(/Agents no longer declare a sandbox: open the session with it instead/);
 });
 
-it("rejects unknown fields, bad values and missing built-in tools on the wire", () => {
+it("refuses the sandbox tools in an authored part: only the Runtime pins them", () => {
+  expect(() =>
+    addPart(Agent({ id: "analyst" }), { id: "sandbox", tools: createSandboxTools() }).build()
+  ).toThrow(/Tool 'bash' takes the name of a tool the Runtime serves/);
+});
+
+it("rejects unknown fields and bad values in the pinned sandbox on the wire", () => {
   const base = pinned();
   const withSandbox = (sandbox: unknown) =>
-    AgentManifestSchema.safeParse({
-      ...base,
-      capabilities: [{ ...base.capabilities[0], sandbox }],
-    }).success;
+    AgentManifestSchema.safeParse({ ...base, runtime: { ...base.runtime, sandbox } }).success;
   expect(withSandbox({ setup: ["pip install pandas"] })).toBe(false);
   expect(withSandbox({ idle: "soon" })).toBe(false);
   expect(withSandbox({ resources: { memory: "2GB" } })).toBe(false);
   expect(withSandbox({ network: { preset: "all" } })).toBe(false);
   expect(withSandbox({ network: { allow: ["https://api.github.com"] } })).toBe(false);
   expect(withSandbox({ network: { allow: ["*.github.com"] }, resources: { memory: "2GiB" } })).toBe(true);
-  const missing = AgentManifestSchema.safeParse({
-    ...base,
-    capabilities: [
-      {
-        ...base.capabilities[0],
-        tools: base.capabilities[0]!.tools!.filter((item) => item.name !== "bash"),
-      },
-    ],
-  });
-  expect(missing.success).toBe(false);
 });
 
-it("rejects two sandbox capabilities", () => {
-  const base = pinned();
-  const result = AgentManifestSchema.safeParse({
-    ...base,
-    capabilities: [base.capabilities[0], { id: "second", type: "agent", sandbox: {} }],
-  });
-  expect(result.success).toBe(false);
+it("refuses a sandbox anywhere but runtime", () => {
+  expect(AgentManifestSchema.safeParse({ ...pinned(), sandbox: {} }).success).toBe(false);
+  expect(
+    AgentManifestSchema.safeParse({ ...pinned(), runtime: { ...pinned().runtime, extra: true } }).success
+  ).toBe(false);
 });
 
 it("fails the developer-process stub with a teaching error", async () => {

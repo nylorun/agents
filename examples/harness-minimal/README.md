@@ -1,6 +1,6 @@
 # A minimal harness
 
-A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun Runtime. It is written only against the published contract, [`@nylorun/core/harness-api`](../../core/src/harness-api/index.ts), and the `ws` package; it does not use our engine (`@nylorun/harness`). Read it as a worked example of the Harness API, or copy it as the start of your own harness.
+A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun Runtime. It is written only against the published contract (Harness API 3), [`@nylorun/core/harness-api`](../../core/src/harness-api/index.ts), and the `ws` package; it does not use our engine (`@nylorun/harness`). Read it as a worked example of the Harness API, or copy it as the start of your own harness.
 
 - [`src/harness.ts`](./src/harness.ts): the connection and the loop.
 - [`src/pod.ts`](./src/pod.ts): the join and token renewal of a sandbox pod.
@@ -8,11 +8,11 @@ A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun
 
 ## What a turn does
 
-The harness says `hello` with its harness id, `minimal` (or `HARNESS_ID`), and takes the runs of the sessions pinned to that id: those opened on an Environment whose `harness` is `minimal`. Our harness keeps the rest. It leases one run at a time:
+The harness says `hello` with its harness id, `minimal` (or `HARNESS_ID`), and no `features` (no workspace, no tools of its own), and takes the runs of the sessions pinned to that id: those opened on an Environment whose `harness` is `minimal`. Our harness keeps the rest. It leases one run at a time:
 
 1. `lease` hands it a run: the run token (`RunGrant.token`) and the turn (`TurnStart`). It renews the lease every `renewEveryMs` from the `hello` answer, and takes a new run token when a renewal brings one.
 2. `transcript.read`, once: the session's transcript so far.
-3. It builds the prompt from the manifest's instructions, the transcript and the turn's message, and calls the Model Gate (`POST $NYLORUN_GATES_URL/nylorun/v1/model-calls`) with `Authorization: Bearer <run token>` and `Idempotency-Key: <effect id>`. The model is offered one tool: `bash`, from the session's sandbox capability.
+3. It builds the prompt from the manifest's instructions (the agent's `instructions`, then the Runtime's `runtime.instructions`), the transcript and the turn's message, and calls the Model Gate (`POST $NYLORUN_GATES_URL/nylorun/v1/model-calls`) with `Authorization: Bearer <run token>` and `Idempotency-Key: <effect id>`. The model is offered one tool: `bash`, from `runtime.tools` when the pinned manifest has a sandbox (`runtime.sandbox`).
 4. When the model calls `bash`, the harness runs the command itself with `bash -c`, in `/workspace` when it exists.
 5. It repeats until the model answers with text, then settles with `turn.completed`: the text as `output`, the transcript entries it added (`input`, `candidate`, `tool-results`, `final`) as edits, and `state: {steps}`, which core keeps and hands back with the next turn without reading it.
 
@@ -63,7 +63,7 @@ Our harness keeps running: the Runtime routes each session by the harness it is 
 
 ```sh
 curl -X PUT "$NYLORUN_RUNTIME_URL/v1/environments/minimal-box" \
-  -H "authorization: Bearer $NYLORUN_API_KEY" -H "nylorun-protocol: 12" -H "content-type: application/json" \
+  -H "authorization: Bearer $NYLORUN_API_KEY" -H "nylorun-protocol: 13" -H "content-type: application/json" \
   -d '{"kind": "virtual", "harness": "minimal"}'
 ```
 
@@ -79,7 +79,7 @@ To try it without a model provider, turn on the Tenant's fixture model, which th
 
 ```sh
 curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/config/seed" \
-  -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 12" -H "content-type: application/json" \
+  -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 13" -H "content-type: application/json" \
   -d '{"requestId": "fixture-1", "fixtureModel": true}'
 ```
 
@@ -98,8 +98,8 @@ The unit tests run the loop against a fake core and a fake Model Gate: a text tu
 
 This harness stays small. In this first version:
 
-- No workspace capability: it serves no `workspace.*` requests, so `save_artifact`, the turn-end export of outputs and the session sandbox routes find no workspace.
-- One tool: `bash` from the sandbox capability. It offers no `read`, `write`, `edit`, `grep` or `glob`, no remote MCP servers, no HTTP tools and no agents used as tools. A tool it does not run is answered `tool.unknown` to the model.
+- No workspace: it declares no `features.workspace` and serves no `workspace.*` requests, so `save_artifact`, the turn-end export of outputs and the session sandbox routes find no workspace.
+- One tool: `bash` from the manifest's `runtime.tools`. It offers no `read`, `write`, `edit`, `grep` or `glob`, no remote MCP servers, no HTTP tools and no agents used as tools. A tool it does not run is answered `tool.unknown` to the model.
 - No approvals or pauses, no flows, and no segment rollover: a turn that starts from an approval, a flow or a `continue` fails with `harness.unsupported`. A turn is at most 16 model steps.
 - One run at a time. As a container, every session's commands share one working directory.
 - No streaming: the Model Gate answers once a call has finished.

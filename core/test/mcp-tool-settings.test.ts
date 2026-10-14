@@ -1,8 +1,6 @@
 /**
- * R2b C9: per-tool MCP settings in manifest v6. A `tools` map keyed by the server's own tool
- * names, with `"*"` for the rest, and `deferred` on the server; v5 manifests are accepted
- * unchanged, and the builder writes v6 only for a manifest that uses them. A turn variant may only
- * tighten them.
+ * R2b C9: per-tool MCP settings. A `tools` map keyed by the server's own tool names, with `"*"`
+ * for the rest, and `deferred` on the server. A turn variant may only tighten them.
  */
 import { describe, expect, it } from "vitest";
 import { Agent, McpError, approvalRefusal, approvalsOf, mcpToolSettings } from "../src/define.js";
@@ -42,59 +40,47 @@ describe("resolving a tool's settings", () => {
   });
 });
 
-describe("manifest v6", () => {
-  it("is what the builder writes only when a server sets tools or deferred", () => {
+describe("the manifest's MCP settings", () => {
+  it("are written as the author set them, on the flat manifest", () => {
     const plain = Agent({ id: "bot" }).mcp({ github }).build().manifest;
-    expect(plain.manifestSchemaVersion).toBe(5);
+    expect(plain).toEqual({ manifestSchemaVersion: 7, id: "bot", mcpServers: { github: { name: "github", ...github } } });
     const allowlist = Agent({ id: "bot" })
       .mcp({ github: { ...github, tools: { "*": { enabled: false }, search_issues: { enabled: true } } } })
       .build().manifest;
-    expect(allowlist.manifestSchemaVersion).toBe(6);
-    expect(allowlist.capabilities[0]!.mcpServers!.github).toEqual({
+    expect(allowlist.manifestSchemaVersion).toBe(7);
+    expect(allowlist.mcpServers!.github).toEqual({
       name: "github",
       ...github,
       tools: { "*": { enabled: false }, search_issues: { enabled: true } },
     });
     const deferred = Agent({ id: "bot" }).mcp({ github: { ...github, deferred: true } }).build().manifest;
-    expect(deferred.manifestSchemaVersion).toBe(6);
+    expect(deferred.mcpServers!.github!.deferred).toBe(true);
     expect(AgentManifestSchema.safeParse(allowlist).success).toBe(true);
     expect(AgentManifestSchema.safeParse(deferred).success).toBe(true);
   });
 
-  it("keeps a v5 manifest's hash: the same JSON as before, accepted unchanged", () => {
+  it("keeps the hash when a manifest is rebuilt from its JSON", () => {
     const json = {
-      manifestSchemaVersion: 5 as const,
+      manifestSchemaVersion: 7 as const,
       id: "bot",
-      capabilities: [{ id: "mcp", type: "agent" as const, mcpServers: { github: { name: "github", ...github } } }],
+      mcpServers: { github: { name: "github", ...github } },
     };
     expect(AgentManifestSchema.parse(json)).toEqual(json);
     const built = Agent({ id: "bot" }).mcp({ github }).build().manifest;
     expect(hashManifest(built)).toBe(hashManifest(json));
-    const restored = Agent.from(json, {});
-    expect(restored.manifest).toEqual(json);
-  });
-
-  it("refuses tools or deferred in a v5 manifest, with the version they need", () => {
-    for (const settings of [{ tools: { "*": { enabled: false } } }, { deferred: true }]) {
-      const json = {
-        manifestSchemaVersion: 5,
-        id: "bot",
-        capabilities: [{ id: "mcp", type: "agent", mcpServers: { github: { name: "github", ...github, ...settings } } }],
-      };
-      const parsed = AgentManifestSchema.safeParse(json);
-      expect(parsed.success).toBe(false);
-      expect(parsed.error!.issues.map((issue) => issue.message)).toContain(
-        "MCP server 'github' sets tools or deferred, which need manifestSchemaVersion 6. Rebuild the agent with the current SDK"
-      );
-      expect(() => Agent.from(json, {})).toThrow(/need manifestSchemaVersion 6/);
-    }
+    expect(Agent.from(json, {}).manifest).toEqual(json);
+    const withSettings = Agent({ id: "bot" })
+      .mcp({ github: { ...github, tools: { create_issue: { enabled: false } } } })
+      .build().manifest;
+    const restored = Agent.from(JSON.parse(JSON.stringify(withSettings)), {});
+    expect(hashManifest(restored.manifest)).toBe(hashManifest(withSettings));
   });
 
   it("refuses settings other than enabled, approval and deferred", () => {
     const json = (tools: unknown) => ({
-      manifestSchemaVersion: 6,
+      manifestSchemaVersion: 7,
       id: "bot",
-      capabilities: [{ id: "mcp", type: "agent", mcpServers: { github: { name: "github", ...github, tools } } }],
+      mcpServers: { github: { name: "github", ...github, tools } },
     });
     expect(AgentManifestSchema.safeParse(json({ x: { enabled: true } })).success).toBe(true);
     expect(AgentManifestSchema.safeParse(json({ x: { hidden: true } })).success).toBe(false);
@@ -104,35 +90,13 @@ describe("manifest v6", () => {
       Agent({ id: "bot" }).mcp({ github: { ...github, tools: { x: { hidden: true } as never } } })
     ).toThrow(McpError);
   });
-
-  it("rebuilds a v6 manifest at v6, with or without v6 fields, so its hash holds", () => {
-    const withSettings = Agent({ id: "bot" })
-      .mcp({ github: { ...github, tools: { create_issue: { enabled: false } } } })
-      .build().manifest;
-    const restored = Agent.from(JSON.parse(JSON.stringify(withSettings)), {});
-    expect(hashManifest(restored.manifest)).toBe(hashManifest(withSettings));
-    const bare = { manifestSchemaVersion: 6 as const, id: "bot", capabilities: [] };
-    expect(AgentManifestSchema.safeParse(bare).success).toBe(true);
-    expect(Agent.from(bare, {}).manifest.manifestSchemaVersion).toBe(6);
-  });
-
-  it("still refuses an unknown version", () => {
-    const parsed = AgentManifestSchema.safeParse({ manifestSchemaVersion: 7, id: "bot", capabilities: [] });
-    expect(parsed.error!.issues[0]!.message).toBe("Unsupported manifestSchemaVersion 7");
-  });
 });
 
 describe("a turn variant (Q18)", () => {
   const pinned = (server: Partial<McpServerManifest> = {}): AgentManifest => ({
-    manifestSchemaVersion: 6,
+    manifestSchemaVersion: 7,
     id: "bot",
-    capabilities: [
-      {
-        id: "mcp",
-        type: "agent",
-        mcpServers: { github: { name: "github", ...github, ...server } as McpServerManifest },
-      },
-    ],
+    mcpServers: { github: { name: "github", ...github, ...server } as McpServerManifest },
   });
 
   it("may disable a tool, and keeps a pinned approval but adds none (R5 step 2)", () => {
@@ -147,9 +111,8 @@ describe("a turn variant (Q18)", () => {
     );
   });
 
-  it("may tighten a v5 pin with a v6 variant", () => {
-    const pin = { ...pinned(), manifestSchemaVersion: 5 as const };
-    expect(isVariantOf(pinned({ tools: { delete_repo: { enabled: false } } }), pin)).toBe(true);
+  it("may add a disabled tool's entry to a pin without settings", () => {
+    expect(isVariantOf(pinned({ tools: { delete_repo: { enabled: false } } }), pinned())).toBe(true);
   });
 
   it("is refused when it widens", () => {
@@ -186,17 +149,11 @@ describe("approval, removed (R5 step 2)", () => {
 
   it("names where a definition sets it, so a save can refuse it", () => {
     const manifest: AgentManifest = {
-      manifestSchemaVersion: 6,
+      manifestSchemaVersion: 7,
       id: "bot",
-      capabilities: [
-        {
-          id: "mcp",
-          type: "agent",
-          mcpServers: {
-            github: { name: "github", ...github, tools: { create_issue: { approval: "always" } } } as McpServerManifest,
-          },
-        },
-      ],
+      mcpServers: {
+        github: { name: "github", ...github, tools: { create_issue: { approval: "always" } } } as McpServerManifest,
+      },
     };
     expect(approvalsOf(manifest)).toEqual(["tool 'create_issue' of MCP server 'github' of agent 'bot'"]);
     expect(approvalRefusal(manifest)).toMatch(/^approval was removed from the manifest: remove it from tool 'create_issue'/);

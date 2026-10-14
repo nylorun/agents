@@ -211,8 +211,7 @@ describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
       await store.tx(async (t) => {
         const session = await t.get<Record<string, any>>("sessions", "s1");
         const manifest = structuredClone(session!.manifest);
-        for (const capability of manifest.capabilities)
-          for (const tool of capability.tools ?? []) if (tool.name === "refund") tool.approval = "always";
+        for (const tool of manifest.tools ?? []) if (tool.name === "refund") tool.approval = "always";
         await t.put("sessions", "s1", { ...session, manifest, manifestHash: hashManifest(manifest) });
       });
     } finally {
@@ -252,7 +251,7 @@ describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
     const service = await refundService();
     const runtime = await boot(refunder({ charge: "ch_5", amount: 1 }, []));
     const manifest = structuredClone(refundAgent(service.url).manifest) as any;
-    manifest.capabilities[0].tools[0].approval = "always";
+    manifest.tools[0].approval = "always";
     const refused = await put(runtime, "/v1/agents/bot", { requestId: "put-1", manifest, implementationVersion: "dev" });
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain("approval was removed from the manifest");

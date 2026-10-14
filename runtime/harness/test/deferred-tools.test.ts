@@ -8,7 +8,6 @@ import {
   Agent,
   TOOL_CALL_TOOL,
   TOOL_SEARCH_TOOL,
-  TOOLS_CAPABILITY_ID,
   deferredToolsTools,
   type AgentManifest,
 } from "@nylorun/core/define";
@@ -20,15 +19,10 @@ import {
   type HostEffect,
 } from "../src/run/index.js";
 
-const manifest: AgentManifest = {
-  ...Agent({ id: "bot" })
-    .mcp({ github: { type: "streamable-http", url: "https://mcp.example.com/github" } })
-    .build().manifest,
-};
-const pinned: AgentManifest = {
-  ...manifest,
-  capabilities: [...manifest.capabilities, { id: TOOLS_CAPABILITY_ID, type: "agent" }],
-};
+/** The pinned manifest: the MCP tools and the deferred-tool pair are session tools, not in it. */
+const pinned: AgentManifest = Agent({ id: "bot" })
+  .mcp({ github: { type: "streamable-http", url: "https://mcp.example.com/github" } })
+  .build().manifest;
 const issueSchema = {
   type: "object",
   properties: { number: { type: "integer" } },
@@ -38,18 +32,16 @@ const issueSchema = {
 const [search, call] = deferredToolsTools();
 const NOTE = "Some tools of these MCP servers are not in your tool list.";
 const sessionTools: DurableSessionTool[] = [
-  { capabilityId: "mcp", name: "github__list_repos", inputSchema: { type: "object" } },
-  { capabilityId: TOOLS_CAPABILITY_ID, ...search!, instructions: [NOTE] },
-  { capabilityId: TOOLS_CAPABILITY_ID, ...call! },
+  { name: "github__list_repos", inputSchema: { type: "object" } },
+  { ...search!, instructions: [NOTE] },
+  { ...call! },
   {
-    capabilityId: "mcp",
     name: "github__get_issue",
     description: "Read an issue.",
     inputSchema: issueSchema,
     deferred: true,
   },
   {
-    capabilityId: "mcp",
     name: "github__create_issue",
     description: "Open an issue.",
     inputSchema: { type: "object" },
@@ -121,9 +113,7 @@ describe("deferred tools in the engine", () => {
     expect(h.offered[1]).toEqual(h.offered[0]);
     expect(h.prompts[0]).toContain(NOTE);
     // tool_search is the host's to run, like any tool.
-    expect(h.tools).toMatchObject([
-      { capabilityId: TOOLS_CAPABILITY_ID, toolName: TOOL_SEARCH_TOOL },
-    ]);
+    expect(h.tools).toMatchObject([{ toolName: TOOL_SEARCH_TOOL }]);
   });
 
   it("runs a deferred tool through tool_call as that tool's own effect", async () => {
@@ -134,11 +124,11 @@ describe("deferred tools in the engine", () => {
     expect(h.tools).toHaveLength(1);
     expect(h.tools[0]).toMatchObject({
       kind: "tool",
-      capabilityId: "mcp",
       toolName: "github__get_issue",
       input: { number: 7 },
       context: { callId: "call-1" },
     });
+    expect(h.tools[0]).not.toHaveProperty("capabilityId");
     expect(JSON.stringify(h.results[0])).toContain("bug");
   });
 

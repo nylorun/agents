@@ -93,14 +93,14 @@ function declarationsOf(agent: AgentSource) {
   const built = agent.build?.() ?? agent;
   if (isBuiltWorkflow(built)) return [];
   const binding = built.getBinding?.();
-  if (!binding || !("declarations" in binding)) return [];
-  const found = [...(binding.declarations ?? [])];
+  if (!binding || !("parts" in binding)) return [];
+  const found = [...(binding.parts ?? [])];
   for (const tool of binding.tools ?? []) {
     const delegate = delegateOf(tool);
-    found.push(...(delegate?.agent?.getBinding().declarations ?? []));
+    found.push(...(delegate?.agent?.getBinding().parts ?? []));
     // A flow agent used as a tool: its agents' declarations.
     for (const leaf of Object.values(delegate?.workflow?.getBinding().agents ?? {}))
-      found.push(...(leaf.declarations ?? []));
+      found.push(...(leaf.parts ?? []));
   }
   return found;
 }

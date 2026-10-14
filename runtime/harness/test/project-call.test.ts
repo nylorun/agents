@@ -185,7 +185,7 @@ describe("projectModelCall", () => {
               name: "echo",
               description: "Echo a message",
               execute: async () => ({ kind: "completed", output: null }),
-              owner: { middlewareId: "tools", slot: "echo" },
+              owner: { partId: "tools", slot: "echo" },
               inputSchema: {
                 jsonSchema: { type: "object", properties: { text: { type: "string" } } },
                 validate: () => ({ ok: true, value: {} }),
@@ -456,8 +456,8 @@ describe("projectModelCall", () => {
     expect(requests.map((request) => request.context.items)).toEqual([[], []]);
 
     expect(requests.map((request) => request.configuration.tools[0]?.owner)).toEqual([
-      { middlewareId: "agent", slot: "agent" },
-      { middlewareId: "agent", slot: "agent" },
+      { partId: "agent", slot: "agent" },
+      { partId: "agent", slot: "agent" },
     ]);
     expect(calls.map((call) => call.tools)).toEqual([
       [

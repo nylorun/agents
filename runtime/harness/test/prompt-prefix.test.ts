@@ -45,7 +45,7 @@ describe("model configuration", () => {
 
     expect(configuration.instructions.map((item) => item.text)).toEqual(["first", "second"]);
     expect(configuration.tools.map((item) => item.name)).toEqual(["first", "late"]);
-    expect(configuration.contributors.map((item) => `${item.middlewareId}:${item.slot}`)).toEqual([
+    expect(configuration.contributors.map((item) => `${item.partId}:${item.slot}`)).toEqual([
       "first:first",
       "later:later",
       "first:first",

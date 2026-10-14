@@ -89,8 +89,6 @@ async function sessionServer(options: { endEveryCall?: boolean } = {}) {
 
 const agentFor = (url: string) =>
   Agent({ id: "bot" }).mcp({ remote: { type: "streamable-http", url } }).build().manifest;
-const capabilityOf = (manifest: ReturnType<typeof agentFor>) =>
-  manifest.capabilities.find((capability) => capability.mcpServers)!.id;
 
 /** A pool whose server's credential sends requests to `via()`. */
 function poolFor(via?: () => string) {
@@ -105,7 +103,6 @@ function poolFor(via?: () => string) {
 async function callThrough(pool: McpPool, manifest: ReturnType<typeof agentFor>) {
   return pool.call({
     sessionId: "s1",
-    capabilityId: capabilityOf(manifest),
     serverName: "remote",
     serverToolName: "echo",
     args: {},
@@ -177,7 +174,7 @@ describe("the gate's MCP handler", () => {
     const call = (effectId: string) =>
       handler.call(
         undefined,
-        { server: { sessionId: "s1", capabilityId: capabilityOf(manifest), serverName: "remote" }, effectId, name: "echo", arguments: {} },
+        { server: { sessionId: "s1", serverName: "remote" }, effectId, name: "echo", arguments: {} },
         new AbortController().signal,
       );
     expect(await call("e1")).toEqual({ ok: true, result: { content: [{ type: "text", text: "ran in session-1" }] } });

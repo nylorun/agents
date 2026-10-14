@@ -23,7 +23,7 @@ describe("DX v5.6 ergonomics", () => {
       ],
     });
     expect(agent.id).toBe("support");
-    expect(agent.manifest.manifestSchemaVersion).toBe(5);
+    expect(agent.manifest.manifestSchemaVersion).toBe(7);
     const extended = agent.instructions("Extra.");
     expect(extended).not.toBe(agent);
     expect(agent.build()).toBe(agent.build());
@@ -134,7 +134,7 @@ describe("DX v5.6 agent-as-JSON", () => {
     expect(json).not.toHaveProperty("model");
     expect(hashManifest(json)).toBe(hashManifest(agent.manifest));
     const implementations: Implementations = {
-      agent: { tools: { refund } },
+      tools: { refund },
     };
     const restored = Agent.from(json, implementations);
     expect(hashManifest(restored.manifest)).toBe(hashManifest(agent.manifest));

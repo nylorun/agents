@@ -123,7 +123,7 @@ export interface ToolDefinition<
 export type ToolRunResult<Output = ToolContent> = Output | ToolOutcome<Output>;
 
 export interface ToolOwner {
-  readonly middlewareId: string;
+  readonly partId: string;
   readonly slot: string;
 }
 

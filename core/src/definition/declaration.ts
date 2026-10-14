@@ -1,30 +1,26 @@
 import type { DefinitionPart } from "./bound.js";
-import type { CapabilityInput } from "../types/middleware.js";
+import type { PartDeclaration } from "../types/part.js";
 import type { ToolDefinition } from "../types/tool.js";
 import type { SandboxManifest } from "../types/manifest.js";
 import { delegateTool, isAgentItem } from "./delegate.js";
 import { HarnessError } from "../errors.js";
-import { REMOVED_CAPABILITY_FIELDS } from "./removed.js";
+import { REMOVED_PART_FIELDS } from "./removed.js";
 
 /** The definition part a declaration adds: its tools (agents become delegate tools) and text. */
-export function compileDeclaration<Info>(declaration: CapabilityInput<Info>): DefinitionPart {
+export function compileDeclaration<Info>(declaration: PartDeclaration<Info>): DefinitionPart {
   for (const [field, message] of Object.entries(REMOVED_FIELDS))
-    if ((declaration as Record<string, unknown>)[field] !== undefined)
-      throw new HarnessError("configuration.invalid", `Capability '${declaration.id}': ${message}`);
+    if ((declaration as unknown as Record<string, unknown>)[field] !== undefined)
+      throw new HarnessError("configuration.invalid", `'${declaration.id}': ${message}`);
   const tools = declaration.tools?.map((item) =>
     isAgentItem(item) ? delegateTool(item) : (item as ToolDefinition)
   );
   const sandbox = (declaration as { sandbox?: SandboxManifest }).sandbox;
   return {
     id: declaration.id,
-    ...(declaration.name === undefined ? {} : { name: declaration.name }),
-    ...(declaration.description === undefined ? {} : { description: declaration.description }),
     ...(tools === undefined ? {} : { tools: Object.freeze(tools) }),
     ...(declaration.instructions === undefined
       ? {}
       : { instructions: Object.freeze([...declaration.instructions]) }),
-    ...(declaration.type === undefined ? {} : { manifestType: declaration.type }),
-    ...(declaration.metadata === undefined ? {} : { metadata: declaration.metadata }),
     ...(declaration.skills === undefined || Object.keys(declaration.skills).length === 0
       ? {}
       : { skills: declaration.skills }),
@@ -41,8 +37,8 @@ export function compileDeclaration<Info>(declaration: CapabilityInput<Info>): De
 
 /** Fields a part no longer takes, and why. */
 const REMOVED_FIELDS: Readonly<Record<string, string>> = Object.freeze({
-  before: REMOVED_CAPABILITY_FIELDS.hooks!,
-  after: REMOVED_CAPABILITY_FIELDS.hooks!,
+  before: REMOVED_PART_FIELDS.hooks!,
+  after: REMOVED_PART_FIELDS.hooks!,
   middleware: "step middleware was removed: an agent is its manifest alone (see MIGRATION.md)",
-  model: REMOVED_CAPABILITY_FIELDS.model!,
+  model: REMOVED_PART_FIELDS.model!,
 });

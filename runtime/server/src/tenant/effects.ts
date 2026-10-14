@@ -37,7 +37,7 @@ import { sessionCredentials, type McpCredentialRequest } from "../vault/sources.
 import { isRemoteMcpCall } from "../harness/calls.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
 import { sandboxSpecOf } from "../sandbox/share.js";
-import { withPlatformTools, withSandboxCapability } from "../sandbox/session-sandbox.js";
+import { withRuntimeTools, withSandbox } from "../sandbox/session-sandbox.js";
 import {
   loadSession,
   ownedSession,
@@ -238,8 +238,8 @@ export async function resolveNewFlowEffect(
     const definition = leafDefinition(workflow, body, request);
     // The tree's Environment reaches every agent in it: its sandbox, with its tools, and its vault.
     const inherited = inheritedSandbox(workflow, definition);
-    // Without one, an agent with MCP or HTTP tools still reads its stored results (R2b C11).
-    const pinned = inherited?.manifest ? inherited : platformTools(definition.manifest);
+    // Without one, the agent still gets its runtime block: read_artifact (R2b C11) and its skill tools.
+    const pinned = inherited?.manifest ? inherited : runtimeTools(definition.manifest);
     const created: Session = {
       id: agentSessionId,
       agentId: body.agentId,
@@ -342,18 +342,17 @@ function inheritedSandbox(
   const spec = owner?.sandbox;
   if (!spec || sandboxSpecOf(definition.manifest)) return undefined;
   if (isWorkflowManifest(definition.manifest)) return { spec };
-  const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec);
+  const sandboxed = withSandbox(definition.manifest as AgentManifest, spec);
   if (!sandboxed.ok) throw new Error(sandboxed.message);
   return { spec, manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
 }
 
-/** A linked agent session's `read_artifact` without a sandbox (R2b C11); undefined for none. */
-function platformTools(
+/** A linked agent session's `runtime` block without a sandbox (R2b C11); undefined for a workflow. */
+function runtimeTools(
   manifest: AgentManifest | WorkflowManifest
 ): { manifest: AgentManifest; manifestHash: string } | undefined {
   if (isWorkflowManifest(manifest)) return undefined;
-  const pinned = withPlatformTools(manifest as AgentManifest);
-  if (pinned === undefined) return undefined;
+  const pinned = withRuntimeTools(manifest as AgentManifest);
   if (!pinned.ok) throw new Error(pinned.message);
   return { manifest: pinned.manifest, manifestHash: pinned.manifestHash };
 }

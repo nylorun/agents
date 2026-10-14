@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, AgentBuildError, tool } from "../src/define.js";
+import { Agent, AgentBuildError, runtimeManifestFor, tool } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
 import { DELEGATE_INPUT_SCHEMA, delegateOf } from "../src/definition/delegate.js";
 import { implementationsFor } from "../src/definition/binding.js";
@@ -37,7 +37,7 @@ describe("agents used as tools", () => {
   it("adds a tool with an inlined agent body and nothing else", () => {
     const child = researcher();
     const parent = Agent({ id: "support", instructions: "Help.", tools: [child] }).build();
-    const [declared] = parent.manifest.capabilities[0]!.tools!;
+    const [declared] = parent.manifest.tools!;
     expect(declared).toEqual({
       name: "researcher",
       description: child.manifest.description,
@@ -47,18 +47,18 @@ describe("agents used as tools", () => {
     expect(AgentManifestSchema.safeParse(parent.manifest).success).toBe(true);
   });
 
-  it("accepts a built agent in a capability's tools", () => {
+  it("accepts a built agent in a part's tools", () => {
     const parent = addPart(Agent({ id: "support" }), {
       id: "research",
       tools: [researcher().build()],
     }).build();
-    expect(parent.manifest.capabilities[0]!.tools![0]!.agent?.id).toBe("researcher");
+    expect(parent.manifest.tools![0]!.agent?.id).toBe("researcher");
   });
 
   it("keeps the local child on the binding for the engine and the executor", () => {
     const child = researcher().build();
     const parent = Agent({ id: "support", tools: [child] }).build();
-    const bound = implementationsFor(parent).agent!.tools!.researcher;
+    const bound = implementationsFor(parent).tools!.researcher;
     expect(delegateOf(bound)?.agent).toBe(child);
   });
 
@@ -66,7 +66,7 @@ describe("agents used as tools", () => {
     const parent = Agent({ id: "support", tools: [researcher()] }).build();
     const restored = Agent.from(JSON.parse(JSON.stringify(parent.manifest)), {});
     expect(hashManifest(restored.manifest)).toBe(hashManifest(parent.manifest));
-    expect(delegateOf(implementationsFor(restored).agent!.tools!.researcher)?.manifest.id).toBe(
+    expect(delegateOf(implementationsFor(restored).tools!.researcher)?.manifest.id).toBe(
       "researcher"
     );
   });
@@ -79,7 +79,7 @@ describe("agents used as tools", () => {
 
   it("leaves agents without delegates unchanged", () => {
     const plain = Agent({ id: "plain", tools: [search] }).build();
-    expect(plain.manifest.capabilities[0]!.tools![0]).not.toHaveProperty("agent");
+    expect(plain.manifest.tools![0]).not.toHaveProperty("agent");
   });
 
   it("requires a description", () => {
@@ -139,7 +139,7 @@ describe("agents used as tools", () => {
   it("rejects malformed agent tools on the wire", () => {
     const parent = Agent({ id: "support", tools: [researcher()] }).build();
     const json = JSON.parse(JSON.stringify(parent.manifest));
-    const declared = json.capabilities[0].tools[0];
+    const declared = json.tools[0];
     for (const change of [
       { name: "investigate" },
       { description: "Something else." },
@@ -147,11 +147,28 @@ describe("agents used as tools", () => {
       { outputSchema: { type: "object" } },
     ]) {
       const broken = structuredClone(json);
-      Object.assign(broken.capabilities[0].tools[0], change);
+      Object.assign(broken.tools[0], change);
       expect(AgentManifestSchema.safeParse(broken).success).toBe(false);
     }
     const nested = structuredClone(json);
-    nested.capabilities[0].tools[0].agent.capabilities[0].tools.push({ ...declared });
+    nested.tools[0].agent.tools.push({ ...declared });
     expect(AgentManifestSchema.safeParse(nested).success).toBe(false);
+  });
+
+  it("reads a child's sandbox from its runtime block, which must match the parent's", () => {
+    const parent = Agent({ id: "support", tools: [researcher()] }).build();
+    const json = JSON.parse(JSON.stringify(parent.manifest));
+    const pinned = (parentImage: string, childImage: string | undefined) => {
+      const copy = structuredClone(json);
+      copy.runtime = runtimeManifestFor({}, { sandbox: { image: parentImage } });
+      if (childImage !== undefined)
+        copy.tools[0].agent.runtime = runtimeManifestFor({}, { sandbox: { image: childImage } });
+      return AgentManifestSchema.safeParse(copy);
+    };
+    expect(pinned("a", "a").success).toBe(true);
+    expect(pinned("a", undefined).success).toBe(true);
+    expect(pinned("a", "b").error?.issues.map((issue) => issue.message)).toContain(
+      "An agent and the agents it uses as tools must declare identical sandboxes"
+    );
   });
 });

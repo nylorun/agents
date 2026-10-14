@@ -102,7 +102,7 @@ export interface ObserveSealedCall {
   readonly toolName: string;
   readonly args: JsonValue;
   readonly invocationId: string;
-  readonly owner: { readonly middlewareId: string; readonly slot: string };
+  readonly owner: { readonly partId: string; readonly slot: string };
   readonly interaction?: RequiredInteraction;
 }
 
@@ -178,7 +178,7 @@ export type ObserveEvent =
       readonly toolName: string;
       readonly callId: string;
       readonly invocationId: string;
-      readonly middlewareId: string;
+      readonly partId: string;
       readonly slot: string;
       readonly attributes: { readonly args: JsonValue };
     }
@@ -191,7 +191,7 @@ export type ObserveEvent =
       readonly toolName: string;
       readonly callId: string;
       readonly invocationId: string;
-      readonly middlewareId: string;
+      readonly partId: string;
       readonly slot: string;
       readonly attributes: {
         readonly message: string;
@@ -207,7 +207,7 @@ export type ObserveEvent =
       readonly toolName: string;
       readonly callId: string;
       readonly invocationId: string;
-      readonly middlewareId: string;
+      readonly partId: string;
       readonly slot: string;
       readonly outcome: string;
       readonly code?: string;
@@ -222,7 +222,7 @@ export type ObserveEvent =
       readonly toolName: string;
       readonly callId: string;
       readonly invocationId: string;
-      readonly middlewareId: string;
+      readonly partId: string;
       readonly slot: string;
       readonly attributes: { readonly token?: JsonValue };
     }

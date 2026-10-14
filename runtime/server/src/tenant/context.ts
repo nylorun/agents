@@ -60,7 +60,7 @@ export interface Session {
   manifestHash: string;
   /**
    * The hash of the definition the session was opened from; `manifestHash` differs when the
-   * Runtime pinned its own capabilities beside it (R2b C11). Absent on older sessions.
+   * Runtime pinned its `runtime` block on it (R2b C11). Absent on older sessions.
    */
   definitionHash?: string;
   /** Validated turn-manifest variants, keyed by hash (loops.md §4.2). */
@@ -125,7 +125,8 @@ export interface Session {
   sandbox?: SandboxManifest;
   /**
    * Why the session takes no new turn: `protocol_11` for a session opened before protocol 11
-   * (migration 0020). Its history stays readable.
+   * (migration 0020), `protocol_13` for one opened before protocol 13 (migration 0024). Its
+   * history stays readable.
    */
   closedReason?: string;
   /**
@@ -185,7 +186,7 @@ export interface TenantContext {
    */
   readonly mcp?: McpPool;
   /**
-   * The workspace capability (F6.2): the Tenant's SandboxManager with an in-process harness,
+   * The workspace feature (F6.2): the Tenant's SandboxManager with an in-process harness,
    * else the harness that serves workspaces (`harness-api/workspace.ts`).
    */
   readonly sandbox: WorkspacePort;

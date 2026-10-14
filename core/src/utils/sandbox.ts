@@ -1,6 +1,6 @@
 /** Portable sandbox constants and parsers shared by the SDK, wire schema and Runtime. */
 
-/** Built-in tools every sandbox capability declares. The Runtime executes them. */
+/** The sandbox tools the Runtime adds to a session with a sandbox, and runs. */
 export const SANDBOX_TOOL_NAMES = Object.freeze([
   "bash",
   "read",

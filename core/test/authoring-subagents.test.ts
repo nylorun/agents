@@ -29,7 +29,7 @@ const codesOf = (build: () => unknown): string[] => {
 describe("flow agents as subagents", () => {
   it("inline the flow's workflow manifest v3 in the delegating tool", () => {
     const lead = Agent({ id: "lead" }).instructions("Lead.").subagents(research).build();
-    const tool = lead.manifest.capabilities[0]!.tools![0]!;
+    const tool = lead.manifest.tools![0]!;
     expect(tool).toMatchObject({
       name: "research",
       description: "Researches a question and reports back.",

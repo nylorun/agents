@@ -25,7 +25,6 @@ import {
 export const DEFAULT_MCP_IDLE_MS = 15 * 60_000;
 
 interface LiveServer {
-  readonly capabilityId: string;
   readonly serverName: string;
   readonly connection: LiveConnection;
   lastUsedAt: number;
@@ -95,7 +94,6 @@ export class McpPool {
         if (!taken.has(declared.agentId))
           taken.set(declared.agentId, declaredToolNames(declared.manifest));
         const listed = await listMcpTools(opened.connection.client, {
-          capabilityId: declared.capabilityId,
           serverName: declared.server.name,
           taken: taken.get(declared.agentId)!,
           server: declared.server,
@@ -105,14 +103,12 @@ export class McpPool {
         if (opened.connection.instructions)
           notes.push(
             owned(declared, {
-              capabilityId: declared.capabilityId,
               serverName: declared.server.name,
               instructions: opened.connection.instructions,
             }),
           );
         diagnostics.push({
           ...ownerOf(declared),
-          capabilityId: declared.capabilityId,
           serverName: declared.server.name,
           outcome: "connected",
           message: [
@@ -130,7 +126,7 @@ export class McpPool {
       } catch (error) {
         await opened.connection.close().catch(() => {});
         diagnostics.push(
-          owned(declared, diagnosticFromError(declared.capabilityId, declared.server.name, error)),
+          owned(declared, diagnosticFromError(declared.server.name, error)),
         );
       }
     }
@@ -154,7 +150,7 @@ export class McpPool {
     const diagnostics: McpDiagnostic[] = [];
     const seen = new Set<string>();
     for (const tool of input.tools) {
-      const key = this.liveKey(input.sessionId, tool.agentId, tool.capabilityId, tool.serverName);
+      const key = this.liveKey(input.sessionId, tool.agentId, tool.serverName);
       if (seen.has(key)) continue;
       seen.add(key);
       const live = this.live.get(key);
@@ -164,11 +160,10 @@ export class McpPool {
         continue;
       }
       input.signal?.throwIfAborted();
-      const declared = findServer(input.manifest, tool.agentId, tool.capabilityId, tool.serverName);
+      const declared = findServer(input.manifest, tool.agentId, tool.serverName);
       if (!declared) {
         diagnostics.push({
           ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
-          capabilityId: tool.capabilityId,
           serverName: tool.serverName,
           outcome: "failed",
           message: "Declared MCP server is missing from the pinned manifest",
@@ -188,7 +183,6 @@ export class McpPool {
   async call(input: {
     sessionId: string;
     agentId?: string;
-    capabilityId: string;
     serverName: string;
     serverToolName: string;
     args: unknown;
@@ -199,7 +193,7 @@ export class McpPool {
     traceparent?: string;
     signal?: AbortSignal;
   }): Promise<McpToolOutcome> {
-    const key = this.liveKey(input.sessionId, input.agentId, input.capabilityId, input.serverName);
+    const key = this.liveKey(input.sessionId, input.agentId, input.serverName);
     for (let attempt = 0; ; attempt += 1) {
       const live = await this.liveFor(input, key);
       // No connection, so no call was sent: the model sees why, a 401 included (R2b C1, C7).
@@ -227,12 +221,12 @@ export class McpPool {
 
   /** The session's connection to the server, opened when there is none, or why it cannot be. */
   private async liveFor(
-    input: { sessionId: string; agentId?: string; capabilityId: string; serverName: string; manifest: AgentManifest },
+    input: { sessionId: string; agentId?: string; serverName: string; manifest: AgentManifest },
     key: string,
   ): Promise<LiveServer | McpToolFailure> {
     const live = this.live.get(key);
     if (live) return live;
-    const declared = findServer(input.manifest, input.agentId, input.capabilityId, input.serverName);
+    const declared = findServer(input.manifest, input.agentId, input.serverName);
     if (!declared) throw new Error(`MCP server '${input.serverName}' is not declared`);
     let opening = this.opening.get(key);
     if (!opening) {
@@ -280,19 +274,13 @@ export class McpPool {
     declared: DeclaredServer,
     connection: LiveConnection,
   ): LiveServer {
-    const key = this.liveKey(
-      sessionId,
-      declared.agentId,
-      declared.capabilityId,
-      declared.server.name,
-    );
+    const key = this.liveKey(sessionId, declared.agentId, declared.server.name);
     const existing = this.live.get(key);
     if (existing) {
       if (existing.connection !== connection) void connection.close().catch(() => {});
       return existing;
     }
     const live: LiveServer = {
-      capabilityId: declared.capabilityId,
       serverName: declared.server.name,
       connection,
       lastUsedAt: this.now(),
@@ -302,13 +290,8 @@ export class McpPool {
     return live;
   }
 
-  private liveKey(
-    sessionId: string,
-    agentId: string | undefined,
-    capabilityId: string,
-    serverName: string,
-  ): string {
-    return JSON.stringify([sessionId, agentId ?? null, capabilityId, serverName]);
+  private liveKey(sessionId: string, agentId: string | undefined, serverName: string): string {
+    return JSON.stringify([sessionId, agentId ?? null, serverName]);
   }
 
   private async connectDeclared(
@@ -320,7 +303,6 @@ export class McpPool {
         const connection = await this.options.openRemote({
           sessionId: input.sessionId,
           ...ownerOf(declared),
-          capabilityId: declared.capabilityId,
           serverName: declared.server.name,
         });
         return { ok: true, connection };
@@ -340,10 +322,7 @@ export class McpPool {
       return {
         ok: false,
         error,
-        diagnostic: owned(
-          declared,
-          diagnosticFromError(declared.capabilityId, declared.server.name, error),
-        ),
+        diagnostic: owned(declared, diagnosticFromError(declared.server.name, error)),
       };
     }
   }
@@ -354,7 +333,6 @@ export interface McpServerRef {
   readonly sessionId: string;
   /** The agent used as a tool that declares the server; absent for the session's root agent. */
   readonly agentId?: string;
-  readonly capabilityId: string;
   readonly serverName: string;
 }
 
@@ -363,7 +341,6 @@ export interface DeclaredServer {
   readonly agentId?: string;
   /** The manifest of the agent that declares the server. */
   readonly manifest: AgentManifest;
-  readonly capabilityId: string;
   readonly server: McpServerManifest;
 }
 
@@ -371,14 +348,8 @@ export interface DeclaredServer {
 export function serversOf(manifest: AgentManifest): DeclaredServer[] {
   const servers: DeclaredServer[] = [];
   const add = (agent: AgentManifest, agentId?: string) => {
-    for (const capability of agent.capabilities)
-      for (const server of Object.values(capability.mcpServers ?? {}))
-        servers.push({
-          ...(agentId === undefined ? {} : { agentId }),
-          manifest: agent,
-          capabilityId: capability.id,
-          server,
-        });
+    for (const server of Object.values(agent.mcpServers ?? {}))
+      servers.push({ ...(agentId === undefined ? {} : { agentId }), manifest: agent, server });
   };
   add(manifest);
   for (const child of delegatesOf(manifest)) add(child.manifest, child.manifest.id);
@@ -388,14 +359,10 @@ export function serversOf(manifest: AgentManifest): DeclaredServer[] {
 export function findServer(
   manifest: AgentManifest,
   agentId: string | undefined,
-  capabilityId: string,
   serverName: string,
 ): DeclaredServer | undefined {
   return serversOf(manifest).find(
-    (item) =>
-      item.agentId === agentId &&
-      item.capabilityId === capabilityId &&
-      item.server.name === serverName,
+    (item) => item.agentId === agentId && item.server.name === serverName,
   );
 }
 

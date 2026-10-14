@@ -68,7 +68,6 @@ export function journalCheck(vaults: TenantVaults): JournalCheck {
         const tool = mcpToolOf(session?.mcpSnapshot, request);
         if (
           !tool ||
-          tool.capabilityId !== call.server.capabilityId ||
           tool.serverName !== call.server.serverName ||
           (tool.agentId ?? null) !== (call.server.agentId ?? null) ||
           tool.serverToolName !== call.name

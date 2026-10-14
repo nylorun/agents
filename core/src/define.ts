@@ -37,22 +37,21 @@ export {
   type HttpToolOptions,
 } from "./definition/http-tool.js";
 export {
-  ARTIFACTS_CAPABILITY_ID,
   READ_ARTIFACT_MAX_BYTES,
   READ_ARTIFACT_TOOL,
-  SANDBOX_CAPABILITY_ID,
   SAVE_ARTIFACT_TOOL,
-  artifactsCapabilityManifest,
-  sandboxCapabilityManifest,
-} from "./definition/sandbox-capability.js";
+  runtimeManifestFor,
+  runtimeToolOf,
+  type RuntimeManifestOptions,
+} from "./definition/runtime-manifest.js";
+export { RUNTIME_PART_ID } from "./definition/manifest.js";
+export { RUNTIME_TOOL_NAMES, isRuntimeToolName } from "./utils/runtime-tools.js";
 export {
   MCP_TOOL_DEFAULTS,
-  manifestVersionFor,
   mcpToolSettings,
   McpError,
   normalizeMcpServers,
   stdioMcpRefusal,
-  usesMcpToolSettings,
 } from "./definition/mcp.js";
 export {
   SERVER_INSTRUCTIONS_MAX_CHARS,
@@ -60,12 +59,10 @@ export {
   TOOL_SEARCH_DEFAULT_LIMIT,
   TOOL_SEARCH_MAX_LIMIT,
   TOOL_SEARCH_TOOL,
-  TOOLS_CAPABILITY_ID,
   deferredToolsInstructions,
   deferredToolsTools,
-  toolsCapabilityManifest,
   type DeferredServerNote,
-} from "./definition/tools-capability.js";
+} from "./definition/deferred-tools.js";
 export { codeToolRefusal, codeToolsOf } from "./definition/code-tools.js";
 export { approvalRefusal, approvalsOf } from "./definition/approval.js";
 export type { CodeTool } from "./definition/code-tools.js";
@@ -125,6 +122,8 @@ export {
   READ_SKILL_RESOURCE_TOOL,
   SKILL_TOOL_NAMES,
   isSkillTool,
+  SKILLS_USAGE,
+  formatSkillCatalog,
 } from "./definition/skill-tools.js";
 export {
   DEFINITION_FILE_MAX_BYTES,
@@ -143,11 +142,11 @@ export type { Implementations } from "./definition/implementations.js";
 export type {
   AgentManifest,
   ApprovalMode,
-  CapabilityManifest,
   HttpToolMethod,
   HttpToolTarget,
   McpServerManifest,
   McpToolSettings,
+  PluginLabel,
   RuntimeManifest,
   SandboxManifest,
   SandboxNetworkPreset,
@@ -156,10 +155,9 @@ export type {
   ManifestSchemaVersion,
 } from "./types/manifest.js";
 export type {
-  CapabilityDeclaration,
-  CapabilityInput,
+  PartDeclaration,
   SkillFileSource,
-} from "./types/middleware.js";
+} from "./types/part.js";
 export type {
   ModelCandidate,
   ModelControls,

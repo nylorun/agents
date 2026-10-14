@@ -72,10 +72,10 @@ await withStack({ name: "nylorun-harness-pod", images, startArgs: ["--no-studio"
   await api("PUT", `/v1/agents/${prefix}-agent`, {
     requestId: randomUUID(),
     manifest: {
-      manifestSchemaVersion: 5,
+      manifestSchemaVersion: 7,
       id: `${prefix}-agent`,
       name: "Harness pod",
-      capabilities: [{ id: "agent", type: "agent", instructions: ["Answer briefly."] }],
+      instructions: ["Answer briefly."],
     },
     implementationVersion: "harness-pod",
   });

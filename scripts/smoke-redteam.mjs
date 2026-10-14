@@ -69,7 +69,7 @@ try {
           body: {
             requestId: randomUUID(),
             implementationVersion: "dev",
-            manifest: { id, name: id, manifestSchemaVersion: 5, capabilities: [] },
+            manifest: { id, name: id, manifestSchemaVersion: 7 },
           },
         });
       const A = "redteam-a";

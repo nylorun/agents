@@ -3,19 +3,16 @@
  * export its outputs as a folder artifact. Two calls, a listing and one file's bytes, both the
  * claim of whoever holds the workspace: the Runtime stores what it is given without observing it.
  *
- * One implementation, `sandboxWorkspaceReader`, over the workspace capability (F6.2,
+ * One implementation, `sandboxWorkspaceReader`, over the workspace feature (F6.2,
  * `harness-api/workspace.ts`): the in-process `SandboxManager`, or the harness that serves the
  * Tenant's workspaces (`workspace.read`). F6.2 reimplements it over the Harness API's `workspace.read`, and F7.2's pod
  * sandboxes are read through the same seam, so the export never knows which kind of sandbox it
  * reads.
  */
-import {
-  SANDBOX_CAPABILITY_ID,
-  type AgentManifest,
-} from "@nylorun/core/define";
-import { sandboxCapabilityOf, type SandboxManager } from "../sandbox/manager.js";
+import type { AgentManifest } from "@nylorun/core/define";
+import { sandboxToolSpec, type SandboxManager } from "../sandbox/manager.js";
 
-/** What the reader needs of a workspace: a `SandboxManager`, or the workspace capability. */
+/** What the reader needs of a workspace: a `SandboxManager`, or the workspace feature. */
 export type WorkspaceFiles = Pick<SandboxManager, "listFiles" | "readBytes">;
 import { SandboxFileTooLargeError } from "../sandbox/types.js";
 
@@ -29,7 +26,7 @@ export interface WorkspaceSession {
   readonly ownerId: string;
   /** The sandbox resource the workspace belongs to, when the owner is attached to one. */
   readonly environmentId?: string;
-  /** The session's pinned manifest: its sandbox capability carries the sandbox's spec. */
+  /** The session's pinned manifest: its `runtime` block carries the sandbox's spec. */
   readonly manifest: AgentManifest;
 }
 
@@ -71,10 +68,10 @@ export interface WorkspaceReader {
 /** The reader over the workspaces, in each sandbox's queue of tool calls. */
 export function sandboxWorkspaceReader(sandbox: WorkspaceFiles): WorkspaceReader {
   const target = (session: WorkspaceSession) => {
-    const capability = sandboxCapabilityOf(session.manifest, SANDBOX_CAPABILITY_ID, "read");
-    if (!capability) return undefined;
+    const spec = sandboxToolSpec(session.manifest, "read");
+    if (!spec) return undefined;
     return {
-      capability,
+      spec,
       ref: {
         id: session.ownerId,
         activeTurnId: session.turnId,
@@ -89,7 +86,7 @@ export function sandboxWorkspaceReader(sandbox: WorkspaceFiles): WorkspaceReader
       if (!found) return undefined;
       const listed = await sandbox.listFiles(
         found.ref,
-        found.capability,
+        found.spec,
         dir,
         options.maxEntries,
         options.signal,
@@ -103,7 +100,7 @@ export function sandboxWorkspaceReader(sandbox: WorkspaceFiles): WorkspaceReader
       if (!found) return undefined;
       const read = await sandbox.readBytes(
         found.ref,
-        found.capability,
+        found.spec,
         path,
         options.maxBytes,
         options.signal,

@@ -27,7 +27,6 @@ export type ExecutionInput =
 
 /** Portable reference to deployed code. Applications must preserve this value intact. */
 export interface ToolReference {
-  readonly capabilityId: string;
   readonly toolName: string;
   readonly descriptor: {
     readonly name: string;

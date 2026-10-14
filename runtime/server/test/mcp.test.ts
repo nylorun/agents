@@ -267,7 +267,6 @@ it("discovers a remote MCP server with a bearer and calls it from the Runtime", 
     expect(session.status).toBe("completed");
     expect(session.mcpSnapshot.mcpTools).toEqual([
       expect.objectContaining({
-        capabilityId: "mcp",
         serverName: "github",
         serverToolName: "get_issue",
         name: "github__get_issue",
@@ -342,7 +341,6 @@ it("writes tool.completed with the output or the tool error of each MCP call", a
     expect(completed).toEqual([
       expect.objectContaining({
         callId: "call-1",
-        capabilityId: "mcp",
         toolName: "github__get_issue",
         output: { number: 7, title: "get_issue" },
       }),
@@ -444,9 +442,8 @@ it("records mcp.discovered once, on the first turn, with each server's outcome",
     expect(discovered[0].turnId).toBe(history.items.find((item: { type: string }) => item.type === "turn.completed").turnId);
     expect(discovered[0].payload.servers).toEqual(
       expect.arrayContaining([
-        { capabilityId: "mcp", serverName: "docs", outcome: "connected", message: "Connected", tools: 1 },
+        { serverName: "docs", outcome: "connected", message: "Connected", tools: 1 },
         {
-          capabilityId: "mcp",
           serverName: "down",
           outcome: "failed",
           message: expect.stringMatching(/ECONNREFUSED/),
@@ -585,14 +582,7 @@ it("refuses to store an agent that declares a stdio MCP server", async () => {
         requestId: "put-agent",
         manifest: {
           ...manifest,
-          capabilities: [
-            ...manifest.capabilities,
-            {
-              id: "local",
-              type: "agent",
-              mcpServers: { local: { name: "local", type: "stdio", command: "./server.mjs" } },
-            },
-          ],
+          mcpServers: { local: { name: "local", type: "stdio", command: "./server.mjs" } },
         },
         implementationVersion: "dev",
       }),

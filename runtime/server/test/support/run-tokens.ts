@@ -42,7 +42,6 @@ export interface RunFixture {
     sessionId: string,
     call: {
       effectId: string;
-      capabilityId: string;
       toolName: string;
       input: unknown;
       mcp?: { serverName: string; serverToolName: string };
@@ -113,7 +112,6 @@ export async function runFixture(tenantId = newTenantId()): Promise<RunFixture> 
             effectId: call.effectId,
             sessionId,
             turnId: session.activeTurnId,
-            capabilityId: call.capabilityId,
             toolName: call.toolName,
             input: call.input,
             context: {},
@@ -129,7 +127,6 @@ export async function runFixture(tenantId = newTenantId()): Promise<RunFixture> 
               mcpTools: [
                 ...tools,
                 {
-                  capabilityId: call.capabilityId,
                   serverName: call.mcp.serverName,
                   serverToolName: call.mcp.serverToolName,
                   name: call.toolName,

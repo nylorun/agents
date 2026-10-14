@@ -1,6 +1,6 @@
 /**
- * Our engine's built-in artifact tools, of the `nylorun.artifacts` capability
- * (`sandbox/session-sandbox.ts`). The Runtime runs them itself, like the sandbox tools.
+ * Our engine's built-in artifact tools, which the Runtime pins in a session agent's `runtime`
+ * block (`sandbox/session-sandbox.ts`). The Runtime runs them itself, like the sandbox tools.
  *
  * `save_artifact` (F8.1), which comes with a session's sandbox, saves a file as an artifact of
  * its session:
@@ -22,11 +22,7 @@
  */
 import { basename } from "node:path";
 import type { SandboxToolOutcome } from "@nylorun/core/contracts";
-import {
-  READ_ARTIFACT_MAX_BYTES,
-  SANDBOX_CAPABILITY_ID,
-  type ToolResultFile,
-} from "@nylorun/core/define";
+import { READ_ARTIFACT_MAX_BYTES, type ToolResultFile } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { isArtifactId } from "@nylorun/core/compatibility";
 import { readArtifactLimits } from "../artifacts/config.js";
@@ -40,7 +36,7 @@ import {
 import { currentModelInputs } from "../model/catalog.js";
 import { uploadArtifact } from "../artifacts/service.js";
 import { DEFAULT_CONTENT_TYPE } from "../blob/index.js";
-import { sandboxCapabilityOf } from "../sandbox/manager.js";
+import { sandboxToolSpec } from "../sandbox/manager.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
 import { sessionOf, type TenantContext } from "./context.js";
 import { HttpError } from "./http.js";
@@ -93,12 +89,8 @@ export async function callSaveArtifact(
   let bytes: Uint8Array;
   let fileName: string;
   if (path !== undefined) {
-    const capability = sandboxCapabilityOf(
-      manifestFor(s.manifest, request.agent),
-      SANDBOX_CAPABILITY_ID,
-      "read",
-    );
-    if (!capability) return failed("artifact.no_sandbox", "This session has no sandbox to read a path from.");
+    const spec = sandboxToolSpec(manifestFor(s.manifest, request.agent), "read");
+    if (!spec) return failed("artifact.no_sandbox", "This session has no sandbox to read a path from.");
     const read = await ctx.sandbox.readBytes(
       {
         id: workspace.ownerId,
@@ -106,7 +98,7 @@ export async function callSaveArtifact(
         manifest: s.manifest,
         ...(workspace.environmentId === undefined ? {} : { environmentId: workspace.environmentId }),
       },
-      capability,
+      spec,
       path,
       limits.fileBytes,
       signal,

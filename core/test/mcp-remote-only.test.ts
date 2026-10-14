@@ -7,15 +7,9 @@ const refusal =
   "MCP server 'local' uses stdio; Nylorun accepts remote MCP servers only (streamable-http or sse). Run the server behind an HTTP transport and declare its URL.";
 
 const stdioManifest = {
-  manifestSchemaVersion: 5 as const,
+  manifestSchemaVersion: 7 as const,
   id: "local-tools",
-  capabilities: [
-    {
-      id: "mcp",
-      type: "agent",
-      mcpServers: { local: { name: "local", type: "stdio", command: "./server.mjs" } },
-    },
-  ],
+  mcpServers: { local: { name: "local", type: "stdio", command: "./server.mjs" } },
 };
 
 it("words the refusal of a stdio server once", () => {
@@ -32,8 +26,8 @@ it("refuses a stdio server in the builder", () => {
 });
 
 it("refuses a stdio server when a manifest is parsed", () => {
-  expect(() => Agent.from(stdioManifest, { mcp: {} })).toThrow(HarnessError);
-  expect(() => Agent.from(stdioManifest, { mcp: {} })).toThrow(refusal);
+  expect(() => Agent.from(stdioManifest, {})).toThrow(HarnessError);
+  expect(() => Agent.from(stdioManifest, {})).toThrow(refusal);
 });
 
 it("refuses a stdio server in the wire schema with the same message", () => {
@@ -52,7 +46,7 @@ it("refuses a stdio server in the wire schema with the same message", () => {
 it("keeps zod's own message for other bad servers and accepts remote ones", () => {
   const withServer = (server: Record<string, unknown>) => ({
     ...stdioManifest,
-    capabilities: [{ id: "mcp", type: "agent", mcpServers: { local: { name: "local", ...server } } }],
+    mcpServers: { local: { name: "local", ...server } },
   });
   const ftp = AgentManifestSchema.safeParse(withServer({ type: "ftp", url: "ftp://x" }));
   expect(ftp.success).toBe(false);

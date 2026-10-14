@@ -201,7 +201,8 @@ describe("an HTTP tool call", () => {
     const session = await call("refund", { orderId: "A-1" });
     expect((await settled(session)).status).toBe("completed");
     expect(await completed(session)).toEqual([
-      expect.objectContaining({ toolName: "refund", output: { refundId: "r-A-1" } }),
+      // An HTTP tool's server is its URL's host (protocol 13).
+      expect.objectContaining({ toolName: "refund", kind: "http", server: new URL(target.url).host, output: { refundId: "r-A-1" } }),
     ]);
     const [request] = target.seen.slice(before);
     expect(target.seen.length - before).toBe(1);

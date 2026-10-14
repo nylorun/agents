@@ -26,7 +26,7 @@ at `http://studio:3000`.
 
 ## Run it
 
-Needs Docker with Compose v2, Node.js 24, `curl`, and a `nylorun` release that speaks protocol 12.
+Needs Docker with Compose v2, Node.js 24, `curl`, and a `nylorun` release that speaks protocol 13.
 Run the commands from this directory. `--no-link` keeps the Tenant from linking a project here.
 
 ```sh

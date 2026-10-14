@@ -1,21 +1,14 @@
 /**
- * Tools that would run the developer's code (track R2 M6): an agent tool with no `http` and no
- * `agent` that is not one of the Runtime's built-ins (sandbox tools, skill tools,
- * `save_artifact`, `read_artifact`), and a flow agent's `tool` stage without `http`. The
+ * Tools that would run the developer's code (track R2 M6): an agent's own tool with no `http`
+ * and no `agent`, and a flow agent's `tool` stage without `http`. The tools in a pinned
+ * manifest's `runtime` block are the Runtime's own. The
  * Runtime runs agents from their manifests alone, so `PUT /v1/agents/:id` refuses a definition
  * with one, and the SDK refuses it before sending. The local engine (`@nylorun/harness/run`)
  * still runs `tool({ run })`.
  */
-import type { AgentManifest, CapabilityManifest, ToolManifest } from "../types/manifest.js";
+import type { AgentManifest } from "../types/manifest.js";
 import type { WorkflowManifest } from "../types/workflow.js";
-import { isSandboxToolName } from "../utils/sandbox.js";
 import { forEachFlowNode } from "./flow/paths.js";
-import {
-  ARTIFACTS_CAPABILITY_ID,
-  READ_ARTIFACT_TOOL,
-  SAVE_ARTIFACT_TOOL,
-} from "./sandbox-capability.js";
-import { isSkillTool } from "./skill-tools.js";
 
 /** One tool that would run the developer's code, and the definition that declares it. */
 export interface CodeTool {
@@ -40,25 +33,11 @@ export function codeToolsOf(
     for (const agent of Object.values(manifest.agents)) codeToolsOf(agent, into);
     return into;
   }
-  for (const capability of (manifest as AgentManifest).capabilities)
-    for (const tool of capability.tools ?? []) {
-      if (tool.agent !== undefined) codeToolsOf(tool.agent as AgentManifest | WorkflowManifest, into);
-      else if (!runsWithoutCode(capability, tool))
-        into.push({ name: tool.name, owner: manifest.id, kind: "tool" });
-    }
+  for (const tool of (manifest as AgentManifest).tools ?? []) {
+    if (tool.agent !== undefined) codeToolsOf(tool.agent as AgentManifest | WorkflowManifest, into);
+    else if (tool.http === undefined) into.push({ name: tool.name, owner: manifest.id, kind: "tool" });
+  }
   return into;
-}
-
-/** An HTTP tool, or a built-in the Runtime serves. */
-function runsWithoutCode(capability: CapabilityManifest, tool: ToolManifest): boolean {
-  if (tool.http !== undefined) return true;
-  if (capability.sandbox !== undefined && isSandboxToolName(tool.name)) return true;
-  if (
-    capability.id === ARTIFACTS_CAPABILITY_ID &&
-    (tool.name === SAVE_ARTIFACT_TOOL || tool.name === READ_ARTIFACT_TOOL)
-  )
-    return true;
-  return isSkillTool(capability, tool.name);
 }
 
 /** Why a definition with code tools is refused, naming the first; undefined when it has none. */

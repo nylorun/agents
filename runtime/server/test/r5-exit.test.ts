@@ -375,7 +375,6 @@ describe("the R5 exit", { timeout: 60_000 }, () => {
     const gate = runtime.gate!;
     const token = gate.runGrants.token("s1")!;
     const [row] = await toolCalls(runtime);
-    const capabilityId = row!.capabilityId as string;
     const probe = (key: string | undefined, input: unknown) =>
       fetch(new URL(HTTP_CALLS_PATH, gate.url), {
         method: "POST",
@@ -384,7 +383,7 @@ describe("the R5 exit", { timeout: 60_000 }, () => {
           "content-type": "application/json",
           ...(key ? { "idempotency-key": key } : {}),
         },
-        body: JSON.stringify({ tool: { capabilityId, toolName: "refund" }, effectId: key ?? "x", turnId: "t", input }),
+        body: JSON.stringify({ tool: { toolName: "refund" }, effectId: key ?? "x", turnId: "t", input }),
       });
     const unkeyed = await probe(undefined, { charge: "ch_5", amount: 30 });
     expect(unkeyed.status).toBe(400);

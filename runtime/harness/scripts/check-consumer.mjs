@@ -85,18 +85,18 @@ export function checkPackedConsumer(cache) {
     import * as api from '@nylorun/core/define';
     import { z } from 'zod';
     assert.equal('BuiltAgent' in api, false);
-    // An empty agent has no parts; instructions make the "agent" part.
+    // The manifest is flat (v7): instructions sit at the top level, and there are no capabilities.
     const agent = api.Agent({ id: 'packed', name: 'Packed', outputSchema: z.object({ count: z.number() }) })
       .instructions('Count.')
       .build();
     assert.deepEqual(Object.keys(agent).sort(), ['id', 'manifest', 'name', 'toJSON']);
     assert.equal(agent.hash, undefined);
-    assert.equal(agent.toJSON().manifestSchemaVersion, 5);
-    assert.equal(agent.toJSON().capabilities.length, 1);
-    assert.equal(agent.toJSON().capabilities[0].id, 'agent');
-    assert.equal(agent.toJSON().capabilities[0].type, 'agent');
+    assert.equal(agent.toJSON().manifestSchemaVersion, 7);
+    assert.deepEqual(agent.toJSON().instructions, ['Count.']);
+    assert.equal('capabilities' in agent.toJSON(), false);
     const bare = api.Agent({ id: 'bare', name: 'Bare', outputSchema: z.object({ count: z.number() }) }).build();
-    assert.deepEqual(bare.toJSON().capabilities, []);
+    assert.equal('instructions' in bare.toJSON(), false);
+    assert.equal('capabilities' in bare.toJSON(), false);
     const execution = await import('@nylorun/harness/run');
     const state = execution.createExecutionState(agent);
     const result = await execution.run({ binding: execution.bindingFromAgent(agent), state, input: 'go', onModelCall: async () => ({ output: [{type: 'json', value: {count: 1}}] }) });

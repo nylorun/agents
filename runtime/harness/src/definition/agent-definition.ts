@@ -28,9 +28,9 @@ export function definitionFromBinding(binding: AgentBinding): AgentDefinition {
     id: binding.manifest.id,
     manifest: binding.manifest,
     hash: hashManifest(binding.manifest),
-    parts: binding.declarations,
+    parts: binding.parts,
     implementations: binding.implementations,
-    registry: new Registry(binding.declarations, binding.tools),
+    registry: new Registry(binding.parts, binding.tools),
     ...(binding.outputSchema ? { output: bindOutputContract(binding.outputSchema) } : {}),
   });
 }

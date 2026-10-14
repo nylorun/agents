@@ -65,11 +65,13 @@ describe("Agent from @nylorun/agents", () => {
     const folder = skillsFolder();
     const pkg = pluginFolder();
     const fresh = Agent({ id: "a" }).instructions("x").skills(folder).plugin(pkg);
-    expect(fresh.build().manifest.capabilities.map((c) => c.id)).toEqual([
+    const built = fresh.build();
+    expect(built.getBinding().parts.map((part) => part.id)).toEqual([
       "agent",
-      folder.split("/").at(-1),
-      "github",
+      `skills:${folder.split("/").at(-1)}`,
+      "plugin:github",
     ]);
+    expect(built.manifest).not.toHaveProperty("capabilities");
   });
 
   it("keeps its methods through chaining", () => {

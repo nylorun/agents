@@ -9,33 +9,28 @@ import { bindOutputContract } from "./output-contract.js";
 import type { AgentBinding } from "./binding.js";
 import type { Implementations } from "./implementations.js";
 export function bindAgent(
-  middleware: readonly DefinitionPart[],
+  parts: readonly DefinitionPart[],
   manifest: AgentManifest,
   options: { outputSchema?: ToolSchemaSource } = {}
 ): BuiltAgent {
   const seen = new Set<object>();
-  const keys = new Set<string>();
+  const names = new Set<string>();
   const tools: BoundToolDefinition[] = [];
-  for (const declaration of middleware)
-    for (const tool of [
-      ...(declaration.tools ?? []),
-      ...(declaration.sessionTools ?? []),
-    ]) {
-      const key = JSON.stringify([declaration.id, tool.name]);
-      if (seen.has(tool) || keys.has(key))
-        throw new HarnessError(
-          "tool.invalid",
-          `Duplicate registered tool '${tool.name}' in '${declaration.id}'`
-        );
+  for (const part of parts)
+    for (const tool of [...(part.tools ?? []), ...(part.sessionTools ?? [])]) {
+      if (seen.has(tool) || names.has(tool.name))
+        throw new HarnessError("tool.invalid", `Duplicate registered tool '${tool.name}'`);
       seen.add(tool);
-      keys.add(key);
-      tools.push(
-        bindTool(tool, { middlewareId: declaration.id, slot: declaration.id })
-      );
+      names.add(tool.name);
+      tools.push(bindTool(tool, { partId: part.id, slot: part.id }));
     }
-  const implementations = buildImplementations(middleware, tools);
+  const implementations: Implementations = Object.freeze(
+    tools.length === 0
+      ? {}
+      : { tools: Object.freeze(Object.fromEntries(tools.map((tool) => [tool.name, tool]))) }
+  );
   const binding: AgentBinding = Object.freeze({
-    declarations: middleware,
+    parts,
     tools: Object.freeze(tools),
     ...(options.outputSchema === undefined
       ? {}
@@ -56,23 +51,4 @@ export function bindAgent(
     enumerable: false,
   });
   return agent;
-}
-
-function buildImplementations(
-  middleware: readonly DefinitionPart[],
-  snapshots: readonly BoundToolDefinition[]
-): Implementations {
-  const table: Record<string, Implementations[string]> = {};
-  for (const item of middleware) {
-    const tools: Record<string, NonNullable<DefinitionPart["tools"]>[number]> =
-      {};
-    for (const tool of snapshots.filter(
-      (tool) => tool.owner.middlewareId === item.id
-    ))
-      tools[tool.name] = tool;
-    table[item.id] = Object.freeze(
-      Object.keys(tools).length ? { tools: Object.freeze({ ...tools }) } : {}
-    );
-  }
-  return Object.freeze(table);
 }

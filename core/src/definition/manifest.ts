@@ -1,9 +1,9 @@
 import type { DefinitionPart } from "./bound.js";
 import type {
   AgentManifest,
-  CapabilityManifest,
-  ManifestSchemaVersion,
+  McpServerManifest,
   RuntimeManifest,
+  SkillManifest,
   ToolManifest,
 } from "../types/manifest.js";
 import type { JsonObject } from "../types/shared.js";
@@ -12,10 +12,17 @@ import { bindOutputContract } from "./output-contract.js";
 import { normalizedSchemasFor } from "./schema.js";
 import { delegateOf } from "./delegate.js";
 import { httpToolOf } from "./http-tool.js";
-import { manifestVersionFor } from "./mcp.js";
 
 import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
 
+/** The id of the part an agent rebuilt from a pinned manifest gets for its `runtime` block. */
+export const RUNTIME_PART_ID = "runtime";
+
+/**
+ * The agent's manifest (v7): its parts merged in order, the instructions and tools concatenated,
+ * the skills and servers keyed by name. The `runtime` part is not projected: `runtime` comes as
+ * it was pinned.
+ */
 export function createManifest(input: {
   id: string;
   name?: string;
@@ -23,15 +30,19 @@ export function createManifest(input: {
   metadata?: JsonObject;
   outputSchema?: ToolSchemaSource;
   runtime?: RuntimeManifest;
-  middleware: readonly DefinitionPart[];
-  /** The version a manifest rebuilt from JSON had; it never goes below what the capabilities need. */
-  manifestSchemaVersion?: ManifestSchemaVersion;
+  parts: readonly DefinitionPart[];
 }): AgentManifest {
-  const capabilities = input.middleware.map((item) => projectCapability(item));
-  // 6 only when an MCP server sets `tools` or `deferred` (R2b C9), so other hashes stay.
-  const needed = manifestVersionFor(capabilities);
+  const authored = input.parts.filter((part) => part.id !== RUNTIME_PART_ID);
+  const instructions = authored.flatMap((part) => part.instructions ?? []);
+  const tools = authored.flatMap((part) => (part.tools ?? []).map((tool) => projectTool(tool)));
+  const skills: Record<string, SkillManifest> = {};
+  const mcpServers: Record<string, McpServerManifest> = {};
+  for (const part of authored) {
+    Object.assign(skills, part.skills ?? {});
+    Object.assign(mcpServers, part.mcpServers ?? {});
+  }
   return deepFreeze({
-    manifestSchemaVersion: Math.max(needed, input.manifestSchemaVersion ?? needed) as ManifestSchemaVersion,
+    manifestSchemaVersion: 7,
     id: input.id,
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.description === undefined
@@ -46,30 +57,12 @@ export function createManifest(input: {
           outputSchema: bindOutputContract(input.outputSchema).schema
             .jsonSchema,
         }),
-    capabilities,
+    ...(instructions.length === 0 ? {} : { instructions }),
+    ...(tools.length === 0 ? {} : { tools }),
+    ...(Object.keys(skills).length === 0 ? {} : { skills }),
+    ...(Object.keys(mcpServers).length === 0 ? {} : { mcpServers }),
     ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
   });
-}
-
-function projectCapability(item: DefinitionPart): CapabilityManifest {
-  return {
-    id: item.id,
-    type: item.manifestType ?? "agent",
-    ...(item.name === undefined ? {} : { name: item.name }),
-    ...(item.description === undefined ? {} : { description: item.description }),
-    ...(item.metadata === undefined
-      ? {}
-      : { metadata: copyJsonObject(item.metadata, "metadata") }),
-    ...(item.instructions === undefined ? {} : { instructions: item.instructions }),
-    ...(item.tools === undefined
-      ? {}
-      : { tools: item.tools.map((tool) => projectTool(tool)) }),
-    ...(item.skills === undefined ? {} : { skills: item.skills }),
-    ...(item.mcpServers === undefined ? {} : { mcpServers: item.mcpServers }),
-    ...(item.sandbox === undefined
-      ? {}
-      : { sandbox: copyJsonObject(item.sandbox as unknown as JsonObject, "sandbox") }),
-  };
 }
 
 function projectTool(

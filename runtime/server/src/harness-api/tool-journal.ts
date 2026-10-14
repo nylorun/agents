@@ -21,9 +21,9 @@ import type { EventPayload, EventWriter } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { isFlowToolEffect } from "../core/flow-host.js";
-import { isHttpToolCall } from "../gates/http-tool.js";
+import { declaredHttpTool, isHttpToolCall } from "../gates/http-tool.js";
 import { mcpToolOf } from "../mcp/snapshot.js";
-import { sandboxCapabilityOf } from "../sandbox/capability.js";
+import { sandboxToolSpec } from "../sandbox/runtime-tools.js";
 import type { Session } from "../tenant/context.js";
 import {
   toolCompleted,
@@ -64,7 +64,7 @@ export type ToolRow = EffectDoc &
     error?: string;
   };
 
-/** Where a tool call runs, and its MCP server or HTTP tool capability. */
+/** Where a tool call runs, and its MCP server or, for an agent's HTTP tool, its URL's host. */
 export function toolKindOf(
   s: Pick<Session, "manifest" | "mcpSnapshot">,
   agentManifest: AgentManifest | undefined,
@@ -72,11 +72,22 @@ export function toolKindOf(
 ): { toolKind: ToolCallKind; server?: string } {
   const mcp = mcpToolOf(s.mcpSnapshot, request);
   if (mcp) return { toolKind: "mcp", server: mcp.serverName };
-  if (isHttpToolCall(s.manifest, request))
-    return { toolKind: "http", ...(request.capabilityId ? { server: request.capabilityId } : {}) };
-  if (sandboxCapabilityOf(agentManifest, request.capabilityId, request.toolName))
-    return { toolKind: "sandbox" };
+  if (isHttpToolCall(s.manifest, request)) {
+    const host = httpHostOf(declaredHttpTool(s.manifest, request.agent?.id, request.toolName)?.http.url);
+    return { toolKind: "http", ...(host === undefined ? {} : { server: host }) };
+  }
+  if (sandboxToolSpec(agentManifest, request.toolName)) return { toolKind: "sandbox" };
   return { toolKind: "platform" };
+}
+
+/** The host (and port, when it names one) of an HTTP tool's URL. */
+function httpHostOf(url: string | undefined): string | undefined {
+  if (url === undefined) return undefined;
+  try {
+    return new URL(url).host || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The facts a new tool row starts with: its first send, now. */

@@ -29,9 +29,8 @@ import {
   type EnvironmentVersions,
   type FolderEntry,
 } from "@nylorun/core/contracts";
-import type { CapabilityManifest } from "@nylorun/core/define";
+import type { SandboxManifest } from "@nylorun/core/define";
 import { sandboxSpecOf } from "../sandbox/resolve.js";
-import { capabilityForSandbox } from "../sandbox/share.js";
 import type { DiskAnswer, DiskOp, DiskPut } from "../sandbox/disk-fs.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import type { SandboxSessionRef } from "../sandbox/manager.js";
@@ -68,27 +67,27 @@ export const DISK_ARTIFACT_NAME = "disk";
 async function diskTarget(
   ctx: TenantContext,
   environment: Environment,
-): Promise<{ ref: SandboxSessionRef; capability: CapabilityManifest }> {
+): Promise<{ ref: SandboxSessionRef; spec: SandboxManifest }> {
   const config = effectiveSandboxConfig(await ctx.store.tx((t) => readSandboxConfig(t)));
   const spec = sandboxSpecOf(environment.applied, config.limits.idle);
   return {
     ref: {
       id: `disk:${environment.id}`,
       activeTurnId: null,
-      manifest: { id: "disk", capabilities: [] } as unknown as SandboxSessionRef["manifest"],
+      manifest: { manifestSchemaVersion: 7, id: "disk" } as unknown as SandboxSessionRef["manifest"],
       environmentId: environment.id,
     },
-    capability: capabilityForSandbox(spec),
+    spec,
   };
 }
 
 /** One disk operation through the workspace, or a `409 environment_unavailable`. */
 async function diskOp(
   ctx: TenantContext,
-  target: { ref: SandboxSessionRef; capability: CapabilityManifest },
+  target: { ref: SandboxSessionRef; spec: SandboxManifest },
   op: DiskOp,
 ): Promise<DiskAnswer> {
-  const answer = await ctx.sandbox.disk(target.ref, target.capability, op, new AbortController().signal);
+  const answer = await ctx.sandbox.disk(target.ref, target.spec, op, new AbortController().signal);
   if ("code" in answer)
     return fail(409, `The disk could not be reached: ${answer.message}`, { code: "environment_unavailable" });
   return answer;
@@ -170,7 +169,7 @@ async function awaitEngine(ctx: TenantContext, id: string): Promise<void> {
 /** A file's bytes and their hash, read in ranges. */
 async function readFile(
   ctx: TenantContext,
-  target: { ref: SandboxSessionRef; capability: CapabilityManifest },
+  target: { ref: SandboxSessionRef; spec: SandboxManifest },
   path: string,
 ): Promise<{ bytes: Uint8Array; sha256: string } | undefined> {
   const hash = createHash("sha256");

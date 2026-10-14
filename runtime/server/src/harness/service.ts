@@ -21,7 +21,7 @@ import {
   type WorkspaceDiskCall,
   type WorkspaceSession,
 } from "@nylorun/core/harness-api";
-import type { CapabilityManifest, SandboxManifest, SandboxToolName } from "@nylorun/core/define";
+import type { SandboxManifest, SandboxToolName } from "@nylorun/core/define";
 import type { HarnessOptions } from "@nylorun/harness/api";
 import type { ModelProvider } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
@@ -144,7 +144,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
           const call = params as WorkspaceDiskCall;
           const answer = await sandbox().disk(
             refOf(call.session),
-            { id: "sandbox", type: "agent", sandbox: call.spec as SandboxManifest, tools: [] } as CapabilityManifest,
+            call.spec as SandboxManifest,
             fromWireOp(call.disk as WireDiskOp),
             signal
           );
@@ -154,7 +154,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
           const call = params as WorkspaceListCall;
           return sandbox().listFiles(
             refOf(call.session),
-            { id: "sandbox", type: "agent", sandbox: call.spec as SandboxManifest, tools: [] } as CapabilityManifest,
+            call.spec as SandboxManifest,
             call.list.dir,
             call.list.maxEntries,
             signal
@@ -164,7 +164,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
           const call = params as WorkspaceBytesCall;
           const read = await sandbox().readBytes(
             refOf(call.session),
-            { id: "sandbox", type: "agent", sandbox: call.spec as SandboxManifest, tools: [] } as CapabilityManifest,
+            call.spec as SandboxManifest,
             call.bytes.path,
             call.bytes.maxBytes,
             signal
@@ -178,7 +178,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
           throw new HarnessApiError("invalid", `${method} does not run ${call.tool}`);
         return sandbox().run(
           refOf(call.session),
-          { id: "sandbox", type: "agent", sandbox: call.spec as SandboxManifest, tools: [] } as CapabilityManifest,
+          call.spec as SandboxManifest,
           call.tool as SandboxToolName,
           call.input,
           signal
@@ -220,7 +220,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     // Our harness: its hello names our harness id (R4.1).
     name: DEFAULT_HARNESS,
     ...(options.version ? { version: options.version } : {}),
-    capabilities: { workspace: { backends: backends.map((backend) => backend.name) } },
+    features: { workspace: { backends: backends.map((backend) => backend.name) } },
     onHello(answer) {
       tenantId = answer.tenantId;
       manager ??= new SandboxManager({

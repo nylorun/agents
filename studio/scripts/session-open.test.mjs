@@ -9,7 +9,7 @@ import {
   sessionHref,
 } from "../web/src/session-open.ts";
 
-const orders = { id: "orders", name: "Orders", manifest: { capabilities: [] } };
+const orders = { id: "orders", name: "Orders", manifest: {} };
 const shipping = {
   id: "shipping",
   name: "Shipping",
@@ -23,14 +23,14 @@ const shipping = {
       "logistics-planner": {
         id: "logistics-planner",
         name: "Logistics planner",
-        capabilities: [{ id: "maps", tools: [{ name: "route" }] }],
+        tools: [{ name: "route" }],
       },
       customs: {
         kind: "workflow",
         workflowSchemaVersion: 3,
         id: "customs",
         root: { agent: "declarer" },
-        agents: { declarer: { id: "declarer", capabilities: [] } },
+        agents: { declarer: { id: "declarer" } },
       },
     },
   },
@@ -55,7 +55,7 @@ test("an agent embedded in a flow, also a nested flow, is found in the workflow 
   const planner = definitionForSession("logistics-planner", [orders, shipping], ["shipping"]);
   assert.equal(planner.id, "logistics-planner");
   assert.equal(planner.name, "Logistics planner");
-  assert.deepEqual(planner.manifest.capabilities[0].tools, [{ name: "route" }]);
+  assert.deepEqual(planner.manifest.tools, [{ name: "route" }]);
   const declarer = definitionForSession("declarer", [orders, shipping]);
   assert.equal(declarer.id, "declarer");
   assert.equal(definitionForSession("customs", [shipping]).kind, "workflow");
@@ -65,7 +65,7 @@ test("an unknown agent still opens, named by its id", () => {
   assert.deepEqual(definitionForSession("ghost", [orders]), {
     id: "ghost",
     name: "ghost",
-    manifest: { capabilities: [] },
+    manifest: {},
   });
 });
 

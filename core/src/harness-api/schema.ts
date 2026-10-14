@@ -62,7 +62,6 @@ export const EffectIntentSchema = z
     manifestHash: z.string(),
     kind: z.enum(["model", "tool", "delegation", "agent"]),
     agent: z.object({ id: z.string(), path: z.string(), delegationId: z.string().optional() }).strict().optional(),
-    capabilityId: z.string().optional(),
     toolName: z.string().optional(),
     path: z.string().optional(),
     key: z.string().optional(),
@@ -246,13 +245,17 @@ export const TraceContextSchema = z
 
 /**
  * A tool a harness runs itself (R4.2, Q3), declared in `hello`: the model may call it, and the
- * harness journals each call as a `tool` effect of capability `harness` (`HARNESS_TOOLS_CAPABILITY`)
- * with intent and outcome, like a sandbox tool, so the log records what really ran. It runs in
+ * harness journals each call as a `tool` effect with intent and outcome, like a sandbox tool, so
+ * the log records what really ran. Its name may not be one the agent or the Runtime already uses. It runs in
  * the harness's own process or pod: the egress gate is its only control.
  */
 export const NativeToolSchema = z
   .object({
-    name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/),
+    // `__` names an MCP server's tools, which are discovered after a turn starts.
+    name: z
+      .string()
+      .regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/)
+      .refine((name) => !name.includes("__"), { message: "A harness's tool name must not contain '__'" }),
     description: z.string().max(4096).optional(),
     inputSchema: z.record(z.string(), z.unknown()),
   })
@@ -357,7 +360,7 @@ export type RequestTypes<Schemas extends RequestSchemas> = {
 /** Requests a harness sends to core, with their answers. */
 export const harnessRequests = {
   /**
-   * `capabilities.workspace` declares that the harness serves the Tenant's workspaces (F6.2):
+   * `features.workspace` declares that the harness serves the Tenant's workspaces (F6.2):
    * core then sends it the `workspace.*` requests. The answer names the Tenant (its workspace
    * keys are scoped by it) and the sandbox backend preference the harness selects with.
    */
@@ -367,7 +370,7 @@ export const harnessRequests = {
         api: z.number().int(),
         name: z.string(),
         version: z.string(),
-        capabilities: z
+        features: z
           .object({ workspace: z.unknown().optional(), tools: z.array(NativeToolSchema).max(64).optional() })
           .strict(),
       })

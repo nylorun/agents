@@ -1,6 +1,12 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 13: the flat agent manifest (v7), a fresh start. A manifest has no capabilities: its
+ * instructions, tools, skills and MCP servers are top-level, and a skill or server from an Agent
+ * Plugin carries a `plugin` label. A session's pinned manifest carries the Runtime's `runtime`
+ * block (the sandbox and its tools, the artifact and skill tools). Tool calls, MCP servers and
+ * HTTP calls are named without capability ids, here and on the Harness API (version 3). The Host
+ * serves protocol 13 only.
  * Protocol 12: model inputs and files as artifacts. What the Tenant's model reads (`text`,
  * `image`, `pdf`, `office`, `audio`, `video`) is its catalog's input list plus the operator's
  * additions (`PUT /v1/tenant/models/inputs`, a custom endpoint's `settings.inputs`); the catalog
@@ -38,7 +44,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -68,6 +74,12 @@ export const PROTOCOL_FEATURES = [
    * `422 attachment_unsupported`.
    */
   "model-inputs",
+  /**
+   * Protocol 13: agent manifest v7 has no capabilities (its instructions, tools, skills and
+   * MCP servers are top-level), a session's pinned manifest carries the Runtime's `runtime`
+   * block, and tool calls, MCP servers and HTTP calls are named without capability ids.
+   */
+  "flat-manifest",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -134,13 +146,13 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 /**
- * What this Host serves: protocols 11 and 12. Protocol 11 removed routes and session fields
- * older clients send, so an older client is answered `426` naming the protocol it needs rather
- * than a `404` or a `400` on a removed field (R2d Q3). Protocol 12 only adds to it.
+ * What this Host serves: protocol 13. Protocol 13 changed the shape of the agent manifest a
+ * client registers, so an older client is answered `426` naming the protocol it needs rather
+ * than a `400` on a manifest it cannot read.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
-  min: 11,
-  max: 12,
+  min: 13,
+  max: 13,
   features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;

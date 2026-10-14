@@ -39,7 +39,6 @@ const outcome = z.discriminatedUnion("kind", [
 ]);
 const reference = z
   .object({
-    capabilityId: id,
     toolName: id,
     descriptor: z
       .object({

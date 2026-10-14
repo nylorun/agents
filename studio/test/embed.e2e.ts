@@ -68,7 +68,7 @@ async function fakeRuntime({ listsMissing = false } = {}) {
       return res.end(
         JSON.stringify({
           agents: [
-            { agentId: AGENT, manifest: { id: AGENT, name: "Agent One", capabilities: [] }, manifestHash: "h", implementationVersion: "1" },
+            { agentId: AGENT, manifest: { manifestSchemaVersion: 7, id: AGENT, name: "Agent One" }, manifestHash: "h", implementationVersion: "1" },
           ],
         }),
       );

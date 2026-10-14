@@ -150,14 +150,11 @@ describe("codeMode()", () => {
       .instructions("Be concise.", ...mode.instructions)
       .tools(...mode.tools)
       .build();
-    expect(agent.manifest.capabilities.map((item) => item.id)).toEqual(["agent"]);
-    const offered = agent.manifest.capabilities.find(
-      (item) => item.id === "agent"
-    );
-    expect(offered?.tools?.map((tool) => tool.name)).toEqual(["run_code"]);
-    expect(offered?.tools?.map((tool) => tool.name)).not.toEqual(
+    const offered = agent.manifest;
+    expect(offered.tools?.map((tool) => tool.name)).toEqual(["run_code"]);
+    expect(offered.tools?.map((tool) => tool.name)).not.toEqual(
       expect.arrayContaining(["calculate", "convert", "now"])
     );
-    expect(offered?.instructions?.join("\n")).toContain("calculate: (args:");
+    expect(offered.instructions?.join("\n")).toContain("calculate: (args:");
   });
 });

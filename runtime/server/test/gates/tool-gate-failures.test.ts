@@ -61,7 +61,6 @@ async function echoServer(): Promise<string> {
 describe("the gate's MCP handler", () => {
   async function handlerFor(url: string, open?: () => Promise<never>) {
     const agent = Agent({ id: "bot" }).mcp({ remote: { type: "streamable-http", url } }).build();
-    const capabilityId = agent.manifest.capabilities.find((item) => item.mcpServers)!.id;
     const vaults: TenantVaults = {
       open: async () =>
         ({
@@ -79,7 +78,7 @@ describe("the gate's MCP handler", () => {
     const call = (name: string, serverName = "remote") =>
       handler.call(
         undefined,
-        { server: { sessionId: "s1", capabilityId, serverName }, effectId: `e-${name}`, name, arguments: { value: "x" } },
+        { server: { sessionId: "s1", serverName }, effectId: `e-${name}`, name, arguments: { value: "x" } },
         signal,
       );
     return { handler, call };
@@ -135,7 +134,7 @@ describe("the loop's client of the gate", () => {
       }),
     );
     const tools = httpToolGate({ url, token: "ab".repeat(32) });
-    return tools.openMcp!({ sessionId: "s1", capabilityId: "mcp", serverName: "remote" });
+    return tools.openMcp!({ sessionId: "s1", serverName: "remote" });
   }
 
   const failure = (code: string, extra: Record<string, unknown> = {}) => ({

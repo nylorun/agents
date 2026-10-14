@@ -24,7 +24,7 @@ const refund = http({
 describe("http()", () => {
   it("projects into the agent's manifest with its target, and no implementation", () => {
     const agent = Agent({ id: "orders", name: "Orders" }).tools(refund).build();
-    const tools = agent.manifest.capabilities.flatMap((item) => item.tools ?? []);
+    const tools = agent.manifest.tools;
     expect(tools).toEqual([
       {
         name: "refund",
@@ -52,7 +52,7 @@ describe("http()", () => {
       url: "https://search.example.com/lookup",
     });
     const agent = Agent({ id: "search" }).tools(lookup).build();
-    const [declared] = agent.manifest.capabilities.find((item) => item.id === "agent")!.tools!;
+    const [declared] = agent.manifest.tools!;
     expect(declared).toEqual({
       name: "lookup",
       inputSchema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },

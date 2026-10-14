@@ -6,7 +6,7 @@ import { SANDBOX_WORKSPACE } from "../utils/sandbox.js";
 
 const PATH_NOTE = `Relative paths resolve under ${SANDBOX_WORKSPACE}.`;
 
-/** Instructions attached to every sandbox capability. */
+/** Instructions that come with a session's sandbox tools. */
 export const SANDBOX_INSTRUCTIONS =
   `You have an isolated Linux sandbox with a persistent working directory at ${SANDBOX_WORKSPACE}. ` +
   "Use bash to run commands, read/write/edit to work with files, and grep/glob to search. " +

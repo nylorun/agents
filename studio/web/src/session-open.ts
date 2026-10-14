@@ -90,13 +90,9 @@ export function asStudioDefinition(raw: {
       manifest: manifest as unknown as WorkflowManifest,
     };
   }
-  const capabilities = Array.isArray(manifest.capabilities)
-    ? (manifest.capabilities as {
-        id: string;
-        tools?: { name: string; description?: string }[];
-        hooks?: { at: "before" | "after"; scope: "turn" | "step" }[];
-      }[])
-    : [];
+  const tools = Array.isArray(manifest.tools)
+    ? (manifest.tools as { name: string; description?: string }[])
+    : undefined;
   return {
     id: String(manifest.id),
     name: String(manifest.name ?? manifest.id),
@@ -104,7 +100,7 @@ export function asStudioDefinition(raw: {
     rawManifest: manifest,
     manifest: {
       ...(typeof manifest.description === "string" ? { description: manifest.description } : {}),
-      capabilities,
+      ...(tools === undefined ? {} : { tools }),
     },
   };
 }
@@ -147,5 +143,5 @@ export function definitionForSession(
     const manifest = embeddedManifest(workflow.manifest, agentId);
     if (manifest) return asStudioDefinition({ manifest });
   }
-  return { id: agentId, name: agentId, manifest: { capabilities: [] } };
+  return { id: agentId, name: agentId, manifest: {} };
 }

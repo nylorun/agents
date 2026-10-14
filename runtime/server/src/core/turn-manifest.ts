@@ -25,8 +25,33 @@ export type TurnManifestErr = {
 };
 
 /**
- * Parse `message.manifest`, require it to be a variant of the session pin,
- * hash it, and store it. Applies to that turn only (caller must not latch).
+ * The candidate's agents used as tools with the `runtime` block the pin gave each, when the
+ * candidate left it out: a turn variant is written from the definition, and only the Runtime
+ * writes `runtime`. A candidate that sets one keeps it, and must then match the pin's.
+ */
+function withPinnedDelegates(candidate: AgentManifest, pinned: AgentManifest): AgentManifest {
+  if (candidate.tools === undefined) return candidate;
+  const pinnedAgents = new Map(
+    (pinned.tools ?? []).flatMap((tool) =>
+      tool.agent !== undefined && !("kind" in tool.agent) ? [[tool.name, tool.agent] as const] : []
+    )
+  );
+  let changed = false;
+  const tools = candidate.tools.map((tool) => {
+    const agent = tool.agent;
+    const prior = pinnedAgents.get(tool.name);
+    if (agent === undefined || "kind" in agent || agent.runtime !== undefined || prior?.runtime === undefined)
+      return tool;
+    changed = true;
+    return { ...tool, agent: { ...agent, runtime: prior.runtime } };
+  });
+  return changed ? { ...candidate, tools } : candidate;
+}
+
+/**
+ * Parse `message.manifest`, require it to be a variant of the session pin, and store the
+ * manifest the turn runs with: the variant with the pin's `runtime` block (a variant never sets
+ * one), by its hash. Applies to that turn only (caller must not latch).
  */
 export function pinTurnManifest(args: {
   readonly candidate: unknown;
@@ -41,14 +66,19 @@ export function pinTurnManifest(args: {
       message: "Turn manifest failed AgentManifestSchema validation",
     };
   }
-  const manifest = parsed.data as AgentManifest;
-  if (!isVariantOf(manifest, args.pinned)) {
+  const candidate = withPinnedDelegates(parsed.data as AgentManifest, args.pinned);
+  if (!isVariantOf(candidate, args.pinned)) {
     return {
       ok: false,
       code: "loop.invalid-agent",
-      message: "Turn manifest is not a variant of the session's pinned manifest",
+      message:
+        candidate.runtime === undefined
+          ? "Turn manifest is not a variant of the session's pinned manifest"
+          : "Turn manifest sets runtime, which only the Runtime writes: leave it out, and the turn runs with the session's",
     };
   }
+  const manifest: AgentManifest =
+    args.pinned.runtime === undefined ? candidate : { ...candidate, runtime: args.pinned.runtime };
   const hash = hashManifest(manifest);
   args.store.put(hash, manifest);
   return { ok: true, manifest, hash };

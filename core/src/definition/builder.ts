@@ -1,5 +1,5 @@
 import type { DefinitionPart } from "./bound.js";
-import type { CapabilityInput } from "../types/middleware.js";
+import type { PartDeclaration } from "../types/part.js";
 import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import { HarnessError } from "../errors.js";
 import type {
@@ -71,7 +71,7 @@ interface BuilderSnapshot {
   /** Builder-level problems, reported with the assembly diagnostics. */
   readonly diagnostics?: readonly BuildDiagnostic[];
   readonly body: Body;
-  /** Raw items of the `"agent"` capability, so later calls can add to it. */
+  /** Raw items of the `"agent"` part, so later calls can add to it. */
   readonly agentPart?: {
     readonly instructions?: readonly string[];
     readonly tools?: readonly (ToolDefinition<any, any, any> | AgentTool)[];
@@ -111,7 +111,7 @@ export namespace Agent {
     json: WorkflowManifest,
     implementations?: FlowImplementations
   ): BuiltWorkflow;
-  /** Rebuild an agent from its manifest and the code its capabilities name. */
+  /** Rebuild an agent from its manifest and the code of its tools, by name. */
   export function from<Info = unknown>(
     json: AgentManifest | import("../types/shared.js").JsonObject,
     implementations: Implementations<Info>
@@ -263,7 +263,7 @@ export class AgentBuilder<
   }
 
   /** @internal Add a part (the SDK's `.skills()` and `.plugin()` use it). */
-  protected withPart(declaration: CapabilityInput<Info>, method: string): this {
+  protected withPart(declaration: PartDeclaration<Info>, method: string): this {
     const body = this.bodyFor("react", method);
     const snapshot = this.#snapshot;
     return this.spawn({

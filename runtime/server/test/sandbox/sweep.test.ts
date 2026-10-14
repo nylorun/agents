@@ -6,13 +6,9 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import {
-  SANDBOX_CAPABILITY_ID,
-  sandboxCapabilityManifest,
-  type AgentManifest,
-} from "@nylorun/core/define";
+import { runtimeManifestFor, type AgentManifest } from "@nylorun/core/define";
 import { virtualBackend } from "../../src/adapters/sandbox/virtual.js";
-import { SandboxManager, sandboxCapabilityOf } from "../../src/sandbox/manager.js";
+import { SandboxManager, sandboxToolSpec } from "../../src/sandbox/manager.js";
 import { storeSandboxRecords } from "../../src/sandbox/records.js";
 import { createTestSessionStore } from "../support/store.js";
 
@@ -24,9 +20,9 @@ afterEach(async () => {
 
 /** A session's pinned manifest: the Runtime added its sandbox at open. */
 const manifest: AgentManifest = {
-  manifestSchemaVersion: 5,
+  manifestSchemaVersion: 7,
   id: "bot",
-  capabilities: [sandboxCapabilityManifest({ idle: "1m" })],
+  runtime: runtimeManifestFor({}, { sandbox: { idle: "1m" } }),
 };
 
 async function setup() {
@@ -44,11 +40,11 @@ async function setup() {
       events.push({ sessionId, type, state: (payload as { state?: string }).state });
     },
   });
-  const capability = sandboxCapabilityOf(manifest, SANDBOX_CAPABILITY_ID, "write")!;
+  const spec = sandboxToolSpec(manifest, "write")!;
   const run = (sessionId: string, path: string) =>
     manager.run(
       { id: sessionId, activeTurnId: "t1", manifest },
-      capability,
+      spec,
       "write",
       { path, content: "x" },
       new AbortController().signal
