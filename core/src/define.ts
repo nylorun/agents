@@ -64,6 +64,7 @@ export {
   type DeferredServerNote,
 } from "./definition/deferred-tools.js";
 export { codeToolRefusal, codeToolsOf } from "./definition/code-tools.js";
+export { pluginOf, skillOfToolCall, type ToolCallTrace } from "./definition/trace.js";
 export { approvalRefusal, approvalsOf } from "./definition/approval.js";
 export type { CodeTool } from "./definition/code-tools.js";
 export {

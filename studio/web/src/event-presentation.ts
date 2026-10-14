@@ -1,4 +1,5 @@
 import type { LiveEvent } from "@nylorun/agents/client";
+import { pluginText, type PluginLabel } from "./manifest/model.ts";
 
 /** Studio row: Runtime LiveEvent plus delivery provenance. */
 export type StudioEvent = LiveEvent &
@@ -79,6 +80,61 @@ export function toolLabel(payload: Readonly<Record<string, unknown>>): string {
   return `${owner}Tool · ${text(payload.toolName, "tool")}`;
 }
 
+/** How Studio names where a tool call ran (`kind`); `platform` is the Runtime's own tools. */
+const TOOL_KINDS: Readonly<Record<string, string>> = {
+  mcp: "MCP",
+  http: "HTTP",
+  sandbox: "Sandbox",
+  platform: "Runtime",
+  harness: "Harness",
+};
+
+/**
+ * What a tool call is traced to, from a `tool.completed` payload or a tool call row: where it
+ * ran (`kind`, as Studio names it), its MCP server or HTTP host, the skill it ran, and the
+ * plugin that brought that server or skill.
+ */
+export type ToolTrace = Readonly<{
+  kind?: string;
+  server?: string;
+  skill?: string;
+  plugin?: PluginLabel;
+}>;
+
+/** A `{ name, version? }` plugin label, or undefined for anything else (and for `null`). */
+export function pluginLabel(value: unknown): PluginLabel | undefined {
+  const plugin = record(value);
+  if (typeof plugin.name !== "string" || plugin.name === "") return undefined;
+  return typeof plugin.version === "string"
+    ? { name: plugin.name, version: plugin.version }
+    : { name: plugin.name };
+}
+
+export function toolTrace(payload: unknown): ToolTrace {
+  const call = record(payload);
+  const kind = typeof call.kind === "string" ? (TOOL_KINDS[call.kind] ?? call.kind) : undefined;
+  const plugin = pluginLabel(call.plugin);
+  return {
+    ...(kind ? { kind } : {}),
+    ...(typeof call.server === "string" && call.server !== "" ? { server: call.server } : {}),
+    ...(typeof call.skill === "string" && call.skill !== "" ? { skill: call.skill } : {}),
+    ...(plugin ? { plugin } : {}),
+  };
+}
+
+/** A trace as one line: `MCP docs, skill pdf, plugin acme 1.2.0`; empty when nothing is known. */
+export function toolTraceText(trace: ToolTrace): string {
+  const where =
+    trace.kind && trace.server ? `${trace.kind} ${trace.server}` : (trace.kind ?? trace.server);
+  return [
+    where,
+    trace.skill ? `skill ${trace.skill}` : undefined,
+    trace.plugin ? `plugin ${pluginText(trace.plugin)}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
 export function eventLabel(event: Pick<LiveEvent, "type">): string {
   return LABELS[event.type] ?? event.type.replaceAll(".", " ");
 }
@@ -113,8 +169,12 @@ export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string
     case "turn.uncertain":
     case "turn.runnable":
       return compact(payload.waits ?? payload);
-    case "tool.completed":
-      return `${toolLabel(payload)}: ${compact(payload.error ?? payload.output)}`;
+    case "tool.completed": {
+      const trace = toolTraceText(toolTrace(payload));
+      return `${toolLabel(payload)}${trace ? ` (${trace})` : ""}: ${compact(
+        payload.error ?? payload.output,
+      )}`;
+    }
     case "delegation.started":
       return `${agentOf(payload)?.id ?? "agent"}: ${compact(payload.task)}`;
     case "delegation.completed": {
@@ -156,7 +216,10 @@ export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string
       if (servers.length === 0) return "No MCP servers.";
       return servers
         .map((server) => {
-          const name = text(server.serverName, "server");
+          const plugin = pluginLabel(server.plugin);
+          const name = `${text(server.serverName, "server")}${
+            plugin ? ` (plugin ${pluginText(plugin)})` : ""
+          }`;
           if (server.outcome === "connected") {
             const tools = Number(server.tools ?? 0);
             return `${name}: ${tools} tool${tools === 1 ? "" : "s"}`;

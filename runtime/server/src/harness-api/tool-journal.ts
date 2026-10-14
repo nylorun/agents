@@ -18,7 +18,7 @@
  * (`policy`). A flow's HTTP stage, which names no tool call, ends in `node.completed` instead.
  */
 import type { EventPayload, EventWriter } from "@nylorun/core/contracts";
-import type { AgentManifest } from "@nylorun/core/define";
+import { pluginOf, skillOfToolCall, type AgentManifest, type PluginLabel } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { isFlowToolEffect } from "../core/flow-host.js";
 import { declaredHttpTool, isHttpToolCall } from "../gates/http-tool.js";
@@ -47,6 +47,9 @@ export interface ToolRowFacts {
   approval?: { approved: true; at: string; by?: string };
   toolKind?: ToolCallKind;
   server?: string;
+  /** The skill the call ran, and the plugin that brought its skill or MCP server. */
+  skill?: string;
+  plugin?: PluginLabel;
   attempts?: number;
   startedAt?: string;
   settledAt?: string;
@@ -64,20 +67,44 @@ export type ToolRow = EffectDoc &
     error?: string;
   };
 
-/** Where a tool call runs, and its MCP server or, for an agent's HTTP tool, its URL's host. */
+/** Where a tool call runs, and what it traces to (Q7, Q11). */
+export interface ToolCallPlace {
+  toolKind: ToolCallKind;
+  /** Its MCP server or, for an agent's HTTP tool, its URL's host. */
+  server?: string;
+  skill?: string;
+  plugin?: PluginLabel;
+}
+
+/**
+ * Where a tool call runs, and what it traces to: an MCP call names its server and the plugin
+ * that brought it; a skill tool, or a sandbox tool whose input names `/skills/<name>/`, names the
+ * skill and its plugin. A tool the turn's harness declared (`nativeTools`) runs in the harness.
+ */
 export function toolKindOf(
   s: Pick<Session, "manifest" | "mcpSnapshot">,
   agentManifest: AgentManifest | undefined,
   request: HostEffect,
-): { toolKind: ToolCallKind; server?: string } {
+  nativeTools?: ReadonlySet<string>,
+): ToolCallPlace {
   const mcp = mcpToolOf(s.mcpSnapshot, request);
-  if (mcp) return { toolKind: "mcp", server: mcp.serverName };
+  if (mcp) {
+    const plugin = pluginOf(agentManifest, { server: mcp.serverName });
+    return { toolKind: "mcp", server: mcp.serverName, ...(plugin === undefined ? {} : { plugin }) };
+  }
   if (isHttpToolCall(s.manifest, request)) {
     const host = httpHostOf(declaredHttpTool(s.manifest, request.agent?.id, request.toolName)?.http.url);
     return { toolKind: "http", ...(host === undefined ? {} : { server: host }) };
   }
-  if (sandboxToolSpec(agentManifest, request.toolName)) return { toolKind: "sandbox" };
-  return { toolKind: "platform" };
+  if (request.toolName !== undefined && nativeTools?.has(request.toolName)) return { toolKind: "harness" };
+  const skill = skillOfToolCall(agentManifest, request.toolName, request.input);
+  const plugin = skill === undefined ? undefined : pluginOf(agentManifest, { skill });
+  const traced = {
+    ...(skill === undefined ? {} : { skill }),
+    ...(plugin === undefined ? {} : { plugin }),
+  };
+  if (sandboxToolSpec(agentManifest, request.toolName)) return { toolKind: "sandbox", ...traced };
+  return { toolKind: "platform", ...traced };
 }
 
 /** The host (and port, when it names one) of an HTTP tool's URL. */
@@ -91,7 +118,7 @@ function httpHostOf(url: string | undefined): string | undefined {
 }
 
 /** The facts a new tool row starts with: its first send, now. */
-export function firstSend(kind: { toolKind: ToolCallKind; server?: string }, now = new Date()): ToolRowFacts {
+export function firstSend(kind: ToolCallPlace, now = new Date()): ToolRowFacts {
   return { ...kind, attempts: 1, startedAt: now.toISOString() };
 }
 
@@ -108,6 +135,8 @@ export function factsOf(row: ToolRow, status: ToolCallStatus, gate?: GateTimes):
     status,
     ...(row.toolKind === undefined ? {} : { kind: row.toolKind }),
     ...(row.server === undefined ? {} : { server: row.server }),
+    ...(row.skill === undefined ? {} : { skill: row.skill }),
+    ...(row.plugin === undefined ? {} : { plugin: row.plugin }),
     ...(row.attempts === undefined ? {} : { attempts: row.attempts }),
     ...(durationMs === undefined ? {} : { durationMs }),
     effectId: row.request.effectId,

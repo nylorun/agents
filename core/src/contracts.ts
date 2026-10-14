@@ -1960,7 +1960,12 @@ export const ContextCompactedPayloadSchema = z
 /** How a tool call ended (R5.1): the tool answered, the Runtime ended it, or a cancel did. */
 export const TOOL_CALL_STATUSES = ["completed", "failed", "cancelled"] as const;
 /** Where a tool call ran (R5.1): a remote MCP server, an HTTP tool, the sandbox, or core. */
-export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "platform"] as const;
+/**
+ * Where a tool call runs: an MCP server, an HTTP tool's URL, the session's sandbox, the Runtime
+ * itself (`platform`: the artifact, skill and deferred-tool tools), or the harness that runs the
+ * turn (`harness`: a tool it declared in `hello.features.tools`).
+ */
+export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "platform", "harness"] as const;
 /**
  * What the Tenant's tool policy did with a tool call (R5 step 2), when it did more than allow
  * it: `deny` refused it unsent; `ask` held it for a person, who approved it (`approvedBy`, when
@@ -1991,6 +1996,13 @@ export const ToolCompletedPayloadSchema = z
     kind: z.enum(TOOL_CALL_KINDS).optional(),
     /** The MCP server, or the HTTP tool's URL host. */
     server: z.string().min(1).optional(),
+    /**
+     * The skill the call ran: `load_skill` and `read_skill_resource` name it, and a sandbox tool
+     * whose input names `/skills/<name>/` ran its files.
+     */
+    skill: z.string().min(1).optional(),
+    /** The Agent Plugin that brought the call's MCP server or skill. */
+    plugin: pluginLabelSchema.optional(),
     /** How many times the call was sent: 0 when the Runtime refused it, above 1 after a crash re-sent it. */
     attempts: z.number().int().nonnegative().optional(),
     /** From the first send to the outcome; absent when the call never ran. */
@@ -2332,6 +2344,8 @@ export const McpServerOutcomeSchema = z
     /** The agent used as a tool that declares the server; absent for the session's root agent. */
     agentId: z.string().optional(),
     serverName: z.string(),
+    /** The Agent Plugin that brought the server. */
+    plugin: pluginLabelSchema.optional(),
     /** `refused`: the vault has no usable credential for it; `failed`: it could not be reached or listed. */
     outcome: z.enum(["connected", "refused", "failed"]),
     message: z.string(),
@@ -3997,6 +4011,10 @@ export const ToolCallSchema = z
     toolName: z.string().nullable(),
     kind: z.enum(TOOL_CALL_KINDS).nullable(),
     server: z.string().nullable(),
+    /** The skill the call ran (see `tool.completed`). */
+    skill: z.string().nullable(),
+    /** The Agent Plugin that brought its MCP server or skill. */
+    plugin: pluginLabelSchema.nullable(),
     /** `held`: the Tool Gate holds it for a person's approval (R5 step 2). */
     status: z.enum(["invoking", "held", ...TOOL_CALL_STATUSES, "uncertain"]),
     attempts: z.number().int().nonnegative(),

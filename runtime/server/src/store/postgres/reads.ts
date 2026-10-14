@@ -100,6 +100,8 @@ interface ToolRowBody {
   readonly error?: string;
   readonly toolKind?: ToolCall["kind"];
   readonly server?: string;
+  readonly skill?: string;
+  readonly plugin?: ToolCall["plugin"];
   readonly attempts?: number;
   readonly startedAt?: string;
   readonly settledAt?: string;
@@ -121,6 +123,8 @@ function publicToolCall(body: ToolRowBody): ToolCall {
     toolName: request.toolName ?? null,
     kind: body.toolKind ?? null,
     server: body.server ?? null,
+    skill: body.skill ?? null,
+    plugin: body.plugin ?? null,
     status,
     // A row written before R5 counted no sends: it was sent once.
     attempts: body.attempts ?? 1,

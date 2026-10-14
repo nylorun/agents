@@ -247,7 +247,7 @@ export async function recordIntent(
         request,
         requestHash,
         status: "invoking",
-        ...toolKindOf(s, agentManifest, request),
+        ...toolKindOf(s, agentManifest, request, scope.nativeTools),
         attempts: 0,
       };
       const outcome = await settleToolRow(
@@ -265,7 +265,7 @@ export async function recordIntent(
       requestHash,
       status: "invoking",
       ...(request.kind === "tool"
-        ? { ...firstSend(toolKindOf(s, agentManifest, request)), ...traced() }
+        ? { ...firstSend(toolKindOf(s, agentManifest, request, scope.nativeTools)), ...traced() }
         : { startedAt: new Date().toISOString() }),
     };
     // The Tenant's tool policy decides an MCP or HTTP tool call as it is journaled (R5 step 2).

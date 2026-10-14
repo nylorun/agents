@@ -142,6 +142,15 @@ What an intent carries:
     runs. A tool you declare may not take a name the agent or the Runtime already uses: the
     turn fails at its start.
   - `delegation` and `agent` belong to our engine's subagents and flows.
+- **What the log records of a tool call.** Each one ends in one `tool.completed`, and a row at
+  `GET /v1/sessions/{id}/calls/tool`. Core fills in where it ran from the pinned manifest; a
+  harness sends none of it:
+  - `kind`: `mcp`, `http`, `sandbox`, `platform` (a tool the Runtime serves: the artifact, skill
+    and deferred-tool tools) or `harness` (a tool you declared in `hello.features.tools`);
+  - `server`: the MCP server, or the HTTP tool's URL host;
+  - `skill`: the skill it ran. `load_skill` and `read_skill_resource` name it in their input, and
+    a sandbox tool whose input names `/skills/<name>/` ran that skill's files;
+  - `plugin`: `{name, version?}`, the Agent Plugin that brought its MCP server or skill.
 
 ## §5 Gates
 

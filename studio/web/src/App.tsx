@@ -31,6 +31,7 @@ import { EventTable } from "@/components/event-table";
 import { IterationTimeline } from "@/components/iteration-timeline";
 import { SessionComposer } from "@/components/session-composer";
 import { AttachmentPreview } from "@/components/attachment-preview";
+import { ToolTraceBadges } from "@/components/tool-trace";
 import {
   DEFAULT_MODEL_INPUTS,
   acceptFor,
@@ -57,6 +58,7 @@ import {
 } from "@/components/ui/resizable";
 import {
   toolLabel,
+  toolTrace,
   agentOf,
   eventLabel,
   mergeStudioEvents,
@@ -1166,8 +1168,13 @@ function SessionView({
                       }
                     >
                       <summary className="cursor-pointer text-sm font-medium">
-                        {toolLabel(payload)}
-                        {payload.error ? " · failed" : ""}
+                        <span className="inline-flex flex-wrap items-center gap-1.5 align-middle">
+                          <span>
+                            {toolLabel(payload)}
+                            {payload.error ? " · failed" : ""}
+                          </span>
+                          <ToolTraceBadges trace={toolTrace(payload)} />
+                        </span>
                       </summary>
                       <pre className="mt-2 overflow-auto whitespace-pre-wrap text-xs">
                         {pretty(payload.error ?? payload.output)}

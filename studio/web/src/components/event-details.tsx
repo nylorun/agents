@@ -6,8 +6,11 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   eventLabel,
+  pluginLabel,
+  toolTrace,
   type StudioEvent,
 } from "@/event-presentation";
+import { PluginBadge, ToolTraceBadges } from "@/components/tool-trace";
 
 function pretty(value: unknown): string {
   try {
@@ -56,6 +59,8 @@ export function EventDetails({
             <dt className="text-muted-foreground">Delivery</dt>
             <dd>{event.committed ? "History (/items)" : "Live SSE (/events)"}</dd>
           </dl>
+          {event.type === "tool.completed" ? <ToolTraceSection payload={event.payload} /> : null}
+          {event.type === "mcp.discovered" ? <McpServersSection payload={event.payload} /> : null}
           {artifactReferences(event).map(ref => (
             <Link
               key={`${ref.artifactId}:${ref.version}`}
@@ -79,6 +84,62 @@ export function EventDetails({
           </section>
         </div>
       </ScrollArea>
+    </section>
+  );
+}
+
+function record(value: unknown): Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : {};
+}
+
+/** The tool a `tool.completed` ran, where it ran, and what brought it. */
+function ToolTraceSection({ payload }: Readonly<{ payload: unknown }>) {
+  const call = record(payload);
+  const trace = toolTrace(payload);
+  return (
+    <section className="min-w-0 max-w-full">
+      <h3 className="text-sm font-medium">Tool call</h3>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <span className="font-mono text-xs">
+          {typeof call.toolName === "string" ? call.toolName : "tool"}
+        </span>
+        <ToolTraceBadges trace={trace} />
+      </div>
+    </section>
+  );
+}
+
+/** Each server `mcp.discovered` readied, with the plugin that brought it. */
+function McpServersSection({ payload }: Readonly<{ payload: unknown }>) {
+  const servers = Array.isArray(record(payload).servers)
+    ? (record(payload).servers as unknown[]).map(record)
+    : [];
+  if (servers.length === 0) return null;
+  return (
+    <section className="min-w-0 max-w-full">
+      <h3 className="text-sm font-medium">MCP servers</h3>
+      <ul className="mt-2 divide-y rounded-md border">
+        {servers.map((server, index) => {
+          const plugin = pluginLabel(server.plugin);
+          return (
+            <li key={index} className="flex flex-wrap items-center gap-1.5 px-3 py-2 text-xs">
+              <span className="font-mono font-medium">
+                {typeof server.serverName === "string" ? server.serverName : "server"}
+              </span>
+              {plugin ? <PluginBadge plugin={plugin} /> : null}
+              <span className="text-muted-foreground">
+                {server.outcome === "connected"
+                  ? `connected · ${Number(server.tools ?? 0)} tool${Number(server.tools ?? 0) === 1 ? "" : "s"}`
+                  : typeof server.outcome === "string"
+                    ? server.outcome
+                    : ""}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

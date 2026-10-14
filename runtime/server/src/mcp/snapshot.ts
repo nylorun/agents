@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { EventPayload } from "@nylorun/core/contracts";
 import type { JsonObject } from "@nylorun/core/define";
 import {
+  delegatesOf,
+  pluginOf,
   deferredToolsInstructions,
   deferredToolsTools,
   delegateManifest,
@@ -67,11 +69,20 @@ export interface McpRenamedTool {
   readonly name: string;
 }
 
-/** The `mcp.discovered` payload: each server's outcome, with the tools it added to the snapshot. */
+/**
+ * The `mcp.discovered` payload: each server's outcome, with the tools it added to the snapshot,
+ * and the Agent Plugin that brought the server (from `manifest`, the session's pinned one).
+ */
 export function mcpDiscovered(
   snapshot: McpSnapshot,
-  diagnostics: readonly McpDiagnostic[]
+  diagnostics: readonly McpDiagnostic[],
+  manifest?: AgentManifest
 ): EventPayload<"mcp.discovered"> {
+  const agents = new Map<string | undefined, AgentManifest>(
+    manifest === undefined
+      ? []
+      : [[undefined, manifest], ...delegatesOf(manifest).map(({ manifest: child }) => [child.id, child] as const)]
+  );
   const key = (item: { agentId?: string; serverName: string }) =>
     JSON.stringify([item.agentId ?? null, item.serverName]);
   const tools = new Map<string, number>();
@@ -84,6 +95,7 @@ export function mcpDiscovered(
     servers: diagnostics.map((item) => ({
       ...(item.agentId === undefined ? {} : { agentId: item.agentId }),
       serverName: item.serverName,
+      ...withPlugin(pluginOf(agents.get(item.agentId), { server: item.serverName })),
       outcome: item.outcome,
       message: item.message,
       tools: tools.get(key(item)) ?? 0,
@@ -94,6 +106,10 @@ export function mcpDiscovered(
       ...(item.renamed?.length ? { renamed: item.renamed.map((tool) => ({ ...tool })) } : {}),
     })),
   };
+}
+
+function withPlugin(plugin: ReturnType<typeof pluginOf>) {
+  return plugin === undefined ? {} : { plugin };
 }
 
 /** The longest tool name every model provider accepts (R2b C6, Q14). */
