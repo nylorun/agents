@@ -12,7 +12,15 @@ export interface CardDefinition {
 
 const MODES = ["text/plain", "application/json"];
 
-export function agentCard(agentId: string, definition: CardDefinition): Record<string, unknown> {
+/**
+ * `inputModes`: the media types the agent takes, when its model reads files; default text and
+ * JSON. The output modes stay text and JSON.
+ */
+export function agentCard(
+  agentId: string,
+  definition: CardDefinition,
+  inputModes: readonly string[] = MODES
+): Record<string, unknown> {
   const { manifest } = definition;
   const name = typeof manifest.name === "string" && manifest.name !== "" ? manifest.name : agentId;
   const description =
@@ -25,7 +33,7 @@ export function agentCard(agentId: string, definition: CardDefinition): Record<s
     supportedInterfaces: [],
     version: definition.implementationVersion,
     capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
-    defaultInputModes: MODES,
+    defaultInputModes: [...inputModes],
     defaultOutputModes: MODES,
     skills: [{ id: agentId, name, description, tags: [] }],
   };

@@ -1,0 +1,5 @@
+---
+"@nylorun/runtime": minor
+---
+
+**Files in AG-UI and A2A messages.** An AG-UI user message's image, audio, video and document parts are files now: bytes sent inline (a `data` source) are stored as an artifact of the thread's session, and a `file` source with provider `nylorun` names an artifact the caller may read. An A2A message may carry `raw` file parts beside its text, stored the same way in the context's session. Each file holds at most 20 MiB, and the two endpoints take bodies up to 28 MiB. The message then goes through the session's usual command path as text and file parts, so a file the model does not read is refused like any other: a `RUN_ERROR` in the AG-UI stream, `ContentTypeNotSupportedError` over A2A, and the files that message stored are deleted. A retried message (the same AG-UI message id or A2A `messageId`) reuses the files it stored the first time. A file by URL is refused (AG-UI `400`, A2A `ContentTypeNotSupportedError`): the Runtime fetches nothing. A thread's messages give a file back as a media part whose source is `{ type: "file", provider: "nylorun", value: <artifact id> }`.

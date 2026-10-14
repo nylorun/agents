@@ -1,7 +1,7 @@
 /**
  * A2A 1.0 over JSON-RPC: the wire types the Runtime answers with, the envelope, the error
  * codes and the parameter checks (Host feature `a2a-endpoint`). Only what v1 serves is typed:
- * text and data parts, tasks, the card. Field names are the spec's ProtoJSON (camelCase,
+ * text, data and file parts, tasks, the card. Field names are the spec's ProtoJSON (camelCase,
  * enum values such as `TASK_STATE_WORKING`). No Tenant state is read here.
  */
 
@@ -27,7 +27,9 @@ export const TERMINAL_STATES: ReadonlySet<TaskState> = new Set([
 
 export type Part =
   | { text: string; mediaType?: string; metadata?: Record<string, unknown> }
-  | { data: unknown; mediaType?: string; metadata?: Record<string, unknown> };
+  | { data: unknown; mediaType?: string; metadata?: Record<string, unknown> }
+  | { raw: string; mediaType?: string; filename?: string; metadata?: Record<string, unknown> }
+  | { url: string; mediaType?: string; filename?: string; metadata?: Record<string, unknown> };
 
 export interface Message {
   messageId: string;
@@ -197,8 +199,21 @@ function checkId(value: unknown, field: string, required: boolean): string | und
   return value;
 }
 
-/** A client's message reduced to what the Runtime runs: text, or one JSON value. */
-export type MessageInput = { content: string } | { data: unknown };
+/** A file sent inline (`raw`, base64): stored as an artifact of the context's session. */
+export interface RawFile {
+  readonly raw: string;
+  readonly mediaType?: string;
+  readonly filename?: string;
+}
+
+/**
+ * A client's message reduced to what the Runtime runs: text, one JSON value, or text and files
+ * sent inline.
+ */
+export type MessageInput =
+  | { content: string }
+  | { data: unknown }
+  | { files: readonly ({ text: string } | RawFile)[] };
 
 export interface SendParams {
   messageId: string;
@@ -217,7 +232,7 @@ export function parseHistoryLength(value: unknown, field: string): number | unde
 }
 
 /** The input of one part: exactly one of `text`, `raw`, `url`, `data` (spec §4.1.6). */
-function partKind(part: unknown, field: string): "text" | "data" | "file" {
+function partKind(part: unknown, field: string): "text" | "data" | "raw" | "url" {
   if (!isObject(part)) return a2aFail("invalidParams", `${field} must be an object`, {}, field);
   const kinds = (["text", "raw", "url", "data"] as const).filter((k) => part[k] !== undefined);
   if (kinds.length !== 1)
@@ -229,7 +244,12 @@ function partKind(part: unknown, field: string): "text" | "data" | "file" {
     );
   if (kinds[0] === "text" && typeof part.text !== "string")
     return a2aFail("invalidParams", `${field}.text must be a string`, {}, `${field}.text`);
-  return kinds[0] === "raw" || kinds[0] === "url" ? "file" : kinds[0];
+  if (kinds[0] === "raw" && typeof part.raw !== "string")
+    return a2aFail("invalidParams", `${field}.raw must be base64 bytes`, {}, `${field}.raw`);
+  for (const key of ["mediaType", "filename"] as const)
+    if (part[key] !== undefined && typeof part[key] !== "string")
+      return a2aFail("invalidParams", `${field}.${key} must be a string`, {}, `${field}.${key}`);
+  return kinds[0] === "raw" ? "raw" : kinds[0] === "url" ? "url" : kinds[0];
 }
 
 /** `SendMessage` params (spec §3.2.1), checked in the order a client can fix them. */
@@ -264,12 +284,30 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
   if (kinds.every((kind) => kind === "text"))
     input = { content: parts.map((part) => part.text as string).join("\n") };
   else if (kinds.length === 1 && kinds[0] === "data") input = { data: parts[0]!.data };
-  else
+  else if (kinds.includes("url"))
     return a2aFail(
       "contentTypeNotSupported",
-      "This agent accepts text parts, or a single data part; files are not supported",
+      "File URLs are not fetched yet; send the bytes inline as raw",
+      { accepted: "raw" }
+    );
+  else if (kinds.includes("data"))
+    return a2aFail(
+      "contentTypeNotSupported",
+      "This agent accepts text and file parts, or a single data part",
       { accepted: "text/plain,application/json" }
     );
+  else
+    input = {
+      files: parts.map((part, index) =>
+        kinds[index] === "text"
+          ? { text: part.text as string }
+          : {
+              raw: part.raw as string,
+              ...(part.mediaType !== undefined ? { mediaType: part.mediaType as string } : {}),
+              ...(part.filename !== undefined ? { filename: part.filename as string } : {}),
+            }
+      ),
+    };
   if ("content" in input && input.content.trim() === "")
     a2aFail("invalidParams", "The message has no text", {}, "message.parts");
   return {

@@ -41,7 +41,11 @@ const SCRIPTS: Record<string, { steps: Step[]; closing: string }> = {
     steps: [{ text: "Starting.", call: { name: "wait", args: {} } }],
     closing: "Finished.",
   },
+  plain: { steps: [], closing: "Got it." },
 };
+
+/** The last prompt each agent's model was given. */
+const prompts = new Map<string, unknown>();
 
 /** Plays each agent's script, one step per model call within a turn. */
 function scriptedModel(): ModelProvider {
@@ -50,6 +54,7 @@ function scriptedModel(): ModelProvider {
     const script = SCRIPTS[effect.agentId]!;
     const prompt =
       (effect.input as { prompt?: { kind?: string }[] }).prompt ?? [];
+    prompts.set(effect.agentId, prompt);
     const results = prompt.filter((item) => item.kind === "tool-result");
     if (!baseline.has(effect.turnId))
       baseline.set(effect.turnId, results.length);
@@ -98,7 +103,8 @@ function agents(service: ToolServer) {
   const slow = Agent({ id: "slow", name: "Slow" })
     .tools(service.tool("wait", { input: z.object({}) }))
     .build();
-  return [shop, guarded, slow];
+  const plain = Agent({ id: "plain", name: "Plain" }).build();
+  return [shop, guarded, slow, plain];
 }
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
@@ -320,6 +326,70 @@ describe("AG-UI handler against the Runtime", () => {
     expect(first.at(-1)).toBe("RUN_FINISHED");
     const history = await historyOf("shop", "ada", "t-retry");
     expect(history.filter((m) => m.role === "user")).toHaveLength(1);
+  });
+
+  it("sends a file inline through the app server, replays a retry with it, and reloads it as an artifact", async () => {
+    const pdf = Buffer.from("%PDF-1.4 a brief").toString("base64");
+    const id = crypto.randomUUID();
+    const body = JSON.stringify({
+      threadId: "t-file",
+      runId: "run-1",
+      messages: [
+        {
+          id,
+          role: "user",
+          content: [
+            { type: "text", text: "Summarize this" },
+            {
+              type: "document",
+              source: { type: "data", value: pdf, mimeType: "application/pdf" },
+              metadata: { filename: "brief.pdf" },
+            },
+          ],
+        },
+      ],
+      tools: [],
+      context: [],
+    });
+    const post = () =>
+      fetch(`${base}/plain`, {
+        method: "POST",
+        headers: { "x-user": "ada", "content-type": "application/json" },
+        body,
+      });
+    const first: string[] = [];
+    for await (const { event } of frames(await post())) first.push(event.type);
+    expect(first.at(-1)).toBe("RUN_FINISHED");
+    const session = sessionOf("ada", "plain", "t-file");
+    const listed = await runtimeClient.artifacts.list({ sessionId: session });
+    expect(listed).toHaveLength(1);
+    const artifact = listed[0]!;
+    expect(artifact).toMatchObject({ name: "brief.pdf", contentType: "application/pdf" });
+    // The model reads the file by reference: the prompt names the artifact, never its bytes.
+    const prompt = JSON.stringify(prompts.get("plain"));
+    expect(prompt).toContain(artifact.artifactId);
+    expect(prompt).not.toContain(pdf);
+    const second: string[] = [];
+    for await (const { event } of frames(await post())) second.push(event.type);
+    expect(second).toEqual(first);
+    expect(await runtimeClient.artifacts.list({ sessionId: session })).toHaveLength(1);
+    const history = await historyOf("plain", "ada", "t-file");
+    expect(history[0]).toEqual({
+      id,
+      role: "user",
+      content: [
+        { type: "text", text: "Summarize this" },
+        {
+          type: "document",
+          source: {
+            type: "file",
+            value: artifact.artifactId,
+            provider: "nylorun",
+            mimeType: "application/pdf",
+          },
+        },
+      ],
+    });
   });
 
   it("ends a run on approval with an interrupt naming the tool call, and resumes it", async () => {

@@ -10,6 +10,7 @@ import { z } from "zod";
 import { EventSchemas, MessageSchema, RunAgentInputSchema } from "@ag-ui/core/schemas";
 import type { TenantEnv } from "../http/app.js";
 import { readJson } from "../http/body.js";
+import { INLINE_BODY_MAX_BYTES } from "../inbound-files.js";
 import { TraceHeaders, tenantRoute, type RouteAccess } from "../http/define.js";
 import { traceContextOf } from "../../traces/ids.js";
 import { jsonResponse } from "../http/respond.js";
@@ -67,7 +68,7 @@ export function agUiRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: TAGS,
       summary: "Run an agent",
       description:
-        "For a person, named by a trusted issuer's token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); `resume` answers interrupts. A busy session is a `RUN_ERROR` in the stream.",
+        "For a person, named by a trusted issuer's token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); its media parts are files: bytes sent inline (`data`, at most 20 MiB each) are stored as artifacts of the session, a `file` source with provider `nylorun` names an artifact, and a URL is refused. `resume` answers interrupts. A busy session, or a file the model does not read, is a `RUN_ERROR` in the stream.",
       request: {
         params: agentId,
         body: {
@@ -85,7 +86,8 @@ export function agUiRoutes(api: OpenAPIHono<TenantEnv>): void {
         scope,
         c.req.param("agentId")!,
         { subject, access },
-        await readJson(c.req.raw),
+        // A message may carry files inline.
+        await readJson(c.req.raw, INLINE_BODY_MAX_BYTES),
         c.env.outgoing,
         traceContextOf(c.req.raw.headers),
       );

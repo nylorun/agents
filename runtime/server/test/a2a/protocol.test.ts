@@ -146,6 +146,24 @@ describe("SendMessage params", () => {
     });
   });
 
+  it("takes text and raw file parts as files, in order", () => {
+    expect(
+      parseSendParams(
+        message({ parts: [{ text: "Read" }, { raw: "JVBERi0=", mediaType: "application/pdf", filename: "a.pdf" }, { raw: "AA==" }] })
+      )
+    ).toEqual({
+      messageId: "m-1",
+      input: {
+        files: [
+          { text: "Read" },
+          { raw: "JVBERi0=", mediaType: "application/pdf", filename: "a.pdf" },
+          { raw: "AA==" },
+        ],
+      },
+      returnImmediately: false,
+    });
+  });
+
   it.each([
     ["no message", {}, "invalidParams", "message"],
     ["an agent role", message({ role: "ROLE_AGENT" }), "invalidParams", "message.role"],
@@ -154,7 +172,11 @@ describe("SendMessage params", () => {
     ["no parts", message({ parts: [] }), "invalidParams", "message.parts"],
     ["a part with two kinds", message({ parts: [{ text: "a", data: 1 }] }), "invalidParams", "message.parts[0]"],
     ["blank text", message({ parts: [{ text: "  " }] }), "invalidParams", "message.parts"],
-    ["a file", message({ parts: [{ url: "https://x/y.pdf" }] }), "contentTypeNotSupported", undefined],
+    ["a file URL", message({ parts: [{ url: "https://x/y.pdf" }] }), "contentTypeNotSupported", undefined],
+    ["a file URL with raw bytes", message({ parts: [{ raw: "AA==" }, { url: "https://x/y.pdf" }] }), "contentTypeNotSupported", undefined],
+    ["raw bytes and data", message({ parts: [{ raw: "AA==" }, { data: 1 }] }), "contentTypeNotSupported", undefined],
+    ["raw bytes that are not a string", message({ parts: [{ raw: [1, 2] }] }), "invalidParams", "message.parts[0].raw"],
+    ["a filename that is not a string", message({ parts: [{ raw: "AA==", filename: 3 }] }), "invalidParams", "message.parts[0].filename"],
     ["text and data", message({ parts: [{ text: "a" }, { data: 1 }] }), "contentTypeNotSupported", undefined],
     ["a push config", { ...message(), configuration: { taskPushNotificationConfig: { url: "x" } } }, "pushNotSupported", undefined],
     ["a negative history length", { ...message(), configuration: { historyLength: -1 } }, "invalidParams", "configuration.historyLength"],
@@ -365,5 +387,15 @@ describe("agentCard", () => {
       defaultOutputModes: ["text/plain", "application/json"],
       skills: [{ id: "support", name: "Support", description: "Answers questions.", tags: [] }],
     });
+  });
+
+  it("advertises the input modes it is given; output stays text and JSON", () => {
+    const card = agentCard(
+      "support",
+      { manifest: { id: "support" }, implementationVersion: "1" },
+      ["text/plain", "application/json", "image/png", "application/pdf"]
+    );
+    expect(card.defaultInputModes).toEqual(["text/plain", "application/json", "image/png", "application/pdf"]);
+    expect(card.defaultOutputModes).toEqual(["text/plain", "application/json"]);
   });
 });

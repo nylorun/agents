@@ -9,6 +9,10 @@
  * caller's scope (limits and owner checks apply), sessions derived from the caller's own
  * subject, history from Durable Streams. A task id from the client only selects a context and
  * a turn within the caller's own sessions, so another subject's task is `TaskNotFoundError`.
+ *
+ * A message's `raw` file parts are stored as artifacts of the context's session once it is open,
+ * and the message goes in as `parts` (`../inbound-files.ts`): a file the model does not read is
+ * `ContentTypeNotSupportedError`, and the files of a refused message are deleted.
  */
 import { randomUUID } from "node:crypto";
 import type { ServerResponse } from "node:http";
@@ -18,6 +22,13 @@ import {
   type SessionCommand,
 } from "@nylorun/core/contracts";
 import { commandKey } from "../../core/flow-host.js";
+import { contentTypeFor } from "../../artifacts/media-types.js";
+import {
+  discardFiles,
+  inlineFileName,
+  messageParts,
+  type InboundPart,
+} from "../inbound-files.js";
 import { agentCard, type CardDefinition } from "./card.js";
 import {
   A2aError,
@@ -29,6 +40,7 @@ import {
   parseSendParams,
   parseTaskParams,
   type JsonRpcRequest,
+  type MessageInput,
   type Task,
 } from "./protocol.js";
 import {
@@ -120,7 +132,7 @@ export async function a2aCall(
   } catch (error) {
     if (error instanceof A2aError) return jsonRpcError(id, error);
     // Limits, scopes and unavailable streams stay HTTP answers, as on every Tenant route.
-    if (error instanceof HttpError && [403, 429, 503].includes(error.status)) throw error;
+    if (error instanceof HttpError && [403, 413, 429, 503].includes(error.status)) throw error;
     ctx.config.logger.warn("a2a request failed", {
       agentId,
       method: envelope.request.method,
@@ -240,7 +252,13 @@ async function run(
     )) as { turnId: string | null; cursor: string };
     return { turnId: accepted.turnId!, cursor: accepted.cursor };
   } catch (error) {
-    if (!(error instanceof HttpError) || error.status !== 409) throw error;
+    if (!(error instanceof HttpError)) throw error;
+    // A file the agent's model does not read (`attachment_unsupported`).
+    if (error.status === 422)
+      return a2aFail("contentTypeNotSupported", error.message, {
+        reason: error.rejection.code ?? "request_rejected",
+      });
+    if (error.status !== 409) throw error;
     if (error.message.startsWith("Idempotency key"))
       return a2aFail(
         "invalidParams",
@@ -275,13 +293,22 @@ async function sendMessage(
 ): Promise<{ task: Task }> {
   const send = parseSendParams(params);
   const idempotencyKey = `a2a:${send.messageId}`;
-  const value = "content" in send.input ? send.input.content : send.input.data;
   let contextId: string;
   let sessionId: string;
   let accepted: { turnId: string; cursor: string };
   if (send.taskId !== undefined) {
     // A reply on an existing task: only a question it is waiting on can take it.
     const ids = parseTaskId(send.taskId) ?? taskNotFound(send.taskId);
+    const value =
+      "content" in send.input
+        ? send.input.content
+        : "data" in send.input
+        ? send.input.data
+        : a2aFail(
+            "contentTypeNotSupported",
+            "A reply takes text or one data part; send files in a new message",
+            { accepted: "text/plain,application/json" }
+          );
     if (send.contextId !== undefined && send.contextId !== ids.contextId)
       a2aFail(
         "invalidParams",
@@ -330,6 +357,7 @@ async function sendMessage(
     sessionId = contextSessionId(caller.access.owner, caller.agentId, contextId);
     await openContext(caller, sessionId);
     const context = contextId;
+    const { body, stored } = await messageBody(caller, sessionId, idempotencyKey, send.input);
     accepted = await run(
       caller,
       sessionId,
@@ -337,7 +365,7 @@ async function sendMessage(
         type: "message",
         requestId: randomUUID(),
         idempotencyKey,
-        ...send.input,
+        ...body,
       } as SessionCommand,
       async () => {
         const active = (await contextSession(caller, sessionId))?.activeTurnId;
@@ -353,7 +381,10 @@ async function sendMessage(
               "The context has unresolved work; start a new context"
             );
       }
-    );
+    ).catch(async (error: unknown) => {
+      await discardFiles(caller.ctx, stored, caller.access);
+      throw error;
+    });
   }
   if (!send.returnImmediately)
     await settled(caller.ctx, sessionId, accepted.turnId, accepted.cursor, signal);
@@ -363,6 +394,47 @@ async function sendMessage(
     send.historyLength
   );
   return { task };
+}
+
+/**
+ * A new message's body: its text, its JSON value, or parts with its `raw` files stored as
+ * artifacts of the session (`stored`: the ones this call created). A file the Runtime cannot
+ * store is `InvalidParamsError`; one past a limit stays an HTTP `413`.
+ */
+async function messageBody(
+  caller: Caller,
+  sessionId: string,
+  idempotencyKey: string,
+  input: MessageInput
+): Promise<{ body: Record<string, unknown>; stored: string[] }> {
+  if (!("files" in input)) return { body: input, stored: [] };
+  let files = 0;
+  const inbound: InboundPart[] = input.files.map((part) => {
+    if ("text" in part) return { type: "text", text: part.text };
+    const index = files++;
+    const mediaType =
+      part.mediaType ?? (part.filename !== undefined ? contentTypeFor(part.filename) : "application/octet-stream");
+    return {
+      type: "inline",
+      name: part.filename ?? inlineFileName(mediaType, index),
+      mediaType,
+      data: part.raw,
+    };
+  });
+  try {
+    const { parts, stored } = await messageParts(
+      caller.ctx,
+      sessionId,
+      idempotencyKey,
+      inbound,
+      caller.access
+    );
+    return { body: { parts }, stored };
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 400)
+      return a2aFail("invalidParams", error.message, {}, "message.parts");
+    throw error;
+  }
 }
 
 /** The interaction a reply answers: the task must be active and paused on a question. */
