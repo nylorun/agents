@@ -144,7 +144,7 @@ export function SessionModelPicker({
       : (active?.modelName ?? "Select model");
 
   return (
-    <div className={cn("min-w-0", className)}>
+    <div className={cn("flex min-w-0 items-center gap-2", className)}>
       <DropdownMenu
         open={open}
         onOpenChange={(next) => {
@@ -155,10 +155,10 @@ export function SessionModelPicker({
         <DropdownMenuTrigger asChild>
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
             disabled={disabled || loading || pending || empty}
-            className="h-8 max-w-full gap-2 px-2.5 font-normal"
+            className="h-8 min-w-0 max-w-full gap-1.5 px-2 text-xs font-normal"
             aria-label="Select model and provider"
           >
             {pending || loading ? (
@@ -225,14 +225,14 @@ export function SessionModelPicker({
         </DropdownMenuContent>
       </DropdownMenu>
       {empty && !error ? (
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
+        <span className="truncate text-[11px] text-muted-foreground">
           Connect a provider in Model Settings.
-        </p>
+        </span>
       ) : null}
       {error ? (
-        <p role="alert" className="mt-1.5 text-[11px] text-destructive">
+        <span role="alert" className="truncate text-[11px] text-destructive" title={error}>
           {error}
-        </p>
+        </span>
       ) : null}
     </div>
   );
