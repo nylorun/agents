@@ -8,15 +8,10 @@ it("emits causal correlated events and independent observer-failure diagnostics"
   const events: ExecutionEvent[] = [];
   let fail = true;
   const agent = Agent({ id: "a", name: "A" })
-    .use({
-      id: "tools",
-      tools: [
-        {
-          name: "t",
-          inputSchema: z.object({}),
-          execute: async () => ({ kind: "completed", output: "done" }),
-        },
-      ],
+    .tools({
+      name: "t",
+      inputSchema: z.object({}),
+      execute: async () => ({ kind: "completed", output: "done" }),
     })
     .build();
   let calls = 0;
@@ -62,51 +57,15 @@ it("does not fail execution when an asynchronous observer rejects", async () => 
   expect(events).toContain("observation.failed");
 });
 
-it("observes early policy failures without a model call", async () => {
-  const onModelCall = vi.fn(async () => "bad");
-  const events: ExecutionEvent[] = [];
-  const result = await runAgent(
-    Agent({ id: "a", name: "A" })
-      .use("policy", async (request) =>
-        request.tripwire({ code: "policy.denied", message: "Denied" }),
-      )
-      .build(),
-    {
-      input: "go",
-      onModelCall,
-      onEvent: (event) => {
-        events.push(event);
-      },
-    },
-  );
-  expect(result.status).toBe("failed");
-  expect(onModelCall).not.toHaveBeenCalled();
-  expect(events).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        type: "tripwire",
-        code: "policy.denied",
-        attributes: { message: "Denied" },
-      }),
-      expect.objectContaining({ type: "execution.failed" }),
-    ]),
-  );
-});
-
 it("reports thrown tool failures and continues with a model-visible result", async () => {
   const events: ExecutionEvent[] = [];
   const agent = Agent({ id: "a", name: "A" })
-    .use({
-      id: "tools",
-      tools: [
-        {
-          name: "t",
-          inputSchema: z.object({}),
-          execute: async () => {
-            throw new Error("tool failed");
-          },
-        },
-      ],
+    .tools({
+      name: "t",
+      inputSchema: z.object({}),
+      execute: async () => {
+        throw new Error("tool failed");
+      },
     })
     .build();
   let calls = 0;

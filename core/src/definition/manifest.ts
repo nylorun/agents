@@ -1,4 +1,4 @@
-import type { BoundMiddleware } from "./bound.js";
+import type { DefinitionPart } from "./bound.js";
 import type {
   AgentManifest,
   CapabilityManifest,
@@ -23,7 +23,7 @@ export function createManifest(input: {
   metadata?: JsonObject;
   outputSchema?: ToolSchemaSource;
   runtime?: RuntimeManifest;
-  middleware: readonly BoundMiddleware[];
+  middleware: readonly DefinitionPart[];
   /** The version a manifest rebuilt from JSON had; it never goes below what the capabilities need. */
   manifestSchemaVersion?: ManifestSchemaVersion;
 }): AgentManifest {
@@ -51,8 +51,7 @@ export function createManifest(input: {
   });
 }
 
-function projectCapability(item: BoundMiddleware): CapabilityManifest {
-  const contributions = item.contributions;
+function projectCapability(item: DefinitionPart): CapabilityManifest {
   return {
     id: item.id,
     type: item.manifestType ?? "agent",
@@ -61,9 +60,7 @@ function projectCapability(item: BoundMiddleware): CapabilityManifest {
     ...(item.metadata === undefined
       ? {}
       : { metadata: copyJsonObject(item.metadata, "metadata") }),
-    ...(contributions?.instructions === undefined
-      ? {}
-      : { instructions: contributions.instructions }),
+    ...(item.instructions === undefined ? {} : { instructions: item.instructions }),
     ...(item.tools === undefined
       ? {}
       : { tools: item.tools.map((tool) => projectTool(tool)) }),
@@ -76,7 +73,7 @@ function projectCapability(item: BoundMiddleware): CapabilityManifest {
 }
 
 function projectTool(
-  tool: NonNullable<BoundMiddleware["tools"]>[number]
+  tool: NonNullable<DefinitionPart["tools"]>[number]
 ): ToolManifest {
   const schemas = normalizedSchemasFor(tool);
   const delegate = delegateOf(tool);

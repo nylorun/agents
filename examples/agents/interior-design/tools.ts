@@ -14,7 +14,6 @@ export function interiorDesign(
   editor: ImageEditor | undefined,
 ) {
   return {
-    id: "interior-design",
     instructions: [
       "Use reimagine_interior only after the user supplies a room photo and a requested design theme.",
       "Preserve the room layout, viewpoint, windows, doors, and architectural constraints; change furnishings, materials, lighting, and decor to fit the requested theme.",

@@ -2,19 +2,12 @@ import { runAgent } from "./run-agent.js";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { checkCompatibility } from "../src/compatibility.js";
-import {
-  Agent,
-  ToolError,
-  hashManifest,
-  tool,
-  capability,
-  type Implementations,
-} from "@nylorun/core/define";
+import { Agent, ToolError, hashManifest, tool, type Implementations } from "@nylorun/core/define";
 import { type ExecutionState } from "../src/index.js";
 import { run as runBoundAgent, bindingFromAgent } from "../src/run/index.js";
 
 describe("DX v5.6 ergonomics", () => {
-  it("Agent() is usable without .build(); .use() returns a new agent", async () => {
+  it("Agent() is usable without .build(); .instructions() returns a new agent", async () => {
     const agent = Agent({
       id: "support",
       name: "Support",
@@ -31,7 +24,7 @@ describe("DX v5.6 ergonomics", () => {
     });
     expect(agent.id).toBe("support");
     expect(agent.manifest.manifestSchemaVersion).toBe(5);
-    const extended = agent.use({ id: "extra", instructions: ["Extra."] });
+    const extended = agent.instructions("Extra.");
     expect(extended).not.toBe(agent);
     expect(agent.build()).toBe(agent.build());
     let calls = 0;
@@ -49,26 +42,23 @@ describe("DX v5.6 ergonomics", () => {
 
   it("accepts ToolError and plain return values from tools", async () => {
     const agent = Agent({ id: "a", name: "A" })
-      .use({
-        id: "t",
-        tools: [
-          tool({
-            name: "ok",
-            input: z.object({}),
-            effects: "read",
-            async run() {
-              return { ok: true };
-            },
-          }),
-          tool({
-            name: "bad",
-            input: z.object({}),
-            async run() {
-              throw new ToolError("not_found", "missing");
-            },
-          }),
-        ],
-      })
+      .tools(
+        tool({
+          name: "ok",
+          input: z.object({}),
+          effects: "read",
+          async run() {
+            return { ok: true };
+          },
+        }),
+        tool({
+          name: "bad",
+          input: z.object({}),
+          async run() {
+            throw new ToolError("not_found", "missing");
+          },
+        }),
+      )
       .build();
     let calls = 0;
     const ok = await runAgent(agent, {
@@ -96,21 +86,18 @@ describe("DX v5.6 ergonomics", () => {
 
   it("pauses on declarative tool approval and resumes", async () => {
     const agent = Agent({ id: "a", name: "A" })
-      .use({
-        id: "pay",
-        tools: [
-          tool({
-            name: "refund",
-            input: z.object({ amount: z.number() }),
-            effects: "idempotent",
-            approval: ({ amount }) => amount > 10 && `Refund $${amount}?`,
-            async run({ amount }, ctx) {
-              expect(ctx.idempotencyKey).toBeTruthy();
-              return { refunded: amount };
-            },
-          }),
-        ],
-      })
+      .tools(
+        tool({
+          name: "refund",
+          input: z.object({ amount: z.number() }),
+          effects: "idempotent",
+          approval: ({ amount }) => amount > 10 && `Refund $${amount}?`,
+          async run({ amount }, ctx) {
+            expect(ctx.idempotencyKey).toBeTruthy();
+            return { refunded: amount };
+          },
+        }),
+      )
       .build();
     const first = await runAgent(agent, {
       input: "go",
@@ -140,14 +127,14 @@ describe("DX v5.6 agent-as-JSON", () => {
       },
     });
     const agent = Agent({ id: "support", name: "Support", instructions: "Help." })
-      .use({ id: "orders", tools: [refund], instructions: ["Look up first."] })
+      .tools(refund)
+      .instructions("Look up first.")
       .build();
     const json = agent.toJSON();
     expect(json).not.toHaveProperty("model");
     expect(hashManifest(json)).toBe(hashManifest(agent.manifest));
     const implementations: Implementations = {
-      agent: {},
-      orders: { tools: { refund } },
+      agent: { tools: { refund } },
     };
     const restored = Agent.from(json, implementations);
     expect(hashManifest(restored.manifest)).toBe(hashManifest(agent.manifest));
@@ -187,19 +174,16 @@ describe("DX v5.6 agent-as-JSON", () => {
 describe("DX v5.6 durable acceptance", () => {
   it("D1 pause resume via engine", async () => {
     const agent = Agent({ id: "a", name: "A" })
-      .use({
-        id: "t",
-        tools: [
-          tool({
-            name: "act",
-            input: z.object({}),
-            approval: () => "Proceed?",
-            async run() {
-              return "did";
-            },
-          }),
-        ],
-      })
+      .tools(
+        tool({
+          name: "act",
+          input: z.object({}),
+          approval: () => "Proceed?",
+          async run() {
+            return "did";
+          },
+        }),
+      )
       .build();
     const binding = bindingFromAgent(agent);
     const records: ExecutionState[] = [];
@@ -232,19 +216,16 @@ describe("DX v5.6 durable acceptance", () => {
 
   it("D2 crash continue from last record", async () => {
     const agent = Agent({ id: "a", name: "A" })
-      .use({
-        id: "t",
-        tools: [
-          tool({
-            name: "job",
-            input: z.object({}),
-            effects: "idempotent",
-            async run(_args, ctx) {
-              return { redelivery: Boolean(ctx.redelivery), key: ctx.idempotencyKey };
-            },
-          }),
-        ],
-      })
+      .tools(
+        tool({
+          name: "job",
+          input: z.object({}),
+          effects: "idempotent",
+          async run(_args, ctx) {
+            return { redelivery: Boolean(ctx.redelivery), key: ctx.idempotencyKey };
+          },
+        }),
+      )
       .build();
     const binding = bindingFromAgent(agent);
     const records: ExecutionState[] = [];
@@ -280,19 +261,16 @@ describe("DX v5.6 durable acceptance", () => {
 
   it("D6 ask wait parks and resumes", async () => {
     const agent = Agent({ id: "a", name: "A" })
-      .use({
-        id: "t",
-        tools: [
-          tool({
-            name: "confirm",
-            input: z.object({}),
-            async run(_args, ctx) {
-              const answer = await ctx.ask("Confirm?");
-              return { answer };
-            },
-          }),
-        ],
-      })
+      .tools(
+        tool({
+          name: "confirm",
+          input: z.object({}),
+          async run(_args, ctx) {
+            const answer = await ctx.ask("Confirm?");
+            return { answer };
+          },
+        }),
+      )
       .build();
     const first = await runAgent(agent, {
       input: "go",

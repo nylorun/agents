@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, AgentBuildError, capability, hashManifest, tool } from "../src/define.js";
+import { Agent, AgentBuildError, hashManifest, tool } from "../src/define.js";
+import { addPart } from "./support/parts.js";
 import { AgentManifestSchema } from "../src/contracts.js";
 import { HarnessError } from "../src/errors.js";
 it("keeps live code and schemas in a non-serialized binding", () => {
@@ -43,7 +44,7 @@ it("projects optional description and metadata onto the manifest", () => {
   expect(builder.manifest.metadata).not.toBe(metadata);
   expect(Object.isFrozen(builder.manifest.metadata)).toBe(true);
 
-  const extended = builder.use({ id: "extra", instructions: ["Extra."] });
+  const extended = addPart(builder, { id: "extra", instructions: ["Extra."] });
   expect(extended.manifest.description).toBe("Looks up orders.");
   expect(extended.manifest.metadata).toEqual(metadata);
   expect(hashManifest(extended.manifest)).not.toBe(hashManifest(builder.manifest));
@@ -69,16 +70,12 @@ it("omits an unset agent name and projects capability name and description", () 
   expect(unnamed.manifest).not.toHaveProperty("name");
   expect(AgentManifestSchema.safeParse(unnamed.toJSON()).success).toBe(true);
 
-  const agent = Agent({ id: "support" })
-    .use(
-      capability({
-        id: "orders",
-        name: "Orders",
-        description: "Looks up orders.",
-        instructions: ["Look up first."],
-      })
-    )
-    .build();
+  const agent = addPart(Agent({ id: "support" }), {
+    id: "orders",
+    name: "Orders",
+    description: "Looks up orders.",
+    instructions: ["Look up first."],
+  }).build();
   expect(agent.manifest.capabilities).toEqual([
     expect.objectContaining({
       id: "orders",
@@ -92,9 +89,11 @@ it("omits an unset agent name and projects capability name and description", () 
   expect(restored.manifest).toEqual(agent.manifest);
   expect(hashManifest(restored.manifest)).toBe(hashManifest(agent.manifest));
 
-  const labelOnly = Agent({ id: "labeled" })
-    .use(capability({ id: "label", name: "Label", description: "Just a label." }))
-    .build();
+  const labelOnly = addPart(Agent({ id: "labeled" }), {
+    id: "label",
+    name: "Label",
+    description: "Just a label.",
+  }).build();
   expect(labelOnly.manifest.capabilities[0]).toEqual({
     id: "label",
     type: "agent",
@@ -104,6 +103,6 @@ it("omits an unset agent name and projects capability name and description", () 
 
   expect(() => Agent({ id: "a", name: "" }).build()).toThrow(AgentBuildError);
   expect(() =>
-    Agent({ id: "a" }).use(capability({ id: "orders", name: "" })).build()
+    addPart(Agent({ id: "a" }), { id: "orders", name: "" }).build()
   ).toThrow(AgentBuildError);
 });

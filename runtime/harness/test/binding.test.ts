@@ -4,10 +4,8 @@ import { Agent } from "@nylorun/core/define";
 import { expectBuildError, model, testAgent, tool, turn } from "./fixtures.js";
 
 describe("build", () => {
-  it("seals middleware order and returns a frozen adapter-free manifest", () => {
-    const builder = testAgent()
-      .use("first", async (_request, next) => next())
-      .use("second", async (_request, next) => next());
+  it("keeps part order and returns a frozen adapter-free manifest", () => {
+    const builder = testAgent().part({ id: "first" }).part({ id: "second" });
     const agent = builder.build();
     expect(builder.build()).toBe(agent);
     expect(agent.id).toBe("test");
@@ -25,42 +23,27 @@ describe("build", () => {
     expect(Object.isFrozen(agent.manifest)).toBe(true);
   });
 
-  it("allows .use() after build() to return a new agent (build is a no-op)", () => {
+  it("allows .instructions() after build() to return a new agent (build is a no-op)", () => {
     const builder = Agent({ id: "a", name: "A" });
     builder.build();
-    const next = builder.use("late", async (_request, nextFn) => nextFn());
+    const next = builder.instructions("Late.");
     expect(next).not.toBe(builder);
-    expect(next.build().manifest.capabilities.map((item) => item.id)).toContain("late");
+    expect(next.build().manifest.capabilities).toEqual([
+      { id: "agent", type: "agent", instructions: ["Late."] },
+    ]);
   });
 
-  it("rejects duplicate middleware ids", () => {
-    const builder = testAgent()
-      .use("same", async (_request, next) => next())
-      .use("same", async (_request, next) => next());
-    expect(() => builder.build()).toThrow(/Duplicate middleware id/);
+  it("rejects duplicate part ids", () => {
+    const builder = testAgent().part({ id: "same" }).part({ id: "same" });
+    expect(() => builder.build()).toThrow(/Duplicate capability id/);
   });
 
-  it("does not project capability model into the published manifest (Runtime-owned)", () => {
+  it("snapshots static part instructions and tools", () => {
     const agent = testAgent()
-      .use({ id: "model", model: { id: "opus", controls: { temperature: 0.2 } } })
-      .build();
-    expect(agent.manifest).toEqual({
-      manifestSchemaVersion: 5,
-      id: "test",
-      name: "Test",
-      capabilities: [{ id: "model", type: "agent" }],
-    });
-    expect(agent.manifest).not.toHaveProperty("model");
-    expect(agent.manifest.capabilities[0]).not.toHaveProperty("model");
-  });
-
-  it("snapshots static declaration instructions and tools without embedding model", () => {
-    const agent = testAgent()
-      .use({
+      .part({
         id: "notes",
         instructions: ["Write notes."],
         tools: [tool("write_note")],
-        model: { id: "opus", controls: { temperature: 0.2 } },
       })
       .build();
     expect(agent.manifest.capabilities).toEqual([
@@ -74,7 +57,6 @@ describe("build", () => {
     expect(agent.manifest.capabilities[0]?.tools?.[0]?.inputSchema).toMatchObject({
       type: "object",
     });
-    expect(agent.manifest.capabilities[0]).not.toHaveProperty("model");
   });
 
   it("reports empty identity at build", () => {
@@ -83,31 +65,6 @@ describe("build", () => {
       "agent.invalid-id",
       "agent.invalid-name",
     ]);
-  });
-
-  it("assigns generated middleware ids and skips explicit collisions", () => {
-    const agent = testAgent()
-      .use("middleware-1", async (_request, next) => next())
-      .use(async (_request, next) => next())
-      .use("named", async (_request, next) => next())
-      .build();
-    expect(agent.manifest.capabilities.map((item) => item.id)).toEqual([
-      "middleware-1",
-      "middleware-2",
-      "named",
-    ]);
-    expect(agent.manifest.capabilities).toEqual([
-      { id: "middleware-1", type: "agent" },
-      { id: "middleware-2", type: "agent" },
-      { id: "named", type: "agent" },
-    ]);
-  });
-
-  it("snapshots middleware descriptors when build starts", () => {
-    const id = { value: "original" };
-    const builder = testAgent().use(id.value, async (_request, next) => next());
-    id.value = "mutated";
-    expect(builder.build().manifest.capabilities).toEqual([{ id: "original", type: "agent" }]);
   });
 
   it("hides internal model and tool registries", () => {
@@ -174,36 +131,12 @@ describe("build", () => {
     });
   });
 
-  it("marks author-supplied declaration middleware", () => {
-    const agent = testAgent()
-      .use({
-        id: "notes",
-        tools: [tool("write_note")],
-        middleware: async (_request, next) => next(),
-      })
-      .build();
-    expect(agent.manifest.capabilities).toEqual([
-      {
-        id: "notes",
-        type: "agent",
-        tools: [{ name: "write_note", inputSchema: expect.any(Object) }],
-      },
-    ]);
-  });
-
-  it("projects a raw middleware layer as id only", () => {
-    const agent = testAgent()
-      .use(async (_request, next) => next())
-      .build();
-    expect(agent.manifest.capabilities).toEqual([{ id: "middleware-1", type: "agent" }]);
-  });
-
   it("rejects a capability that reuses the reserved agent id", () => {
     const error = expectBuildError(() =>
       testAgent({ instructions: "Stay reserved." })
-        .use({ id: "agent", instructions: ["overlap"] })
+        .part({ id: "agent", instructions: ["overlap"] })
         .build(),
     );
-    expect(error.diagnostics.some((item) => item.code === "middleware.duplicate-id")).toBe(true);
+    expect(error.diagnostics.some((item) => item.code === "capability.duplicate-id")).toBe(true);
   });
 });

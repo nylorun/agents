@@ -3,13 +3,11 @@ import type { AgentManifest, CapabilityManifest } from "../types/manifest.js";
 import type { BuiltAgent } from "../types/agent.js";
 import type { JsonObject } from "../types/shared.js";
 import type { ToolDefinition } from "../types/tool.js";
-import type { StepMiddleware } from "../types/middleware.js";
 import type { Implementations } from "./implementations.js";
 import { assembleAgent } from "./assemble.js";
-import type { CapabilityDynamics } from "./assemble.js";
 import { schemaFromJSON } from "./schema-json.js";
 import { assertJson, deepFreeze } from "../utils/immutable.js";
-import type { BoundMiddleware } from "./bound.js";
+import type { DefinitionPart } from "./bound.js";
 import { delegateFromManifest, delegateOf } from "./delegate.js";
 import { SKILL_TOOL_NAMES } from "./skill-tools.js";
 import { httpToolFromManifest, httpToolOf } from "./http-tool.js";
@@ -39,45 +37,22 @@ export function agentFrom<Info = unknown>(
   const manifest = normalizeManifest(json);
   const sessionTools = options?.sessionTools ?? [];
   assertSessionTools(manifest, sessionTools);
-  const entries: BoundMiddleware[] = [];
-  const dynamics = new Map<string, CapabilityDynamics>();
+  const entries: DefinitionPart[] = [];
 
   for (const capability of manifest.capabilities) {
     const impl = implementations[capability.id] ?? {};
     const tools = resolveTools(capability, impl.tools);
     const owned = sessionTools.filter((item) => item.capabilityId === capability.id);
-    const instructions = [
-      ...(capability.instructions ?? []),
-      ...owned.flatMap((item) => item.instructions ?? []),
-    ];
-    const session = owned
-      .map((item) => {
-        const live = impl.tools?.[item.name];
-        if (!live)
-          throw new HarnessError(
-            "agent.build-failed",
-            `Missing session tool implementation '${item.name}' for capability '${capability.id}'`
-          );
-        return live;
-      });
-    const handle: StepMiddleware =
-      (impl.middleware as StepMiddleware | undefined) ??
-      (async (request, next) => {
-        const advertised = [...tools, ...session];
-        if (advertised.length)
-          request.configuration.tools.set(
-            capability.id,
-            advertised.map(
-              (tool) =>
-                (declarative(tool)
-                  ? tool
-                  : implementations[capability.id]?.tools?.[tool.name]) ?? tool
-            )
-          );
-        if (instructions.length > 0)
-          request.configuration.instructions.set(capability.id, instructions);
-        return next();
-      });
+    const sessionInstructions = owned.flatMap((item) => item.instructions ?? []);
+    const session = owned.map((item) => {
+      const live = impl.tools?.[item.name];
+      if (!live)
+        throw new HarnessError(
+          "agent.build-failed",
+          `Missing session tool implementation '${item.name}' for capability '${capability.id}'`
+        );
+      return live;
+    });
     entries.push(
       Object.freeze({
         id: capability.id,
@@ -85,8 +60,6 @@ export function agentFrom<Info = unknown>(
         ...(capability.description === undefined
           ? {}
           : { description: capability.description }),
-        handle,
-        hasMiddleware: impl.middleware !== undefined,
         tools:
           capability.tools !== undefined
             ? tools.map((tool) => {
@@ -100,23 +73,8 @@ export function agentFrom<Info = unknown>(
               })
             : undefined,
         ...(session.length === 0 ? {} : { sessionTools: session }),
-        contributions: Object.freeze({
-          ...(capability.instructions
-            ? { instructions: capability.instructions }
-            : {}),
-          ...(capability.tools
-            ? {
-                tools: capability.tools.map((tool) =>
-                  Object.freeze({
-                    name: tool.name,
-                    ...(tool.description === undefined
-                      ? {}
-                      : { description: tool.description }),
-                  })
-                ),
-              }
-            : {}),
-        }),
+        ...(capability.instructions ? { instructions: capability.instructions } : {}),
+        ...(sessionInstructions.length === 0 ? {} : { sessionInstructions }),
         manifestType: capability.type,
         ...(capability.metadata === undefined
           ? {}
@@ -132,7 +90,6 @@ export function agentFrom<Info = unknown>(
           : { skills: capability.skills }),
       })
     );
-    dynamics.set(capability.id, impl.middleware ? { middleware: impl.middleware as any } : {});
   }
 
   const outputSchema = manifest.outputSchema
@@ -149,8 +106,7 @@ export function agentFrom<Info = unknown>(
       outputSchema,
       runtime: manifest.runtime,
       manifestSchemaVersion: manifest.manifestSchemaVersion,
-    },
-    dynamics
+    }
   );
   if (!result.ok)
     throw new HarnessError(

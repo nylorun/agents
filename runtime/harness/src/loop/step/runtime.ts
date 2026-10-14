@@ -2,12 +2,12 @@ import type { ToolRegistry } from "../../definition/registry.js";
 import type { ModelAdapter } from "@nylorun/core/define";
 import type { InputEvent, TranscriptEntry } from "@nylorun/core/define";
 import type { ToolResult } from "@nylorun/core/define";
-import type { BoundMiddleware } from "@nylorun/core/define";
+import type { DefinitionPart } from "@nylorun/core/define";
 import type { JsonValue } from "@nylorun/core/define";
 
 /** Compiled definition pieces plus the per-run model adapter for one step. */
 export interface StepRuntime {
-  readonly middleware: readonly BoundMiddleware[];
+  readonly parts: readonly DefinitionPart[];
   readonly invoke: ModelAdapter;
   readonly registry: ToolRegistry;
   /** Mutable session memory bag shared with tools. */

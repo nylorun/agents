@@ -1,5 +1,3 @@
-import type { ModelAdapter } from "../types/model.js";
-import type { StepMiddleware } from "../types/middleware.js";
 import type {
   ToolDefinition,
   ToolInputSchema,
@@ -20,13 +18,5 @@ export const tool = <
     Info,
     OutputSchema
   >;
-
-/** @deprecated Prefer Runtime model resolution. Capability-disguised `.use({ model })` is not the taught path. */
-export const model = <T extends ModelAdapter>(value: T): T => value;
-
-/** @deprecated Runs in the local engine only. Kept through 1.0. */
-export const middleware = <T extends StepMiddleware>(value: T): T => value;
-
-export { capability } from "./capability.js";
 
 export type { ToolSchemaSource };

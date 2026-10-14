@@ -1,4 +1,4 @@
-import type { BoundMiddleware } from "@nylorun/core/define";
+import type { DefinitionPart } from "@nylorun/core/define";
 import type { ToolRegistry } from "./registry.js";
 import type { TurnOutputContract } from "@nylorun/core/define";
 import type { AgentManifest } from "@nylorun/core/define";
@@ -6,7 +6,7 @@ import type { Implementations } from "@nylorun/core/define";
 
 export interface AgentDefinition {
   readonly id: string;
-  readonly middleware: readonly BoundMiddleware[];
+  readonly parts: readonly DefinitionPart[];
   readonly registry: ToolRegistry;
   readonly output?: TurnOutputContract;
   readonly manifest: AgentManifest;
@@ -28,7 +28,7 @@ export function definitionFromBinding(binding: AgentBinding): AgentDefinition {
     id: binding.manifest.id,
     manifest: binding.manifest,
     hash: hashManifest(binding.manifest),
-    middleware: binding.declarations,
+    parts: binding.declarations,
     implementations: binding.implementations,
     registry: new Registry(binding.declarations, binding.tools),
     ...(binding.outputSchema ? { output: bindOutputContract(binding.outputSchema) } : {}),

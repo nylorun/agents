@@ -240,7 +240,7 @@ describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
     const mcpUrl = await mcpServer();
     const manifest = Agent({ id: "bot", name: "Bot" })
       .instructions(PROMPT)
-      .use({ id: "notes", mcpServers: { notes: { name: "notes", type: "streamable-http", url: mcpUrl } } })
+      .mcp({ notes: { name: "notes", type: "streamable-http", url: mcpUrl } })
       .tools(http({ name: "hook", input: z.object({ n: z.number() }), url: await hookServer() }))
       .build().manifest;
     const put = async (path: string, body: unknown) => {

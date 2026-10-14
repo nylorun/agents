@@ -7,9 +7,6 @@ import {
   Agent,
   AgentBuilder,
   McpError,
-  hashManifest,
-  plugin,
-  skills,
   tool,
 } from "../src/index.js";
 import {
@@ -64,12 +61,10 @@ const look = tool({
 });
 
 describe("Agent from @nylorun/agents", () => {
-  it(".skills() and .plugin() match the .use() forms", () => {
+  it(".skills() and .plugin() add one part each", () => {
     const folder = skillsFolder();
     const pkg = pluginFolder();
     const fresh = Agent({ id: "a" }).instructions("x").skills(folder).plugin(pkg);
-    const legacy = Agent({ id: "a" }).instructions("x").use(skills(folder)).use(plugin(pkg));
-    expect(hashManifest(fresh.build().manifest)).toBe(hashManifest(legacy.build().manifest));
     expect(fresh.build().manifest.capabilities.map((c) => c.id)).toEqual([
       "agent",
       folder.split("/").at(-1),

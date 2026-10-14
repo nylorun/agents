@@ -3,7 +3,6 @@ import { Agent } from "@nylorun/agents";
 import { EXAMPLES_ROOT } from "../shared/root.js";
 import {
   exampleInstructions,
-  modelSelection,
   type AgentDependencies,
   type ExampleAgent,
 } from "../shared/types.js";
@@ -24,7 +23,6 @@ export async function createSkills(
     description: "Loads a SKILL.md procedure, such as a code review or a structured summary, and follows it.",
   })
     .instructions(exampleInstructions)
-    .capability(modelSelection(deps.provider, deps.model))
-    .skills(SKILLS_CATALOG, { id: "skills" })
+    .skills(SKILLS_CATALOG)
     .build();
 }

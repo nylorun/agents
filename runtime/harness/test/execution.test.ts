@@ -49,25 +49,16 @@ describe("stateless execution", () => {
     expect(continued.state).not.toHaveProperty("executionVersion");
   });
 
-  it("keeps info out of state and events while forwarding it to middleware and tools", async () => {
+  it("keeps info out of state and events while forwarding it to tools", async () => {
     const infos: unknown[] = [],
       events: unknown[] = [];
     const agent = Agent<{ tenantId: string }>({ id: "a", name: "A" })
-      .use({
-        id: "c",
-        tools: [
-          {
-            name: "t",
-            inputSchema: z.object({}),
-            execute: async (_, { info }) => {
-              infos.push(info);
-              return { kind: "completed", output: "done" };
-            },
-          },
-        ],
-        middleware: async (request, next) => {
-          infos.push(request.info);
-          return next();
+      .tools({
+        name: "t",
+        inputSchema: z.object({}),
+        execute: async (_, { info }) => {
+          infos.push(info);
+          return { kind: "completed", output: "done" };
         },
       })
       .build();
@@ -84,68 +75,8 @@ describe("stateless execution", () => {
       },
     });
     expect(result.status).toBe("completed");
-    expect(infos).toEqual([
-      { tenantId: "private-principal" },
-      { tenantId: "private-principal" },
-      { tenantId: "private-principal" },
-    ]);
+    expect(infos).toEqual([{ tenantId: "private-principal" }]);
     expect(JSON.stringify([result.state, events])).not.toContain("private-principal");
-  });
-
-  it("restores a registered tool selected by middleware without rerunning that condition", async () => {
-    const used: unknown[] = [];
-    const lookup = {
-      name: "lookup",
-      inputSchema: z.object({}),
-      execute: async (_: unknown, { info }: { info?: { role: string } }) => {
-        used.push({ tool: "lookup", info });
-        return { kind: "completed" as const, output: "rows" };
-      },
-    };
-    const purge = {
-      name: "purge",
-      inputSchema: z.object({}),
-      execute: async (_: unknown, { info }: { info?: { role: string } }) => {
-        used.push({ tool: "purge", info });
-        return { kind: "completed" as const, output: "purged" };
-      },
-    };
-    const make = (middlewareSeen: () => void) =>
-      Agent<{ role: string }>({ id: "a", name: "A" })
-        .use({
-          id: "db",
-          tools: [lookup, purge],
-          middleware: async (request, next) => {
-            middlewareSeen();
-            request.configuration.tools.set(
-              "db",
-              request.info?.role === "admin" ? [purge] : [lookup],
-            );
-            const response = await next();
-            for (const call of response.toolCalls())
-              response.requireInteraction(call.id, { kind: "approval", prompt: "Proceed?" });
-            return response;
-          },
-        })
-        .build();
-    const firstSeen = vi.fn();
-    const first = await runAgent(make(firstSeen), {
-      input: "purge",
-      info: { role: "admin" },
-      onModelCall: async () => candidate("purge"),
-    });
-    expect(first.status).toBe("paused");
-    if (first.status !== "paused") throw new Error("Expected pause");
-    const seen = vi.fn();
-    const second = await runAgent(make(seen), {
-      state: roundtrip(first.state),
-      input: { kind: "approve", interactionId: first.pending[0]!.interaction!.id, approved: true },
-      info: { role: "user" },
-      onModelCall: async () => "done",
-    });
-    expect(second.status).toBe("completed");
-    expect(used).toEqual([{ tool: "purge", info: { role: "user" } }]);
-    expect(seen).toHaveBeenCalledTimes(1); // Only the next model step, never restoration.
   });
 
   it("restores deferred tools without rerunning already settled siblings", async () => {
@@ -153,13 +84,10 @@ describe("stateless execution", () => {
     const deferred = vi.fn(async () => ({ kind: "deferred" as const, token: { jobId: "123" } }));
     const make = () =>
       Agent({ id: "a", name: "A" })
-        .use({
-          id: "c",
-          tools: [
-            { name: "done", inputSchema: z.object({}), execute: done },
-            { name: "job", inputSchema: z.object({}), execute: deferred },
-          ],
-        })
+        .tools(
+          { name: "done", inputSchema: z.object({}), execute: done },
+          { name: "job", inputSchema: z.object({}), execute: deferred },
+        )
         .build();
     const first = await runAgent(make(), {
       input: "go",
@@ -209,22 +137,20 @@ describe("stateless execution", () => {
       release = resolve;
     });
     const agent = Agent<{ table: string }>({ id: "concurrent", name: "Concurrent" })
-      .use({
-        id: "db",
-        tools: [query],
-        middleware: async (_request, next) => {
-          if (++entered === 2) release();
-          await bothEntered;
-          return next();
-        },
-      })
+      .tools(query)
       .build();
     const run = (table: string) => {
       let n = 0;
       return runAgent(agent, {
         input: "query",
         info: { table },
-        onModelCall: async () => (n++ === 0 ? candidate("query") : "done"),
+        onModelCall: async () => {
+          if (n++ > 0) return "done";
+          // Both runs are inside their first model step before either dispatches its tool.
+          if (++entered === 2) release();
+          await bothEntered;
+          return candidate("query");
+        },
       });
     };
     const [orders, customers] = await Promise.all([run("orders"), run("customers")]);
@@ -239,7 +165,7 @@ describe("stateless execution", () => {
   it("awaits recording before effects and stops on recording failure", async () => {
     const execute = vi.fn(async () => ({ kind: "completed" as const, output: "ok" }));
     const agent = Agent({ id: "a", name: "A" })
-      .use({ id: "c", tools: [{ name: "t", inputSchema: z.object({}), execute }] })
+      .tools({ name: "t", inputSchema: z.object({}), execute })
       .build();
     await expect(
       runAgent(agent, {
@@ -256,19 +182,14 @@ describe("stateless execution", () => {
   it("cancels cooperatively and retains settled tool results", async () => {
     const controller = new AbortController();
     const agent = Agent({ id: "a", name: "A" })
-      .use({
-        id: "c",
-        tools: [
-          {
-            name: "t",
-            inputSchema: z.object({}),
-            execute: async (_, { signal }) => {
-              expect(signal).toBe(controller.signal);
-              controller.abort();
-              return { kind: "completed", output: "effect completed" };
-            },
-          },
-        ],
+      .tools({
+        name: "t",
+        inputSchema: z.object({}),
+        execute: async (_, { signal }) => {
+          expect(signal).toBe(controller.signal);
+          controller.abort();
+          return { kind: "completed", output: "effect completed" };
+        },
       })
       .build();
     const model = vi.fn(async () => candidate("t"));
@@ -327,16 +248,7 @@ it("rejects obsolete or malformed run controls before effects", async () => {
 it("cancels a saved pause without accepting or dispatching its pending actions", async () => {
   const execute = vi.fn(async () => ({ kind: "completed" as const, output: "effect" }));
   const agent = Agent({ id: "a", name: "A" })
-    .use({
-      id: "c",
-      tools: [{ name: "t", inputSchema: z.object({}), execute }],
-      middleware: async (_, next) => {
-        const response = await next();
-        for (const call of response.toolCalls())
-          response.requireInteraction(call.id, { kind: "approval", prompt: "Proceed?" });
-        return response;
-      },
-    })
+    .tools({ name: "t", inputSchema: z.object({}), execute, approval: () => "Proceed?" })
     .build();
   const first = await runAgent(agent, { input: "go", onModelCall: async () => candidate("t") });
   expect(first.status).toBe("paused");

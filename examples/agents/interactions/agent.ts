@@ -5,7 +5,6 @@ import { notes } from "./notes.js";
 import { JsonlNotes } from "./notes-store.js";
 import {
   exampleInstructions,
-  modelSelection,
   type AgentDependencies,
   type ExampleAgent,
 } from "../shared/types.js";
@@ -15,14 +14,13 @@ export function createInteractions(deps: AgentDependencies): ExampleAgent {
   const store = new JsonlNotes(
     join(deps.dataRoot, "interactions", "notes.jsonl"),
   );
+  const notesParts = notes(store);
   const agent = Agent({
     id: "interactions",
     name: "Interactions",
   })
-    .instructions(exampleInstructions)
-    .capability(modelSelection(deps.provider, deps.model))
-    .capability(notes(store))
-    .capability(askUser)
+    .instructions(exampleInstructions, ...notesParts.instructions, ...askUser.instructions)
+    .tools(...notesParts.tools, ...askUser.tools)
     .build();
   return agent;
 }

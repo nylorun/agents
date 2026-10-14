@@ -39,7 +39,7 @@ export type CodeModeResult = Readonly<{
   calls: readonly CodeModeCall[];
 }>;
 
-/** node:vm is a capability boundary, not a security sandbox. */
+/** node:vm separates globals; it is not a security sandbox. */
 export async function runCodeProgram(
   code: string,
   roster: readonly ToolDefinition[],

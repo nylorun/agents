@@ -3,6 +3,7 @@ import { Agent } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
 import { HarnessError } from "../src/errors.js";
 import { hashManifest } from "../src/utils/hash.js";
+import { addPart } from "./support/parts.js";
 
 const github = {
   name: "github",
@@ -154,7 +155,7 @@ it("refuses hooks with what replaces them", () => {
   ).toThrow(/removed with hooks/);
   const noop = () => ({});
   expect(() =>
-    Agent({ id: "hooked" }).use({ id: "policy", before: { step: noop } } as never)
+    addPart(Agent({ id: "hooked" }), { id: "policy", before: { step: noop } } as never)
   ).toThrow(/hooks were removed/);
 });
 

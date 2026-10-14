@@ -4,7 +4,6 @@ import { createSkills } from "../skills/agent.js";
 import { createToolUse } from "../tool-use/agent.js";
 import {
   exampleInstructions,
-  modelSelection,
   type AgentDependencies,
   type ExampleAgent,
 } from "../shared/types.js";
@@ -29,6 +28,5 @@ export async function createSubagents(
       "Write each task so it stands on its own: the agent sees nothing but the task.",
     )
     .subagents(instructions, skills, toolUse)
-    .capability(modelSelection(deps.provider, deps.model))
     .build();
 }

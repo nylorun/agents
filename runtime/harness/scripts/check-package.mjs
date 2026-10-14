@@ -128,16 +128,16 @@ try {
     "isHarnessError",
     "Agent",
     "tool",
-    "capability",
     "ToolError",
-    "model",
-    "middleware",
     "checkCompatibility",
     "hashManifest",
   ]) {
     if (!(name in (name === "checkCompatibility" ? entry : definitions)))
       throw new Error(`Missing public export: ${name}`);
   }
+  // An agent is its manifest: no step middleware and no capability bundles.
+  for (const name of ["capability", "CapabilityBuilder", "model", "middleware"])
+    if (name in definitions) throw new Error(`Removed export is still public: ${name}`);
   const execution = await import(new URL("../dist/run/index.js", import.meta.url));
   for (const name of [
     "run",

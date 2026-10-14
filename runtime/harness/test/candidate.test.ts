@@ -1,12 +1,11 @@
-import { registered } from "./fixtures.js";
 import { describe, expect, it } from "vitest";
-import { testAgent, offer, model, tool, toolCalls, turn } from "./fixtures.js";
+import { testAgent, model, tool, toolCalls, turn } from "./fixtures.js";
 
 describe("model candidate blocks", () => {
   it("joins interleaved text blocks and ignores reasoning on session final", async () => {
     let step = 0;
     const result = testAgent()
-      .use("test", offer(tool()))
+      .tools(tool())
       .with(
         model(async () => {
           if (++step > 1) return "done";
@@ -149,58 +148,10 @@ describe("model candidate blocks", () => {
     ]);
   });
 
-  it("preserves usage, evidence, and finishReason when replace only changes output", async () => {
-    let step = 0;
-    const result = testAgent()
-      .use(
-        "review",
-        registered([[tool()]], (registeredTools) => async (request, next) => {
-          request.configuration.tools.set("review", registeredTools[0]);
-          const response = await next();
-          response.replace(toolCalls({ id: "keep", name: "echo", args: { n: 1 } }));
-          return response;
-        }),
-      )
-      .with(
-        model(async () => {
-          if (++step > 1) return "done";
-          return {
-            output: [
-              { type: "text", text: "keep " },
-              { type: "tool-call", id: "keep", name: "echo", args: { n: 1 } },
-              { type: "tool-call", id: "drop", name: "echo", args: { n: 2 } },
-            ],
-            finishReason: "tool-calls" as const,
-            usage: { inputTokens: 1, outputTokens: 4 },
-            evidence: { requestId: "abc", warnings: ["slow"] },
-          };
-        }),
-      )
-      .build();
-    const { session, handle } = turn(result, "go");
-    await handle.completed;
-    const minted = session.state.transcript.find((entry) => entry.kind === "candidate");
-    expect(minted?.kind).toBe("candidate");
-    if (minted?.kind === "candidate") {
-      expect(minted.candidate.output).toEqual([
-        { type: "tool-call", id: "keep", name: "echo", args: { n: 1 } },
-      ]);
-      expect(minted.candidate.finishReason).toBe("tool-calls");
-      expect(minted.candidate.usage).toEqual({ inputTokens: 1, outputTokens: 4 });
-      expect(minted.candidate.evidence).toEqual({ requestId: "abc", warnings: ["slow"] });
-    }
-  });
-
   it("accepts empty-object tool args and still schema-validates them", async () => {
     let call = 0;
     const result = testAgent()
-      .use(
-        "typed",
-        registered([[tool()]], (registeredTools) => async (request, next) => {
-          request.configuration.tools.set("typed", registeredTools[0]);
-          return next();
-        }),
-      )
+      .tools(tool())
       .with(
         model(async () =>
           ++call === 1 ? toolCalls({ id: "echo", name: "echo", args: {} }) : "done",

@@ -1,19 +1,14 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent, model, type CapabilityItems, type ToolDefinition } from "@nylorun/core/define";
+import { Agent, type ToolDefinition } from "@nylorun/core/define";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CODE_MODE_RULE,
   CODE_MODE_USAGE,
   codeMode,
-} from "../agents/code-mode/capability.js";
+} from "../agents/code-mode/tools.js";
 import { invokeTool } from "./support.js";
-
-const adapter = model(async () => ({
-  output: [{ type: "text" as const, text: "ok" }],
-  finishReason: "stop" as const,
-}));
 
 const temps: string[] = [];
 
@@ -23,32 +18,25 @@ afterEach(async () => {
   );
 });
 
-function items<T>(value: CapabilityItems<T> | undefined): readonly T[] {
-  if (value === undefined) return [];
-  return "items" in value ? value.items : value;
-}
-
 function catalogTool(
   name: string,
-  declaration: Awaited<ReturnType<typeof codeMode>>
+  mode: Awaited<ReturnType<typeof codeMode>>
 ): ToolDefinition {
-  const found = items(declaration.tools).find((tool) => tool.name === name);
+  const found = mode.tools.find((tool) => tool.name === name);
   if (!found) throw new Error(`Missing tool ${name}`);
   return found;
 }
 
 describe("codeMode()", () => {
   it("offers only run_code and a generated SDK for the tools catalog", async () => {
-    const declaration = await codeMode();
-    expect(items(declaration.tools).map((tool) => tool.name)).toEqual([
-      "run_code",
-    ]);
-    expect(items(declaration.instructions)).toEqual([
+    const mode = await codeMode();
+    expect(mode.tools.map((tool) => tool.name)).toEqual(["run_code"]);
+    expect(mode.instructions).toEqual([
       CODE_MODE_RULE,
       CODE_MODE_USAGE,
       expect.stringContaining("declare const tools:"),
     ]);
-    const sdk = items(declaration.instructions)[2] ?? "";
+    const sdk = mode.instructions[2] ?? "";
     expect(sdk).toContain("calculate: (args:");
     expect(sdk).toContain("convert: (args:");
     expect(sdk).toContain("now: (args:");
@@ -56,9 +44,9 @@ describe("codeMode()", () => {
   });
 
   it("runs a program that composes calculate then convert", async () => {
-    const declaration = await codeMode();
+    const mode = await codeMode();
     await expect(
-      invokeTool(catalogTool("run_code", declaration), {
+      invokeTool(catalogTool("run_code", mode), {
         code: [
           'const calculated = await tools.calculate({ expression: "100 / 4" });',
           'const converted = await tools.convert({ value: calculated.value, from: "celsius", to: "fahrenheit" });',
@@ -93,9 +81,9 @@ describe("codeMode()", () => {
   });
 
   it("rejects a failed binding as ToolCallError that the program can catch", async () => {
-    const declaration = await codeMode();
+    const mode = await codeMode();
     await expect(
-      invokeTool(catalogTool("run_code", declaration), {
+      invokeTool(catalogTool("run_code", mode), {
         code: [
           "try {",
           '  await tools.convert({ value: 1, from: "celsius", to: "meter" });',
@@ -131,9 +119,9 @@ describe("codeMode()", () => {
   });
 
   it("rejects an unknown tools binding", async () => {
-    const declaration = await codeMode();
+    const mode = await codeMode();
     await expect(
-      invokeTool(catalogTool("run_code", declaration), {
+      invokeTool(catalogTool("run_code", mode), {
         code: "await tools.missing({});",
         description: "Call a tool that is not in the SDK.",
       })
@@ -148,24 +136,23 @@ describe("codeMode()", () => {
     const root = await mkdtemp(join(tmpdir(), "code-mode-test-"));
     temps.push(root);
     await expect(codeMode({ directory: root })).resolves.toEqual({
-      id: "code-mode",
+      instructions: [],
+      tools: [],
     });
   });
 
   it("builds the code-mode agent with only run_code on the model surface", async () => {
+    const mode = await codeMode();
     const agent = Agent({
       id: "code-mode",
       name: "Code Mode",
     })
-      .instructions("Be concise.")
-      .capability(await codeMode())
+      .instructions("Be concise.", ...mode.instructions)
+      .tools(...mode.tools)
       .build();
-    expect(agent.manifest.capabilities.map((item) => item.id)).toEqual([
-      "agent",
-      "code-mode",
-    ]);
+    expect(agent.manifest.capabilities.map((item) => item.id)).toEqual(["agent"]);
     const offered = agent.manifest.capabilities.find(
-      (item) => item.id === "code-mode"
+      (item) => item.id === "agent"
     );
     expect(offered?.tools?.map((tool) => tool.name)).toEqual(["run_code"]);
     expect(offered?.tools?.map((tool) => tool.name)).not.toEqual(

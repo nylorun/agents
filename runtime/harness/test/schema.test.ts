@@ -1,4 +1,3 @@
-import { registered } from "./fixtures.js";
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 import { tool } from "@nylorun/core/define";
@@ -18,13 +17,7 @@ describe("Zod schemas", () => {
       },
     });
     const result = testAgent()
-      .use(
-        "parsed",
-        registered([[convert]], (registeredTools) => async (request, next) => {
-          request.configuration.tools.set("parsed", registeredTools[0]);
-          return next();
-        }),
-      )
+      .tools(convert)
       .with(
         model(async () => {
           call += 1;
@@ -50,13 +43,7 @@ describe("Zod schemas", () => {
       },
     });
     const result = testAgent()
-      .use(
-        "zod",
-        registered([[echo]], (registeredTools) => async (request, next) => {
-          request.configuration.tools.set("zod", registeredTools[0]);
-          return next();
-        }),
-      )
+      .tools(echo)
       .with(
         model(async (_call, { request }) => {
           expect(request.tools[0]?.inputSchema.jsonSchema).toMatchObject({
@@ -114,13 +101,7 @@ describe("Zod schemas", () => {
     };
     let calls = 0;
     const result = testAgent()
-      .use(
-        "tools",
-        registered([[prepared, raw]], (registeredTools) => async (request, next) => {
-          request.configuration.tools.set("tools", registeredTools[0]);
-          return next();
-        }),
-      )
+      .tools(prepared, raw)
       .with(
         model(async () => {
           calls += 1;
@@ -152,26 +133,13 @@ describe("Zod schemas", () => {
     const invoke = vi.fn(async () => "done");
     expect(() =>
       testAgent()
-        .use(
-          "bad",
-          registered(
-            [
-              [
-                {
-                  name: "bad",
-                  inputSchema: z.string() as never,
-                  async execute() {
-                    return { kind: "completed" as const, output: null };
-                  },
-                },
-              ],
-            ],
-            (registeredTools) => async (request, next) => {
-              request.configuration.tools.set("bad", registeredTools[0]);
-              return next();
-            },
-          ),
-        )
+        .tools({
+          name: "bad",
+          inputSchema: z.string() as never,
+          async execute() {
+            return { kind: "completed" as const, output: null };
+          },
+        })
         .with(model(invoke))
         .build(),
     ).toThrow();
@@ -183,25 +151,14 @@ describe("Zod schemas", () => {
     const inputSchema = z.object({ text: z.string() }).refine(async () => true);
     expect(() =>
       testAgent()
-        .use(
-          "async",
-          registered(
-            [
-              [
-                tool({
-                  name: "async",
-                  inputSchema,
-                  async execute(args) {
-                    return { kind: "completed", output: args };
-                  },
-                }),
-              ],
-            ],
-            (registeredTools) => async (request, next) => {
-              request.configuration.tools.set("async", registeredTools[0]);
-              return next();
+        .tools(
+          tool({
+            name: "async",
+            inputSchema,
+            async execute(args) {
+              return { kind: "completed", output: args };
             },
-          ),
+          }),
         )
         .with(model(invoke))
         .build(),
@@ -213,25 +170,14 @@ describe("Zod schemas", () => {
     const invoke = vi.fn(async () => "done");
     expect(() =>
       testAgent()
-        .use(
-          "unconvertible",
-          registered(
-            [
-              [
-                tool({
-                  name: "bigint",
-                  inputSchema: z.object({ value: z.bigint() }),
-                  async execute() {
-                    return { kind: "completed", output: null };
-                  },
-                }),
-              ],
-            ],
-            (registeredTools) => async (request, next) => {
-              request.configuration.tools.set("unconvertible", registeredTools[0]);
-              return next();
+        .tools(
+          tool({
+            name: "bigint",
+            inputSchema: z.object({ value: z.bigint() }),
+            async execute() {
+              return { kind: "completed", output: null };
             },
-          ),
+          }),
         )
         .with(model(invoke))
         .build(),
@@ -242,25 +188,14 @@ describe("Zod schemas", () => {
   it("seals invalid Zod arguments as tool.invalid-arguments", async () => {
     let call = 0;
     const result = testAgent()
-      .use(
-        "typed",
-        registered(
-          [
-            [
-              tool({
-                name: "echo",
-                inputSchema: z.object({ text: z.string() }),
-                async execute(args) {
-                  return { kind: "completed", output: args };
-                },
-              }),
-            ],
-          ],
-          (registeredTools) => async (request, next) => {
-            request.configuration.tools.set("typed", registeredTools[0]);
-            return next();
+      .tools(
+        tool({
+          name: "echo",
+          inputSchema: z.object({ text: z.string() }),
+          async execute(args) {
+            return { kind: "completed", output: args };
           },
-        ),
+        }),
       )
       .with(
         model(async () => {
@@ -317,26 +252,15 @@ describe("Zod schemas", () => {
       },
     };
     const result = testAgent()
-      .use(
-        "standard",
-        registered(
-          [
-            [
-              tool({
-                name: "standard",
-                inputSchema: standard,
-                async execute(args) {
-                  executed = args;
-                  return { kind: "completed", output: args };
-                },
-              }),
-            ],
-          ],
-          (registeredTools) => async (request, next) => {
-            request.configuration.tools.set("standard", registeredTools[0]);
-            return next();
+      .tools(
+        tool({
+          name: "standard",
+          inputSchema: standard,
+          async execute(args) {
+            executed = args;
+            return { kind: "completed", output: args };
           },
-        ),
+        }),
       )
       .with(
         model(async () =>
@@ -378,26 +302,15 @@ describe("Zod schemas", () => {
   it("validates, transforms, records, and projects the one completed output", async () => {
     let call = 0;
     const result = testAgent()
-      .use(
-        "output",
-        registered(
-          [
-            [
-              tool({
-                name: "output",
-                inputSchema: z.object({}),
-                outputSchema: z.object({ count: z.coerce.number() }),
-                async execute() {
-                  return { kind: "completed", output: { count: "2" } as never };
-                },
-              }),
-            ],
-          ],
-          (registeredTools) => async (request, next) => {
-            request.configuration.tools.set("output", registeredTools[0]);
-            return next();
+      .tools(
+        tool({
+          name: "output",
+          inputSchema: z.object({}),
+          outputSchema: z.object({ count: z.coerce.number() }),
+          async execute() {
+            return { kind: "completed", output: { count: "2" } as never };
           },
-        ),
+        }),
       )
       .with(
         model(async (_call, { request }) => {
@@ -419,26 +332,15 @@ describe("Zod schemas", () => {
   it("turns invalid output into a model-visible failed result", async () => {
     let call = 0;
     const result = testAgent()
-      .use(
-        "output",
-        registered(
-          [
-            [
-              tool({
-                name: "output",
-                inputSchema: z.object({}),
-                outputSchema: z.object({ count: z.number() }),
-                async execute() {
-                  return { kind: "completed", output: { count: "bad" } as never };
-                },
-              }),
-            ],
-          ],
-          (registeredTools) => async (request, next) => {
-            request.configuration.tools.set("output", registeredTools[0]);
-            return next();
+      .tools(
+        tool({
+          name: "output",
+          inputSchema: z.object({}),
+          outputSchema: z.object({ count: z.number() }),
+          async execute() {
+            return { kind: "completed", output: { count: "bad" } as never };
           },
-        ),
+        }),
       )
       .with(
         model(async (_call, { request }) => {
@@ -468,26 +370,15 @@ describe("Zod schemas", () => {
     const preview = { truncated: true, artifactId: "af_1", size: 200_000, preview: "…" };
     const files = [{ mediaType: "image/png", reference: { artifactId: "af_2", version: 1 } }];
     const result = testAgent()
-      .use(
-        "output",
-        registered(
-          [
-            [
-              tool({
-                name: "output",
-                inputSchema: z.object({}),
-                outputSchema: z.object({ count: z.number() }),
-                async execute() {
-                  return { kind: "completed", output: preview as never, truncated: true, files };
-                },
-              }),
-            ],
-          ],
-          (registeredTools) => async (request, next) => {
-            request.configuration.tools.set("output", registeredTools[0]);
-            return next();
+      .tools(
+        tool({
+          name: "output",
+          inputSchema: z.object({}),
+          outputSchema: z.object({ count: z.number() }),
+          async execute() {
+            return { kind: "completed", output: preview as never, truncated: true, files };
           },
-        ),
+        }),
       )
       .with(
         model(async () => {

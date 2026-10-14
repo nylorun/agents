@@ -1,4 +1,3 @@
-import { registered } from "./fixtures.js";
 import { describe, expect, it } from "vitest";
 import {
   type ContextItem,
@@ -8,7 +7,7 @@ import {
   type ModelConfigurationSnapshot,
 } from "@nylorun/core/define";
 import { projectModelCall } from "../src/loop/model/project.js";
-import { testAgent, execution, model, offer, tool, toolCalls, turn } from "./fixtures.js";
+import { testAgent, execution, model, tool, toolCalls, turn } from "./fixtures.js";
 
 function configuration(
   overrides: Partial<ModelConfigurationSnapshot> = {},
@@ -384,12 +383,8 @@ describe("projectModelCall", () => {
     let requestSessionId!: string;
     let sawSignal = false;
     const result = testAgent()
-      .use("echo", async (step, next) => {
-        step.configuration.instructions.set("policy", ["Echo the user text."]);
-        step.context.set("fixture", [{ type: "fixture", value: { n: 1 } }]);
-        return next();
-      })
-      .use("tools", offer(tool()))
+      .instructions("Echo the user text.")
+      .tools(tool())
       .with(
         model(async (call, { request, signal }) => {
           seen = call;
@@ -410,11 +405,6 @@ describe("projectModelCall", () => {
         content: [{ type: "text", text: "Echo the user text." }],
       },
       { kind: "message", role: "user", content: [{ type: "text", text: "Echo hello" }] },
-      {
-        kind: "context",
-        role: "user",
-        content: [{ type: "text", text: contextEnvelope([{ type: "fixture", value: { n: 1 } }]) }],
-      },
     ]);
     expect(seen.tools.map((item) => item.name)).toEqual(["echo"]);
     expect(seen).not.toHaveProperty("system");
@@ -431,17 +421,8 @@ describe("projectModelCall", () => {
       output: { echoed: call.args.text },
     }));
     const result = testAgent()
-      .use({ id: "model", model: { id: "haiku" } })
-      .use(
-        "echo",
-        registered([[tool("echo", execute)]], (registeredTools) => async (step, next) => {
-          // Declarations are deliberately repeated: each model call redraws configuration and context.
-          step.configuration.instructions.set("echo-policy", ["Echo the user text."]);
-          step.configuration.tools.set("echo-tools", registeredTools[0]);
-          step.context.set("example", [{ type: "example", value: { step: step.stepNumber } }]);
-          return next();
-        }),
-      )
+      .instructions("Echo the user text.")
+      .tools(tool("echo", execute))
       .with(
         model(async (call, { request }) => {
           calls.push(call);
@@ -472,14 +453,11 @@ describe("projectModelCall", () => {
     expect(requests.map((request) => request.configuration.tools.map((item) => item.name))).toEqual(
       [["echo"], ["echo"]],
     );
-    expect(requests.map((request) => request.context.items)).toEqual([
-      [{ type: "example", value: { step: 1 } }],
-      [{ type: "example", value: { step: 2 } }],
-    ]);
+    expect(requests.map((request) => request.context.items)).toEqual([[], []]);
 
     expect(requests.map((request) => request.configuration.tools[0]?.owner)).toEqual([
-      { middlewareId: "echo", slot: "echo-tools" },
-      { middlewareId: "echo", slot: "echo-tools" },
+      { middlewareId: "agent", slot: "agent" },
+      { middlewareId: "agent", slot: "agent" },
     ]);
     expect(calls.map((call) => call.tools)).toEqual([
       [
@@ -505,8 +483,8 @@ describe("projectModelCall", () => {
         },
       ],
     ]);
-    expect(firstCall.model).toEqual({ id: "haiku" });
-    expect(secondCall.model).toEqual({ id: "haiku" });
+    expect(firstCall.model).toBeUndefined();
+    expect(secondCall.model).toBeUndefined();
     expect(firstRequest.arrivals).toEqual([{ kind: "user-message", text: "Echo hello" }]);
     expect(secondRequest.arrivals).toEqual([]);
     expect(firstRequest.toolResults).toEqual([]);
@@ -536,16 +514,6 @@ describe("projectModelCall", () => {
         toolName: "echo",
         status: "completed",
         content: [{ type: "text", text: '{"echoed":"hello"}' }],
-      },
-      {
-        kind: "context",
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: contextEnvelope([{ type: "example", value: { step: 2 } }]),
-          },
-        ],
       },
     ]);
   });

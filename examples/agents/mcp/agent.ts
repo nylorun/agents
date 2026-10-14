@@ -1,7 +1,6 @@
 import { Agent } from "@nylorun/agents/define";
 import {
   exampleInstructions,
-  modelSelection,
   type AgentDependencies,
   type ExampleAgent,
 } from "../shared/types.js";
@@ -24,6 +23,5 @@ export function createMcpAgent(deps: AgentDependencies): ExampleAgent {
       "Use the deepwiki tools for questions about a public GitHub repository, named as owner/repo.",
     )
     .mcp({ deepwiki: { type: "streamable-http", url: DEEPWIKI_MCP_URL } })
-    .capability(modelSelection(deps.provider, deps.model))
     .build();
 }

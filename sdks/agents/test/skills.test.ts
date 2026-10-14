@@ -7,15 +7,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "@nylorun/core/define";
+import { Agent } from "../src/builder.js";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import { expect, it } from "vitest";
 import { AgentsClient } from "../src/client.js";
-import {
-  loadSkillsFromDirectory,
-  skills,
-  SkillsError,
-} from "../src/skills/index.js";
+import { loadSkillsFromDirectory, SkillsError } from "../src/skills/index.js";
+import { skills } from "../src/skills/skills.js";
 
 function catalog(): string {
   return mkdtempSync(join(tmpdir(), "nylorun-skills-"));
@@ -71,7 +68,7 @@ it("loads an agentskills.io catalog as files named by hash, binary included, wit
     name: "Order assistant",
     instructions: "Use lookup_order for orders.",
   })
-    .use(skills(root))
+    .skills(root)
     .build();
 
   const capability = agent.manifest.capabilities.find(
@@ -94,7 +91,7 @@ it("uploads the skill files the Runtime lacks, binary included, before saving th
   const logo = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 255]);
   write(root, "triage/SKILL.md", skillMd);
   write(root, "triage/assets/logo.png", logo);
-  const agent = Agent({ id: "assistant", instructions: "Help." }).use(skills(root)).build();
+  const agent = Agent({ id: "assistant", instructions: "Help." }).skills(root).build();
   // The Runtime holds SKILL.md already, not the logo.
   const held = new Map<string, Uint8Array>([[sha256(skillMd), new TextEncoder().encode(skillMd)]]);
   const calls: string[] = [];
@@ -141,19 +138,16 @@ it("refuses a skill file over 10 MiB", () => {
   expect(() => skills(root)).toThrow("Skill 'big' file data.bin is 10485761 bytes");
 });
 
-it("accepts an explicit capability id and omits tools when the catalog is empty", () => {
+it("omits tools when the catalog is empty", () => {
   const root = catalog();
-  const declaration = skills(root, { id: "assistant-skills" });
-  expect(declaration).toMatchObject({
-    id: "assistant-skills",
-    root: realpathSync(root),
-  });
+  const declaration = skills(root);
+  expect(declaration).toMatchObject({ root: realpathSync(root) });
   expect(declaration.skills).toBeUndefined();
   expect(declaration.skillFiles).toBeUndefined();
   expect(declaration.instructions).toBeUndefined();
 
   const agent = Agent({ id: "assistant", instructions: "Help." })
-    .use(skills(root, { id: "assistant-skills" }))
+    .skills(root)
     .build();
   expect(
     agent.getBinding().tools.some((tool) => tool.name === "load_skill")

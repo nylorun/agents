@@ -8,15 +8,10 @@ describe("agent output contracts", () => {
     const seen: unknown[] = [];
     const schema = z.object({ count: z.coerce.number() });
     const agent = Agent({ id: "a", name: "A", outputSchema: schema })
-      .use({
-        id: "tools",
-        tools: [
-          {
-            name: "lookup",
-            inputSchema: z.object({}),
-            execute: async () => ({ kind: "completed", output: 3 }),
-          },
-        ],
+      .tools({
+        name: "lookup",
+        inputSchema: z.object({}),
+        execute: async () => ({ kind: "completed", output: 3 }),
       })
       .build();
     let calls = 0;
@@ -51,21 +46,6 @@ describe("agent output contracts", () => {
     const result = await runAgent(agent, { input: "go", onModelCall: async () => candidate });
     expect(result).toMatchObject({ status: "failed", error: { code: "output.invalid" } });
     expect(result.state.transcript.some((entry) => entry.kind === "candidate")).toBe(true);
-  });
-  it("validates the final middleware replacement", async () => {
-    const agent = Agent({ id: "a", name: "A", outputSchema: z.object({ count: z.number() }) })
-      .use("review", async (_, next) => {
-        const response = await next();
-        response.replace({ output: [{ type: "json", value: { count: 9 } }] });
-        return response;
-      })
-      .build();
-    expect(
-      await runAgent(agent, {
-        input: "go",
-        onModelCall: async () => ({ output: [{ type: "json", value: { count: 3 } }] }),
-      }),
-    ).toMatchObject({ status: "completed", output: { count: 9 } });
   });
   it("binds explicit and Standard Schema output contracts", async () => {
     const explicit = defineSchema({

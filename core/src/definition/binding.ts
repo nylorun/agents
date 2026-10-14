@@ -1,7 +1,7 @@
 import type { AgentManifest } from "../types/manifest.js";
 import type { BuiltAgent } from "../types/agent.js";
 import type { ToolSchemaSource } from "../types/tool.js";
-import type { BoundMiddleware, BoundToolDefinition } from "./bound.js";
+import type { DefinitionPart, BoundToolDefinition } from "./bound.js";
 import type { Implementations } from "./implementations.js";
 import { HarnessError } from "../errors.js";
 
@@ -9,7 +9,7 @@ import { HarnessError } from "../errors.js";
 export interface AgentBinding {
   readonly manifest: AgentManifest;
   readonly tools: readonly BoundToolDefinition[];
-  readonly declarations: readonly BoundMiddleware[];
+  readonly declarations: readonly DefinitionPart[];
   readonly implementations: Implementations;
   readonly outputSchema?: ToolSchemaSource;
 }

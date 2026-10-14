@@ -5,6 +5,7 @@ import { AgentManifestSchema } from "../src/contracts.js";
 import { DELEGATE_INPUT_SCHEMA, delegateOf } from "../src/definition/delegate.js";
 import { implementationsFor } from "../src/definition/binding.js";
 import { hashManifest } from "../src/utils/hash.js";
+import { addPart } from "./support/parts.js";
 
 const search = tool({
   name: "search_orders",
@@ -47,9 +48,10 @@ describe("agents used as tools", () => {
   });
 
   it("accepts a built agent in a capability's tools", () => {
-    const parent = Agent({ id: "support" })
-      .use({ id: "research", tools: [researcher().build()] })
-      .build();
+    const parent = addPart(Agent({ id: "support" }), {
+      id: "research",
+      tools: [researcher().build()],
+    }).build();
     expect(parent.manifest.capabilities[0]!.tools![0]!.agent?.id).toBe("researcher");
   });
 
@@ -116,15 +118,16 @@ describe("agents used as tools", () => {
     const clash = tool({ name: "researcher", input: z.object({}), run: async () => "" });
     expect(
       diagnostics(() =>
-        Agent({ id: "support", tools: [clash] })
-          .use({ id: "more", tools: [researcher()] })
-          .build()
+        addPart(Agent({ id: "support", tools: [clash] }), {
+          id: "more",
+          tools: [researcher()],
+        }).build()
       )
     ).toContain("tool.duplicate-name");
   });
 
   it("refuses a sandbox declared anywhere in the tree", () => {
-    const boxed = Agent({ id: "coder", description: "Codes." }).use({
+    const boxed = addPart(Agent({ id: "coder", description: "Codes." }), {
       id: "box",
       sandbox: { image: "a" },
     } as never);

@@ -1,4 +1,3 @@
-import type { CapabilityDeclaration } from "../types/middleware.js";
 import type { ApprovalMode, ManifestSchemaVersion, McpServerManifest } from "../types/manifest.js";
 import { APPROVAL_REMOVED } from "./approval.js";
 
@@ -9,15 +8,6 @@ type WithOptionalName<T> = T extends { readonly name: string }
 /** An MCP server as written by an author: `name` defaults to the server's key. */
 export type McpServerSpec = WithOptionalName<McpServerManifest>;
 
-export interface McpOptions {
-  /** Capability id. Defaults to `"mcp"`. */
-  readonly id?: string;
-}
-
-export interface McpCapability extends CapabilityDeclaration {
-  readonly mcpServers: Readonly<Record<string, McpServerManifest>>;
-}
-
 export class McpError extends Error {
   readonly code: string;
 
@@ -26,45 +16,6 @@ export class McpError extends Error {
     this.name = "McpError";
     this.code = code;
   }
-}
-
-/**
- * Declare MCP servers as one capability.
- *
- * Prefer `Agent(...).mcp({ ... })`. Each key names a server; its `name` defaults to
- * the key and, when given, must equal it. Nylorun accepts remote servers only:
- * `streamable-http` and `sse` (see https://agent-plugins.org/plugin-authors/mcp-servers).
- *
- * ```ts
- * Agent({ id: "assistant" }).mcp({
- *   github: { type: "streamable-http", url: "https://mcp.example.com/github" },
- * })
- * ```
- *
- * `tools` sets tools by the server's own names, with `"*"` for the rest: an allowlist and
- * deferral per tool (R2b C9, C10). `deferred` defers every tool of the server. Either makes the
- * manifest v6. Whether a call waits for a person is the Tenant's tool policy (R5 step 2).
- *
- * ```ts
- * Agent({ id: "assistant" }).mcp({
- *   github: {
- *     type: "streamable-http",
- *     url: "https://api.githubcopilot.com/mcp/",
- *     tools: {
- *       "*": { enabled: false },
- *       search_issues: { enabled: true },
- *       create_issue: { enabled: true },
- *     },
- *   },
- * })
- * ```
- */
-export function mcp(
-  servers: Readonly<Record<string, McpServerSpec>>,
-  options: McpOptions = {}
-): McpCapability {
-  const id = options.id ?? "mcp";
-  return { id, mcpServers: normalizeMcpServers(servers, "mcp()") };
 }
 
 /** Why a `stdio` MCP server is refused: the one message the builder, plugins and manifests give. */

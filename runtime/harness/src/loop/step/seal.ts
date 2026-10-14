@@ -197,23 +197,6 @@ function sealCall(
         args.details,
       ),
     };
-  const denial = context.denialFor(candidate.id);
-  if (denial)
-    return {
-      order,
-      canonical,
-      immediate: Object.freeze({
-        kind: "denied",
-        callId: candidate.id,
-        toolName: candidate.name,
-        reason: denial,
-      }),
-    };
-
-  const requested = context.interactionFor(candidate.id);
-  const interaction = requested
-    ? Object.freeze({ ...requested, id: requested.id ?? createId("interaction") })
-    : undefined;
   return {
     order,
     canonical,
@@ -229,7 +212,6 @@ function sealCall(
       owner: tool.owner,
       execute: tool.execute,
       ...(tool.outputSchema === undefined ? {} : { outputSchema: tool.outputSchema }),
-      ...(interaction ? { interaction } : {}),
     }),
   };
 }

@@ -74,17 +74,12 @@ describe("public interface boundaries", () => {
       output: { doubled: value * 2 },
     }));
     const agent = Agent({ id: "tools", name: "Tools" })
-      .use({
-        id: "math",
-        tools: [
-          {
-            name: "double",
-            description: "Double a number",
-            inputSchema: z.object({ value: z.number() }),
-            outputSchema: z.object({ doubled: z.number() }),
-            execute,
-          },
-        ],
+      .tools({
+        name: "double",
+        description: "Double a number",
+        inputSchema: z.object({ value: z.number() }),
+        outputSchema: z.object({ doubled: z.number() }),
+        execute,
       })
       .build();
     const requests: ModelRequest[] = [];
@@ -103,7 +98,7 @@ describe("public interface boundaries", () => {
         expect(descriptor).toMatchObject({
           name: "double",
           description: "Double a number",
-          owner: { middlewareId: "math", slot: "math" },
+          owner: { middlewareId: "agent", slot: "agent" },
           inputSchema: { jsonSchema: { type: "object" } },
           outputSchema: { jsonSchema: { type: "object" } },
         });

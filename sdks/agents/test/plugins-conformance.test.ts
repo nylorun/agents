@@ -1,11 +1,10 @@
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "@nylorun/core/define";
 import { expect, it, vi } from "vitest";
 import { loadPlugin, PluginError } from "../src/plugins/load.js";
 import { plugin } from "../src/plugins/plugin.js";
-import { Agent as FileAgent } from "../src/builder.js";
+import { Agent } from "../src/builder.js";
 
 const PLUGIN_SCHEMA =
   "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
@@ -198,7 +197,7 @@ it("warns when the agent is built that a plugin's MCP server was skipped, and wh
   );
   const warnings = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
   try {
-    const agent = FileAgent({ id: "bot", name: "Bot" }).plugin(directory).build();
+    const agent = Agent({ id: "bot", name: "Bot" }).plugin(directory).build();
     const servers = agent.manifest.capabilities.find((item) => item.id === "tools")?.mcpServers;
     expect(Object.keys(servers ?? {})).toEqual(["local"]);
     expect(warnings).toHaveBeenCalledTimes(1);
@@ -281,8 +280,8 @@ it("composes skills and MCP into one agent without putting the skill body in the
     name: "Order assistant",
     instructions: "Use lookup_order for orders.",
   })
-    .use(plugin(tools))
-    .use(plugin(docs))
+    .plugin(tools)
+    .plugin(docs)
     .build();
   const repository = agent.manifest.capabilities.find((item) => item.id === "repository-tools");
   const documentation = agent.manifest.capabilities.find((item) => item.id === "documentation");
@@ -330,8 +329,8 @@ it("advertises one load_skill for every plugin skill", () => {
   write(first, "skills/triage/SKILL.md", "---\nname: triage\ndescription: Triage an issue.\n---\nFirst.\n");
   write(second, "skills/summary/SKILL.md", "---\nname: summary\ndescription: Summarize a thread.\n---\nSecond.\n");
   const agent = Agent({ id: "assistant", instructions: "Help." })
-    .use(plugin(first))
-    .use(plugin(second))
+    .plugin(first)
+    .plugin(second)
     .build();
   const loads = agent.manifest.capabilities.flatMap((item) => item.tools ?? []).filter((item) => item.name === "load_skill");
   expect(loads).toHaveLength(1);
@@ -348,8 +347,8 @@ it("rejects duplicate skill names across plugins", () => {
   write(second, "skills/triage/SKILL.md", skill);
   expect(() =>
     Agent({ id: "assistant", instructions: "Help." })
-      .use(plugin(first))
-      .use(plugin(second))
+      .plugin(first)
+      .plugin(second)
       .build()
   ).toThrow(/Duplicate skill 'triage'/);
 });
@@ -371,7 +370,7 @@ it("refuses a stdio MCP server when the plugin is read", () => {
   const refusal =
     "MCP server 'local' uses stdio; Nylorun accepts remote MCP servers only (streamable-http or sse). Run the server behind an HTTP transport and declare its URL.";
   expect(() => loadPlugin(directory)).toThrow(refusal);
-  expect(() => FileAgent({ id: "bot", name: "Bot" }).plugin(directory)).toThrow(PluginError);
+  expect(() => Agent({ id: "bot", name: "Bot" }).plugin(directory)).toThrow(PluginError);
   try {
     loadPlugin(directory);
   } catch (error) {

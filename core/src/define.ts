@@ -22,7 +22,7 @@ export {
   isFlowDelegate,
 } from "./definition/delegate.js";
 export type { Delegate } from "./definition/delegate.js";
-export { capability, middleware, model, tool } from "./definition/helpers.js";
+export { tool } from "./definition/helpers.js";
 export {
   APPROVAL_MODES,
   HTTP_TOOL_DEFAULT_TIMEOUT_MS,
@@ -48,7 +48,6 @@ export {
 export {
   MCP_TOOL_DEFAULTS,
   manifestVersionFor,
-  mcp,
   mcpToolSettings,
   McpError,
   normalizeMcpServers,
@@ -70,8 +69,6 @@ export {
 export { codeToolRefusal, codeToolsOf } from "./definition/code-tools.js";
 export { approvalRefusal, approvalsOf } from "./definition/approval.js";
 export type { CodeTool } from "./definition/code-tools.js";
-export { CapabilityBuilder, isCapabilityBuilder } from "./definition/capability.js";
-export type { CapabilityIdentity, CapabilityOptions } from "./definition/capability.js";
 export {
   flow,
   FlowBuilder,
@@ -102,8 +99,6 @@ export type {
   FlowImplementations,
 } from "./definition/flow/index.js";
 export type {
-  McpCapability,
-  McpOptions,
   McpServerSpec,
   ResolvedMcpToolSettings,
 } from "./definition/mcp.js";
@@ -163,12 +158,7 @@ export type {
 export type {
   CapabilityDeclaration,
   CapabilityInput,
-  CapabilityItems,
-  MiddlewareContributions,
   SkillFileSource,
-  StepMiddleware,
-  StepRequest,
-  StepResponse,
 } from "./types/middleware.js";
 export type {
   ModelCandidate,
@@ -276,7 +266,7 @@ export type {
   WorkflowNode,
 } from "./types/workflow.js";
 export type {
-  BoundMiddleware,
+  DefinitionPart,
   BoundToolDefinition,
 } from "./definition/bound.js";
 export { bindTool } from "./definition/bind-tool.js";

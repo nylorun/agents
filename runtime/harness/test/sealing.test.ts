@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { testAgent, execution, offer, model, tool, toolCalls, turn } from "./fixtures.js";
+import { testAgent, execution, model, tool, toolCalls, turn } from "./fixtures.js";
 
 describe("sealing", () => {
   it("turns invalid calls into paired failures and dispatches only sealed calls", async () => {
     const execute = vi.fn(async (call) => ({ kind: "completed" as const, output: call.args }));
     let calls = 0;
     const result = testAgent()
-      .use("test", offer(tool("echo", execution(execute))))
+      .tools(tool("echo", execution(execute)))
       .with(
         model(async (_call, { request }) => {
           calls += 1;
@@ -35,13 +35,10 @@ describe("sealing", () => {
     const implementationOutput = { nested: { value: 1 } };
     let step = 0;
     const result = testAgent()
-      .use(
-        "test",
-        offer(
-          tool(
-            "echo",
-            execution(async () => ({ kind: "completed", output: implementationOutput })),
-          ),
+      .tools(
+        tool(
+          "echo",
+          execution(async () => ({ kind: "completed", output: implementationOutput })),
         ),
       )
       .with(
@@ -98,13 +95,10 @@ describe("sealing", () => {
 
     let step = 0;
     const malformedAdapter = testAgent()
-      .use(
-        "test",
-        offer(
-          tool(
-            "echo",
-            execution(async () => ({ kind: "denied", reason: { mutable: true } }) as never),
-          ),
+      .tools(
+        tool(
+          "echo",
+          execution(async () => ({ kind: "denied", reason: { mutable: true } }) as never),
         ),
       )
       .with(
