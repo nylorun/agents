@@ -343,6 +343,7 @@ for (const gate of ["in-process", "http"] as const)
         provider: "custom",
         model: "vision-model",
         baseUrl: PROVIDER,
+        settings: { inputs: ["image"] },
         auth: { type: "api_key", key: "artifact-test-provider-key" },
       }),
     });
@@ -375,6 +376,49 @@ for (const gate of ["in-process", "http"] as const)
       { type: "file", artifactId: artifact.artifactId },
     ]);
     expect(JSON.stringify(history)).not.toContain(PNG.toString("base64"));
+
+    // The next turn names the image by its reference line, and sends no bytes (protocol 12).
+    const next = await realFetch(`${runtime.url}/v1/sessions/s1/commands`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ type: "message", requestId: "m2", idempotencyKey: "m2", content: "And now?" }),
+    });
+    expect(next.status, await next.clone().text()).toBe(200);
+    expect(await settle(runtime, "s1")).toBe("completed");
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).not.toContain(PNG.toString("base64"));
+    expect(requests[1]).toContain(`[Uploaded artifact \\"room.png\\" · ${artifact.artifactId} v1 · read_artifact to view]`);
+
+    // A file the model does not read is refused at accept, and no turn starts.
+    const { artifact: pdf } = await uploaded(
+      await upload(runtime, "name=spec.pdf&sessionId=s1", "%PDF-1.4", auth, "application/pdf"),
+    );
+    const refused = await realFetch(`${runtime.url}/v1/sessions/s1/commands`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({
+        type: "message",
+        requestId: "m3",
+        idempotencyKey: "m3",
+        parts: [{ type: "text", text: "Read this." }, { type: "file", artifactId: pdf.artifactId }],
+      }),
+    });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({
+      code: "attachment_unsupported",
+      details: {
+        parts: [
+          {
+            artifactId: pdf.artifactId,
+            name: "spec.pdf",
+            mediaType: "application/pdf",
+            reason: "this model does not read PDFs",
+          },
+        ],
+      },
+    });
+    expect(requests).toHaveLength(2);
+    expect((await items(runtime, "s1")).filter((item) => item.type === "command.message")).toHaveLength(2);
   });
 
 it("works through the @nylorun/agents client: upload, list, Range, link, delete", async () => {

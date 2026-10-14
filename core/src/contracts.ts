@@ -1392,15 +1392,24 @@ export function environmentSecretNameError(
     : "A credential name is 1-64 letters, digits, '.', '_' and '-'";
 }
 /**
+ * What a model may read (protocol 12): `text` always; `image`, `pdf`, `office` (Word, Excel,
+ * PowerPoint), `audio` and `video` when its catalog entry or the operator says so. In this order.
+ */
+export const MODEL_INPUTS = ["text", "image", "pdf", "office", "audio", "video"] as const;
+export const ModelInputSchema = z.enum(MODEL_INPUTS);
+export type ModelInput = z.infer<typeof ModelInputSchema>;
+/**
  * What the Runtime cannot learn from a custom OpenAI-compatible endpoint (Model Calls §7):
- * its context window and output limit, whether it reasons, and pi-ai `compat` settings
- * (`thinkingFormat`, `thinkingTokenBudgetField`, `chatTemplateKwargs`, …).
+ * its context window and output limit, whether it reasons, what it reads (`inputs`; default text
+ * only) and pi-ai `compat` settings (`thinkingFormat`, `thinkingTokenBudgetField`,
+ * `chatTemplateKwargs`, …).
  */
 export const CustomModelSettingsSchema = z
   .object({
     contextWindow: z.number().int().min(1024).optional(),
     maxTokens: z.number().int().min(1).optional(),
     reasoning: z.boolean().optional(),
+    inputs: z.array(ModelInputSchema).optional(),
     compat: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
@@ -3242,7 +3251,11 @@ export type SandboxToolOutcome = z.infer<typeof SandboxToolOutcomeSchema>;
 
 export const ResetTenantResponseSchema = z.object({ ok: z.literal(true) }).strict();
 export type ResetTenantResponse = z.infer<typeof ResetTenantResponseSchema>;
-/** `GET /v1/tenant/models`: public provider and model names, no credentials. */
+/**
+ * `GET /v1/tenant/models`: public provider and model names, no credentials. Each model says what
+ * it reads (`inputs`: its catalog's list and the operator's additions) and what the operator may
+ * add (`addableInputs`, protocol 12).
+ */
 export const HostModelCatalogSchema = z
   .object({
     providers: z.array(
@@ -3250,7 +3263,16 @@ export const HostModelCatalogSchema = z
         .object({
           id: z.string(),
           name: z.string(),
-          models: z.array(z.object({ id: z.string(), name: z.string() }).strict()),
+          models: z.array(
+            z
+              .object({
+                id: z.string(),
+                name: z.string(),
+                inputs: z.array(ModelInputSchema),
+                addableInputs: z.array(ModelInputSchema),
+              })
+              .strict(),
+          ),
         })
         .strict(),
     ),
@@ -3265,10 +3287,35 @@ export const HostModelProviderInfoSchema = z
     authType: z.enum(["api_key", "oauth"]),
     baseUrl: z.string().optional(),
     settings: CustomModelSettingsSchema.optional(),
+    /** What the provider's selected model reads (protocol 12); absent for a model unknown here. */
+    inputs: z.array(ModelInputSchema).optional(),
     lastUpdated: z.string(),
     active: z.boolean(),
   })
   .strict();
+/**
+ * `PUT /v1/tenant/models/inputs`: the inputs one catalog model reads (protocol 12), replacing
+ * what the operator added before. Its catalog's own inputs always stay; an empty list removes
+ * the additions. A custom endpoint sets `settings.inputs` on `PUT /v1/tenant/model` instead.
+ */
+export const PutModelInputsRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    provider: z.string().min(1),
+    model: z.string().min(1),
+    inputs: z.array(ModelInputSchema),
+  })
+  .strict();
+export type PutModelInputsRequest = z.infer<typeof PutModelInputsRequestSchema>;
+/** What one catalog model reads now: its catalog's inputs and the operator's additions. */
+export const ModelInputsViewSchema = z
+  .object({
+    provider: z.string(),
+    model: z.string(),
+    inputs: z.array(ModelInputSchema),
+  })
+  .strict();
+export type ModelInputsView = z.infer<typeof ModelInputsViewSchema>;
 export const ListProvidersResponseSchema = z
   .object({ providers: z.array(HostModelProviderInfoSchema) })
   .strict();

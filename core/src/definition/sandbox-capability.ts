@@ -20,7 +20,8 @@ export const ARTIFACTS_CAPABILITY_ID = "nylorun.artifacts";
 export const SAVE_ARTIFACT_TOOL = "save_artifact";
 /**
  * The tool that reads an artifact of the session in pages (R2b C11, Q24): how the model reads a
- * tool result the Runtime stored because it was too large to show. With or without a sandbox.
+ * tool result the Runtime stored because it was too large to show, and a file of an earlier turn
+ * again (protocol 12). Every agent of a session has it, with or without a sandbox.
  */
 export const READ_ARTIFACT_TOOL = "read_artifact";
 /** The most `read_artifact` returns per call (R2b C11): 32 KiB, the inline cap of a tool result. */
@@ -33,7 +34,8 @@ const ARTIFACTS_INSTRUCTIONS =
 
 const READ_ARTIFACT_INSTRUCTIONS =
   "A tool result too large to show is saved as an artifact of this session: the result says truncated: true, with its artifactId, its size in bytes and a preview of its start and end. " +
-  "Images and other files a tool returns are saved as artifacts too. Use read_artifact to read more of one, a page at a time, only when the preview is not enough.";
+  "Images and other files a tool returns are saved as artifacts too. Use read_artifact to read more of one, a page at a time, only when the preview is not enough. " +
+  'Files from earlier turns appear as lines like [Uploaded artifact "name" · <artifactId> v<version> · read_artifact to view]: call read_artifact with that artifactId and version only when you need the file again.';
 
 async function artifactsRuntimeOnly(): Promise<never> {
   throw new ToolError(
@@ -47,8 +49,8 @@ export interface ArtifactsCapabilityOptions {
   /** `save_artifact`, which comes with a sandbox. Default true. */
   readonly save?: boolean;
   /**
-   * `read_artifact` (R2b C11), for an agent whose MCP or HTTP tool results the Runtime may store
-   * as artifacts. Default false.
+   * `read_artifact` (R2b C11), which reads the session's artifacts: its stored tool results and
+   * the files its messages named. Default false.
    */
   readonly read?: boolean;
 }
@@ -86,10 +88,11 @@ function readArtifactTool() {
   return tool({
     name: READ_ARTIFACT_TOOL,
     description:
-      `Read a text artifact of this session, such as a tool result marked truncated: up to ${READ_ARTIFACT_MAX_BYTES} bytes from offset. ` +
-      "Returns content, and nextOffset while more remains: pass it as offset to read on. An image is shown to you when you can see images.",
+      `Read an artifact of this session, such as a tool result marked truncated or a file from an earlier turn. A text file returns up to ${READ_ARTIFACT_MAX_BYTES} bytes from offset, ` +
+      "with nextOffset while more remains: pass it as offset to read on. An image or another file you can read is shown to you.",
     inputSchema: z.object({
       artifactId: z.string().min(1).describe("The artifact to read, e.g. a truncated result's artifactId."),
+      version: z.number().int().min(1).optional().describe("The version to read. Default: the latest."),
       offset: z.number().int().min(0).optional().describe("The byte to start at. Default 0."),
       length: z
         .number()

@@ -129,7 +129,7 @@ export async function execute(
       const budget = contextBudget(invocation.state.transcript);
       if (
         budget &&
-        estimateTokens(invocation.state.transcript) > budget.contextWindow - budget.reserve
+        estimateTokens(invocation.state.transcript, turnId) > budget.contextWindow - budget.reserve
       )
         await compactHistory("threshold", stepId);
       const snapshot: ExecutionSnapshot = {

@@ -62,7 +62,7 @@ Management keys are issued on the Tenant's machine only:
 | --- | --- | --- |
 | `admin.tenant` | `status()`, `seed(request)`, `reset(request)` | `GET /v1/tenant`, `PUT /v1/tenant/config/seed`, `POST /v1/tenant/reset` |
 | `admin.keys` | `list()`, `put(id)`, `delete(id)` | `/v1/tenant/keys…` |
-| `admin.models` | `catalog()`, `providers()`, `get()`, `put(request)`, `select(request)`, `usage(query)`, `budgets.get()`, `budgets.put(request)` | `/v1/tenant/models`, `/providers`, `/model`, `/model/selection`, `/usage`, `/budgets` |
+| `admin.models` | `catalog()`, `providers()`, `get()`, `put(request)`, `select(request)`, `setInputs(request)`, `usage(query)`, `budgets.get()`, `budgets.put(request)` | `/v1/tenant/models`, `/providers`, `/model`, `/model/selection`, `/models/inputs`, `/usage`, `/budgets` |
 | `admin.coverage` | called directly: `admin.coverage({ agentId, environmentId? })` | `POST /v1/tenant/credential-coverage` |
 | `admin.mcp` | `preview({ url, type?, name?, environmentId? })` | `POST /v1/tenant/mcp/preview` |
 | `admin.toolPolicy` | `get()`, `put({ rules })`: which MCP and HTTP tool calls run, wait for a person (`ask`) or are refused (`deny`) | `/v1/tenant/tool-policy` |

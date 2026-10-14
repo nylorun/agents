@@ -106,6 +106,10 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: {
         200: json(AcceptedResponse, "The command, accepted"),
         409: { description: "A turn is running, or the session does not wait on this" },
+        422: {
+          description:
+            "A message names a file the Tenant's model does not read (`attachment_unsupported`; `details.parts` lists each with its reason). No turn starts.",
+        },
       },
     },
     async (c) => {

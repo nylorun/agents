@@ -13,6 +13,7 @@ import {
   ModelUsageQuerySchema,
   PutModelBudgetsRequestSchema,
   PutToolPolicyRequestSchema,
+  PutModelInputsRequestSchema,
   type ModelBudget,
   PutHostModelRequestSchema,
   PutTenantEnvironmentsRequestSchema,
@@ -25,9 +26,11 @@ import {
   HostModelView,
   ListProvidersResponse,
   ModelBudgets,
+  ModelInputsView,
   ModelUsageTotals,
   PutModelBudgetsRequest,
   PutToolPolicyRequest,
+  PutModelInputsRequest,
   ToolPolicy,
   PutHostModelRequest,
   PutTenantEnvironmentsRequest,
@@ -41,7 +44,8 @@ import {
 } from "../../components.js";
 import { periodStart } from "../../../gates/meter.js";
 import { readToolPolicy, TOOL_POLICY_SETTING } from "../../../gates/policy.js";
-import { hostModelCatalog } from "../../../model/catalog.js";
+import { addableInputs, capabilitiesOf, inputsError } from "../../../model/capabilities.js";
+import { catalogModel, hostModelCatalog } from "../../../model/catalog.js";
 import { sandboxConfigErrors } from "../../../sandbox/resolve.js";
 import {
   effectiveSandboxConfig,
@@ -52,7 +56,7 @@ import type { ModelBudgetRow } from "../../../store/types.js";
 import type { TenantContext } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
 import { clearObservers } from "../../../tenant/session-streams.js";
-import { usesFixtureModel } from "../../../tenant/model-setting.js";
+import { readAddedInputs, usesFixtureModel, writeAddedInputs } from "../../../tenant/model-setting.js";
 import { resetTenant } from "../../../tenant/reset.js";
 import { clearWork, drain } from "../../../tenant/scheduler.js";
 import { buildTenantStatus, harnessStatusOf, seedTenantConfig } from "../../../tenant/status.js";
@@ -231,11 +235,44 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/tenant/models",
       tags: ["Tenant"],
       summary: "List model providers and models",
-      responses: { 200: json(HostModelCatalog, "Provider and model names") },
+      description:
+        "Each model says what it reads (`inputs`: its catalog's inputs and those the operator added) and what may be added (`addableInputs`).",
+      responses: { 200: json(HostModelCatalog, "Provider and model names, and their inputs") },
     },
     async (c) => {
-      c.env.tenant;
-      return jsonResponse(200, hostModelCatalog());
+      const added = await c.env.tenant.store.tx((t) => readAddedInputs(t));
+      return jsonResponse(200, hostModelCatalog(added));
+    },
+  );
+
+  tenantRoute(
+    api,
+    MANAGEMENT,
+    {
+      method: "put",
+      path: "/v1/tenant/models/inputs",
+      tags: ["Tenant"],
+      summary: "Set what a catalog model reads",
+      description:
+        "Replaces the inputs the operator added to one catalog model (Tenant setting `model.inputs`): only those in its `addableInputs`, which its provider API carries. Its catalog's own inputs always stay; an empty list removes the additions. A message naming a file the Tenant's model does not read is refused with `422 attachment_unsupported`. A custom endpoint sets `settings.inputs` on `PUT /v1/tenant/model` instead.",
+      request: { body: body(PutModelInputsRequest) },
+      responses: { 200: json(ModelInputsView, "What the model reads now") },
+    },
+    async (c) => {
+      const { provider, model, inputs } = PutModelInputsRequestSchema.parse(await readJson(c.req.raw));
+      if (provider === "custom")
+        fail(400, "A custom endpoint's inputs are its settings: set settings.inputs on PUT /v1/tenant/model.");
+      const found = catalogModel(provider, model);
+      if (!found) fail(400, `Unknown model ${provider}/${model}.`);
+      const refused = inputsError(found!, inputs);
+      if (refused) fail(400, refused);
+      const added = inputs.filter((input) => addableInputs(found!).includes(input));
+      await c.env.tenant.store.tx((t) => writeAddedInputs(t, `${provider}/${model}`, added));
+      return jsonResponse(200, {
+        provider,
+        model,
+        inputs: capabilitiesOf(found!, added).inputs,
+      });
     },
   );
 

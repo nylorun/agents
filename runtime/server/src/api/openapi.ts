@@ -288,9 +288,10 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   {
     name: "Models",
     description:
-      "Model providers, their credentials, the model the Tenant uses, what it spent, every model call for export, and the budgets that cap it. `admin.models`.",
+      "Model providers, their credentials, the model the Tenant uses, what each model reads, what it spent, every model call for export, and the budgets that cap it. `admin.models`.",
     operations: [
       "GET /v1/tenant/models",
+      "PUT /v1/tenant/models/inputs",
       "GET /v1/tenant/providers",
       "GET /v1/tenant/model",
       "PUT /v1/tenant/model",

@@ -142,17 +142,34 @@ let seen: Seen[] = [];
 /** The tool names of every model call of the current session. */
 let offered: string[][] = [];
 let calls = 0;
-const seenOf = (item: Extract<ModelCall["prompt"][number], { kind: "tool-result" }>): Seen => ({
-  status: item.status,
-  payload: JSON.parse((item.content.find((part) => part.type === "text") as { text: string }).text),
-  media: item.content.filter((part) => part.type === "media") as Seen["media"],
-});
+/**
+ * The turn's files (protocol 12): the media of the user message the call ends with, after the
+ * conversation; a tool result names each of its own by a reference line.
+ */
+const turnFiles = (prompt: ModelCall["prompt"]): Seen["media"] => {
+  const last = prompt.at(-1);
+  const first = last?.content[0];
+  return last?.kind === "message" && first?.type === "text" && first.text === "Files for this turn:"
+    ? (last.content.filter((part) => part.type === "media") as Seen["media"])
+    : [];
+};
+const seenOf = (item: Extract<ModelCall["prompt"][number], { kind: "tool-result" }>, files: Seen["media"]): Seen => {
+  const [payload, ...lines] = item.content.flatMap((part) => (part.type === "text" ? [part.text] : []));
+  return {
+    status: item.status,
+    payload: JSON.parse(payload!),
+    media: files.filter((file) =>
+      lines.some((line) => line.includes(` · ${(file.reference as { artifactId: string }).artifactId} v`)),
+    ),
+  };
+};
 /** The model makes the current script's calls in turn, keeping each result it sees, then answers. */
 const model: ModelProvider = async (effect: { input: unknown }) => {
   const input = effect.input as ModelCall;
   offered.push(input.tools.map((tool) => tool.name));
-  const last = input.prompt.at(-1);
-  if (last?.kind === "tool-result") seen.push(seenOf(last));
+  const files = turnFiles(input.prompt);
+  const last = (files.length > 0 ? input.prompt.slice(0, -1) : input.prompt).at(-1);
+  if (last?.kind === "tool-result") seen.push(seenOf(last, files));
   const step = steps.shift();
   if (!step) return { output: [{ type: "text", text: "done" }] };
   await step.before?.();

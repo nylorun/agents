@@ -39,9 +39,15 @@ it("builds read_artifact, with or without save_artifact (R2b C11)", () => {
   expect(read.tools?.map((tool) => tool.name)).toEqual([READ_ARTIFACT_TOOL]);
   expect(read.tools![0]!.inputSchema).toMatchObject({
     required: ["artifactId"],
-    properties: { offset: { minimum: 0 }, length: { maximum: READ_ARTIFACT_MAX_BYTES } },
+    properties: {
+      version: { minimum: 1 },
+      offset: { minimum: 0 },
+      length: { maximum: READ_ARTIFACT_MAX_BYTES },
+    },
   });
   expect(read.instructions?.join(" ")).toContain("read_artifact");
+  // A file of an earlier turn is a reference line the model reads again (protocol 12).
+  expect(read.instructions?.join(" ")).toContain("[Uploaded artifact");
   expect(read.instructions?.join(" ")).not.toContain("save_artifact");
   const both = artifactsCapabilityManifest({ read: true });
   expect(both.tools?.map((tool) => tool.name)).toEqual([SAVE_ARTIFACT_TOOL, READ_ARTIFACT_TOOL]);

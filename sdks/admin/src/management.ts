@@ -18,11 +18,13 @@ import {
   type McpPreviewRequest,
   type ModelCallExportPage,
   type ModelBudgets,
+  type ModelInputsView,
   type ModelUsageQuery,
   type ModelUsageTotals,
   type OperatorKey,
   type PutHostModelRequest,
   type PutModelBudgetsRequest,
+  type PutModelInputsRequest,
   type PutToolPolicyRequest,
   type PutOperatorKeyResponse,
   type PutTenantArtifactsRequest,
@@ -84,6 +86,12 @@ export interface ManagementModels {
   put(request: Body<PutHostModelRequest>): Promise<HostModelView>;
   /** Chooses the provider and model among those with credentials. */
   select(request: Body<SelectHostModelRequest>): Promise<HostModelView>;
+  /**
+   * Sets what a catalog model reads beyond its catalog's inputs (protocol 12): only inputs in its
+   * `addableInputs`; an empty list removes the additions. A custom endpoint sets
+   * `settings.inputs` with `put` instead.
+   */
+  setInputs(request: Body<PutModelInputsRequest>): Promise<ModelInputsView>;
   /** What the Tenant's model calls used, for one scope and period. */
   usage(query: ModelUsageQuery): Promise<ModelUsageTotals>;
   /**
@@ -201,6 +209,7 @@ export class ManagementClient {
       get: () => call("GET", "/v1/tenant/model"),
       put: (request) => call("PUT", "/v1/tenant/model", withId(request)),
       select: (request) => call("PUT", "/v1/tenant/model/selection", withId(request)),
+      setInputs: (request) => call("PUT", "/v1/tenant/models/inputs", withId(request)),
       usage: (query) => {
         const search = new URLSearchParams(
           Object.entries(query).flatMap(([name, value]) =>

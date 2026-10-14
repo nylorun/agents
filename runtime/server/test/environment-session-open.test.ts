@@ -104,9 +104,15 @@ it("gives no sandbox when the request names no Environment", async () => {
     await register(runtime, plain("bot"));
     const opened = await open(runtime, "s1", { agentId: "bot" });
     expect(opened.ok, await opened.clone().text()).toBe(true);
-    const view = (await opened.json()) as { environment: unknown; manifestHash: string };
+    const view = (await opened.json()) as {
+      environment: unknown;
+      manifestHash: string;
+      definitionHash?: string;
+    };
     expect(view.environment).toBeNull();
-    expect(view.manifestHash).toBe(hashManifest(plain("bot").manifest));
+    // The session pins its definition with read_artifact added (protocol 12).
+    expect(view.manifestHash).not.toBe(hashManifest(plain("bot").manifest));
+    expect(view.definitionHash).toBe(hashManifest(plain("bot").manifest));
     expect(await pinnedSandbox(runtime, "s1")).toBeUndefined();
     expect((await tool(runtime, "s1", "bash", { command: "echo hi" })).status).toBe(404);
   } finally {

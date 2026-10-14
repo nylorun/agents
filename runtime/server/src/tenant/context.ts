@@ -128,6 +128,11 @@ export interface Session {
    * (migration 0020). Its history stays readable.
    */
   closedReason?: string;
+  /**
+   * The artifacts the session's messages named (protocol 12): `read_artifact` reads these
+   * Tenant-wide ones beside the session's own. Absent until a message names a file.
+   */
+  fileArtifacts?: string[];
 }
 
 export type AuthScope =

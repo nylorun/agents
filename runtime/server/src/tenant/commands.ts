@@ -49,6 +49,7 @@ import { checkEnvironmentTurn } from "./environments.js";
 import { turnManifestOf, variantStore } from "./session.js";
 import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
+import { currentModelInputs } from "../model/catalog.js";
 import { endTurn, resumeTurn, startTurn } from "./turn-timing.js";
 import type { TraceContext } from "../traces/ids.js";
 
@@ -71,6 +72,12 @@ export async function command(
 ): Promise<unknown> {
   const { store } = ctx;
   const cascadeCancelIds: string[] = [];
+  // What the Tenant's model reads, for a message that names a file (protocol 12): read before
+  // the session's transaction. Undefined without a model in the vault: nothing is refused.
+  const inputs =
+    input.type === "message" && "parts" in input && input.parts.some((part) => part.type === "file")
+      ? await currentModelInputs(ctx)
+      : undefined;
   const response = await store.tx(async (t) => {
     const s = await lockedSession(t, id, accessOf(scope));
     const command = input;
@@ -188,11 +195,31 @@ export async function command(
         startTurn(s);
         if (options.trace) s.turnTrace = options.trace;
         else delete s.turnTrace;
-        // File parts name artifacts the caller may read; each is pinned to a version now.
+        // File parts name artifacts the caller may read; each is pinned to a version now. An
+        // agent's model must read each one (a workflow passes them on as data).
         const parts =
           "parts" in command
-            ? await resolveMessageParts(t, command.parts, id, accessOf(scope))
+            ? await resolveMessageParts(
+                t,
+                command.parts,
+                id,
+                accessOf(scope),
+                isWorkflowManifest(s.manifest) ? undefined : inputs
+              )
             : undefined;
+        if (parts && parts.refused.length > 0)
+          fail(
+            422,
+            `The model does not read ${parts.refused
+              .map((part) => `${part.name} (${part.reason})`)
+              .join(", ")}.`,
+            { code: "attachment_unsupported", details: { parts: parts.refused } }
+          );
+        // The files the session's messages named: `read_artifact` reads them again (protocol 12).
+        if (parts) {
+          const named = parts.pinned.flatMap((part) => (part.type === "file" ? [part.artifactId] : []));
+          if (named.length > 0) s.fileArtifacts = [...new Set([...(s.fileArtifacts ?? []), ...named])];
+        }
         const data = "data" in command ? (command.data as JsonValue) : undefined;
         if (isWorkflowManifest(s.manifest)) {
           const input: JsonValue =

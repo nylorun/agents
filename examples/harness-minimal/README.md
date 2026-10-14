@@ -63,7 +63,7 @@ Our harness keeps running: the Runtime routes each session by the harness it is 
 
 ```sh
 curl -X PUT "$NYLORUN_RUNTIME_URL/v1/environments/minimal-box" \
-  -H "authorization: Bearer $NYLORUN_API_KEY" -H "nylorun-protocol: 11" -H "content-type: application/json" \
+  -H "authorization: Bearer $NYLORUN_API_KEY" -H "nylorun-protocol: 12" -H "content-type: application/json" \
   -d '{"kind": "virtual", "harness": "minimal"}'
 ```
 
@@ -79,7 +79,7 @@ To try it without a model provider, turn on the Tenant's fixture model, which th
 
 ```sh
 curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/config/seed" \
-  -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 11" -H "content-type: application/json" \
+  -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 12" -H "content-type: application/json" \
   -d '{"requestId": "fixture-1", "fixtureModel": true}'
 ```
 

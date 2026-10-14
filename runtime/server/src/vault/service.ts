@@ -91,6 +91,7 @@ import type {
   PutEnvironmentSecretRequest,
   PutHostModelRequest,
   CustomModelSettings,
+  ModelInput,
   SelectHostModelRequest,
 } from "@nylorun/core/contracts";
 import type { AgentManifest, WorkflowManifest } from "@nylorun/core/define";
@@ -105,7 +106,9 @@ import { decryptSecret, encryptSecret, VaultCryptoError } from "./crypto.js";
 import { VaultError } from "./error.js";
 import { credentialNeeds, type CredentialNeed } from "./coverage.js";
 import { checkCredentialHeaders } from "./headers.js";
-import { hostModelCatalog } from "../model/catalog.js";
+import { hostModelCatalog, inputsOfHostModel } from "../model/catalog.js";
+import { inputsError } from "../model/capabilities.js";
+import { readAddedInputs } from "../tenant/model-setting.js";
 import { normalizeVaultUrl } from "./url.js";
 
 export const HOST_VAULT_ID = "host";
@@ -115,8 +118,10 @@ export type HostModelSecret = {
   provider: string;
   model: string;
   baseUrl?: string;
-  /** A custom endpoint's window, output limit, reasoning and pi-ai compat (Model Calls §7). */
+  /** A custom endpoint's window, output limit, reasoning, inputs and pi-ai compat (Model Calls §7). */
   settings?: CustomModelSettings;
+  /** The inputs the operator added to catalog models, by `<provider>/<model>` (protocol 12). */
+  addedInputs?: Readonly<Record<string, readonly ModelInput[]>>;
   authType: "api_key" | "oauth";
   credential: {
     type: "api_key" | "oauth";
@@ -551,11 +556,13 @@ export class VaultService {
   async listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }> {
     return this.store.tx(async (t) => {
       const active = await activeProviderId(t);
+      const added = await readAddedInputs(t);
       const catalog = new Map(
         hostModelCatalog().providers.map((provider) => [provider.id, provider.name]),
       );
       const providers = (await hostModelRows(t)).map((row) => {
         const binding = modelBinding(row);
+        const inputs = inputsOfHostModel({ configured: true, ...binding }, added);
         return {
           id: binding.provider,
           name:
@@ -567,6 +574,7 @@ export class VaultService {
           authType: binding.authType,
           ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
           ...(binding.settings ? { settings: binding.settings } : {}),
+          ...(inputs ? { inputs } : {}),
           lastUpdated: row.rotatedAt ?? row.createdAt,
           active: binding.provider === active,
         };
@@ -732,9 +740,14 @@ export class VaultService {
     if (body.settings && body.provider !== "custom")
       throw new VaultError(
         400,
-        "Model settings (context window, output limit, reasoning, compat) apply only to a custom provider.",
+        "Model settings (context window, output limit, reasoning, inputs, compat) apply only to a custom provider.",
       );
     if (body.provider === "custom") {
+      // A custom endpoint is OpenAI-compatible: it reads only what that API carries (protocol 12).
+      const inputsRefused =
+        body.settings?.inputs &&
+        inputsError({ api: "openai-completions", input: ["text", "image"] }, body.settings.inputs);
+      if (inputsRefused) throw new VaultError(400, inputsRefused);
       if (!body.baseUrl)
         throw new VaultError(
           400,

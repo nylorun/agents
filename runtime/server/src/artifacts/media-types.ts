@@ -1,7 +1,9 @@
 /**
  * Media types of file artifacts: what an upload may declare, what a name's extension implies,
- * and how the model reads a file (an image as an image, text as text, anything else refused).
+ * and which model input a file is (`modelInputOf`, protocol 12): text, an image, a PDF, an Office
+ * document, audio or video. A model reads a file only when its inputs include that one.
  */
+import type { ModelInput } from "@nylorun/core/contracts";
 import { DEFAULT_CONTENT_TYPE } from "../blob/index.js";
 
 const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
@@ -14,6 +16,12 @@ const BY_EXTENSION: Readonly<Record<string, string>> = {
   webp: "image/webp",
   svg: "image/svg+xml",
   pdf: "application/pdf",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   txt: "text/plain",
   md: "text/markdown",
   csv: "text/csv",
@@ -91,4 +99,56 @@ export function isText(contentType: string): boolean {
 export function extensionFor(contentType: string): string | undefined {
   const type = essence(contentType);
   return Object.keys(BY_EXTENSION).find((extension) => BY_EXTENSION[extension] === type);
+}
+
+/** Word, Excel and PowerPoint documents, old and Open XML. */
+function isOffice(type: string): boolean {
+  return (
+    type === "application/msword" ||
+    type === "application/vnd.ms-excel" ||
+    type === "application/vnd.ms-powerpoint" ||
+    type.startsWith("application/vnd.openxmlformats-officedocument.")
+  );
+}
+
+/** The model input a file of `contentType` is, or undefined for a type no model reads. */
+export function modelInputOf(contentType: string): ModelInput | undefined {
+  const type = essence(contentType);
+  if (isText(type)) return "text";
+  if (type.startsWith("image/")) return "image";
+  if (type === "application/pdf") return "pdf";
+  if (isOffice(type)) return "office";
+  if (type.startsWith("audio/")) return "audio";
+  if (type.startsWith("video/")) return "video";
+  return undefined;
+}
+
+const LABELS: Readonly<Record<ModelInput, string>> = {
+  text: "text files",
+  image: "images",
+  pdf: "PDFs",
+  office: "Office documents",
+  audio: "audio",
+  video: "video",
+};
+
+/** An input, in a sentence: "PDFs", "Office documents"; "files of this type" for none. */
+export function inputLabel(input: ModelInput | undefined): string {
+  return input === undefined ? "files of this type" : LABELS[input];
+}
+
+/**
+ * Why a model that reads `inputs` cannot read a file of `contentType`, or undefined when it can.
+ * An image must also be PNG, JPEG, GIF or WebP.
+ */
+export function unreadableReason(
+  contentType: string,
+  inputs: readonly ModelInput[],
+): string | undefined {
+  const input = modelInputOf(contentType);
+  if (input === undefined) return `no model reads ${essence(contentType)} files`;
+  if (!inputs.includes(input)) return `this model does not read ${LABELS[input]}`;
+  if (input === "image" && !isModelImage(contentType))
+    return "the model reads PNG, JPEG, GIF and WebP images only";
+  return undefined;
 }

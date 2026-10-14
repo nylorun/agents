@@ -230,7 +230,7 @@ async function shapeBinary(shaping: Shaping, part: Part, index: number): Promise
   )
     shaping.files.push({
       mediaType: contentType,
-      reference: { artifactId: kept.artifactId, version: kept.version, name },
+      reference: { artifactId: kept.artifactId, version: kept.version, name, size: kept.size },
     });
   return {
     type: part.type,

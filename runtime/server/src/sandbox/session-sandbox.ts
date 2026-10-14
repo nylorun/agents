@@ -6,10 +6,11 @@
  *   instructions and the resolved spec) and the `nylorun.artifacts` capability
  *   (`save_artifact`), also added to each agent it uses as a tool, so the tree shares one spec.
  *   The sandbox's instructions name the agent's skills' folders (`/skills/<name>/`);
- * - for each agent of the tree with a remote MCP server or an HTTP tool, `read_artifact` in its
- *   `nylorun.artifacts` capability (R2b C11), with or without a sandbox: the Runtime stores a
- *   result of those tools too large to show as an artifact, and the model reads it in pages.
- *   An agent that declares a tool named `read_artifact` keeps its own, and sees previews only;
+ * - for each agent of the tree, `read_artifact` in its `nylorun.artifacts` capability (R2b C11,
+ *   protocol 12), with or without a sandbox: the Runtime stores a result of an MCP or HTTP tool
+ *   too large to show as an artifact, and the model reads it in pages; a file of an earlier turn
+ *   is a reference line the model reads again with it. An agent that declares a tool named
+ *   `read_artifact` keeps its own;
  * - for each agent of the tree with a remote MCP server, the `nylorun.tools` capability (R2b
  *   C10), empty: when the session defers some of the agent's MCP tools, its session tools put
  *   `tool_search` and `tool_call` there. An agent that declares either name defers nothing.
@@ -52,19 +53,13 @@ function skillNamesOf(manifest: AgentManifest): string[] {
 }
 
 /**
- * True when the agent itself declares a remote MCP server or an HTTP tool, whose results the
- * Runtime may store as artifacts (R2b C11), and no tool of its own is named `read_artifact`.
+ * True when no tool of the agent's own is named `read_artifact`: every agent reads its session's
+ * artifacts, stored tool results (R2b C11) and the files of earlier turns (protocol 12).
  */
-function readsStoredResults(manifest: AgentManifest): boolean {
-  const remote = manifest.capabilities.some(
-    (capability) =>
-      Object.keys(capability.mcpServers ?? {}).length > 0 ||
-      (capability.tools ?? []).some((tool) => tool.http !== undefined)
-  );
-  const taken = manifest.capabilities.some((capability) =>
+function readsArtifacts(manifest: AgentManifest): boolean {
+  return !manifest.capabilities.some((capability) =>
     (capability.tools ?? []).some((tool) => tool.name === READ_ARTIFACT_TOOL)
   );
-  return remote && !taken;
 }
 
 /**
@@ -109,7 +104,7 @@ function addCapabilities(manifest: AgentManifest, spec: SandboxManifest | undefi
     return { ...capability, tools };
   });
   const save = spec !== undefined;
-  const read = readsStoredResults(manifest);
+  const read = readsArtifacts(manifest);
   const defer = defersTools(manifest);
   if (!save && !read && !defer && !changed) return manifest;
   return {
@@ -154,9 +149,9 @@ export function withSandboxCapability(
 
 /**
  * The pinned manifest of an agent session without a sandbox: `read_artifact` for each agent of
- * the tree with a remote MCP server or an HTTP tool (R2b C11), and `nylorun.tools` for each with
- * a remote MCP server (R2b C10). Undefined when nothing is added, and the session pins its
- * definition as it is.
+ * the tree (R2b C11, protocol 12), and `nylorun.tools` for each with a remote MCP server (R2b
+ * C10). Undefined when nothing is added (every agent declares its own `read_artifact`), and the
+ * session pins its definition as it is.
  */
 export function withPlatformTools(manifest: AgentManifest): SandboxedManifest | undefined {
   const pinned = addCapabilities(manifest, undefined);

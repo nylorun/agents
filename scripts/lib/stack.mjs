@@ -425,8 +425,8 @@ export async function hostTenant(stack) {
   return { id: tenant.id, key: await key };
 }
 
-/** The protocol the checks speak: the Host accepts 11 only (protocol 11, Environments). */
-export const PROTOCOL = "11";
+/** The protocol the checks speak: the Host accepts 11 and 12 (protocol 12, model inputs). */
+export const PROTOCOL = "12";
 
 /**
  * Headers for the Tenant's APIs (an application key for the Runtime API, a management key for

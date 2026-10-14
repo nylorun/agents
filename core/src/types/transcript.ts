@@ -81,6 +81,11 @@ export interface TranscriptCompactionEntry {
   readonly trigger: "threshold" | "overflow";
   readonly tokensBefore: number;
   readonly tokensAfter: number;
+  /**
+   * The reference lines of the files the summarized part named (protocol 12), carried across
+   * compactions so the model can still read them with `read_artifact`.
+   */
+  readonly files?: readonly string[];
 }
 export type TranscriptEntry =
   | TranscriptInputEntry

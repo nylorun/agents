@@ -45,7 +45,13 @@ returned by the adapter instead of a candidate. The step fails with `model.<code
 completed outcome, never `uncertain`.
 
 **Compaction**: Replacing the older part of the transcript with a summary the model wrote,
-so the next prompt fits the model's window. Recorded as a `compaction` entry, always first.
+so the next prompt fits the model's window. Recorded as a `compaction` entry, always first,
+with the reference lines of the files it summarized away (`files`).
+
+**Turn files**: The files of the turn in progress (protocol 12): a message's media parts, a tool
+result's `files`. The model call names every file by its reference line (`mediaReferenceLine`),
+and sends the turn's own once more, as media, in one user message after the conversation and
+the context (`loop/model/project.ts`). A file of an earlier turn is its line only.
 
 **Segment rollover**: A long turn ending its durable segment at a step boundary (`yielded`)
 and continuing in the next segment of the same turn.

@@ -36,6 +36,8 @@ import {
   PutModelBudgetsRequestSchema,
   ToolPolicySchema,
   PutToolPolicyRequestSchema,
+  PutModelInputsRequestSchema,
+  ModelInputsViewSchema,
   PutTenantEnvironmentsRequestSchema,
   ListProvidersResponseSchema,
   HostModelViewSchema,
@@ -200,6 +202,8 @@ export const ModelBudgets = named("ModelBudgets", ModelBudgetsSchema);
 export const PutModelBudgetsRequest = named("PutModelBudgetsRequest", PutModelBudgetsRequestSchema);
 export const ToolPolicy = named("ToolPolicy", ToolPolicySchema);
 export const PutToolPolicyRequest = named("PutToolPolicyRequest", PutToolPolicyRequestSchema);
+export const PutModelInputsRequest = named("PutModelInputsRequest", PutModelInputsRequestSchema);
+export const ModelInputsView = named("ModelInputsView", ModelInputsViewSchema);
 export const PutTenantEnvironmentsRequest = named("PutTenantEnvironmentsRequest", PutTenantEnvironmentsRequestSchema);
 export const ListProvidersResponse = named("ListProvidersResponse", ListProvidersResponseSchema);
 export const HostModelView = named("HostModelView", HostModelViewSchema);

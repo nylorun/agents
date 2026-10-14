@@ -5,13 +5,14 @@
     "version": "0.0.0",
     "x-nylorun-protocol": {
       "min": 11,
-      "max": 11,
+      "max": 12,
       "features": [
         "studio-principal",
         "artifacts",
         "management-api",
         "resource-server",
         "environments",
+        "model-inputs",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -105,6 +106,7 @@
               "credential_rejected",
               "mcp_preview_failed",
               "credential_conflict",
+              "attachment_unsupported",
               "internal_error"
             ]
           },
@@ -385,6 +387,20 @@
                       },
                       "reasoning": {
                         "type": "boolean"
+                      },
+                      "inputs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "image",
+                            "pdf",
+                            "office",
+                            "audio",
+                            "video"
+                          ]
+                        }
                       },
                       "compat": {
                         "type": "object",
@@ -845,6 +861,20 @@
                   "reasoning": {
                     "type": "boolean"
                   },
+                  "inputs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "text",
+                        "image",
+                        "pdf",
+                        "office",
+                        "audio",
+                        "video"
+                      ]
+                    }
+                  },
                   "compat": {
                     "type": "object",
                     "additionalProperties": {}
@@ -955,11 +985,41 @@
                       },
                       "name": {
                         "type": "string"
+                      },
+                      "inputs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "image",
+                            "pdf",
+                            "office",
+                            "audio",
+                            "video"
+                          ]
+                        }
+                      },
+                      "addableInputs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "image",
+                            "pdf",
+                            "office",
+                            "audio",
+                            "video"
+                          ]
+                        }
                       }
                     },
                     "required": [
                       "id",
-                      "name"
+                      "name",
+                      "inputs",
+                      "addableInputs"
                     ],
                     "additionalProperties": false
                   }
@@ -976,6 +1036,74 @@
         },
         "required": [
           "providers"
+        ],
+        "additionalProperties": false
+      },
+      "ModelInputsView": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "text",
+                "image",
+                "pdf",
+                "office",
+                "audio",
+                "video"
+              ]
+            }
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "inputs"
+        ],
+        "additionalProperties": false
+      },
+      "PutModelInputsRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "text",
+                "image",
+                "pdf",
+                "office",
+                "audio",
+                "video"
+              ]
+            }
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "inputs"
         ],
         "additionalProperties": false
       },
@@ -1689,12 +1817,40 @@
                     "reasoning": {
                       "type": "boolean"
                     },
+                    "inputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "text",
+                          "image",
+                          "pdf",
+                          "office",
+                          "audio",
+                          "video"
+                        ]
+                      }
+                    },
                     "compat": {
                       "type": "object",
                       "additionalProperties": {}
                     }
                   },
                   "additionalProperties": false
+                },
+                "inputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "image",
+                      "pdf",
+                      "office",
+                      "audio",
+                      "video"
+                    ]
+                  }
                 },
                 "lastUpdated": {
                   "type": "string"
@@ -1776,6 +1932,20 @@
                   "reasoning": {
                     "type": "boolean"
                   },
+                  "inputs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "text",
+                        "image",
+                        "pdf",
+                        "office",
+                        "audio",
+                        "video"
+                      ]
+                    }
+                  },
                   "compat": {
                     "type": "object",
                     "additionalProperties": {}
@@ -1831,6 +2001,20 @@
               },
               "reasoning": {
                 "type": "boolean"
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "image",
+                    "pdf",
+                    "office",
+                    "audio",
+                    "video"
+                  ]
+                }
               },
               "compat": {
                 "type": "object",
@@ -2751,10 +2935,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -2853,10 +3037,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -2965,10 +3149,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3086,10 +3270,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -3221,10 +3405,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3333,10 +3517,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3436,10 +3620,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3517,6 +3701,7 @@
           "Models"
         ],
         "summary": "List model providers and models",
+        "description": "Each model says what it reads (`inputs`: its catalog's inputs and those the operator added) and what may be added (`addableInputs`).",
         "security": [
           {
             "managementKey": []
@@ -3530,21 +3715,133 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "Provider and model names",
+            "description": "Provider and model names, and their inputs",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HostModelCatalog"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenant/models/inputs": {
+      "put": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Set what a catalog model reads",
+        "description": "Replaces the inputs the operator added to one catalog model (Tenant setting `model.inputs`): only those in its `addableInputs`, which its provider API carries. Its catalog's own inputs always stay; an empty list removes the additions. A message naming a file the Tenant's model does not read is refused with `422 attachment_unsupported`. A custom endpoint sets `settings.inputs` on `PUT /v1/tenant/model` instead.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `12`"
+            },
+            "required": true,
+            "description": "The protocol version, `12`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutModelInputsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the model reads now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelInputsView"
                 }
               }
             }
@@ -3631,10 +3928,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3732,10 +4029,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3831,10 +4128,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3942,10 +4239,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4091,10 +4388,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4211,10 +4508,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4312,10 +4609,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4412,10 +4709,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4523,10 +4820,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4623,10 +4920,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4735,10 +5032,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4847,10 +5144,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4978,10 +5275,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5080,10 +5377,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5202,10 +5499,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5316,10 +5613,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5416,10 +5713,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5527,10 +5824,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5627,10 +5924,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `11`"
+              "description": "The protocol version, `12`"
             },
             "required": true,
-            "description": "The protocol version, `11`",
+            "description": "The protocol version, `12`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5732,7 +6029,7 @@
     },
     {
       "name": "Models",
-      "description": "Model providers, their credentials, the model the Tenant uses, what it spent, every model call for export, and the budgets that cap it. `admin.models`."
+      "description": "Model providers, their credentials, the model the Tenant uses, what each model reads, what it spent, every model call for export, and the budgets that cap it. `admin.models`."
     },
     {
       "name": "Tool policy",

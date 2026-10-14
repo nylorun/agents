@@ -19,6 +19,8 @@ export type Selection = Readonly<{
     contextWindow?: number;
     maxTokens?: number;
     reasoning?: boolean;
+    /** What the endpoint reads (protocol 12); text only unless it says so. */
+    inputs?: readonly string[];
     compat?: Readonly<Record<string, unknown>>;
   }>;
 }>;
@@ -53,7 +55,7 @@ export function modelsFor(
     provider: "custom",
     baseUrl: selection.custom.baseUrl,
     reasoning: selection.custom.reasoning ?? false,
-    input: ["text", "image"],
+    input: selection.custom.inputs?.includes("image") ? ["text", "image"] : ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: selection.custom.contextWindow ?? CUSTOM_CONTEXT_WINDOW,
     maxTokens: selection.custom.maxTokens ?? CUSTOM_MAX_TOKENS,

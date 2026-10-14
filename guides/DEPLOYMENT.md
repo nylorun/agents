@@ -519,6 +519,12 @@ a model credential.
   (`PUT /v1/tenant/budgets`): once a cap is reached the turn fails with
   `model.budget_exhausted`. Prices come from pi-ai's model catalog, so cap a
   custom endpoint, which counts as $0, in tokens.
+- The gateway reads the files a call names from the Object store, and sends a model only what it
+  reads (protocol 12): its catalog's inputs plus those you add with `PUT /v1/tenant/models/inputs`
+  (`admin.models.setInputs`), or a custom endpoint's `settings.inputs`, text only by default. A
+  message naming a file the model does not read is refused when it is sent (`422
+  attachment_unsupported`). A file goes to the model as bytes only in the turn that brought it;
+  later turns name it by a reference line, and the model reads it again with `read_artifact`.
 - A Compose file you write yourself must run both containers: in a container,
   a Runtime that runs `loop` refuses to start without `NYLORUN_GATES_URL` and
   `NYLORUN_GATES_TOKEN`. A proxy between the two must allow an idle request of
@@ -923,7 +929,7 @@ Environment vault as MCP credentials; for both, the secret's name is the variabl
 
 ```bash
 curl -X PUT "$RUNTIME/v1/environments/users%2Falice%2Fweb/secrets/GH_TOKEN" \
-  -H "Authorization: Bearer $NYLORUN_SERVER_KEY" -H "Nylorun-Protocol: 11" \
+  -H "Authorization: Bearer $NYLORUN_SERVER_KEY" -H "Nylorun-Protocol: 12" \
   -H "Content-Type: application/json" \
   -d '{"type":"environment_secret","value":"ghp_…","allowedHosts":["api.github.com","github.com"]}'
 ```

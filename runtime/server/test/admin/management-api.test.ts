@@ -14,6 +14,7 @@ import { AdminError, createAdmin, createManagementClient } from "@nylorun/admin"
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent } from "@nylorun/core/define";
 import { runOperate } from "../../src/host/operate.js";
+import { hostModelCatalog } from "../../src/model/catalog.js";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { isolatedTestDatabase } from "../support/store.js";
 
@@ -24,6 +25,12 @@ afterEach(async () => {
   for (const c of closers.splice(0)) await c.close().catch(() => undefined);
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
+
+/** An Anthropic model of the catalog that reads images. */
+const anthropicModel = () =>
+  hostModelCatalog()
+    .providers.find((provider) => provider.id === "anthropic")!
+    .models.find((model) => model.inputs.includes("image"))!.id;
 
 async function startHost() {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-management-"));
@@ -115,6 +122,25 @@ describe("the Management API's groups", () => {
     expect(await host.admin.models.budgets.put({ budgets: [] })).toEqual({ budgets: [] });
     expect(await host.admin.settings.sandbox.get()).toBeDefined();
     expect(await host.admin.settings.artifacts.get()).toBeDefined();
+  });
+
+  it("sets what a catalog model reads (protocol 12)", async () => {
+    const host = await startHost();
+    const model = { provider: "anthropic", model: anthropicModel() };
+    expect(await host.admin.models.setInputs({ ...model, inputs: ["pdf"] })).toEqual({
+      ...model,
+      inputs: ["text", "image", "pdf"],
+    });
+    // Only what the model's API carries; never for a custom endpoint, nor an unknown model.
+    await expect(host.admin.models.setInputs({ ...model, inputs: ["office"] })).rejects.toMatchObject({ status: 400 });
+    await expect(
+      host.admin.models.setInputs({ provider: "custom", model: "m", inputs: ["image"] }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      host.admin.models.setInputs({ provider: "anthropic", model: "no-such-model", inputs: [] }),
+    ).rejects.toMatchObject({ status: 400 });
+    // An empty list removes the additions.
+    expect((await host.admin.models.setInputs({ ...model, inputs: [] })).inputs).toEqual(["text", "image"]);
   });
 
   it("checks credential coverage by Environment, and has no vault routes (protocol 11)", async () => {
