@@ -34,7 +34,7 @@ export function placementOf(
 }
 
 /** How to enable sandbox pods, for the messages that need them. */
-export const ENABLE_PODS = "run `nylorun sandbox enable --context <name>` to give this Tenant a cluster";
+export const ENABLE_PODS = "run `nylorun local sandbox enable --context <name>` to give this Tenant a cluster";
 
 /** Refuses a session whose harness, on the host its Environment needs, the Tenant does not allow. */
 export function checkPlacement(
@@ -76,7 +76,7 @@ export async function requirePods(pods: TenantPods | undefined, what: string): P
       code: "environment_unavailable",
     });
   if (!(await podsReady(pods)))
-    fail(409, `${what} needs sandbox pods, and the sandboxes service is not ready. Check \`nylorun sandbox status\`.`, {
+    fail(409, `${what} needs sandbox pods, and the sandboxes service is not ready. Check \`nylorun local sandbox status\`.`, {
       code: "environment_unavailable",
       details: { retryAfterSeconds: 5 },
     }, { "retry-after": "5" });

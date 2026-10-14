@@ -1,3 +1,35 @@
+# One command: `nylo` is part of `nylorun`
+
+`nylorun` is the one command. `nylo` keeps its name for one release, and each of its commands
+exits 2 naming the `nylorun` command that replaced it. Commands other than the installation's
+lifecycle moved into groups, each named after the API it uses, and the old spellings exit 2
+naming the new one.
+
+| Before | Now |
+| --- | --- |
+| `nylo status` | `nylorun status` (a remote installation with `NYLORUN_RUNTIME_URL` and `NYLORUN_MANAGEMENT_KEY`) |
+| `nylo reset [--sessions\|--environments\|--all]` | `nylorun tenant reset …` |
+| `nylo access signing-keys list\|rotate\|revoke` | `nylorun tenant signing-keys …` |
+| `nylo configure` | `nylorun tenant models set` |
+| `nylo doctor sandbox` | `nylorun doctor sandbox` |
+| `nylo env`, `eval "$(npx -p nylorun nylo env)"` | Nothing: the SDKs read the Project link. Outside the project, give the process a key of its own (`nylorun tenant keys put <id>`) and the URL `nylorun status` prints |
+| `nylorun key put\|list\|rm` | `nylorun tenant keys put\|list\|rm` |
+| `nylorun mcp inspect <url>` | `nylorun tenant mcp inspect <url>` |
+| `nylorun sandbox ls\|rm` | `nylorun environments list\|delete` |
+| `nylorun sandbox enable\|disable\|status` | `nylorun local sandbox …` |
+| `nylorun logs`, `ls`, `delete`, `reset`, `telemetry` | `nylorun local …` |
+
+- **Two resets.** `nylorun local reset` deletes a local Tenant's volumes, Tenant directory and
+  vault key (the next start creates it anew). `nylorun tenant reset` clears its sessions,
+  Environments or all its data through the Management API and keeps the Tenant and its keys.
+- **Which installation.** `tenant`, `environments`, `status` and `doctor sandbox` act on the local
+  Tenant `--tenant` names, else the linked project's, else the default one, as before. Without
+  `--tenant`, `NYLORUN_RUNTIME_URL` with `NYLORUN_MANAGEMENT_KEY` names a remote installation for
+  the Management API commands, and with `NYLORUN_SERVER_KEY` for `environments`. `NYLORUN_RUNTIME_URL`
+  alone is an app's and names nothing.
+- **Scripts.** Replace `npx -p nylorun nylo <command>` with `npx nylorun <command>` as above; an
+  npm script `nylo configure` becomes `nylorun tenant models set`.
+
 # The flat agent manifest (protocol 13)
 
 A fresh start: the Runtime speaks protocol 13 only, and refuses older manifests. Upgrade the

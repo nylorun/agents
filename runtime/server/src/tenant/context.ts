@@ -270,7 +270,7 @@ export interface TenantContext {
   abortLocal(sessionId: string, turnId?: string): void;
   /**
    * Sandbox pods (F7.2): the sandboxes service and the Runtime image pods copy the engine from.
-   * Absent without a cluster (`nylorun sandbox enable`): kind `pod` is `environment_unavailable`.
+   * Absent without a cluster (`nylorun local sandbox enable`): kind `pod` is `environment_unavailable`.
    */
   readonly pods?: TenantPods;
   /**

@@ -3,7 +3,7 @@
 //
 //	GET    /ready                 informers synced and the API server answers
 //	GET    /health                the process is up
-//	GET    /v1/info               the cluster as `nylorun sandbox enable` recorded it
+//	GET    /v1/info               the cluster as `nylorun local sandbox enable` recorded it
 //	PUT    /v1/pods/{name}        create or update a Sandbox (body driver.Spec)
 //	GET    /v1/pods/{name}        its status; ?wait=ready|suspended|expired|gone&timeoutMs=<=30000
 //	DELETE /v1/pods/{name}?opId=  delete it (foreground) and its join Secret

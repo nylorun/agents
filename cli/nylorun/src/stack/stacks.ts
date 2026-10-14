@@ -34,7 +34,7 @@ export function assertTenantName(name: string, source: string): string {
   // A Tenant id, such as a NYLORUN_TENANT kept from an older release.
   if (/^tn_/i.test(name))
     throw new CliError(
-      `${source} must be a Tenant's name, not a Tenant id: ${name}. "nylorun ls" lists the Tenants on this machine.`,
+      `${source} must be a Tenant's name, not a Tenant id: ${name}. "nylorun local ls" lists the Tenants on this machine.`,
       2,
     );
   if (!TENANT_NAME.test(name))

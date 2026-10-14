@@ -12,7 +12,7 @@
  *   (`POST /_studio/login-tokens`) and opens `/login?token=…`, which sets an
  *   `HttpOnly`, `SameSite=Strict` session cookie for `SESSION_TTL_MS`. The
  *   cookie is signed with a key derived from the admin key, so it survives
- *   Studio restarts and ends when the admin key changes (`nylorun reset`).
+ *   Studio restarts and ends when the admin key changes (`nylorun local reset`).
  * - An embedder (Studio §8) mints a login token limited to one Tenant and one
  *   subject, passes it to the framed dashboard, which exchanges it at
  *   `POST /_studio/sessions` for a one-hour bearer session kept in memory. A

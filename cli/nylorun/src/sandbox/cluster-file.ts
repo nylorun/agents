@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 /**
  * `<Host root>/sandboxes/`: what the sandboxes service mounts read-only. `cluster.json`
- * records the cluster `nylorun sandbox enable` installed into; `token` is the
+ * records the cluster `nylorun local sandbox enable` installed into; `token` is the
  * ServiceAccount token (0600). Only the sandboxes container reads them: the runtime
  * container sees an empty mount there.
  */

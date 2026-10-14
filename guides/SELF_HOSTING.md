@@ -44,7 +44,7 @@ It leaves out, on purpose:
 - **CORS and rate limits**: your reverse proxy answers both.
 
 Nothing calls Nylorun. Studio's anonymous page-view analytics is the only outbound call, and
-nothing depends on it (`nylorun telemetry disable`, or `NYLORUN_TELEMETRY_DISABLED=1`).
+nothing depends on it (`nylorun local telemetry disable`, or `NYLORUN_TELEMETRY_DISABLED=1`).
 
 ## Front doors
 
@@ -94,7 +94,7 @@ its next request.
 
 | Key | Reaches | Issued by | Held by |
 | --- | --- | --- | --- |
-| **Application key** (role `application`) | The Runtime API, for the whole Tenant or for a person with `Nylorun-Subject` | A management key (`PUT /v1/tenant/keys/{keyId}`), or `nylorun key put <id>` on the machine | App servers |
+| **Application key** (role `application`) | The Runtime API, for the whole Tenant or for a person with `Nylorun-Subject` | A management key (`PUT /v1/tenant/keys/{keyId}`), or `nylorun tenant keys put <id>` on the machine | App servers |
 | **Management key** (role `management`) | The Management API (`/v1/tenant/*`), as itself. Refused with `Origin`, `Nylorun-Subject` or `Nylorun-Scopes` | Only the Tenant's machine | Operators, CI, the CLI |
 
 Studio's key (principal `studio`) is the only key derived from the admin key, and the only one
@@ -103,7 +103,7 @@ that reaches both APIs.
 **Application keys.** From a terminal, on the Tenant's machine:
 
 ```sh
-npx nylorun key put app-server     # create, or rotate: prints the new key once on stdout
+npx nylorun tenant keys put app-server     # create, or rotate: prints the new key once on stdout
 npx nylorun key list               # id, role, when issued (never the keys); --json
 npx nylorun key rm app-server      # it stops working at once
 ```
@@ -117,7 +117,7 @@ and `DELETE /v1/tenant/keys/{keyId}`. The Management API issues application keys
 another:
 
 ```sh
-npx nylorun key put ops --management                                # a local Tenant
+npx nylorun tenant keys put ops --management                                # a local Tenant
 docker compose exec runtime nylorun-operate keys put ops --role management   # a Compose file of your own
 kubectl exec <runtime pod> -- nylorun-operate keys put ops --role management  # Kubernetes
 ```
@@ -137,8 +137,8 @@ environment value printed in logs.
   Outside a project, `nylorun` keeps `cli` and `cli-management` in
   `<Host root>/cli-credentials.json`.
 - `@nylorun/admin` reads a management key from `NYLORUN_MANAGEMENT_KEY` (with
-  `NYLORUN_RUNTIME_URL`), else from those files; `nylo` from the Project's credentials, else
-  `NYLORUN_MANAGEMENT_KEY`.
+  `NYLORUN_RUNTIME_URL`), else from those files; `nylorun` from `NYLORUN_MANAGEMENT_KEY`
+  (with `NYLORUN_RUNTIME_URL`), else the local Tenant's Project credentials or Host root.
 - Keep keys in your servers' secret store, never in a browser or a shipped app.
 
 ## The identity file
@@ -216,7 +216,7 @@ Tokens are checked like this:
   | `401 issuer_unavailable` | A new `kid` while the JWKS cannot be fetched; cached keys keep working | `Bearer resource_metadata="…"` |
   | `403 scope_required` | The token lacks the route's scope | `Bearer error="insufficient_scope", scope="sessions:own", …` |
 
-  `nylorun logs runtime` shows why a credential was refused (`credential rejected`); the
+  `nylorun local logs runtime` shows why a credential was refused (`credential rejected`); the
   client is never told. The Management API answers a missing or unknown key with the same
   `401` codes and a bare `Bearer` challenge: it takes management keys only and is no OAuth
   resource.

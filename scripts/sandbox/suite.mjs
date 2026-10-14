@@ -260,7 +260,7 @@ try {
       });
 
       step(`nylorun sandbox enable --context ${context}`);
-      const enable = ["sandbox", "enable", "--context", context, "--no-pull"];
+      const enable = ["local", "sandbox", "enable", "--context", context, "--no-pull"];
       if (options["host-address"]) enable.push("--host-address", options["host-address"]);
       await stack.nylorun(enable, { timeout: 900_000 });
       tenant = await stack.tenant();
@@ -399,7 +399,7 @@ try {
       await observed("pods/one", "running", 420_000);
 
       step("nylorun sandbox disable → kind pod is environment_unavailable");
-      await stack.nylorun(["sandbox", "disable", "--delete-namespace"], { timeout: 600_000 });
+      await stack.nylorun(["local", "sandbox", "disable", "--delete-namespace"], { timeout: 600_000 });
       tenant = await stack.tenant();
       const unavailable = await api("PUT", environmentPath("pods/after"), { kind: "pod" }, { ok: false });
       assert.equal(unavailable.status, 409);

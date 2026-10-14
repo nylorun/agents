@@ -1,6 +1,7 @@
 /**
- * `nylorun key put | list | rm`: the running local Tenant's keys, through `nylorun-operate` in its
- * runtime container. Revocable application keys by name, for app servers and other clients, and
+ * `nylorun tenant keys put | list | rm` on a local Tenant: its keys, through `nylorun-operate` in
+ * its runtime container (`client/tenant.ts` takes a remote installation's application keys
+ * through the Management API). Revocable application keys by name, for app servers and other clients, and
  * management keys (`--management`), which only this machine issues; none of these starts the
  * Tenant.
  */
@@ -8,16 +9,18 @@ import { CliError } from "../errors.js";
 import { parseStackFlags, runningOperate, type StackDeps } from "./commands.js";
 import { deleteOperatorKey, listOperatorKeys, putOperatorKey } from "./operator-keys.js";
 
-export const keyUsage = `  key put <id> [--management] [--tenant <name>]
-                                      create the Tenant's application key <id> (--management: a management key), or
-                                      rotate it (the old key stops working); prints the key once
-  key list [--tenant <name>] [--json] the Tenant's keys: id, role, when issued (never the keys)
-  key rm <id> [--tenant <name>]      delete key <id>: it stops working at once`;
+export const keyUsage = `  keys put <id> [--management] [--tenant <name>]
+                                      create the Tenant's application key <id> (--management: a
+                                      management key, on the Runtime's machine only), or rotate it
+                                      (the old key stops working); prints the key once
+  keys list [--tenant <name>] [--json]
+                                      the Tenant's keys: id, role, when issued (never the keys)
+  keys rm <id> [--tenant <name>]      delete key <id>: it stops working at once`;
 
 const usageError = (message: string) => new CliError(message, 2);
 
 async function put(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun key put <id> [--management] [--tenant <name>]";
+  const usage = "nylorun tenant keys put <id> [--management] [--tenant <name>]";
   const flags = parseStackFlags(args, { booleans: ["--management"], values: ["--tenant"] }, usage);
   if (flags.rest.length !== 1) throw usageError(`Usage: ${usage}`);
   const id = flags.rest[0]!;
@@ -39,7 +42,7 @@ async function put(deps: StackDeps, args: readonly string[]): Promise<number> {
 }
 
 async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun key list [--tenant <name>] [--json]";
+  const usage = "nylorun tenant keys list [--tenant <name>] [--json]";
   const flags = parseStackFlags(args, { booleans: ["--json"], values: ["--tenant"] }, usage);
   if (flags.rest.length) throw usageError(`Usage: ${usage}`);
   const name = flags.values.get("--tenant");
@@ -60,7 +63,7 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
 }
 
 async function rm(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun key rm <id> [--tenant <name>]";
+  const usage = "nylorun tenant keys rm <id> [--tenant <name>]";
   const flags = parseStackFlags(args, { values: ["--tenant"] }, usage);
   if (flags.rest.length !== 1) throw usageError(`Usage: ${usage}`);
   const id = flags.rest[0]!;
@@ -74,7 +77,7 @@ async function rm(deps: StackDeps, args: readonly string[]): Promise<number> {
   return 0;
 }
 
-/** `nylorun key <put|list|rm> ...` */
+/** `nylorun tenant keys <put|list|rm> ...` on a local Tenant. */
 export async function keyCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [sub, ...rest] = args;
   if (sub === "put") return put(deps, rest);

@@ -47,7 +47,7 @@ NYLORUN_STUDIO_IMAGE=ghcr.io/nylorun/studio:0.9.0-beta
 NYLORUN_STUDIO_FRAME_ANCESTORS='https://app.example.com http://localhost:1420'
 
 # Studio's anonymous usage analytics; empty when off. Set on every start: turn
-# it off with nylorun telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.
+# it off with nylorun local telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.
 NYLORUN_STUDIO_ANALYTICS_ID=G-K6RPDFH6Q6
 
 # The Tenant's name, which the Runtime gives the Tenant it creates on the first
@@ -126,7 +126,7 @@ services:
       RUSTFS_ACCESS_KEY: nylorun
       RUSTFS_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       RUSTFS_CONSOLE_ENABLE: "false" # no web console: clients go through the Runtime
-      RUSTFS_OBS_LOG_DIRECTORY: "" # log to stdout (nylorun logs rustfs)
+      RUSTFS_OBS_LOG_DIRECTORY: "" # log to stdout (nylorun local logs rustfs)
     # The image runs as uid 10001 and owns /data, which Docker copies into the new volume.
     volumes:
       - rustfs:/data

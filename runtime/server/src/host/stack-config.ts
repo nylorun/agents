@@ -789,7 +789,7 @@ function parseSandboxes(env: EnvSnapshot): SandboxesConfig | undefined {
   const token = read(env, "NYLORUN_SANDBOXES_TOKEN");
   if (token === undefined || token.length < 32)
     throw new StackConfigError(
-      "NYLORUN_SANDBOXES_TOKEN (at least 32 characters) is required with NYLORUN_SANDBOXES_URL (`nylorun sandbox enable` sets both)",
+      "NYLORUN_SANDBOXES_TOKEN (at least 32 characters) is required with NYLORUN_SANDBOXES_URL (`nylorun local sandbox enable` sets both)",
     );
   const harnessImage = read(env, "NYLORUN_SANDBOX_HARNESS_IMAGE");
   if (harnessImage === undefined || /\s/.test(harnessImage))

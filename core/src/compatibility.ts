@@ -94,7 +94,7 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `POST /v1/a2a/agents/:agent` answers A2A 1.0 JSON-RPC for a subject, and
  * `GET /v1/a2a/agents/:agent/card` returns the agent's card without its interfaces.
  * `sandbox-pods`: Environments of kind `pod` run as agent-sandbox pods on the Tenant's cluster
- * (`nylorun sandbox enable`), with `POST /v1/environments/{id}/stop` and `/reset`, lifecycle
+ * (`nylorun local sandbox enable`), with `POST /v1/environments/{id}/stop` and `/reset`, lifecycle
  * events (`environment.running`, `.suspended`, `.relaunched`, `.lost`, `.reset`, `.failed`) and
  * the Tenant's `placement`.
  * `trusted-issuers`: the Tenant API accepts JWTs from the issuers of the Host's identity file

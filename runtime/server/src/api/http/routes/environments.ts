@@ -142,7 +142,7 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Environments"],
       summary: "Create, find or change an Environment",
       description:
-        "Creates the Environment and its vault within the Tenant's limits, or answers the one with this id, so get-or-create is one call. On an existing one the fields sent are compared: `kind` and `storage` are fixed (`409`), labels replace, `ownerUserId` sets or (with `null`) clears the owner guard, and any other change writes the recipe and bumps `version`. A pod's image and resources apply when it is next started from stopped (`appliedVersion`); `network.allowedHosts`, `harness` and `lifecycle` apply at once. Kind `pod` needs sandbox pods (`nylorun sandbox enable`) and is created at once.",
+        "Creates the Environment and its vault within the Tenant's limits, or answers the one with this id, so get-or-create is one call. On an existing one the fields sent are compared: `kind` and `storage` are fixed (`409`), labels replace, `ownerUserId` sets or (with `null`) clears the owner guard, and any other change writes the recipe and bumps `version`. A pod's image and resources apply when it is next started from stopped (`appliedVersion`); `network.allowedHosts`, `harness` and `lifecycle` apply at once. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
       request: {
         params: environmentId,
         body: { required: true, content: { "application/json": { schema: PutEnvironmentRequest } } },

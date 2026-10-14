@@ -81,7 +81,7 @@ export async function prepareStack(input: {
   /** The measurement id Studio reports page views to; absent when telemetry is off. */
   studioAnalyticsId?: string;
   /**
-   * The sandboxes settings (`nylorun sandbox enable`); null removes them (`disable`).
+   * The sandboxes settings (`nylorun local sandbox enable`); null removes them (`disable`).
    * Undefined keeps the persisted ones while `sandboxes/cluster.json` exists.
    */
   sandboxes?: SandboxStackEnv | null;

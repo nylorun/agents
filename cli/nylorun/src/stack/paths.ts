@@ -12,7 +12,7 @@ export interface StackPaths {
   state: string;
   /**
    * cli-credentials.json: the operator key `cli` that `nylorun` commands use outside a linked
-   * project (`nylorun sandbox`), mode 0600.
+   * project (`nylorun local sandbox`), mode 0600.
    */
   cliCredentials: string;
   /**

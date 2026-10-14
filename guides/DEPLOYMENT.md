@@ -10,7 +10,6 @@ tools (HTTP tools and remote MCP servers) on the same machine or reachable from 
 ```sh
 npx nylorun start
 npm run build
-eval "$(npx -p nylorun nylo env)"
 npm start
 ```
 
@@ -22,9 +21,10 @@ using two variables: `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY`, or through
 the Project link. The Runtime runs no code of the application's during a session:
 an agent's tools are HTTP tools and remote MCP servers, whose URLs must be
 reachable from the Runtime (the local Tenant's containers map `localhost` to
-this machine). `nylo env`
-(`npx -p nylorun nylo env`) prints them for the Project that `nylorun start`
-linked; a supervisor can set them directly instead. The application does not
+this machine). In the project the SDK reads the Project link that `nylorun
+start` wrote; a supervisor that starts the app elsewhere sets the two variables
+instead, with a key of the app's own (`nylorun tenant keys put <id>`) and the
+Runtime URL that `nylorun status` prints. The application does not
 start the Tenant, Studio or a file watcher; start the Tenant first
 (`nylorun start`), under the same supervisor if you use one.
 
@@ -39,8 +39,8 @@ Docker volumes: Postgres (its database, schemas `nylorun` and
 the workspaces. Keep
 each Project's `.nylorun/link.json` and `credentials.json` private as well;
 model credentials live in the Tenant's vault. `nylorun stop` stops the
-containers and keeps the volumes; `nylorun reset` deletes the volumes, the
-Tenant directory and the vault key, so the next start creates a new Tenant; `nylorun delete
+containers and keeps the volumes; `nylorun local reset` deletes the volumes, the
+Tenant directory and the vault key, so the next start creates a new Tenant; `nylorun local delete
 <tenant>` removes its containers, volumes and Host root altogether.
 
 Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
@@ -85,7 +85,7 @@ Runtime API, and names one when it opens a session (`environment`)
   forwards `Origin` (the Runtime refuses keys from browsers), and
   terminates TLS for its clients.
 - The application key stays on the server; clients get nothing. Give each
-  server its own application key (`npx nylorun key put <name>`, or
+  server its own application key (`npx nylorun tenant keys put <name>`, or
   `admin.keys.put(name)` in `@nylorun/admin` with a management key), so you can
   rotate or delete one without touching the others; the Runtime keeps only its
   hash. An app server needs no management key and never the admin key: an
@@ -268,9 +268,8 @@ On the app server's machine:
 
 - Use an **application key**, never the admin key or a management key. On the
   Runtime's machine, `npx nylorun start` in the app's project starts the app's
-  installation and links it; `npx -p nylorun nylo env` there prints the key
-  (`NYLORUN_SERVER_KEY`, the application key `project`). Better, give the app
-  server a key of its own: `npx nylorun key put app-server` prints one once.
+  installation and links it. Give the app server a key of its own:
+  `npx nylorun tenant keys put app-server` there prints one once.
   Keep the key in the app server's secret store.
 - Set `NYLORUN_RUNTIME_URL` to the proxy's URL (`https://runtime.example.com`)
   for the client; keep `NYLORUN_SERVER_KEY` as printed. The services the
@@ -311,7 +310,7 @@ resources and vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandbox
   with `NYLORUN_HARNESS=in-process`), whose `/workspace` is kept under the
   Tenant's directory and which is not a VM or container boundary; `pod`, a
   container with its own volume on the Tenant's cluster, once sandbox pods are
-  enabled (`nylorun sandbox enable`), where its sessions' turns run; or `none`,
+  enabled (`nylorun local sandbox enable`), where its sessions' turns run; or `none`,
   a vault and no compute, for agents that use only remote MCP servers and HTTP
   tools.
 - **Recipe**: `image`, `resources` and `storage` (pods only; `storage` is fixed),
@@ -375,8 +374,8 @@ resources and vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandbox
 
 `GET /v1/environments?label=k=v` lists them, `POST .../stop` and `.../reset`
 stop a pod or give it a new, empty volume, and `DELETE` removes the Environment
-with its vault and files. `npx nylorun sandbox ls | rm` does the same on a local
-Tenant, and `npx -p nylorun nylo doctor sandbox` reports the sandbox backend in
+with its vault and files. `npx nylorun local sandbox ls | rm` does the same on a local
+Tenant, and `npx nylorun doctor sandbox` reports the sandbox backend in
 use. Each Environment's lifecycle events (`environment.created`, `.attached`,
 `.deleted`, a pod's `.running`, `.suspended`, `.lost`, …) are at
 `GET /v1/environments/{id}/events`; a session's own log records
@@ -473,7 +472,7 @@ volume up with the Postgres volume.
   `us-east-1`).
 - A Runtime without `NYLORUN_OBJECT_STORE_ENDPOINT` (an embedded or ephemeral
   Runtime, tests) keeps the bytes on disk, under the Tenant directory's `blobs/`.
-- `nylorun logs rustfs` shows its log. RustFS uses about 75 MB of memory when idle.
+- `nylorun local logs rustfs` shows its log. RustFS uses about 75 MB of memory when idle.
 
 ## The gateway: model and tool calls
 
@@ -508,7 +507,7 @@ a model credential.
   `host.docker.internal`.
 - While it is down, model calls fail with a retryable `transient` outcome and
   the session takes the next message; reads, commands and Studio keep working.
-  `nylorun doctor` and `nylorun status` report it, and `nylorun logs gateway`
+  `nylorun doctor` and `nylorun status` report it, and `nylorun local logs gateway`
   shows one `model_call` line per call (never the prompt, the output or a key).
 - A model call outlives the runtime that sent it: if the runtime is killed or
   restarted mid-call, the gateway finishes the call and keeps its outcome for
@@ -535,7 +534,7 @@ the runtime container never holds an MCP credential or calls a tool's server:
 
 - **Remote MCP servers** (`streamable-http` and `sse`): the gateway opens the
   connection, authorizes it from the vault of the session's Environment and runs
-  `tools/list` and `tools/call`. `nylorun logs gateway`
+  `tools/list` and `tools/call`. `nylorun local logs gateway`
   shows one `mcp_request` line per request, never arguments, results or
   credentials. Nylorun accepts remote MCP servers only: there are no stdio
   servers to run.
@@ -968,7 +967,7 @@ The runtime container runs no turn, no MCP server and no workspace command.
 - It mounts only the Tenant directory's `sandboxes/` (the workspaces) under
   `/harness`. It publishes no port and is healthy once it is
   connected (`nylorun status` shows `Harness  running, healthy, remote, 1
-  connected`; `nylorun logs harness` shows its log).
+  connected`; `nylorun local logs harness` shows its log).
 - If the harness container is killed mid model call, the gateway keeps the call
   and the restarted harness picks up its answer. A workspace command in flight is
   lost with the container: it fails to the model as `tool.interrupted`, and

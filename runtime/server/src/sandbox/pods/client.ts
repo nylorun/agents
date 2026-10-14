@@ -55,7 +55,7 @@ export interface PodStatus {
   readonly met?: boolean;
 }
 
-/** `GET /v1/info`: the cluster `nylorun sandbox enable` recorded. */
+/** `GET /v1/info`: the cluster `nylorun local sandbox enable` recorded. */
 export interface ClusterInfo {
   readonly namespace: string;
   readonly context: string;

@@ -27,7 +27,7 @@ for (const path of [
   "dist/cli.js",
   "dist/nylo.js",
   "dist/stack/index.js",
-  "dist/client/cli.js",
+  "dist/client/tenant.js",
   "dist/client/model/configure.js",
   "README.md",
   "LICENSE",

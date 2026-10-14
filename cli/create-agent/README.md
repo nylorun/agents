@@ -42,12 +42,11 @@ Tenant (Runtime, Studio and their infrastructure in Docker, named after the
 directory; `--tenant` picks or shares another). It writes the Project link and the derived application credentials to
 gitignored `.nylorun/`, and seeds the model provider from `.env`
 (`MODEL_PROVIDER`, `MODEL`, `MODEL_PROVIDER_API_KEY`) into the Tenant vault.
-`nylo`, the Runtime client in the same `nylorun` package, works on the linked
-Tenant: `nylo status` and `nylo reset`. Studio or
-`npx -p nylorun nylo configure` sets or replaces the provider.
+`nylorun status` and `nylorun tenant reset` work on the linked Tenant. Studio or
+`npx nylorun tenant models set` sets or replaces the provider.
 `npm start` runs `node dist/src/main.js` with the same entry as development.
-Export the Project environment (`eval "$(npx -p nylorun nylo env)"`) before a
-production start when there is no Project link. Tenant data, including the
+Without a Project link, set `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY`
+before a production start. Tenant data, including the
 vault, lives in the Tenant's Docker volumes. Definitions have no model provider or
 `agent.run()`.
 
@@ -63,7 +62,7 @@ remain outside that registry for later migration.
 
 `npm run test:starter` (`cli/create-agent/scripts/smoke-starter.mjs`) packs the
 workspace, scaffolds the starter from the packed creator, installs `nylorun`
-(and the deprecated `@nylorun/cli`, which it checks runs nylorun's `nylo`)
+(and the deprecated `@nylorun/cli`, which it checks names the nylorun command that replaced `nylo`)
 beside it (never into it), runs `nylorun start` in it and
 `npm run dev` against a temporary local Tenant, then resets that Tenant,
 seeds the fixture model and runs one turn with the starter's assistant.

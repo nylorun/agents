@@ -2,7 +2,7 @@ import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { runStackCommand } from "../../src/stack/commands.js";
-import { mcpCommand } from "../../src/stack/mcp.js";
+import { mcpCommand } from "../../src/client/mcp.js";
 import { stackPaths } from "../../src/stack/paths.js";
 import {
   bearerIn,
@@ -14,7 +14,7 @@ import {
   temporaryHome,
   testDeps,
   type FakeKeys,
-} from "./support.js";
+} from "../stack/support.js";
 
 const hostId = (home: string) =>
   (JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { hostId: string }).hostId;
@@ -82,7 +82,7 @@ async function running(answer: (body: Record<string, unknown>) => Response) {
   return { deps, fetch, keys };
 }
 
-describe("nylorun mcp inspect", () => {
+describe("nylorun tenant mcp inspect", () => {
   it("previews a server with the management key and prints its tools and renames", async () => {
     const { deps, fetch, keys } = await running(() => json(PREVIEW));
     expect(await mcpCommand(deps, ["inspect", LINEAR, "--environment", "users/alice/web"])).toBe(0);
@@ -169,7 +169,7 @@ describe("nylorun mcp inspect", () => {
     const { deps } = await running(() => json(PREVIEW));
     await expect(mcpCommand(deps, ["connect", LINEAR])).rejects.toMatchObject({
       exitCode: 2,
-      message: expect.stringMatching(/removed with MCP OAuth \(protocol 10\).*nylorun mcp inspect/),
+      message: expect.stringMatching(/removed with MCP OAuth \(protocol 10\).*nylorun tenant mcp inspect/),
     });
     await expect(mcpCommand(deps, [])).rejects.toMatchObject({ exitCode: 2 });
     await expect(mcpCommand(deps, ["inspect"])).rejects.toMatchObject({ exitCode: 2 });

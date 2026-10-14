@@ -143,7 +143,7 @@ ask, until it ends.
    (format 0 to 2), a link without credentials, or a file that does not
    validate fails with `connection_missing`: run `npx nylorun start` in the
    project again. The Project files are read by `@nylorun/core/project`, as
-   `@nylorun/admin`, `nylorun` and `nylo` read them.
+   `@nylorun/admin` and `nylorun` read them.
 
 Sources never mix. Partial environment fails with `connection_missing`. A
 Runtime serves one Tenant, so nothing names it: the `tenant` option is gone
@@ -176,11 +176,6 @@ const session = await client.createSession({
 });
 await session.input("Look up item 123", { idempotencyKey: requestId });
 const history = await session.history();
-```
-
-```sh
-eval "$(npx -p nylorun nylo env)"
-# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
 Every request sets `Nylorun-Protocol` (11) and no `Nylorun-Tenant`: the Runtime
@@ -249,13 +244,13 @@ const { session: scratch, release } = await client.environments.forSession({
 await release();
 ```
 
-With a sandbox (kind `virtual` or `pod`), the model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process. A `virtual` Environment is an emulated shell in the Runtime's harness, which is not a VM boundary and takes no `image`; a `pod` runs `image` with its own volume (`storage`) once the Tenant has sandbox pods (`nylorun sandbox enable`). Kind `none` has a vault and no sandbox, for agents that use only remote MCP servers and HTTP tools. A session that names no Environment has no sandbox and no credentials.
+With a sandbox (kind `virtual` or `pod`), the model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process. A `virtual` Environment is an emulated shell in the Runtime's harness, which is not a VM boundary and takes no `image`; a `pod` runs `image` with its own volume (`storage`) once the Tenant has sandbox pods (`nylorun local sandbox enable`). Kind `none` has a vault and no sandbox, for agents that use only remote MCP servers and HTTP tools. A session that names no Environment has no sandbox and no credentials.
 
 `kind` and `storage` are fixed once the Environment exists (a different one is a `409`); `labels` replace, and any other change bumps its `version`: network changes apply within seconds, a pod gets a new `image` or `resources` when it next starts from stopped, and a virtual one's change reaches the sessions opened after it. The Runtime checks a recipe against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. `lifecycle.idle` stops a pod after that long without a turn (at most the Tenant's); `lifecycle.deleteAfter` deletes the Environment, its vault and its files once nothing has used it that long. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
 
 Secrets are write-only: `client.environments.secrets.put(id, name, secret)` creates or replaces one, and `list`, `get` and `delete` never return a value. An `environment_secret` (`{ value, allowedHosts, inject? }`) shows its name to commands as the sentinel `nylorun-managed`, and egress-gate sets its header on HTTPS requests to `allowedHosts` (pods only); an `environment_variable` (`{ value }`) is a plain variable; `bearer` (`{ url, value, via?, identity? }`) and `headers` (`{ url, headers, via?, identity? }`) are credentials for the MCP servers and HTTP tools at `url`. A second secret for one host, or a second credential for one URL, is `409 credential_conflict` at the write ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#credentials)).
 
-Sessions on one Environment share its `/workspace`, and one turn runs in it at a time: a second session's turn is refused with `409 environment_busy` until the first ends. Deleting a session only detaches it. With `ownerUserId` set, a session of another owner is `403 environment_owner_mismatch` (a caller acting for a person gets the `404` of a missing Environment), checked when it opens and at every turn start. `client.environments.list({ labels })`, `page`, `get(id)`, `events(id)`, `stop(id)`, `reset(id)` and `delete(id)` manage them, and `npx nylorun sandbox ls | rm` does the same on a local Tenant. Acting for a person (`app.as(...)`), changing an Environment or its secrets needs `environments:write`. A trusted issuer's token reaches only the Environments its issuer grants (the identity file's `environments` templates, exact ids or prefixes ending in `/*`), checked at every turn start. The Tenant holds at most `limits.environments` of them (`PUT /v1/tenant/sandbox`, default 100).
+Sessions on one Environment share its `/workspace`, and one turn runs in it at a time: a second session's turn is refused with `409 environment_busy` until the first ends. Deleting a session only detaches it. With `ownerUserId` set, a session of another owner is `403 environment_owner_mismatch` (a caller acting for a person gets the `404` of a missing Environment), checked when it opens and at every turn start. `client.environments.list({ labels })`, `page`, `get(id)`, `events(id)`, `stop(id)`, `reset(id)` and `delete(id)` manage them, and `npx nylorun local sandbox ls | rm` does the same on a local Tenant. Acting for a person (`app.as(...)`), changing an Environment or its secrets needs `environments:write`. A trusted issuer's token reaches only the Environments its issuer grants (the identity file's `environments` templates, exact ids or prefixes ending in `/*`), checked at every turn start. The Tenant holds at most `limits.environments` of them (`PUT /v1/tenant/sandbox`, default 100).
 
 A pod's disk can start prepared: `files` copies versions of Tenant-wide artifacts in, then `setup` runs its commands, once per new disk and before its first turn (a failed command fails the pod, and the next turn start runs the setup again). Between turns, `client.environments.snapshot(id)` keeps a version of the disk, `restore(id, version)` puts one back (a pod on a new volume seeded before its next turn), `put(newId, { from: { environment: id, version: "latest" } })` starts a new Environment from it, and `versions(id)` and `deleteVersion(id, n)` manage them ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#environments)):
 
@@ -707,7 +702,7 @@ The Tenant's signing keys sign capability links and run tokens.
 needed). Listing, rotating
 and revoking them is management: `admin.signingKeys.list()`, `.rotate()`
 (`{ force: true }` for incidents) and `.revoke(kid)` in `@nylorun/admin`, or
-`nylo access signing-keys …` from the terminal.
+`nylorun tenant signing-keys …` from the terminal.
 
 ## In the browser
 

@@ -865,7 +865,7 @@ export async function checkEnvironmentTurn(
   const pod = environment.pod;
   if (!pod) return;
   if (!ctx?.pods)
-    fail(409, `Environment ${id} is a pod Environment, and this Runtime has no sandbox pods: run \`nylorun sandbox enable --context <name>\`.`, {
+    fail(409, `Environment ${id} is a pod Environment, and this Runtime has no sandbox pods: run \`nylorun local sandbox enable --context <name>\`.`, {
       code: "environment_unavailable",
     });
   if (pod.observed === "lost")

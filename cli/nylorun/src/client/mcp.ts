@@ -1,8 +1,7 @@
 /**
- * `nylorun mcp inspect <url>`: a remote MCP server's tools before an agent names it (R2b C12),
- * through the running local Tenant's Management API (`POST /v1/tenant/mcp/preview`) with the
- * Project link's management key, else the Host root's (`runningTenantApi`). It never starts the
- * Tenant, and the Runtime never calls a tool. `--environment <id>` sends that Environment's
+ * `nylorun tenant mcp inspect <url>`: a remote MCP server's tools before an agent names it (R2b
+ * C12), through the Management API (`POST /v1/tenant/mcp/preview`) of the installation
+ * `target.ts` picks. It never starts a local Tenant, and the Runtime never calls a tool. `--environment <id>` sends that Environment's
  * credential for the URL (protocol 11; it replaced `--vault`); an Environment's secrets are
  * written on the Runtime API (`client.environments.secrets.put` of `@nylorun/agents`). Its
  * `connect` subcommand (MCP OAuth) was removed in protocol 10, and says so.
@@ -10,7 +9,8 @@
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import type { McpPreview, McpPreviewTool } from "@nylorun/core/contracts";
 import { CliError } from "../errors.js";
-import { parseStackFlags, runningTenantApi, type StackDeps } from "./commands.js";
+import { parseStackFlags, type StackDeps } from "../stack/commands.js";
+import { connect } from "./target.js";
 
 export const mcpUsage = `  mcp inspect <url> [--server <name>] [--environment <id>] [--sse] [--tenant <name>] [--json]
                                       list a remote MCP server's tools, with Environment <id>'s
@@ -19,7 +19,7 @@ export const mcpUsage = `  mcp inspect <url> [--server <name>] [--environment <i
                                       Runtime calls no tool)`;
 
 const INSPECT_USAGE =
-  "nylorun mcp inspect <url> [--server <name>] [--environment <id>] [--sse] [--tenant <name>] [--json]";
+  "nylorun tenant mcp inspect <url> [--server <name>] [--environment <id>] [--sse] [--tenant <name>] [--json]";
 
 /** Where a credential for an MCP server goes since protocol 11. */
 const SECRET_HINT =
@@ -31,7 +31,7 @@ export const MCP_VAULT_REMOVED =
 
 /** What the removed `connect` subcommand says since protocol 10. */
 export const MCP_CONNECT_REMOVED =
-  `The connect subcommand of nylorun mcp was removed with MCP OAuth (protocol 10): ${SECRET_HINT.replace("write it", "write the server's key")}, or reach a server that needs a person's sign-in through a gateway (a secret with via). See its tools with nylorun mcp inspect <url> --environment <id>.`;
+  `The connect subcommand of nylorun mcp was removed with MCP OAuth (protocol 10): ${SECRET_HINT.replace("write it", "write the server's key")}, or reach a server that needs a person's sign-in through a gateway (a secret with via). See its tools with nylorun tenant mcp inspect <url> --environment <id>.`;
 
 /** The preview takes up to 15 s in the Runtime; the hop gets a margin. */
 const PREVIEW_TIMEOUT_MS = 30_000;
@@ -52,8 +52,10 @@ async function inspect(deps: StackDeps, args: readonly string[]): Promise<number
   const name = flags.values.get("--server");
   const environmentId = flags.values.get("--environment");
   const tenant = flags.values.get("--tenant");
-  const api = await runningTenantApi(deps, tenant === undefined ? {} : { name: tenant });
-  const response = await deps.fetch(`${api.runtimeUrl}/v1/tenant/mcp/preview`, {
+  const api = await connect(deps, "management", tenant);
+  if (!api.managementKey)
+    throw new CliError(`No management key for ${api.label}: set NYLORUN_MANAGEMENT_KEY.`, 1);
+  const response = await deps.fetch(`${api.url}/v1/tenant/mcp/preview`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${api.managementKey}`,
@@ -73,7 +75,7 @@ async function inspect(deps: StackDeps, args: readonly string[]): Promise<number
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (response.status === 404 && body.code === "not_found")
     throw new CliError(
-      `Tenant ${api.name} runs a Runtime without MCP previews. Update it: npx nylorun@latest start.`,
+      `${api.label} runs a Runtime without MCP previews. Update it.`,
       1,
     );
   if (!response.ok) {
@@ -172,7 +174,7 @@ function oneLine(text: string): string {
   return flat.length > DESCRIPTION_CHARS ? `${flat.slice(0, DESCRIPTION_CHARS - 1)}…` : flat;
 }
 
-/** `nylorun mcp <inspect|connect> ...` */
+/** `nylorun tenant mcp <inspect|connect> ...` */
 export async function mcpCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [sub, ...rest] = args;
   if (sub === "inspect") return inspect(deps, rest);

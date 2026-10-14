@@ -102,7 +102,7 @@ export async function doctorStack(options: {
           ? `- ${local.name} stopped (Compose project ${local.project}): run nylorun up`
           : local.runtime.healthy
             ? `✓ ${local.name} running (Compose project ${local.project})`
-            : `✗ ${local.name} running, but the Runtime does not answer: see nylorun status and nylorun logs runtime`,
+            : `✗ ${local.name} running, but the Runtime does not answer: see nylorun status and nylorun local logs runtime`,
     ]);
     if (local.state === "running") {
       rows.push([
@@ -115,7 +115,7 @@ export async function doctorStack(options: {
         "gateway",
         local.gateway.healthy
           ? `✓ ${local.gateway.state} · combined packing (runtime: core,loop; gateway: gates)`
-          : `✗ ${local.gateway.state}: model calls fail; see nylorun logs gateway`,
+          : `✗ ${local.gateway.state}: model calls fail; see nylorun local logs gateway`,
       ]);
       rows.push([
         "harness",
@@ -123,7 +123,7 @@ export async function doctorStack(options: {
           ? "- in-process (NYLORUN_HARNESS=in-process in .env)"
           : local.harness.healthy
             ? `✓ ${local.harness.state} · remote (agent turns, MCP servers, workspaces)`
-            : `✗ ${local.harness.state}: turns do not run; see nylorun logs harness`,
+            : `✗ ${local.harness.state}: turns do not run; see nylorun local logs harness`,
       ]);
       if (local.tenant)
         rows.push([

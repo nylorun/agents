@@ -23,24 +23,24 @@ describe("telemetry", () => {
       expect(telemetryDecision(env, { format: 1 }).enabled).toBe(true);
     expect(telemetryDecision({}, { format: 1, enabled: false })).toEqual({
       enabled: false,
-      reason: 'turned off with "nylorun telemetry disable"',
+      reason: 'turned off with "nylorun local telemetry disable"',
     });
   });
 
-  it("nylorun telemetry disable|enable|status keeps the choice in telemetry.json", async () => {
+  it("nylorun local telemetry disable|enable|status keeps the choice in telemetry.json", async () => {
     const root = await mkdtemp(join(tmpdir(), "nylorun-telemetry-"));
     const lines: string[] = [];
     const run = (...args: string[]) =>
       telemetryCommand(args, { nylorunRoot: root, env: {}, out: (line) => lines.push(line) });
     await run("disable");
     expect(await readTelemetry(root)).toEqual({ format: 1, enabled: false });
-    expect(lines.at(-1)).toBe('Studio telemetry is off (turned off with "nylorun telemetry disable").');
+    expect(lines.at(-1)).toBe('Studio telemetry is off (turned off with "nylorun local telemetry disable").');
     await run("enable");
     expect(JSON.parse(await readFile(telemetryPath(root), "utf8"))).toEqual({ format: 1, enabled: true });
     lines.length = 0;
     await run();
     expect(lines[0]).toBe("Studio telemetry is on (on by default).");
-    await expect(run("off")).rejects.toThrow(/Usage: nylorun telemetry/);
+    await expect(run("off")).rejects.toThrow(/Usage: nylorun local telemetry/);
   });
 
   it("an unreadable telemetry.json counts as no choice", async () => {

@@ -3,7 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { runStackCommand } from "../../src/stack/commands.js";
 import { stackPaths } from "../../src/stack/paths.js";
-import { sandboxCommand } from "../../src/stack/sandbox.js";
+import { environmentsCommand } from "../../src/client/environments.js";
 import {
   bearerIn,
   fakeDocker,
@@ -14,7 +14,7 @@ import {
   testDeps,
   readyResponse,
   type FakeKeys,
-} from "./support.js";
+} from "../stack/support.js";
 
 const hostId = (home: string) =>
   (JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { hostId: string }).hostId;
@@ -84,10 +84,10 @@ async function running(options: { up?: boolean } = {}) {
   return { home, deps, fetch, docker, keys };
 }
 
-describe("nylorun sandbox", () => {
+describe("nylorun environments", () => {
   it("ls lists the Tenant's Environments with the application key cli, put once and kept in the Host root", async () => {
     const { home, deps, fetch, docker, keys } = await running();
-    expect(await sandboxCommand(deps, ["ls", "--label", "project=acme"])).toBe(0);
+    expect(await environmentsCommand(deps, ["list", "--label", "project=acme"])).toBe(0);
     expect(deps.lines).toEqual([
       "ID              KIND     STATE    SESSIONS  LABELS",
       "team-a/proj-42  virtual  running  1         project=acme",
@@ -108,37 +108,37 @@ describe("nylorun sandbox", () => {
     });
     expect(statSync(file).mode & 0o777).toBe(0o600);
     // A later command reuses the kept keys: no second put.
-    expect(await sandboxCommand(deps, ["ls"])).toBe(0);
+    expect(await environmentsCommand(deps, ["list"])).toBe(0);
     expect(docker.calls.filter((args) => args.includes("keys"))).toHaveLength(2);
   });
 
   it("ls --json prints the Environments", async () => {
     const { deps } = await running();
-    expect(await sandboxCommand(deps, ["ls", "--json"])).toBe(0);
+    expect(await environmentsCommand(deps, ["list", "--json"])).toBe(0);
     expect(JSON.parse(deps.lines.join("\n"))).toEqual(ENVIRONMENTS);
   });
 
   it("rm deletes an Environment by an id with slashes, and says when there is none", async () => {
     const { deps, fetch } = await running();
-    expect(await sandboxCommand(deps, ["rm", "team-a/proj-42"])).toBe(0);
+    expect(await environmentsCommand(deps, ["delete", "team-a/proj-42"])).toBe(0);
     expect(deps.lines).toEqual(["Deleted Environment team-a/proj-42: its sandbox, files and vault."]);
     const request = fetch.requests.find((item) => item.init?.method === "DELETE")!;
     expect(new URL(request.url).pathname).toBe("/v1/environments/team-a%2Fproj-42");
-    expect(await sandboxCommand(deps, ["rm", "ghost"])).toBe(1);
+    expect(await environmentsCommand(deps, ["delete", "ghost"])).toBe(1);
     expect(deps.errors).toEqual(["No Environment ghost on Tenant home-root."]);
   });
 
   it("never starts a stopped Tenant", async () => {
     const { deps, docker } = await running({ up: false });
-    await expect(sandboxCommand(deps, ["ls"])).rejects.toMatchObject({ exitCode: 3 });
+    await expect(environmentsCommand(deps, ["list"])).rejects.toMatchObject({ exitCode: 3 });
     expect(docker.streamed).toEqual([]);
   });
 
   it("checks its arguments", async () => {
     const { deps } = await running();
-    await expect(sandboxCommand(deps, [])).rejects.toMatchObject({ exitCode: 2 });
-    await expect(sandboxCommand(deps, ["rm"])).rejects.toMatchObject({ exitCode: 2 });
-    await expect(sandboxCommand(deps, ["ls", "--label", "nokey"])).rejects.toMatchObject({
+    await expect(environmentsCommand(deps, [])).rejects.toMatchObject({ exitCode: 2 });
+    await expect(environmentsCommand(deps, ["delete"])).rejects.toMatchObject({ exitCode: 2 });
+    await expect(environmentsCommand(deps, ["list", "--label", "nokey"])).rejects.toMatchObject({
       exitCode: 2,
     });
   });

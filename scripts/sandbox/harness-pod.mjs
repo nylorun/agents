@@ -50,7 +50,7 @@ await withStack({ name: "nylorun-harness-pod", images, startArgs: ["--no-studio"
     });
 
   step(`nylorun sandbox enable --context ${options.context}`);
-  const enable = ["sandbox", "enable", "--context", options.context, "--no-pull"];
+  const enable = ["local", "sandbox", "enable", "--context", options.context, "--no-pull"];
   if (options["host-address"]) enable.push("--host-address", options["host-address"]);
   await stack.nylorun(enable, { timeout: 900_000 });
   tenant = await stack.tenant();

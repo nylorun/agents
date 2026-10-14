@@ -623,7 +623,7 @@ describe("stop, logs, status", () => {
     const { deps } = await started();
     await runStackCommand("status", [], deps);
     expect(deps.lines).toContain(
-      'Harness     running, healthy, remote, 1 connected (agent turns, MCP servers and workspaces; "nylorun logs harness")',
+      'Harness     running, healthy, remote, 1 connected (agent turns, MCP servers and workspaces; "nylorun local logs harness")',
     );
     expect(deps.lines).toContain("Restate UI  not published (nylorun start --restate-ui)");
   });
@@ -838,7 +838,7 @@ describe("parseComposePs", () => {
 describe("doctor with a running Tenant", () => {
   it.each([
     ["healthy", 0, /gateway\s+✓ running, healthy · combined packing/],
-    ["unhealthy", 1, /gateway\s+✗ running, unhealthy: model calls fail; see nylorun logs gateway/],
+    ["unhealthy", 1, /gateway\s+✗ running, unhealthy: model calls fail; see nylorun local logs gateway/],
   ] as const)("reports a %s gateway (exit %i)", async (health, code, line) => {
     const home = await temporaryHome();
     const docker = fakeDocker({

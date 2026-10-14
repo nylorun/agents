@@ -15,7 +15,7 @@
 // start` in its directory (the same Tenant through NYLORUN_TENANT), runs
 // `nylorun down` and `nylorun up` (the Compose files and the Tenant's data are kept),
 // checks that every file in the Host root belongs to this user (the bind
-// mount's UID/GID), and always ends with `nylorun reset --yes`. The harness
+// mount's UID/GID), and always ends with `nylorun local reset --yes`. The harness
 // (F6.2): it runs bash for an agent on a stub model, while the runtime container
 // runs no child process. (Remote MCP through the gateway: scripts/smoke-failure.mjs.)
 import assert from "node:assert/strict";
@@ -268,7 +268,7 @@ console.log(JSON.stringify(found));
     const stackEnv = await readFile(join(home, "docker", ".env"), "utf8");
     const identityKey = /^NYLORUN_RESTATE_IDENTITY_KEY=(publickeyv1_\w+)$/m.exec(stackEnv)?.[1];
     assert.ok(identityKey, ".env holds the Restate identity key");
-    const logs = await stack.nylorun(["logs", "restate", "--tail", "100000"], { echo: false });
+    const logs = await stack.nylorun(["local", "logs", "restate", "--tail", "100000"], { echo: false });
     assert.ok(logs.stdout.includes(`kid: "${identityKey}"`), "Restate logs the same key id");
 
     // The Runtime created the installation's one Tenant on its first start: /ready says it is
@@ -279,7 +279,7 @@ console.log(JSON.stringify(found));
     assert.equal(operated.tenant.id, status.tenant.id, "nylorun status reports nylorun-operate's Tenant");
     const tenant = await hostTenant(stack);
     assert.equal(tenant.id, operated.tenant.id);
-    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "an application key put with nylorun key put reaches the Runtime API");
+    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "an application key put with nylorun tenant keys put reaches the Runtime API");
     assert.ok(!existsSync(join(home, ".nylorun")), "start outside a project writes no Project link");
 
     const studio = await studioSession(await stack.studioLogin());
@@ -380,7 +380,7 @@ console.log(JSON.stringify(found));
       "the Runtime wrote the Tenant into the Host root",
     );
 
-    await stack.nylorun(["reset", "--yes"]);
+    await stack.nylorun(["local", "reset", "--yes"]);
     assert.ok(
       !existsSync(join(home, "tenant")) || (await readdir(join(home, "tenant"))).length === 0,
       "reset deletes the Tenant's files",

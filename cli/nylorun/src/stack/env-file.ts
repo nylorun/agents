@@ -59,12 +59,12 @@ export interface StackEnv {
   studioAnalyticsId: string;
   /** The Tenant's name, which the Runtime gives the Tenant it creates. */
   tenantName: string;
-  /** Present once `nylorun sandbox enable` ran for the Tenant (F7.2). */
+  /** Present once `nylorun local sandbox enable` ran for the Tenant (F7.2). */
   sandboxes?: SandboxStackEnv;
 }
 
 /**
- * The sandboxes service's settings (`nylorun sandbox enable`): its bearer token (only the
+ * The sandboxes service's settings (`nylorun local sandbox enable`): its bearer token (only the
  * runtime presents it), its image, and the host ports pods reach (Harness API, gates,
  * egress) on the host address, published on the bind address. The ports persist.
  */
@@ -187,7 +187,7 @@ export function renderEnvFile(env: StackEnv): string {
     line("studioFrameAncestors"),
     "",
     "# Studio's anonymous usage analytics; empty when off. Set on every start: turn",
-    "# it off with nylorun telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.",
+    "# it off with nylorun local telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.",
     line("studioAnalyticsId"),
     "",
     "# The Tenant's name, which the Runtime gives the Tenant it creates on the first",
@@ -196,7 +196,7 @@ export function renderEnvFile(env: StackEnv): string {
     "",
     ...(sandboxes
       ? [
-          "# Sandboxes (nylorun sandbox enable): the runtime's token for the sandboxes",
+          "# Sandboxes (nylorun local sandbox enable): the runtime's token for the sandboxes",
           "# service, its image, and the host ports pods reach on the host address.",
           sandboxLine("token"),
           sandboxLine("image"),

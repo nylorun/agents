@@ -13,7 +13,7 @@ HTTP client, Node host or SDK dependencies.
   Nylorun home, a local Tenant's Host root, the Project root, and the Project
   link and credentials, validated with `ProjectLinkFileSchema` and
   `ProjectCredentialsFileSchema`. Every reader of the link uses it (the SDK,
-  `@nylorun/admin`, `nylorun` and `nylo`): the Project is the nearest directory
+  `@nylorun/admin` and `nylorun`): the Project is the nearest directory
   with `.nylorun/`, from the working directory upwards, never the home
   directory or above it; a broken file throws `ProjectFileError`.
 - Root: shared contracts and types; no authoring or execution entry points.

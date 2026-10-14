@@ -14,7 +14,7 @@
  *   here), and links the project to it;
  *   the project's `npm run dev` saves its agent.
  * - Checks: the Tenant runs exactly the pinned images; `nylorun status` reports
- *   the linked Tenant open, and `nylo status` (also through `@nylorun/cli`)
+ *   the linked Tenant open, and `nylorun status` (also through `@nylorun/cli`)
  *   reads it; `assistant` is saved; the login from
  *   `nylorun studio` lands on the Tenant and Studio proxies its API.
  *
@@ -102,7 +102,6 @@ export async function publicCreatorSmoke(versions, pins) {
   const project = join(temporary, "application");
   const tools = join(temporary, "tools");
   const nylorun = join(tools, "node_modules/nylorun/dist/cli.js");
-  const nylo = join(tools, "node_modules/nylorun/dist/nylo.js");
   const deprecatedNylo = join(tools, "node_modules/@nylorun/cli/dist/cli.js");
   const npmrc = join(temporary, ".npmrc");
   try {
@@ -112,7 +111,7 @@ export async function publicCreatorSmoke(versions, pins) {
       NPM_CONFIG_CACHE: join(temporary, "npm-cache"),
     });
     await withStack(
-      { name: "nylorun-release-smoke", cli: nylorun, nylo, baseEnv, start: false },
+      { name: "nylorun-release-smoke", cli: nylorun, baseEnv, start: false },
       async (stack) => {
         const lines = [];
         const group = new ProcessGroup({
@@ -178,9 +177,16 @@ export async function publicCreatorSmoke(versions, pins) {
           assert.equal(link.hostUrl, runtimeUrl);
           const { tenantId } = link;
           const key = credentials.applicationKey;
-          // The published nylo works on the link, and so does the deprecated package's.
-          await stack.nylo(["status"], { cwd: project });
-          await stack.nylo(["status"], { cwd: project, entry: deprecatedNylo });
+          // The published nylorun reaches the Management API through the link; the deprecated
+          // package's nylo names the nylorun command that replaced it (exit 2).
+          await stack.nylorun(["tenant", "signing-keys", "list"], { cwd: project, echo: false });
+          const deprecated = await stack.nylorun(["status"], {
+            cwd: project,
+            entry: deprecatedNylo,
+            check: false,
+          });
+          assert.equal(deprecated.code, 2);
+          assert.match(deprecated.stderr ?? "", /nylorun status is nylorun status\./);
 
           // The published nylorun reports the Tenant (nylorun-operate status in the runtime container).
           const { tenant } = JSON.parse(

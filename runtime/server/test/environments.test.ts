@@ -292,7 +292,7 @@ describe("the resource", { timeout: 60_000 }, () => {
   it("refuses kind pod without sandbox pods (no cluster)", async () => {
     const refused = await call("PUT", path("pods/one"), { kind: "pod" });
     expect(refused.status).toBe(409);
-    expect(refused.body.message).toContain("nylorun sandbox enable --context");
+    expect(refused.body.message).toContain("nylorun local sandbox enable --context");
     expect(refused.body.code).toBe("environment_unavailable");
     expect((await call("GET", path("pods/one"))).status).toBe(404);
     // Without sandbox pods, reset still says what is wrong with the Environment first:

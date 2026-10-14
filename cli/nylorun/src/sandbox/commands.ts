@@ -46,7 +46,7 @@ export const sandboxUsage = `  sandbox enable --context <name> [--tenant <name>]
                                       the cluster, the sandboxes service's readiness and what it reports`;
 
 const ENABLE_USAGE =
-  "nylorun sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]";
+  "nylorun local sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]";
 
 /** The default workload image (D36), pre-pulled with the Runtime image. */
 export const DEFAULT_SANDBOX_IMAGE = "python:3.13-slim";
@@ -245,7 +245,7 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
   const context = flags.values.get("--context");
   if (!context)
     throw usageError(
-      `nylorun sandbox enable needs --context <name>: the kubeconfig context to run pods in (never the current one implicitly). Usage: ${ENABLE_USAGE}`,
+      `nylorun local sandbox enable needs --context <name>: the kubeconfig context to run pods in (never the current one implicitly). Usage: ${ENABLE_USAGE}`,
     );
   const hostAddress = flags.values.get("--host-address");
   const bindAddress = flags.values.get("--bind-address");
@@ -299,7 +299,7 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
   );
   if (ready !== 0)
     throw new CliError(
-      `The sandboxes service did not become ready (image ${images.sandboxes}). See "nylorun logs sandboxes" and "nylorun sandbox status".`,
+      `The sandboxes service did not become ready (image ${images.sandboxes}). See "nylorun local logs sandboxes" and "nylorun local sandbox status".`,
       7,
     );
   const c = installed.cluster;
@@ -310,7 +310,7 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
 
 async function disable(deps: SandboxDeps, args: readonly string[]): Promise<number> {
   const { stack } = deps;
-  const usage = "nylorun sandbox disable [--tenant <name>] [--delete-namespace]";
+  const usage = "nylorun local sandbox disable [--tenant <name>] [--delete-namespace]";
   const flags = parseStackFlags(args, { booleans: ["--delete-namespace"], values: ["--tenant"] }, usage);
   if (flags.rest.length) throw usageError(`Usage: ${usage}`);
   const name = flags.values.get("--tenant");
@@ -344,7 +344,7 @@ const INFO_SCRIPT =
 
 async function status(deps: SandboxDeps, args: readonly string[]): Promise<number> {
   const { stack } = deps;
-  const usage = "nylorun sandbox status [--tenant <name>] [--json]";
+  const usage = "nylorun local sandbox status [--tenant <name>] [--json]";
   const flags = parseStackFlags(args, { booleans: ["--json"], values: ["--tenant"] }, usage);
   if (flags.rest.length) throw usageError(`Usage: ${usage}`);
   const name = flags.values.get("--tenant");
@@ -352,7 +352,7 @@ async function status(deps: SandboxDeps, args: readonly string[]): Promise<numbe
   const cluster = await readClusterFile(tenant.paths.root);
   if (!cluster) {
     if (flags.booleans.has("--json")) stack.out(JSON.stringify({ enabled: false }, null, 2));
-    else stack.out(`Sandboxes are not enabled for Tenant ${tenant.name}. Run "nylorun sandbox enable --context <name>".`);
+    else stack.out(`Sandboxes are not enabled for Tenant ${tenant.name}. Run "nylorun local sandbox enable --context <name>".`);
     return 3;
   }
   await dockerPreflight(stack.docker);
@@ -383,7 +383,7 @@ const COMMANDS: Record<string, (deps: SandboxDeps, args: readonly string[]) => P
   status,
 };
 
-/** `nylorun sandbox <enable|disable|status>`. */
+/** `nylorun local sandbox <enable|disable|status>`. */
 export async function runSandboxCommand(args: readonly string[], deps: SandboxDeps): Promise<number> {
   const [name, ...rest] = args;
   const command = name === undefined ? undefined : COMMANDS[name];
