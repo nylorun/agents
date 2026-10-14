@@ -80,7 +80,7 @@ export function SessionComposer({
       : `Message ${agentName}`;
 
   return (
-    <form ref={form} onSubmit={onSubmit} className="shrink-0 px-4 pb-3 pt-2">
+    <form ref={form} onSubmit={onSubmit} className="shrink-0 border-t px-4 pb-3 pt-3">
       <div
         className={cn(
           "rounded-xl border bg-background shadow-xs transition-[border-color,box-shadow]",

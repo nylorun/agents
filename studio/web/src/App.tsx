@@ -10,7 +10,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, RefreshCw } from "lucide-react";
 import { Environments } from "@/components/environments";
 import { EnvironmentPage } from "@/components/environment-page";
 import { SessionEnvironmentPanel } from "@/components/session-environment";
@@ -30,6 +30,9 @@ import { EventDetails } from "@/components/event-details";
 import { EventTable } from "@/components/event-table";
 import { IterationTimeline } from "@/components/iteration-timeline";
 import { SessionComposer } from "@/components/session-composer";
+import { HeaderSlot, HeaderSlotContext } from "@/components/header-slot";
+import { SessionIdCopy, SessionStatus } from "@/components/session-meta";
+import { Separator } from "@/components/ui/separator";
 import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
 import { WorkflowLinkBanner } from "@/components/workflow-link-banner";
 import { WorkflowTree } from "@/components/workflow-tree";
@@ -53,7 +56,7 @@ import {
   type StudioEvent,
 } from "@/event-presentation";
 import { trackPageView } from "@/analytics";
-import { shortTenantId, type StudioTenantInfo } from "@/config";
+import { type StudioTenantInfo } from "@/config";
 import {
   embedSession,
   embedded,
@@ -418,6 +421,12 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
     sessions: [],
   });
   const [error, setError] = useState("");
+  const [headerStart, setHeaderStart] = useState<HTMLDivElement | null>(null);
+  const [headerEnd, setHeaderEnd] = useState<HTMLDivElement | null>(null);
+  const headerSlots = useMemo(
+    () => ({ start: headerStart, end: headerEnd }),
+    [headerStart, headerEnd],
+  );
   const refresh = useCallback(async () => {
     try {
       const client = studioClient(tenant.id);
@@ -489,9 +498,11 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         resourceActive={resourceActive}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
+        <HeaderSlotContext.Provider value={headerSlots}>
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger />
-          <strong>
+          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-5" />
+          <strong className="max-w-64 shrink-0 truncate">
             {resourceActive === "environments"
               ? environment?.kind === "environment"
                 ? "Environment"
@@ -504,22 +515,21 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
                     ? "Sessions"
                     : (agent?.name ?? "Nylorun Studio")}
           </strong>
-          {embedded() ? null : (
-            <Badge variant="outline" title={tenant.id}>
-              {tenant.name} · {shortTenantId(tenant.id)}
-            </Badge>
-          )}
+          <div ref={setHeaderStart} className="flex min-w-0 items-center gap-2 overflow-hidden" />
           {embedStatus === "reconnecting" || embedStatus === "failed" ? (
             <Badge variant="outline" role="status">
               {embedStatus === "reconnecting" ? "Reconnecting…" : "Disconnected"}
             </Badge>
           ) : null}
+          <div ref={setHeaderEnd} className="ml-auto flex min-w-0 items-center gap-3" />
           <Button
-            className="ml-auto"
-            variant="outline"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Refresh"
+            title="Refresh"
             onClick={() => void refresh()}
           >
-            Refresh
+            <RefreshCw />
           </Button>
         </header>
         {error && (
@@ -577,6 +587,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             <RouteNotFound what="page" segment={location.pathname} />
           )}
         </ViewErrorBoundary>
+        </HeaderSlotContext.Provider>
       </SidebarInset>
     </SidebarProvider>
   );
@@ -961,28 +972,28 @@ function SessionView({
       >
       <ResizablePanel defaultSize={showDetails ? 34 : 42} minSize={28}>
         <section className="flex h-full min-h-0 flex-col overflow-hidden">
-          <div className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
-            <Badge variant="outline">{status}</Badge>
+          <HeaderSlot side="start">
+            <SessionIdCopy id={sessionId} />
+            <SessionStatus status={status} />
             {workflowManifest ? (
               <Badge variant="secondary">workflow</Badge>
             ) : null}
-            <span className="truncate font-mono text-xs text-muted-foreground">
-              {sessionId}
-            </span>
+          </HeaderSlot>
+          <HeaderSlot side="end">
             {environment ? (
               <Link
-                className="ml-auto truncate text-xs underline"
+                className="hidden max-w-56 truncate whitespace-nowrap text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline lg:inline"
                 to={environmentPath(environment.id)}
                 title={environment.id}
               >
                 Environment: {environment.id}
               </Link>
             ) : environment === null ? (
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="hidden whitespace-nowrap text-xs text-muted-foreground lg:inline">
                 Environment: None
               </span>
             ) : null}
-          </div>
+          </HeaderSlot>
           <div ref={chatScroller} className="min-h-0 flex-1 overflow-auto">
             <div ref={chatContent} className="space-y-4 p-4">
               {chatEvents.map((event) => {
