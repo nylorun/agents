@@ -1,3 +1,45 @@
+# Each turn is a trace, and every row that ends a call carries its timing (R7)
+
+No protocol change, and nothing to do unless you read the session log yourself:
+
+- **One row per model call.** A step that said nothing (no text and no tool calls) now writes
+  `message.assistant` with `text: ""`, and each partial summary of a long compaction writes
+  `context.compacted` with `partial: true`. If you render raw events, skip empty assistant
+  messages with `isEmptyAssistantMessage` from `@nylorun/core/contracts`. The AG-UI and A2A
+  histories already skip both.
+- **New event types.** `node.completed` ends a flow's HTTP stage, `egress.connection` records a
+  pod's connection through egress-gate in the session log, and `environment.egress` records one
+  on the Environment's stream while no turn holds it. Clients ignore event types they do not know.
+- **More fields on existing events.** Model and tool outcomes carry `effectId`, `durationMs` and
+  the gate's own times; turn ends carry `durationMs`, `pausedMs`, `agentId` and `totals`. A turn
+  started before this release has no `durationMs`.
+- **Traces are off until you set an endpoint.** Set `OTEL_EXPORTER_OTLP_ENDPOINT` to export each
+  turn as one OpenTelemetry trace. The exporter uses a second replication slot,
+  `nylorun_trace_export`, so a managed Postgres needs `max_replication_slots` of at least 2. Read
+  one turn's spans without a collector at `GET /v1/sessions/{id}/turns/{turnId}/trace`
+  (`session.trace(turnId)`). See [Traces](./DEPLOYMENT.md#traces).
+
+Migration `0022` adds the gate's times to the usage ledger and runs at start.
+
+# Bring your own harness: harness ids and who wrote each event (R4)
+
+- **Our harness says `nylorun`.** A harness names itself in `hello` with its harness id, and ours
+  is `nylorun`. A connection that says `@nylorun/harness` is refused with a message naming the
+  new id, so upgrade the harness with the Runtime: on a local Tenant `nylorun start` does it.
+  Elsewhere, run the `harness` container and `NYLORUN_SANDBOX_HARNESS_IMAGE` (the image sandbox
+  pods copy the engine from) at this Runtime's image.
+- **Who wrote each event.** An event's `source` and `evidence` are now set by the code that wrote
+  it, not by its type: a command is `client`, with a `principal` taken from its credential; what
+  a harness reported is `harness`, with its harness id, `runId` and evidence `claimed`; core's own
+  logic is `core`, evidence `observed`. Events written before this release still say `api` or
+  `loop`, so a client that filters on `source.kind` should accept both spellings.
+- **A session pins its harness.** An Environment's `harness` takes any harness id, and a session
+  pins its Environment's harness when it opens (`GET /v1/sessions/{id}` returns it as
+  `harness`). A turn on an Environment that now names another harness is `409
+  harness_mismatch`: open a new session.
+
+To run a harness of your own, see [HARNESS_API.md](./HARNESS_API.md).
+
 # Tool approvals are the Tenant's tool policy (R5)
 
 **`approval` leaves the manifest.** An agent no longer says which of its tool calls wait for a

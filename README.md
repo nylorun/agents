@@ -102,6 +102,7 @@ plug in.
 - [DEPLOYMENT.md](./guides/DEPLOYMENT.md): the Tenant's containers, reverse proxy and Postgres
 - [SELF_HOSTING.md](./guides/SELF_HOSTING.md): your own identity provider and secrets
 - [MIGRATION.md](./guides/MIGRATION.md): breaking changes between beta protocols
+- [HARNESS_API.md](./guides/HARNESS_API.md): run your own harness, in any language
 
 ## Contributing
 

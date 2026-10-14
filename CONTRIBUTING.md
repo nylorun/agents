@@ -39,7 +39,7 @@ npm run setup
 npm run dev
 ```
 
-Setup installs both lockfiles and builds packages. The eight packages compile with the TypeScript 7 native compiler; `typescript` is aliased to the TypeScript 6 bridge for scripts that use the compiler API. It does not configure models,
+Setup installs both lockfiles and builds packages. The packages compile with the TypeScript 7 native compiler; `typescript` is aliased to the TypeScript 6 bridge for scripts that use the compiler API. It does not configure models,
 regenerate examples, or change local credentials/data. Package consumer Node
 support remains separate from the pinned contributor toolchain.
 
@@ -86,7 +86,7 @@ yourself; `npm run dev` then neither builds nor rebuilds that image.
 | `npx nylorun status` / `npx nylorun logs`   | The Tenant's services, endpoints and health; logs (`-f`, `<service>`)      |
 | `eval "$(npx nylo env)"` (in `examples/`)   | Export URL and key for the linked Project (`nylo` from the examples' nylorun) |
 | `npx nylorun down` / `npx nylorun reset`    | Stop the Tenant (volumes kept) / delete its containers, volumes and data   |
-| `npm run build`                             | Build all eight packages                                                   |
+| `npm run build`                             | Build all packages                                                         |
 | `npm test`                                  | Run package, tooling, and examples tests after setup (needs Docker)        |
 | `npm run check`                             | Build and run the standard repository checks                               |
 | `npm run check:stack`                       | Check generated starter contracts and built example assets                 |
