@@ -149,14 +149,23 @@ async function harnessChecks(stack, images, status) {
     assert.ok(results.some((r) => r.includes("from-the-harness")), `bash ran: ${results}`);
 
     // Exit check (F6.2): the sandbox runs in the harness; the runtime container runs nothing
-    // but its own process.
+    // but its own process. Compose's healthcheck (`node -e fetch(.../health)`) runs in the
+    // container too, every few seconds, so a process with its exact command does not count.
+    const config = JSON.parse(await stack.compose(["config", "--format", "json"]));
+    const [form, ...healthcheck] = config.services.runtime.healthcheck?.test ?? [];
+    assert.equal(form, "CMD", "the runtime's healthcheck is an exec-form command");
     const top = async (service) =>
       (await run("docker", ["top", `${stack.project}-${service}`, "-o", "pid,args"], { capture: true }))
         .trim()
         .split("\n")
         .slice(1);
-    const inRuntime = await top("runtime");
-    assert.equal(inRuntime.length, 1, `the runtime container runs one process:\n${inRuntime.join("\n")}`);
+    const listed = await top("runtime");
+    const inRuntime = listed.filter((line) => line.trim().replace(/^\d+\s+/, "") !== healthcheck.join(" "));
+    assert.equal(
+      inRuntime.length,
+      1,
+      `the runtime container runs one process besides its healthcheck:\n${listed.join("\n")}`,
+    );
     assert.match(inRuntime[0], /runtime\/server\/dist\/host\/main\.js/);
     console.log("[stack] the harness runs bash; the runtime runs nothing but itself");
   } finally {
