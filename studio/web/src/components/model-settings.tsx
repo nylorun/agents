@@ -34,8 +34,69 @@ type CatalogProvider = Awaited<ReturnType<ManagementModels["catalog"]>>["provide
 type ConfiguredProvider = Awaited<
   ReturnType<ManagementModels["providers"]>
 >["providers"][number];
-/** A custom endpoint's window, output limit, reasoning and pi-ai compat (Model Calls §7). */
+/** A custom endpoint's window, output limit, reasoning, inputs and pi-ai compat (Model Calls §7). */
 type CustomModelSettings = NonNullable<ConfiguredProvider["settings"]>;
+type ModelInput = CatalogProvider["models"][number]["inputs"][number];
+
+/** What a model may read beyond text (protocol 12), in the Runtime's order, with their labels. */
+const INPUT_LABELS: ReadonlyArray<readonly [Exclude<ModelInput, "text">, string]> = [
+  ["image", "Images"],
+  ["pdf", "PDF"],
+  ["office", "Office documents"],
+  ["audio", "Audio"],
+  ["video", "Video"],
+];
+/** What a custom endpoint may read: an OpenAI-compatible endpoint carries no Office documents. */
+const CUSTOM_INPUTS = INPUT_LABELS.filter(([input]) => input !== "office");
+
+/**
+ * One connected catalog model's input checkboxes: its catalog's own inputs (its `inputs` less
+ * `addableInputs`) checked and fixed, what the operator may add (`addableInputs`) toggled. A
+ * type neither is not shown.
+ */
+function ModelInputs({
+  name,
+  inputs,
+  addableInputs,
+  disabled,
+  onToggle,
+}: Readonly<{
+  name: string;
+  inputs: readonly ModelInput[];
+  addableInputs: readonly ModelInput[];
+  disabled: boolean;
+  onToggle?: (input: ModelInput, on: boolean) => void;
+}>) {
+  const shown = INPUT_LABELS.filter(
+    ([input]) => inputs.includes(input) || addableInputs.includes(input),
+  );
+  return (
+    <div
+      role="group"
+      aria-label={`${name} inputs`}
+      className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+    >
+      <span className="font-medium text-foreground">Inputs</span>
+      {shown.length === 0 ? <span>Text only</span> : null}
+      {shown.map(([input, label]) => {
+        const fixed = !onToggle || !addableInputs.includes(input);
+        return (
+          <label key={input} className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              className="size-3.5"
+              checked={inputs.includes(input)}
+              disabled={fixed || disabled}
+              title={fixed ? "Read by this model" : undefined}
+              onChange={(event) => onToggle?.(input, event.target.checked)}
+            />
+            {label}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
 
 type PanelMode = "add" | "view" | "update";
 
@@ -66,6 +127,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
   const [maxTokens, setMaxTokens] = useState("");
   const [reasoning, setReasoning] = useState(false);
   const [compat, setCompat] = useState("");
+  const [customInputs, setCustomInputs] = useState<readonly ModelInput[]>([]);
 
   const refresh = useCallback(async () => {
     const [next, listed, configured] = await Promise.all([
@@ -118,6 +180,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
       setMaxTokens(next.settings?.maxTokens?.toString() ?? "");
       setReasoning(next.settings?.reasoning ?? false);
       setCompat(next.settings?.compat ? JSON.stringify(next.settings.compat) : "");
+      setCustomInputs(next.settings?.inputs ?? []);
     } else {
       const first = addable[0];
       setProvider(first?.id ?? "custom");
@@ -127,6 +190,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
       setMaxTokens("");
       setReasoning(false);
       setCompat("");
+      setCustomInputs([]);
     }
     setPanelOpen(true);
   }
@@ -178,6 +242,10 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
       settings.contextWindow = whole("Context window", contextWindow.trim());
     if (maxTokens.trim()) settings.maxTokens = whole("Max output tokens", maxTokens.trim());
     if (reasoning) settings.reasoning = true;
+    const inputs = CUSTOM_INPUTS.map(([input]) => input).filter((input) =>
+      customInputs.includes(input),
+    );
+    if (inputs.length) settings.inputs = inputs;
     if (compat.trim()) {
       let parsed: unknown;
       try {
@@ -190,6 +258,34 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
       settings.compat = parsed as Record<string, unknown>;
     }
     return Object.keys(settings).length ? settings : undefined;
+  }
+
+  /** Adds or removes one input the operator may add to a catalog model, then reloads. */
+  async function toggleInput(
+    item: ConfiguredProvider,
+    current: readonly ModelInput[],
+    input: ModelInput,
+    on: boolean,
+  ) {
+    setError("");
+    setSaved("");
+    setPending(true);
+    try {
+      const next = new Set(current.filter((each) => each !== input));
+      if (on) next.add(input);
+      await models.setInputs({
+        provider: item.id,
+        model: item.model,
+        inputs: (["text", ...INPUT_LABELS.map(([each]) => each)] as ModelInput[]).filter(
+          (each) => next.has(each),
+        ),
+      });
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPending(false);
+    }
   }
 
   async function activateSelection(event: FormEvent) {
@@ -216,6 +312,36 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
     } finally {
       setPending(false);
     }
+  }
+
+  /**
+   * A connected provider's "Inputs" line for its selected model: a catalog model's checkboxes, or
+   * what a custom endpoint reads (set in its settings). None from a Runtime before protocol 12.
+   */
+  function rowInputs(item: ConfiguredProvider) {
+    if (item.baseUrl) {
+      const inputs = item.inputs ?? item.settings?.inputs;
+      if (!inputs) return null;
+      return (
+        <ModelInputs name={item.name} inputs={inputs} addableInputs={[]} disabled={pending} />
+      );
+    }
+    const listed = catalog
+      .find((each) => each.id === item.id)
+      ?.models.find((each) => each.id === item.model);
+    if (!listed || !Array.isArray(listed.inputs) || !Array.isArray(listed.addableInputs))
+      return null;
+    // The catalog's `inputs` already holds the operator's additions.
+    const inputs = item.inputs ?? listed.inputs;
+    return (
+      <ModelInputs
+        name={item.name}
+        inputs={inputs}
+        addableInputs={listed.addableInputs}
+        disabled={pending}
+        onToggle={(input, on) => void toggleInput(item, inputs, input, on)}
+      />
+    );
   }
 
   const panelTitle =
@@ -252,6 +378,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
                   setModel(item.models[0]?.id ?? "");
                   setBaseUrl("");
                   setApiKey("");
+                  setCustomInputs([]);
                   setPanelMode("add");
                   setPanelOpen(true);
                 }}
@@ -301,6 +428,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
                       {item.model}
                       {item.authType === "oauth" ? " · OAuth" : ""}
                     </p>
+                    {rowInputs(item)}
                   </TableCell>
                   <TableCell>{formatUpdated(item.lastUpdated)}</TableCell>
                   <TableCell className="text-right">
@@ -346,7 +474,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
             </SheetDescription>
           </SheetHeader>
           <form
-            className="flex flex-1 flex-col gap-4 px-4"
+            className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4"
             onSubmit={(event) =>
               void (panelMode === "view"
                 ? activateSelection(event)
@@ -433,6 +561,28 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
                   />
                   The model reasons (thinking)
                 </label>
+                <fieldset className="grid gap-1.5 text-sm">
+                  <legend className="mb-1.5">Inputs beyond text</legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    {CUSTOM_INPUTS.map(([input, label]) => (
+                      <label key={input} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={customInputs.includes(input)}
+                          onChange={(event) =>
+                            setCustomInputs((current) =>
+                              event.target.checked
+                                ? [...current, input]
+                                : current.filter((each) => each !== input),
+                            )
+                          }
+                          disabled={panelMode === "view"}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 <label className="grid gap-1 text-sm">
                   Compatibility settings (JSON, optional)
                   <Input

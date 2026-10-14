@@ -30,6 +30,13 @@ import { EventDetails } from "@/components/event-details";
 import { EventTable } from "@/components/event-table";
 import { IterationTimeline } from "@/components/iteration-timeline";
 import { SessionComposer } from "@/components/session-composer";
+import { AttachmentPreview } from "@/components/attachment-preview";
+import {
+  DEFAULT_MODEL_INPUTS,
+  acceptFor,
+  attachmentRefusal,
+  type ComposerAttachment,
+} from "@/attachments";
 import { HeaderSlot, HeaderSlotContext } from "@/components/header-slot";
 import { SessionIdCopy, SessionStatus } from "@/components/session-meta";
 import { Separator } from "@/components/ui/separator";
@@ -784,6 +791,8 @@ function SessionView({
   const isWorkflow = workflowManifest !== undefined;
   const [events, setEvents] = useState<readonly StudioEvent[]>([]);
   const [content, setContent] = useState("");
+  const [attachments, setAttachments] = useState<readonly ComposerAttachment[]>([]);
+  const [modelInputs, setModelInputs] = useState<readonly string[]>(DEFAULT_MODEL_INPUTS);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -879,6 +888,8 @@ function SessionView({
     setSelectedNode(undefined);
     setSelectedIteration(undefined);
     setEnvironment(undefined);
+    // An uploaded attachment belongs to its session.
+    setAttachments([]);
   }, [sessionId, isWorkflow]);
 
   const {
@@ -893,19 +904,74 @@ function SessionView({
   // Tool calls the Tool Gate holds for a person (R5 step 2).
   const approvals = useMemo(() => pendingApprovals(events), [events]);
 
+  const attach = useCallback((files: readonly File[]) => {
+    setAttachments((previous) => [
+      ...previous,
+      ...files.map((file) => ({ id: crypto.randomUUID(), file })),
+    ]);
+  }, []);
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((previous) => previous.filter((item) => item.id !== id));
+  }, []);
+  const markAttachment = (id: string, change: Partial<ComposerAttachment>) =>
+    setAttachments((previous) =>
+      previous.map((item) => (item.id === id ? { ...item, ...change } : item)),
+    );
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!tenantId || !content.trim() || busy) return;
+    if (!tenantId || (!content.trim() && attachments.length === 0) || busy) return;
     scrollToLatest();
     setSending(true);
     setStatus("running");
     setError("");
-    const session = studioClient(tenantId).session(sessionId);
+    const sdk = studioClient(tenantId);
+    const session = sdk.session(sessionId);
     try {
-      await session.input(content, { idempotencyKey: crypto.randomUUID() });
+      // Each file once: a resend after a refusal names the artifacts already uploaded.
+      const files: { artifactId: string; version: number }[] = [];
+      for (const attachment of attachments) {
+        let uploaded = attachment.uploaded;
+        if (!uploaded) {
+          try {
+            const reply = await sdk.artifacts.upload(attachment.file, {
+              name: attachment.file.name,
+              sessionId,
+              contentType: attachment.file.type || "application/octet-stream",
+            });
+            uploaded = { artifactId: reply.artifact.artifactId, version: reply.version.version };
+            markAttachment(attachment.id, { uploaded, error: undefined });
+          } catch (cause) {
+            markAttachment(attachment.id, { error: "Upload failed" });
+            throw cause;
+          }
+        } else if (attachment.error) markAttachment(attachment.id, { error: undefined });
+        files.push(uploaded);
+      }
+      const idempotencyKey = crypto.randomUUID();
+      if (files.length === 0) await session.input(content, { idempotencyKey });
+      else
+        await session.inputParts(
+          [
+            ...(content.trim() ? [{ type: "text" as const, text: content }] : []),
+            ...files.map((file) => ({ type: "file" as const, ...file })),
+          ],
+          { idempotencyKey },
+        );
       setContent("");
+      setAttachments([]);
     } catch (e) {
-      setError(String(e));
+      const refusal = attachmentRefusal(e);
+      if (refusal) {
+        // The draft stays; the refused files say why, to remove them or pick another model.
+        setError(refusal.message);
+        setAttachments((previous) =>
+          previous.map((item) => {
+            const reason = item.uploaded && refusal.reasons.get(item.uploaded.artifactId);
+            return reason ? { ...item, error: reason } : item;
+          }),
+        );
+      } else setError(String(e));
       try {
         setStatus((await session.inspect()).status);
       } catch {
@@ -1031,11 +1097,24 @@ function SessionView({
                             typeof part === "object" &&
                             part !== null &&
                             part.type === "text" ? (
-                              <p key={i}>{String(part.text)}</p>
+                              <p key={i} className="whitespace-pre-wrap">{String(part.text)}</p>
                             ) : null,
                           )
                         : null}
-                      {referenceLinks}
+                      {references.length ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {references.map((ref) => (
+                            <AttachmentPreview
+                              key={`${ref.artifactId}:${ref.version}`}
+                              tenantId={tenantId}
+                              artifactId={ref.artifactId}
+                              version={ref.version}
+                              name={ref.name}
+                              onOpen={() => openArtifact(ref.artifactId, ref.version)}
+                            />
+                          ))}
+                        </div>
+                      ) : null}
 
                     </article>
                   );
@@ -1162,6 +1241,11 @@ function SessionView({
             running={busy && status !== "loading"}
             sending={sending}
             blocked={["paused", "uncertain"].includes(status)}
+            attachments={attachments}
+            onAttach={attach}
+            onRemove={removeAttachment}
+            accept={acceptFor(modelInputs)}
+            onModelInputs={setModelInputs}
           />
         </section>
       </ResizablePanel>

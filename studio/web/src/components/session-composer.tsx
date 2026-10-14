@@ -1,17 +1,87 @@
-import { useLayoutEffect, useRef, type FormEvent, type KeyboardEvent } from "react";
-import { ArrowUp, LoaderCircle, Square } from "lucide-react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import { ArrowUp, FileText, LoaderCircle, Paperclip, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SessionModelPicker } from "@/components/session-model-picker";
+import { formatBytes, type ComposerAttachment } from "@/attachments";
 import { cn } from "@/lib/utils";
 
 /** The textarea grows with its content up to this height, then scrolls. */
 const MAX_HEIGHT = 240;
 
+/** One attached file: an image's thumbnail or a file icon, its name and size, and remove. */
+function AttachmentChip({
+  attachment,
+  disabled,
+  onRemove,
+}: Readonly<{
+  attachment: ComposerAttachment;
+  disabled: boolean;
+  onRemove: () => void;
+}>) {
+  const { file, error } = attachment;
+  const [thumbnail, setThumbnail] = useState("");
+  useEffect(() => {
+    if (!file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    setThumbnail(url);
+    return () => {
+      URL.revokeObjectURL(url);
+      setThumbnail("");
+    };
+  }, [file]);
+  return (
+    <li
+      data-slot="attachment"
+      aria-invalid={error ? true : undefined}
+      title={error ?? file.name}
+      className={cn(
+        "flex max-w-56 items-center gap-2 rounded-lg border bg-muted/40 py-1 pr-1 pl-1.5 text-xs",
+        error && "border-destructive/60 bg-destructive/5",
+      )}
+    >
+      {thumbnail ? (
+        <img src={thumbnail} alt="" className="size-8 shrink-0 rounded object-cover" />
+      ) : (
+        <span className="flex size-8 shrink-0 items-center justify-center rounded bg-background text-muted-foreground">
+          <FileText className="size-4" aria-hidden />
+        </span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium">{file.name}</span>
+        <span className={cn("block truncate", error ? "text-destructive" : "text-muted-foreground")}>
+          {error ?? formatBytes(file.size)}
+        </span>
+      </span>
+      <Button
+        type="button"
+        size="icon-xs"
+        variant="ghost"
+        aria-label={`Remove ${file.name}`}
+        title="Remove"
+        disabled={disabled}
+        onClick={onRemove}
+      >
+        <X />
+      </Button>
+    </li>
+  );
+}
+
 /**
- * The message box under a session's chat: one card holding the text and a
- * single action button, with the model picker under it. The button sends
- * while the session is idle and stops the turn while it runs; Enter sends
- * and Shift+Enter adds a line.
+ * The message box under a session's chat: one card holding attached files, the
+ * text and its buttons, with the model picker under it. The paperclip, a paste
+ * or a drop attaches files (sent as they are: nothing is resized or converted).
+ * The button sends while the session is idle and stops the turn while it runs;
+ * Enter sends and Shift+Enter adds a line.
  */
 export function SessionComposer({
   tenantId,
@@ -23,6 +93,11 @@ export function SessionComposer({
   running,
   sending,
   blocked,
+  attachments,
+  onAttach,
+  onRemove,
+  accept,
+  onModelInputs,
 }: Readonly<{
   tenantId: string;
   agentName: string;
@@ -36,11 +111,50 @@ export function SessionComposer({
   sending: boolean;
   /** The session waits on an approval or needs attention; no input. */
   blocked: boolean;
+  /** Files attached to the next message. */
+  attachments: readonly ComposerAttachment[];
+  onAttach: (files: readonly File[]) => void;
+  onRemove: (id: string) => void;
+  /** The file picker's `accept`: what the active model reads. */
+  accept: string;
+  /** The active model's inputs, as the model picker reads them. */
+  onModelInputs?: (inputs: readonly string[]) => void;
 }>) {
   const form = useRef<HTMLFormElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
   const disabled = running || blocked;
-  const canSend = !disabled && value.trim().length > 0;
+  const canSend = !disabled && (value.trim().length > 0 || attachments.length > 0);
+
+  function attach(files: FileList | null | undefined) {
+    if (disabled || !files || files.length === 0) return;
+    onAttach([...files]);
+  }
+
+  function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = event.clipboardData.files;
+    if (files.length === 0) return;
+    event.preventDefault();
+    attach(files);
+  }
+
+  const carriesFiles = (event: DragEvent) => event.dataTransfer.types.includes("Files");
+  function onDragOver(event: DragEvent<HTMLDivElement>) {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = disabled ? "none" : "copy";
+    if (!disabled) setDragging(true);
+  }
+  function onDragLeave(event: DragEvent<HTMLDivElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+  }
+  function onDrop(event: DragEvent<HTMLDivElement>) {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    setDragging(false);
+    attach(event.dataTransfer.files);
+  }
 
   // Fit the box to its text; the panel's width changes the wrap, so refit on resize too.
   useLayoutEffect(() => {
@@ -82,12 +196,30 @@ export function SessionComposer({
   return (
     <form ref={form} onSubmit={onSubmit} className="shrink-0 border-t px-4 pb-3 pt-3">
       <div
+        data-slot="composer-card"
+        data-dragging={dragging || undefined}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
         className={cn(
           "rounded-xl border bg-background shadow-xs transition-[border-color,box-shadow]",
           "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30",
           disabled && "bg-muted/40",
+          dragging && "border-primary border-dashed ring-[3px] ring-primary/20",
         )}
       >
+        {attachments.length > 0 ? (
+          <ul aria-label="Attachments" className="flex flex-wrap gap-2 px-2.5 pt-2.5">
+            {attachments.map((attachment) => (
+              <AttachmentChip
+                key={attachment.id}
+                attachment={attachment}
+                disabled={disabled}
+                onRemove={() => onRemove(attachment.id)}
+              />
+            ))}
+          </ul>
+        ) : null}
         <textarea
           ref={textarea}
           aria-label="Message"
@@ -96,10 +228,34 @@ export function SessionComposer({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           placeholder={placeholder}
           disabled={disabled}
         />
-        <div className="flex items-center justify-end gap-2 px-2 pb-2">
+        <div className="flex items-center justify-between gap-2 px-2 pb-2">
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            accept={accept}
+            hidden
+            onChange={(event) => {
+              attach(event.target.files);
+              event.target.value = "";
+            }}
+          />
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="rounded-full text-muted-foreground"
+            aria-label="Attach files"
+            title="Attach files"
+            disabled={disabled}
+            onClick={() => picker.current?.click()}
+          >
+            <Paperclip />
+          </Button>
           {running && !sending ? (
             <Button
               type="button"
@@ -130,7 +286,12 @@ export function SessionComposer({
           )}
         </div>
       </div>
-      <SessionModelPicker tenantId={tenantId} disabled={disabled} className="mt-1" />
+      <SessionModelPicker
+        tenantId={tenantId}
+        disabled={disabled}
+        className="mt-1"
+        {...(onModelInputs ? { onInputs: onModelInputs } : {})}
+      />
     </form>
   );
 }

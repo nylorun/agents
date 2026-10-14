@@ -108,7 +108,7 @@ export function artifactReferences(event: Pick<LiveEvent, "type" | "payload">) {
   if (Array.isArray(payload.parts)) {
     for (const part of payload.parts) {
       if (part && typeof part === "object" && part.type === "file")
-        add(part.artifactId, part.version, part.artifactId);
+        add(part.artifactId, part.version, part.name ?? part.artifactId);
     }
   }
   return refs;
