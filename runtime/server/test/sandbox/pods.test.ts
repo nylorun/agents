@@ -228,6 +228,59 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     expect(refused.body.code).toBe("environment_unavailable");
   });
 
+  it("runs two sessions' turns at once in one pod's engine, their commands side by side (D66)", async () => {
+    const { name } = await createPod("run/two");
+    const workspace = await mkdtemp(join(tmpdir(), "nylorun-pod-ws-"));
+    const harnessRoot = await mkdtemp(join(tmpdir(), "nylorun-pod-harness-"));
+    const joinFile = join(harnessRoot, "join-token");
+    await writeFile(joinFile, fake.joinToken(name)!);
+    const host = podHost(
+      { sandboxId: "run/two", podUid: fake.podUid(name)!, joinFile, httpUrl: listener.url.replace(/^ws/, "http").replace(/\/nylorun.*$/, ""), blocked: [] },
+      { info: () => undefined, warn: () => undefined },
+    );
+    // a's command waits for the file b's command writes: it ends only if they run at once.
+    const commands: Record<string, string> = {
+      "pod-a": "for i in $(seq 1 200); do [ -f go ] && break; sleep 0.05; done; [ -f go ] && echo a > a.txt",
+      "pod-b": "echo b > b.txt; touch go",
+    };
+    const twoModel: ModelProvider = async (effect) => {
+      const prompt = (effect.input as { prompt?: { kind?: string }[] }).prompt ?? [];
+      if (prompt.at(-1)?.kind === "tool-result") return { output: [{ type: "text", text: "done" }] };
+      return { output: [{ type: "tool-call", id: `call-${effect.turnId}`, name: "bash", args: { command: commands[effect.sessionId]! } }] };
+    };
+    let service: HarnessService | undefined;
+    try {
+      service = startHarnessService({
+        url: listener.url,
+        token: () => host.token(),
+        paths: { sandboxes: join(harnessRoot, "sandboxes") },
+        modelGate: { call: async () => ({ kind: "failed", message: "no gate" }) as never },
+        modelProvider: twoModel,
+        useVaultModel: false,
+        toolGate: {},
+        sandboxBackends: [localBackend({ workspace, env: { PATH: process.env.PATH }, proxyEnv: () => host.proxyEnv() })],
+        logger: { info: () => undefined, warn: () => undefined },
+        name: "pod",
+        backoff: { minMs: 50, maxMs: 200 },
+      });
+      await service.client.ready;
+      expect((await open("pod-a", "run/two")).status).toBe(200);
+      expect((await open("pod-b", "run/two")).status).toBe(200);
+      expect((await message("pod-a")).status).toBe(200);
+      // The second session's turn starts while the first runs.
+      expect((await message("pod-b")).status).toBe(200);
+      expect((await settled("pod-a")).status).toBe("completed");
+      expect((await settled("pod-b")).status).toBe("completed");
+      expect(await readFile(join(workspace, "a.txt"), "utf8")).toBe("a\n");
+      expect(await readFile(join(workspace, "b.txt"), "utf8")).toBe("b\n");
+    } finally {
+      host.stop();
+      await service?.stop(1_000);
+      await rm(workspace, { recursive: true, force: true });
+      await rm(harnessRoot, { recursive: true, force: true });
+    }
+  });
+
   it("stops on request and when idle, and asks the pod to run again at the next turn", async () => {
     const { name } = await createPod("idle/one");
     await joinAs("idle/one", name);
