@@ -14,7 +14,14 @@ ${stackUsage}
                                       the sandbox backend the Tenant's Host offers
 
 Groups, each with its own --help:
-  environments  list | delete         the Tenant's Environments (Runtime API, an application key)
+  agents        list | get | save     the Tenant's agents (Runtime API, an application key)
+  sessions      list | create | get | send | approve | respond | cancel | watch | history
+                usage | calls | trace | exec
+                                      the Tenant's sessions (Runtime API)
+  environments  list | get | put | stop | reset | delete | snapshot | restore | versions
+                events | secrets      the Tenant's Environments (Runtime API)
+  artifacts     list | get | upload | download | tree | diff | zip | link | rm
+                                      the Tenant's file artifacts (Runtime API)
   tenant        reset | keys | signing-keys | models | mcp
                                       the Tenant's settings (Management API, a management key)
   local         ls | delete | logs | reset | sandbox | telemetry
@@ -23,8 +30,9 @@ Groups, each with its own --help:
 A command acts on the local Tenant --tenant names, else the linked project's, else (outside a
 project) the default Tenant; NYLORUN_HOME sets its Host root (default
 ~/.nylorun/tenants/<name>). Without --tenant, NYLORUN_RUNTIME_URL names a remote installation:
-with NYLORUN_MANAGEMENT_KEY for status, doctor sandbox and tenant, with NYLORUN_SERVER_KEY for
-environments.`;
+with NYLORUN_MANAGEMENT_KEY for status, doctor sandbox and tenant; with NYLORUN_SERVER_KEY, or an
+identity provider's token in NYLORUN_TOKEN, for agents, sessions, environments and artifacts.
+The Runtime API groups act for a person with --as <subject> [--scope <scope>]...`;
 
 const localUsage = `nylorun local <command>
 
@@ -150,9 +158,14 @@ async function main() {
     process.exitCode = await tenantCommand(defaultStackDeps(env), args);
     return;
   }
-  if (command === "environments") {
-    const { environmentsCommand } = await import("./client/environments.js");
-    process.exitCode = await environmentsCommand(defaultStackDeps(env), args);
+  if (command === "agents" || command === "sessions" || command === "environments" || command === "artifacts") {
+    const group = {
+      agents: async () => (await import("./client/agents.js")).agentsCommand,
+      sessions: async () => (await import("./client/sessions.js")).sessionsCommand,
+      environments: async () => (await import("./client/environments.js")).environmentsCommand,
+      artifacts: async () => (await import("./client/artifacts.js")).artifactsCommand,
+    }[command];
+    process.exitCode = await (await group())(defaultStackDeps(env), args);
     return;
   }
   if (command === "doctor") {

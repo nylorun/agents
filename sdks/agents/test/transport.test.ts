@@ -124,7 +124,7 @@ describe("Transport headers and compatibility", () => {
     const error = await transport.json("/v1/agents").catch((e) => e);
     expect(error).toBeInstanceOf(IncompatibleRuntimeError);
     expect(error.compatibility.reason).toBe("version");
-    expect(error.remedy).toMatch(/nylorun runtime restart|npm i/);
+    expect(error.remedy).toMatch(/npx nylorun@latest start|npm i/);
   });
 
   it("clears the compatibility cache on 426 and rechecks once", async () => {

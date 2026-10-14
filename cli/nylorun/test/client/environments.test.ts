@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
+import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { runStackCommand } from "../../src/stack/commands.js";
@@ -61,7 +61,12 @@ async function running(options: { up?: boolean } = {}) {
   });
   const fetch = fakeFetch((url, init) => {
     if (url.endsWith("/health"))
-      return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
+      return json({
+        status: "ok",
+        version: "0.10.0-beta",
+        hostId: hostId(home),
+        protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
+      });
     if (url.endsWith("/ready")) return readyResponse();
     if (url.endsWith("/_studio/login-tokens")) return json({ token: "t" }, 201);
     const path = new URL(url).pathname;
@@ -94,6 +99,8 @@ describe("nylorun environments", () => {
       "user-7          pod      stopped  0         -",
     ]);
     const request = fetch.requests.find((item) => item.url.includes("/v1/environments"))!;
+    // The SDK checks the Runtime's protocol once, before its first request.
+    expect(fetch.requests.filter((item) => item.url.endsWith("/health")).length).toBeGreaterThan(0);
     expect(new URL(request.url).searchParams.getAll("label")).toEqual(["project=acme"]);
     const headers = new Headers(request.init?.headers);
     expect(headers.get("authorization")).toBe(`Bearer ${keys.get("cli")!.key}`);

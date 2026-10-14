@@ -32,13 +32,16 @@ function nylorun(args: string[], env: Record<string, string> = {}, entry = "dist
 }
 
 describe("nylorun", () => {
-  it("lists the installation's commands and the three groups", () => {
+  it("lists the installation's commands and the groups", () => {
     const { code, stdout } = nylorun(["--help"]);
     expect(code).toBe(0);
     expect(stdout).toMatch(/up\|start \[--tenant <name>\]/);
     expect(stdout).toMatch(/down\|stop/);
     expect(stdout).toMatch(/^ {2}doctor sandbox \[--tenant <name>\] \[--json\]/m);
-    expect(stdout).toMatch(/^ {2}environments {2}list \| delete/m);
+    expect(stdout).toMatch(/^ {2}agents {8}list \| get \| save/m);
+    expect(stdout).toMatch(/^ {2}sessions {6}list \| create \| get \| send/m);
+    expect(stdout).toMatch(/^ {2}environments {2}list \| get \| put \| stop/m);
+    expect(stdout).toMatch(/^ {2}artifacts {5}list \| get \| upload/m);
     expect(stdout).toMatch(/^ {2}tenant {8}reset \| keys \| signing-keys \| models \| mcp/m);
     expect(stdout).toMatch(/^ {2}local {9}ls \| delete \| logs \| reset \| sandbox \| telemetry/m);
     expect(stdout).not.toMatch(/\bnylo\b|legacy|--name|\bdev\b|configure/i);
@@ -47,7 +50,10 @@ describe("nylorun", () => {
   it("each group has its own help", () => {
     expect(nylorun(["local", "--help"]).stdout).toMatch(/^ {2}delete <tenant> --yes/m);
     expect(nylorun(["tenant", "--help"]).stdout).toMatch(/^ {2}keys put <id> \[--management\] \[--tenant <name>\]/m);
-    expect(nylorun(["environments", "--help"]).stdout).toMatch(/^ {2}delete <id> \[--tenant <name>\]/m);
+    expect(nylorun(["environments", "--help"]).stdout).toMatch(/^ {2}secrets put <id> <name> <secret\.json\|->/m);
+    expect(nylorun(["agents", "--help"]).stdout).toMatch(/^ {2}save <manifest\.json\|->/m);
+    expect(nylorun(["sessions", "--help"]).stdout).toMatch(/^ {2}exec <id> \[--timeout <s>\] -- <command>/m);
+    expect(nylorun(["artifacts", "--help"]).stdout).toMatch(/^ {2}upload <file\|->/m);
     expect(nylorun(["local", "sandbox", "--help"]).stdout).toMatch(/sandbox enable --context <name>/);
   });
 
@@ -79,7 +85,20 @@ describe("nylorun", () => {
     [["tenant", "keys", "put"], /Usage: nylorun tenant keys put <id>/],
     [["tenant", "models"], /Usage: nylorun tenant models set/],
     [["tenant", "reset", "--sessions", "--all"], /Pass only one of --sessions, --environments, --all/],
-    [["environments"], /^nylorun environments <list\|delete>/m],
+    [["environments"], /^nylorun environments <command>/m],
+    [["agents"], /^nylorun agents <list\|get\|save>/m],
+    [["sessions", "nope"], /^Unknown sessions command nope\./m],
+    [["artifacts"], /^nylorun artifacts <command>/m],
+    [["sessions", "send", "s1"], /Nothing to send/],
+    [["sessions", "send", "s1", "hi", "--data", "1"], /--data is a message of its own/],
+    [["sessions", "exec", "s1", "ls"], /Usage: nylorun sessions exec <id>/],
+    [["sessions", "list", "--scope", "sessions:own"], /--scope needs --as <subject>/],
+    [["sessions", "list", "--as", "u1", "--scope", "everything"], /Unknown scope everything/],
+    [["sessions", "send", "s1", "--file", "a@x"], /the version must be a positive number/],
+    [["environments", "restore", "e1", "v2"], /The version is a positive number or latest/],
+    [["environments", "list", "--label", "nokey"], /--label must be key=value/],
+    [["artifacts", "upload", "-"], /Name the file with --name/],
+    [["artifacts", "zip", "a1"], /Usage: nylorun artifacts zip/],
     [["doctor", "sandbox", "--tenant"], /Usage: nylorun doctor sandbox \[--tenant <name>\] \[--json\]/],
   ])("%j names its replacement (exit 2)", (args, message) => {
     const { code, stderr } = nylorun(args);

@@ -68,12 +68,12 @@ export class IncompatibleRuntimeError extends Error {
 
 function remedyFor(compatibility: IncompatibleReason): string {
   if (compatibility.reason === "feature") {
-    return "Upgrade the Runtime Host (nylorun runtime restart from a newer CLI) so it advertises the required features.";
+    return "Upgrade the Runtime so it advertises the required features (a local Tenant: npx nylorun@latest start).";
   }
   if (compatibility.client < compatibility.host.min) {
     return "Upgrade this client (npm i -D @nylorun/agents@latest) or use a CLI that matches the Host protocol.";
   }
-  return "Upgrade the Runtime Host with nylorun runtime restart from a newer CLI, or install a matching older client (npm i -D @nylorun/cli@<compatible>).";
+  return "Upgrade the Runtime (a local Tenant: npx nylorun@latest start), or install a matching older client (npm i -D @nylorun/agents@<compatible>).";
 }
 
 /** The Host compatibility result, shared by a transport and its `withHeaders` copies. */

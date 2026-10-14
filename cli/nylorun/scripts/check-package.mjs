@@ -8,7 +8,7 @@ if (pkg.bin?.nylorun !== "dist/cli.js")
 if (pkg.bin?.nylo !== "dist/nylo.js")
   throw new Error("Missing nylo binary");
 const deps = Object.keys(pkg.dependencies ?? {}).sort();
-const expected = ["@nylorun/admin", "@nylorun/core"];
+const expected = ["@nylorun/admin", "@nylorun/agents", "@nylorun/core"];
 if (JSON.stringify(deps) !== JSON.stringify(expected)) {
   throw new Error(
     `nylorun dependencies must be exactly ${expected.join(", ")}; got ${deps.join(", ")}`,

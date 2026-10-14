@@ -291,7 +291,8 @@ export function parseStackFlags(
   for (let index = 0; index < args.length; index += 1) {
     const raw = args[index]!;
     const arg = allowed.aliases?.[raw] ?? raw;
-    if (!arg.startsWith("-")) {
+    // `-` is an argument: standard input.
+    if (!arg.startsWith("-") || arg === "-") {
       rest.push(arg);
       continue;
     }

@@ -23,7 +23,7 @@ const INSPECT_USAGE =
 
 /** Where a credential for an MCP server goes since protocol 11. */
 const SECRET_HINT =
-  "write it as a bearer or headers secret of an Environment (client.environments.secrets.put of @nylorun/agents, or Studio)";
+  "write it as a bearer or headers secret of an Environment (nylorun environments secrets put, client.environments.secrets.put of @nylorun/agents, or Studio)";
 
 /** What `--vault` says since protocol 11. */
 export const MCP_VAULT_REMOVED =

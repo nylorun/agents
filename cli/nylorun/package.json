@@ -30,8 +30,9 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@nylorun/core": "0.20.0-beta",
-    "@nylorun/admin": "0.16.0-beta"
+    "@nylorun/admin": "0.16.0-beta",
+    "@nylorun/agents": "0.20.0-beta",
+    "@nylorun/core": "0.20.0-beta"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "0.99.1",
