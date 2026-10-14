@@ -5,11 +5,7 @@ import type {
   SkillManifest,
 } from "../types/manifest.js";
 import type { Delegate } from "./delegate.js";
-import type {
-  MiddlewareContributions,
-  SkillFileSource,
-  StepMiddleware,
-} from "../types/middleware.js";
+import type { SkillFileSource } from "../types/middleware.js";
 import type {
   ToolApproval,
   ToolDefinition,
@@ -42,16 +38,20 @@ export interface BoundToolDefinition<Info = unknown>
   readonly delegate?: Delegate;
 }
 
-export interface BoundMiddleware {
+/**
+ * One part of an agent definition: what one builder call, skills folder or plugin added. The
+ * engine offers its tools and instructions to the model in part order.
+ */
+export interface DefinitionPart {
   readonly id: string;
   readonly name?: string;
   readonly description?: string;
-  readonly handle: StepMiddleware;
-  readonly hasMiddleware: boolean;
   readonly tools?: readonly ToolDefinition<any, any, any>[];
   /** Execution-only tools. Advertised for this run and omitted from the manifest. */
   readonly sessionTools?: readonly ToolDefinition<any, any, any>[];
-  readonly contributions?: MiddlewareContributions;
+  readonly instructions?: readonly string[];
+  /** Text the model reads while the session tools are advertised. Not in the manifest. */
+  readonly sessionInstructions?: readonly string[];
   readonly manifestType?: "agent" | "agent-plugin";
   readonly metadata?: JsonObject;
   readonly skills?: Readonly<Record<string, SkillManifest>>;

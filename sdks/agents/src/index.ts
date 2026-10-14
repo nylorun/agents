@@ -40,8 +40,6 @@ export {
   isVerdict,
   WorkflowBuildError,
   isBuiltWorkflow,
-  capability,
-  CapabilityBuilder,
   flow,
   tool,
   http,
@@ -54,7 +52,6 @@ export type {
   Named,
   LoopOptions,
   StageOptions,
-  CapabilityIdentity,
   HttpTarget,
 } from "@nylorun/core/define";
 export type {
@@ -138,12 +135,9 @@ export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
 export type { Destination, IncompatibleReason, TokenSource } from "./http.js";
-export { plugin } from "./plugins/plugin.js";
-export type { PluginCapability } from "./plugins/plugin.js";
 export { loadPlugin, PluginError } from "./plugins/load.js";
 export type { LoadedPlugin, PluginDiagnostic } from "./plugins/load.js";
 export {
-  skills,
   loadSkillsFromDirectory,
   resolveSkillsRoot,
   parseSkill,
@@ -151,12 +145,8 @@ export {
   formatSkillCatalog,
   SKILLS_USAGE,
 } from "./skills/index.js";
-export type {
-  SkillsCapability,
-  SkillsOptions,
-  SkillDiagnostic,
-} from "./skills/index.js";
-export { mcp, McpError } from "./mcp/index.js";
-export type { McpCapability, McpOptions, McpServerSpec } from "./mcp/index.js";
+export type { SkillDiagnostic } from "./skills/index.js";
+export { McpError } from "./mcp/index.js";
+export type { McpServerSpec } from "./mcp/index.js";
 
 export type { SessionPageOptions } from "./reads.js";

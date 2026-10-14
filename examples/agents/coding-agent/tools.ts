@@ -12,7 +12,6 @@ export function codexTools(workspaces: Map<string, CodexWorkspace>) {
   };
 
   return {
-    id: "codex",
     instructions: [
       "codex_exec runs the host Codex CLI in an isolated temporary workspace. Ask for approval before launching it.",
       "Each new workspace already contains hello.js with an exported hello(name = 'world') function. Preserve it when adding another function. The task argument is a plain-language instruction for Codex, not JavaScript or a shell script.",

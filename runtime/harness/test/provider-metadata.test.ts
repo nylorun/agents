@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { testAgent, offer, model, tool } from "./fixtures.js";
+import { testAgent, model, tool } from "./fixtures.js";
 import type { ModelCall, ModelOutputBlock } from "@nylorun/core/define";
 
 it("preserves opaque block metadata through normalization, canonicalization and conversation projection", async () => {
@@ -19,7 +19,7 @@ it("preserves opaque block metadata through normalization, canonicalization and 
   ];
   const calls: ModelCall[] = [];
   const agent = testAgent()
-    .use("tools", offer(tool()))
+    .tools(tool())
     .with(
       model(async (call) => {
         calls.push(call);

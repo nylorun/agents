@@ -76,7 +76,7 @@ export function createRepoBrief({ toolsUrl = TOOLS_URL, mcpUrl = DEEPWIKI_MCP_UR
     .instructions(
       "Write the repo brief from the overview and the risks. Load the repo-brief skill and follow it, and date the brief with the now tool. Return the title and the Markdown that passed the check. When you get feedback, fix the brief and check it again.",
     )
-    .skills(REPO_BRIEF_SKILLS, { id: "skills" })
+    .skills(REPO_BRIEF_SKILLS)
     .tools(...clock.map((tool) => serviced(tool, toolsUrl)))
     .output(Brief);
 

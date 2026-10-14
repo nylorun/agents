@@ -1,4 +1,4 @@
-import { tool, type CapabilityDeclaration, type ToolDefinition } from "@nylorun/agents/define";
+import { tool, type ToolDefinition } from "@nylorun/agents/define";
 import { z } from "zod";
 import { CodeRunError, renderToolsSdk, runCodeProgram } from "./executor.js";
 import { TOOLS_CATALOG } from "../shared/tools/index.js";
@@ -25,14 +25,19 @@ export const CODE_MODE_USAGE = [
 
 export type CodeModeSource = { readonly directory: string };
 
+export type CodeMode = {
+  readonly instructions: readonly string[];
+  readonly tools: readonly ToolDefinition[];
+};
+
+/** The catalog as a generated SDK in the instructions, and `run_code` as the one tool. */
 export async function codeMode(
   source: CodeModeSource = { directory: TOOLS_CATALOG },
-): Promise<CapabilityDeclaration> {
+): Promise<CodeMode> {
   const roster = await loadToolsFromDirectory(source.directory);
-  if (roster.length === 0) return { id: "code-mode" };
+  if (roster.length === 0) return { instructions: [], tools: [] };
 
   return {
-    id: "code-mode",
     instructions: [CODE_MODE_RULE, CODE_MODE_USAGE, renderToolsSdk(roster)],
     tools: [runCodeTool(roster)],
   };

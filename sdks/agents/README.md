@@ -445,8 +445,8 @@ the Tenant.
 
 The Runtime makes a lost HTTP tool call `uncertain` instead of repeating its external effect.
 In the local engine (`@nylorun/harness/run`), `tool({ run })` tools receive state, info,
-identity, resume, signal, approval/response helpers and memoized `step`. Arbitrary middleware
-closures are rejected for durable definitions. Agent definitions have no `.run()`; explicit
+identity, resume, signal, approval/response helpers and memoized `step`. Agent definitions
+have no `.run()`; explicit
 local execution is available through `@nylorun/harness/run`.
 
 ## AG-UI

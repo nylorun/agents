@@ -1,5 +1,5 @@
 import { projectAsset } from "@nylorun/runtime/node";
-import type { CapabilityDeclaration } from "@nylorun/agents/define";
+import type { ToolDefinition } from "@nylorun/agents/define";
 import { loadToolsFromDirectory } from "./load.js";
 import { serviced, TOOLS_URL } from "./service.js";
 import { EXAMPLES_ROOT } from "../root.js";
@@ -22,8 +22,7 @@ export function catalog(source: ToolsSource = { directory: TOOLS_CATALOG }) {
  */
 export async function tools(
   source: ToolsSource = { directory: TOOLS_CATALOG },
-): Promise<CapabilityDeclaration> {
+): Promise<readonly ToolDefinition[]> {
   const loaded = await catalog(source);
-  if (loaded.length === 0) return { id: "tools" };
-  return { id: "tools", tools: loaded.map((tool) => serviced(tool, source.url ?? TOOLS_URL)) };
+  return loaded.map((tool) => serviced(tool, source.url ?? TOOLS_URL));
 }

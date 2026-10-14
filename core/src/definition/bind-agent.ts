@@ -2,18 +2,16 @@ import { bindTool } from "./bind-tool.js";
 import { HarnessError } from "../errors.js";
 import type { BoundToolDefinition } from "./bound.js";
 import type { AgentManifest } from "../types/manifest.js";
-import type { BoundMiddleware } from "./bound.js";
+import type { DefinitionPart } from "./bound.js";
 import type { BuiltAgent } from "../types/agent.js";
 import type { ToolSchemaSource } from "../types/tool.js";
 import { bindOutputContract } from "./output-contract.js";
 import type { AgentBinding } from "./binding.js";
-import type { CapabilityDynamics } from "./assemble.js";
 import type { Implementations } from "./implementations.js";
 export function bindAgent(
-  middleware: readonly BoundMiddleware[],
+  middleware: readonly DefinitionPart[],
   manifest: AgentManifest,
-  options: { outputSchema?: ToolSchemaSource } = {},
-  dynamics: ReadonlyMap<string, CapabilityDynamics> = new Map()
+  options: { outputSchema?: ToolSchemaSource } = {}
 ): BuiltAgent {
   const seen = new Set<object>();
   const keys = new Set<string>();
@@ -35,7 +33,7 @@ export function bindAgent(
         bindTool(tool, { middlewareId: declaration.id, slot: declaration.id })
       );
     }
-  const implementations = buildImplementations(middleware, dynamics, tools);
+  const implementations = buildImplementations(middleware, tools);
   const binding: AgentBinding = Object.freeze({
     declarations: middleware,
     tools: Object.freeze(tools),
@@ -61,25 +59,20 @@ export function bindAgent(
 }
 
 function buildImplementations(
-  middleware: readonly BoundMiddleware[],
-  dynamics: ReadonlyMap<string, CapabilityDynamics>,
+  middleware: readonly DefinitionPart[],
   snapshots: readonly BoundToolDefinition[]
 ): Implementations {
   const table: Record<string, Implementations[string]> = {};
   for (const item of middleware) {
-    const tools: Record<string, NonNullable<BoundMiddleware["tools"]>[number]> =
+    const tools: Record<string, NonNullable<DefinitionPart["tools"]>[number]> =
       {};
     for (const tool of snapshots.filter(
       (tool) => tool.owner.middlewareId === item.id
     ))
       tools[tool.name] = tool;
-    const dyn = dynamics.get(item.id);
-    table[item.id] = Object.freeze({
-      ...(Object.keys(tools).length
-        ? { tools: Object.freeze({ ...tools }) }
-        : {}),
-      ...(dyn?.middleware ? { middleware: dyn.middleware } : {}),
-    });
+    table[item.id] = Object.freeze(
+      Object.keys(tools).length ? { tools: Object.freeze({ ...tools }) } : {}
+    );
   }
   return Object.freeze(table);
 }

@@ -1,5 +1,3 @@
-export { skills } from "./skills.js";
-export type { SkillsCapability, SkillsOptions } from "./skills.js";
 export {
   loadSkillsFromDirectory,
   resolveSkillsRoot,

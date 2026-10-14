@@ -15,7 +15,7 @@ tool snapshots and live schema validators. Functions in a binding stay local.
 result or a durable wait. A supplied checkpoint is not mutated by a new invocation.
 (The workflow primitive named **Loop** is separate; see below.)
 
-**Step**: One model call together with its middleware and tool plan.
+**Step**: One model call together with its tool plan.
 
 **Host**: The OSS or Cloud runtime that owns persistence, scheduling,
 authentication and provider access around the shared engine.

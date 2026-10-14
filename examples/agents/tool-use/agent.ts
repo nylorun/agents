@@ -2,7 +2,6 @@ import { Agent } from "@nylorun/agents/define";
 import { tools } from "../shared/tools/index.js";
 import {
   exampleInstructions,
-  modelSelection,
   type AgentDependencies,
   type ExampleAgent,
 } from "../shared/types.js";
@@ -17,8 +16,7 @@ export async function createToolUse(
     description: "Calculates, reports the current time, and converts units with tools. Returns the result.",
   })
     .instructions(exampleInstructions)
-    .capability(modelSelection(deps.provider, deps.model))
-    .capability(await tools())
+    .tools(...(await tools()))
     .build();
   return agent;
 }

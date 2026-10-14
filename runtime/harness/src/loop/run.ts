@@ -141,7 +141,7 @@ export async function execute(
       };
       const result = await runStep({
         agent: {
-          middleware: agent.middleware,
+          parts: agent.parts,
           invoke: options.onModelCall,
           registry: agent.registry,
           sessionState: invocation.sessionBag,

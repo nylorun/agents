@@ -286,11 +286,8 @@ it("gives an agent used as a tool its own MCP servers and the session's sandbox"
   const runtime = await boot(directory, model);
   try {
     const coder = Agent({ id: "coder", description: "Writes notes." })
-      .use({
-        id: "local",
-        mcpServers: {
-          local: { name: "local", type: "streamable-http", url: server.url },
-        },
+      .mcp({
+        local: { name: "local", type: "streamable-http", url: server.url },
       });
     const bot = Agent({ id: "bot", tools: [coder] }).build();
     // The session names an Environment with a sandbox; the agent it uses as a tool shares it.
@@ -300,7 +297,7 @@ it("gives an agent used as a tool its own MCP servers and the session's sandbox"
     expect(done.mcpSnapshot.mcpTools).toEqual([
       expect.objectContaining({
         agentId: "coder",
-        capabilityId: "local",
+        capabilityId: "mcp",
         name: "local__echo",
       }),
     ]);

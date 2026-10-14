@@ -1,3 +1,21 @@
+# Step middleware and capability bundles are removed
+
+An agent is its manifest: nothing of yours runs in a step, here or in the local engine. No
+protocol change.
+
+| Removed | Instead |
+| --- | --- |
+| `.use(fn)`, `.use(id, fn)`, `middleware()`, `StepMiddleware` | A tool's approval, the Tenant's tool policy, an output schema, or your own harness (Harness API) |
+| `.use({ … })`, `.capability(…)`, `capability()`, `CapabilityBuilder` | `.instructions()`, `.tools()`, `.subagents()`, `.mcp()`, `.skills()`, `.plugin()`. To reuse a set, write a function that adds it: `const billing = (agent) => agent.tools(refund).instructions(BILLING)` |
+| `skills(dir)`, `plugin(dir)`, `mcp(servers)` | `.skills(dir)`, `.plugin(dir)`, `.mcp(servers)` |
+| `.skills(dir, { id })` | `.skills(dir)`; the part takes the folder's name |
+| `model()` and a capability's `model` | The Runtime picks the model: the Tenant's model, or the session's |
+| `Implementations[id].middleware` | Nothing: `Agent.from(json, implementations)` takes tools only |
+
+The engine no longer emits `middleware.entered`, `middleware.completed` or
+`middleware.lease-violation`, and a model request has no `model` directive or runtime context
+items.
+
 # Model inputs and files (protocol 12)
 
 Protocol 12 only adds to protocol 11: the Runtime serves clients of both, and nothing a protocol

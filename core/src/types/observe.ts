@@ -160,21 +160,6 @@ export type ObserveEvent =
       };
     }
   | {
-      readonly type: "middleware.entered" | "middleware.completed";
-      readonly turnId: string;
-      readonly stepId: string;
-      readonly inputId?: string;
-      readonly middlewareId: string;
-    }
-  | {
-      readonly type: "middleware.lease-violation";
-      readonly turnId: string;
-      readonly stepId: string;
-      readonly inputId?: string;
-      readonly middlewareId: string;
-      readonly reason: string;
-    }
-  | {
       readonly type: "tool.sealed";
       readonly turnId: string;
       readonly stepId: string;

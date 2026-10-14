@@ -8,11 +8,6 @@ import {
   type SkillDiagnostic,
 } from "./load.js";
 
-export interface SkillsOptions {
-  /** Capability id. Defaults to the catalog directory basename. */
-  readonly id?: string;
-}
-
 export interface SkillsCapability extends CapabilityDeclaration {
   readonly diagnostics: readonly SkillDiagnostic[];
   /** Absolute catalog directory that was loaded. */
@@ -20,7 +15,7 @@ export interface SkillsCapability extends CapabilityDeclaration {
 }
 
 /**
- * Load an agentskills.io catalog folder and return one capability for `Agent.use`.
+ * Load an agentskills.io catalog folder as one part of an agent, for `.skills()`.
  *
  * Expected layout:
  * ```
@@ -35,15 +30,12 @@ export interface SkillsCapability extends CapabilityDeclaration {
  * included, by content hash). The client uploads the files the Runtime lacks when it registers
  * the agent, and the Runtime serves `load_skill` / `read_skill_resource` from them.
  */
-export function skills(
-  directory: string,
-  options: SkillsOptions = {}
-): SkillsCapability {
+export function skills(directory: string): SkillsCapability {
   const root = resolveSkillsRoot(directory);
   const diagnostics: SkillDiagnostic[] = [];
   const loaded = loadSkillsFromDirectory(root, diagnostics);
   const listed = Object.values(loaded);
-  const id = options.id ?? basename(root);
+  const id = basename(root);
   if (listed.length === 0) {
     return { id, root, diagnostics };
   }

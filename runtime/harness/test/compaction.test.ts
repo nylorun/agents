@@ -310,10 +310,7 @@ describe("compaction and files (protocol 12)", () => {
 describe("compaction in the turn loop", () => {
   const agent = () =>
     Agent({ id: "long", name: "Long" })
-      .use({
-        id: "jobs",
-        tools: [{ name: "job", inputSchema: z.object({}), execute: async () => "unused" }],
-      })
+      .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
       .build();
 
   /**

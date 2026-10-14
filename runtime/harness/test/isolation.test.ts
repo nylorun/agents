@@ -1,14 +1,18 @@
 import { runAgent } from "./run-agent.js";
 import { expect, it } from "vitest";
+import { z } from "zod";
 import { Agent } from "@nylorun/core/define";
 
 it("isolates state, info, and execution identities in concurrent calls", async () => {
   const infos: unknown[] = [];
   const agent = Agent<{ name: string }>({ id: "a", name: "A" })
-    .use("info", async (request, next) => {
-      infos.push(request.info);
-      request.context.set("name", [{ value: request.info!.name }]);
-      return next();
+    .tools({
+      name: "who",
+      inputSchema: z.object({}),
+      execute: async (_args, { info }) => {
+        infos.push(info);
+        return { kind: "completed" as const, output: info!.name };
+      },
     })
     .build();
   const results = await Promise.all(
@@ -18,7 +22,9 @@ it("isolates state, info, and execution identities in concurrent calls", async (
         info: { name },
         onModelCall: async (_, { request }) => {
           await Promise.resolve();
-          return String(request.context.items[0]!.value);
+          const result = request.toolResults[0];
+          if (!result) return { output: [{ type: "tool-call", id: "who", name: "who", args: {} }] };
+          return result.kind === "completed" ? String(result.output) : "failed";
         },
       }),
     ),

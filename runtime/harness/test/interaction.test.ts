@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { testAgent, execution, offer, model, tool, toolCalls, turn } from "./fixtures.js";
+import { testAgent, execution, model, tool, toolCalls, turn } from "./fixtures.js";
+
+const approved = (definition: ReturnType<typeof tool>, prompt = "approve") => ({
+  ...definition,
+  approval: () => prompt,
+});
 
 describe("interaction resume", () => {
   it("retains the plan and resumes an execution interaction with the same invocation", async () => {
@@ -19,21 +24,19 @@ describe("interaction resume", () => {
     });
     let step = 0;
     const result = testAgent()
-      .use("policy", async (request, next) => {
-        positions.push({
-          turnNumber: request.turnNumber,
-          stepNumber: request.stepNumber,
-        });
-        return next();
-      })
-      .use("test", offer(tool("echo", execution(execute))))
+      .tools(tool("echo", execution(execute)))
       .with(
         model(async () =>
           ++step === 1 ? toolCalls({ id: "call", name: "echo", args: {} }) : "done",
         ),
       )
       .build();
-    const { session, handle: streamed } = turn(result, "go");
+    const { session, handle: streamed } = turn(result, "go", {
+      observer: (event: any) => {
+        if (event.type === "step.started")
+          positions.push({ turnNumber: event.turnNumber, stepNumber: event.stepNumber });
+      },
+    });
     const first = await streamed.completed;
     expect(first.status).toBe("waiting");
     const required = first.events.find((event) => event.type === "interaction.required");
@@ -66,13 +69,10 @@ describe("interaction resume", () => {
     const execute = vi.fn(async () => ({ kind: "completed", output: "effect" }));
     let calls = 0;
     const agent = testAgent()
-      .use("approval", async (_, next) => {
-        const response = await next();
-        for (const call of response.toolCalls())
-          response.requireInteraction(call.id, { kind: "approval", prompt: "Approve?" });
-        return response;
-      })
-      .use("tools", offer(tool("first", execute), tool("second", execute)))
+      .tools(
+        approved(tool("first", execute), "Approve?"),
+        approved(tool("second", execute), "Approve?"),
+      )
       .with(
         model(async () =>
           calls++ ? "done" : toolCalls({ id: "a", name: "first" }, { id: "b", name: "second" }),
@@ -104,12 +104,7 @@ describe("interaction resume", () => {
       return { kind: "completed", output: "too late" };
     });
     const result = testAgent()
-      .use("approval", async (_request, next) => {
-        const response = await next();
-        response.requireInteraction("call", { kind: "approval", prompt: "approve" });
-        return response;
-      })
-      .use("test", offer(tool("echo", local)))
+      .tools(approved(tool("echo", local)))
       .with(
         model(async () =>
           ++modelStep === 1 ? toolCalls({ id: "call", name: "echo", args: {} }) : "done",

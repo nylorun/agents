@@ -7,7 +7,6 @@ import {
   type ToolDescriptor,
   tool,
   type CapabilityDeclaration,
-  type StepRequest,
 } from "@nylorun/core/define";
 import { type ExecutionState, type RunResult, type Session } from "../../src/index.js";
 // @ts-expect-error Private binding implementation is not public.
@@ -17,27 +16,21 @@ type Info = { tenantId: string };
 const _sessionTypeCheck: Session | undefined = undefined;
 void _sessionTypeCheck;
 const schema = z.object({ count: z.number() });
-const capability: CapabilityDeclaration<Info> = {
-  id: "tools",
-  tools: [
-    tool({
-      name: "count",
-      inputSchema: z.object({ value: z.number() }),
-      execute: async ({ value }, { info }) => {
-        const tenant: string | undefined = info?.tenantId;
-        return { kind: "completed", output: { value, tenant: tenant ?? "" } };
-      },
-    }),
-  ],
-  middleware: async (request, next) => {
-    const tenant: string | undefined = request.info?.tenantId;
-    // @ts-expect-error Resource creation and session-owned state were removed.
-    request.state;
-    request.context.set("tenant", [{ value: tenant ?? "" }]);
-    return next();
+const count = tool({
+  name: "count",
+  inputSchema: z.object({ value: z.number() }),
+  execute: async ({ value }, { info }: { info?: Info }) => {
+    const tenant: string | undefined = info?.tenantId;
+    return { kind: "completed", output: { value, tenant: tenant ?? "" } };
   },
-};
-const scoped = Agent<Info>({ id: "a", name: "A" }).use(capability).build();
+});
+const scoped = Agent<Info>({ id: "a", name: "A" }).tools(count).build();
+// @ts-expect-error Step middleware was removed.
+Agent({ id: "no-middleware" }).use;
+// @ts-expect-error Capabilities were removed; parts come from builder methods.
+Agent({ id: "no-capability" }).capability;
+// @ts-expect-error Step middleware was removed.
+import type { StepMiddleware } from "@nylorun/core/define";
 const promise: Promise<RunResult<string>> = run<Info>({
   binding: bindingFromAgent(scoped),
   input: "hi",
@@ -90,7 +83,7 @@ const scopedTyped = Agent<Info, typeof schema>({
   name: "Scoped",
   outputSchema: schema,
 })
-  .use(capability)
+  .tools(count)
   .build();
 void scopedTyped;
 declare const state: ExecutionState;
@@ -108,9 +101,6 @@ await run<Info>({
 });
 // @ts-expect-error Legacy state factories are removed.
 const bad: CapabilityDeclaration = { id: "bad", state: { create: () => ({}) } };
-declare const request: StepRequest;
-// @ts-expect-error Harness does not expose a Session on middleware requests.
-request.session;
 
 const typedAgent: BuiltAgent<Info, { count: number }> = scopedTyped;
 const initialized: ExecutionState = createExecutionState(typedAgent);
@@ -121,12 +111,12 @@ new BuiltAgent();
 scoped instanceof BuiltAgent;
 // @ts-expect-error The registry is internal.
 scoped.registry;
-// @ts-expect-error Compiled middleware is internal.
-scoped.middleware;
+// @ts-expect-error Definition parts are internal.
+scoped.parts;
 // @ts-expect-error Bound output validation is internal.
 typed.output;
 // Core binding declarations are public data; engine compilation remains private.
-import type { BoundMiddleware } from "@nylorun/core/define";
+import type { DefinitionPart } from "@nylorun/core/define";
 // @ts-expect-error Step input is internal.
 import type { StepInput } from "@nylorun/core/define";
 // @ts-expect-error Bound schemas are internal.

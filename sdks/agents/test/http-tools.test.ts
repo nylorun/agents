@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { AgentManifestSchema } from "@nylorun/core/contracts";
-import { Agent, capability, hashManifest, http, tool } from "../src/index.js";
+import { Agent, hashManifest, http, tool } from "../src/index.js";
 import { AgentsClient } from "../src/client.js";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 
@@ -51,8 +51,8 @@ describe("http()", () => {
       input: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
       url: "https://search.example.com/lookup",
     });
-    const agent = Agent({ id: "search" }).capability(capability({ id: "search-tools" }).tools(lookup)).build();
-    const [declared] = agent.manifest.capabilities.find((item) => item.id === "search-tools")!.tools!;
+    const agent = Agent({ id: "search" }).tools(lookup).build();
+    const [declared] = agent.manifest.capabilities.find((item) => item.id === "agent")!.tools!;
     expect(declared).toEqual({
       name: "lookup",
       inputSchema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { Agent, capability, tool } from "../src/define.js";
+import { Agent, tool } from "../src/define.js";
 import { resetDeprecationWarnings } from "../src/utils/deprecate.js";
 
 /** Flow Agents Phase 1: the old authoring forms warn once each; the new ones never do. */
@@ -34,13 +34,7 @@ describe("deprecation warnings", () => {
   it("warn once per code for the old forms", () => {
     Agent({ id: "a", instructions: "x", tools: [look] });
     Agent({ id: "b", instructions: "y" });
-    Agent({ id: "c" }).use({ id: "cap-c", instructions: ["c"] });
-    capability({ id: "cap", instructions: "c" });
-    expect(codes).toEqual([
-      "NYLORUN_DEP_AGENT_OPTIONS",
-      "NYLORUN_DEP_USE",
-      "NYLORUN_DEP_CAPABILITY_OPTIONS",
-    ]);
+    expect(codes).toEqual(["NYLORUN_DEP_AGENT_OPTIONS"]);
   });
 
   it("never warn for the new syntax", () => {
@@ -49,16 +43,10 @@ describe("deprecation warnings", () => {
       .instructions("x")
       .tools(look)
       .subagents(helper)
-      .capability(capability({ id: "cap" }).instructions("c"))
       .mcp({ gh: { type: "sse", url: "https://x.example/gh" } })
       .output(z.string())
       .build();
     Agent({ id: "f" }).pipe(helper).build();
-    expect(codes).toEqual([]);
-  });
-
-  it("do not warn for middleware functions, which have no replacement yet", () => {
-    Agent({ id: "a" }).use(async (_request, next) => next());
     expect(codes).toEqual([]);
   });
 });

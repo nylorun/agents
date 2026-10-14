@@ -7,11 +7,11 @@ import type {
   CapabilityInput,
   ToolSchemaSource,
 } from "@nylorun/core/define";
-import { skills, type SkillsOptions } from "./skills/index.js";
+import { skills } from "./skills/skills.js";
 import { plugin } from "./plugins/plugin.js";
 
 /**
- * The agent builder with the capabilities that read files: `.skills()` and `.plugin()`.
+ * The agent builder with the methods that read files: `.skills()` and `.plugin()`.
  * `@nylorun/agents/define` exports the portable builder from core, without them.
  */
 export class AgentBuilder<
@@ -20,13 +20,13 @@ export class AgentBuilder<
   Id extends string = string,
 > extends CoreAgentBuilder<Info, Schema, Id> {
   /** Load an Agent Skills folder. */
-  skills(directory: string, options?: SkillsOptions): this {
-    return this.capability(skills(directory, options) as CapabilityInput<Info>);
+  skills(directory: string): this {
+    return this.withPart(skills(directory) as CapabilityInput<Info>, "skills()");
   }
 
   /** Attach an Agent Plugin package. */
   plugin(directory: string): this {
-    return this.capability(plugin(directory) as CapabilityInput<Info>);
+    return this.withPart(plugin(directory) as CapabilityInput<Info>, "plugin()");
   }
 
   override output<S extends ToolSchemaSource>(schema: S): AgentBuilder<Info, S, Id> {

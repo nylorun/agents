@@ -1,4 +1,4 @@
-import type { BoundMiddleware, BoundToolDefinition } from "@nylorun/core/define";
+import type { DefinitionPart, BoundToolDefinition } from "@nylorun/core/define";
 import { bindTool } from "@nylorun/core/define";
 import { HarnessError } from "@nylorun/core/define";
 import { canonical } from "@nylorun/core/define";
@@ -11,7 +11,7 @@ export class ToolRegistry {
   private readonly tools = new Map<string, BoundToolDefinition>();
   private readonly owners = new WeakMap<object, string>();
 
-  constructor(middleware: readonly BoundMiddleware[], snapshots?: readonly BoundToolDefinition[]) {
+  constructor(middleware: readonly DefinitionPart[], snapshots?: readonly BoundToolDefinition[]) {
     for (const capability of middleware) {
       for (const tool of [...(capability.tools ?? []), ...(capability.sessionTools ?? [])]) {
         const key = JSON.stringify([capability.id, tool.name]);

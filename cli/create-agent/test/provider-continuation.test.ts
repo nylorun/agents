@@ -58,19 +58,16 @@ it("completes a signed Gemini tool conversation across the published engine/runt
     }),
   );
   const agent = Agent({ id: "assistant", name: "Assistant" })
-    .use({
-      id: "arithmetic",
-      tools: [
-        tool({
-          name: "add_numbers",
-          inputSchema: z.object({ a: z.number(), b: z.number() }),
-          execute: async ({ a, b }) => ({
-            kind: "completed",
-            output: { sum: a + b },
-          }),
+    .tools(
+      tool({
+        name: "add_numbers",
+        inputSchema: z.object({ a: z.number(), b: z.number() }),
+        execute: async ({ a, b }) => ({
+          kind: "completed",
+          output: { sum: a + b },
         }),
-      ],
-    })
+      }),
+    )
     .build();
   const result = await runAgent(agent, {
     input: "Add 19 and 7",

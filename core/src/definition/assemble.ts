@@ -1,9 +1,8 @@
-import type { BoundMiddleware } from "./bound.js";
+import type { DefinitionPart } from "./bound.js";
 import type { BuiltAgent } from "../types/agent.js";
 import type { AgentManifest, ManifestSchemaVersion, RuntimeManifest } from "../types/manifest.js";
 import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import type { ToolSchemaSource } from "../types/tool.js";
-import type { StepMiddleware } from "../types/middleware.js";
 import type { SkillManifest } from "../types/manifest.js";
 import { bindAgent } from "./bind-agent.js";
 import { createManifest } from "./manifest.js";
@@ -19,10 +18,6 @@ type BuildResult<Agent> =
     }
   | { readonly ok: false; readonly diagnostics: readonly BuildDiagnostic[] };
 
-export interface CapabilityDynamics {
-  readonly middleware?: StepMiddleware<any>;
-}
-
 const diagnostic = (
   code: string,
   message: string,
@@ -30,7 +25,7 @@ const diagnostic = (
 ): BuildDiagnostic => Object.freeze({ code, message, ...extra });
 
 export function assembleAgent(
-  middleware: readonly BoundMiddleware[],
+  middleware: readonly DefinitionPart[],
   identity: Readonly<{
     id: string;
     name?: string;
@@ -40,8 +35,7 @@ export function assembleAgent(
     runtime?: RuntimeManifest;
     /** A manifest rebuilt from JSON keeps its version (`agentFrom`); a new one takes the least. */
     manifestSchemaVersion?: ManifestSchemaVersion;
-  }>,
-  dynamics: ReadonlyMap<string, CapabilityDynamics> = new Map()
+  }>
 ): BuildResult<BuiltAgent> {
   const diagnostics: BuildDiagnostic[] = [];
 
@@ -59,66 +53,20 @@ export function assembleAgent(
     );
   }
 
-  const middlewareIds = new Set<string>();
-  const frozen: BoundMiddleware[] = [];
+  const partIds = new Set<string>();
+  const frozen: DefinitionPart[] = [];
   for (const item of middleware) {
     if (!item.id)
-      diagnostics.push(
-        diagnostic("middleware.invalid-id", "Middleware id must not be empty")
-      );
-    else if (middlewareIds.has(item.id))
-      diagnostics.push(
-        diagnostic(
-          "middleware.duplicate-id",
-          `Duplicate middleware id '${item.id}'`
-        )
-      );
-    else if (typeof item.handle !== "function")
-      diagnostics.push(
-        diagnostic(
-          "middleware.invalid",
-          `Middleware '${item.id}' must provide a function`
-        )
-      );
+      diagnostics.push(diagnostic("capability.invalid-id", "Capability id must not be empty"));
+    else if (partIds.has(item.id))
+      diagnostics.push(diagnostic("capability.duplicate-id", `Duplicate capability id '${item.id}'`));
     else if (item.name !== undefined && item.name.length === 0)
       diagnostics.push(
-        diagnostic(
-          "middleware.invalid",
-          `Capability '${item.id}' name must be a non-empty string`
-        )
+        diagnostic("capability.invalid", `Capability '${item.id}' name must be a non-empty string`)
       );
     else {
-      middlewareIds.add(item.id);
-      frozen.push(
-        Object.freeze({
-          id: item.id,
-          ...(item.name === undefined ? {} : { name: item.name }),
-          ...(item.description === undefined
-            ? {}
-            : { description: item.description }),
-          handle: item.handle,
-          hasMiddleware: item.hasMiddleware,
-          ...(item.tools === undefined ? {} : { tools: item.tools }),
-          ...(item.contributions === undefined
-            ? {}
-            : { contributions: item.contributions }),
-          ...(item.manifestType === undefined
-            ? {}
-            : { manifestType: item.manifestType }),
-          ...(item.metadata === undefined ? {} : { metadata: item.metadata }),
-          ...(item.mcpServers === undefined
-            ? {}
-            : { mcpServers: item.mcpServers }),
-          ...(item.sandbox === undefined ? {} : { sandbox: item.sandbox }),
-          ...(item.skills === undefined ? {} : { skills: item.skills }),
-          ...(item.skillFiles === undefined
-            ? {}
-            : { skillFiles: item.skillFiles }),
-          ...(item.sessionTools === undefined
-            ? {}
-            : { sessionTools: item.sessionTools }),
-        })
-      );
+      partIds.add(item.id);
+      frozen.push(Object.freeze({ ...item }));
     }
   }
 
@@ -163,12 +111,12 @@ export function assembleAgent(
       ? {}
       : { manifestSchemaVersion: identity.manifestSchemaVersion }),
   });
-  const agent = bindAgent(frozenMiddleware, manifest, identity, dynamics);
+  const agent = bindAgent(frozenMiddleware, manifest, identity);
   return Object.freeze({ ok: true, agent, manifest });
 }
 
 /** v1 delegation is one level deep and non-interactive; anything else fails the build by name. */
-function delegationDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnostic[] {
+function delegationDiagnostics(items: readonly DefinitionPart[]): BuildDiagnostic[] {
   const found: BuildDiagnostic[] = [];
   for (const item of items)
     for (const tool of item.tools ?? []) {
@@ -221,7 +169,7 @@ function delegationDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnost
  * capability that still carries `sandbox` fails the build instead of being silently dropped.
  * The Runtime's own capability (`nylorun.sandbox`, in a session's pinned manifest) is exempt.
  */
-function sandboxDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnostic[] {
+function sandboxDiagnostics(items: readonly DefinitionPart[]): BuildDiagnostic[] {
   return items
     .filter((item) => item.sandbox !== undefined && item.id !== SANDBOX_CAPABILITY_ID)
     .map((item) =>
@@ -237,8 +185,8 @@ function sandboxDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnostic[
  * of the agent. A tool of that name it already has is kept: an agent rebuilt from its manifest
  * brings the hosted ones the Runtime serves.
  */
-function attachSkillTools(items: readonly BoundMiddleware[]): {
-  readonly items: BoundMiddleware[];
+function attachSkillTools(items: readonly DefinitionPart[]): {
+  readonly items: DefinitionPart[];
   readonly diagnostics: readonly BuildDiagnostic[];
 } {
   const skills = new Map<string, SkillManifest>();
@@ -266,14 +214,7 @@ function attachSkillTools(items: readonly BoundMiddleware[]): {
     const declared = new Set((item.tools ?? []).map((entry) => entry.name));
     const added = skillTools.filter((entry) => !declared.has(entry.name));
     if (added.length === 0) return item;
-    const tools = [...(item.tools ?? []), ...added];
-    const advertised = [...tools, ...(item.sessionTools ?? [])];
-    const handle: StepMiddleware = async (request, next) =>
-      item.handle(request, async () => {
-        request.configuration.tools.set(item.id, advertised);
-        return next();
-      });
-    return { ...item, tools, handle };
+    return { ...item, tools: Object.freeze([...(item.tools ?? []), ...added]) };
   });
   return { items: next, diagnostics };
 }

@@ -1,8 +1,7 @@
 import { Agent } from "@nylorun/agents/define";
-import { codeMode } from "./capability.js";
+import { codeMode } from "./tools.js";
 import {
   exampleInstructions,
-  modelSelection,
   type AgentDependencies,
   type ExampleAgent,
 } from "../shared/types.js";
@@ -11,13 +10,13 @@ import {
 export async function createCodeMode(
   deps: AgentDependencies,
 ): Promise<ExampleAgent> {
+  const mode = await codeMode();
   const agent = Agent({
     id: "code-mode",
     name: "Code Mode",
   })
-    .instructions(exampleInstructions)
-    .capability(modelSelection(deps.provider, deps.model))
-    .capability(await codeMode())
+    .instructions(exampleInstructions, ...mode.instructions)
+    .tools(...mode.tools)
     .build();
   return agent;
 }

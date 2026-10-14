@@ -12,7 +12,7 @@ export interface PluginCapability extends CapabilityDeclaration {
 }
 
 /**
- * Read an Agent Plugin package and return one capability for `Agent.use`. Each part it skips
+ * Read an Agent Plugin package as one part of an agent, for `.plugin()`. Each part it skips
  * (an invalid MCP server or skill) is a process warning, so building or registering the agent
  * says why the agent has less than the package declares. A stdio MCP server throws: Nylorun
  * accepts remote servers only.

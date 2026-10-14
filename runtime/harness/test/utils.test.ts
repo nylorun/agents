@@ -15,7 +15,12 @@ describe("observer emission", () => {
     let calls = 0;
     emitObserve(undefined, () => {
       calls += 1;
-      return { type: "middleware.entered", turnId: "turn", stepId: "step", middlewareId: "mw" };
+      return {
+        type: "turn.completed",
+        turnId: "turn",
+        stepId: "step",
+        attributes: { output: "done" },
+      };
     });
     expect(calls).toBe(0);
   });
@@ -27,11 +32,16 @@ describe("observer emission", () => {
       (event) => types.push(event.type),
       () => {
         calls += 1;
-        return { type: "middleware.entered", turnId: "turn", stepId: "step", middlewareId: "mw" };
+        return {
+          type: "turn.completed",
+          turnId: "turn",
+          stepId: "step",
+          attributes: { output: "done" },
+        };
       },
     );
     expect(calls).toBe(1);
-    expect(types).toEqual(["middleware.entered"]);
+    expect(types).toEqual(["turn.completed"]);
   });
 
   it("isolates observer failures and reports observation.failed", () => {
@@ -39,14 +49,19 @@ describe("observer emission", () => {
     const sink = createObservationSink({
       listener: (event) => {
         types.push(event.type);
-        if (event.type === "middleware.entered") throw new Error("observer failed");
+        if (event.type === "turn.completed") throw new Error("observer failed");
       },
       executionId: () => "exec",
       runId: "run",
     });
     expect(() =>
-      sink.emit({ type: "middleware.entered", turnId: "turn", stepId: "step", middlewareId: "mw" }),
+      sink.emit({
+        type: "turn.completed",
+        turnId: "turn",
+        stepId: "step",
+        attributes: { output: "done" },
+      }),
     ).not.toThrow();
-    expect(types).toEqual(["middleware.entered", "observation.failed"]);
+    expect(types).toEqual(["turn.completed", "observation.failed"]);
   });
 });

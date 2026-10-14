@@ -2,7 +2,6 @@ import { tool } from "@nylorun/agents/define";
 import { z } from "zod";
 
 export const askUser = {
-  id: "ask-user",
   instructions: [
     "Use ask_user when you need a short fact from the human before continuing.",
   ],

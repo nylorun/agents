@@ -14,10 +14,7 @@ describe("durable reconstruction", () => {
     "reuses completed effects and preserves the starting checkpoint for %s work",
     async (status) => {
       const agent = Agent({ id: "durable", name: "Durable" })
-        .use({
-          id: "jobs",
-          tools: [{ name: "job", inputSchema: z.object({}), execute: async () => "unused" }],
-        })
+        .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
         .build();
       const manifest = agent.manifest;
       const checkpoint = createDurableCheckpoint({
@@ -78,10 +75,7 @@ describe("durable reconstruction", () => {
 
   it("advertises session tools without changing the manifest hash", async () => {
     const agent = Agent({ id: "durable", name: "Durable" })
-      .use({
-        id: "jobs",
-        tools: [{ name: "job", inputSchema: z.object({}), execute: async () => "unused" }],
-      })
+      .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
       .build();
     const manifest = agent.manifest;
     const checkpoint = createDurableCheckpoint({
@@ -120,7 +114,7 @@ describe("durable reconstruction", () => {
         }
         expect(effect).toMatchObject({
           kind: "tool",
-          capabilityId: "jobs",
+          capabilityId: "agent",
           toolName: "github__get_issue",
           input: { number: 7 },
         });
@@ -136,7 +130,7 @@ describe("durable reconstruction", () => {
       host,
       sessionTools: [
         {
-          capabilityId: "jobs",
+          capabilityId: "agent",
           name: "github__get_issue",
           description: "Read an issue.",
           inputSchema: {
@@ -209,10 +203,7 @@ describe("model failure outcomes (Model Calls §6)", () => {
 describe("segment rollover (Model Calls §10)", () => {
   it("yields between steps and continues the same turn in the next segment", async () => {
     const manifest = Agent({ id: "roller", name: "Roller" })
-      .use({
-        id: "jobs",
-        tools: [{ name: "job", inputSchema: z.object({}), execute: async () => "unused" }],
-      })
+      .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
       .build().manifest;
     const journal = new Map<string, EffectResolution>();
     let modelCalls = 0;

@@ -19,7 +19,7 @@ provider call.
 ## Compose an agent
 
 ```ts
-import { Agent, tool, ToolError, capability } from "@nylorun/agents/define";
+import { Agent, tool, ToolError } from "@nylorun/agents/define";
 import { z } from "zod";
 
 const lookup = tool({
@@ -33,12 +33,9 @@ const lookup = tool({
   },
 });
 
-export const supportAgent = Agent({
-  id: "support",
-  name: "Support",
-  instructions: "You help customers with orders. Be brief.",
-  tools: [lookup],
-}).capability(capability({ id: "policy" }).instructions("Never promise a refund."));
+export const supportAgent = Agent({ id: "support", name: "Support" })
+  .instructions("You help customers with orders. Be brief.", "Never promise a refund.")
+  .tools(lookup);
 
 // Optional: .build() is a no-op facade
 const agent = supportAgent.build();
@@ -47,7 +44,7 @@ JSON.stringify(supportAgent); // manifest
 Agent.from(supportAgent.toJSON(), implementations);
 ```
 
-`.use()` returns a **new** agent. Top-level `tools` / `instructions` are first-class. Do **not** put `model` on `Agent({})` — Runtime resolves and calls the model.
+Each builder call (`.instructions()`, `.tools()`, `.subagents()`, `.mcp()`, `.output()`) returns a **new** agent; the engine offers the agent's instructions and tools to the model on every step. Do **not** put `model` on `Agent({})` — Runtime resolves and calls the model.
 
 ## Run the loop
 
@@ -78,8 +75,8 @@ Prefer `input` / `output` / `run`. Legacy `inputSchema` / `execute` and tagged `
 
 Definitions must not import `@nylorun/runtime`.
 
-Local explicit engine execution retains middleware. Durable manifests reject middleware
-closures: a hosted agent is its manifest, and the Runtime runs it from that alone.
+There is no step middleware: a hosted agent is its manifest, and the Runtime runs it from
+that alone.
 
 ## Checkpoint / durability
 

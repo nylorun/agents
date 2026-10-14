@@ -1,8 +1,5 @@
-import type { BoundMiddleware } from "./bound.js";
-import type {
-  CapabilityInput,
-  StepMiddleware,
-} from "../types/middleware.js";
+import type { DefinitionPart } from "./bound.js";
+import type { CapabilityInput } from "../types/middleware.js";
 import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import { HarnessError } from "../errors.js";
 import type {
@@ -14,7 +11,7 @@ import type { AgentTool, BuiltAgent } from "../types/agent.js";
 import type { AgentManifest, McpServerManifest } from "../types/manifest.js";
 import type { WorkflowBinding, WorkflowManifest } from "../types/workflow.js";
 import type { Implementations } from "./implementations.js";
-import { assembleAgent, type CapabilityDynamics } from "./assemble.js";
+import { assembleAgent } from "./assemble.js";
 import { compileDeclaration } from "./declaration.js";
 import { agentFrom } from "./from.js";
 import { isAgentItem } from "./delegate.js";
@@ -44,7 +41,6 @@ import type {
   PipeOut,
   StageOptions,
 } from "./flow/types.js";
-import { isCapabilityBuilder } from "./capability.js";
 
 export interface AgentOptions<
   Schema extends ToolSchemaSource | undefined = undefined
@@ -71,8 +67,7 @@ interface BuilderSnapshot {
   readonly metadata?: JsonObject;
   readonly outputSchema?: ToolSchemaSource;
   readonly inputSchema?: ToolSchemaSource;
-  readonly entries: readonly BoundMiddleware[];
-  readonly dynamics: ReadonlyMap<string, CapabilityDynamics>;
+  readonly entries: readonly DefinitionPart[];
   /** Builder-level problems, reported with the assembly diagnostics. */
   readonly diagnostics?: readonly BuildDiagnostic[];
   readonly body: Body;
@@ -257,23 +252,25 @@ export class AgentBuilder<
         );
       merged[key] = server;
     }
-    const compiled = compileDeclaration({ id: "mcp", mcpServers: Object.freeze(merged) });
+    const part = compileDeclaration({ id: "mcp", mcpServers: Object.freeze(merged) });
     return this.spawn({
       ...snapshot,
       ...body,
       mcpServers: Object.freeze(merged),
-      entries: replaceOrAppend(snapshot.entries, compiled.bound),
-      dynamics: withDynamics(snapshot.dynamics, "mcp", {}),
+      entries: replaceOrAppend(snapshot.entries, part),
       diagnostics: addDiagnostics(body.diagnostics ?? snapshot.diagnostics, diagnostics),
     });
   }
 
-  /** Attach a reusable bundle made with `capability({ id })`. */
-  capability(bundle: CapabilityInput<Info> | { toDeclaration(): CapabilityInput<Info> }): this {
-    const declaration = isCapabilityBuilder(bundle)
-      ? (bundle.toDeclaration() as CapabilityInput<Info>)
-      : (bundle as CapabilityInput<Info>);
-    return this.addDeclaration(declaration, "capability()");
+  /** @internal Add a part (the SDK's `.skills()` and `.plugin()` use it). */
+  protected withPart(declaration: CapabilityInput<Info>, method: string): this {
+    const body = this.bodyFor("react", method);
+    const snapshot = this.#snapshot;
+    return this.spawn({
+      ...snapshot,
+      ...body,
+      entries: Object.freeze([...snapshot.entries, compileDeclaration(declaration)]),
+    });
   }
 
   /** The structured output. Set once. */
@@ -285,50 +282,6 @@ export class AgentBuilder<
         diagnostics: addDiagnostics(snapshot.diagnostics, [singleValue(snapshot.id, "output schema")]),
       }) as unknown as AgentBuilder<Info, S, Id>;
     return this.spawn({ ...snapshot, outputSchema: schema }) as unknown as AgentBuilder<Info, S, Id>;
-  }
-
-  /** @deprecated Use `.capability()`, `.mcp()`, `.skills()` or `.plugin()`. */
-  use(middleware: StepMiddleware<Info>): this;
-  /** @deprecated Use `.capability()`, `.mcp()`, `.skills()` or `.plugin()`. */
-  use(id: string, middleware: StepMiddleware<Info>): this;
-  /** @deprecated Use `.capability()`, `.mcp()`, `.skills()` or `.plugin()`. */
-  use(declaration: CapabilityInput<Info>): this;
-  use(
-    idOrMiddleware: string | StepMiddleware<Info> | CapabilityInput<Info>,
-    middleware?: StepMiddleware<Info>
-  ): this {
-    if (typeof idOrMiddleware === "object") {
-      deprecate(
-        "NYLORUN_DEP_USE",
-        ".use(capability) is deprecated. Use .capability(), .mcp(), .skills() or .plugin()."
-      );
-      const declaration = isCapabilityBuilder(idOrMiddleware)
-        ? (idOrMiddleware.toDeclaration() as CapabilityInput<Info>)
-        : idOrMiddleware;
-      return this.addDeclaration(declaration, "use()");
-    }
-    const body = this.bodyFor("react", "use()");
-    let compiled: ReturnType<typeof compileDeclaration>;
-    if (typeof idOrMiddleware === "function") {
-      compiled = {
-        bound: {
-          id: nextMiddlewareId(this.#snapshot.entries),
-          handle: idOrMiddleware as StepMiddleware,
-          hasMiddleware: true,
-        },
-        middleware: idOrMiddleware as StepMiddleware,
-      };
-    } else {
-      compiled = {
-        bound: {
-          id: idOrMiddleware,
-          handle: middleware! as StepMiddleware,
-          hasMiddleware: true,
-        },
-        middleware: middleware as StepMiddleware,
-      };
-    }
-    return this.appendCompiled(compiled, body);
   }
 
   // ── Flow: the manifest decides ─────────────────────────────────────────────
@@ -433,17 +386,13 @@ export class AgentBuilder<
       }
       return this.#workflow;
     }
-    const result = assembleAgent(
-      snapshot.entries,
-      {
-        id: snapshot.id,
-        name: snapshot.name,
-        description: snapshot.description,
-        metadata: snapshot.metadata,
-        outputSchema: snapshot.outputSchema,
-      },
-      snapshot.dynamics
-    );
+    const result = assembleAgent(snapshot.entries, {
+      id: snapshot.id,
+      name: snapshot.name,
+      description: snapshot.description,
+      metadata: snapshot.metadata,
+      outputSchema: snapshot.outputSchema,
+    });
     if (!result.ok) {
       this.#error = new AgentBuildError(result.diagnostics);
       throw this.#error;
@@ -491,34 +440,12 @@ export class AgentBuilder<
         ? { tools: Object.freeze([...(snapshot.agentPart?.tools ?? []), ...(items.tools ?? [])]) }
         : {}),
     };
-    const compiled = compileDeclaration({ id: "agent", ...part });
     return this.spawn({
       ...snapshot,
       ...body,
       agentPart: Object.freeze(part),
-      entries: replaceOrAppend(snapshot.entries, compiled.bound),
-      dynamics: withDynamics(snapshot.dynamics, "agent", snapshot.dynamics.get("agent") ?? {}),
+      entries: replaceOrAppend(snapshot.entries, compileDeclaration({ id: "agent", ...part })),
       ...(body.diagnostics === undefined ? {} : { diagnostics: body.diagnostics }),
-    });
-  }
-
-  private addDeclaration(declaration: CapabilityInput<Info>, method: string): this {
-    const body = this.bodyFor("react", method);
-    return this.appendCompiled(compileDeclaration(declaration), body);
-  }
-
-  private appendCompiled(
-    compiled: ReturnType<typeof compileDeclaration>,
-    body: { body: Body; diagnostics?: readonly BuildDiagnostic[] }
-  ): this {
-    const snapshot = this.#snapshot;
-    const dynamics = new Map(snapshot.dynamics);
-    dynamics.set(compiled.bound.id, compiled.middleware ? { middleware: compiled.middleware } : {});
-    return this.spawn({
-      ...snapshot,
-      ...body,
-      entries: Object.freeze([...snapshot.entries, compiled.bound]),
-      dynamics,
     });
   }
 }
@@ -526,8 +453,7 @@ export class AgentBuilder<
 function createSnapshot(
   options: AgentOptions<ToolSchemaSource | undefined>
 ): BuilderSnapshot {
-  const entries: BoundMiddleware[] = [];
-  const dynamics = new Map<string, CapabilityDynamics>();
+  const entries: DefinitionPart[] = [];
   const instructions =
     options.instructions === undefined
       ? undefined
@@ -540,13 +466,13 @@ function createSnapshot(
       "Agent({ instructions, tools, outputSchema }) is deprecated. Use .instructions(), .tools(), .subagents() and .output()."
     );
   if (instructions !== undefined || options.tools !== undefined) {
-    const compiled = compileDeclaration({
-      id: "agent",
-      ...(instructions === undefined ? {} : { instructions }),
-      ...(options.tools === undefined ? {} : { tools: options.tools }),
-    });
-    entries.push(compiled.bound);
-    dynamics.set("agent", {});
+    entries.push(
+      compileDeclaration({
+        id: "agent",
+        ...(instructions === undefined ? {} : { instructions }),
+        ...(options.tools === undefined ? {} : { tools: options.tools }),
+      })
+    );
   }
   return {
     id: options.id,
@@ -557,7 +483,6 @@ function createSnapshot(
     ...(options.metadata === undefined ? {} : { metadata: options.metadata }),
     outputSchema: options.outputSchema,
     entries: Object.freeze(entries),
-    dynamics,
     body: instructions !== undefined || options.tools !== undefined ? "react" : "none",
     ...(instructions === undefined && options.tools === undefined
       ? {}
@@ -586,35 +511,14 @@ function addDiagnostics(
   return Object.freeze([...(current ?? []), ...added]);
 }
 
-function withDynamics(
-  dynamics: ReadonlyMap<string, CapabilityDynamics>,
-  id: string,
-  value: CapabilityDynamics
-): ReadonlyMap<string, CapabilityDynamics> {
-  const next = new Map(dynamics);
-  next.set(id, value);
-  return next;
-}
-
 /** Replace the entry with the same id in place, or append it. */
 function replaceOrAppend(
-  entries: readonly BoundMiddleware[],
-  bound: BoundMiddleware
-): readonly BoundMiddleware[] {
+  entries: readonly DefinitionPart[],
+  bound: DefinitionPart
+): readonly DefinitionPart[] {
   const index = entries.findIndex((item) => item.id === bound.id);
   if (index < 0) return Object.freeze([...entries, bound]);
   return Object.freeze([...entries.slice(0, index), bound, ...entries.slice(index + 1)]);
-}
-
-function nextMiddlewareId(entries: readonly BoundMiddleware[]): string {
-  const taken = new Set(entries.map((item) => item.id));
-  let seq = 0;
-  let id: string;
-  do {
-    seq += 1;
-    id = `middleware-${seq}`;
-  } while (taken.has(id));
-  return id;
 }
 
 export type { Implementations };

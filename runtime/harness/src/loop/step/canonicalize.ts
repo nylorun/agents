@@ -34,18 +34,6 @@ export function canonicalizeCalls(
   );
 }
 
-export function callsFromCanonical(calls: readonly CanonicalCall[]): readonly ModelToolCall[] {
-  return Object.freeze(
-    calls.map((call) =>
-      Object.freeze({
-        id: call.id,
-        name: call.name,
-        args: call.args,
-      }),
-    ),
-  );
-}
-
 export function canonicalizeOutput(output: readonly ModelOutputBlock[]): {
   readonly output: readonly ModelOutputBlock[];
   readonly calls: readonly CanonicalCall[];
@@ -85,12 +73,4 @@ export function candidateFromCanonical(
     ...(candidate.usage === undefined ? {} : { usage: candidate.usage }),
     ...(candidate.evidence === undefined ? {} : { evidence: candidate.evidence }),
   });
-}
-
-export function identityKey(name: string, args: unknown): string {
-  try {
-    return `${name}:${JSON.stringify(copyJson(args as never))}`;
-  } catch {
-    return `${name}:${String(args)}`;
-  }
 }

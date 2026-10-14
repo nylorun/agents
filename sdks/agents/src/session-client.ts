@@ -86,9 +86,6 @@ export interface AgentSource {
   getBinding?: BuiltAgent["getBinding"] | BuiltWorkflow["getBinding"];
 }
 
-const middlewareClosure =
-  "Hosted definitions support declarative capabilities, not middleware closures";
-
 /** The agent's declarations, then those of each agent it uses as a tool. */
 function declarationsOf(agent: AgentSource) {
   if (isBuiltWorkflow(agent) || (agent.manifest as { kind?: string }).kind === "workflow")
@@ -115,11 +112,6 @@ function skillFilesOf(agent: AgentSource, into = new Map<string, SkillFileSource
   return into;
 }
 
-/** Closures stay on the live binding. The published manifest cannot name them. */
-export function assertNoMiddlewareClosures(agent: AgentSource): void {
-  if (declarationsOf(agent).some((item) => item.hasMiddleware))
-    throw new Error(middlewareClosure);
-}
 export interface SessionView {
   id: string;
   agentId: string;
@@ -238,11 +230,9 @@ export class AgentsClient {
       // A flow agent embeds its agents: one document, carrying their files.
       for (const binding of Object.values(agent.getBinding().agents)) {
         const leaf = { id: binding.manifest.id, manifest: binding.manifest, getBinding: () => binding };
-        assertNoMiddlewareClosures(leaf);
         skillFilesOf(leaf, files);
       }
     } else {
-      assertNoMiddlewareClosures(agent);
       skillFilesOf(agent, files);
     }
     const refusal =

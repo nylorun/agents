@@ -249,15 +249,12 @@ it("discovers a remote MCP server with a bearer and calls it from the Runtime", 
   });
   try {
     const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "issue-management",
-        mcpServers: {
-          github: {
-            name: "github",
-            type: "streamable-http",
-            url: remote.url,
-            headers: { "X-Toolset": "issues" },
-          },
+      .mcp({
+        github: {
+          name: "github",
+          type: "streamable-http",
+          url: remote.url,
+          headers: { "X-Toolset": "issues" },
         },
       })
       .build();
@@ -270,7 +267,7 @@ it("discovers a remote MCP server with a bearer and calls it from the Runtime", 
     expect(session.status).toBe("completed");
     expect(session.mcpSnapshot.mcpTools).toEqual([
       expect.objectContaining({
-        capabilityId: "issue-management",
+        capabilityId: "mcp",
         serverName: "github",
         serverToolName: "get_issue",
         name: "github__get_issue",
@@ -326,11 +323,8 @@ it("writes tool.completed with the output or the tool error of each MCP call", a
   });
   try {
     const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "issue-management",
-        mcpServers: {
-          github: { name: "github", type: "streamable-http", url: remote.url },
-        },
+      .mcp({
+        github: { name: "github", type: "streamable-http", url: remote.url },
       })
       .build();
     await register(runtime, agent.manifest);
@@ -348,7 +342,7 @@ it("writes tool.completed with the output or the tool error of each MCP call", a
     expect(completed).toEqual([
       expect.objectContaining({
         callId: "call-1",
-        capabilityId: "issue-management",
+        capabilityId: "mcp",
         toolName: "github__get_issue",
         output: { number: 7, title: "get_issue" },
       }),
@@ -375,12 +369,9 @@ it("refuses a second credential for one server at the write, and connects with t
   }));
   try {
     const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "issue-management",
-        mcpServers: {
-          github: { name: "github", type: "streamable-http", url: github.url },
-          docs: { name: "docs", type: "streamable-http", url: docs.url },
-        },
+      .mcp({
+        github: { name: "github", type: "streamable-http", url: github.url },
+        docs: { name: "docs", type: "streamable-http", url: docs.url },
       })
       .build();
     await register(runtime, agent.manifest);
@@ -428,12 +419,9 @@ it("records mcp.discovered once, on the first turn, with each server's outcome",
   }));
   try {
     const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "tools",
-        mcpServers: {
-          docs: { name: "docs", type: "streamable-http", url: docs.url },
-          down: { name: "down", type: "streamable-http", url: down.url },
-        },
+      .mcp({
+        docs: { name: "docs", type: "streamable-http", url: docs.url },
+        down: { name: "down", type: "streamable-http", url: down.url },
       })
       .build();
     await register(runtime, agent.manifest);
@@ -456,9 +444,9 @@ it("records mcp.discovered once, on the first turn, with each server's outcome",
     expect(discovered[0].turnId).toBe(history.items.find((item: { type: string }) => item.type === "turn.completed").turnId);
     expect(discovered[0].payload.servers).toEqual(
       expect.arrayContaining([
-        { capabilityId: "tools", serverName: "docs", outcome: "connected", message: "Connected", tools: 1 },
+        { capabilityId: "mcp", serverName: "docs", outcome: "connected", message: "Connected", tools: 1 },
         {
-          capabilityId: "tools",
+          capabilityId: "mcp",
           serverName: "down",
           outcome: "failed",
           message: expect.stringMatching(/ECONNREFUSED/),
@@ -482,11 +470,8 @@ it("connects without Authorization when no credential matches", async () => {
   }));
   try {
     const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "issue-management",
-        mcpServers: {
-          github: { name: "github", type: "streamable-http", url: remote.url },
-        },
+      .mcp({
+        github: { name: "github", type: "streamable-http", url: remote.url },
       })
       .build();
     await register(runtime, agent.manifest);
@@ -515,11 +500,8 @@ it("pins the discovery snapshot and lets a new session discover again", async ()
   });
   try {
     const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "issue-management",
-        mcpServers: {
-          github: { name: "github", type: "streamable-http", url: remote.url },
-        },
+      .mcp({
+        github: { name: "github", type: "streamable-http", url: remote.url },
       })
       .build();
     await register(runtime, agent.manifest);
@@ -574,11 +556,8 @@ it("gives a lost MCP answer to the model as mcp.lost, and never sends the call a
   });
   try {
     const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "issue-management",
-        mcpServers: {
-          github: { name: "github", type: "streamable-http", url: remote.url },
-        },
+      .mcp({
+        github: { name: "github", type: "streamable-http", url: remote.url },
       })
       .build();
     await register(runtime, agent.manifest);

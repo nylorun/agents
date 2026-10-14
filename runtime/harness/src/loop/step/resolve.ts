@@ -17,7 +17,6 @@ export function resolveModelRequest(input: {
     executionId: ctx.input.executionId,
     turnId: ctx.input.turnId,
     stepId: ctx.input.stepId,
-    ...(ctx.selectedDirective === undefined ? {} : { model: ctx.selectedDirective }),
     configuration,
     instructions: Object.freeze([...ctx.instructions]),
     context: ctx.contextSnapshot(),

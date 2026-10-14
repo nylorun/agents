@@ -9,6 +9,7 @@ import {
   sandboxCapabilityManifest,
 } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
+import { addPart } from "./support/parts.js";
 
 /** A session's pinned manifest: the definition plus the capability the Runtime adds. */
 const pinned = (sandbox: Record<string, unknown> = {}) => ({
@@ -19,14 +20,12 @@ const pinned = (sandbox: Record<string, unknown> = {}) => ({
 
 it("fails the build when a capability declares a sandbox", () => {
   expect(() =>
-    Agent({ id: "analyst" })
-      .capability({
-        id: "sandbox",
-        instructions: [SANDBOX_INSTRUCTIONS],
-        tools: createSandboxTools(),
-        sandbox: { image: "node:24" },
-      } as never)
-      .build()
+    addPart(Agent({ id: "analyst" }), {
+      id: "sandbox",
+      instructions: [SANDBOX_INSTRUCTIONS],
+      tools: createSandboxTools(),
+      sandbox: { image: "node:24" },
+    } as never).build()
   ).toThrow(/declares a sandbox\. Agents no longer declare one/);
 });
 

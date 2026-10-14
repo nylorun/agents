@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, tool, type ModelAdapter, type ModelCall } from "@nylorun/core/define";
+import { addPart } from "./fixtures.js";
 import {
   bindingFromAgent,
   createDurableCheckpoint,
@@ -198,12 +199,13 @@ describe("agents used as tools, in process", () => {
   });
 
   it("advertises a child's own skills, which only the Runtime serves", async () => {
-    const researcher = Agent({
-      id: "researcher",
-      description: "Investigates with a skill.",
-      instructions: "Load the skill, then answer.",
-    })
-      .use({
+    const researcher = addPart(
+      Agent({
+        id: "researcher",
+        description: "Investigates with a skill.",
+        instructions: "Load the skill, then answer.",
+      }),
+      {
         id: "skills",
         skills: {
           triage: {
@@ -212,8 +214,8 @@ describe("agents used as tools, in process", () => {
             files: { "SKILL.md": `sha256:${"a".repeat(64)}` },
           },
         },
-      })
-      .build();
+      },
+    ).build();
     const parent = Agent({
       id: "support",
       instructions: "Delegate.",

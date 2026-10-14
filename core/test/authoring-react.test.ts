@@ -3,11 +3,10 @@ import { z } from "zod";
 import {
   Agent,
   AgentBuildError,
-  capability,
   hashManifest,
-  mcp,
   tool,
 } from "../src/define.js";
+import { addPart } from "./support/parts.js";
 
 /**
  * Flow Agents Phase 1: the new ReAct methods compile to exactly today's manifests.
@@ -51,16 +50,9 @@ describe("today's syntax is unchanged", () => {
     expect(hash(Agent({ id: "a", instructions: "Do it.", outputSchema: z.object({ x: z.number() }) }))).toBe(
       GOLDEN.optionsOutput
     );
-    expect(hash(Agent({ id: "a" }).use(capability({ id: "cap", instructions: "c", tools: [look] })))).toBe(
+    expect(hash(addPart(Agent({ id: "a" }), { id: "cap", instructions: ["c"], tools: [look] }))).toBe(
       GOLDEN.useCapability
     );
-    expect(
-      hash(
-        Agent({ id: "a", instructions: "x" }).use(
-          mcp({ gh: { name: "gh", type: "streamable-http", url: "https://x.example/mcp" } })
-        )
-      )
-    ).toBe(GOLDEN.useMcp);
     expect(hash(Agent({ id: "a", instructions: "x", tools: [look, legacySub] }))).toBe(GOLDEN.subagent);
     expect(hash(Agent({ id: "a" }))).toBe(GOLDEN.empty);
   });
@@ -71,9 +63,6 @@ describe("the new ReAct methods", () => {
     expect(hash(Agent({ id: "a", name: "A" }).instructions("Do it.").tools(look))).toBe(GOLDEN.options);
     expect(hash(Agent({ id: "a" }).instructions("Do it.").output(z.object({ x: z.number() })))).toBe(
       GOLDEN.optionsOutput
-    );
-    expect(hash(Agent({ id: "a" }).capability(capability({ id: "cap" }).instructions("c").tools(look)))).toBe(
-      GOLDEN.useCapability
     );
     expect(
       hash(Agent({ id: "a" }).instructions("x").mcp({ gh: { type: "streamable-http", url: "https://x.example/mcp" } }))

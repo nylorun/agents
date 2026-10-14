@@ -4,14 +4,13 @@ import { createExecutionState } from "../src/run/index.js";
 import {
   Agent,
   AgentBuildError,
-  model as typedModel,
   tool as typedTool,
+  type AgentTool,
   type BuiltAgent,
+  type CapabilityInput,
   type JsonObject,
   type ModelCandidate,
   type ModelAdapter,
-  type StepRequest,
-  type StepResponse,
   type ToolDefinition,
   type ToolExecutionContext,
   type ToolOutcome,
@@ -40,19 +39,17 @@ export function testAgent(options: any = {}): any {
     adapter = value;
     return fixture;
   };
-  fixture.use = (id: any, handler?: any) => {
-    const handle = handler ?? id;
-    if (handle?.fixtureTools)
-      builder = builder.use({
-        id: typeof id === "string" ? id : "fixture",
-        tools: { slot: "fixture-registration", items: handle.fixtureTools },
-        middleware: async (request, next) => {
-          request.configuration.tools.set("fixture-registration", []);
-          return handle(request, next);
-        },
-      });
-    else if (handler) builder = builder.use(id, handler);
-    else builder = builder.use(id);
+  fixture.tools = (...tools: (ToolDefinition<any, any, any> | AgentTool)[]) => {
+    builder = builder.tools(...tools);
+    return fixture;
+  };
+  fixture.instructions = (...text: string[]) => {
+    builder = builder.instructions(...text);
+    return fixture;
+  };
+  /** Adds a part with its own id, as the SDK's `.skills()` and `.plugin()` do. */
+  fixture.part = (declaration: CapabilityInput) => {
+    builder = addPart(builder, declaration);
     return fixture;
   };
   fixture.build = () => {
@@ -156,16 +153,6 @@ export function tool(
   return typedTool({ name, inputSchema: objectSchema, execute });
 }
 
-export function offer(...tools: ReturnType<typeof tool>[]) {
-  return Object.assign(
-    async (request: StepRequest, next: () => Promise<StepResponse>) => {
-      request.configuration.tools.set("fixture-tools", tools);
-      return next();
-    },
-    { fixtureTools: tools },
-  );
-}
-
 export function execution(
   execute?: (
     call: { readonly args: JsonObject; readonly callId?: string; readonly toolName?: string },
@@ -178,8 +165,9 @@ export function execution(
       : { kind: "completed" as const, output: args as JsonObject };
 }
 
-export function model(invoke: ModelAdapter) {
-  return typedModel(invoke);
+/** Identity helper that types an inline model adapter. */
+export function model(invoke: ModelAdapter): ModelAdapter {
+  return invoke;
 }
 
 export function toolCalls(
@@ -210,10 +198,10 @@ export function turn(agent: any, input: any = "go", options: any = {}) {
   return { session, handle: session.input(input, { signal: options.signal }) };
 }
 
-/** Registers definitions once while keeping each test's exposure/policy assertions unchanged. */
-export function registered(
-  definitions: readonly any[][],
-  make: (definitions: readonly any[][]) => any,
-): any {
-  return Object.assign(make(definitions), { fixtureTools: definitions.flat() });
+/** Adds a raw definition part with a chosen id (the protected `withPart` the SDK uses). */
+export function addPart<B>(builder: B, declaration: CapabilityInput): B {
+  return (builder as unknown as { withPart(d: CapabilityInput, method: string): B }).withPart(
+    declaration,
+    "part()",
+  );
 }

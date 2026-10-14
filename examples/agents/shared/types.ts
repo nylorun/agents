@@ -16,8 +16,3 @@ export type AgentDependencies = Readonly<{
 export const exampleInstructions =
   "Use tools when they are the most reliable way to answer. Be concise and report tool results.";
 
-export const modelSelection = (provider: string, model: string) =>
-  ({
-    id: "model",
-    ...(provider === "configured" ? {} : { model: { id: `${provider}/${model}`, controls: { temperature: 0.1 } } }),
-  }) as const;

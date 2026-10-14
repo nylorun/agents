@@ -10,17 +10,14 @@ const image = {
 };
 
 describe("media input", () => {
-  it("preserves ordered media content through input, middleware, transcript, and ModelCall", async () => {
+  it("preserves ordered media content through input, model request, transcript, and ModelCall", async () => {
     const arrivals: unknown[] = [];
     const calls: ModelCall[] = [];
     const reference = { url: "https://cdn.example.test/chart.png" };
     const session = testAgent()
-      .use("inspect", async (request, next) => {
-        arrivals.push(request.arrivals);
-        return next();
-      })
       .with(
-        model(async (call) => {
+        model(async (call, { request }) => {
+          arrivals.push(request.arrivals);
           calls.push(call);
           return "done";
         }),

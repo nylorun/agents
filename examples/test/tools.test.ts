@@ -1,17 +1,12 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent, model, type CapabilityItems, type ToolDefinition } from "@nylorun/core/define";
+import { Agent, type ToolDefinition } from "@nylorun/core/define";
 import { afterEach, describe, expect, it } from "vitest";
 import { catalog, tools } from "../agents/shared/tools/index.js";
 import { toolsService } from "../agents/shared/tools/service.js";
 import { lookupOrderCode } from "../agents/shared/orders.js";
 import { invokeTool } from "./support.js";
-
-const adapter = model(async () => ({
-  output: [{ type: "text" as const, text: "ok" }],
-  finishReason: "stop" as const,
-}));
 
 const temps: string[] = [];
 
@@ -20,11 +15,6 @@ afterEach(async () => {
     temps.splice(0).map((root) => rm(root, { recursive: true, force: true }))
   );
 });
-
-function items<T>(value: CapabilityItems<T> | undefined): readonly T[] {
-  if (value === undefined) return [];
-  return "items" in value ? value.items : value;
-}
 
 async function catalogTool(name: string): Promise<ToolDefinition> {
   const found = (await catalog()).find((tool) => tool.name === name);
@@ -75,7 +65,7 @@ describe("tools()", () => {
   it("omits tools when the directory has no catalog modules", async () => {
     const root = await mkdtemp(join(tmpdir(), "tools-test-"));
     temps.push(root);
-    await expect(tools({ directory: root })).resolves.toEqual({ id: "tools" });
+    await expect(tools({ directory: root })).resolves.toEqual([]);
   });
 
   it("serves the catalog and lookup_order to the Runtime as JSON over POST", async () => {
@@ -101,20 +91,17 @@ describe("tools()", () => {
     expect((await call("missing", {})).status).toBe(404);
   });
 
-  it("builds the tool-use agent with one tools capability", async () => {
+  it("builds the tool-use agent with the catalog as HTTP tools", async () => {
     const agent = Agent({
       id: "tool-use",
       name: "Tool Use",
     })
       .instructions("Be concise.")
-      .capability(await tools())
+      .tools(...(await tools()))
       .build();
-    expect(agent.manifest.capabilities.map((item) => item.id)).toEqual([
-      "agent",
-      "tools",
-    ]);
+    expect(agent.manifest.capabilities.map((item) => item.id)).toEqual(["agent"]);
     const offered =
-      agent.manifest.capabilities.find((item) => item.id === "tools")?.tools ??
+      agent.manifest.capabilities.find((item) => item.id === "agent")?.tools ??
       [];
     expect(offered.map((tool) => tool.name).sort()).toEqual([
       "calculate",

@@ -4,7 +4,6 @@ import type { JsonlNotes } from "./notes-store.js";
 
 export function notes(notes: JsonlNotes) {
   return {
-    id: "notes",
     instructions: [
       "Use write_note only when the user asks to save a note. A human approval is required before the write.",
     ],

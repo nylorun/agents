@@ -8,17 +8,14 @@ import { type ExecutionState } from "../src/index.js";
 
 const make = (execute = vi.fn(async () => ({ kind: "deferred" as const, token: "job" }))) =>
   Agent({ id: "a", name: "A" })
-    .use({
-      id: "c",
-      tools: [
-        { name: "job", inputSchema: z.object({}), execute },
-        {
-          name: "done",
-          inputSchema: z.object({}),
-          execute: async () => ({ kind: "completed", output: "settled sibling" }),
-        },
-      ],
-    })
+    .tools(
+      { name: "job", inputSchema: z.object({}), execute },
+      {
+        name: "done",
+        inputSchema: z.object({}),
+        execute: async () => ({ kind: "completed", output: "settled sibling" }),
+      },
+    )
     .build();
 const pause = () =>
   runAgent(make(), {
@@ -36,7 +33,7 @@ it("continues in a separate Node process using only JSON and rebuilt definitions
   if (first.status !== "paused") throw new Error("Expected pause");
   const script = `import {Agent} from '@nylorun/core/define'; import {run,bindingFromAgent} from './dist/run/index.js'; import {z} from 'zod';
     const state = JSON.parse(process.argv[1]);
-    const agent = Agent({id:'a',name:'A'}).use({id:'c',tools:['job','done'].map(name=>({name,inputSchema:z.object({}),execute:async()=>{throw new Error('must not redispatch')}}))}).build();
+    const agent = Agent({id:'a',name:'A'}).tools(...['job','done'].map(name=>({name,inputSchema:z.object({}),execute:async()=>{throw new Error('must not redispatch')}}))).build();
     const result = await run({binding:bindingFromAgent(agent),state,input:{kind:'settle',invocationId:state.plan.calls[0].invocationId,outcome:{kind:'completed',output:'done'}},onModelCall:async()=> 'restored'});
     process.stdout.write(JSON.stringify(result));`;
   const { stdout } = await promisify(execFile)(process.execPath, [
@@ -51,9 +48,8 @@ it("continues in a separate Node process using only JSON and rebuilt definitions
 
 it("restores an approval in a fresh process without redispatching its settled sibling", async () => {
   const agent = Agent({ id: "approval", name: "Approval" })
-    .use({
-      id: "tools",
-      tools: ["approved", "done"].map((name) => ({
+    .tools(
+      ...["approved", "done"].map((name) => ({
         name,
         inputSchema: z.object({}),
         execute: async () =>
@@ -65,7 +61,7 @@ it("restores an approval in a fresh process without redispatching its settled si
               }
             : { kind: "completed" as const, output: `original ${name}` },
       })),
-    })
+    )
     .build();
   const first = await runAgent(agent, {
     input: "go",
@@ -82,7 +78,7 @@ it("restores an approval in a fresh process without redispatching its settled si
   if (first.status !== "paused") throw new Error("Expected pause");
   const script = `import {Agent} from '@nylorun/core/define'; import {run,bindingFromAgent} from './dist/run/index.js'; import {z} from 'zod';
     const state = JSON.parse(process.argv[1]);
-    const agent = Agent({id:'approval',name:'Approval'}).use({id:'tools',tools:['approved','done'].map(name=>({name,inputSchema:z.object({}),execute:async(_, {info,resume})=>{if(name==='done')throw new Error('must not redispatch');if(resume.token.resource!=='original')throw new Error('lost original resource');return {kind:'completed',output:info.principal};}}))}).build();
+    const agent = Agent({id:'approval',name:'Approval'}).tools(...['approved','done'].map(name=>({name,inputSchema:z.object({}),execute:async(_, {info,resume})=>{if(name==='done')throw new Error('must not redispatch');if(resume.token.resource!=='original')throw new Error('lost original resource');return {kind:'completed',output:info.principal};}}))).build();
     const call=state.plan.calls.find(call=>call.interaction);
     const result=await run({binding:bindingFromAgent(agent),state,input:{kind:'approve',interactionId:call.interaction.id,approved:true},info:{principal:'fresh authorization'},onModelCall:async()=> 'restored'});
     process.stdout.write(JSON.stringify(result));`;
@@ -127,9 +123,7 @@ it.each(["arguments", "order", "reference", "active", "failed"])(
 it("uses the registered executable snapshot even when the original object changes", async () => {
   const original = vi.fn(async () => ({ kind: "completed" as const, output: "original" }));
   const definition = { name: "t", inputSchema: z.object({}), execute: original };
-  const agent = Agent({ id: "a", name: "A" })
-    .use({ id: "c", tools: [definition] })
-    .build();
+  const agent = Agent({ id: "a", name: "A" }).tools(definition).build();
   definition.execute = vi.fn(async () => ({ kind: "completed", output: "changed" }));
   let calls = 0;
   const result = await runAgent(agent, {
@@ -145,9 +139,8 @@ it("uses the registered executable snapshot even when the original object change
 it("finishes all dispatched effects before rejecting a failed settlement recording", async () => {
   const settled: string[] = [];
   const agent = Agent({ id: "a", name: "A" })
-    .use({
-      id: "c",
-      tools: ["fast", "slow"].map((name) => ({
+    .tools(
+      ...["fast", "slow"].map((name) => ({
         name,
         inputSchema: z.object({}),
         execute: async () => {
@@ -156,7 +149,7 @@ it("finishes all dispatched effects before rejecting a failed settlement recordi
           return { kind: "completed" as const, output: name };
         },
       })),
-    })
+    )
     .build();
   const model = vi.fn(async () => ({
     output: ["fast", "slow"].map((name) => ({

@@ -1,6 +1,5 @@
 import { Agent } from "@nylorun/agents/define";
 import {
-  modelSelection,
   type AgentDependencies,
   type ExampleAgent,
 } from "../shared/types.js";
@@ -17,6 +16,5 @@ export function createInstructions(deps: AgentDependencies): ExampleAgent {
       "Do not use lists, headings, or code fences.",
       "If asked to use a tool or browse the web, say that this agent only answers from its instructions.",
     )
-    .capability(modelSelection(deps.provider, deps.model))
     .build();
 }
