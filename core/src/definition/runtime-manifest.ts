@@ -3,7 +3,7 @@ import { SANDBOX_INSTRUCTIONS, createSandboxTools } from "./sandbox-tools.js";
 import { tool } from "./helpers.js";
 import { ToolError } from "./tool-error.js";
 import { SANDBOX_WORKSPACE } from "../utils/sandbox.js";
-import { SKILLS_MOUNT } from "../utils/definition-files.js";
+import { SKILLS_MOUNT, skillFolderOf } from "../utils/definition-files.js";
 import { normalizedSchemasFor } from "./schema.js";
 import { createSkillTools, formatSkillCatalog, SKILLS_USAGE } from "./skill-tools.js";
 import { copyJsonObject } from "../utils/immutable.js";
@@ -131,8 +131,8 @@ export function runtimeManifestFor(
     instructions.push(text(SANDBOX_INSTRUCTIONS));
     if (skills.length > 0)
       instructions.push(
-        `Each skill's files are in the sandbox, read-only, under ${SKILLS_MOUNT}/<name>/ (${skills
-          .map((skill) => `${SKILLS_MOUNT}/${skill.name}/`)
+        `Each skill's files are in the sandbox, read-only, in its own folder under ${SKILLS_MOUNT}/ (${skills
+          .map((skill) => `${skill.name}: ${skillFolderOf(skill)}/`)
           .join(", ")}): read them there and run their scripts with bash.`
       );
     tools.push(...createSandboxTools());

@@ -2,8 +2,11 @@
  * Sandbox Manager: owns sandbox lifecycle for the Runtime. One workspace per sandbox resource
  * (`sandbox: { id }`, keyed by the sandbox id), or per owning session for a sandbox chosen
  * inline or by the Tenant default (keyed by the session id); created on the first sandbox tool
- * call, stopped after its idle timeout, reattached on the next call. Commands against one
- * workspace run one at a time, whichever session sends them.
+ * call, stopped after its idle timeout, reattached on the next call. Each session's calls on a
+ * workspace run in the order it sends them, and different sessions' calls run at the same time
+ * (D66): the sessions of one Environment run their turns at once. Opening, stopping and removing
+ * a workspace run alone: a stop or removal waits for the calls running, and calls that come after
+ * it wait for it.
  *
  * The manager keeps no timers and reaches no store: it keeps its compute records through a
  * `SandboxRecords` port (the Tenant's `sandboxes` table in core's process, a file in a harness's)
@@ -12,9 +15,9 @@
  * (after a restart); `reconcile` removes workspaces whose owner is gone. `sweep` does both, the
  * reconcile once per process, as the Tenant sweep does in core's process.
  *
- * A session's skills (track R2 M4) are mounted on its workspace, read-only under
- * `/skills/<name>/`, before the first call that opens it (`skills.ts`); their bytes come
- * through the `definitionFile` port.
+ * A session's skills (track R2 M4) are mounted on its workspace, read-only, one folder per
+ * version (`/skills/<name>@<hash>/`, D66), before the first call that needs them (`skills.ts`);
+ * their bytes come through the `definitionFile` port.
  */
 import type { EventPayload } from "@nylorun/core/contracts";
 import {
@@ -46,7 +49,7 @@ import {
   type SandboxSelection,
   type SandboxSelectionReport,
 } from "./select.js";
-import { mountSkill, sandboxSkillsOf, skillSignature } from "./skills.js";
+import { mountSkill, sandboxSkillsOf } from "./skills.js";
 import { runDiskOp, type DiskAnswer, type DiskOp } from "./disk-fs.js";
 import {
   resolveSandboxPath,
@@ -102,14 +105,19 @@ interface Live {
   readonly environmentId?: string;
   readonly backend: SandboxBackend;
   handle?: SandboxHandle;
+  /** The open in progress, shared by the calls that find no handle at once. */
+  opening?: Promise<SandboxHandle>;
   idleMs: number;
-  /** Tool calls running now. */
-  active: number;
-  /** When the last tool call ended (ms since the epoch). */
+  /** The calls running now, of every session. */
+  readonly running: Set<Promise<unknown>>;
+  /** When the last call ended (ms since the epoch). */
   lastUsedAt: number;
-  tail: Promise<unknown>;
-  /** The skills mounted on the open handle, by name: what each holds (`skillSignature`). */
-  skills: Map<string, string>;
+  /** Each session's queue: its calls run in order (D66). */
+  readonly lanes: Map<string, Promise<unknown>>;
+  /** Stops and removals, one at a time; a call waits until none is pending. */
+  gate: Promise<unknown>;
+  /** The skill folders mounted, or being mounted, on the open handle (`/skills/<name>@<hash>`). */
+  readonly skills: Map<string, Promise<void>>;
 }
 
 export interface SandboxSweepOptions {
@@ -190,21 +198,18 @@ export class SandboxManager {
     if (this.closing) return;
     const now = at ?? Date.now();
     const idle = (live: Live) =>
-      !!live.handle && live.active === 0 && now - live.lastUsedAt >= live.idleMs;
+      !!live.handle && live.running.size === 0 && now - live.lastUsedAt >= live.idleMs;
     const stops: Promise<unknown>[] = [];
     for (const [key, live] of this.live) {
       if (!idle(live)) continue;
-      // Queued behind any call already waiting; checked again when its turn comes.
-      live.tail = live.tail
-        .then(() => (idle(live) ? this.stop(key, live) : undefined))
-        .catch(() => undefined);
-      stops.push(live.tail);
+      // After the calls running; checked again when its turn comes.
+      stops.push(this.alone(live, () => (idle(live) ? this.stop(key, live) : undefined)).catch(() => undefined));
     }
     await Promise.all(stops);
     for (const record of await this.options.records.list()) {
       if (record.state === "stopped") continue;
       const live = this.live.get(record.key);
-      if (live && (live.handle || live.active > 0)) continue;
+      if (live && (live.handle || live.running.size > 0)) continue;
       await this.options.records.put({ ...record, state: "stopped" });
     }
   }
@@ -263,9 +268,56 @@ export class SandboxManager {
     const prepared = await this.prepare(session, sandbox);
     if ("kind" in prepared) return prepared;
     const { live: entry, spec } = prepared;
-    const task = entry.tail.then(() => this.execute(entry, session, spec, toolName, input, signal));
-    entry.tail = task.catch(() => undefined);
+    return this.inLane(entry, session.id, () => this.execute(entry, session, spec, toolName, input, signal));
+  }
+
+  /**
+   * Runs `call` in session `sessionId`'s queue on `live`: after its earlier calls, and after any
+   * stop or removal pending, beside other sessions' calls (D66).
+   */
+  private inLane<T>(live: Live, sessionId: string, call: () => Promise<T>): Promise<T> {
+    const task = (live.lanes.get(sessionId) ?? Promise.resolve()).then(async () => {
+      // A stop queued while this waited goes first.
+      for (let gate = live.gate; ; gate = live.gate) {
+        await gate;
+        if (gate === live.gate) break;
+      }
+      const running = call();
+      live.running.add(running);
+      try {
+        return await running;
+      } finally {
+        live.running.delete(running);
+        live.lastUsedAt = Date.now();
+      }
+    });
+    const queued = task.catch(() => undefined);
+    live.lanes.set(sessionId, queued);
+    void queued.then(() => {
+      if (live.lanes.get(sessionId) === queued) live.lanes.delete(sessionId);
+    });
     return task;
+  }
+
+  /** Runs `step` on `live` alone: after the calls running, before the calls that come after it. */
+  private alone<T>(live: Live, step: () => Promise<T> | T): Promise<T> {
+    const task = live.gate.then(async () => {
+      while (live.running.size > 0) await Promise.allSettled([...live.running]);
+      return step();
+    });
+    live.gate = task.catch(() => undefined);
+    return task;
+  }
+
+  /** The workspace's handle, opened once for the calls that need it at the same time. */
+  private async handleOf(live: Live, session: SandboxSessionRef, spec: SandboxSpec): Promise<SandboxHandle> {
+    if (live.handle) return live.handle;
+    const opening = (live.opening ??= this.open(live, session, spec).finally(() => {
+      if (live.opening === opening) live.opening = undefined;
+    }));
+    const handle = await opening;
+    live.handle ??= handle;
+    return handle;
   }
 
   /**
@@ -376,32 +428,23 @@ export class SandboxManager {
     const prepared = await this.prepare(session, sandbox);
     if ("kind" in prepared) return prepared;
     const { live, spec } = prepared;
-    const task = live.tail.then(async () => {
+    return this.inLane(live, session.id, async () => {
       if (signal.aborted) throw new Error("Turn cancelled");
       if (this.closing) throw new Error("Runtime is shutting down");
-      live.active += 1;
+      let handle: SandboxHandle;
       try {
-        if (!live.handle) {
-          try {
-            live.handle = await this.open(live, session, spec);
-          } catch (error) {
-            return {
-              kind: "failed" as const,
-              code: "sandbox.start_failed",
-              message: `The sandbox could not start: ${error instanceof Error ? error.message : String(error)}`,
-            };
-          }
-        }
-        const unmounted = await this.mountSkills(live, live.handle, session, signal);
-        if (unmounted) return unmounted;
-        return await use(live.handle, live);
-      } finally {
-        live.active -= 1;
-        live.lastUsedAt = Date.now();
+        handle = await this.handleOf(live, session, spec);
+      } catch (error) {
+        return {
+          kind: "failed" as const,
+          code: "sandbox.start_failed",
+          message: `The sandbox could not start: ${error instanceof Error ? error.message : String(error)}`,
+        };
       }
+      const unmounted = await this.mountSkills(live, handle, session, signal);
+      if (unmounted) return unmounted;
+      return await use(handle, live);
     });
-    live.tail = task.catch(() => undefined);
-    return task;
   }
 
   /** The session's live sandbox entry and spec, or why it cannot run here. */
@@ -439,9 +482,10 @@ export class SandboxManager {
         ...(session.environmentId === undefined ? {} : { environmentId: session.environmentId }),
         backend,
         idleMs: idleMsOf(sandbox),
-        active: 0,
+        running: new Set(),
         lastUsedAt: Date.now(),
-        tail: Promise.resolve(),
+        lanes: new Map(),
+        gate: Promise.resolve(),
         skills: new Map(),
       };
       this.live.set(key, live);
@@ -459,13 +503,7 @@ export class SandboxManager {
   ): Promise<SandboxToolOutcome> {
     if (signal.aborted) throw new Error("Turn cancelled");
     if (this.closing) throw new Error("Runtime is shutting down");
-    live.active += 1;
-    try {
-      return await this.executeOpen(live, session, spec, toolName, input, signal);
-    } finally {
-      live.active -= 1;
-      live.lastUsedAt = Date.now();
-    }
+    return this.executeOpen(live, session, spec, toolName, input, signal);
   }
 
   private async executeOpen(
@@ -476,34 +514,33 @@ export class SandboxManager {
     input: unknown,
     signal: AbortSignal
   ): Promise<SandboxToolOutcome> {
-    if (!live.handle) {
-      try {
-        live.handle = await this.open(live, session, spec);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const record = await this.record(spec.key, live, session.id, spec.image, "stopped");
-        await this.options.emit(
-          session.id,
-          session.activeTurnId,
-          "environment.state",
-          { state: "stopped", backend: live.backend.name, error: message },
-          { record, ...claimOf(session) }
-        );
-        // Nothing ran yet, so a failed start is a definite outcome, not an uncertain one.
-        return {
-          kind: "failed",
-          code: "sandbox.start_failed",
-          message: `The sandbox could not start on ${live.backend.name} (image ${spec.image ?? "the backend's default"}): ${message}`,
-        };
-      }
+    let handle: SandboxHandle;
+    try {
+      handle = await this.handleOf(live, session, spec);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const record = await this.record(spec.key, live, session.id, spec.image, "stopped");
+      await this.options.emit(
+        session.id,
+        session.activeTurnId,
+        "environment.state",
+        { state: "stopped", backend: live.backend.name, error: message },
+        { record, ...claimOf(session) }
+      );
+      // Nothing ran yet, so a failed start is a definite outcome, not an uncertain one.
+      return {
+        kind: "failed",
+        code: "sandbox.start_failed",
+        message: `The sandbox could not start on ${live.backend.name} (image ${spec.image ?? "the backend's default"}): ${message}`,
+      };
     }
-    const unmounted = await this.mountSkills(live, live.handle, session, signal);
+    const unmounted = await this.mountSkills(live, handle, session, signal);
     if (unmounted) return unmounted;
     const started = Date.now();
     let report: SandboxToolReport = {};
     try {
       const outcome = await runSandboxTool(
-        live.handle,
+        handle,
         toolName,
         (input ?? {}) as Record<string, any>,
         signal,
@@ -528,8 +565,8 @@ export class SandboxManager {
       );
       return outcome;
     } catch (error) {
-      // The backend itself failed; reopen on the next call.
-      live.handle = undefined;
+      // The backend itself failed; reopen on the next call, unless another call already did.
+      if (live.handle === handle) live.handle = undefined;
       if (signal.aborted || !READ_TOOLS.has(toolName)) throw error;
       return {
         kind: "failed",
@@ -540,9 +577,10 @@ export class SandboxManager {
   }
 
   /**
-   * Mounts the session's skills the workspace does not hold as they are: on a handle just opened
-   * all of them, later only those another session brought or changed. A failed outcome when
-   * one cannot be mounted; nothing is marked mounted then, so the next call tries again.
+   * Mounts the skill folders the session needs that the workspace does not hold (D66): on a
+   * handle just opened all of them, later only versions another session has not mounted. Calls
+   * that need one folder at once share its mount. A failed outcome when one cannot be mounted;
+   * the folder is not marked mounted then, so the next call tries again.
    */
   private async mountSkills(
     live: Live,
@@ -552,21 +590,26 @@ export class SandboxManager {
   ): Promise<Extract<SandboxToolOutcome, { kind: "failed" }> | undefined> {
     const read = this.options.definitionFile;
     if (!read) return undefined;
-    for (const [name, files] of sandboxSkillsOf(session.manifest)) {
-      const signature = skillSignature(files);
-      if (live.skills.get(name) === signature) continue;
+    for (const [folder, files] of sandboxSkillsOf(session.manifest)) {
+      let mounting = live.skills.get(folder);
+      if (!mounting) {
+        const mount = mountSkill(handle, folder, files, (sha256) => read(sha256, session), signal);
+        live.skills.set(folder, mount);
+        void mount.catch(() => {
+          if (live.skills.get(folder) === mount) live.skills.delete(folder);
+        });
+        mounting = mount;
+      }
       try {
-        await mountSkill(handle, name, files, (sha256) => read(sha256, session), signal);
+        await mounting;
       } catch (error) {
         if (signal.aborted) throw error;
-        live.skills.delete(name);
         return {
           kind: "failed",
           code: "sandbox.skills_unavailable",
-          message: `The files of skill '${name}' could not be put in the sandbox: ${error instanceof Error ? error.message : String(error)}`,
+          message: `The files of skill folder ${folder} could not be put in the sandbox: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
-      live.skills.set(name, signature);
     }
     return undefined;
   }
@@ -666,8 +709,9 @@ export class SandboxManager {
   async remove(key: string): Promise<void> {
     const live = this.live.get(key);
     if (live) {
-      await live.tail.catch(() => undefined);
-      live.handle = undefined;
+      await this.alone(live, () => {
+        live.handle = undefined;
+      }).catch(() => undefined);
       this.live.delete(key);
     }
     const { backend } = await this.ready;
@@ -702,7 +746,8 @@ export class SandboxManager {
     this.closing = true;
     if (!this.selection) return;
     const tasks = [...this.live.entries()].map(async ([key, live]) => {
-      await live.tail;
+      await Promise.allSettled([...live.lanes.values(), live.gate]);
+      await Promise.allSettled([...live.running]);
       if (this.options.ephemeral) {
         live.handle = undefined;
         await live.backend.remove(key);

@@ -20,5 +20,6 @@ One bullet per risk.
 Then check it in the sandbox:
 
 1. Write the brief to `/workspace/brief.md`.
-2. Run `sh /skills/repo-brief/scripts/check.sh /workspace/brief.md`.
+2. Run `scripts/check.sh` from this skill's folder (`sandboxPath` in what `load_skill` gave you):
+   `sh <sandboxPath>scripts/check.sh /workspace/brief.md`.
 3. Fix every problem it prints and run it again until it prints `ok`.

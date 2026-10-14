@@ -13,11 +13,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { PROTOCOL_VERSION, createClient } from "@nylorun/agents";
+import { Agent, PROTOCOL_VERSION, createClient } from "@nylorun/agents";
 import { toNodeListener } from "@nylorun/agents/ag-ui";
-import { codeToolRefusal, type AgentManifest } from "@nylorun/core/define";
+import { codeToolRefusal, skillFolderOf, type AgentManifest } from "@nylorun/core/define";
 import { startEphemeralRuntime, type EphemeralRuntime } from "@nylorun/runtime";
-import { createRepoBrief } from "../agents/repo-brief/agent.js";
+import { REPO_BRIEF_SKILLS, createRepoBrief } from "../agents/repo-brief/agent.js";
 import { publishBriefCode, publishedBriefs } from "../agents/repo-brief/publish.js";
 import { tools as clock } from "../agents/shared/tools/catalog/now.js";
 import { toolsService } from "../agents/shared/tools/service.js";
@@ -37,6 +37,11 @@ const BRIEF = [
 ].join("\n");
 
 type Call = { name: string; args: Record<string, unknown> };
+
+/** The repo-brief skill's folder in the sandbox: one per version (D66). */
+const SKILL_FOLDER = skillFolderOf(
+  Agent({ id: "folder" }).skills(REPO_BRIEF_SKILLS).build().manifest.skills!["repo-brief"]!,
+);
 type Answer = { calls: readonly Call[]; final: (said: readonly string[], asked: string) => unknown };
 
 /**
@@ -65,7 +70,7 @@ const script: Record<string, Answer> = {
       {
         name: "bash",
         args: {
-          command: `cat > /workspace/brief.md <<'EOF'\n${BRIEF}\nEOF\nsh /skills/repo-brief/scripts/check.sh /workspace/brief.md`,
+          command: `cat > /workspace/brief.md <<'EOF'\n${BRIEF}\nEOF\nsh ${SKILL_FOLDER}/scripts/check.sh /workspace/brief.md`,
         },
       },
     ],
@@ -283,7 +288,7 @@ it("researches, writes, checks and publishes a brief in one turn", { timeout: 60
   });
   const { items } = (await response.json()) as { items: { type: string; payload: any }[] };
   const [skill, now, check] = items.filter((item) => item.type === "tool.completed").map((item) => item.payload);
-  expect(skill.output).toMatchObject({ name: "repo-brief", sandboxPath: "/skills/repo-brief/" });
+  expect(skill.output).toMatchObject({ name: "repo-brief", sandboxPath: `${SKILL_FOLDER}/` });
   expect(now.output).toMatchObject({ iso: expect.stringMatching(/Z$/) });
   expect(check.output).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("ok: 27 words") });
   // No Action: nothing called back into a developer process.

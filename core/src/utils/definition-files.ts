@@ -3,6 +3,9 @@
  * with `PUT /v1/files/sha256:<hex>` and held by the Runtime. Today they are the files of a
  * skill's folder (`SkillManifest.files`). Shared by the SDK, the wire schema and the Runtime.
  */
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
+import { canonical } from "./canonical.js";
 
 /** The largest definition file the Runtime stores. */
 export const DEFINITION_FILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -12,8 +15,18 @@ export const SKILL_FILES_MAX = 500;
 export const SKILL_FILE_PATH_MAX = 512;
 /** The file every skill has: its frontmatter and instructions. */
 export const SKILL_ENTRY = "SKILL.md";
-/** Where a session's sandbox holds each skill's files, read-only: `/skills/<name>/`. */
+/** Where a session's sandbox holds each skill's files, read-only: `/skills/<name>@<hash>/`. */
 export const SKILLS_MOUNT = "/skills";
+
+/**
+ * The folder of a sandbox that holds one version of a skill, read-only (D66):
+ * `/skills/<name>@<12 hex>`, the hex from the SHA-256 of its canonical file map. A version keeps
+ * its folder and is never replaced, so sessions whose agents carry different versions of a skill
+ * share an Environment without changing each other's files.
+ */
+export function skillFolderOf(skill: { readonly name: string; readonly files: Readonly<Record<string, string>> }): string {
+  return `${SKILLS_MOUNT}/${skill.name}@${bytesToHex(sha256(utf8ToBytes(canonical(skill.files)))).slice(0, 12)}`;
+}
 
 const FILE_HASH = /^sha256:[0-9a-f]{64}$/;
 

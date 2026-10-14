@@ -9,12 +9,12 @@ export interface ToolCallTrace {
   readonly plugin?: PluginLabel;
 }
 
-const MOUNT = new RegExp(`${SKILLS_MOUNT}/([^/\\s"'\`]+)/`, "g");
+const MOUNT = new RegExp(`${SKILLS_MOUNT}/([^/@\\s"'\`]+)(?:@[0-9a-f]{12})?/`, "g");
 
 /**
  * The skill of `manifest` a tool call ran. `load_skill` and `read_skill_resource` name it in their
  * input. A sandbox tool (`bash`, `read`, `grep`, `glob`, …) is matched on the skills' mount path,
- * `/skills/<name>/`, in its input's text: exact for a path argument, and for `bash` only when the
+ * `/skills/<name>@<hash>/` (or `/skills/<name>/`, before D66), in its input's text: exact for a path argument, and for `bash` only when the
  * command names the path. The first skill of the agent the input names wins.
  */
 export function skillOfToolCall(

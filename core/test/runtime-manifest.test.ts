@@ -14,6 +14,7 @@ import {
   isSkillTool,
   runtimeManifestFor,
   runtimeToolOf,
+  skillFolderOf,
   type AgentManifest,
 } from "../src/define.js";
 
@@ -130,8 +131,10 @@ it("orders tools sandbox, artifacts, skills; and text skills, sandbox with mount
   expect(text[0]).toBe(SKILLS_USAGE);
   expect(text[1]).toContain("<available_skills>");
   expect(text[2]).toBe(SANDBOX_INSTRUCTIONS);
-  expect(text[3]).toContain("/skills/triage/");
-  expect(text[3]).toContain("/skills/release/");
+  // Each version in its own folder (D66).
+  expect(text[3]).toContain(`triage: ${skillFolderOf(skills.triage)}/`);
+  expect(text[3]).toContain(`release: ${skillFolderOf(skills.release)}/`);
+  expect(skillFolderOf(skills.triage)).toMatch(/^\/skills\/triage@[0-9a-f]{12}$/);
   expect(text[4]).toContain("save_artifact");
   expect(text[5]).toContain("read_artifact");
   expect(text).toHaveLength(6);

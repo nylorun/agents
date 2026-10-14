@@ -6,7 +6,7 @@
  * - with a sandbox, the six sandbox tools, their instructions and the resolved spec, and
  *   `save_artifact`, so files the agent makes reach the user (F8.1). The agents it uses as tools
  *   get the same spec, so the tree shares one sandbox. The sandbox's instructions name the
- *   agent's skills' folders (`/skills/<name>/`);
+ *   agent's skills' folders (`/skills/<name>@<hash>/`);
  * - with or without a sandbox, `read_artifact` (R2b C11, protocol 12): the Runtime stores a result
  *   of an MCP or HTTP tool too large to show as an artifact, and the model reads it in pages; a
  *   file of an earlier turn is a reference line the model reads again with it;

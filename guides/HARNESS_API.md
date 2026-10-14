@@ -149,7 +149,7 @@ What an intent carries:
     and deferred-tool tools) or `harness` (a tool you declared in `hello.features.tools`);
   - `server`: the MCP server, or the HTTP tool's URL host;
   - `skill`: the skill it ran. `load_skill` and `read_skill_resource` name it in their input, and
-    a sandbox tool whose input names `/skills/<name>/` ran that skill's files;
+    a sandbox tool whose input names its folder, `/skills/<name>@<hash>/`, ran that skill's files;
   - `plugin`: `{name, version?}`, the Agent Plugin that brought its MCP server or skill.
 
 ## §5 Gates

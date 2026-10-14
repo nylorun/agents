@@ -2392,7 +2392,7 @@ export const ToolCompletedPayloadSchema = z
     server: z.string().min(1).optional(),
     /**
      * The skill the call ran: `load_skill` and `read_skill_resource` name it, and a sandbox tool
-     * whose input names `/skills/<name>/` ran its files.
+     * whose input names its folder, `/skills/<name>@<hash>/`, ran its files.
      */
     skill: z.string().min(1).optional(),
     /** The Agent Plugin that brought the call's MCP server or skill. */

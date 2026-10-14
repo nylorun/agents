@@ -5,7 +5,7 @@
  *
  * - `load_skill`: the skill's instructions (its `SKILL.md` after the frontmatter), the paths of
  *   its other files, and, when the session has a sandbox, where they are in it
- *   (`/skills/<name>/`, read-only).
+ *   (`/skills/<name>@<hash>/`, read-only, D66).
  * - `read_skill_resource`: one text file of the skill. A binary file is refused: the model reads
  *   it in the sandbox, when there is one.
  *
@@ -15,7 +15,7 @@ import type { SandboxToolOutcome } from "@nylorun/core/contracts";
 import {
   LOAD_SKILL_TOOL,
   SKILL_ENTRY,
-  SKILLS_MOUNT,
+  skillFolderOf,
   isSkillTool,
   skillInstructions,
   type AgentManifest,
@@ -63,7 +63,7 @@ export async function callSkillTool(
       ? { kind: "completed", output: { unknown: name, available: [...skills.keys()].sort() } }
       : failed("skill.unknown", `There is no skill '${name}'.`);
   const sandboxed = sandboxToolSpec(manifest, "bash") !== undefined;
-  const directory = `${SKILLS_MOUNT}/${skill.name}/`;
+  const directory = `${skillFolderOf(skill)}/`;
   const read = async (path: string) => {
     const bytes = await readDefinitionFile(ctx.blobs, skill.files[path]!, signal);
     if (!bytes) throw new Error(`The bytes of ${skill.files[path]} (${skill.name}/${path}) are missing from the Object store`);

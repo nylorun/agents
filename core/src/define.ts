@@ -133,6 +133,7 @@ export {
   SKILL_FILE_PATH_MAX,
   SKILLS_MOUNT,
   definitionFilesOf,
+  skillFolderOf,
   isDefinitionFileHash,
   skillFilePathIssue,
   skillFilesIssue,
