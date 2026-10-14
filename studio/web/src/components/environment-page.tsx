@@ -25,6 +25,8 @@ import {
 } from "@/components/environments";
 import { EnvironmentSecrets } from "@/components/environment-secrets";
 import { EnvironmentDisk } from "@/components/environment-disk";
+import { ForkSheet } from "@/components/environment-fork";
+import { environmentPath } from "@/environment-path";
 
 /** A titled block of an Environment's page. */
 export function Section({
@@ -68,6 +70,17 @@ export function EnvironmentPage({
     [sdk, id],
   );
   const read = useRead(load);
+  const manifestName = read.data?.manifestName;
+  // The latest version of the manifest it was made from: a newer one reaches it by a fork.
+  const loadLatest = useCallback(
+    async (signal: AbortSignal) =>
+      manifestName === undefined
+        ? undefined
+        : (await sdk.environments.manifests.get(manifestName, { signal }).catch(() => undefined))?.version,
+    [sdk, manifestName],
+  );
+  const latest = useRead(loadLatest).data;
+  const [forking, setForking] = useState(false);
   const [editing, setEditing] = useState(false);
   const [acting, setActing] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -163,6 +176,13 @@ export function EnvironmentPage({
               >
                 Edit labels and owner
               </Button>
+              <Button
+                variant={latest !== undefined && latest > (s.manifestVersion ?? 0) ? "default" : "outline"}
+                disabled={acting}
+                onClick={() => setForking(true)}
+              >
+                {latest !== undefined && latest > (s.manifestVersion ?? 0) ? `Fork to v${latest}` : "Fork"}
+              </Button>
               {s.kind === "pod" ? (
                 <>
                   <Button
@@ -215,7 +235,7 @@ export function EnvironmentPage({
               <TabsTrigger value="events">Events</TabsTrigger>
             </TabsList>
             <TabsContent value="overview">
-              <EnvironmentOverview environment={s} />
+              <EnvironmentOverview environment={s} {...(latest === undefined ? {} : { latest })} />
             </TabsContent>
             <TabsContent value="secrets">
               <EnvironmentSecrets tenantId={tenantId} environment={s} />
@@ -245,6 +265,18 @@ export function EnvironmentPage({
           </Tabs>
         ) : null}
       </div>
+      {forking && s ? (
+        <ForkSheet
+          tenantId={tenantId}
+          source={s}
+          {...(latest === undefined ? {} : { latest })}
+          onClose={() => setForking(false)}
+          onForked={(environment) => {
+            setForking(false);
+            navigate(environmentPath(environment.id));
+          }}
+        />
+      ) : null}
       {editing && s ? (
         <EnvironmentSheet
           tenantId={tenantId}
@@ -261,7 +293,7 @@ export function EnvironmentPage({
 }
 
 /** Its sandbox, its recipe and who uses it, as fields rather than JSON. */
-function EnvironmentOverview({ environment: s }: { environment: EnvironmentView }) {
+function EnvironmentOverview({ environment: s, latest }: { environment: EnvironmentView; latest?: number }) {
   const recipe = s.manifest;
   const hosts = recipe.network?.allowedHosts ?? [];
   return (
@@ -286,6 +318,9 @@ function EnvironmentOverview({ environment: s }: { environment: EnvironmentView 
                   ] as [string, ReactNode][])
                 : []),
               ...(s.kind === "pod" ? ([["Image", recipe.image ?? "The Tenant's"]] as [string, ReactNode][]) : []),
+              ...(s.pod?.imageDigest
+                ? ([["Image digest", <span className="break-all font-mono text-xs">{s.pod.imageDigest}</span>]] as [string, ReactNode][])
+                : []),
               [
                 "Resources",
                 recipe.resources
@@ -310,9 +345,37 @@ function EnvironmentOverview({ environment: s }: { environment: EnvironmentView 
               "Made from",
               s.manifestName === undefined
                 ? "Its own fields (an inline manifest)"
-                : `Environment manifest ${s.manifestName} v${s.manifestVersion}`,
+                : `Environment manifest ${s.manifestName} v${s.manifestVersion}${
+                    latest !== undefined && latest > (s.manifestVersion ?? 0) ? ` (v${latest} available: fork to move)` : ""
+                  }`,
             ],
-            ["Changes", "Never: a new version reaches an agent through a new Environment"],
+            ["Changes", "Never: a new version reaches an agent through a fork"],
+            ...(s.forkedFrom
+              ? ([
+                  [
+                    "Forked from",
+                    <Link className="underline underline-offset-4" to={environmentPath(s.forkedFrom.environment)}>
+                      {s.forkedFrom.environment}
+                      {s.forkedFrom.disk === null ? " (empty disk)" : ` (disk v${s.forkedFrom.disk})`}
+                    </Link>,
+                  ],
+                ] as [string, ReactNode][])
+              : []),
+            ...(s.slots?.length
+              ? ([
+                  [
+                    "Secret slots",
+                    <span className="flex flex-wrap gap-1">
+                      {s.slots.map((slot) => (
+                        <Badge key={slot.name} variant={slot.set ? "secondary" : slot.required ? "destructive" : "outline"}>
+                          {slot.name}
+                          {slot.set ? "" : slot.required ? " · missing" : " · not set"}
+                        </Badge>
+                      ))}
+                    </span>,
+                  ],
+                ] as [string, ReactNode][])
+              : []),
             ["Harness", recipe.harness],
             ["Idle", recipe.lifecycle.idle ?? "The Tenant's"],
             ["Delete after", recipe.lifecycle.deleteAfter ?? "Never"],

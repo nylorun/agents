@@ -173,6 +173,7 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
             "session-reads",
             "environment-setup",
             "environment-disk-versions",
+            "environment-manifests",
             ...(artifactReads ? ["artifact-reads"] : []),
           ],
         },
@@ -180,6 +181,7 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     if (path === "/v1/tenant")
       return send(200, { tenant: { id: TENANT, name: "Resource fixture" } });
     if (path === "/v1/agents") return send(200, { agents: [] });
+    if (path === "/v1/environment-manifests") return send(200, { manifests: [] });
     if (path === "/v1/environments")
       return send(200, {
         environments: url.searchParams.has("limit")
