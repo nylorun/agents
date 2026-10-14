@@ -39,7 +39,7 @@ function setup(home: string) {
   return { stack, docker, kubectl, deps: { stack, kubectl, pollMs: 1, policyTimeoutMs: 50 } };
 }
 
-describe("nylorun sandbox", () => {
+describe("nylorun local sandbox", () => {
   it("needs --context and a context from the kubeconfig", async () => {
     const home = await temporaryHome();
     await startedTenant(home);
@@ -182,17 +182,17 @@ describe(".env and compose.yaml with sandboxes", () => {
     expect(gateway).not.toContain("sandboxes");
     // F7.2: pods reach the Harness API and the gates on the Docker host's address only.
     expect(runtime).toContain(
-      '"${NYLORUN_SANDBOX_BIND:?run nylorun sandbox enable}:${NYLORUN_SANDBOX_HARNESS_PORT:?run nylorun sandbox enable}:4200"',
+      '"${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:${NYLORUN_SANDBOX_HARNESS_PORT:?run nylorun local sandbox enable}:4200"',
     );
     expect(runtime).toContain(
-      "NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200,${NYLORUN_SANDBOX_HOST_ADDRESS:?run nylorun sandbox enable}:${NYLORUN_SANDBOX_HARNESS_PORT:?run nylorun sandbox enable}",
+      "NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200,${NYLORUN_SANDBOX_HOST_ADDRESS:?run nylorun local sandbox enable}:${NYLORUN_SANDBOX_HARNESS_PORT:?run nylorun local sandbox enable}",
     );
     expect(runtime).toContain("NYLORUN_SANDBOX_HARNESS_IMAGE: ${NYLORUN_RUNTIME_IMAGE:?run nylorun start}");
     expect(gateway).toContain(
-      '"${NYLORUN_SANDBOX_BIND:?run nylorun sandbox enable}:${NYLORUN_SANDBOX_GATES_PORT:?run nylorun sandbox enable}:4100"',
+      '"${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:${NYLORUN_SANDBOX_GATES_PORT:?run nylorun local sandbox enable}:4100"',
     );
     expect(gateway).toMatch(
-      /NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100,\$\{NYLORUN_SANDBOX_HOST_ADDRESS:\?run nylorun sandbox enable\}:\$\{NYLORUN_SANDBOX_GATES_PORT/,
+      /NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100,\$\{NYLORUN_SANDBOX_HOST_ADDRESS:\?run nylorun local sandbox enable\}:\$\{NYLORUN_SANDBOX_GATES_PORT/,
     );
     expect(plain).not.toContain("NYLORUN_SANDBOX_HARNESS_PORT");
     expect(plain).toContain("NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200\n");
@@ -207,7 +207,7 @@ describe(".env and compose.yaml with sandboxes", () => {
     expect(gateway).toContain('command: ["--service", "gates,keys,egress"]');
     expect(gateway).toContain('NYLORUN_EGRESS_LISTEN_PORT: "4200"');
     expect(gateway).toContain(
-      '- "${NYLORUN_SANDBOX_BIND:?run nylorun sandbox enable}:${NYLORUN_SANDBOX_EGRESS_PORT:?run nylorun sandbox enable}:4200"',
+      '- "${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:${NYLORUN_SANDBOX_EGRESS_PORT:?run nylorun local sandbox enable}:4200"',
     );
     expect(gateway.match(/^\s+ports:/gm)).toHaveLength(1);
   });

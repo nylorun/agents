@@ -35,7 +35,7 @@ const { session, release } = await client.environments.forSession({
 });
 ```
 
-In Studio, pick the Environment when you start the session. The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`, kept with the Environment across its sessions. Kind `virtual` runs those tools in an emulated shell in the Runtime; it is not a VM boundary (kind `pod` runs them in a pod: `npx nylorun sandbox enable`). `npx nylo doctor sandbox` reports the backend and the Tenant's limits. Try in Studio:
+In Studio, pick the Environment when you start the session. The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`, kept with the Environment across its sessions. Kind `virtual` runs those tools in an emulated shell in the Runtime; it is not a VM boundary (kind `pod` runs them in a pod: `npx nylorun local sandbox enable`). `npx nylorun doctor sandbox` reports the backend and the Tenant's limits. Try in Studio:
 
 - `Create sales.csv with three regions and numbers, then total them with awk.`
 - `Download https://example.com with curl.` The request is blocked: a sandbox reaches only the hosts its Environment allows (`network.allowedHosts`), within the Tenant's ceiling.
@@ -274,4 +274,4 @@ The generated starter defaults to memory sessions. This examples recipe explicit
 
 ## Current release storage
 
-Sessions of the supported registry live in the examples' local Tenant: its Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx nylo reset --all` empties the Tenant, and `npx nylorun reset` deletes the Tenant's data (containers and volumes). Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.
+Sessions of the supported registry live in the examples' local Tenant: its Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx nylorun tenant reset --all` empties the Tenant, and `npx nylorun local reset` deletes the Tenant's data (containers and volumes). Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.

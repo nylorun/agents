@@ -84,7 +84,7 @@ export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
     const namespace = `nylorun-sbx-${stack.project}`;
     try {
       step(`nylorun sandbox enable --context ${context}`);
-      const enable = ["sandbox", "enable", "--context", context, "--no-pull"];
+      const enable = ["local", "sandbox", "enable", "--context", context, "--no-pull"];
       if (hostAddress) enable.push("--host-address", hostAddress);
       await stack.nylorun(enable, { timeout: 900_000 });
       const env = await readEnv(stack.home);

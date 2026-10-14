@@ -8,13 +8,13 @@ import { nylorunHome } from "@nylorun/core/project";
 import { CliError } from "../../errors.js";
 
 /**
- * The pi-ai `nylo configure` loads; nylorun's devDependency has the same version
+ * The pi-ai `nylorun tenant models set` loads; nylorun's devDependency has the same version
  * (scripts/check-package.mjs).
  */
 export const PI_AI_VERSION = "0.99.1";
 const PI_AI = "@earendil-works/pi-ai";
 
-/** What `nylo configure` uses of pi-ai: its provider registry and login flows. */
+/** What `nylorun tenant models set` uses of pi-ai: its provider registry and login flows. */
 export interface PiAi {
   createProvider: typeof import("@earendil-works/pi-ai").createProvider;
   builtinModels: typeof import("@earendil-works/pi-ai/providers/all").builtinModels;
@@ -49,7 +49,7 @@ const notInstalled = (error: unknown) =>
 
 /**
  * pi-ai, with its provider SDKs about 100 MB, is not a dependency of nylorun, so
- * `npx nylorun` stays small: only `nylo configure` needs it. It loads pi-ai from beside nylorun
+ * `npx nylorun` stays small: only `nylorun tenant models set` needs it. It loads pi-ai from beside nylorun
  * when it resolves there (the workspace, or a project that installs it), else from
  * `<Nylorun home>/lib/pi-ai-<version>/`, which it installs with npm on first use.
  */
@@ -71,7 +71,7 @@ export async function loadPiAi(
   const directory = join(nylorunHome(options.home), "lib", `pi-ai-${PI_AI_VERSION}`);
   if (!existsSync(join(directory, ENTRY))) {
     (options.log ?? ((line) => console.error(line)))(
-      `nylo configure uses ${PI_AI}@${PI_AI_VERSION} for the model providers' sign-in, which nylorun does not install. Installing it once into ${directory}…`,
+      `nylorun tenant models set uses ${PI_AI}@${PI_AI_VERSION} for the model providers' sign-in, which nylorun does not install. Installing it once into ${directory}…`,
     );
     await installInto(directory, options.install ?? npmInstall);
   }
@@ -97,7 +97,7 @@ async function installInto(
     });
   } catch (error) {
     throw new CliError(
-      `Could not install ${PI_AI}@${PI_AI_VERSION} for nylo configure: ${error instanceof Error ? error.message : String(error)}. Install it beside nylorun (npm install ${PI_AI}@${PI_AI_VERSION}), or set the model provider in Studio.`,
+      `Could not install ${PI_AI}@${PI_AI_VERSION} for nylorun tenant models set: ${error instanceof Error ? error.message : String(error)}. Install it beside nylorun (npm install ${PI_AI}@${PI_AI_VERSION}), or set the model provider in Studio.`,
       1,
     );
   } finally {

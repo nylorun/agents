@@ -7,7 +7,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "configure": "nylo configure",
+    "configure": "nylorun tenant models set",
     "dev": "tsx watch --env-file-if-exists=.env src/main.ts",
     "build": "node -e \"import('node:fs/promises').then(async ({rm,cp}) => { await rm('dist', { recursive: true, force: true }); await cp('agents', 'dist/agents', { recursive: true, filter: (source) => !source.endsWith('.ts') }); })\" && tsc -p tsconfig.build.json",
     "start": "node dist/src/main.js",

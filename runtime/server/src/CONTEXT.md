@@ -143,7 +143,7 @@ hashed in the Tenant's `principals` table and named by its principal id
 (`^[a-z][a-z0-9-]{0,31}$`). It reaches the Runtime API: definition, session,
 sandbox and artifact routes. May act for a **subject** on any request, which only narrows
 what it can reach. Issued by a management key (`PUT /v1/tenant/keys/{keyId}`,
-`admin.keys.put`), or on the machine (`nylorun key put <id>`, `nylorun-operate keys
+`admin.keys.put`), or on the machine (`nylorun tenant keys put <id>`, `nylorun-operate keys
 put`); the key is returned once and only its hash is kept, and a rotated or deleted key
 stops authenticating on its next request (`tenant/operator-keys.ts`). App servers hold
 them (`NYLORUN_SERVER_KEY`).
@@ -154,7 +154,7 @@ public name (legacy API).
 (`/v1/tenant/*`) and `/v1/me` only, as itself: with `Nylorun-Subject` or
 `Nylorun-Scopes` it is `403 subject_invalid`, with an `Origin` `403 origin_rejected`.
 `/v1/me` reports it as `via: management:<id>`, with no scopes and no agents. Issued only
-on the Tenant's machine (`nylorun key put <id> --management`, `nylorun-operate keys put
+on the Tenant's machine (`nylorun tenant keys put <id> --management`, `nylorun-operate keys put
 <id> --role management`) or from the **bootstrap secret** (`NYLORUN_MANAGEMENT_KEY_FILE`,
 64 hex characters, registered as the key `bootstrap` at every start and replaced when the
 file changes). No API call creates, rotates or deletes one, so a leaked key cannot mint
@@ -697,7 +697,7 @@ _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
 | `nylorun dev`, `nylorun dev --ephemeral` | `nylorun start` once, then the project's `npm run dev` |
 | `nylo tenant create\|use\|list\|current\|delete`, one installation for every project | `nylorun start` in the project: its own local Tenant and link |
 | stack, `nylorun start --name`, `NYLORUN_STACK`, `~/.nylorun/stacks/`, `nylorun legacy` | local Tenant, `--tenant`, `NYLORUN_TENANT`, `~/.nylorun/tenants/` (`nylorun legacy` is removed) |
-| `nylo tenant status\|reset\|endpoints`, `nylo endpoints` | `nylo status\|reset` on the linked installation |
+| `nylo tenant status\|reset\|endpoints`, `nylo endpoints` | `nylorun status` and `nylorun tenant reset` |
 | `tenant.sqlite`, the SQLite store | the Tenant's Postgres database (Session Store) |
 | `tenant_<id>` schemas, the Tenant catalog, quarantine | one Tenant per database; a readiness cause |
 | `schema_version` tables, hand-written migrations, `lockSchema` | Drizzle migrations and their journal (`store/postgres/migrate.ts`) |
@@ -706,7 +706,7 @@ _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
 | Tenant API (for the whole surface) | the Runtime API or the Management API: say which |
 | Admin API, `/v1/admin/*`, `admin.status()`, `NYLORUN_ADMIN_URL`, `NYLORUN_ADMIN_KEY`, `admin-openapi.json` (removed in protocol 8) | the Management API (`/v1/tenant/*`, `@nylorun/admin` with `NYLORUN_MANAGEMENT_KEY`, `/openapi/management.json`); Host work: `nylorun status`, `stop` and `key`, or `nylorun-operate status\|keys` in the runtime container |
 | operator listener, operator port, `NYLORUN_ADMIN_PORT`, `NYLORUN_ADMIN_LISTEN_*`, `adminPort` (removed in protocol 8) | the Host's one listener; `nylorun-operate` for Host work |
-| operator key, Host feature `operator-keys` | application key (`PUT /v1/tenant/keys/{keyId}`, `nylorun key put <id>`); management key for the Management API |
+| operator key, Host feature `operator-keys` | application key (`PUT /v1/tenant/keys/{keyId}`, `nylorun tenant keys put <id>`); management key for the Management API |
 | `tenant:settings` (retired in protocol 8) | a management key on the Management API, as itself; Studio uses its own key |
 | `/v1/vaults…`, `/v1/access/signing-keys…`, `client.createVault`, `client.access.signingKeys` | `/v1/tenant/signing-keys…`, `admin.signingKeys`; vaults: an Environment's secrets (protocol 11) |
 | `/v1/sandboxes…`, `client.sandboxes`, `sandbox: { id }`, `vaultIds`, `credentialSelections`, `/v1/tenant/vaults…`, `admin.vaults`, user and installation vaults, `sandboxes:write`, `sandbox_*` error codes and events (protocol 10) | `/v1/environments…`, `client.environments`, `environment: <id>`, `PUT /v1/environments/{id}/secrets/{name}`, `environments:write`, `environment_*` codes and events (protocol 11) |

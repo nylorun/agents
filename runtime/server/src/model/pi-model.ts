@@ -122,7 +122,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
     if (!stored)
       return failure(
         "auth",
-        "Model provider is not configured. Set it in Studio, or run nylo configure (npx @nylorun/cli configure).",
+        "Model provider is not configured. Set it in Studio, or run nylorun tenant models set.",
         false,
       );
     const secrets = [
@@ -152,7 +152,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
     if (!found)
       return failure(
         "invalid_request",
-        "Unknown model. Run nylo configure (npx @nylorun/cli configure).",
+        "Unknown model. Run nylorun tenant models set.",
         false,
       );
     // What the model reads (protocol 12): its catalog's inputs and the operator's additions.
@@ -271,7 +271,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         outcome.code === "auth"
           ? {
               ...outcome,
-              message: `${outcome.message} Update the provider credential in Studio's Model Settings, or run nylo configure.`,
+              message: `${outcome.message} Update the provider credential in Studio's Model Settings, or run nylorun tenant models set.`,
             }
           : outcome,
       );
@@ -647,7 +647,7 @@ function hostCredentialStore(
     },
     async delete() {
       throw new Error(
-        "Replace the model provider in Studio, or with nylo configure.",
+        "Replace the model provider in Studio, or with nylorun tenant models set.",
       );
     },
   };

@@ -31,32 +31,56 @@ function nylorun(args: string[], env: Record<string, string> = {}, entry = "dist
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-describe("nylorun (the setup command)", () => {
-  it("lists up and down beside start and stop, and the Tenant commands", () => {
+describe("nylorun", () => {
+  it("lists the installation's commands and the three groups", () => {
     const { code, stdout } = nylorun(["--help"]);
     expect(code).toBe(0);
     expect(stdout).toMatch(/up\|start \[--tenant <name>\]/);
     expect(stdout).toMatch(/down\|stop/);
-    expect(stdout).toMatch(/^ {2}ls \[--json\]/m);
-    expect(stdout).toMatch(/^ {2}delete <tenant> --yes/m);
-    expect(stdout).toMatch(/^Local Tenants \(Docker Compose\), one per project:$/m);
-    expect(stdout).toMatch(/^ {2}key put <id> \[--management\] \[--tenant <name>\]/m);
-    expect(stdout).toMatch(/^ {2}key rm <id>/m);
-    expect(stdout).not.toMatch(/stack|legacy|--name|\bdev\b|configure/i);
+    expect(stdout).toMatch(/^ {2}doctor sandbox \[--tenant <name>\] \[--json\]/m);
+    expect(stdout).toMatch(/^ {2}environments {2}list \| delete/m);
+    expect(stdout).toMatch(/^ {2}tenant {8}reset \| keys \| signing-keys \| models \| mcp/m);
+    expect(stdout).toMatch(/^ {2}local {9}ls \| delete \| logs \| reset \| sandbox \| telemetry/m);
+    expect(stdout).not.toMatch(/\bnylo\b|legacy|--name|\bdev\b|configure/i);
+  });
+
+  it("each group has its own help", () => {
+    expect(nylorun(["local", "--help"]).stdout).toMatch(/^ {2}delete <tenant> --yes/m);
+    expect(nylorun(["tenant", "--help"]).stdout).toMatch(/^ {2}keys put <id> \[--management\] \[--tenant <name>\]/m);
+    expect(nylorun(["environments", "--help"]).stdout).toMatch(/^ {2}delete <id> \[--tenant <name>\]/m);
+    expect(nylorun(["local", "sandbox", "--help"]).stdout).toMatch(/sandbox enable --context <name>/);
   });
 
   it.each([
     [["dev"], /npx nylorun start/],
     [["dev", "--ephemeral"], /npx nylorun start/],
-    [["tenant", "list"], /^nylorun <up\|down\|start/],
-    [["legacy", "stop"], /^nylorun <up\|down\|start/],
-    [["stack", "start"], /^nylorun <up\|down\|start/],
+    [["legacy", "stop"], /^nylorun <command>/],
+    [["stack", "start"], /^nylorun <command>/],
     [["doctor", "stack"], /Usage: nylorun doctor \[--json\]/],
-    [["configure"], /Runtime client's: npx -p nylorun nylo configure$/m],
-    [["status", "--env"], /Runtime client's: npx -p nylorun nylo env$/m],
-    [["doctor", "sandbox"], /Runtime client's: npx -p nylorun nylo doctor sandbox$/m],
-    [["key"], /key put <id>/],
-    [["key", "put"], /Usage: nylorun key put <id>/],
+    [["logs"], /^nylorun logs moved: nylorun local logs$/m],
+    [["ls"], /^nylorun ls moved: nylorun local ls$/m],
+    [["delete", "x", "--yes"], /^nylorun delete moved: nylorun local delete$/m],
+    [["telemetry"], /^nylorun telemetry moved: nylorun local telemetry$/m],
+    [["reset", "--yes"], /nylorun local reset deletes a local Tenant's volumes; nylorun tenant reset/],
+    [["key", "put", "x"], /^nylorun key moved: nylorun tenant keys put\|list\|rm$/m],
+    [["mcp", "inspect", "x"], /^nylorun mcp moved: nylorun tenant mcp inspect <url>$/m],
+    [["configure"], /^nylorun configure is nylorun tenant models set$/m],
+    [["access", "signing-keys", "list"], /nylorun tenant signing-keys/],
+    [["env"], /nylorun env was removed: the SDKs read the Project link themselves/],
+    [["status", "--env"], /nylorun env was removed/],
+    [["sandbox", "ls"], /^nylorun sandbox ls moved: nylorun environments list$/m],
+    [["sandbox", "rm", "x"], /^nylorun sandbox rm moved: nylorun environments delete <id>$/m],
+    [["sandbox", "enable"], /^nylorun sandbox moved: nylorun local sandbox enable$/m],
+    [["local", "sandbox", "ls"], /^nylorun sandbox ls moved: nylorun environments list$/m],
+    [["local", "nothing"], /^Unknown local command nothing\./m],
+    [["tenant"], /^nylorun tenant <reset\|keys/m],
+    [["tenant", "list"], /^Unknown tenant command list\./m],
+    [["tenant", "keys"], /keys put <id>/],
+    [["tenant", "keys", "put"], /Usage: nylorun tenant keys put <id>/],
+    [["tenant", "models"], /Usage: nylorun tenant models set/],
+    [["tenant", "reset", "--sessions", "--all"], /Pass only one of --sessions, --environments, --all/],
+    [["environments"], /^nylorun environments <list\|delete>/m],
+    [["doctor", "sandbox", "--tenant"], /Usage: nylorun doctor sandbox \[--tenant <name>\] \[--json\]/],
   ])("%j names its replacement (exit 2)", (args, message) => {
     const { code, stderr } = nylorun(args);
     expect(code).toBe(2);
@@ -69,49 +93,41 @@ describe("nylorun (the setup command)", () => {
     expect(status.stdout).toMatch(/^Tenant {6}default absent \(nothing under .*user\/\.nylorun\/tenants\/default; run "nylorun start"\)/);
     expect(nylorun(["start"]).stderr).toMatch(/docker command was not found/);
     expect(nylorun(["status", "--tenant", "tn_x"]).stderr).toMatch(/not a Tenant id/);
-    const ls = nylorun(["ls"]);
+    const ls = nylorun(["local", "ls"]);
     expect(ls.code).toBe(0);
     expect(ls.stdout).toMatch(/^No Tenants on this machine\./);
-    const deleted = nylorun(["delete", "nothing", "--yes"]);
+    const deleted = nylorun(["local", "delete", "nothing", "--yes"]);
     expect(deleted.code).toBe(3);
+  });
+
+  it("the tenant and environments groups need a running local Tenant, or a remote installation", () => {
+    const keys = nylorun(["tenant", "signing-keys", "list"]);
+    expect(keys.code).toBe(3);
+    expect(keys.stderr).toMatch(/No Tenant default under .*Run "nylorun start" first/);
+    // NYLORUN_RUNTIME_URL alone is an app's: it names no installation for the Management API.
+    expect(nylorun(["tenant", "reset"], { NYLORUN_RUNTIME_URL: "http://127.0.0.1:9" }).code).toBe(3);
+    const remote = nylorun(["status"], {
+      NYLORUN_RUNTIME_URL: "http://127.0.0.1:9",
+      NYLORUN_MANAGEMENT_KEY: "cd".repeat(32),
+    });
+    expect(remote.code).toBe(1);
+    expect(remote.stderr).toMatch(/The installation at http:\/\/127\.0\.0\.1:9 did not answer/);
   });
 });
 
-describe("nylo (the Runtime client, this package's second command)", () => {
-  const nylo = (args: string[]) =>
-    nylorun(
-      args,
-      { NYLORUN_RUNTIME_URL: "", NYLORUN_SERVER_KEY: "", NYLORUN_MANAGEMENT_KEY: "" },
-      "dist/nylo.js",
-    );
-
-  it("says which status and reset each command means", () => {
-    const setup = nylorun(["--help"]).stdout;
-    expect(setup).toMatch(/nylorun status and reset act on the local Tenant's containers and volumes/);
-    expect(setup).toMatch(/status\s+and reset go through the Management API/);
-    const { code, stdout } = nylo(["--help"]);
-    expect(code).toBe(0);
-    expect(stdout).toMatch(/^nylo <status\|reset\|access\|configure\|env\|doctor>/);
-    expect(stdout).toMatch(/^nylo status and reset go through the Management API/m);
-    expect(stdout).toMatch(/nylorun status and reset act on the\s+local Tenant's containers and volumes/);
-  });
-
+describe("nylo (part of nylorun now)", () => {
   it.each([
-    [["start"], /^Local Tenants are nylorun's: npx nylorun start$/m],
-    [["tenant", "list"], /^nylo tenant was removed/],
-    [["endpoints"], /^nylo endpoints was removed/],
-    [["configure", "--global"], /^--global was removed/],
-    [["configure", "x"], /^nylo <status\|reset/],
-    [["doctor"], /Usage: nylo doctor sandbox \[--json\]/],
-  ])("%j names its replacement (exit 2)", (args, message) => {
-    const { code, stderr } = nylo(args);
+    [["status"], /^nylo is part of nylorun now: nylo status is nylorun status\.$/m],
+    [["reset", "--all"], /nylo reset is nylorun tenant reset\./],
+    [["access", "signing-keys", "list"], /nylo access is nylorun tenant signing-keys list\|rotate\|revoke\./],
+    [["configure"], /nylo configure is nylorun tenant models set\./],
+    [["doctor", "sandbox"], /nylo doctor is nylorun doctor sandbox\./],
+    [["env"], /nylo env is nothing: the SDKs read the Project link themselves/],
+    [[], /^nylo is part of nylorun now: run nylorun --help\.$/m],
+  ])("%j names the nylorun command (exit 2)", (args, message) => {
+    const { code, stdout, stderr } = nylorun(args, {}, "dist/nylo.js");
     expect(code).toBe(2);
+    expect(stdout).toBe("");
     expect(stderr).toMatch(message);
-  });
-
-  it("without a Project link, status says to run nylorun start (exit 1)", () => {
-    const { code, stderr } = nylo(["status"]);
-    expect(code).toBe(1);
-    expect(stderr).toMatch(/No Project link in .*Run "npx nylorun start" in this project/);
   });
 });

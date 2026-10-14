@@ -5,6 +5,7 @@ import {
   PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
 import { doctorSandbox } from "../../src/client/doctor.js";
+import { temporaryHome, testDeps } from "../stack/support.js";
 
 const servers: { close(): void }[] = [];
 const tenantHeaders: (string | string[] | undefined)[] = [];
@@ -60,27 +61,12 @@ const report = {
 
 it("F2-4: doctor sandbox prints Tenant API report (snapshot)", async () => {
   const url = await runtime(report);
-  const previous = {
-    url: process.env.NYLORUN_RUNTIME_URL,
-    key: process.env.NYLORUN_MANAGEMENT_KEY,
-  };
-  process.env.NYLORUN_RUNTIME_URL = url;
-  process.env.NYLORUN_MANAGEMENT_KEY = "key";
-  const lines: string[] = [];
-  const original = console.log;
-  console.log = (...args: unknown[]) => {
-    lines.push(args.map(String).join(" "));
-  };
-  try {
-    await doctorSandbox({ json: false });
-  } finally {
-    console.log = original;
-    if (previous.url === undefined) delete process.env.NYLORUN_RUNTIME_URL;
-    else process.env.NYLORUN_RUNTIME_URL = previous.url;
-    if (previous.key === undefined) delete process.env.NYLORUN_MANAGEMENT_KEY;
-    else process.env.NYLORUN_MANAGEMENT_KEY = previous.key;
-  }
-  const text = lines.join("\n");
+  const deps = testDeps(await temporaryHome(), {
+    fetch: (input, init) => fetch(input, init),
+  });
+  deps.env = { ...deps.env, NYLORUN_RUNTIME_URL: url, NYLORUN_MANAGEMENT_KEY: "key" };
+  await doctorSandbox(deps, { json: false });
+  const text = deps.lines.join("\n");
   expect(text).toContain("virtual");
   expect(text).toContain("selected");
   expect(text).toContain("preference");

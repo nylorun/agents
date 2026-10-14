@@ -2,7 +2,7 @@
  * The local Tenant, reset for a smoke or acceptance check: a Host serves one
  * Tenant, so a check starts from a clean one instead of creating its own.
  * Reset through the Management API (`POST /v1/tenant/reset`, scope `all`, active
- * work cancelled: what `nylo reset --all` does) with a management key, seeded
+ * work cancelled: what `nylorun tenant reset --all` does) with a management key, seeded
  * with the Tenant-level fixture model (no model credential), handed to `fn` as
  * NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY (the checks' application key, see
  * `hostTenant`) and NYLORUN_MANAGEMENT_KEY (no Project link is written), and

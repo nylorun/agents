@@ -1,4 +1,4 @@
-// Package config reads the files `nylorun sandbox enable` writes under
+// Package config reads the files `nylorun local sandbox enable` writes under
 // `<Host root>/sandboxes/` (mounted read-only at /run/nylorun/sandboxes) and the
 // service's environment.
 package config
@@ -18,7 +18,7 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// Cluster is cluster.json, as `nylorun sandbox enable` records it.
+// Cluster is cluster.json, as `nylorun local sandbox enable` records it.
 type Cluster struct {
 	// Context is the kubeconfig context `enable` installed into.
 	Context string `json:"context"`
@@ -85,7 +85,7 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "cluster.json"))
 	if err != nil {
-		return Config{}, fmt.Errorf("read cluster.json (run nylorun sandbox enable): %w", err)
+		return Config{}, fmt.Errorf("read cluster.json (run nylorun local sandbox enable): %w", err)
 	}
 	cluster, err := ParseCluster(raw)
 	if err != nil {

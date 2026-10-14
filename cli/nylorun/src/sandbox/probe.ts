@@ -6,7 +6,7 @@ import type { Kube } from "./kubectl.js";
 import { networkPolicy, PROBE_IMAGE, probePod } from "./manifests.js";
 
 /**
- * The NetworkPolicy probe `nylorun sandbox enable` runs before it trusts a cluster (D32), in
+ * The NetworkPolicy probe `nylorun local sandbox enable` runs before it trusts a cluster (D32), in
  * a throwaway namespace `nylorun-sbx-probe-<random>`:
  *
  * - a `control` pod (no policy) must reach a `peer` pod and the allowed host port, which

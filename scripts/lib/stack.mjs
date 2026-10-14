@@ -7,7 +7,7 @@
  *   builds those with buildx before the smoke runs).
  * - `withStack` starts `nylorun start` under a temporary `NYLORUN_HOME` with a
  *   unique `NYLORUN_TENANT` (and `NYLORUN_COMPOSE_PROJECT`), hands the Tenant
- *   to a callback, and always ends with `nylorun reset --yes` (containers and
+ *   to a callback, and always ends with `nylorun local reset --yes` (containers and
  *   volumes) and removes the temporary Host root. Its commands run from the
  *   Host root, which is not a project, so `start` links nothing; a check that
  *   wants a Project link runs `nylorun start` in its project directory
@@ -40,12 +40,8 @@ const DOCKERFILES = {
   sandboxes: "sandboxes/Dockerfile",
 };
 
-/**
- * The workspace `nylorun` (local Tenants) and `nylo` (the Runtime client), both from the
- * nylorun package (`npm run build` first).
- */
+/** The workspace `nylorun` (`npm run build` first). */
 export const WORKSPACE_CLI = join(root, "cli", "nylorun", "dist", "cli.js");
-export const WORKSPACE_NYLO = join(root, "cli", "nylorun", "dist", "nylo.js");
 
 /** The image id for `tag`, or undefined when Docker has no such image. */
 export async function imageId(tag) {
@@ -130,7 +126,7 @@ export function stackProjectName(prefix) {
 
 /**
  * One Tenant under a temporary Host root. `cli` is the `nylorun` entry to
- * drive it with and `nylo` the Runtime client's (the workspace builds by
+ * drive it with (the workspace build by
  * default, or packed installs).
  * `baseEnv` replaces `process.env` as the environment the Tenant's commands
  * start from (the release smoke passes one without publishing credentials).
@@ -139,7 +135,6 @@ export function stackProjectName(prefix) {
 export async function createStack({
   name = "nylorun-tenant",
   cli = WORKSPACE_CLI,
-  nylo = WORKSPACE_NYLO,
   images,
   baseEnv = process.env,
   env: extraEnv = {},
@@ -184,17 +179,6 @@ export async function createStack({
       const result = await exec(process.execPath, [entry, ...args], { env, cwd, echo, timeout });
       if (check && result.code !== 0)
         throw new Error(`nylorun ${args.join(" ")} exited with ${result.code}`);
-      return result;
-    },
-    /**
-     * Run `nylo <args>` (the Runtime client). It reads the Project link in
-     * `cwd` (a linked project), or NYLORUN_RUNTIME_URL + NYLORUN_SERVER_KEY.
-     */
-    async nylo(args, { check = true, echo = true, cwd = home, timeout, entry = nylo } = {}) {
-      log(`$ nylo ${args.join(" ")}`);
-      const result = await exec(process.execPath, [entry, ...args], { env, cwd, echo, timeout });
-      if (check && result.code !== 0)
-        throw new Error(`nylo ${args.join(" ")} exited with ${result.code}:\n${result.stderr ?? ""}`);
       return result;
     },
     /**
@@ -270,7 +254,7 @@ export async function createStack({
       return JSON.parse(result.stdout);
     },
     /**
-     * The checks' management key (`checks-management`): `nylorun key put --management` on the
+     * The checks' management key (`checks-management`): `nylorun tenant keys put --management` on the
      * machine (the only way to issue one), once per Tenant in this process and reused after.
      * Putting it again would rotate it; a linked project's `project-management` is never touched.
      */
@@ -279,10 +263,12 @@ export async function createStack({
       let key = managementKeys.get(cached);
       if (!key) {
         key = stack
-          .nylorun(["key", "put", CHECKS_MANAGEMENT_KEY_ID, "--management"], { echo: false })
+          .nylorun(["tenant", "keys", "put", CHECKS_MANAGEMENT_KEY_ID, "--management", "--tenant", project], {
+            echo: false,
+          })
           .then(({ stdout }) => {
             const issued = stdout.trim();
-            assert.match(issued, /^\S+$/, "nylorun key put --management prints the key alone");
+            assert.match(issued, /^\S+$/, "nylorun tenant keys put --management prints the key alone");
             return issued;
           });
         managementKeys.set(cached, key);
@@ -300,12 +286,12 @@ export async function createStack({
     },
     async logs(tail = 200) {
       if (!existsSync(join(home, "docker", "compose.yaml"))) return;
-      await stack.nylorun(["logs", "--tail", String(tail)], { check: false });
+      await stack.nylorun(["local", "logs", "--tail", String(tail)], { check: false });
     },
     /** Delete containers and volumes, then the temporary Host root. */
     async dispose() {
       const reset = await stack
-        .nylorun(["reset", "--yes"], { check: false, echo: false })
+        .nylorun(["local", "reset", "--yes"], { check: false, echo: false })
         .catch(() => ({ code: 1 }));
       // Without compose files (start failed early) Compose finds the
       // containers by project label.
@@ -398,11 +384,11 @@ const managementKeys = new Map();
 
 /**
  * The Host's one Tenant from `nylorun-operate status`, once it is open, with a key for the
- * checks: the application key `checks` (F9 I1), put with `nylorun key put checks` once per
+ * checks: the application key `checks` (F9 I1), put with `nylorun tenant keys put checks` once per
  * Tenant in this process and reused after. Putting it again would rotate it, and a linked
  * project's `project` key is never touched. It reaches the Runtime API only; `/v1/tenant/*`
  * takes the management key (`stack.managementKey()`, or `stack.tenant()` for both).
- * @param {{ home: string, operateStatus(): Promise<{ tenant: { id: string | null, state: string, cause?: string } }>, nylorun(args: string[], options?: object): Promise<{ stdout: string }> }} stack
+ * @param {{ home: string, project: string, operateStatus(): Promise<{ tenant: { id: string | null, state: string, cause?: string } }>, nylorun(args: string[], options?: object): Promise<{ stdout: string }> }} stack
  * @returns {Promise<{ id: string, key: string }>}
  */
 export async function hostTenant(stack) {
@@ -414,11 +400,13 @@ export async function hostTenant(stack) {
   const cached = `${stack.home} ${tenant.id}`;
   let key = checksKeys.get(cached);
   if (!key) {
-    key = stack.nylorun(["key", "put", CHECKS_KEY_ID], { echo: false }).then(({ stdout }) => {
-      const issued = stdout.trim();
-      assert.match(issued, /^\S+$/, "nylorun key put prints the key alone");
-      return issued;
-    });
+    key = stack
+      .nylorun(["tenant", "keys", "put", CHECKS_KEY_ID, "--tenant", stack.project], { echo: false })
+      .then(({ stdout }) => {
+        const issued = stdout.trim();
+        assert.match(issued, /^\S+$/, "nylorun tenant keys put prints the key alone");
+        return issued;
+      });
     checksKeys.set(cached, key);
     key.catch(() => checksKeys.delete(cached));
   }

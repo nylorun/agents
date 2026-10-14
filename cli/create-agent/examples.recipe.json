@@ -15,7 +15,7 @@
     "postgres": "^3.4.9"
   },
   "scripts": {
-    "configure": "nylo configure",
+    "configure": "nylorun tenant models set",
     "test": "vitest run",
     "codex:preflight": "node scripts/codex-preflight.mjs",
     "ag-ui": "tsx --env-file-if-exists=.env src/ag-ui/server.ts"

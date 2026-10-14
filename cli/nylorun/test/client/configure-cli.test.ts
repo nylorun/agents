@@ -7,9 +7,9 @@ import {
   PROTOCOL_FEATURES,
   PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
-import { link3, MANAGEMENT_KEY, project, writeProjectLink } from "./helpers/project.js";
+import { MANAGEMENT_KEY, project } from "./helpers/project.js";
 
-const cli = fileURLToPath(new URL("../../dist/nylo.js", import.meta.url));
+const cli = fileURLToPath(new URL("../../dist/cli.js", import.meta.url));
 const roots: string[] = [];
 const servers: { close(): void }[] = [];
 afterEach(async () => {
@@ -63,22 +63,21 @@ async function startHost() {
 }
 
 it(
-  "F2-4: configure lists Tenant /models catalog then cancels cleanly",
+  "F2-4: tenant models set lists the Tenant's /models catalog then cancels cleanly",
   { timeout: 15_000 },
   async () => {
     const root = await project("configure-cli-");
     roots.push(root);
     const host = await startHost();
-    await writeProjectLink(root, link3(host.url));
-    const child = spawn(process.execPath, [cli, "configure"], {
+    const child = spawn(process.execPath, [cli, "tenant", "models", "set"], {
       cwd: root,
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
         MODEL_PROVIDER_API_KEY: "",
-        NYLORUN_RUNTIME_URL: "",
+        NYLORUN_RUNTIME_URL: host.url,
         NYLORUN_SERVER_KEY: "",
-        NYLORUN_MANAGEMENT_KEY: "",
+        NYLORUN_MANAGEMENT_KEY: MANAGEMENT_KEY,
       },
     });
     let text = "";
@@ -98,7 +97,7 @@ it(
     expect(text).toContain("0. Custom OpenAI-compatible provider");
     expect(text).toContain("1. OpenAI (openai)");
     // The catalog request names no Tenant: the installation serves one. It carries the
-    // Project's management key (the Management API's).
+    // management key (the Management API's).
     expect(host.headers).toHaveLength(1);
     expect(host.headers[0]!.authorization).toBe(`Bearer ${MANAGEMENT_KEY}`);
     expect(host.headers[0]!["nylorun-tenant"]).toBeUndefined();

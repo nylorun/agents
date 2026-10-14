@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 /**
- * What `nylorun sandbox enable` installs into a cluster. The agent-sandbox controller is
+ * What `nylorun local sandbox enable` installs into a cluster. The agent-sandbox controller is
  * pinned (D32, Experiment 2): v1.0.5, API agents.x-k8s.io/v1beta1, its release manifest
  * verified by sha256 before it is applied. It is never upgraded or uninstalled here.
  */

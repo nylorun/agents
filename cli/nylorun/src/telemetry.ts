@@ -14,7 +14,7 @@ export const STUDIO_ANALYTICS_ID = "G-K6RPDFH6Q6";
 /** `~/.nylorun/telemetry.json`: the developer's choice, for every Tenant on the machine. */
 export interface TelemetryFile {
   format: 1;
-  /** False after `nylorun telemetry disable`; absent until a choice is made. */
+  /** False after `nylorun local telemetry disable`; absent until a choice is made. */
   enabled?: boolean;
   /** When `nylorun start` showed the notice (ISO time); it is shown once. */
   noticeShown?: string;
@@ -25,7 +25,7 @@ export type TelemetryDecision = Readonly<{ enabled: boolean; reason: string }>;
 export const TELEMETRY_NOTICE = [
   "Studio collects anonymous usage data: which pages are opened, with every",
   "Tenant, agent and session id removed. Nothing you send to agents is collected.",
-  'Turn it off with "nylorun telemetry disable" or NYLORUN_TELEMETRY_DISABLED=1.',
+  'Turn it off with "nylorun local telemetry disable" or NYLORUN_TELEMETRY_DISABLED=1.',
   "Learn more: https://github.com/nylorun/agents/blob/main/nylorun/README.md#telemetry",
 ].join("\n");
 
@@ -74,13 +74,13 @@ export function telemetryDecision(
   if (flag(env.DO_NOT_TRACK)) return { enabled: false, reason: "DO_NOT_TRACK is set" };
   if (flag(env.CI)) return { enabled: false, reason: "CI is set" };
   if (file.enabled === false)
-    return { enabled: false, reason: 'turned off with "nylorun telemetry disable"' };
+    return { enabled: false, reason: 'turned off with "nylorun local telemetry disable"' };
   return { enabled: true, reason: "on by default" };
 }
 
-const USAGE = "Usage: nylorun telemetry [status|enable|disable]";
+const USAGE = "Usage: nylorun local telemetry [status|enable|disable]";
 
-/** `nylorun telemetry [status|enable|disable]`. */
+/** `nylorun local telemetry [status|enable|disable]`. */
 export async function telemetryCommand(
   args: readonly string[],
   context: {

@@ -449,7 +449,7 @@ describe("outside a project", () => {
     const { tmp, base } = await machine();
     const flag = runStackCommand("start", ["--tenant", "tn_x"], machineDeps(base, tmp));
     await expect(flag).rejects.toMatchObject({ exitCode: 2 });
-    await expect(flag).rejects.toThrow(/^--tenant must be a Tenant's name, not a Tenant id: tn_x\. "nylorun ls" lists/);
+    await expect(flag).rejects.toThrow(/^--tenant must be a Tenant's name, not a Tenant id: tn_x\. "nylorun local ls" lists/);
     const env = machineDeps(base, tmp, { env: { NYLORUN_TENANT: "tn_01OLD" } });
     await expect(runStackCommand("status", [], env)).rejects.toThrow(/^NYLORUN_TENANT must be a Tenant's name/);
     expect(existsSync(join(base, "tenants"))).toBe(false);
@@ -782,7 +782,7 @@ describe("a Tenant created by nylorun 0.5", () => {
     const refused = runStackCommand("start", ["--tenant", "shop"], machineDeps(base, tmp, { docker }));
     await expect(refused).rejects.toMatchObject({ exitCode: 3 });
     await expect(refused).rejects.toThrow(
-      'Tenant shop was created by nylorun 0.5; its data is in the old volumes nylorun-shop_postgres, nylorun-shop_restate, nylorun-shop_s2. Run "nylorun reset --tenant shop" to start it fresh',
+      'Tenant shop was created by nylorun 0.5; its data is in the old volumes nylorun-shop_postgres, nylorun-shop_restate, nylorun-shop_s2. Run "nylorun local reset --tenant shop" to start it fresh',
     );
     expect(docker.streamed).toEqual([]);
     expect(await runStackCommand("reset", ["--yes", "--tenant", "shop"], machineDeps(base, tmp, { docker }))).toBe(0);

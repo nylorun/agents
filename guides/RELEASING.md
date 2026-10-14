@@ -1,12 +1,12 @@
 # Releasing packages and images
 
-Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio; Admin changes advance Studio and nylorun, whose `nylo` uses it; Runtime and Studio changes advance nylorun, which pins their images; nylorun changes advance the deprecated `@nylorun/cli`, which pins the nylorun whose `nylo` it runs. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Merging a release PR (one that changes `.release/plan.json`) publishes it on npm's `beta` channel, with no approval. Moving `latest` is the one human step: an administrator clicks **Promote to latest**. Nothing else publishes on merge or tag push.
+Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio; Admin changes advance Studio and nylorun, which uses it; Runtime and Studio changes advance nylorun, which pins their images; nylorun changes advance the deprecated `@nylorun/cli`, which pins the nylorun whose `nylo` it runs (`nylo` names the nylorun command that replaced each of its own). Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Merging a release PR (one that changes `.release/plan.json`) publishes it on npm's `beta` channel, with no approval. Moving `latest` is the one human step: an administrator clicks **Promote to latest**. Nothing else publishes on merge or tag push.
 
 Coding agents release by following [the release skill](../.claude/skills/release/SKILL.md).
 
 The creator's compatibility combination (`cli/create-agent/compatibility.json`)
 pins exactly what a generated project or the examples install or depend on:
-Core, Harness, Agents, Admin and Runtime. Neither nylorun (with `nylo`) nor
+Core, Harness, Agents, Admin and Runtime. Neither nylorun nor
 Studio is in it: developers run nylorun with `npx`, and Studio ships only as its
 image, which nylorun pins. Nor is the deprecated `@nylorun/cli`, which only runs
 nylorun's `nylo`. A protocol change needs a
@@ -25,7 +25,7 @@ A release publishes two kinds of artifact:
   `linux/arm64`. `nylorun up` runs the images nylorun pins in
   `cli/nylorun/package.json`: `nylorun.runtime` and `nylorun.studio`.
 - **The sandboxes image** `ghcr.io/nylorun/sandboxes:<runtime version>`: the Go
-  service in `sandboxes/` that `nylorun sandbox enable` adds to a Tenant. It has
+  service in `sandboxes/` that `nylorun local sandbox enable` adds to a Tenant. It has
   no package or pin of its own: it takes the Runtime's version and is built when
   a release ships a new Runtime. So a change under `sandboxes/` needs a
   `@nylorun/runtime` changeset, or the release does not build it.

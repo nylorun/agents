@@ -739,7 +739,7 @@ export type EnvironmentFile = z.infer<typeof EnvironmentFileSchema>;
 export const PutEnvironmentRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
-    /** Default `virtual`. `pod` needs sandbox pods (`nylorun sandbox enable`). Fixed. */
+    /** Default `virtual`. `pod` needs sandbox pods (`nylorun local sandbox enable`). Fixed. */
     kind: z.enum(ENVIRONMENT_KINDS).optional(),
     labels: EnvironmentLabelsSchema.optional(),
     /** Pods only: the workload image (default the Tenant's, else `python:3.13-slim`). */
@@ -3339,7 +3339,7 @@ export const TenantSandboxViewSchema = z
     defaultImage: z.string(),
     config: EffectiveSandboxConfigSchema,
     /**
-     * The Tenant's cluster for pod sandboxes (`nylorun sandbox enable`), as the sandboxes
+     * The Tenant's cluster for pod sandboxes (`nylorun local sandbox enable`), as the sandboxes
      * service reports it; null without one, or when the service does not answer.
      */
     cluster: z

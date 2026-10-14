@@ -2,9 +2,6 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { runStackCommand, runStudioCommand, type StackDeps } from "./commands.js";
 import { spawnDocker } from "./docker.js";
-import { keyCommand as runKeyCommand } from "./keys.js";
-import { mcpCommand as runMcpCommand } from "./mcp.js";
-import { sandboxCommand as runSandboxCommand } from "./sandbox.js";
 import { pinnedVersion } from "./versions.js";
 import { loopbackPorts } from "./ports.js";
 
@@ -92,7 +89,7 @@ export function defaultStackDeps(
   };
 }
 
-/** Entry for `nylorun start|stop|status|logs|reset|studio|ls|delete`. */
+/** Entry for `nylorun start|stop|status|studio` and `nylorun local logs|reset|ls|delete`. */
 export async function stackCommand(
   name: string,
   args: readonly string[],
@@ -100,33 +97,6 @@ export async function stackCommand(
 ): Promise<number> {
   return await runStackCommand(name, args, defaultStackDeps(env));
 }
-
-/** Entry for `nylorun sandbox ls|rm`. */
-export async function sandboxCommand(
-  args: readonly string[],
-  env: Readonly<Record<string, string | undefined>>,
-): Promise<number> {
-  return await runSandboxCommand(defaultStackDeps(env), args);
-}
-export { sandboxUsage } from "./sandbox.js";
-
-/** Entry for `nylorun key put|list|rm`. */
-export async function keyCommand(
-  args: readonly string[],
-  env: Readonly<Record<string, string | undefined>>,
-): Promise<number> {
-  return await runKeyCommand(defaultStackDeps(env), args);
-}
-export { keyUsage } from "./keys.js";
-
-/** Entry for `nylorun mcp inspect`. */
-export async function mcpCommand(
-  args: readonly string[],
-  env: Readonly<Record<string, string | undefined>>,
-): Promise<number> {
-  return await runMcpCommand(defaultStackDeps(env), args);
-}
-export { mcpUsage } from "./mcp.js";
 
 /** `nylorun studio`, landing on `next` when given, else on the Tenant's page. */
 export async function studioCommand(

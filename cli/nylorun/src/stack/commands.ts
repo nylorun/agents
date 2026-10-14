@@ -83,13 +83,8 @@ export const stackUsage = `  up|start [--tenant <name>] [--no-link] [--no-studio
                                       --restate-ui (or NYLORUN_RESTATE_UI=1) publishes Restate's UI on loopback for debugging
   down|stop [--tenant <name> | --all] stop the Tenant's containers (--all: every Tenant's); keep volumes
   status [--tenant <name>] [--json]   the Tenant, its id, services, endpoints and Runtime health
-  logs [service] [--tenant <name>] [-f] [--tail <n>]
-                                      container logs (${STACK_SERVICES.join(", ")})
   studio [--tenant <name>] [--no-open]
-                                      sign a browser in to Studio on the Tenant; --no-open prints the login URL; start the Tenant if it is stopped
-  reset [--tenant <name>] [--yes]     delete the Tenant's data (volumes, tenant/ and vault key); the next start creates it anew
-  ls [--json]                         the Tenants on this machine, with their memory in use
-  delete <tenant> --yes               remove a Tenant: containers, volumes and its Host root, with the vault key (KEK)`;
+                                      sign a browser in to Studio on the Tenant; --no-open prints the login URL; start the Tenant if it is stopped`;
 
 export interface StackDeps {
   /** Environment snapshot (NYLORUN_HOME, NYLORUN_TENANT, image overrides, NYLORUN_COMPOSE_PROJECT). */
@@ -373,7 +368,7 @@ async function waitForHealth(
     }
     if (Date.now() > deadline)
       throw new CliError(
-        `The Runtime did not answer ${runtimeUrl}/health. See "nylorun logs runtime".`,
+        `The Runtime did not answer ${runtimeUrl}/health. See "nylorun local logs runtime".`,
         7,
       );
     await sleep(ctx.deps.pollMs ?? 500);
@@ -458,7 +453,7 @@ function tenantCauseMessage(ctx: Context, tenant: StackTenant): string {
       ? ` This nylorun pins Runtime ${ctx.deps.runtimeVersion}, older than the Tenant's database: update nylorun (npx nylorun@latest start).`
       : "";
   const message = tenant.message ? `: ${tenant.message.replace(/\.?$/, ".")}` : ".";
-  return `Tenant ${ctx.name} is unavailable (${tenant.cause})${message}${hint} See "nylorun logs runtime".`;
+  return `Tenant ${ctx.name} is unavailable (${tenant.cause})${message}${hint} See "nylorun local logs runtime".`;
 }
 
 /**
@@ -483,7 +478,7 @@ async function waitForTenant(
         throw new CliError(
           `Tenant ${ctx.name} did not open (${runtimeUrl}/ready: ${
             open ? "open, but nylorun-operate status did not answer" : "not open"
-          })${tenant?.message ? `: ${tenant.message.replace(/\.$/, "")}` : ""}. See "nylorun status" and "nylorun logs runtime".`,
+          })${tenant?.message ? `: ${tenant.message.replace(/\.$/, "")}` : ""}. See "nylorun status" and "nylorun local logs runtime".`,
           7,
         );
     }
@@ -601,7 +596,7 @@ async function bringUp(
     studio: boolean;
     allowDowngrade?: boolean;
     studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
-    /** `nylorun sandbox enable|disable`: set or remove the sandboxes settings. */
+    /** `nylorun local sandbox enable|disable`: set or remove the sandboxes settings. */
     sandboxes?: SandboxStackEnv | null;
     /** `start`: publish Restate's UI or not; other callers keep what the last start chose. */
     restateUi?: boolean;
@@ -614,7 +609,7 @@ async function bringUp(
   const legacy = await oldVolumes(deps.docker, ctx.project);
   if (legacy.old.length && !legacy.current)
     throw new CliError(
-      `Tenant ${ctx.name} was created by nylorun 0.5; its data is in the old volumes ${legacy.old.join(", ")}. Run "nylorun reset --tenant ${ctx.name}" to start it fresh; that also removes the old volumes (or drop them yourself with "docker volume rm ${legacy.old.join(" ")}").`,
+      `Tenant ${ctx.name} was created by nylorun 0.5; its data is in the old volumes ${legacy.old.join(", ")}. Run "nylorun local reset --tenant ${ctx.name}" to start it fresh; that also removes the old volumes (or drop them yourself with "docker volume rm ${legacy.old.join(" ")}").`,
       3,
     );
   const base = nylorunRoot(deps);
@@ -671,7 +666,7 @@ async function bringUp(
     const tenant = await operateStatus(ctx);
     if (tenant?.cause) throw new CliError(tenantCauseMessage(ctx, tenant), 7);
     throw new CliError(
-      `docker compose up failed (exit ${up}). See "nylorun logs runtime", "nylorun logs gateway", "nylorun logs harness" and "nylorun status".`,
+      `docker compose up failed (exit ${up}). See "nylorun local logs runtime", "nylorun local logs gateway", "nylorun local logs harness" and "nylorun status".`,
       7,
     );
   }
@@ -680,7 +675,7 @@ async function bringUp(
   if (prepared.env.sandboxes) {
     const sandboxes = await deps.docker.stream(composeArgs(ctx, "up", "--detach", "sandboxes"));
     if (sandboxes !== 0)
-      deps.err(`Warning: the sandboxes service did not start. See "nylorun logs sandboxes".`);
+      deps.err(`Warning: the sandboxes service did not start. See "nylorun local logs sandboxes".`);
   }
 
   let studioStarted = false;
@@ -691,7 +686,7 @@ async function bringUp(
     studioStarted = studio === 0;
     if (!studioStarted)
       deps.err(
-        `Warning: Studio did not start (image ${prepared.env.studioImage}). The Runtime is up; see "nylorun logs studio".`,
+        `Warning: Studio did not start (image ${prepared.env.studioImage}). The Runtime is up; see "nylorun local logs studio".`,
       );
   }
   return {
@@ -815,7 +810,7 @@ async function linkProject(
     if (set.length) deps.err(`Seeded the Tenant from .env: ${set.join(", ")}.`);
   } catch (error) {
     deps.err(
-      `Warning: could not seed the Tenant from .env (${error instanceof Error ? error.message : String(error)}). Set the model in Studio or with "npx -p nylorun nylo configure".`,
+      `Warning: could not seed the Tenant from .env (${error instanceof Error ? error.message : String(error)}). Set the model in Studio or with "npx nylorun tenant models set".`,
     );
   }
 }
@@ -1086,7 +1081,7 @@ async function status(deps: StackDeps, args: readonly string[]): Promise<number>
       result.harness.mode === "remote"
         ? `Harness     ${result.harness.state}, remote${
             result.harness.connected === undefined ? "" : `, ${result.harness.connected} connected`
-          } (agent turns, MCP servers and workspaces; "nylorun logs harness")`
+          } (agent turns, MCP servers and workspaces; "nylorun local logs harness")`
         : `Harness     in-process (NYLORUN_HARNESS=in-process in .env: turns run in the runtime container)`,
     );
     out(
@@ -1097,7 +1092,7 @@ async function status(deps: StackDeps, args: readonly string[]): Promise<number>
     const sandboxes = result.services.find((s) => s.service === "sandboxes");
     if (sandboxes)
       out(
-        `Sandboxes   ${[sandboxes.state, sandboxes.health].filter(Boolean).join(", ")} (see "nylorun sandbox status")`,
+        `Sandboxes   ${[sandboxes.state, sandboxes.health].filter(Boolean).join(", ")} (see "nylorun local sandbox status")`,
       );
     out(
       `Services    ${
@@ -1115,7 +1110,7 @@ async function status(deps: StackDeps, args: readonly string[]): Promise<number>
 }
 
 async function logs(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = `nylorun logs [${STACK_SERVICES.join("|")}] [--tenant <name>] [-f] [--tail <n>]`;
+  const usage = `nylorun local logs [${STACK_SERVICES.join("|")}] [--tenant <name>] [-f] [--tail <n>]`;
   const flags = parseStackFlags(
     args,
     { booleans: ["--follow"], values: ["--tail", "--tenant"], aliases: { "-f": "--follow" } },
@@ -1142,7 +1137,7 @@ async function logs(deps: StackDeps, args: readonly string[]): Promise<number> {
 }
 
 async function reset(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun reset [--tenant <name>] [--yes]";
+  const usage = "nylorun local reset [--tenant <name>] [--yes]";
   const flags = parseStackFlags(
     args,
     { booleans: ["--yes"], values: ["--tenant"], aliases: { "-y": "--yes" } },
@@ -1155,7 +1150,7 @@ async function reset(deps: StackDeps, args: readonly string[]): Promise<number> 
     const question = `Delete Tenant ${ctx.name}'s volumes (Compose project ${ctx.project}), its Tenant directory ${paths.tenant} and its vault key ${paths.vaultKey}? Its data is lost, and the next start creates the Tenant anew, with a new id. [y/N] `;
     if (!deps.confirm)
       throw usageError(
-        `nylorun reset deletes all of Tenant ${ctx.name}'s data; pass --yes to confirm when not in a terminal.`,
+        `nylorun local reset deletes all of Tenant ${ctx.name}'s data; pass --yes to confirm when not in a terminal.`,
       );
     if (!(await deps.confirm(question))) {
       deps.err("Reset cancelled.");
@@ -1211,7 +1206,7 @@ async function composeProjects(
 }
 
 async function ls(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun ls [--json]";
+  const usage = "nylorun local ls [--json]";
   const flags = parseStackFlags(args, { booleans: ["--json"] }, usage);
   if (flags.rest.length) throw usageError(`Usage: ${usage}`);
   const base = nylorunRoot(deps);
@@ -1269,7 +1264,7 @@ async function ls(deps: StackDeps, args: readonly string[]): Promise<number> {
 }
 
 async function deleteStack(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun delete <tenant> --yes";
+  const usage = "nylorun local delete <tenant> --yes";
   const flags = parseStackFlags(args, { booleans: ["--yes"], aliases: { "-y": "--yes" } }, usage);
   const [name, ...extra] = flags.rest;
   if (name === undefined || extra.length) throw usageError(`Usage: ${usage}`);
@@ -1277,10 +1272,10 @@ async function deleteStack(deps: StackDeps, args: readonly string[]): Promise<nu
   const base = nylorunRoot(deps);
   const ctx = { deps, project: stackProject(deps.env, name), paths: stackPaths(tenantRoot(base, name)) };
   if (!existsSync(ctx.paths.root))
-    throw new CliError(`No Tenant ${name} under ${tenantsDir(base)}. See "nylorun ls".`, 3);
+    throw new CliError(`No Tenant ${name} under ${tenantsDir(base)}. See "nylorun local ls".`, 3);
   if (!flags.booleans.has("--yes"))
     throw usageError(
-      `nylorun delete removes Tenant ${name}: its containers, volumes and Host root ${ctx.paths.root}, with its vault key (KEK) and all its data. This cannot be undone; pass --yes to confirm.`,
+      `nylorun local delete removes Tenant ${name}: its containers, volumes and Host root ${ctx.paths.root}, with its vault key (KEK) and all its data. This cannot be undone; pass --yes to confirm.`,
     );
   await dockerPreflight(deps.docker);
   const files = existsSync(ctx.paths.compose) && existsSync(ctx.paths.env);
@@ -1370,7 +1365,7 @@ async function ensureSelected(ctx: Context, options: { studio: boolean }): Promi
   };
 }
 
-/** The running Tenant's APIs and their keys (`nylorun sandbox`). */
+/** The running Tenant's APIs and their keys (`nylorun local sandbox`). */
 export interface TenantApi {
   /** The Tenant's name. */
   name: string;
@@ -1475,7 +1470,7 @@ export async function ensureStack(
   );
 }
 
-/** A started Tenant as `nylorun sandbox` sees it. */
+/** A started Tenant as `nylorun local sandbox` sees it. */
 export interface SelectedTenant {
   name: string;
   paths: StackPaths;
@@ -1484,7 +1479,7 @@ export interface SelectedTenant {
   compose(...args: string[]): string[];
 }
 
-/** The Tenant `nylorun sandbox` acts on; it must have been started once. */
+/** The Tenant `nylorun local sandbox` acts on; it must have been started once. */
 export async function selectTenant(
   deps: StackDeps,
   options: { name?: string } = {},
@@ -1563,7 +1558,7 @@ async function studio(
   const running = await ensureSelected(ctx, { studio: true });
   if (running.started) deps.out(`Runtime   ${running.runtimeUrl}`);
   if (!running.studioUp)
-    throw new CliError(`Studio did not start. See "nylorun logs studio".`, 7);
+    throw new CliError(`Studio did not start. See "nylorun local logs studio".`, 7);
   // Studio serves the one Tenant; the link's Tenant id stands in while it is opening.
   let next = options.next;
   if (next === undefined) {

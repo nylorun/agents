@@ -1,7 +1,7 @@
 import { release } from "node:os";
-import { findProjectRoot } from "@nylorun/core/project";
 import { CliError } from "../errors.js";
-import { linkedConnection, managementClient } from "./project/connection.js";
+import type { StackDeps } from "../stack/commands.js";
+import { connect, managementClient } from "./target.js";
 
 export type SandboxReport = {
   preference: string;
@@ -32,18 +32,21 @@ function platformLine(): string {
   return `${os} (kernel ${release()}) · ${process.arch}`;
 }
 
-/** The Tenant's sandbox report (`GET /v1/tenant/sandbox`, Management API). */
-async function fetchSandboxReport(): Promise<SandboxReport> {
-  const connection = await linkedConnection(findProjectRoot() ?? process.cwd());
-  return (await managementClient(connection).settings.sandbox.get()) as SandboxReport;
-}
-
-/** `nylo doctor sandbox`: Tenant sandbox report via the Management API (F2-4). */
-export async function doctorSandbox(options: { json: boolean }): Promise<void> {
+/**
+ * `nylorun doctor sandbox`: the Tenant's sandbox report (`GET /v1/tenant/sandbox`, Management API)
+ * of the installation `target.ts` picks (F2-4).
+ */
+export async function doctorSandbox(
+  deps: StackDeps,
+  options: { json: boolean; tenant?: string },
+): Promise<void> {
+  const log = (line: string) => deps.out(line);
   let report: SandboxReport;
   try {
-    report = await fetchSandboxReport();
+    const connection = await connect(deps, "management", options.tenant);
+    report = (await managementClient(deps, connection).settings.sandbox.get()) as SandboxReport;
   } catch (error) {
+    if (error instanceof CliError) throw error;
     throw new CliError(
       error instanceof Error
         ? error.message
@@ -52,7 +55,7 @@ export async function doctorSandbox(options: { json: boolean }): Promise<void> {
     );
   }
   if (options.json) {
-    console.log(
+    log(
       JSON.stringify({ platform: platformLine(), ...report }, null, 2),
     );
     return;
@@ -93,9 +96,9 @@ export async function doctorSandbox(options: { json: boolean }): Promise<void> {
   ]);
   const width = Math.max(...rows.map(([key]) => key.length)) + 2;
   for (const [key, value] of rows)
-    console.log(`  ${key.padEnd(width)}${value}`);
+    log(`  ${key.padEnd(width)}${value}`);
   if (report.backend === "virtual")
-    console.log(
+    log(
       "\n  The virtual shell emulates bash in the Runtime process; it is not a VM boundary.",
     );
 }

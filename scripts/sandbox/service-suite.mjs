@@ -125,7 +125,7 @@ try {
 
       try {
         step(`nylorun sandbox enable --context ${context}`);
-        const enableArgs = ["sandbox", "enable", "--context", context, "--no-pull"];
+        const enableArgs = ["local", "sandbox", "enable", "--context", context, "--no-pull"];
         if (options["host-address"]) enableArgs.push("--host-address", options["host-address"]);
         await stack.nylorun(enableArgs, { timeout: 900_000 });
         const env = await stack.compose(["exec", "-T", "runtime", "printenv", "NYLORUN_SANDBOXES_URL"]);
@@ -220,12 +220,12 @@ try {
         const before = await stack.compose(["exec", "-T", "runtime", "printenv", "NYLORUN_SANDBOXES_TOKEN"]);
         await stack.nylorun(enableArgs, { timeout: 900_000 });
         assert.equal(await stack.compose(["exec", "-T", "runtime", "printenv", "NYLORUN_SANDBOXES_TOKEN"]), before);
-        const status = JSON.parse((await stack.nylorun(["sandbox", "status", "--json"])).stdout);
+        const status = JSON.parse((await stack.nylorun(["local", "sandbox", "status", "--json"])).stdout);
         assert.equal(status.ready, true);
         assert.equal(status.info.apiVersion, "agents.x-k8s.io/v1beta1");
 
         step("disable");
-        await stack.nylorun(["sandbox", "disable", "--delete-namespace"]);
+        await stack.nylorun(["local", "sandbox", "disable", "--delete-namespace"]);
         const left = await run("docker", ["ps", "--all", "--quiet", "--filter", `name=^${service}$`], { capture: true });
         assert.equal(left.trim(), "", "disable removes the sandboxes container");
         console.log("\n[sandboxes] PASS");

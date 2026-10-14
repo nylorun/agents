@@ -598,7 +598,7 @@ try {
   if (selected("I5")) await i5(temporary, packed);
 
   if (SCENARIOS.some((id) => id !== "I5" && selected(id))) {
-    // nylorun (with nylo) and @nylorun/admin as a developer's npx installs them.
+    // nylorun and @nylorun/admin as a developer's npx installs them.
     const tools = join(temporary, "tools");
     await installProject(tools, packed, ["core", "agents", "admin", "nylorun"]);
     const images = await ensureImages();
@@ -606,7 +606,6 @@ try {
       {
         name: "nylorun-acceptance",
         cli: join(tools, "node_modules/nylorun/dist/cli.js"),
-        nylo: join(tools, "node_modules/nylorun/dist/nylo.js"),
         images,
         startArgs: ["--no-studio"],
       },

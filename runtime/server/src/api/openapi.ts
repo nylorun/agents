@@ -445,7 +445,7 @@ function documents(): { runtime: OpenApiDocument; management: OpenApiDocument } 
     management: document(all, MANAGEMENT_TAGS, {
       title: "Nylorun Management API",
       description:
-        "For operators: the Tenant's models, vaults, signing keys, settings and application keys, at `/v1/tenant/*` on the Tenant's URL, through `@nylorun/admin`. Every operation takes a management key, acting as itself: never for a subject and never from a browser. Management keys are issued only on the Tenant's machine (`nylorun key put <id> --management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`.",
+        "For operators: the Tenant's models, vaults, signing keys, settings and application keys, at `/v1/tenant/*` on the Tenant's URL, through `@nylorun/admin`. Every operation takes a management key, acting as itself: never for a subject and never from a browser. Management keys are issued only on the Tenant's machine (`nylorun tenant keys put <id> --management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`.",
     }),
   };
   return built;
