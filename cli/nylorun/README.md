@@ -54,7 +54,7 @@ nylorun doctor sandbox [--tenant <name>] [--json]   # the sandbox backend the Te
 # every one takes --tenant <name>, and --as <subject> [--scope <scope>]... to act for a person
 nylorun agents list [--json]
 nylorun agents get <id>                     # its manifest
-nylorun agents save <manifest.json|-> [--files <dir>]... [--implementation-version <v>]
+nylorun agents save <manifest.json|-> [--files <dir>]... [--implementation-version <v>] [--dry-run]
 nylorun sessions list [--agent <id>] [--status <s>] [--environment <id>] [--owner <user>] [--limit <n>] [--cursor <c>] [--json]
 nylorun sessions create --agent <id> --owner <user> [--environment <id>] [--id <id>] [--info <json>]
 nylorun sessions get <id>
@@ -65,13 +65,17 @@ nylorun sessions cancel <id> [--reason <text>]
 nylorun sessions watch <id> [--follow] [--cursor <c>]   # events as JSON lines until interrupted
 nylorun sessions history|usage|calls [--tool]|trace <id> …
 nylorun sessions exec <id> [--timeout <s>] -- <command>...   # bash in the session's sandbox
-nylorun environments list [--label <key=value>]... [--limit <n>] [--cursor <c>] [--json]
+nylorun environments list [--label <key=value>]... [--behind] [--limit <n>] [--cursor <c>] [--json]   # --behind: made from an older manifest version
 nylorun environments get|stop|reset|delete|snapshot|versions <id>
-nylorun environments put <id> [<recipe.json|->] [--kind <virtual|pod|none>] [--label <key=value>]...
+nylorun environments put <id> --manifest <name[@n]> [--label <key=value>]...   # made from a manifest version; what it runs never changes
+nylorun environments put <id> [<inline.json|->] [--kind <virtual|pod|none>] [--label <key=value>]...
+nylorun environments fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>] [--secrets <copy|none>] [--dry-run]   # onto a new manifest version
 nylorun environments restore <id> <version|latest>
 nylorun environments delete-version <id> <version>
 nylorun environments events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]
-nylorun environments secrets list|get|put|rm <id> [<name>] [<secret.json|->]
+nylorun environments secrets list|get|put|rm <id> [<name>] [<secret.json|->]   # put without a file: a slot's value on stdin
+nylorun environments manifests list [--json] | get <name> [--version <n>] | versions <name> | rm <name>
+nylorun environments manifests save <manifest.json>... [--if-match <n>] [--dry-run]   # files with "from": a folder, uploaded by hash
 nylorun artifacts list [--session <id>] [--label <key=value>]... [--limit <n>] [--cursor <c>] [--json]
 nylorun artifacts get|tree|diff|link|rm <id> …
 nylorun artifacts upload <file|-> [--name <name>] [--content-type <type>] [--session <id>] [--label <key=value>]... [--to <id>]
