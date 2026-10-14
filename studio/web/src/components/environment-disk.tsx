@@ -245,7 +245,6 @@ export function EnvironmentDisk({
             key={selection.id}
             tenantId={tenantId}
             selection={selection}
-            owner={{ label: "Environment", value: id }}
             onClose={() =>
               selection.update({ selected: null, version: null, tab: null, file: null })
             }

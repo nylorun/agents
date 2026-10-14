@@ -20,8 +20,9 @@ async function withStudio(
   ) => Promise<void>,
   mobile = false,
   mutates = false,
+  options: Parameters<typeof resourceRuntime>[0] = {},
 ) {
-  const runtime = await resourceRuntime();
+  const runtime = await resourceRuntime(options);
   const studio = await startStudioServer({
     runtimeUrl: runtime.url,
     adminKey: "e".repeat(64),
@@ -72,8 +73,7 @@ test("Environments work before agent registration: server paging, label navigati
     await page
       .getByRole("heading", { name: "Sessions", exact: true })
       .waitFor();
-    // Environments hold sandboxes, secrets and disk versions: no Artifacts or Credentials entry.
-    assert.equal(await page.getByRole("link", { name: "Artifacts", exact: true }).count(), 0);
+    // Environments hold sandboxes, secrets and disk versions: no Credentials entry.
     assert.equal(await page.getByRole("link", { name: "Credentials", exact: true }).count(), 0);
     await page.getByRole("link", { name: "Environments", exact: true }).click();
     await page.getByRole("link", { name: ENVIRONMENT, exact: true }).waitFor();
@@ -378,7 +378,49 @@ test("a pod's Setup & files tab shows its setup commands and input files, and ed
   );
 });
 
-test("artifacts pin versions, escape HTML, browse folder files and diff, and stream native downloads", async () => {
+test("the Tenant's artifacts are one paged table, filtered by kind, session and labels, each with its owner", async () => {
+  await withStudio(async (page, base, requests) => {
+    await page.goto(base);
+    await page.getByRole("link", { name: "Artifacts", exact: true }).click();
+    await page.getByRole("button", { name: "requirements.txt", exact: true }).waitFor();
+    await page.getByRole("button", { name: "disk", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Load more artifacts" }).click();
+    await page.getByRole("button", { name: "report.html", exact: true }).waitFor();
+    assert.deepEqual(
+      requests.filter((r) => r.path.startsWith("/v1/artifacts?")).map((r) => r.path),
+      ["/v1/artifacts?limit=50", "/v1/artifacts?limit=50&cursor=artifacts2"],
+    );
+    // Owners: the Tenant's own file, an Environment's disk, a session's outputs.
+    const row = (name: string) => page.getByRole("row").filter({ hasText: name });
+    await row("requirements.txt").getByText("Tenant", { exact: true }).waitFor();
+    await row("disk").getByRole("link", { name: `${ENVIRONMENT} · disk` }).waitFor();
+    await row("report.html").getByRole("link", { name: SESSION, exact: true }).waitFor();
+
+    await page.getByRole("combobox", { name: "Kind" }).selectOption("folder");
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await page.waitForURL(/kind=folder/);
+    await page.getByRole("button", { name: "requirements.txt", exact: true }).waitFor({ state: "detached" });
+    await page.getByRole("button", { name: "outputs", exact: true }).waitFor();
+    assert.ok(requests.some((r) => r.path === "/v1/artifacts?limit=50&kind=folder"));
+
+    await page.getByRole("combobox", { name: "Kind" }).selectOption("");
+    await page.getByRole("textbox", { name: "Artifact labels" }).fill("purpose=input");
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await page.waitForURL(/label=purpose%3Dinput/);
+    await page.getByRole("button", { name: "outputs", exact: true }).waitFor({ state: "detached" });
+    await page.getByRole("button", { name: "requirements.txt", exact: true }).click();
+    await page.getByRole("heading", { name: "requirements.txt", exact: true }).waitFor();
+    assert.ok(requests.some((r) => r.path === "/v1/artifacts?limit=50&label=purpose%3Dinput"));
+
+    // An Environment's disk opens on its Disk tab.
+    await page.getByRole("textbox", { name: "Artifact labels" }).fill("");
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await row("disk").getByRole("link", { name: `${ENVIRONMENT} · disk` }).click();
+    await page.waitForURL(/\/environments\/team%2Fbuild\?tab=disk$/);
+  });
+});
+
+test("artifacts pin versions, escape HTML, browse folder files and diff, and stream native downloads; a Host without pages looks up a session's", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base + "/artifacts");
     await page
@@ -447,7 +489,7 @@ test("artifacts pin versions, escape HTML, browse folder files and diff, and str
       .getByRole("alert")
       .filter({ hasText: "Artifact not found" })
       .waitFor();
-  });
+  }, false, false, { artifactReads: false });
 });
 
 test("an exact-version event opens the session artifact inspector, including through a session-only URL", async () => {

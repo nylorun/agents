@@ -4,7 +4,6 @@ import {
   useMemo,
   useState,
   type FormEvent,
-  type ReactNode,
 } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ArtifactView, FolderEntry } from "@nylorun/agents";
@@ -15,7 +14,9 @@ import {
   previewBytes,
   previewKind,
 } from "@/resources/artifacts";
-import { messageOf, useRead } from "@/resources/reads";
+import { messageOf, usePages, useRead } from "@/resources/reads";
+import { environmentPath } from "@/environment-path";
+import { sessionHref } from "@/session-open";
 import {
   ResourceLayout,
   ResourceHeader,
@@ -97,24 +98,113 @@ export function useArtifactSelection(scope: ArtifactSelectionScope = "page") {
 }
 type ArtifactSelection = ReturnType<typeof useArtifactSelection>;
 
+/** The Host feature of artifact pages (`GET /v1/artifacts?limit=…`). */
+const ARTIFACT_READS = "artifact-reads";
+
+/** Who holds an artifact: a session, an Environment's disk, or the Tenant itself. */
+function ArtifactOwner({
+  artifact,
+}: {
+  artifact: Pick<ArtifactView, "sessionId" | "environmentId">;
+}) {
+  if (artifact.environmentId)
+    return (
+      <Link
+        className="break-all underline underline-offset-4"
+        to={environmentPath(artifact.environmentId, "disk")}
+      >
+        {artifact.environmentId} · disk
+      </Link>
+    );
+  if (artifact.sessionId)
+    return (
+      <Link
+        className="break-all underline underline-offset-4"
+        to={sessionHref(artifact.sessionId)}
+      >
+        {artifact.sessionId}
+      </Link>
+    );
+  return <span>Tenant</span>;
+}
+
+/**
+ * The Tenant's artifacts (`/artifacts`): every artifact the Studio key reaches, newest first, in
+ * pages (Host feature `artifact-reads`), filtered by kind, session and labels, with each one's
+ * owner: a session, an Environment's disk, or the Tenant (an application's upload, such as an
+ * input file a pod's recipe copies in). A Host without pages gets the session lookup instead,
+ * since Studio never reads the unbounded list.
+ */
 export function Artifacts({ tenantId }: { tenantId: string }) {
+  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
   const [query, setQuery] = useSearchParams();
   const sessionId = query.get("sessionId") ?? "";
+  const kind = query.get("kind") ?? "";
+  const labelValues = query.getAll("label");
+  const labelKey = JSON.stringify(labelValues);
   const [sessionInput, setSessionInput] = useState(sessionId);
+  const [kindInput, setKindInput] = useState(kind);
+  const [labelInput, setLabelInput] = useState(labelValues.join("\n"));
+  const [filterError, setFilterError] = useState("");
   const [artifactInput, setArtifactInput] = useState("");
   const selection = useArtifactSelection("page");
   useEffect(() => setSessionInput(sessionId), [sessionId]);
+  useEffect(() => setKindInput(kind), [kind]);
+  useEffect(() => setLabelInput((JSON.parse(labelKey) as string[]).join("\n")), [labelKey]);
+  const loadFeatures = useCallback(
+    (signal: AbortSignal) => sdk.hostFeatures({ signal }),
+    [sdk],
+  );
+  const features = useRead(loadFeatures);
+  const paged = features.data?.includes(ARTIFACT_READS);
   const close = () => selection.update({ selected: null });
   function filter(event: FormEvent) {
     event.preventDefault();
+    const labels = labelInput
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (labels.some((line) => line.indexOf("=") <= 0))
+      return setFilterError("Use one key=value label per line.");
+    setFilterError("");
     const next = new URLSearchParams(query);
     if (sessionInput.trim()) next.set("sessionId", sessionInput.trim());
     else next.delete("sessionId");
+    if (kindInput) next.set("kind", kindInput);
+    else next.delete("kind");
+    next.delete("label");
+    for (const label of labels) next.append("label", label);
     next.delete("selected");
     next.delete("version");
     next.delete("file");
     setQuery(next);
   }
+  const openById = (
+    <form
+      className="flex flex-wrap gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (artifactInput.trim())
+          selection.update({
+            selected: artifactInput.trim(),
+            version: null,
+            tab: "preview",
+            file: null,
+          });
+      }}
+    >
+      <Input
+        aria-label="Artifact ID"
+        className="min-w-0 flex-1"
+        value={artifactInput}
+        onChange={(e) => setArtifactInput(e.target.value)}
+        placeholder="Artifact ID"
+      />
+      <Button variant="outline" disabled={!artifactInput.trim()}>
+        Open artifact
+      </Button>
+    </form>
+  );
   return (
     <ResourceLayout
       title="Artifact details"
@@ -132,63 +222,220 @@ export function Artifacts({ tenantId }: { tenantId: string }) {
     >
       <div className="space-y-4 p-4">
         <h1 className="text-xl font-semibold">Artifacts</h1>
-        <form onSubmit={filter} className="flex flex-wrap items-end gap-2">
-          <label className="min-w-0 flex-1 text-sm">
-            Session ID
-            <Input
-              value={sessionInput}
-              onChange={(e) => setSessionInput(e.target.value)}
-              placeholder="Session ID"
-            />
-          </label>
-          <Button variant="outline" type="submit">
-            View session artifacts
-          </Button>
-        </form>
-        {sessionId ? (
-          <ArtifactList
-            tenantId={tenantId}
-            sessionId={sessionId}
-            selection={selection}
-          />
-        ) : (
-          <div className="space-y-3 rounded border p-4 text-sm">
-            <h2 className="font-medium">Open an artifact</h2>
-            <p className="text-muted-foreground">
-              Artifacts live with what made them: a session's outputs on its
-              Outputs tab, and an Environment's disk versions on its Disk tab.
-              Open one here by ID, such as an input file an Environment's
-              recipe copies in. Studio lists no Tenant-wide table: the Runtime
-              has no paged list of every artifact.
-            </p>
-            <form
-              className="flex flex-wrap gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (artifactInput.trim())
-                  selection.update({
-                    selected: artifactInput.trim(),
-                    version: null,
-                    tab: "preview",
-                    file: null,
-                  });
-              }}
-            >
-              <Input
-                aria-label="Artifact ID"
-                className="min-w-0 flex-1"
-                value={artifactInput}
-                onChange={(e) => setArtifactInput(e.target.value)}
-                placeholder="Artifact ID"
-              />
-              <Button variant="outline" disabled={!artifactInput.trim()}>
-                Open artifact
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          Every artifact in the Tenant, newest first: a session's outputs, an
+          Environment's disk versions, and the Tenant's own files, such as the
+          input files a pod's recipe copies in.
+        </p>
+        <ReadState
+          pending={features.pending}
+          error={features.error}
+          onRetry={features.reload}
+        />
+        {paged ? (
+          <>
+            <form onSubmit={filter} className="flex flex-wrap items-end gap-2">
+              <label className="grid gap-1 text-sm">
+                Kind
+                <select
+                  aria-label="Kind"
+                  className="h-9 rounded-md border bg-transparent px-3"
+                  value={kindInput}
+                  onChange={(e) => setKindInput(e.target.value)}
+                >
+                  <option value="">Any</option>
+                  <option value="file">File</option>
+                  <option value="folder">Folder</option>
+                </select>
+              </label>
+              <label className="grid min-w-48 flex-1 gap-1 text-sm">
+                Session ID
+                <Input
+                  value={sessionInput}
+                  onChange={(e) => setSessionInput(e.target.value)}
+                  placeholder="Only this session's"
+                />
+              </label>
+              <label className="grid min-w-48 flex-1 gap-1 text-sm">
+                Labels
+                <textarea
+                  aria-label="Artifact labels"
+                  className="min-h-9 rounded-md border bg-background p-2 text-sm"
+                  value={labelInput}
+                  onChange={(e) => setLabelInput(e.target.value)}
+                  placeholder="purpose=input"
+                />
+              </label>
+              <Button variant="outline" type="submit">
+                Apply filters
               </Button>
             </form>
-          </div>
-        )}
+            {filterError ? (
+              <p role="alert" className="text-sm">
+                {filterError}
+              </p>
+            ) : null}
+            <ArtifactTable
+              tenantId={tenantId}
+              filters={{ sessionId, kind, labelKey }}
+              selection={selection}
+            />
+            {openById}
+          </>
+        ) : features.data ? (
+          <>
+            <form
+              onSubmit={filter}
+              className="flex flex-wrap items-end gap-2"
+            >
+              <label className="min-w-0 flex-1 text-sm">
+                Session ID
+                <Input
+                  value={sessionInput}
+                  onChange={(e) => setSessionInput(e.target.value)}
+                  placeholder="Session ID"
+                />
+              </label>
+              <Button variant="outline" type="submit">
+                View session artifacts
+              </Button>
+            </form>
+            {sessionId ? (
+              <ArtifactList
+                tenantId={tenantId}
+                sessionId={sessionId}
+                selection={selection}
+              />
+            ) : (
+              <div className="space-y-3 rounded border p-4 text-sm">
+                <h2 className="font-medium">Open an artifact</h2>
+                <p className="text-muted-foreground">
+                  This Runtime has no paged list of every artifact (Host
+                  feature artifact-reads), so Studio lists a session's or
+                  opens one by ID.
+                </p>
+                {openById}
+              </div>
+            )}
+          </>
+        ) : null}
       </div>
     </ResourceLayout>
+  );
+}
+
+/** One page of the Tenant's artifacts at a time, with "Load more". */
+function ArtifactTable({
+  tenantId,
+  filters,
+  selection,
+}: {
+  tenantId: string;
+  filters: { sessionId: string; kind: string; labelKey: string };
+  selection: ArtifactSelection;
+}) {
+  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
+  const { sessionId, kind, labelKey } = filters;
+  const load = useCallback(
+    async (signal: AbortSignal, cursor?: string) => {
+      const labels: Record<string, string> = {};
+      for (const value of JSON.parse(labelKey) as string[]) {
+        const at = value.indexOf("=");
+        if (at <= 0) throw new Error("Labels must use key=value.");
+        labels[value.slice(0, at)] = value.slice(at + 1);
+      }
+      const page = await sdk.artifacts.page({
+        limit: 50,
+        ...(cursor ? { cursor } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        ...(kind === "file" || kind === "folder" ? { kind } : {}),
+        labels,
+        signal,
+      });
+      return {
+        items: page.artifacts.map((artifact) => ({ ...artifact, id: artifact.artifactId })),
+        nextCursor: page.nextCursor,
+      };
+    },
+    [sdk, sessionId, kind, labelKey],
+  );
+  const page = usePages(load);
+  const open = (artifactId: string, version: number) =>
+    selection.update({
+      selected: artifactId,
+      version: String(version),
+      tab: "preview",
+      file: null,
+    });
+  return (
+    <section className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" disabled={page.pending} onClick={page.reload}>
+          Refresh artifacts
+        </Button>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Kind</TableHead>
+            <TableHead>Owner</TableHead>
+            <TableHead>Latest version</TableHead>
+            <TableHead>Updated</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {page.items.map((a) => (
+            <TableRow
+              key={a.artifactId}
+              className="cursor-pointer"
+              data-state={selection.id === a.artifactId ? "selected" : undefined}
+              onClick={() => open(a.artifactId, a.latestVersion)}
+            >
+              <TableCell className="whitespace-normal break-all">
+                <button
+                  className="text-left font-medium underline-offset-4 hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    open(a.artifactId, a.latestVersion);
+                  }}
+                >
+                  {a.name}
+                </button>
+                <span className="block font-mono text-xs text-muted-foreground">
+                  {a.artifactId}
+                </span>
+              </TableCell>
+              <TableCell>{a.kind}</TableCell>
+              <TableCell
+                className="whitespace-normal text-sm"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ArtifactOwner artifact={a} />
+              </TableCell>
+              <TableCell>v{a.latestVersion}</TableCell>
+              <TableCell>{date(a.updatedAt)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <ReadState
+        {...page}
+        onRetry={page.reload}
+        empty={
+          page.items.length
+            ? undefined
+            : sessionId || kind || labelKey !== "[]"
+              ? "No artifacts match these filters."
+              : "No artifacts yet. They appear when a turn exports outputs, a client uploads a file, or an Environment keeps a disk version."
+        }
+      />
+      {page.more ? (
+        <Button variant="outline" disabled={page.pending} onClick={page.loadMore}>
+          Load more artifacts
+        </Button>
+      ) : null}
+    </section>
   );
 }
 
@@ -322,13 +569,10 @@ export function ArtifactInspector({
   tenantId,
   selection,
   onClose,
-  owner,
 }: {
   tenantId: string;
   selection: ArtifactSelection;
   onClose: () => void;
-  /** Who holds it, when not a session or the Tenant: an Environment's disk. */
-  owner?: { label: string; value: ReactNode };
 }) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
   const { id, version, validVersion, tab, file, update } = selection;
@@ -412,19 +656,7 @@ export function ArtifactInspector({
               entries={[
                 ["Artifact ID", id],
                 ["Kind", artifact.kind],
-                owner ? [owner.label, owner.value] : [
-                  "Session",
-                  artifact.sessionId ? (
-                    <Link
-                      className="underline"
-                      to={`/sessions/${encodeURIComponent(artifact.sessionId)}`}
-                    >
-                      {artifact.sessionId}
-                    </Link>
-                  ) : (
-                    "Tenant"
-                  ),
-                ],
+                ["Owner", <ArtifactOwner artifact={artifact} />],
                 ["Created", date(artifact.createdAt)],
                 ["Updated", date(artifact.updatedAt)],
               ]}

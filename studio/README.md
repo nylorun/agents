@@ -88,7 +88,8 @@ and `/tenants/<id>/agents/<agentId>` opens it. Each session shows chat beside an
 **Events** inspector, an **Outputs** tab (the session's artifacts), an
 **Environment** tab and an optional Agent Manifest tab. The sidebar holds
 **Sessions** and **Environments**; its header shows the Tenant and the Runtime's
-status, and selecting the Tenant opens its Overview. **Models** is the one
+status, and selecting the Tenant opens its Overview. **Artifacts** lists the
+Tenant's artifacts. **Models** is the one
 setting, at the bottom of the sidebar. **New session** opens an Environment
 picker first when the Tenant has Environments or the agent's MCP servers or HTTP
 tools take a credential: **None** (no sandbox, no credentials) or one
@@ -118,8 +119,7 @@ deferred.
 
 An Environment is where sessions run: one sandbox (kind `virtual`, `pod` or
 `none`), one vault of secrets and versions of its disk. Studio shows them on one
-page per Environment instead of separate Sandboxes, Credentials and Artifacts
-pages. The sidebar includes Environments even before agents register.
+page per Environment instead of separate Sandboxes and Credentials pages. The sidebar includes Environments even before agents register.
 
 The Environments table (`/environments`) lists each one's kind and state, recipe
 version (and the version a pod still runs), owner guard, labels, sessions and
@@ -163,23 +163,27 @@ to its Secrets tab (without an Environment, to `/environments`), and
 
 ## Artifacts
 
-Artifacts open where they belong: a session's outputs on its Outputs tab, an
-Environment's disk versions on its Disk tab, and an input file from its
-Environment's Setup & files tab. `/artifacts` has no sidebar entry; it opens a
-known artifact by id (`/artifacts?selected=<id>&version=<n>`) or a session's
-artifacts (`?sessionId=`), which keeps existing and embedded links working. The
-inspector pins a numbered version and shows metadata, version history, bounded
-previews, exported folder files and changes between adjacent versions. Session
-artifact events and versioned message file parts open that exact version. Text
-previews stop at 256 KiB; raster images at 10 MiB. HTML and SVG appear as
-escaped source. Downloads stream through the proxy as attachments using a
-60-second capability minted by the existing Runtime API, including in embeds. No
-full-file browser buffer is used for downloads.
+**Artifacts** in the sidebar (`/artifacts`) is every artifact the Tenant holds,
+newest first, 50 at a time with **Load more** (`GET /v1/artifacts?limit=50`, Host
+feature `artifact-reads`), filtered by kind, session and labels (`?kind=`,
+`?sessionId=`, repeated `?label=key=value`). Each row names its owner: a session
+(linked to it), an Environment's disk (linked to its Disk tab), or the Tenant
+itself, such as an input file an application uploaded for a pod's recipe. A Host
+without `artifact-reads` gets a session lookup instead, and Studio never reads the
+unbounded list. Any artifact also opens by id
+(`/artifacts?selected=<id>&version=<n>`), which keeps existing and embedded
+links working, and from where it belongs: a session's Outputs tab, an
+Environment's Disk tab, or its Setup & files tab.
 
-A Tenant-wide artifact table awaits the public paged artifact API described in
-[API_REQUIREMENTS.md](API_REQUIREMENTS.md). Studio never requests an unbounded
-tenant artifact list or accesses databases, Kubernetes or object storage.
-Artifact uploads, deletion and sharing are deferred.
+The inspector pins a numbered version and shows metadata (with its owner),
+version history, bounded previews, exported folder files and changes between
+adjacent versions. Session artifact events and versioned message file parts open
+that exact version. Text previews stop at 256 KiB; raster images at 10 MiB. HTML
+and SVG appear as escaped source. Downloads stream through the proxy as
+attachments using a 60-second capability minted by the existing Runtime API,
+including in embeds. No full-file browser buffer is used for downloads. Studio
+never accesses databases, Kubernetes or object storage. Artifact uploads,
+deletion and sharing are deferred.
 
 Run `npm run check --workspace @nylorun/studio` for package and unit checks, and
 `npm run test:e2e --workspace @nylorun/studio` for public-API browser fixtures

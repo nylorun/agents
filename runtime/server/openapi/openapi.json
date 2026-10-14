@@ -18163,6 +18163,9 @@
               "sessionId": {
                 "type": "string"
               },
+              "environmentId": {
+                "type": "string"
+              },
               "latestVersion": {
                 "type": "integer",
                 "exclusiveMinimum": 0
@@ -18311,6 +18314,9 @@
                 "sessionId": {
                   "type": "string"
                 },
+                "environmentId": {
+                  "type": "string"
+                },
                 "latestVersion": {
                   "type": "integer",
                   "exclusiveMinimum": 0
@@ -18435,6 +18441,9 @@
           "sessionId": {
             "type": "string"
           },
+          "environmentId": {
+            "type": "string"
+          },
           "latestVersion": {
             "type": "integer",
             "exclusiveMinimum": 0
@@ -18484,6 +18493,9 @@
             "description": "The latest version's media type"
           },
           "sessionId": {
+            "type": "string"
+          },
+          "environmentId": {
             "type": "string"
           },
           "latestVersion": {

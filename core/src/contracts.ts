@@ -3695,6 +3695,11 @@ export const ArtifactViewSchema = z
     contentType: z.string().meta({ description: "The latest version's media type" }),
     /** The session it belongs to; absent for a Tenant-wide artifact an application made. */
     sessionId: z.string().optional(),
+    /**
+     * The Environment whose disk versions it holds (R2d step 3); absent otherwise. Such an
+     * artifact changes only through `/v1/environments/{id}/snapshot` and its versions routes.
+     */
+    environmentId: z.string().optional(),
     latestVersion: z.number().int().positive(),
     labels: z.record(z.string(), z.string()).optional(),
     createdAt: z.string(),

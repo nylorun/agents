@@ -83,6 +83,13 @@ describe("disk versions of a virtual Environment", { timeout: 60_000 }, () => {
     const versions = await call("GET", `${path("disk/a")}/versions`);
     expect(versions.body).toMatchObject({ environmentId: "disk/a", artifactId: first.body.artifactId, latest: 2 });
     expect(versions.body.versions.map((v: { version: number }) => v.version)).toEqual([2, 1]);
+    // The artifact names the Environment whose disk it holds, also in artifact pages.
+    const artifact = await call("GET", `/v1/artifacts/${first.body.artifactId}`);
+    expect(artifact.body).toMatchObject({ environmentId: "disk/a", name: "disk", kind: "folder" });
+    expect(artifact.body.sessionId).toBeUndefined();
+    const page = await call("GET", "/v1/artifacts?limit=200");
+    expect(page.body.artifacts.find((a: { artifactId: string }) => a.artifactId === first.body.artifactId))
+      .toMatchObject({ environmentId: "disk/a" });
     // A version reads as any folder artifact's.
     const tree = await call("GET", `/v1/artifacts/${first.body.artifactId}/versions/1/tree`);
     expect(tree.status).toBe(200);

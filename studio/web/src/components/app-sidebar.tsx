@@ -4,6 +4,7 @@ import {
   Box,
   Building2,
   Cpu,
+  Files,
   GitBranch,
   LoaderCircle,
   MessagesSquare,
@@ -124,7 +125,7 @@ export function AppSidebar({
   /** The agent the session list is filtered on, or the open session's agent. */
   activeAgentId?: string;
   settingsSection?: SettingsSection;
-  /** The list of Environments or one Environment's page is open (an artifact opened by id is neither). */
+  /** The list of Environments or one Environment's page, or the Tenant's artifacts, is open. */
   resourceActive?: "environments" | "artifacts";
 }>) {
   const agents = sessionAgents(connection);
@@ -223,6 +224,18 @@ export function AppSidebar({
                   <Link to="/environments">
                     <Box />
                     <span>Environments</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={resourceActive === "artifacts"}
+                  tooltip="Artifacts"
+                >
+                  <Link to="/artifacts">
+                    <Files />
+                    <span>Artifacts</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
