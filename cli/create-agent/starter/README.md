@@ -17,8 +17,12 @@ watching works.
 Agent definitions live in `agents/`. The **Runtime** runs your agents and
 holds their sessions in its **Tenant**, one per installation; this project
 attaches to its own local Tenant through a **Project link**. `src/main.ts`
-saves each agent in `agents/index.ts` to the Runtime (`client.saveAgent`) and
-exits; from then on the Runtime runs them from what was saved. The project
+saves each agent in `agents/index.ts` to the Runtime (`client.saveAgent`), and
+each environment manifest in `environments/` (`environments/scratch.json`, a
+virtual workspace with no network), and exits; from then on the Runtime runs
+them from what was saved. Make an Environment from a manifest with
+`npx nylorun@beta environments put <id> --manifest scratch`; it keeps that
+version for life, and `environments fork` moves it to a newer one. The project
 depends only on `@nylorun/agents`; `nylorun` runs with `npx`. It sets up and
 runs this project's local Tenant (Runtime and Studio), links the project to it,
 and manages the Tenant: its status, reset and model provider

@@ -46,6 +46,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ReadState } from "@/components/resource-layout";
+import { EnvironmentManifests } from "@/components/environment-manifests";
 
 export const date = (value?: string) =>
   value ? new Date(value).toLocaleString() : "—";
@@ -238,6 +239,7 @@ export function Environments({ tenantId }: { tenantId: string }) {
             Load more Environments
           </Button>
         ) : null}
+        <EnvironmentManifests tenantId={tenantId} />
       </div>
       {creating ? (
         <EnvironmentSheet

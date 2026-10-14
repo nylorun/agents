@@ -1,0 +1,7 @@
+{
+  "$schema": "https://docs.nylorun.com/schemas/environment-manifest/v1.json",
+  "manifestSchemaVersion": 1,
+  "name": "scratch",
+  "kind": "virtual",
+  "network": { "allowedHosts": [] }
+}
