@@ -14,7 +14,7 @@ import {
   parseTaskId,
   taskIdOf,
 } from "../../src/api/a2a/tasks.js";
-import { agentCard } from "../../src/api/a2a/card.js";
+import { agentCard, inputModesFor } from "../../src/api/a2a/card.js";
 
 /** The A2A error a call throws, as `kind` and message. */
 function a2aError(run: () => unknown): A2aError {
@@ -397,5 +397,24 @@ describe("agentCard", () => {
     );
     expect(card.defaultInputModes).toEqual(["text/plain", "application/json", "image/png", "application/pdf"]);
     expect(card.defaultOutputModes).toEqual(["text/plain", "application/json"]);
+  });
+
+  it("names the media types of the inputs a model reads", () => {
+    expect(inputModesFor(undefined)).toEqual(["text/plain", "application/json"]);
+    expect(inputModesFor(["text"])).toEqual(["text/plain", "application/json"]);
+    expect(inputModesFor(["text", "image", "pdf", "office", "audio", "video"])).toEqual([
+      "text/plain",
+      "application/json",
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif",
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "audio/*",
+      "video/*",
+    ]);
   });
 });

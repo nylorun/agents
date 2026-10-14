@@ -414,7 +414,19 @@ model does not read is refused at accept (`422 attachment_unsupported`, the type
 size; skipped with no model in the vault), and the files a session's messages named are kept on
 it (`Session.fileArtifacts`) for `read_artifact`. At the gate (`buildContext` in
 `model/pi-model.ts`) an image the model reads becomes image input, a text file a `<file>` block,
-and anything else, or a file it cannot read, a note: no file fails a call.
+a PDF, Office document, audio or video the model reads a **native block**, and anything else, or
+a file it cannot read, a note: no file fails the call there.
+
+**Native block**: A PDF, Office document, audio or video carried to the provider in its API's own
+block (`model/native-blocks.ts`): Anthropic `document`, OpenAI Responses `input_file`, OpenAI
+completions `file`, `input_audio` (WAV and MP3 only) or `video_url`, Google `inlineData`. pi-ai's
+messages hold only text and images, so `buildContext` puts a marker text part in the file's place
+(`NativeBlocks.add`) and the call's `onPayload` swaps each marker for its block in the request
+pi-ai built (`rewrite`). A file the request cannot carry stops it before it is sent, and the call
+fails `invalid_request`, never retried. The kinds each API carries (`NATIVE_FILE_KINDS`) are
+`NATIVE_INPUTS` without images. The bytes are only in the provider request, never in the
+reported call or the transcript.
+_Avoid_: converting a file to text or images; a marker reaching a model.
 
 **Model inputs**: What a model reads (protocol 12): `text`, `image`, `pdf`, `office`, `audio`
 and `video` (`MODEL_INPUTS`). `capabilitiesOf(model, added)` (`model/capabilities.ts`) is its
@@ -589,7 +601,8 @@ A2A **context** is one session per subject, agent and `contextId`; an A2A
 resolved within the caller's own sessions. `SendMessage`, `GetTask` and
 `CancelTask` work; the rest answer with the A2A error for them. A message is
 text, one data part, or text and `raw` files (**inbound files**); a reply to a
-task takes text or data only.
+task takes text or data only. The card's `defaultInputModes` are text, JSON and
+the media types the Tenant's model reads now (`inputModesFor` in `api/a2a/card.ts`).
 _Avoid_: calling the task id a session id; trusting a task id to select a
 session.
 

@@ -29,7 +29,7 @@ import {
   messageParts,
   type InboundPart,
 } from "../inbound-files.js";
-import { agentCard, type CardDefinition } from "./card.js";
+import { agentCard, inputModesFor, type CardDefinition } from "./card.js";
 import {
   A2aError,
   a2aFail,
@@ -52,6 +52,7 @@ import {
   pendingInteraction,
   taskIdOf,
 } from "./tasks.js";
+import { currentModelInputs } from "../../model/catalog.js";
 import { accessOf } from "../../tenant/auth.js";
 import { command } from "../../tenant/commands.js";
 import {
@@ -91,13 +92,18 @@ interface OwnedTask {
   readonly turnId: string;
 }
 
-/** `GET /v1/a2a/agents/:agent/card`: the agent's card, for a caller who may use the agent. */
+/**
+ * `GET /v1/a2a/agents/:agent/card`: the agent's card, for a caller who may use the agent. Its
+ * input modes name the files the Tenant's model reads.
+ */
 export async function a2aCard(
   ctx: TenantContext,
   scope: AuthScope,
   agentId: string
 ): Promise<unknown> {
-  return agentCard(agentId, await definitionFor(ctx, agentId, accessOf(scope)));
+  const definition = await definitionFor(ctx, agentId, accessOf(scope));
+  // The files a caller may send: those the Tenant's model reads now.
+  return agentCard(agentId, definition, inputModesFor(await currentModelInputs(ctx)));
 }
 
 /**

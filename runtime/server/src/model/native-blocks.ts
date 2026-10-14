@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 import type { TextContent } from "@earendil-works/pi-ai";
 import { essence } from "../artifacts/media-types.js";
+import { NATIVE_INPUTS } from "./capabilities.js";
 
 /** The kinds of file a native block carries; images are pi-ai's own. */
 export type NativeFileKind = "pdf" | "office" | "audio" | "video";
@@ -29,17 +30,17 @@ export interface NativeFile {
 }
 
 /**
- * The kinds each pi-ai API has a native block for here: the same table as the model inputs an
- * operator may add (`NATIVE_INPUTS`, images aside).
+ * The kinds each pi-ai API has a native block for here: the model inputs an operator may add
+ * (`NATIVE_INPUTS`), images aside, so the two tables never disagree.
  */
-export const NATIVE_FILE_KINDS: Readonly<Record<string, readonly NativeFileKind[]>> = Object.freeze({
-  "anthropic-messages": ["pdf"],
-  "openai-responses": ["pdf", "office"],
-  "azure-openai-responses": ["pdf", "office"],
-  "openai-completions": ["pdf", "audio", "video"],
-  "google-generative-ai": ["pdf", "audio", "video"],
-  "google-vertex": ["pdf", "audio", "video"],
-});
+export const NATIVE_FILE_KINDS: Readonly<Record<string, readonly NativeFileKind[]>> = Object.freeze(
+  Object.fromEntries(
+    Object.entries(NATIVE_INPUTS).map(([api, inputs]) => [
+      api,
+      Object.freeze(inputs.filter((input): input is NativeFileKind => input !== "text" && input !== "image")),
+    ]),
+  ),
+);
 
 /** The kinds of file `api` carries in a native block; none for an API without a rewriter. */
 export function nativeKindsOf(api: string): readonly NativeFileKind[] {
