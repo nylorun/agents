@@ -504,7 +504,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         sessionsActive={sessionList || sessionId !== undefined}
         activeAgentId={sessionList ? agentFilter : agentId}
         settingsSection={settingsSection}
-        resourceActive={resourceActive}
+        environmentsActive={resourceActive === "environments"}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
         <HeaderSlotContext.Provider value={headerSlots}>

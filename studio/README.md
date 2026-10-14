@@ -88,8 +88,7 @@ and `/tenants/<id>/agents/<agentId>` opens it. Each session shows chat beside an
 **Events** inspector, an **Outputs** tab (the session's artifacts), an
 **Environment** tab and an optional Agent Manifest tab. The sidebar holds
 **Sessions** and **Environments**; its header shows the Tenant and the Runtime's
-status, and selecting the Tenant opens its Overview. **Artifacts** lists the
-Tenant's artifacts. **Models** is the one
+status, and selecting the Tenant opens its Overview. **Models** is the one
 setting, at the bottom of the sidebar. **New session** opens an Environment
 picker first when the Tenant has Environments or the agent's MCP servers or HTTP
 tools take a credential: **None** (no sandbox, no credentials) or one
@@ -184,17 +183,18 @@ to its Secrets tab (without an Environment, to `/environments`), and
 
 ## Artifacts
 
-**Artifacts** in the sidebar (`/artifacts`) is every artifact the Tenant holds,
-newest first, 50 at a time with **Load more** (`GET /v1/artifacts?limit=50`, Host
-feature `artifact-reads`), filtered by kind, session and labels (`?kind=`,
+Artifacts open from where they belong: a session's Outputs tab, an
+Environment's Disk tab, or its Setup & files tab; the sidebar has no entry for
+them. `/artifacts` is every artifact the Tenant holds, newest first, 50 at a
+time with **Load more** (`GET /v1/artifacts?limit=50`, Host feature
+`artifact-reads`), filtered by kind, session and labels (`?kind=`,
 `?sessionId=`, repeated `?label=key=value`). Each row names its owner: a session
 (linked to it), an Environment's disk (linked to its Disk tab), or the Tenant
 itself, such as an input file an application uploaded for a pod's recipe. A Host
 without `artifact-reads` gets a session lookup instead, and Studio never reads the
 unbounded list. Any artifact also opens by id
 (`/artifacts?selected=<id>&version=<n>`), which keeps existing and embedded
-links working, and from where it belongs: a session's Outputs tab, an
-Environment's Disk tab, or its Setup & files tab.
+links working.
 
 The inspector pins a numbered version and shows metadata (with its owner),
 version history, bounded previews, exported folder files and changes between

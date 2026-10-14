@@ -381,7 +381,10 @@ test("a pod's Setup & files tab shows its setup commands and input files, and ed
 test("the Tenant's artifacts are one paged table, filtered by kind, session and labels, each with its owner", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
-    await page.getByRole("link", { name: "Artifacts", exact: true }).click();
+    // The sidebar holds Sessions and Environments only; the table opens by its address.
+    await page.getByRole("link", { name: "Environments", exact: true }).waitFor();
+    assert.equal(await page.getByRole("link", { name: "Artifacts", exact: true }).count(), 0);
+    await page.goto(base + "/artifacts");
     await page.getByRole("button", { name: "requirements.txt", exact: true }).waitFor();
     await page.getByRole("button", { name: "disk", exact: true }).waitFor();
     await page.getByRole("button", { name: "Load more artifacts" }).click();
