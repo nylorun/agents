@@ -389,7 +389,7 @@ test("a flow node in the Workflow tree opens its child session, whose agent is n
     await page.locator("article", { hasText: "Route via Rotterdam." }).waitFor();
     // Back to the flow from the child.
     await page.getByRole("link", { name: FLOW_SESSION, exact: true }).waitFor();
-    await page.getByRole("tab", { name: "Agent Manifest" }).click();
+    await page.getByRole("tab", { name: "Agent", exact: true }).click();
     await page.getByText(CHILD_AGENT).first().waitFor();
     assert.deepEqual(puts, []);
   });

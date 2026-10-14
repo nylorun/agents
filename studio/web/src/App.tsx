@@ -1196,17 +1196,17 @@ function SessionView({
               >
                 Events
               </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger value="artifacts" className={tabTrigger}>
-                Outputs
-              </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger value="environment" className={tabTrigger}>
-                Environment
-              </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger
                 value="manifest"
                 className={tabTrigger}
               >
-                {workflowManifest ? "Manifest" : "Agent Manifest"}
+                {workflowManifest ? "Workflow" : "Agent"}
+              </TabsPrimitive.Trigger>
+              <TabsPrimitive.Trigger value="environment" className={tabTrigger}>
+                Environment
+              </TabsPrimitive.Trigger>
+              <TabsPrimitive.Trigger value="artifacts" className={tabTrigger}>
+                Outputs
               </TabsPrimitive.Trigger>
             </TabsPrimitive.List>
           </div>
