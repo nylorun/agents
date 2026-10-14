@@ -10,6 +10,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
+import { ArrowDown } from "lucide-react";
 import { Environments } from "@/components/environments";
 import { EnvironmentPage } from "@/components/environment-page";
 import { SessionEnvironmentPanel } from "@/components/session-environment";
@@ -28,7 +29,8 @@ import { AgentManifestPanel } from "@/components/agent-manifest-panel";
 import { EventDetails } from "@/components/event-details";
 import { EventTable } from "@/components/event-table";
 import { IterationTimeline } from "@/components/iteration-timeline";
-import { SessionModelPicker } from "@/components/session-model-picker";
+import { SessionComposer } from "@/components/session-composer";
+import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
 import { WorkflowLinkBanner } from "@/components/workflow-link-banner";
 import { WorkflowTree } from "@/components/workflow-tree";
 import {
@@ -868,6 +870,13 @@ function SessionView({
     setEnvironment(undefined);
   }, [sessionId, isWorkflow]);
 
+  const {
+    scroller: chatScroller,
+    content: chatContent,
+    atBottom: atLatest,
+    scrollToBottom: scrollToLatest,
+  } = useStickToBottom(sessionId);
+
   const busy =
     sending || ["loading", "running", "runnable", "waiting"].includes(status);
   // Tool calls the Tool Gate holds for a person (R5 step 2).
@@ -876,6 +885,7 @@ function SessionView({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!tenantId || !content.trim() || busy) return;
+    scrollToLatest();
     setSending(true);
     setStatus("running");
     setError("");
@@ -893,6 +903,14 @@ function SessionView({
     } finally {
       setSending(false);
     }
+  }
+
+  function stop() {
+    if (!tenantId) return;
+    void studioClient(tenantId)
+      .session(sessionId)
+      .cancel({ idempotencyKey: crypto.randomUUID() })
+      .catch((e) => setError(String(e)));
   }
 
   if (!tenantId) {
@@ -964,192 +982,176 @@ function SessionView({
                 Environment: None
               </span>
             ) : null}
-            {busy && status !== "loading" && (
-              <Button
-                className="ml-auto"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  void studioClient(tenantId)
-                    .session(sessionId)
-                    .cancel({ idempotencyKey: crypto.randomUUID() })
-                    .catch((e) => setError(String(e)))
-                }
-              >
-                Cancel
-              </Button>
-            )}
           </div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-            {chatEvents.map((event) => {
-              const payload = event.payload as Record<string, unknown>;
-              const references = artifactReferences(event);
-              const referenceLinks = references.map((ref) => (
-                <Button
-                  key={`${ref.artifactId}:${ref.version}`}
-                  size="sm"
-                  variant="outline"
-                  className="m-1 max-w-full whitespace-normal break-all"
-                  onClick={() => openArtifact(ref.artifactId, ref.version)}
-                >
-                  {ref.name} · v{ref.version}
-                </Button>
-              ));
-              if (event.type.startsWith("artifact.") && references.length)
-                return (
-                  <div key={event.eventId} className="rounded border p-3">
-                    <p className="text-xs text-muted-foreground">Artifact</p>
-                    {referenceLinks}
-                  </div>
-                );
-
-              if (event.type === "command.message")
-                return (
-                  <article
-                    key={event.eventId}
-                    className="ml-8 rounded-xl bg-muted p-4"
+          <div ref={chatScroller} className="min-h-0 flex-1 overflow-auto">
+            <div ref={chatContent} className="space-y-4 p-4">
+              {chatEvents.map((event) => {
+                const payload = event.payload as Record<string, unknown>;
+                const references = artifactReferences(event);
+                const referenceLinks = references.map((ref) => (
+                  <Button
+                    key={`${ref.artifactId}:${ref.version}`}
+                    size="sm"
+                    variant="outline"
+                    className="m-1 max-w-full whitespace-normal break-all"
+                    onClick={() => openArtifact(ref.artifactId, ref.version)}
                   >
-                    <p className="mb-1 text-xs text-muted-foreground">You</p>
-                    {String(payload.content ?? "")}
-                    {Array.isArray(payload.parts)
-                      ? payload.parts.map((part, i) =>
-                          typeof part === "object" &&
-                          part !== null &&
-                          part.type === "text" ? (
-                            <p key={i}>{String(part.text)}</p>
-                          ) : null,
-                        )
-                      : null}
-                    {referenceLinks}
+                    {ref.name} · v{ref.version}
+                  </Button>
+                ));
+                if (event.type.startsWith("artifact.") && references.length)
+                  return (
+                    <div key={event.eventId} className="rounded border p-3">
+                      <p className="text-xs text-muted-foreground">Artifact</p>
+                      {referenceLinks}
+                    </div>
+                  );
 
-                  </article>
-                );
-              if (event.type === "turn.completed")
-                return (
-                  <article
-                    key={event.eventId}
-                    className="mr-8 rounded-xl border p-4"
-                  >
-                    <p className="mb-1 text-xs text-muted-foreground">
-                      Assistant
+                if (event.type === "command.message")
+                  return (
+                    <article
+                      key={event.eventId}
+                      className="ml-8 rounded-xl bg-muted p-4"
+                    >
+                      <p className="mb-1 text-xs text-muted-foreground">You</p>
+                      {String(payload.content ?? "")}
+                      {Array.isArray(payload.parts)
+                        ? payload.parts.map((part, i) =>
+                            typeof part === "object" &&
+                            part !== null &&
+                            part.type === "text" ? (
+                              <p key={i}>{String(part.text)}</p>
+                            ) : null,
+                          )
+                        : null}
+                      {referenceLinks}
+
+                    </article>
+                  );
+                if (event.type === "turn.completed")
+                  return (
+                    <article
+                      key={event.eventId}
+                      className="mr-8 rounded-xl border p-4"
+                    >
+                      <p className="mb-1 text-xs text-muted-foreground">
+                        Assistant
+                      </p>
+                      <pre className="whitespace-pre-wrap font-sans">
+                        {pretty(payload.output)}
+                      </pre>
+                    </article>
+                  );
+                if (
+                  ["delegation.started", "delegation.completed"].includes(
+                    event.type,
+                  )
+                )
+                  return (
+                    <details
+                      key={event.eventId}
+                      className="rounded-lg border border-dashed p-3"
+                      open={event.type === "delegation.completed"}
+                    >
+                      <summary className="cursor-pointer text-sm font-medium">
+                        {eventLabel(event)} · {agentOf(payload)?.id}
+                      </summary>
+                      <pre className="mt-2 overflow-auto whitespace-pre-wrap text-xs">
+                        {pretty(
+                          event.type === "delegation.started"
+                            ? payload.task
+                            : payload.outcome,
+                        )}
+                      </pre>
+                    </details>
+                  );
+                if (event.type === "tool.completed")
+                  return (
+                    <details
+                      key={event.eventId}
+                      className={
+                        agentOf(payload)
+                          ? "ml-6 rounded-lg border p-3"
+                          : "rounded-lg border p-3"
+                      }
+                    >
+                      <summary className="cursor-pointer text-sm font-medium">
+                        {toolLabel(payload)}
+                        {payload.error ? " · failed" : ""}
+                      </summary>
+                      <pre className="mt-2 overflow-auto whitespace-pre-wrap text-xs">
+                        {pretty(payload.error ?? payload.output)}
+                      </pre>
+                    </details>
+                  );
+                if (
+                  ["turn.failed", "turn.cancelled", "turn.uncertain"].includes(
+                    event.type,
+                  )
+                )
+                  return (
+                    <p
+                      key={event.eventId}
+                      className="text-sm text-muted-foreground"
+                    >
+                      {event.type}: {pretty(payload)}
                     </p>
-                    <pre className="whitespace-pre-wrap font-sans">
-                      {pretty(payload.output)}
-                    </pre>
-                  </article>
-                );
-              if (
-                ["delegation.started", "delegation.completed"].includes(
-                  event.type,
-                )
-              )
-                return (
-                  <details
-                    key={event.eventId}
-                    className="rounded-lg border border-dashed p-3"
-                    open={event.type === "delegation.completed"}
+                  );
+                return null;
+              })}
+              {status === "paused" &&
+                approvals.map((approval) => (
+                  <ApprovalCard
+                    key={approval.id}
+                    approval={approval}
+                    answer={async (approved) => {
+                      await studioClient(tenantId)
+                        .session(sessionId)
+                        .approve(approval.id, approved, { idempotencyKey: crypto.randomUUID() });
+                      setStatus("running");
+                    }}
+                  />
+                ))}
+              {["paused", "uncertain"].includes(status) && approvals.length === 0 && (
+                <p className="rounded border p-3 text-sm">
+                  This session needs attention. This release supports text and
+                  ordinary tools; advanced waits and reconciliation are not
+                  available in Studio.
+                </p>
+              )}
+              {error && (
+                <p role="alert" className="text-red-600">
+                  {error}
+                </p>
+              )}
+              {!atLatest ? (
+                <div className="pointer-events-none sticky bottom-0 flex justify-center">
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="outline"
+                    className="pointer-events-auto rounded-full shadow-sm"
+                    aria-label="Scroll to latest"
+                    title="Scroll to latest"
+                    onClick={() => scrollToLatest("smooth")}
                   >
-                    <summary className="cursor-pointer text-sm font-medium">
-                      {eventLabel(event)} · {agentOf(payload)?.id}
-                    </summary>
-                    <pre className="mt-2 overflow-auto whitespace-pre-wrap text-xs">
-                      {pretty(
-                        event.type === "delegation.started"
-                          ? payload.task
-                          : payload.outcome,
-                      )}
-                    </pre>
-                  </details>
-                );
-              if (event.type === "tool.completed")
-                return (
-                  <details
-                    key={event.eventId}
-                    className={
-                      agentOf(payload)
-                        ? "ml-6 rounded-lg border p-3"
-                        : "rounded-lg border p-3"
-                    }
-                  >
-                    <summary className="cursor-pointer text-sm font-medium">
-                      {toolLabel(payload)}
-                      {payload.error ? " · failed" : ""}
-                    </summary>
-                    <pre className="mt-2 overflow-auto whitespace-pre-wrap text-xs">
-                      {pretty(payload.error ?? payload.output)}
-                    </pre>
-                  </details>
-                );
-              if (
-                ["turn.failed", "turn.cancelled", "turn.uncertain"].includes(
-                  event.type,
-                )
-              )
-                return (
-                  <p
-                    key={event.eventId}
-                    className="text-sm text-muted-foreground"
-                  >
-                    {event.type}: {pretty(payload)}
-                  </p>
-                );
-              return null;
-            })}
-            {status === "paused" &&
-              approvals.map((approval) => (
-                <ApprovalCard
-                  key={approval.id}
-                  approval={approval}
-                  answer={async (approved) => {
-                    await studioClient(tenantId)
-                      .session(sessionId)
-                      .approve(approval.id, approved, { idempotencyKey: crypto.randomUUID() });
-                    setStatus("running");
-                  }}
-                />
-              ))}
-            {["paused", "uncertain"].includes(status) && approvals.length === 0 && (
-              <p className="rounded border p-3 text-sm">
-                This session needs attention. This release supports text and
-                ordinary tools; advanced waits and reconciliation are not
-                available in Studio.
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="text-red-600">
-                {error}
-              </p>
-            )}
-          </div>
-          <form
-            onSubmit={submit}
-            className="flex shrink-0 flex-col gap-2 border-t p-3"
-          >
-            <SessionModelPicker
-              tenantId={tenantId}
-              disabled={busy || ["paused", "uncertain"].includes(status)}
-            />
-            <div className="flex gap-3">
-              <textarea
-                aria-label="Message"
-                className="min-h-20 flex-1 resize-none rounded-md border bg-background p-3"
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Look up order demo-123"
-                disabled={busy || ["paused", "uncertain"].includes(status)}
-              />
-              <Button
-                disabled={
-                  busy ||
-                  !content.trim() ||
-                  ["paused", "uncertain"].includes(status)
-                }
-                type="submit"
-              >
-                Send
-              </Button>
+                    <ArrowDown />
+                  </Button>
+                </div>
+              ) : null}
             </div>
-          </form>
+          </div>
+          <SessionComposer
+            tenantId={tenantId}
+            agentName={agent.name}
+            value={content}
+            onChange={setContent}
+            onSubmit={submit}
+            onStop={stop}
+            running={busy && status !== "loading"}
+            sending={sending}
+            blocked={["paused", "uncertain"].includes(status)}
+          />
         </section>
       </ResizablePanel>
       <ResizableHandle withHandle />
