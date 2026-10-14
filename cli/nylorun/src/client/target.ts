@@ -1,8 +1,9 @@
 /**
  * The installation a client command acts on. `--tenant <name>` names a local Tenant. Without it,
  * `NYLORUN_RUNTIME_URL` with the key the API needs names a remote installation:
- * `NYLORUN_MANAGEMENT_KEY` for the Management API (`nylorun tenant`), `NYLORUN_SERVER_KEY` for the
- * Runtime API (`NYLORUN_RUNTIME_URL` alone is an app's, as for `createAdmin`). Otherwise the local
+ * `NYLORUN_MANAGEMENT_KEY` for the Management API (`nylorun tenant`), `NYLORUN_SERVER_KEY` or an
+ * identity provider's token in `NYLORUN_TOKEN` for the Runtime API (`NYLORUN_RUNTIME_URL` alone is
+ * an app's, as for `createAdmin`). Otherwise the local
  * Tenant the Project link names, else the default one, while it runs (`runningTenantApi`: the
  * Project's keys while they authenticate, else the Host root's own).
  */
@@ -22,6 +23,8 @@ export interface Connection {
   tenant?: string;
   applicationKey?: string;
   managementKey?: string;
+  /** A trusted issuer's token (`NYLORUN_TOKEN`), sent in place of the application key. */
+  token?: string;
 }
 
 function variable(env: StackDeps["env"], name: string): string | undefined {
@@ -34,13 +37,16 @@ export function remoteConnection(env: StackDeps["env"], api: Api): Connection | 
   const url = variable(env, "NYLORUN_RUNTIME_URL");
   const managementKey = variable(env, "NYLORUN_MANAGEMENT_KEY");
   const applicationKey = variable(env, "NYLORUN_SERVER_KEY");
-  if (!url || (api === "management" ? !managementKey : !applicationKey)) return undefined;
+  const token = variable(env, "NYLORUN_TOKEN");
+  if (!url || (api === "management" ? !managementKey : !applicationKey && !token)) return undefined;
   return {
     label: url,
     url: url.replace(/\/$/, ""),
     local: false,
     ...(applicationKey ? { applicationKey } : {}),
     ...(managementKey ? { managementKey } : {}),
+    // A token is a person's: it wins over the key for the Runtime API.
+    ...(token && api === "runtime" ? { token } : {}),
   };
 }
 

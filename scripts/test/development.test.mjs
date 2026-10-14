@@ -30,8 +30,8 @@ test("an edit rebuilds its dependents and the images built from it", () => {
     packages: ["core", "harness", "agents", "admin", "runtime", "nylorun"],
     images: ["runtime", "studio"],
   });
-  assert.deepEqual(rebuildPlan(["agents"]), { packages: ["agents"], images: ["studio"] });
-  // nylorun's nylo uses admin.
+  // nylorun is the client of the Runtime API (agents) and the Management API (admin).
+  assert.deepEqual(rebuildPlan(["agents"]), { packages: ["agents", "nylorun"], images: ["studio"] });
   assert.deepEqual(rebuildPlan(["admin"]), { packages: ["admin", "nylorun"], images: ["studio"] });
   assert.deepEqual(rebuildPlan(["nylorun"]), { packages: ["nylorun"], images: [] });
   assert.deepEqual(rebuildPlan(["studio"]), { packages: [], images: ["studio"] });

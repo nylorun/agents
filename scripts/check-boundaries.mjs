@@ -10,8 +10,8 @@ const allowed = {
   admin: ["core"],
   runtime: ["core", "harness"],
   studio: ["agents", "admin"],
-  // nylorun: the local Tenants (`nylorun`) and the Runtime client (`nylo`, through admin).
-  nylorun: ["core", "admin"],
+  // nylorun: the local Tenants, and the client of their Runtime API (agents) and Management API (admin).
+  nylorun: ["core", "agents", "admin"],
   // The deprecated @nylorun/cli depends on nylorun only, and runs its `nylo`.
   cli: [],
 };

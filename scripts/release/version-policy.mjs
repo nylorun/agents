@@ -188,7 +188,7 @@ export function planVersions(
   for (const [dependency, consumers] of [
     ["core", ["harness", "agents", "admin", "runtime", "nylorun"]],
     ["harness", ["runtime"]],
-    ["agents", ["studio"]],
+    ["agents", ["studio", "nylorun"]],
     ["admin", ["studio", "nylorun"]],
     // nylorun pins the Runtime and Studio images (nylorun.runtime, nylorun.studio).
     ["runtime", ["nylorun"]],

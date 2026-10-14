@@ -48,7 +48,7 @@ export const HOST_PACKAGES = {
   agents: ["core"],
   admin: ["core"],
   runtime: ["core", "harness"],
-  nylorun: ["core", "admin"],
+  nylorun: ["core", "agents", "admin"],
 };
 
 /** The packages each image is built from (see runtime/Dockerfile, studio/Dockerfile). */
