@@ -287,6 +287,11 @@ export interface SandboxPodState {
   retiring?: string;
   /** The id the engine keeps on the volume, from the first join. */
   volumeId?: string;
+  /**
+   * The workload image by digest (`repo@sha256:…`), recorded the first time a pod of the
+   * Environment is ready (Q14): every later pod, after a stop, a relaunch or a reset, runs it.
+   */
+  imageDigest?: string;
 }
 
 /** A change to a pod's columns: `null` clears an optional one. */

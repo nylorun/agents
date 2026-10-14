@@ -31,6 +31,9 @@ type Status struct {
 	PodUID string `json:"podUID,omitempty"`
 	// PodPhase is the pod's phase, Terminating while it is deleted; empty with no pod.
 	PodPhase string `json:"podPhase,omitempty"`
+	// ImageID is the current pod's workload container's image as the node pulled it
+	// (containerStatuses[].imageID, such as docker.io/library/python@sha256:…), once it runs.
+	ImageID string `json:"imageID,omitempty"`
 	// Volume is present while the claim data-<name> exists, else missing.
 	Volume       string `json:"volume"`
 	OpID         string `json:"opId,omitempty"`
@@ -180,6 +183,7 @@ func Compute(name string, sandbox *unstructured.Unstructured, pods []*unstructur
 		if s.PodPhase == "" {
 			s.PodPhase = "Pending"
 		}
+		s.ImageID = workloadImageID(pod)
 	}
 	if sandbox == nil {
 		return s
@@ -198,6 +202,20 @@ func Compute(name string, sandbox *unstructured.Unstructured, pods []*unstructur
 	suspended, _, _, current := condition(sandbox, "Suspended")
 	s.Suspended = current && suspended == "True" && s.Mode == "Suspended"
 	return s
+}
+
+// workloadImageID is the image the workload container of `pod` runs, as its status names it.
+func workloadImageID(pod *unstructured.Unstructured) string {
+	statuses, _, _ := unstructured.NestedSlice(pod.Object, "status", "containerStatuses")
+	for _, item := range statuses {
+		m, ok := item.(map[string]any)
+		if !ok || m["name"] != "workload" {
+			continue
+		}
+		id, _ := m["imageID"].(string)
+		return id
+	}
+	return ""
 }
 
 // Wait blocks until match(status) holds, the timeout passes or ctx ends.

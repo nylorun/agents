@@ -1,0 +1,1 @@
+ALTER TABLE "nylorun"."environments" ADD COLUMN "image_digest" text COLLATE "C";

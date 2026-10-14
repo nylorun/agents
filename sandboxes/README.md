@@ -38,7 +38,7 @@ created), `stopGraceSeconds` (1–30, default 10), `shutdownTime` (RFC 3339),
 `shutdownPolicy` (`Retain`|`Delete`), `env`, `joinToken` (written to Secret `<name>-join`
 before the Sandbox is applied).
 
-Status: `name, exists, deleting, mode, ready, suspended, expired, podUID, podPhase,
+Status: `name, exists, deleting, mode, ready, suspended, expired, podUID, podPhase, imageID,
 volume (present|missing), opId, shutdownTime, reason, message`.
 
 The pod shape is rendered only here (`internal/driver/sandbox.go`, golden file

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { PodStatus } from "../../src/sandbox/pods/client.js";
-import { decide, opIdOf, READY_DEADLINE_MS, type PodFacts, type PodRow } from "../../src/sandbox/pods/lifecycle.js";
+import { decide, imageDigestOf, opIdOf, READY_DEADLINE_MS, type PodFacts, type PodRow } from "../../src/sandbox/pods/lifecycle.js";
 import { podName } from "../../src/sandbox/pods/name.js";
 import { podLifecycleConfig, podSpecOf } from "../../src/sandbox/pods/spec.js";
 
@@ -170,6 +170,28 @@ describe("pod lifecycle", () => {
     const decision = decide(facts({ status: undefined }));
     expect(decision.apply).toBeUndefined();
     expect(decision.retryAfterMs).toBeGreaterThan(0);
+  });
+
+  it("pins the image the first ready pod runs by digest, and runs that digest from then on (Q14)", () => {
+    const pulled = `docker.io/library/python@sha256:${"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`;
+    expect(imageDigestOf(pulled)).toBe(pulled);
+    expect(imageDigestOf(`docker-pullable://${pulled}`)).toBe(pulled);
+    // A locally loaded image has no repository to pull it from: nothing is pinned.
+    expect(imageDigestOf(`sha256:${"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)).toBeUndefined();
+    expect(imageDigestOf(undefined)).toBeUndefined();
+    expect(decide(facts({ status: status({ imageID: pulled }) })).patch).toMatchObject({ observed: "running", imageDigest: pulled });
+    // Pinned once: a later pod's image id changes nothing.
+    const pinned = row({ observed: "running", imageDigest: pulled });
+    expect(decide(facts({ row: pinned, status: status({ imageID: "docker.io/library/python@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }) })).patch).not.toHaveProperty("imageDigest");
+    const spec = podSpecOf({
+      environmentId: "team/a",
+      spec: { image: "python:3.13-slim" } as never,
+      pod: pinned.pod,
+      config: {},
+      mode: "Running",
+      harnessImage: "ghcr.io/nylorun/runtime:0.15",
+    });
+    expect(spec.image).toBe(pulled);
   });
 
   it("renders the service's PUT body with the Tenant's lifecycle settings", () => {

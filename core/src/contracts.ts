@@ -898,6 +898,11 @@ export const EnvironmentPodViewSchema = z
     hostEpoch: z.number().int().nonnegative(),
     /** Why it failed, or was lost. */
     reason: z.string().optional(),
+    /**
+     * The workload image by digest (`repo@sha256:…`), pinned the first time a pod was ready
+     * (Q14): every later pod runs it. Absent before then, or for an image with no repository.
+     */
+    imageDigest: z.string().optional(),
   })
   .strict();
 export type EnvironmentPodView = z.infer<typeof EnvironmentPodViewSchema>;

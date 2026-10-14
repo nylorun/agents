@@ -311,6 +311,19 @@ func TestCompute(t *testing.T) {
 	if lost.Volume != "missing" || !lost.Exists {
 		t.Fatalf("lost volume: %+v", lost)
 	}
+	if ready.ImageID != "" {
+		t.Fatalf("no container status, no image id: %+v", ready)
+	}
+	running := pod(name, "pod-1")
+	_ = unstructured.SetNestedSlice(running.Object, []any{
+		map[string]any{"name": "nylo-copy", "imageID": "docker.io/nylorun/runtime@sha256:aaaa"},
+		map[string]any{"name": "workload", "imageID": "docker.io/library/python@sha256:bbbb"},
+	}, "status", "containerStatuses")
+	pulled := driver.Compute(name, sandboxObject(name, "Running", 2, cond("Ready", "True", "DependenciesReady", 2)),
+		[]*unstructured.Unstructured{running}, claim(name))
+	if pulled.ImageID != "docker.io/library/python@sha256:bbbb" {
+		t.Fatalf("the workload container's image id: %+v", pulled)
+	}
 	terminating := pod(name, "pod-1")
 	terminating.SetDeletionTimestamp(&metav1.Time{Time: time.Now()})
 	gone := driver.Compute(name, nil, []*unstructured.Unstructured{terminating}, nil)

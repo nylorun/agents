@@ -513,6 +513,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
                     volumeGeneration: row.volumeGen,
                     hostEpoch: row.hostEpoch,
                     ...(row.reason ? { reason: row.reason } : {}),
+                    ...(row.imageDigest ? { imageDigest: row.imageDigest } : {}),
                   } as EnvironmentView["pod"],
                 }
               : {}),

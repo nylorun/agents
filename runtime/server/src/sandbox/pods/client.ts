@@ -46,6 +46,8 @@ export interface PodStatus {
   readonly expired: boolean;
   readonly podUID?: string;
   readonly podPhase?: string;
+  /** The workload container's image as the node pulled it (`repo@sha256:…`), once it runs. */
+  readonly imageID?: string;
   readonly volume: "present" | "missing";
   readonly opId?: string;
   readonly shutdownTime?: string;

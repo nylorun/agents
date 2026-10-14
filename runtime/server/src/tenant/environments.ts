@@ -158,6 +158,7 @@ async function viewOf(
             volumeGeneration: pod.volumeGen,
             hostEpoch: pod.hostEpoch,
             ...(pod.reason ? { reason: pod.reason } : {}),
+            ...(pod.imageDigest ? { imageDigest: pod.imageDigest } : {}),
           },
         }
       : {}),
