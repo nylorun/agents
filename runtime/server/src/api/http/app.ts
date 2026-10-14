@@ -15,6 +15,7 @@ import { jsonResponse, rejectionOf } from "./respond.js";
 import { accessRoutes } from "./routes/access.js";
 import { meRoutes } from "./routes/me.js";
 import { environmentRoutes } from "./routes/environments.js";
+import { environmentManifestRoutes } from "./routes/environment-manifests.js";
 import { artifactRoutes } from "./routes/artifacts.js";
 import { readRoutes } from "./routes/reads.js";
 import { sessionRoutes } from "./routes/sessions.js";
@@ -65,6 +66,7 @@ function build(): OpenAPIHono<TenantEnv> {
   sessionRoutes(api);
   fileRoutes(api);
   environmentRoutes(api);
+  environmentManifestRoutes(api);
   artifactRoutes(api);
   tenantRoutes(api);
   keyRoutes(api);

@@ -60,20 +60,20 @@ it("C3: the Admin API's old paths require the protocol first, as any route does"
   expect(bad.status).toBe(426);
 });
 
-it("P13: the Host serves protocol 13 clients only, and refuses 4 to 12 and 14 with 426", async () => {
+it("P14: the Host serves protocol 14 clients only, and refuses 4 to 13 and 15 with 426", async () => {
   const { url } = await startTestHost({ module: createFakeModule() });
-  for (const version of ["4", "5", "6", "7", "8", "9", "10", "11", "12", "14"]) {
+  for (const version of ["4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "15"]) {
     const { status, body } = await getJson(`${url}/v1/agents`, {
       headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: version },
     });
     expect(status, `protocol ${version}`).toBe(426);
-    expect(ProtocolRejectedResponseSchema.parse(body).protocol).toMatchObject({ min: 13, max: 13 });
+    expect(ProtocolRejectedResponseSchema.parse(body).protocol).toMatchObject({ min: 14, max: 14 });
   }
-  // Protocol 13 makes the manifest flat (manifest 7): a fresh start, so 12 is not served.
+  // Protocol 14 pins an Environment to its manifest: a fresh start, so 13 is not served.
   const { status } = await getJson(`${url}/v1/agents`, {
-    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "13" },
+    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "14" },
   });
-  expect(status, "protocol 13").toBe(200);
+  expect(status, "protocol 14").toBe(200);
   // Only a capability link is served without the header (protocol 6).
   const { [PROTOCOL_HEADER]: _protocol, ...unversioned } = tenantHeaders();
   const link = await getJson(`${url}/v1/artifact-links/not-a-token`, { headers: unversioned });

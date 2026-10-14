@@ -4,8 +4,8 @@
     "title": "Nylorun Management API",
     "version": "0.0.0",
     "x-nylorun-protocol": {
-      "min": 13,
-      "max": 13,
+      "min": 14,
+      "max": 14,
       "features": [
         "studio-principal",
         "artifacts",
@@ -14,6 +14,7 @@
         "environments",
         "model-inputs",
         "flat-manifest",
+        "environment-manifests",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -108,6 +109,12 @@
               "mcp_preview_failed",
               "credential_conflict",
               "attachment_unsupported",
+              "environment_immutable",
+              "secret_not_in_manifest",
+              "environment_unsuitable",
+              "manifest_not_found",
+              "manifest_in_use",
+              "manifest_changed",
               "internal_error"
             ]
           },
@@ -2936,10 +2943,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3038,10 +3045,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3150,10 +3157,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3271,10 +3278,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -3406,10 +3413,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3518,10 +3525,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3621,10 +3628,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3716,10 +3723,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3818,10 +3825,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3929,10 +3936,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4030,10 +4037,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4129,10 +4136,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4240,10 +4247,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4389,10 +4396,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4509,10 +4516,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4610,10 +4617,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4710,10 +4717,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4821,10 +4828,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4921,10 +4928,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5033,10 +5040,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5145,10 +5152,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5276,10 +5283,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5378,10 +5385,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5500,10 +5507,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5614,10 +5621,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5714,10 +5721,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5825,10 +5832,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5925,10 +5932,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }

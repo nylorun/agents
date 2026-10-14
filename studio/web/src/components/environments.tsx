@@ -349,7 +349,7 @@ export function EnvironmentSheet({
           </SheetTitle>
           <SheetDescription>
             {existing
-              ? "Changing the recipe bumps its version. Kind and storage are fixed; a pod takes a new image or resources when it next starts, and new setup and files at its next reset."
+              ? "An Environment never changes what it runs: here only its labels and owner guard change. To run something else, make a new Environment, from a version of this one's disk on its Disk tab."
               : fork
                 ? `Its disk starts as version ${fork.version} of ${fork.source.id}'s disk, with the same recipe. Its vault starts empty: write its secrets once it exists.`
                 : "Empty fields take this Tenant's defaults. Write its secrets on its Secrets tab once it exists."}
@@ -376,6 +376,26 @@ export function EnvironmentSheet({
               autoFocus={existing === undefined}
             />
           </Field>
+          <Field label="Labels" hint="One key=value per line.">
+            <textarea
+              aria-label="Labels"
+              className="min-h-16 rounded-md border bg-background p-2 font-mono text-sm"
+              value={form.labels}
+              onChange={(event) => set({ labels: event.target.value })}
+              placeholder="project=build"
+            />
+          </Field>
+          <Field
+            label="Owner (optional)"
+            hint="The owner guard: only this owner's sessions may name it. Studio's sessions are local-developer's."
+          >
+            <Input
+              value={form.ownerUserId}
+              onChange={(event) => set({ ownerUserId: event.target.value })}
+              placeholder="local-developer"
+            />
+          </Field>
+          <fieldset disabled={existing !== undefined} className="contents">
           <Field
             label="Kind"
             hint={
@@ -480,25 +500,6 @@ export function EnvironmentSheet({
               <FileRows rows={form.files} onChange={(files) => set({ files })} />
             </>
           ) : null}
-          <Field label="Labels" hint="One key=value per line.">
-            <textarea
-              aria-label="Labels"
-              className="min-h-16 rounded-md border bg-background p-2 font-mono text-sm"
-              value={form.labels}
-              onChange={(event) => set({ labels: event.target.value })}
-              placeholder="project=build"
-            />
-          </Field>
-          <Field
-            label="Owner (optional)"
-            hint="The owner guard: only this owner's sessions may name it. Studio's sessions are local-developer's."
-          >
-            <Input
-              value={form.ownerUserId}
-              onChange={(event) => set({ ownerUserId: event.target.value })}
-              placeholder="local-developer"
-            />
-          </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Idle" hint="Stop compute after; default the Tenant's.">
               <Input
@@ -517,6 +518,7 @@ export function EnvironmentSheet({
               />
             </Field>
           </div>
+          </fieldset>
           {error ? (
             <p role="alert" className="text-sm text-red-600">
               {error}
@@ -530,7 +532,7 @@ export function EnvironmentSheet({
               {pending
                 ? "Saving"
                 : existing
-                  ? "Save recipe"
+                  ? "Save labels and owner"
                   : fork
                     ? "Create from version"
                     : "Create Environment"}

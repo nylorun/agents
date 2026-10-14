@@ -163,5 +163,15 @@ export interface AgentManifest {
   readonly tools?: readonly ToolManifest[];
   readonly skills?: Readonly<Record<string, SkillManifest>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
+  /** What the agent needs of its session's Environment, checked when a session opens (D65). */
+  readonly requires?: AgentRequirements;
   readonly runtime?: RuntimeManifest;
+}
+
+/** What an agent needs of the Environment its session opens on (protocol 14, D65). */
+export interface AgentRequirements {
+  /** `any`: kind `virtual` or `pod`; `pod`: kind `pod`; `none`: nothing. */
+  readonly sandbox?: "none" | "any" | "pod";
+  /** Secret names (environment variables) its skills' scripts read, which the vault must hold. */
+  readonly secrets?: readonly string[];
 }

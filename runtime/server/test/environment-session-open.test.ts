@@ -302,16 +302,16 @@ it("lets a caller acting for a user open sessions on an Environment, but change 
     const refused = await fetch(`${runtime.url}/v1/environments/people%2Fada`, {
       method: "PUT",
       headers: subject,
-      body: JSON.stringify({ resources: { cpus: 1 } }),
+      body: JSON.stringify({ labels: { team: "a" } }),
     });
     expect(refused.status).toBe(403);
     const writer = await fetch(`${runtime.url}/v1/environments/people%2Fada`, {
       method: "PUT",
       headers: { ...subject, "Nylorun-Scopes": "sessions:own environments:write" },
-      body: JSON.stringify({ resources: { cpus: 1 } }),
+      body: JSON.stringify({ labels: { team: "a" } }),
     });
     expect(writer.ok, await writer.clone().text()).toBe(true);
-    expect(((await writer.json()) as { version: number }).version).toBe(2);
+    expect(((await writer.json()) as { labels: unknown }).labels).toEqual({ team: "a" });
   } finally {
     await runtime.close();
   }

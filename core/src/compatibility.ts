@@ -1,6 +1,14 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 14: environment manifests (D63 to D65). `/v1/environment-manifests/{name}` holds
+ * named, versioned definitions of a kind of Environment, saved like agents (with `If-Match` and
+ * `?dryRun=true`), and `PUT /v1/environments/{id}` takes `manifest: "name"` or `"name@n"`. An
+ * Environment never changes what it runs after creation: a `PUT` on an existing one may change
+ * only its labels and owner guard (`409 environment_immutable`), and its view's `recipe` is now
+ * `manifest`. A manifest's `secrets` declares slots: a write sends only the value, and a name it
+ * does not declare is `409 secret_not_in_manifest`. An agent manifest's `requires` is checked
+ * when a session opens (`409 environment_unsuitable`). The Host serves protocol 14 only.
  * Protocol 13: the flat agent manifest (v7), a fresh start. A manifest has no capabilities: its
  * instructions, tools, skills and MCP servers are top-level, and a skill or server from an Agent
  * Plugin carries a `plugin` label. A session's pinned manifest carries the Runtime's `runtime`
@@ -44,7 +52,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -80,6 +88,12 @@ export const PROTOCOL_FEATURES = [
    * block, and tool calls, MCP servers and HTTP calls are named without capability ids.
    */
   "flat-manifest",
+  /**
+   * Protocol 14: environment manifests (`/v1/environment-manifests/{name}`), Environments made
+   * from one version and never changed after creation, secret slots, and an agent manifest's
+   * `requires`, checked when a session opens.
+   */
+  "environment-manifests",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -146,13 +160,13 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 /**
- * What this Host serves: protocol 13. Protocol 13 changed the shape of the agent manifest a
- * client registers, so an older client is answered `426` naming the protocol it needs rather
- * than a `400` on a manifest it cannot read.
+ * What this Host serves: protocol 14. Protocol 14 changed what `PUT /v1/environments/{id}`
+ * does to an existing Environment and the shape of its view, so an older client is answered
+ * `426` naming the protocol it needs rather than a `409` it cannot read.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
-  min: 13,
-  max: 13,
+  min: 14,
+  max: 14,
   features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
@@ -262,6 +276,31 @@ export const ERROR_CODES = [
    * and `reason`.
    */
   "attachment_unsupported",
+  /**
+   * A `PUT /v1/environments/{id}` asked an existing Environment to run something else
+   * (protocol 14, D63): only its labels and owner guard may change. Fork it into a new
+   * Environment (`POST /v1/environments/{id}/fork`). `details.fields` names what differed.
+   */
+  "environment_immutable",
+  /**
+   * A secret write named a secret the Environment's manifest does not declare (D64): `409`.
+   * Add the slot to the manifest and make or fork an Environment from the new version.
+   */
+  "secret_not_in_manifest",
+  /**
+   * A session's agent requires what its Environment lacks (D65): `409` when the session opens.
+   * `details.missing` lists each gap (`sandbox`, `pod`, or `secret:<name>`).
+   */
+  "environment_unsuitable",
+  /** No environment manifest has this name, or no version with this number. */
+  "manifest_not_found",
+  /** An environment manifest some Environment was made from cannot be deleted: `409`. */
+  "manifest_in_use",
+  /**
+   * `If-Match` named a version that is no longer the latest (D63): `412`. Read the manifest
+   * again, or save with `--force` (no `If-Match`).
+   */
+  "manifest_changed",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

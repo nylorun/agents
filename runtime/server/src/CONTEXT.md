@@ -175,13 +175,16 @@ _Avoid_: "user" for the header value (the Runtime has no user accounts).
 **Environment**: Where sessions run (D55, protocol 11, `tenant/environments.ts`, the
 `environments` table): one sandbox, of kind `virtual` (a just-bash workspace in the harness
 container), `pod` (an agent-sandbox pod with its own volume; see **Pod Environment**) or `none` (no
-compute), with a **recipe** that can change and one **vault** (D56). `PUT`/`GET`/`DELETE
+compute), with what it runs (its `recipe`, the view's `manifest`) and one **vault** (D56). `PUT`/`GET`/`DELETE
 /v1/environments/{id}`, `GET /v1/environments?label=k=v`, `POST .../stop|reset`; ids are
-`/`-separated segments, sent percent-encoded as one path segment. A `PUT` on an existing id
-compares the fields sent: `kind` and `storage` are fixed (`409`), labels replace, and any other
-change writes `recipe` and bumps `version`; a pod runs `applied` (`appliedVersion`), copied from
-`recipe` when it is asked to run from stopped, so image and resources never change mid-turn, while
-network, harness and lifecycle apply at once (egress-gate reads `applied.network`). A session names
+`/`-separated segments, sent percent-encoded as one path segment. It is made from one version of an
+**Environment manifest** (`manifestName`, `manifestVersion`) or from inline fields, and never
+changes what it runs after that (protocol 14, D63): a `PUT` on an existing id may change labels and
+the owner guard, fields that match are accepted, and anything else is `409 environment_immutable`.
+`recipe` and `applied` stay equal (egress-gate reads `applied.network`), and `version` stays 1;
+`manifestHash` hashes what it runs. When what it runs declares secret **slots** (`recipe.secrets`,
+D64), a secret write sends only the value (`secretRequestFor`) and a name it does not declare is
+`409 secret_not_in_manifest`. A session names
 one with `environment` (`Session.environmentId`) and pins its sandbox spec then
 (`Session.sandbox`, `sandbox/resolve.ts` `sandboxSpecOf`); its workspace is keyed by the
 Environment's id, so its sessions share files, and deleting a session only detaches it. Turns are
@@ -198,6 +201,16 @@ relayed to S2; the session's log records `environment.attached`. Egress between 
 too (`environment.egress`, see **Egress event**).
 _Avoid_: "scope" for who uses an Environment (the app maps people to ids), "space", "sandbox
 resource" (protocol 10).
+
+**Environment manifest**: A named, versioned definition of a kind of Environment (protocol 14,
+D63, `tenant/environment-manifests.ts`, the `environment_manifests` table), saved like an agent
+with `PUT /v1/environment-manifests/{name}`: a save whose hash equals the latest's answers it
+`unchanged`, any other writes the next version, under `If-Match` (`412 manifest_changed`) and with
+a plan on `?dryRun=true`. A version records `savedBy` and is never changed; a save changes no
+Environment. `DELETE` removes every version, refused while an Environment names one
+(`409 manifest_in_use`). An agent manifest's `requires` (D65) is checked against the session's
+Environment when the session opens (`409 environment_unsuitable`, `tenant/sessions.ts`).
+_Avoid_: "recipe" for the manifest (the recipe is what one Environment runs), "template".
 
 **Disk setup**: A pod Environment's `files` and `setup` (R2d step 2, `sandbox/setup.ts`,
 `harness/setup.ts`), run once per new disk: the join answer carries the plan (`setupPlanOf`), the

@@ -145,21 +145,21 @@ export function SessionEnvironmentPanel({
                       : ""
                   }`,
                 ],
-                ["Harness", s.recipe.harness],
+                ["Harness", s.manifest.harness],
                 [
                   "Sandbox",
                   s.kind === "none"
                     ? "None: credentials only"
                     : s.kind === "pod"
-                      ? `Pod${s.recipe.resources ? ` · ${s.recipe.resources.cpus} CPU · ${s.recipe.resources.memory}` : ""}`
+                      ? `Pod${s.manifest.resources ? ` · ${s.manifest.resources.cpus} CPU · ${s.manifest.resources.memory}` : ""}`
                       : "Virtual workspace",
                 ],
                 [
                   "Allowed hosts",
                   s.kind === "none"
                     ? "—"
-                    : s.recipe.network?.allowedHosts?.length
-                      ? s.recipe.network.allowedHosts.join(", ")
+                    : s.manifest.network?.allowedHosts?.length
+                      ? s.manifest.network.allowedHosts.join(", ")
                       : "None",
                 ],
               ]}

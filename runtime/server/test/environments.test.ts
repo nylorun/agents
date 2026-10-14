@@ -1,7 +1,8 @@
 /**
  * Environments (protocol 11, D55, D56): an Environment has its own id, recipe and vault and
  * outlives the sessions that name it; sessions on one share its workspace; turns are serial per
- * Environment with a sandbox; a recipe change bumps its version; kind and storage are fixed;
+ * Environment with a sandbox; it never changes what it runs (protocol 14: only labels and the
+ * owner guard change, anything else is `409 environment_immutable`);
  * the owner guard admits only its owner's sessions, at open and at every turn start; a token
  * caller reaches only the Environments its issuer grants, at every turn start;
  * `environments:write` guards changes; the Tenant limits how many there are; and
@@ -184,9 +185,11 @@ describe("the resource", { timeout: 60_000 }, () => {
       version: 1,
       appliedVersion: 1,
       ownerUserId: null,
-      recipe: { network: { allowedHosts: ["api.github.com"] }, harness: "nylorun", lifecycle: {} },
+      manifest: { network: { allowedHosts: ["api.github.com"] }, harness: "nylorun", lifecycle: {} },
     });
-    expect(created.body.recipe.image).toBeUndefined();
+    expect(created.body.manifest.image).toBeUndefined();
+    expect(created.body.manifestHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(created.body.manifestName).toBeUndefined();
     expect(created.body.pod).toBeUndefined();
     // Idempotent: the same call, or one that sends nothing, finds it unchanged.
     const again = await call("PUT", path("team-a/proj-42"), {
@@ -208,36 +211,29 @@ describe("the resource", { timeout: 60_000 }, () => {
     expect((await call("PUT", path("bad id!"), {})).status).toBe(400);
   });
 
-  it("bumps the version on a recipe change, applied at once for a virtual one; labels replace", async () => {
+  it("never changes what it runs: labels and the owner guard change, anything else is refused", async () => {
     const id = "recipe/ws";
-    expect((await call("PUT", path(id), { labels: { a: "1", b: "2" } })).body.version).toBe(1);
-    const changed = await call("PUT", path(id), { resources: { cpus: 1 } });
-    expect(changed.status, JSON.stringify(changed.body)).toBe(200);
-    expect(changed.body).toMatchObject({
-      version: 2,
-      appliedVersion: 2,
-      recipe: { resources: { cpus: 1 } },
-      // Labels not sent stay.
-      labels: { a: "1", b: "2" },
-    });
-    // The same recipe again, or nothing, changes nothing.
-    expect((await call("PUT", path(id), { resources: { cpus: 1 } })).body).toMatchObject({ version: 2 });
-    expect((await call("PUT", path(id), {})).body).toMatchObject({ version: 2, appliedVersion: 2 });
-    // Labels replace and leave the recipe's version alone.
-    const relabelled = await call("PUT", path(id), { labels: { c: "3" } });
-    expect(relabelled.body.labels).toEqual({ c: "3" });
-    expect(relabelled.body.version).toBe(2);
-    // A lifecycle change is a recipe change too.
-    const lifecycle = await call("PUT", path(id), { lifecycle: { idle: "5m" } });
-    expect(lifecycle.body).toMatchObject({
-      version: 3,
-      appliedVersion: 3,
-      recipe: { resources: { cpus: 1 }, lifecycle: { idle: "5m" } },
-    });
+    const created = await call("PUT", path(id), { labels: { a: "1", b: "2" }, resources: { cpus: 1 } });
+    expect(created.body).toMatchObject({ version: 1, manifest: { resources: { cpus: 1 } } });
+    // The same fields again, or none, find it unchanged: get-or-create stays one call.
+    expect((await call("PUT", path(id), { resources: { cpus: 1 } })).body).toMatchObject({ version: 1 });
+    expect((await call("PUT", path(id), {})).body).toMatchObject({ version: 1, appliedVersion: 1 });
+    // Another value is refused, naming the fork and the fields that differ.
+    const changed = await call("PUT", path(id), { lifecycle: { idle: "5m" } });
+    expect(changed.status).toBe(409);
+    expect(changed.body).toMatchObject({ code: "environment_immutable", details: { fields: ["lifecycle"] } });
+    expect(changed.body.message).toContain("/fork");
+    expect((await call("PUT", path(id), { resources: { cpus: 2 } })).body.details.fields).toEqual(["resources"]);
+    expect((await call("GET", path(id))).body.manifest.lifecycle).toEqual({});
+    // Labels replace and leave what it runs alone; so does the owner guard.
+    const relabelled = await call("PUT", path(id), { labels: { c: "3" }, ownerUserId: "ada" });
+    expect(relabelled.status, JSON.stringify(relabelled.body)).toBe(200);
+    expect(relabelled.body).toMatchObject({ labels: { c: "3" }, ownerUserId: "ada", version: 1 });
+    expect((await call("PUT", path(id), { ownerUserId: null })).body.ownerUserId).toBeNull();
     // A session opened now pins the version it was opened on.
     const session = await open("recipe-a", id);
     expect(session.status, JSON.stringify(session.body)).toBe(200);
-    expect(session.body.environment).toEqual({ id, version: 3 });
+    expect(session.body.environment).toEqual({ id, version: 1 });
   });
 
   it("fixes kind and storage, and refuses pod fields on a virtual Environment", async () => {
@@ -277,10 +273,10 @@ describe("the resource", { timeout: 60_000 }, () => {
     expect(created.body).toMatchObject({
       kind: "none",
       state: "ready",
-      recipe: { harness: "nylorun", lifecycle: { idle: "5m" } },
+      manifest: { harness: "nylorun", lifecycle: { idle: "5m" } },
     });
-    expect(created.body.recipe.network).toBeUndefined();
-    expect(created.body.recipe.resources).toBeUndefined();
+    expect(created.body.manifest.network).toBeUndefined();
+    expect(created.body.manifest.resources).toBeUndefined();
     const stop = await call("POST", `${path("plain/ws")}/stop`);
     expect(stop.status).toBe(400);
     expect(stop.body.message).toContain("only a pod Environment stops and resets");
@@ -649,7 +645,7 @@ describe("lifecycle.deleteAfter", { timeout: 60_000 }, () => {
     for (const id of ["unused/old", "unused/recent"]) {
       const created = await call("PUT", path(id), { lifecycle: { deleteAfter: "2h" } });
       expect(created.status, JSON.stringify(created.body)).toBe(200);
-      expect(created.body.recipe.lifecycle).toEqual({ deleteAfter: "2h" });
+      expect(created.body.manifest.lifecycle).toEqual({ deleteAfter: "2h" });
       expect(
         (await call("PUT", `${path(id)}/secrets/MODE`, { type: "environment_variable", value: "x" })).status,
       ).toBe(200);

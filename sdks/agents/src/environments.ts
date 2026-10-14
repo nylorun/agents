@@ -1,16 +1,20 @@
 /**
  * Environments (protocol 11, D55, D56): `client.environments`. An Environment is one sandbox
- * (kind `virtual`, `pod` or `none`) with a recipe that can change, and one vault of secrets for
- * its shell, MCP servers and HTTP tools. It has its own id and outlives the sessions that name
- * it; whether it serves one session, one person or a project is the app's choice, made here:
+ * (kind `virtual`, `pod` or `none`) made from an environment manifest's version or from inline
+ * fields, and one vault of secrets for its shell, MCP servers and HTTP tools. It never changes
+ * what it runs after it is made (protocol 14, D63): a new version reaches an agent through a new
+ * Environment. It has its own id and outlives the sessions that name it; whether it serves one
+ * session, one person or a project is the app's choice, made here:
  *
  * - `environments.forSession(...)`: one Environment for one session. It creates the
  *   Environment, opens the session on it, and `release()` deletes the Environment (and its
  *   vault) when the session is done.
- * - `environments.put(id, recipe)`: one Environment per person or per project, by a
- *   deterministic id (`users/alice/web`); get-or-create, or change its recipe, in one call.
- *   Write its secrets with `environments.secrets.put(id, name, secret)` and open sessions on it
- *   with `createSession({ environment: id })`.
+ * - `environments.put(id, { manifest: "analyst-box" })` (or inline fields): one Environment per
+ *   person or per project, by a deterministic id (`users/alice/web`); get-or-create in one call.
+ *   Write its secrets with `environments.secrets.put(id, name, { value })` and open sessions on
+ *   it with `createSession({ environment: id })`.
+ * - `environments.manifests.save(manifest)`: save an environment manifest's next version, like
+ *   `saveAgent`; `plan(manifest)` answers what a save would do and saves nothing.
  *
  * Ids may hold `/`; they are sent percent-encoded as one path segment. Secret values are
  * write-only: no call reads one back.
@@ -20,8 +24,17 @@
  * `put(id, { from: { environment, version } })` creates a new Environment from another's version.
  */
 import {
+  ENVIRONMENT_MANIFEST_SCHEMA_VERSION,
+  EnvironmentManifestSchema,
   EnvironmentPageSchema,
   isEnvironmentId,
+  isEnvironmentManifestName,
+  type DeleteEnvironmentManifestResponse,
+  type EnvironmentManifest,
+  type EnvironmentManifestPlan,
+  type EnvironmentManifestVersions,
+  type EnvironmentManifestView,
+  type SaveEnvironmentManifestResponse,
   type DeleteEnvironmentResponse,
   type EnvironmentEvent,
   type EnvironmentRestore,
@@ -35,10 +48,35 @@ import {
 import { id, segment, type Transport } from "./http.js";
 import type { CreateSessionOptions, SessionClient } from "./session-client.js";
 
-/** What an Environment is made of: its kind, recipe, labels and owner guard. */
-export type EnvironmentRecipeInput = Omit<PutEnvironmentRequest, "requestId">;
-/** One secret of an Environment's vault, as written. */
-export type EnvironmentSecretInput = PutEnvironmentSecretRequest;
+/**
+ * What an Environment is made from: an environment manifest (`manifest: "name"` or `"name@n"`)
+ * or the inline fields, and its labels, owner guard and `from`.
+ */
+export type EnvironmentInput = Omit<PutEnvironmentRequest, "requestId">;
+/**
+ * One secret of an Environment's vault, as written: typed, or only its value (`{ value }`, or
+ * `{ headers }` for a `headers` secret) when what the Environment runs declares its slot (D64).
+ */
+export type EnvironmentSecretInput =
+  | PutEnvironmentSecretRequest
+  | { readonly value: string }
+  | { readonly headers: Readonly<Record<string, string>> };
+/** An environment manifest as authored: `manifestSchemaVersion` may be left out. */
+export type EnvironmentManifestInput = Omit<EnvironmentManifest, "manifestSchemaVersion"> & {
+  readonly manifestSchemaVersion?: typeof ENVIRONMENT_MANIFEST_SCHEMA_VERSION;
+  /** For editors; dropped here, as the CLI drops it. */
+  readonly $schema?: string;
+};
+
+/**
+ * An environment manifest (protocol 14, D63): checked now against the schema the Runtime
+ * enforces, with `manifestSchemaVersion` filled in and `$schema` dropped. Save it with
+ * `client.environments.manifests.save()`, or make an Environment from it inline.
+ */
+export function environmentManifest(input: EnvironmentManifestInput): EnvironmentManifest {
+  const { $schema: _, ...rest } = input;
+  return EnvironmentManifestSchema.parse({ manifestSchemaVersion: ENVIRONMENT_MANIFEST_SCHEMA_VERSION, ...rest });
+}
 
 /** A session opened on an Environment of its own (`environments.forSession`). */
 export interface SessionEnvironmentHandle {
@@ -51,8 +89,11 @@ export interface SessionEnvironmentHandle {
 export interface ForSessionOptions {
   /** The session to open, as `createSession` takes it, without `environment`. */
   readonly session: Omit<CreateSessionOptions, "environment">;
-  /** The Environment's recipe and labels. Default: a virtual one within the Tenant's defaults. */
-  readonly recipe?: EnvironmentRecipeInput;
+  /**
+   * What the Environment is made from (a `manifest` or inline fields) and its labels. Default: a
+   * virtual one within the Tenant's defaults.
+   */
+  readonly recipe?: EnvironmentInput;
   /** Secrets to write before the session opens, by name. */
   readonly secrets?: Readonly<Record<string, EnvironmentSecretInput>>;
   /** The Environment's id. Default: `sessions/<session id>`. */
@@ -70,7 +111,9 @@ export class EnvironmentSecretsClient {
   /**
    * Creates or replaces secret `name` (`PUT /v1/environments/{id}/secrets/{name}`): for
    * `environment_secret` and `environment_variable` the name is the variable's. A second
-   * credential for a host or a URL is a 409 `credential_conflict`.
+   * credential for a host or a URL is a 409 `credential_conflict`. When what the Environment
+   * runs declares the secret's slot (D64), send only `{ value }` (or `{ headers }`); a name it
+   * does not declare is `409 secret_not_in_manifest`.
    */
   async put(
     environmentId: string,
@@ -127,6 +170,77 @@ export class EnvironmentSecretsClient {
   }
 }
 
+/**
+ * Environment manifests (protocol 14, D63): `client.environments.manifests`. A save writes the
+ * manifest's next version, or answers the latest unchanged, and changes no Environment: an
+ * Environment keeps the version it was made from.
+ */
+export class EnvironmentManifestsClient {
+  constructor(private readonly transport: Transport) {}
+
+  private path(name: string): string {
+    if (!isEnvironmentManifestName(name))
+      throw new TypeError(`${name} is not an environment manifest's name: 1-64 letters, digits, '.', '_' and '-'`);
+    return `/v1/environment-manifests/${segment(name)}`;
+  }
+
+  private send<T>(manifest: EnvironmentManifestInput, query: string, ifMatch: number | undefined, signal?: AbortSignal) {
+    const body = environmentManifest(manifest);
+    const transport = ifMatch === undefined ? this.transport : this.transport.withHeaders({ "If-Match": String(ifMatch) });
+    return transport.json<T>(`${this.path(body.name)}${query}`, "PUT", { requestId: id(), ...body }, signal);
+  }
+
+  /**
+   * Saves `manifest` (`PUT /v1/environment-manifests/{name}`). `ifMatch`: the version you read
+   * (`0` for none yet); a save over a newer one is `412 manifest_changed`.
+   */
+  async save(
+    manifest: EnvironmentManifestInput,
+    options: { ifMatch?: number; signal?: AbortSignal } = {},
+  ): Promise<SaveEnvironmentManifestResponse> {
+    return this.send(manifest, "", options.ifMatch, options.signal);
+  }
+
+  /** What saving `manifest` would do (`?dryRun=true`): changes, errors, warnings, and the Environments behind. */
+  async plan(
+    manifest: EnvironmentManifestInput,
+    options: { ifMatch?: number; signal?: AbortSignal } = {},
+  ): Promise<EnvironmentManifestPlan> {
+    return this.send(manifest, "?dryRun=true", options.ifMatch, options.signal);
+  }
+
+  /** The latest version of manifest `name`, or version `version`. */
+  async get(name: string, options: { version?: number; signal?: AbortSignal } = {}): Promise<EnvironmentManifestView> {
+    return this.transport.json(
+      `${this.path(name)}${options.version === undefined ? "" : `/versions/${options.version}`}`,
+      "GET",
+      undefined,
+      options.signal,
+    );
+  }
+
+  /** Each manifest's latest version. */
+  async list(options: { signal?: AbortSignal } = {}): Promise<EnvironmentManifestView[]> {
+    const reply = await this.transport.json<{ manifests: EnvironmentManifestView[] }>(
+      "/v1/environment-manifests",
+      "GET",
+      undefined,
+      options.signal,
+    );
+    return reply.manifests;
+  }
+
+  /** Every version of manifest `name`, newest first. */
+  async versions(name: string, options: { signal?: AbortSignal } = {}): Promise<EnvironmentManifestVersions> {
+    return this.transport.json(`${this.path(name)}/versions`, "GET", undefined, options.signal);
+  }
+
+  /** Deletes every version; refused while an Environment was made from one (`409 manifest_in_use`). */
+  async delete(name: string, options: { signal?: AbortSignal } = {}): Promise<DeleteEnvironmentManifestResponse> {
+    return this.transport.json(this.path(name), "DELETE", undefined, options.signal);
+  }
+}
+
 export class EnvironmentsClient {
   constructor(
     private readonly transport: Transport,
@@ -147,15 +261,22 @@ export class EnvironmentsClient {
     return new EnvironmentSecretsClient(this.transport, (environmentId) => this.path(environmentId));
   }
 
+  /** Environment manifests (protocol 14, D63): named, versioned definitions of a kind of Environment. */
+  get manifests(): EnvironmentManifestsClient {
+    return new EnvironmentManifestsClient(this.transport);
+  }
+
   /**
    * Creates the Environment and its vault, or finds the one with this id
-   * (`PUT /v1/environments/{id}`). On an existing one, `kind` and `storage` are fixed (a
-   * different one is a 409), labels replace, and any other change writes the recipe and bumps
-   * its `version`: a pod's image and resources apply when it next starts from stopped.
+   * (`PUT /v1/environments/{id}`), from an environment manifest (`{ manifest: "name" }` takes
+   * the latest version, `"name@n"` version n) or from inline fields. It never changes what it
+   * runs after that (protocol 14): on an existing one, labels replace and `ownerUserId` sets or
+   * clears the owner guard, fields that match are accepted, and anything else is
+   * `409 environment_immutable`.
    */
   async put(
     environmentId: string,
-    recipe: EnvironmentRecipeInput = {},
+    recipe: EnvironmentInput = {},
     options: { signal?: AbortSignal } = {},
   ): Promise<EnvironmentView> {
     return this.transport.json(

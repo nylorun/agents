@@ -176,6 +176,13 @@
       "when": 1791986741535,
       "tag": "0024_flat_manifest",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791993934444,
+      "tag": "0025_environment_manifests",
+      "breakpoints": true
     }
   ]
 }

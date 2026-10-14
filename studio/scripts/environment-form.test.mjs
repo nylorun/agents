@@ -66,12 +66,12 @@ test("refuses sizes, durations, CPUs and labels the Runtime would refuse, naming
   assert.throws(() => parseLabels("project"), /key=value/);
 });
 
-test("an edit sends the recipe as the form holds it, never kind or storage; a cleared owner is null", () => {
+test("an edit sends only labels and the owner guard: what it runs never changes; a cleared owner is null", () => {
   const view = {
     id: "team/build",
     kind: "pod",
     labels: { project: "build" },
-    recipe: {
+    manifest: {
       image: "python:3.13-slim",
       resources: { cpus: 1, memory: "1024MiB" },
       storage: "5GiB",
@@ -79,7 +79,7 @@ test("an edit sends the recipe as the form holds it, never kind or storage; a cl
       harness: "nylorun",
       lifecycle: { idle: "15m" },
     },
-    version: 2,
+    version: 1,
     appliedVersion: 1,
     ownerUserId: "local-developer",
     state: "stopped",
@@ -107,11 +107,7 @@ test("an edit sends the recipe as the form holds it, never kind or storage; a cl
   });
   assert.deepEqual(environmentRequest({ ...filled, ownerUserId: "", idle: "", allowedHosts: "" }, view), {
     labels: { project: "build" },
-    image: "python:3.13-slim",
-    resources: { cpus: 1, memory: "1024MiB" },
-    network: { allowedHosts: [] },
     ownerUserId: null,
-    lifecycle: {},
   });
 });
 
@@ -157,27 +153,11 @@ test("refuses setup and files off a pod, and rows the Runtime would refuse, nami
   assert.throws(() => environmentRequest(pod({ setup: many })), /at most 16 setup commands/);
 });
 
-test("an edit sends setup and files only when the recipe has them or the form adds them", () => {
-  const view = {
-    kind: "pod",
-    recipe: { harness: "nylorun", lifecycle: {}, setup: [{ command: "make" }] },
-  };
-  const filled = { ...EMPTY_ENVIRONMENT_FORM, kind: "pod", setup: [] };
-  // Clearing the recipe's setup sends []; files it never had stay unsent.
-  assert.deepEqual(environmentRequest(filled, view), {
-    labels: {},
-    network: { allowedHosts: [] },
-    ownerUserId: null,
-    lifecycle: {},
-    setup: [],
-  });
-});
-
-test("a harness id is sent when set; a cleared custom harness goes back to ours", () => {
+test("a harness id is sent when set, and an existing one's harness fills the form", () => {
   assert.deepEqual(environmentRequest(form({ harness: "codex" })), { kind: "virtual", harness: "codex" });
   assert.throws(() => environmentRequest(form({ harness: "Codex CLI" })), /Harness must be a harness id/);
-  const view = { kind: "virtual", recipe: { harness: "codex", lifecycle: {} } };
-  assert.equal(environmentRequest(form({ harness: "" }), view).harness, "nylorun");
+  const view = { kind: "virtual", manifest: { harness: "codex", lifecycle: {} } };
+  assert.equal(environmentRequest(form({ harness: "" }), view).harness, undefined);
   assert.equal(environmentForm({ ...view, id: "a", labels: {}, ownerUserId: null }).harness, "codex");
 });
 
@@ -186,7 +166,7 @@ test("a new Environment can start from another's disk version: the source's reci
     id: "team/build",
     kind: "pod",
     labels: { project: "build" },
-    recipe: { harness: "nylorun", lifecycle: {}, storage: "5GiB" },
+    manifest: { harness: "nylorun", lifecycle: {}, storage: "5GiB" },
     ownerUserId: "local-developer",
   };
   const fork = forkForm(source, "team/build-copy");

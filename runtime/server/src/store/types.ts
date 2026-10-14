@@ -72,6 +72,7 @@ import type {
   EnvironmentEventPayload,
   EnvironmentEventType,
   EnvironmentKind,
+  EnvironmentManifest,
   EnvironmentRecipe,
   PodDesired,
   PodObserved,
@@ -219,6 +220,21 @@ export interface Environment {
   diskOp?: DiskOperation;
   /** The disk version the next volume starts from (R2d step 3). */
   diskSeed?: { artifactId: string; version: number };
+  /** The environment manifest it was made from and its version (D63); absent for an inline one. */
+  manifestName?: string;
+  manifestVersion?: number;
+  /** The hash of what it runs (`recipe`), recorded at creation (protocol 14). */
+  manifestHash?: string;
+}
+
+/** One version of an environment manifest (`environment_manifests`, D63). */
+export interface EnvironmentManifestRow {
+  name: string;
+  version: number;
+  body: EnvironmentManifest;
+  hash: string;
+  savedBy: { actor: string };
+  createdAt: string;
 }
 
 /** A disk lease (R2d step 3): what holds the disk, since when, and until when unless renewed. */
@@ -721,6 +737,23 @@ export interface Tx {
     environmentId: string,
     options?: { fromSeq?: number; limit?: number },
   ): Promise<EnvironmentEvent[]>;
+
+  // --- Environment manifests (D63, protocol 14) --------------------------------
+
+  /** Holds manifest `name`'s save lock until the transaction ends, so saves of one name are serial. */
+  lockEnvironmentManifest(name: string): Promise<void>;
+  /** Version `version` of manifest `name`, or its latest when `version` is omitted. */
+  environmentManifest(name: string, version?: number): Promise<EnvironmentManifestRow | undefined>;
+  /** Writes a new version (the caller holds the name's lock and chose the next number). */
+  insertEnvironmentManifest(row: EnvironmentManifestRow): Promise<void>;
+  /** Each manifest's latest version, by name. */
+  listEnvironmentManifests(): Promise<EnvironmentManifestRow[]>;
+  /** Every version of manifest `name`, newest first. */
+  environmentManifestVersions(name: string): Promise<EnvironmentManifestRow[]>;
+  /** Deletes every version of manifest `name`; how many there were. */
+  deleteEnvironmentManifest(name: string): Promise<number>;
+  /** How many Environments were made from each version of manifest `name` (deleting ones too). */
+  environmentsOfManifest(name: string): Promise<Map<number, number>>;
 
   /** `invoking` effects of one session; takeover turns them `uncertain`. */
   invokingEffects<T extends EffectDoc = EffectDoc>(

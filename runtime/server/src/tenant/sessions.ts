@@ -13,7 +13,7 @@ import { hashManifest } from "@nylorun/core/compatibility";
 import { approvalRefusal, codeToolRefusal, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
 import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
-import type { Tx } from "../store/types.js";
+import type { Environment, Tx } from "../store/types.js";
 import { sandboxSpecOf } from "../sandbox/resolve.js";
 import { withRuntimeTools, withSandbox } from "../sandbox/session-sandbox.js";
 import { authoredRuntimeBlocks, declaredSandboxes } from "../sandbox/share.js";
@@ -82,7 +82,11 @@ export async function listAgentsPublic(
 export async function putDefinition(
   ctx: TenantContext,
   agentId: string,
-  body: PutAgentRequest
+  body: PutAgentRequest,
+  options: {
+    /** Run every check and save nothing (`?dryRun=true`, protocol 14). */
+    dryRun?: boolean;
+  } = {}
 ) {
   if (body.manifest.id !== agentId) fail(400, "Agent id mismatch");
   DefinitionDocumentSchema.parse(body.manifest);
@@ -117,6 +121,7 @@ export async function putDefinition(
         `The definition names ${missing.length} file(s) the Runtime does not hold; upload each with PUT /v1/files/<sha256> first: ${missing.join(", ")}`,
         { code: "definition_files_missing", details: { missing } }
       );
+    if (options.dryRun) return;
     await t.put("definitions", agentId, definition);
     await t.insertDefinitionFileUses(agentId, definition.manifestHash, files);
   });
@@ -124,6 +129,7 @@ export async function putDefinition(
     agentId,
     manifestHash: definition.manifestHash,
     implementationVersion: body.implementationVersion,
+    ...(options.dryRun ? { dryRun: true } : {}),
   };
 }
 
@@ -223,6 +229,8 @@ export async function putSession(
             ownerUserId: body.ownerUserId,
             opaque,
           });
+    if (!isWorkflowManifest(definition.manifest))
+      await checkRequirements(t, definition.manifest as AgentManifest, environment);
     const config = await readSandboxConfig(t);
     // The harness the session runs for its life (R4.1): its Environment's, else ours. A flow
     // runs in core and our engine, whatever its Environment names.
@@ -260,6 +268,36 @@ export async function putSession(
     if (environment !== undefined) await recordAttachment(t, id, environment.id);
     return created;
   });
+}
+
+/**
+ * Refuses a session whose agent requires what its Environment lacks (protocol 14, D65): a
+ * sandbox (`any`: kind `virtual` or `pod`), a pod, or a secret its vault does not hold. Every
+ * gap is named in one `409 environment_unsuitable`.
+ */
+async function checkRequirements(
+  t: Tx,
+  manifest: AgentManifest,
+  environment: Environment | undefined,
+): Promise<void> {
+  const requires = manifest.requires;
+  if (requires === undefined) return;
+  const missing: string[] = [];
+  const kind = environment?.kind;
+  if (requires.sandbox === "any" && kind !== "virtual" && kind !== "pod") missing.push("sandbox");
+  if (requires.sandbox === "pod" && kind !== "pod") missing.push("pod");
+  if (requires.secrets?.length) {
+    const vault = environment === undefined ? undefined : await t.vaultOfEnvironment(environment.id);
+    const held = new Set(vault ? (await t.credentialsForVault(vault.id)).map((row) => row.name) : []);
+    for (const name of requires.secrets) if (!held.has(name)) missing.push(`secret:${name}`);
+  }
+  if (missing.length === 0) return;
+  const where = environment === undefined ? "the session names no Environment" : `Environment ${environment.id} lacks it`;
+  fail(
+    409,
+    `Agent ${manifest.id} requires ${missing.map((gap) => (gap.startsWith("secret:") ? `the secret ${gap.slice(7)}` : gap === "pod" ? "a pod Environment" : "a sandbox")).join(", ")}, and ${where}.`,
+    { code: "environment_unsuitable", details: { missing } },
+  );
 }
 
 /**

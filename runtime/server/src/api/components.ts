@@ -6,6 +6,16 @@
  */
 import { z } from "zod";
 import {
+  EnvironmentManifestSchema,
+  EnvironmentSecretSlotsSchema,
+  DeleteEnvironmentManifestResponseSchema,
+  EnvironmentManifestPlanSchema,
+  EnvironmentManifestVersionsSchema,
+  EnvironmentManifestViewSchema,
+  ListEnvironmentManifestsResponseSchema,
+  PutEnvironmentManifestRequestSchema,
+  PutEnvironmentSecretValueRequestSchema,
+  SaveEnvironmentManifestResponseSchema,
   SessionListItemSchema,
   ModelCallSchema,
   SessionPageSchema,
@@ -118,6 +128,16 @@ export const DeleteOperatorKeyResponse = named(
 export const SandboxToolOutcome = named("SandboxToolOutcome", SandboxToolOutcomeSchema);
 export const PutEnvironmentRequest = named("PutEnvironmentRequest", PutEnvironmentRequestSchema);
 export const EnvironmentView = named("EnvironmentView", EnvironmentViewSchema);
+export const EnvironmentSecretSlots = named("EnvironmentSecretSlots", EnvironmentSecretSlotsSchema);
+export const EnvironmentManifest = named("EnvironmentManifest", EnvironmentManifestSchema);
+export const PutEnvironmentManifestRequest = named("PutEnvironmentManifestRequest", PutEnvironmentManifestRequestSchema);
+export const EnvironmentManifestView = named("EnvironmentManifestView", EnvironmentManifestViewSchema);
+export const EnvironmentManifestPlan = named("EnvironmentManifestPlan", EnvironmentManifestPlanSchema);
+export const SaveEnvironmentManifestResponse = named("SaveEnvironmentManifestResponse", SaveEnvironmentManifestResponseSchema);
+export const ListEnvironmentManifestsResponse = named("ListEnvironmentManifestsResponse", ListEnvironmentManifestsResponseSchema);
+export const EnvironmentManifestVersions = named("EnvironmentManifestVersions", EnvironmentManifestVersionsSchema);
+export const DeleteEnvironmentManifestResponse = named("DeleteEnvironmentManifestResponse", DeleteEnvironmentManifestResponseSchema);
+export const PutEnvironmentSecretValueRequest = named("PutEnvironmentSecretValueRequest", PutEnvironmentSecretValueRequestSchema);
 export const EnvironmentSnapshot = named("EnvironmentSnapshot", EnvironmentSnapshotSchema);
 export const RestoreEnvironmentRequest = named("RestoreEnvironmentRequest", RestoreEnvironmentRequestSchema);
 export const EnvironmentRestore = named("EnvironmentRestore", EnvironmentRestoreSchema);

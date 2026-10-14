@@ -181,7 +181,7 @@ await session.input("Look up item 123", { idempotencyKey: requestId });
 const history = await session.history();
 ```
 
-Every request sets `Nylorun-Protocol` (11) and no `Nylorun-Tenant`: the Runtime
+Every request sets `Nylorun-Protocol` (14) and no `Nylorun-Tenant`: the Runtime
 serves one Tenant. Before the first authenticated
 request, `Transport` fetches `/health` once, checks protocol compatibility, and
 throws `IncompatibleRuntimeError` / `incompatible_host` when the Host range or
@@ -221,10 +221,28 @@ Set a server's tools one by one with `tools`, keyed by the server's own tool nam
 
 A manifest never carries a server's credential, and its `headers` hold no secret. You write a credential for the server's URL into an Environment (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in, with `client.environments.secrets.put`), and sessions that name the Environment use it: [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun mcp inspect` for listing a server's tools first. After `saveAgent`, `admin.coverage({ agentId, environmentId })` in `@nylorun/admin` says which credential each server and HTTP tool would get in that Environment ([Checking an agent's credentials](../../guides/DEPLOYMENT.md#checking-an-agents-credentials)). The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
 
-A session runs in an **Environment**: one sandbox and one vault, with an id you choose, which outlives the sessions that name it (protocol 11). The agent declares nothing, so the same agent runs with or without one, in any Tenant. Whether an Environment serves one session, one person or a project is your app's choice:
+A session runs in an **Environment**: one sandbox and one vault, with an id you choose, which outlives the sessions that name it (protocol 11). It is made from one version of an **environment manifest** or from inline fields, and never changes what it runs after that (protocol 14). The agent names no Environment, so the same agent runs in any Tenant; it may state what it needs (`.requires()`). Whether an Environment serves one session, one person or a project is your app's choice:
 
 ```ts
-// One per person or project: get-or-create by id (or change its recipe), write its secrets, open sessions on it.
+import { environmentManifest } from "@nylorun/agents";
+
+// A kind of Environment, saved like an agent: a named, versioned definition (or a JSON file with $schema).
+const analystBox = environmentManifest({
+  name: "analyst-box",
+  kind: "pod",
+  image: "python:3.13-slim",
+  network: { allowedHosts: ["pypi.org", "files.pythonhosted.org", "api.github.com"] },
+  setup: [{ command: "pip install pandas" }],
+  secrets: { GH_TOKEN: { type: "environment_secret", allowedHosts: ["api.github.com"], required: true } },
+});
+const plan = await client.environments.manifests.plan(analystBox); // changes, errors, warnings, Environments behind
+await client.environments.manifests.save(analystBox, { ifMatch: plan.from ?? 0 });
+
+// One per person or project, made from the manifest's latest version and pinned to it.
+await client.environments.put("users/alice/analyst", { manifest: "analyst-box", ownerUserId: "alice" });
+await client.environments.secrets.put("users/alice/analyst", "GH_TOKEN", { value: process.env.ALICE_GITHUB_TOKEN! });
+
+// Or from inline fields: get-or-create by id, write its secrets, open sessions on it.
 await client.environments.put("users/alice/web", {
   kind: "virtual", // the default; "pod" for a container with its own volume, "none" for a vault without compute
   network: { allowedHosts: ["pypi.org", "files.pythonhosted.org"] }, // no egress unless you list hosts
@@ -249,9 +267,9 @@ await release();
 
 With a sandbox (kind `virtual` or `pod`), the model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process. A `virtual` Environment is an emulated shell in the Runtime's harness, which is not a VM boundary and takes no `image`; a `pod` runs `image` with its own volume (`storage`) once the Tenant has sandbox pods (`nylorun local sandbox enable`). Kind `none` has a vault and no sandbox, for agents that use only remote MCP servers and HTTP tools. A session that names no Environment has no sandbox and no credentials.
 
-`kind` and `storage` are fixed once the Environment exists (a different one is a `409`); `labels` replace, and any other change bumps its `version`: network changes apply within seconds, a pod gets a new `image` or `resources` when it next starts from stopped, and a virtual one's change reaches the sessions opened after it. The Runtime checks a recipe against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. `lifecycle.idle` stops a pod after that long without a turn (at most the Tenant's); `lifecycle.deleteAfter` deletes the Environment, its vault and its files once nothing has used it that long. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
+An Environment never changes what it runs (protocol 14, its view's `manifest`): a `put` on an existing one may change its `labels` and owner guard, fields that match are accepted (so get-or-create stays one call), and anything else is `409 environment_immutable`. A save of a new manifest version changes no Environment: make a new one, which can start from the old one's disk (`from`). The Runtime checks what an Environment runs against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. `lifecycle.idle` stops a pod after that long without a turn (at most the Tenant's); `lifecycle.deleteAfter` deletes the Environment, its vault and its files once nothing has used it that long. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
 
-Secrets are write-only: `client.environments.secrets.put(id, name, secret)` creates or replaces one, and `list`, `get` and `delete` never return a value. An `environment_secret` (`{ value, allowedHosts, inject? }`) shows its name to commands as the sentinel `nylorun-managed`, and egress-gate sets its header on HTTPS requests to `allowedHosts` (pods only); an `environment_variable` (`{ value }`) is a plain variable; `bearer` (`{ url, value, via?, identity? }`) and `headers` (`{ url, headers, via?, identity? }`) are credentials for the MCP servers and HTTP tools at `url`. A second secret for one host, or a second credential for one URL, is `409 credential_conflict` at the write ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#credentials)).
+Secrets are write-only: `client.environments.secrets.put(id, name, secret)` creates or replaces one, and `list`, `get` and `delete` never return a value. An `environment_secret` (`{ value, allowedHosts, inject? }`) shows its name to commands as the sentinel `nylorun-managed`, and egress-gate sets its header on HTTPS requests to `allowedHosts` (pods only); an `environment_variable` (`{ value }`) is a plain variable; `bearer` (`{ url, value, via?, identity? }`) and `headers` (`{ url, headers, via?, identity? }`) are credentials for the MCP servers and HTTP tools at `url`. A second secret for one host, or a second credential for one URL, is `409 credential_conflict` at the write ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#credentials)). When what an Environment runs declares a secret's slot (a manifest's `secrets`), send only `{ value }` (or `{ headers }`): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`. An agent built with `.requires({ sandbox: "pod", secrets: ["GH_TOKEN"] })` opens a session only on an Environment that has them (`409 environment_unsuitable`). `saveAgent(agent, { dryRun: true })` checks a definition and saves nothing.
 
 Sessions on one Environment share its `/workspace`, and one turn runs in it at a time: a second session's turn is refused with `409 environment_busy` until the first ends. Deleting a session only detaches it. With `ownerUserId` set, a session of another owner is `403 environment_owner_mismatch` (a caller acting for a person gets the `404` of a missing Environment), checked when it opens and at every turn start. `client.environments.list({ labels })`, `page`, `get(id)`, `events(id)`, `stop(id)`, `reset(id)` and `delete(id)` manage them, and `npx nylorun local sandbox ls | rm` does the same on a local Tenant. Acting for a person (`app.as(...)`), changing an Environment or its secrets needs `environments:write`. A trusted issuer's token reaches only the Environments its issuer grants (the identity file's `environments` templates, exact ids or prefixes ending in `/*`), checked at every turn start. The Tenant holds at most `limits.environments` of them (`PUT /v1/tenant/sandbox`, default 100).
 
