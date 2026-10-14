@@ -8,7 +8,6 @@
  *   (R7.4): then that trace id.
  * - **turn span**: `span|turn|<turn>`; every crossing's span is its child.
  * - **effect span**: `span|effect|<effect id>`, for a model or tool call or a flow stage.
- * - **egress span**: `span|egress|<session>|<seq>`, for one `egress.connection` row.
  * - **event span**: `span|event|<session>|<seq>`, for a marker or a row without an effect id.
  */
 import { createHmac } from "node:crypto";
@@ -32,10 +31,6 @@ export function turnSpanOf(key: TraceKey, turnId: string): string {
 
 export function effectSpanOf(key: TraceKey, effectId: string): string {
   return hmacHex(key, `span|effect|${effectId}`, 8);
-}
-
-export function egressSpanOf(key: TraceKey, sessionId: string, seq: number): string {
-  return hmacHex(key, `span|egress|${sessionId}|${seq}`, 8);
 }
 
 export function eventSpanOf(key: TraceKey, sessionId: string, seq: number): string {

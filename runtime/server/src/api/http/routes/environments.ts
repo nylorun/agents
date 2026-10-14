@@ -9,6 +9,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import {
+  ENVIRONMENT_EVENT_TYPES,
   isEnvironmentId,
   PutEnvironmentRequestSchema,
   RestoreEnvironmentRequestSchema,
@@ -190,13 +191,16 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       method: "get",
       path: "/v1/environments/{environmentId}/events",
       tags: ["Environments"],
-      summary: "Read an Environment's lifecycle events",
+      summary: "Read an Environment's events",
       description:
-        "`environment.created`, `.attached`, `.detached`, `.deleted` and a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, in order, numbered from 0.",
+        "`environment.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, and `environment.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most 1000 per call.",
       request: {
         params: environmentId,
         query: z.object({
           from: z.string().optional().meta({ description: "The first `seq` to return" }),
+          types: z.string().optional().meta({ description: "Only these event types, comma-separated (`environment.egress`)" }),
+          since: z.string().optional().meta({ description: "Only events recorded at or after this ISO time" }),
+          until: z.string().optional().meta({ description: "Only events recorded before this ISO time" }),
         }),
       },
       responses: { 200: json(ListEnvironmentEventsResponse, "The events") },
@@ -204,14 +208,26 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const from = c.req.query("from");
       if (from !== undefined && !/^\d+$/.test(from)) fail(400, "from must be a seq");
+      const types = c.req.query("types")?.split(",").map((type) => type.trim()).filter(Boolean);
+      const unknown = types?.find((type) => !(ENVIRONMENT_EVENT_TYPES as readonly string[]).includes(type));
+      if (unknown !== undefined) fail(400, `types: ${unknown} is not an Environment event type`);
+      const time = (name: "since" | "until") => {
+        const value = c.req.query(name);
+        if (value === undefined) return undefined;
+        const at = Date.parse(value);
+        if (!Number.isFinite(at)) fail(400, `${name} must be an ISO time`);
+        return new Date(at).toISOString();
+      };
+      const since = time("since");
+      const until = time("until");
       return jsonResponse(
         200,
-        await environmentEventsOf(
-          c.env.tenant,
-          idOf(c.req.param("environmentId")),
-          c.get("scope"),
-          from === undefined ? undefined : Number(from),
-        ),
+        await environmentEventsOf(c.env.tenant, idOf(c.req.param("environmentId")), c.get("scope"), {
+          ...(from === undefined ? {} : { fromSeq: Number(from) }),
+          ...(types === undefined || types.length === 0 ? {} : { types }),
+          ...(since === undefined ? {} : { since }),
+          ...(until === undefined ? {} : { until }),
+        }),
       );
     },
   );

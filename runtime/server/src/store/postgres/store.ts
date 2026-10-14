@@ -104,6 +104,7 @@ import type {
   ResetScope,
   SandboxDoc,
   Environment,
+  EnvironmentEventsQuery,
   SandboxPodPatch,
   SessionDoc,
   SessionEffectFilter,
@@ -1053,7 +1054,7 @@ class PostgresTx implements Tx {
 
   async environmentEvents(
     environmentId: string,
-    options: { fromSeq?: number; limit?: number } = {},
+    options: EnvironmentEventsQuery = {},
   ): Promise<EnvironmentEvent[]> {
     this.check();
     const rows = await this.db
@@ -1063,6 +1064,9 @@ class PostgresTx implements Tx {
         and(
           eq(environmentEvents.environmentId, environmentId),
           options.fromSeq === undefined ? undefined : gte(environmentEvents.seq, options.fromSeq),
+          options.types === undefined ? undefined : inArray(environmentEvents.type, [...options.types]),
+          options.since === undefined ? undefined : gte(environmentEvents.committedAt, options.since),
+          options.until === undefined ? undefined : lt(environmentEvents.committedAt, options.until),
         ),
       )
       .orderBy(environmentEvents.seq)

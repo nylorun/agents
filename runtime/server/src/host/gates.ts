@@ -256,8 +256,8 @@ export async function startEgress(options: StartEgressOptions): Promise<EgressGa
     sandboxes: { live: async (sandboxId) => storeEgressSandboxes((await tenant.open()).store).live(sandboxId) },
     // Each connection on the Tenant's record (R7.3): the gates' one write into it.
     record: {
-      holder: async (environmentId) => storeEgressRecord((await tenant.open()).store).holder(environmentId),
-      write: async (holder, connection) => storeEgressRecord((await tenant.open()).store).write(holder, connection),
+      runningTurns: async (environmentId) => storeEgressRecord((await tenant.open()).store).runningTurns(environmentId),
+      write: async (connection) => storeEgressRecord((await tenant.open()).store).write(connection),
     },
     credentials: {
       bound: async (sandboxId, host) => (await tenant.open()).environmentSecretBound(sandboxId, host),

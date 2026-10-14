@@ -1,6 +1,7 @@
 /**
  * The R7 exit, as the plan words it: one trace per turn in a stock OTel collector, with a span for
- * every model, tool and egress crossing. Exporting the same log again, or reading it from the
+ * every model and tool crossing; since D67 an egress connection is the Environment's, on its
+ * stream naming the turn, and has no span. Exporting the same log again, or reading it from the
  * trace route, gives the same span ids. A collector that is down costs those spans and nothing
  * else: turns run and Postgres keeps no extra WAL. No credential value or prompt appears in any
  * span.
@@ -269,28 +270,33 @@ describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
 
   let first: string;
 
-  it("puts one trace per turn in the collector, with a span for every model, tool and egress crossing", async () => {
+  it("puts one trace per turn in the collector, with a span for every model and tool crossing", async () => {
     const ended = await turn();
     expect(ended.status, ended.error).toBe("completed");
     first = ended.turnId;
-    // egress-gate records a tunnel when it closes, after the command's answer.
-    await until("the tunnel's record", async () => (await route(first)).some((span) => span.name.startsWith("CONNECT")));
+    // egress-gate records a tunnel when it closes, after the command's answer, on the Environment's
+    // stream, naming the turn that ran (D67).
+    await until("the tunnel's record", async () => {
+      const response = await fetch(`${runtime.url}/v1/environments/ws%2Fs1/events?types=environment.egress`, { headers });
+      const { events } = (await response.json()) as { events: { payload: { runningTurns: { sessionId: string; turnId: string }[] } }[] };
+      return events.some((event) => event.payload.runningTurns.some((running) => running.sessionId === "s1" && running.turnId === first));
+    });
     const answered = await route(first);
     const traceId = answered[0]!.traceId;
     const names = answered.map((span) => span.name).sort();
     expect(names).toEqual(
-      ["CONNECT releases.test", "chat", "chat", "execute_tool bash", "execute_tool hook", "execute_tool notes__lookup", "invoke_agent bot"].sort(),
+      ["chat", "chat", "execute_tool bash", "execute_tool hook", "execute_tool notes__lookup", "invoke_agent bot"].sort(),
     );
     await until("the turn's spans in the collector", () => collected().filter((span) => span.traceId === traceId).length >= answered.length, 30_000);
     const inCollector = collected().filter((span) => span.traceId === traceId);
     expect(new Set(inCollector.map((span) => span.spanId))).toEqual(new Set(answered.map((span) => span.spanId)));
     expect(inCollector.filter((span) => !span.parentSpanId)).toHaveLength(1);
-    // Every crossing that touched the world: each effect and each tunnel, one span.
+    // Every crossing that touched the world: each effect, one span.
     const items = (await (await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers })).json()) as {
       items: { type: string; turnId?: string }[];
     };
     const crossings = items.items.filter((item) =>
-      ["message.assistant", "tool.completed", "egress.connection"].includes(item.type),
+      ["message.assistant", "tool.completed"].includes(item.type),
     );
     expect(inCollector.length).toBe(crossings.length + 1);
   });

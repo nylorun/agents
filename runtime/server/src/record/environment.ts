@@ -1,7 +1,7 @@
 /**
  * A environment's lifecycle stream (blueprint D39, F7.1): `environment.created`, `environment.attached`,
  * `environment.detached` and `environment.deleted` (and the rest of `ENVIRONMENT_EVENT_TYPES`, egress-gate's
- * `environment.egress` between turns among them), on the `nylorun.environment-event/1` envelope, numbered
+ * `environment.egress` for every connection among them, D67), on the `nylorun.environment-event/1` envelope, numbered
  * from 0 per environment id in `nylorun_streams.environment_events`. The record module is its only
  * writer, as for session events; the store runs the two statements through
  * `EnvironmentRecordWriter` in the caller's transaction, under the environment row's lock (or, for a

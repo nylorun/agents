@@ -732,10 +732,13 @@ export interface Tx {
     type: T,
     payload: EnvironmentEventPayload<T>,
   ): Promise<EnvironmentEvent>;
-  /** The Environment's lifecycle stream, from `fromSeq` on, at most `limit` events. */
+  /**
+   * The Environment's stream, from `fromSeq` on, at most `limit` events: only `types` when given,
+   * and only events recorded at or after `since` and before `until` (ISO times) when given.
+   */
   environmentEvents(
     environmentId: string,
-    options?: { fromSeq?: number; limit?: number },
+    options?: EnvironmentEventsQuery,
   ): Promise<EnvironmentEvent[]>;
 
   // --- Environment manifests (D63, protocol 14) --------------------------------
@@ -1003,4 +1006,13 @@ export interface Tx {
    *   settings, audit and vault idempotency rows stay.
    */
   reset(scope: ResetScope): Promise<void>;
+}
+
+/** Which of an Environment's events to read (`Tx.environmentEvents`). */
+export interface EnvironmentEventsQuery {
+  readonly fromSeq?: number;
+  readonly limit?: number;
+  readonly types?: readonly string[];
+  readonly since?: string;
+  readonly until?: string;
 }

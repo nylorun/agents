@@ -24,11 +24,12 @@
  * (an absolute-form plain HTTP request included) is answered 405. Refusals are logged; the token
  * never is. Tunnels close after `idleMs` without traffic in either direction.
  *
- * Every connection to a named host on a live token is recorded once (R7.3, Q6, Q7), when it
- * closes or at once when the gate refuses it: `egress.connection` on the session log of the turn
- * that held the Environment when it opened (read as the name resolves), else `environment.egress`
- * on the Environment's own stream. Host, port, outcome, bytes, duration and, for a credential
- * host, the request count and credential ids; never a header value, a path or a body. A refusal
+ * Every connection to a named host on a live token is recorded once (R7.3, D67), when it closes
+ * or at once when the gate refuses it, as `environment.egress` on the Environment's own stream:
+ * the connection is the Environment's, since its token names the pod and turns run in parallel
+ * (D66). `runningTurns` lists the turns active on the Environment as it opened (read as the name
+ * resolves), as context and never as an owner. Host, port, outcome, bytes, duration and, for a
+ * credential host, the request count and credential ids; never a header value, a path or a body. A refusal
  * before that (no token, a stale one, no `host:port`) stays a log line, and a client that hangs up
  * before the gate answers leaves nothing. A write never holds the tunnel up, and a failed one is
  * logged (`egress_record_failed`).
@@ -37,7 +38,7 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { BlockList, connect, isIP, type AddressInfo, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
-import type { EventPayload, EventWriter } from "@nylorun/core/contracts";
+import type { EgressRunningTurn, EnvironmentEventPayload } from "@nylorun/core/contracts";
 import { isSandboxHostPattern } from "@nylorun/core/define";
 import type { EgressTokenVerdict } from "../sandbox/egress-token.js";
 import type { SessionStore } from "../store/types.js";
@@ -62,25 +63,19 @@ export interface EgressSandboxes {
   >;
 }
 
-/** The session and turn holding an Environment: turns are serial per Environment, so one at most. */
-export interface EgressHolder {
-  readonly sessionId: string;
-  readonly turnId: string;
-}
+/** One connection's record (R7.3, D67): `environment.egress`'s payload. */
+export type EgressConnection = EnvironmentEventPayload<"environment.egress">;
 
-/** One connection's record (R7.3): `egress.connection`'s payload, `environment.egress`'s too. */
-export type EgressConnection = EventPayload<"egress.connection">;
+/** How many running turns one connection names, at most. */
+export const EGRESS_RUNNING_TURNS_MAX = 16;
 
-/** Where egress-gate records connections (R7.3). */
+/** Where egress-gate records connections (R7.3, D67). */
 export interface EgressRecord {
-  /** The session whose turn holds the Environment now; `undefined` between turns. */
-  holder(environmentId: string): Promise<EgressHolder | undefined>;
-  /** Writes `connection` to `holder`'s session log, or to the Environment's stream without one. */
-  write(holder: EgressHolder | undefined, connection: EgressConnection): Promise<void>;
+  /** The turns active on the Environment now, at most `EGRESS_RUNNING_TURNS_MAX`. */
+  runningTurns(environmentId: string): Promise<readonly EgressRunningTurn[]>;
+  /** Writes `connection` to its Environment's stream; a deleted Environment gets nothing. */
+  write(connection: EgressConnection): Promise<void>;
 }
-
-/** egress-gate as the writer of its events (R4.9): the gate saw the connection itself. */
-export const EGRESS_WRITER: EventWriter = { source: { kind: "egress-gate", id: "egress" }, evidence: "observed" };
 
 /** Ports a tunnel may open. */
 export const EGRESS_PORTS: readonly number[] = [443, 80];
@@ -216,11 +211,11 @@ function answer(socket: Duplex, status: number, message: string, headers: string
 
 /**
  * One connection's record (R7.3): written once, at a refusal or at the close, after the answer
- * and off the tunnel's path. The holder is read when `holder()` is first called, as the
+ * and off the tunnel's path. The running turns are read when `opened()` is first called, as the
  * connection opens, and kept for the write.
  */
 interface ConnectionRecord {
-  holder(): void;
+  opened(): void;
   refused(status: number, reason: string): void;
   closed(tally?: EgressTally): void;
   /** A host an `environment_secret` is bound to: the gate terminates TLS (R2c). */
@@ -241,15 +236,16 @@ function connectionRecord(
     readonly upFrom: number;
   },
 ): ConnectionRecord {
-  let holding: Promise<EgressHolder | undefined> | undefined;
+  let running: Promise<readonly EgressRunningTurn[]> | undefined;
   let written = false;
-  const holder = (to: EgressRecord) => (holding ??= to.holder(at.environmentId));
+  const runningTurns = (to: EgressRecord) => (running ??= to.runningTurns(at.environmentId));
   const write = (fields: Pick<EgressConnection, "outcome" | "reason" | "status" | "requests" | "credentialIds">) => {
     if (written || !sink) return;
     written = true;
     const socket = client as Partial<Socket>;
     const allowed = fields.outcome === "allowed";
-    const connection: EgressConnection = {
+    const durationMs = Math.max(0, Date.now() - at.startedAt.getTime());
+    const connection = (turns: readonly EgressRunningTurn[]): EgressConnection => ({
       environmentId: at.environmentId,
       host: at.host,
       port: at.port,
@@ -259,11 +255,12 @@ function connectionRecord(
       // Up is what the sandbox sent after its CONNECT, down what it got after the gate's 200.
       bytesUp: allowed ? Math.max(0, (socket.bytesRead ?? 0) - at.upFrom) : 0,
       bytesDown: allowed ? Math.max(0, (socket.bytesWritten ?? 0) - CONNECT_ESTABLISHED.length) : 0,
-      durationMs: Math.max(0, Date.now() - at.startedAt.getTime()),
+      durationMs,
       startedAt: at.startedAt.toISOString(),
-    };
-    holder(sink)
-      .then((held) => sink.write(held, connection))
+      runningTurns: [...turns],
+    });
+    runningTurns(sink)
+      .then((turns) => sink.write(connection(turns)))
       .catch((error: unknown) =>
         logger.error("egress_record_failed", {
           sandboxId: at.environmentId,
@@ -275,7 +272,7 @@ function connectionRecord(
   const record: ConnectionRecord = {
     credentialBound: false,
     // A failed read is logged when the write needs it.
-    holder: () => void (sink && holder(sink).catch(() => undefined)),
+    opened: () => void (sink && runningTurns(sink).catch(() => undefined)),
     refused: (status, reason) => write({ outcome: "refused", reason, status }),
     closed: (tally) =>
       write({
@@ -354,8 +351,8 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       return refuse(403, "not_a_host_name", { sandboxId }, `${host} is not a host name; IP literals are refused`);
     if (!egressAllows(host, sandbox.allow))
       return refuse(403, "host_not_allowed", { sandboxId }, `${host} is not in this sandbox's network.allow`);
-    // Who holds the Environment as the connection opens, read while the name resolves.
-    record.holder();
+    // The turns running on the Environment as the connection opens, read while the name resolves.
+    record.opened();
     let mine = open.get(sandboxId);
     if (!mine) open.set(sandboxId, (mine = new Set()));
     if (mine.size >= maxPerSandbox)
@@ -500,25 +497,23 @@ export function storeEgressSandboxes(store: SessionStore): EgressSandboxes {
 }
 
 /**
- * `EgressRecord` over the Tenant's record (R7.3). The holder is the session on the Environment
- * whose body has an `activeTurnId` (turns are serial per Environment). With a holder, the write
- * is `egress.connection` on its session log, at that turn, under the session row's lock; without
- * one, `environment.egress` on the Environment's stream, under its row's lock. A deleted
+ * `EgressRecord` over the Tenant's record (R7.3, D67). The running turns are the sessions on the
+ * Environment whose body has an `activeTurnId`, in id order, at most `EGRESS_RUNNING_TURNS_MAX`.
+ * The write is `environment.egress` on the Environment's stream, under its row's lock; a deleted
  * Environment gets nothing.
  */
 export function storeEgressRecord(store: SessionStore): EgressRecord {
   return {
-    async holder(environmentId) {
+    async runningTurns(environmentId) {
       const sessions = await store.tx((t) => t.sessionsOnEnvironment(environmentId));
-      const holding = sessions.find((session) => typeof session.activeTurnId === "string");
-      return holding ? { sessionId: holding.id, turnId: holding.activeTurnId! } : undefined;
+      return sessions
+        .filter((session) => typeof session.activeTurnId === "string")
+        .map((session) => ({ sessionId: session.id, turnId: session.activeTurnId as string }))
+        .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
+        .slice(0, EGRESS_RUNNING_TURNS_MAX);
     },
-    async write(holder, connection) {
+    async write(connection) {
       await store.tx(async (t) => {
-        if (holder) {
-          await t.event(holder.sessionId, holder.turnId, "egress.connection", connection, EGRESS_WRITER);
-          return;
-        }
         if (!(await t.environment(connection.environmentId, { lock: true }))) return;
         await t.environmentEvent(connection.environmentId, "environment.egress", connection);
       });

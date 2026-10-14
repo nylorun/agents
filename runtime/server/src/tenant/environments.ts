@@ -28,8 +28,10 @@
  * - **The owner guard.** When `ownerUserId` is set, only that owner's sessions may name the
  *   Environment, checked when a session opens and at every turn start (`403
  *   environment_owner_mismatch`; the opaque 404 to a caller acting for a person).
- * - **Serial turns.** One turn at a time per Environment with a sandbox: a session whose
- *   Environment another session's turn holds is refused (`409 environment_busy`).
+ * - **Parallel turns (D66).** Sessions on one Environment run their turns at the same time and
+ *   share its `/workspace`; one turn per session stays. Which sessions work on one disk, and when,
+ *   is the app's call. Disk work (snapshot, restore, stop, reset) waits until no turn runs
+ *   (`409 environment_busy`), and a turn waits while a seed copies a disk.
  * - **Lifecycle.** `POST .../stop` suspends a pod (the volume is kept; the next turn starts it),
  *   `POST .../reset` gives it a new pod on a new volume. A lost pod refuses turns
  *   (`environment_lost`) until a reset. `lifecycle.deleteAfter` deletes an Environment unused
@@ -53,7 +55,7 @@ import {
 import { hashManifest } from "@nylorun/core/compatibility";
 import { isWorkflowManifest, parseSandboxDuration } from "@nylorun/core/define";
 import { canonical } from "../store/canonical.js";
-import type { Environment, SandboxPodState, Tx } from "../store/types.js";
+import type { Environment, EnvironmentEventsQuery, SandboxPodState, Tx } from "../store/types.js";
 import { resolveRecipe, type RecipeRequest } from "../sandbox/resolve.js";
 import { sandboxWorkspaceKey } from "../sandbox/records.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
@@ -879,12 +881,10 @@ export async function environmentEventsOf(
   ctx: TenantContext,
   id: string,
   scope: AuthScope,
-  fromSeq: number | undefined,
+  query: EnvironmentEventsQuery = {},
 ) {
   reachable(environmentGrantsOf(scope), id);
-  return ctx.store.tx(async (t) => ({
-    events: await t.environmentEvents(id, fromSeq === undefined ? {} : { fromSeq }),
-  }));
+  return ctx.store.tx(async (t) => ({ events: await t.environmentEvents(id, query) }));
 }
 
 /**
@@ -926,9 +926,9 @@ export async function recordAttachment(t: Tx, sessionId: string, environmentId: 
 /**
  * Checks a turn start on a session that names an Environment, in the command's transaction
  * after the session row lock: the Environment still exists, a token caller's grants reach it,
- * its owner guard admits the session's owner, and, with a sandbox, no other session's turn
- * holds it. Holds the Environment row's lock until the transaction ends, so two turn starts on
- * one Environment are decided one after the other.
+ * its owner guard admits the session's owner, and no disk copy holds it. Other sessions' turns
+ * do not stop it (D66). Holds the Environment row's lock until the transaction ends, so a turn
+ * start and disk work on one Environment are decided one after the other.
  *
  * A pod Environment must also be usable: not lost (`environment_lost`), on a Runtime with
  * sandbox pods (`environment_unavailable`). A stopped or failed pod is asked to run again, with
@@ -966,17 +966,6 @@ export async function checkEnvironmentTurn(
   if (environment.kind === "none") return;
   // A snapshot or restore copies the disk between turns (R2d step 3); a seed's turn waits.
   refuseDiskCopy(environment);
-  // A flow tree's sessions nest their turns in its root's: one holder.
-  const tree = session.flowRootId ?? session.id;
-  const holder = (await t.sessionsOnEnvironment<Session>(id)).find(
-    (other) =>
-      other.id !== session.id && other.activeTurnId !== null && (other.flowRootId ?? other.id) !== tree,
-  );
-  if (holder)
-    fail(409, `Environment ${id} is running another session's turn. Turns are serial per Environment.`, {
-      code: "environment_busy",
-      details: { retryAfterSeconds: 5 },
-    }, { "retry-after": "5" });
   const pod = environment.pod;
   if (!pod) return;
   if (!ctx?.pods)

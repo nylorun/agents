@@ -70,7 +70,7 @@ nylorun environments get|stop|reset|delete|snapshot|versions <id>
 nylorun environments put <id> [<recipe.json|->] [--kind <virtual|pod|none>] [--label <key=value>]...
 nylorun environments restore <id> <version|latest>
 nylorun environments delete-version <id> <version>
-nylorun environments events <id> [--from <n>]
+nylorun environments events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]
 nylorun environments secrets list|get|put|rm <id> [<name>] [<secret.json|->]
 nylorun artifacts list [--session <id>] [--label <key=value>]... [--limit <n>] [--cursor <c>] [--json]
 nylorun artifacts get|tree|diff|link|rm <id> …

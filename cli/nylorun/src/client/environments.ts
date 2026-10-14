@@ -5,6 +5,7 @@
  * secret's value comes from a file or standard input, never from the command line, and no
  * command reads one back. None of them starts a local Tenant.
  */
+import type { EnvironmentEventType } from "@nylorun/core/contracts";
 import type { EnvironmentView } from "@nylorun/agents";
 import type { StackDeps } from "../stack/commands.js";
 import {
@@ -40,7 +41,9 @@ application key (or NYLORUN_TOKEN).
   versions <id>                       its disk versions
   restore <id> <version|latest>       put a version of its disk back
   delete-version <id> <version>
-  events <id> [--from <n>]            its lifecycle events, as JSON
+  events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]
+                                      its events (lifecycle, and environment.egress for every
+                                      connection, naming the turns running), as JSON
   secrets list <id>                   its secrets' names, types and bindings (never a value)
   secrets get <id> <name>
   secrets put <id> <name> <secret.json|->
@@ -173,12 +176,27 @@ async function deleteVersion(deps: StackDeps, args: readonly string[]): Promise<
 }
 
 async function events(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun environments events <id> [--from <n>]";
-  const flags = parseFlags(args, { values: ["--from"] }, usage);
+  const usage = "nylorun environments events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]";
+  const flags = parseFlags(args, { values: ["--from", "--types", "--since", "--until"] }, usage);
   const [id] = positional(flags, 1, usage);
   const from = integerFlag(flags, "--from");
+  const types = flags.values.get("--types")?.split(",").map((type) => type.trim()).filter(Boolean) as
+    | EnvironmentEventType[]
+    | undefined;
+  const since = flags.values.get("--since");
+  const until = flags.values.get("--until");
   const { client } = await runtimeClient(deps, flags);
-  printJson(deps, await runtimeCall(() => client.environments.events(id!, from === undefined ? {} : { from })));
+  printJson(
+    deps,
+    await runtimeCall(() =>
+      client.environments.events(id!, {
+        ...(from === undefined ? {} : { from }),
+        ...(types === undefined || types.length === 0 ? {} : { types }),
+        ...(since === undefined ? {} : { since }),
+        ...(until === undefined ? {} : { until }),
+      }),
+    ),
+  );
   return 0;
 }
 

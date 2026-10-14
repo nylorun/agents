@@ -328,10 +328,10 @@ Upgrading from protocol 10, which had sandbox resources and vaults:
   lost pod rebuilds the same thing. Egress is limited to the hosts the
   Environment allows, within the Tenant's `limits.network`; private networks, loopback, the host and cloud
   metadata endpoints are always blocked. Each connection a pod opens, allowed or
-  refused, is one `egress.connection` event in the log of the session whose turn
-  held the Environment (host, port, outcome, bytes, duration; never headers,
-  paths or bodies), or one `environment.egress` event on
-  `GET /v1/environments/{id}/events` between turns.
+  refused, is one `environment.egress` event on
+  `GET /v1/environments/{id}/events?types=environment.egress` (host, port,
+  outcome, bytes, duration and the turns running when it opened; never headers,
+  paths or bodies). Session logs and turn traces hold no egress.
 - **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn
   (at most the Tenant's `limits.idle`); `lifecycle.deleteAfter` deletes the
   Environment, its vault and its disk once it has gone that long unused (no
@@ -340,9 +340,11 @@ Upgrading from protocol 10, which had sandbox resources and vaults:
   the Environment, checked when a session opens and at every turn start
   (`403 environment_owner_mismatch`; a caller acting for a person gets the
   `404` of a missing one).
-- **Turns** run one at a time per Environment with a sandbox: a second
-  session's turn is `409 environment_busy` until the first ends (the sessions of
-  one flow count as one). Sessions on one Environment share its `/workspace`.
+- **Turns**: sessions on one Environment share its `/workspace` and run their
+  turns at the same time; one turn per session. Which sessions work on one disk,
+  and when, is your app's call: give work that must not share files its own
+  Environment (or a fork). Stop, reset, snapshot and restore wait until no turn
+  runs (`409 environment_busy`).
 - **Who reaches it**: an application key reaches every Environment; acting for
   a person, changing one needs `environments:write`. A trusted issuer's token
   reaches only the ids its issuer grants (the identity file's `environments`

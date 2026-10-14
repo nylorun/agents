@@ -249,8 +249,8 @@ describe("egress-gate credentials (R2c)", () => {
     vault.set("api.bound.test", { status: "released", header: "Authorization", value: "Bearer real-1", credentialId: "cred_1" });
     const written: EgressConnection[] = [];
     const proxy = await gate({}, {
-      holder: async () => ({ sessionId: "s1", turnId: "turn-1" }),
-      write: async (_holder, connection) => void written.push(connection),
+      runningTurns: async () => [{ sessionId: "s1", turnId: "turn-1" }],
+      write: async (connection) => void written.push(connection),
     });
     const { socket } = await connectThrough(proxy, "api.bound.test:443");
     const secure = await tlsThrough(socket, "api.bound.test");
@@ -270,6 +270,7 @@ describe("egress-gate credentials (R2c)", () => {
       mode: "credential",
       credentialBound: true,
       requests: 3,
+      runningTurns: [{ sessionId: "s1", turnId: "turn-1" }],
     });
     expect([...written[0]!.credentialIds!].sort()).toEqual(["cred_1", "cred_2"]);
     expect(written[0]!.bytesUp).toBeGreaterThan(0);

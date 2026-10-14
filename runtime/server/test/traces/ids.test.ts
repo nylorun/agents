@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   effectSpanOf,
-  egressSpanOf,
+  eventSpanOf,
   parseTraceparent,
   traceContextOf,
   traceIdOf,
@@ -24,7 +24,7 @@ describe("trace ids", () => {
     expect(traceIdOf(randomBytes(32), "tn", "s", "t")).not.toBe(traceIdOf(key, "tn", "s", "t"));
     expect(traceIdOf(key, "tn", "s", "t2")).not.toBe(traceIdOf(key, "tn", "s", "t"));
     expect(effectSpanOf(key, "t:0:tool:a")).not.toBe(effectSpanOf(key, "t:0:tool:b"));
-    expect(egressSpanOf(key, "s", 4)).not.toBe(egressSpanOf(key, "s", 5));
+    expect(eventSpanOf(key, "s", 4)).not.toBe(eventSpanOf(key, "s", 5));
   });
 
   it("reads a valid traceparent and ignores a malformed one", () => {

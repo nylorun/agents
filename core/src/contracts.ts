@@ -1047,11 +1047,18 @@ export const DeleteEnvironmentResponseSchema = z
   .strict();
 export type DeleteEnvironmentResponse = z.infer<typeof DeleteEnvironmentResponseSchema>;
 
+/** A turn that was running on an Environment when one of its connections opened (D67). */
+export const EgressRunningTurnSchema = z
+  .object({ sessionId: z.string(), turnId: z.string() })
+  .strict();
+export type EgressRunningTurn = z.infer<typeof EgressRunningTurnSchema>;
+
 /**
  * One connection a pod Environment opened through egress-gate (track R7, Q6): written when it
- * closes, or at once when the gate refused it. The session log of the turn holding the
- * Environment when it opened gets it as `egress.connection`; with no turn holding it, the
- * Environment's own stream gets it as `environment.egress` (Q7).
+ * closes, or at once when the gate refused it, to the Environment's own stream as
+ * `environment.egress` (D67). The connection is the Environment's: its egress token names the pod,
+ * and the Environment's sessions run turns in parallel (D66). `runningTurns` lists the turns
+ * active on it as the connection opened, at most 16, as context and never as the owner.
  *
  * `startedAt` is the gate's clock at CONNECT and `durationMs` runs from there to the close, so
  * the span is the gate's own measurement. `bytesUp` is what the sandbox sent, `bytesDown` what it
@@ -1077,6 +1084,7 @@ export const EgressConnectionPayloadSchema = z
     bytesDown: z.number().int().nonnegative(),
     durationMs: z.number().nonnegative(),
     startedAt: z.string(),
+    runningTurns: z.array(EgressRunningTurnSchema).max(16),
   })
   .passthrough();
 
@@ -1094,7 +1102,7 @@ export const ENVIRONMENT_EVENT_TYPES = [
   "environment.lost",
   "environment.reset",
   "environment.failed",
-  // egress-gate, while no turn holds the Environment (R7, Q7).
+  // egress-gate: every connection the Environment opens (R7, D67).
   "environment.egress",
 ] as const;
 export type EnvironmentEventType = (typeof ENVIRONMENT_EVENT_TYPES)[number];
@@ -1128,7 +1136,7 @@ export const ENVIRONMENT_EVENT_PAYLOADS = {
   "environment.reset": z.object({ volumeGeneration: z.number().int() }).passthrough(),
   /** The pod did not become ready. */
   "environment.failed": z.object({ reason: z.string() }).passthrough(),
-  /** A connection through egress-gate while no turn held the Environment (`egress.connection`'s payload). */
+  /** A connection through egress-gate, with the turns running as it opened (D67). */
   "environment.egress": EgressConnectionPayloadSchema,
 } as const satisfies Record<EnvironmentEventType, z.ZodType>;
 export type EnvironmentEventPayload<T extends EnvironmentEventType> = z.infer<
@@ -2677,7 +2685,6 @@ export const EVENT_CATALOG = {
   "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1 },
   "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1 },
   "environment.attached": { payload: EnvironmentAttachedPayloadSchema, source: "api", version: 1 },
-  "egress.connection": { payload: EgressConnectionPayloadSchema, source: "egress-gate", version: 1 },
   "node.started": { payload: NodeStartedPayloadSchema, source: "loop", version: 1 },
   "node.completed": { payload: NodeCompletedPayloadSchema, source: "loop", version: 1 },
   "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1 },

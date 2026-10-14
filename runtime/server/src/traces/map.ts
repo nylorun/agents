@@ -10,7 +10,6 @@
  * | `tool.completed` | `execute_tool {toolName}` (INTERNAL) |
  * | `node.completed` | `execute_tool {key}`, a flow's HTTP stage (INTERNAL) |
  * | `effect.uncertain` | the call's span, with an error status |
- * | `egress.connection` | `CONNECT {host}` (CLIENT) |
  * | `turn.paused`, `command.approve`, `command.respond` | a marker with no length |
  *
  * Every other row, and every row without a turn, makes none. Every child's parent is the turn's
@@ -18,7 +17,8 @@
  *
  * Timing: a span with a gate's own measurement (`gate`, R7.1) is that measurement; any other ends
  * at the row's time and starts `durationMs` before it (the journal's window, exported as
- * `nylorun.effect.window_ms`). An egress span is the gate's: `startedAt` plus `durationMs`.
+ * `nylorun.effect.window_ms`). Egress has no span: a connection is the Environment's, not a
+ * turn's (D67), and is read from the Environment's events.
  *
  * Attribute names follow the OTel GenAI conventions at `GENAI_SEMCONV` (still in Development
  * status), recorded on the resource as `nylorun.semconv.genai`; the rest are `nylorun.*`. A span
@@ -28,7 +28,7 @@
  * per kind (`TraceContent`), each value cut at 8 KiB. Prompts are not in the log, so never here.
  */
 import type { LiveEvent } from "@nylorun/core/contracts";
-import { effectSpanOf, egressSpanOf, eventSpanOf, parseTraceparent, traceIdOf, turnSpanOf, type TraceKey } from "./ids.js";
+import { effectSpanOf, eventSpanOf, parseTraceparent, traceIdOf, turnSpanOf, type TraceKey } from "./ids.js";
 
 /** The commit of open-telemetry/semantic-conventions-genai whose attribute names spans use. */
 export const GENAI_SEMCONV = "open-telemetry/semantic-conventions-genai@6fd0d763a092db245a54104fc1124031eb3c51d2";
@@ -288,34 +288,6 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
           .str("nylorun.effect.id", effectId)
           .str("error.type", "effect.uncertain").list,
         status: errorStatus(content("errors", p.message)),
-      };
-    }
-    case "egress.connection": {
-      const refused = p.outcome === "refused";
-      const started = Date.parse(String(p.startedAt));
-      const attributes = base
-        .str("server.address", p.host)
-        .int("server.port", p.port)
-        .str("nylorun.environment.id", p.environmentId)
-        .str("nylorun.egress.outcome", p.outcome)
-        .str("nylorun.egress.mode", p.mode)
-        .bool("nylorun.egress.credential_bound", p.credentialBound)
-        .strings("nylorun.egress.credential_ids", p.credentialIds)
-        .int("nylorun.egress.requests", p.requests)
-        .int("nylorun.egress.bytes_up", p.bytesUp)
-        .int("nylorun.egress.bytes_down", p.bytesDown)
-        .int("nylorun.egress.status", p.status)
-        .str("error.type", refused ? (p.reason ?? "refused") : undefined);
-      const times = Number.isFinite(started)
-        ? { start: started, end: started + Math.max(0, Math.round(Number(p.durationMs) || 0)) }
-        : undefined;
-      return {
-        ...child(egressSpanOf(settings.key, row.sessionId, row.seq), `CONNECT ${String(p.host)}`, SPAN_KIND.client),
-        ...(times
-          ? { startTimeUnixNano: nanos(times.start), endTimeUnixNano: nanos(times.end) }
-          : window(row.time, undefined)),
-        attributes: attributes.list,
-        status: refused ? errorStatus(undefined) : { code: STATUS.unset },
       };
     }
     case "turn.paused":
