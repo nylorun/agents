@@ -156,7 +156,8 @@ The jobs run in this order:
 1. **validate** verifies that the selected commit belongs to `main` and passed
    CI's full suite: the merge queue's `ci` on a merged release PR (CI runs the
    full tier when the release plan changes), or `main`'s post-merge
-   `ci (push)` on a manual run. It then runs `release:check` on the checkout
+   `ci (push)` on a manual run (on a release commit that run is the fast
+   tier, and passes only after the queue's full `ci` passed there). It then runs `release:check` on the checkout
    and saves the verified tarballs.
 2. **images** builds `runtime/Dockerfile`, `studio/Dockerfile` and
    `sandboxes/Dockerfile` for `linux/amd64` and `linux/arm64` (QEMU and

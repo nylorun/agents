@@ -4,7 +4,9 @@ import { root, packages, npm, script, node, packagePath } from "./lib/repo.mjs";
 async function build() {
   for (const name of packages) await script("build", name);
 }
+// `--no-runtime-tests` leaves out the Runtime's unit tests, which CI runs in shards of their own.
 async function tests() {
+  const skipRuntime = flags.includes("--no-runtime-tests");
   for (const name of [
     "core",
     "harness",
@@ -15,7 +17,7 @@ async function tests() {
     "cli",
     "create-agent",
   ])
-    await script("test", name);
+    if (!(skipRuntime && name === "runtime")) await script("test", name);
   await script("test:tooling");
   await npm(["test"], { cwd: join(root, "examples") });
 }
@@ -23,9 +25,9 @@ const [command, ...flags] = process.argv.slice(2);
 try {
   if (
     !["build", "test", "check", "stack"].includes(command) ||
-    flags.some((flag) => flag !== "--built")
+    flags.some((flag) => !["--built", "--no-runtime-tests"].includes(flag))
   )
-    throw new Error("Usage: validate.mjs build|test|check|stack [--built]");
+    throw new Error("Usage: validate.mjs build|test|check|stack [--built] [--no-runtime-tests]");
   if (command !== "test" && !flags.includes("--built")) await build();
   if (command === "test") await tests();
   if (command === "check") {

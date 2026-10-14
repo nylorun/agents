@@ -30,8 +30,8 @@ jobs:
       - run: npm install --global npm@11.15.0
       - run: npm ci
       - run: npm ci --prefix examples
-  # The scopes .github/actions/stack-images reads. The release workflow keeps
-  # its own scopes.
+  # The scopes .github/actions/stack-images and publish.yml's validate job
+  # read. publish.yml's multi-arch images keep their own scopes.
   images:
     strategy:
       fail-fast: false
