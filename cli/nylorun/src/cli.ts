@@ -22,7 +22,8 @@ Groups, each with its own --help:
                 events | secrets      the Tenant's Environments (Runtime API)
   artifacts     list | get | upload | download | tree | diff | zip | link | rm
                                       the Tenant's file artifacts (Runtime API)
-  tenant        reset | keys | signing-keys | models | mcp
+  tenant        reset | keys | signing-keys | models | usage | calls | budgets | tool-policy |
+                settings | coverage | mcp
                                       the Tenant's settings (Management API, a management key)
   local         ls | delete | logs | reset | sandbox | telemetry
                                       the Tenants on this machine (Docker and kubectl)

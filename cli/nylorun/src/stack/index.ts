@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
+import { text } from "node:stream/consumers";
 import { runStackCommand, runStudioCommand, type StackDeps } from "./commands.js";
 import { spawnDocker } from "./docker.js";
 import { pinnedVersion } from "./versions.js";
@@ -64,6 +65,7 @@ export function defaultStackDeps(
         }
       : {}),
     interactive,
+    stdin: { isTTY: Boolean(process.stdin.isTTY), text: () => text(process.stdin) },
     openBrowser: async (url) => {
       const command = browserCommand(env);
       return await new Promise<boolean>((resolve) => {

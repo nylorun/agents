@@ -84,7 +84,16 @@ nylorun tenant keys put <id> [--management] [--tenant <name>]   # create or rota
 nylorun tenant keys list [--tenant <name>] [--json]   # id, role, when issued
 nylorun tenant keys rm <id> [--tenant <name>]         # it stops working at once
 nylorun tenant signing-keys list|rotate [--force]|revoke <kid> [--tenant <name>]
+nylorun tenant models catalog|providers|get [--tenant <name>] [--json]   # the models the Runtime knows, the providers with a credential, the Tenant's model
 nylorun tenant models set [--tenant <name>]           # sign in to a model provider and set the Tenant's model
+nylorun tenant models set --provider <id> --model <id> [--base-url <url>] [--tenant <name>]   # the same, with an API key piped in on stdin (CI)
+nylorun tenant models select <provider> [--model <id>] [--tenant <name>]   # use another provider that has a credential
+nylorun tenant usage [--scope tenant|agent|turn] [--id <id>] [--period day|month|total] [--tenant <name>]   # calls, tokens and cost (JSON)
+nylorun tenant calls [--after <cursor>] [--limit <n>] [--tenant <name>]   # every recorded model call as NDJSON, until caught up
+nylorun tenant budgets [get | put <file|->] [--tenant <name>]       # the model spend caps
+nylorun tenant tool-policy [get | put <file|->] [--tenant <name>]   # the Tool Gate's rules
+nylorun tenant settings sandbox|artifacts [get | put <file|->] [--tenant <name>]   # Environment and artifact store settings
+nylorun tenant coverage --agent <id> [--environment <id>] [--tenant <name>] [--json]   # which secret each MCP server and HTTP tool would get
 nylorun tenant mcp inspect <url> [--server <name>] [--environment <id>] [--sse] [--tenant <name>] [--json]
 
 # local: the Tenants on this machine (Docker and kubectl)
@@ -481,6 +490,44 @@ set` installs the version nylorun was tested with, with npm and without install
 scripts, into `~/.nylorun/lib/pi-ai-<version>/` (under `NYLORUN_HOME` when that
 is set), and later runs reuse it. Studio's model settings, and `.env` at
 `nylorun start`, set the provider without it.
+
+For CI, `--provider` and `--model` (and `--base-url` for an OpenAI-compatible
+endpoint, provider `custom`) set an API key without prompts or pi-ai. The key is
+read from stdin, never from the arguments, so it stays out of the shell's
+history and the process list; a terminal on stdin is refused (exit 2). OAuth
+providers need the prompts.
+
+```sh
+printenv OPENAI_API_KEY | nylorun tenant models set --provider openai --model gpt-5
+```
+
+`nylorun tenant models select <provider>` switches to another provider that
+already has a credential, keeping its model (or `--model`) and endpoint.
+
+### Files in, files out
+
+`budgets`, `tool-policy`, `settings sandbox` and `settings artifacts` are
+documents: `get` (the default) prints one as JSON, and `put <file>` (or `put -`
+for stdin) replaces the whole document with the JSON body in the file, the
+Management API's request body (`PUT /v1/tenant/budgets`, `/tool-policy`,
+`/sandbox`, `/artifacts`). The body is checked against its schema before
+anything is sent; one that does not parse exits 2. What `budgets`, `tool-policy`
+and `settings artifacts` print, `put` takes back (their `updatedAt` and
+`usedBytes` are dropped), so they can be kept in a repository and applied from
+CI:
+
+```sh
+nylorun tenant tool-policy get > tool-policy.json   # edit it, then
+nylorun tenant tool-policy put tool-policy.json
+```
+
+`settings sandbox get` prints the effective settings and what the Host offers;
+its `put` takes the settings alone (`limits`, `lifecycle`, `placement`).
+
+`nylorun tenant calls` prints each recorded model call as one JSON line, page
+after page, until it is caught up, then the cursor on stderr: pass it as
+`--after` to read only the newer calls. A call may come twice across runs;
+deduplicate by `id`.
 
 ## Exit codes
 

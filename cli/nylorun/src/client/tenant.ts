@@ -7,11 +7,20 @@ import type { ManagementClient } from "@nylorun/admin";
 import { CliError } from "../errors.js";
 import { parseStackFlags, type StackDeps } from "../stack/commands.js";
 import { keyCommand, keyUsage } from "../stack/keys.js";
+import { printJson, printTable } from "./io.js";
 import { mcpCommand, mcpUsage } from "./mcp.js";
+import { callsCommand, modelsCommand, modelsUsage, usageCommand, usageUsage } from "./models.js";
+import {
+  budgetsCommand,
+  coverageCommand,
+  settingsCommand,
+  settingsUsage,
+  toolPolicyCommand,
+} from "./settings.js";
 import { signingKeysCommand, signingKeysUsage } from "./signing-keys.js";
 import { connect, managementClient, messageOf, remoteConnection, type Connection } from "./target.js";
 
-export const tenantUsage = `nylorun tenant <reset|keys|signing-keys|models|mcp>
+export const tenantUsage = `nylorun tenant <command>
 
 The Management API of the installation's one Tenant, with a management key: the local Tenant
 --tenant names (else the linked project's, else the default one), or the installation that
@@ -22,8 +31,14 @@ NYLORUN_RUNTIME_URL and NYLORUN_MANAGEMENT_KEY name.
                                       (the Project link and keys stay)
 ${keyUsage}
 ${signingKeysUsage}
-  models set [--tenant <name>]        sign in to a model provider and set the Tenant's model
-${mcpUsage}`;
+${modelsUsage}
+${usageUsage}
+${settingsUsage}
+${mcpUsage}
+
+A put reads a JSON body from a file, or from stdin for -, and replaces the whole document; what
+budgets, tool-policy and settings artifacts get print, put takes back. An API key is read from
+stdin, never from the arguments.`;
 
 const usageError = (message: string) => new CliError(message, 2);
 
@@ -135,14 +150,8 @@ async function keys(deps: StackDeps, args: readonly string[]): Promise<number> {
     const flags = parseStackFlags(rest, { booleans: ["--json"] }, usage);
     if (flags.rest.length) throw usageError(`Usage: ${usage}`);
     const list = await admin.keys.list();
-    if (flags.booleans.has("--json")) {
-      deps.out(JSON.stringify(list, null, 2));
-      return 0;
-    }
-    const rows = [["ID", "ROLE", "CREATED"], ...list.map((key) => [key.id, key.role, key.createdAt])];
-    const widths = rows[0]!.map((_, column) => Math.max(...rows.map((row) => row[column]!.length)));
-    for (const row of rows)
-      deps.out(row.map((cell, column) => (column === row.length - 1 ? cell : cell.padEnd(widths[column]!))).join("  "));
+    if (flags.booleans.has("--json")) printJson(deps, list);
+    else printTable(deps, [["ID", "ROLE", "CREATED"], ...list.map((key) => [key.id, key.role, key.createdAt])]);
     return 0;
   }
   if (verb === "rm" || verb === "delete") {
@@ -160,29 +169,6 @@ async function keys(deps: StackDeps, args: readonly string[]): Promise<number> {
   throw usageError(`Usage:\n${keyUsage}`);
 }
 
-/** `nylorun tenant models set`: sign in to a provider (pi-ai, loaded only here) and set the model. */
-async function models(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const [verb, ...rest] = args;
-  const usage = "nylorun tenant models set [--tenant <name>]";
-  if (verb !== "set") throw usageError(`Usage: ${usage}`);
-  const flags = parseStackFlags(rest, { values: ["--tenant"] }, usage);
-  if (flags.rest.length) throw usageError(`Usage: ${usage}`);
-  const { admin } = await tenantClient(deps, flags.values.get("--tenant"));
-  const { ConfigurationCancelled, configureProvider, fetchModelCatalog } = await import(
-    "./model/configure.js"
-  );
-  const { putHostModel } = await import("./model/host-model.js");
-  const controller = new AbortController();
-  const cancel = (signal: "SIGINT" | "SIGTERM") =>
-    controller.abort(new ConfigurationCancelled(signal));
-  process.once("SIGINT", () => cancel("SIGINT"));
-  process.once("SIGTERM", () => cancel("SIGTERM"));
-  const catalog = await fetchModelCatalog(admin);
-  const prompted = await configureProvider({ signal: controller.signal, catalog });
-  await putHostModel(admin, prompted);
-  return 0;
-}
-
 /** `nylorun tenant <group> ...` */
 export async function tenantCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [group, ...rest] = args;
@@ -194,7 +180,13 @@ export async function tenantCommand(deps: StackDeps, args: readonly string[]): P
   if (group === "reset") return reset(deps, rest);
   if (group === "keys" || group === "key") return keys(deps, rest);
   if (group === "signing-keys") return signingKeysCommand(deps, rest);
-  if (group === "models" || group === "model") return models(deps, rest);
+  if (group === "models" || group === "model") return modelsCommand(deps, rest);
+  if (group === "usage") return usageCommand(deps, rest);
+  if (group === "calls") return callsCommand(deps, rest);
+  if (group === "budgets") return budgetsCommand(deps, rest);
+  if (group === "tool-policy") return toolPolicyCommand(deps, rest);
+  if (group === "settings") return settingsCommand(deps, rest);
+  if (group === "coverage") return coverageCommand(deps, rest);
   if (group === "mcp") return mcpCommand(deps, rest);
   throw usageError(`Unknown tenant command ${group}.\n${tenantUsage}`);
 }

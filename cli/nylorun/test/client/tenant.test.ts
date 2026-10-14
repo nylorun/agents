@@ -65,6 +65,33 @@ async function runtime(options: { tenantOpen?: boolean } = {}) {
       );
     if (url === "/v1/tenant/keys/app-server" && request.method === "DELETE")
       return void response.end(JSON.stringify({ id: "app-server", deleted: true }));
+    if (url === "/v1/tenant/model" && request.method === "PUT") {
+      const put = requests.at(-1)!.body;
+      return void response.end(
+        JSON.stringify({ configured: true, provider: put.provider, model: put.model, authType: "api_key" }),
+      );
+    }
+    if (url === "/v1/tenant/budgets" && request.method === "PUT")
+      return void response.end(JSON.stringify({ budgets: requests.at(-1)!.body.budgets }));
+    if (url.startsWith("/v1/tenant/calls/model?") && request.method === "GET") {
+      const after = new URLSearchParams(url.split("?")[1]).get("after");
+      const call = (id: string) => ({
+        id,
+        effectId: `ef_${id}`,
+        sessionId: "ses_1",
+        turnId: "turn_1",
+        agentId: "support",
+        provider: "openai",
+        model: "gpt-test",
+        at: "2026-10-14T00:00:00.000Z",
+        outcome: "completed",
+        usage: null,
+      });
+      const page = after === null
+        ? { calls: [call("c1"), call("c2")], next: "cur_2", caughtUp: false }
+        : { calls: [call("c3")], next: "cur_3", caughtUp: true };
+      return void response.end(JSON.stringify({ ...page, asOf: "2026-10-14T00:00:00.000Z" }));
+    }
     if (url === "/v1/tenant/signing-keys" && request.method === "GET")
       return void response.end(JSON.stringify({ keys: [{ kid: "k1", state: "current" }] }));
     response.statusCode = 404;
@@ -82,20 +109,23 @@ async function directory(): Promise<string> {
   return root;
 }
 
-/** Run the built `nylorun` on the remote installation at `url` (with a management key unless `env` says otherwise). */
-function nylorun(args: string[], url: string, env: Record<string, string> = {}) {
+/**
+ * Run the built `nylorun` on the remote installation at `url` (with a management key unless `env`
+ * says otherwise), with `input` piped to its stdin when given.
+ */
+function nylorun(args: string[], url: string, env: Record<string, string> = {}, input?: string) {
   return directory().then((cwd) => run(args, cwd, {
     NYLORUN_RUNTIME_URL: url,
     NYLORUN_MANAGEMENT_KEY: MANAGEMENT_KEY,
     ...env,
-  }));
+  }, input));
 }
 
 /** Run the built `nylorun` with no inherited connection variables. */
-function run(args: string[], cwd: string, env: Record<string, string> = {}) {
+function run(args: string[], cwd: string, env: Record<string, string> = {}, input?: string) {
   const child = spawn(process.execPath, [cli, ...args], {
     cwd,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     env: {
       ...process.env,
       NYLORUN_RUNTIME_URL: "",
@@ -106,6 +136,7 @@ function run(args: string[], cwd: string, env: Record<string, string> = {}) {
       ...env,
     },
   });
+  if (input !== undefined) child.stdin!.end(input);
   let stdout = "";
   let stderr = "";
   child.stdout!.on("data", (data) => (stdout += data));
@@ -183,6 +214,54 @@ describe("nylorun status and tenant on a remote installation", { timeout: 20_000
     const result = await nylorun(["tenant", "signing-keys", "list"], host.url);
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual([{ kid: "k1", state: "current" }]);
+  });
+
+  it("tenant models set --provider --model reads the API key from stdin, never from the arguments", async () => {
+    const host = await runtime();
+    const key = "sk-test-0123456789";
+    const result = await nylorun(
+      ["tenant", "models", "set", "--provider", "openai", "--model", "gpt-test"],
+      host.url,
+      {},
+      `${key}\n`,
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("openai  gpt-test  api_key\n");
+    const put = host.requests.find((r) => r.url === "/v1/tenant/model");
+    expect(put?.method).toBe("PUT");
+    expect(put?.headers.authorization).toBe(`Bearer ${MANAGEMENT_KEY}`);
+    expect(put?.body).toMatchObject({ provider: "openai", model: "gpt-test", auth: { type: "api_key", key } });
+    // No stdin: a usage error, and nothing is sent.
+    const none = await runtime();
+    const refused = await nylorun(["tenant", "models", "set", "--provider", "openai", "--model", "gpt-test"], none.url);
+    expect(refused.code).toBe(2);
+    expect(refused.stderr).toContain("held no API key");
+    expect(none.requests).toEqual([]);
+  });
+
+  it("tenant budgets put - reads the body from stdin", async () => {
+    const host = await runtime();
+    const budgets = [{ scope: "tenant", period: "month", limitUsd: 50 }];
+    const result = await nylorun(["tenant", "budgets", "put", "-"], host.url, {}, JSON.stringify({ budgets }));
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ budgets });
+    expect(host.requests.map((r) => [r.method, r.url, r.body.budgets])).toEqual([["PUT", "/v1/tenant/budgets", budgets]]);
+    const invalid = await nylorun(["tenant", "budgets", "put", "-"], host.url, {}, "{");
+    expect(invalid.code).toBe(2);
+    expect(invalid.stderr).toContain("Standard input is not JSON");
+    expect(host.requests).toHaveLength(1);
+  });
+
+  it("tenant calls prints NDJSON across pages until caught up", async () => {
+    const host = await runtime();
+    const result = await nylorun(["tenant", "calls"], host.url);
+    expect(result.code).toBe(0);
+    expect(result.stdout.trimEnd().split("\n").map((line) => JSON.parse(line).id)).toEqual(["c1", "c2", "c3"]);
+    expect(result.stderr).toContain("Resume with --after cur_3");
+    expect(host.requests.map((r) => r.url)).toEqual([
+      "/v1/tenant/calls/model?limit=200",
+      "/v1/tenant/calls/model?limit=200&after=cur_2",
+    ]);
   });
 
   it("requests carry the management key and the protocol, and never a Nylorun-Tenant header", async () => {
