@@ -1,13 +1,17 @@
 /**
  * `nylorun environments`: the Tenant's Environments (protocol 11: each holds one sandbox and one
  * vault), through the Runtime API of the installation `target.ts` picks: create or find one by
- * id (protocol 14: what it runs never changes), stop, reset or delete it, keep and restore versions of its disk, and write its secrets. A
- * secret's value comes from a file or standard input, never from the command line, and no
- * command reads one back. None of them starts a local Tenant.
+ * id, from an environment manifest or inline fields (protocol 14: what it runs never changes),
+ * fork it onto a new manifest version, stop, reset or delete it, keep and restore versions of
+ * its disk, and write its secrets; and the environment manifests themselves
+ * (`environment-manifests.ts`). A secret's value comes from a file or standard input, never from
+ * the command line, and no command reads one back. None of them starts a local Tenant.
  */
 import type { EnvironmentEventType } from "@nylorun/core/contracts";
 import type { EnvironmentView } from "@nylorun/agents";
 import type { StackDeps } from "../stack/commands.js";
+import { manifestsCommand, manifestsUsage } from "./environment-manifests.js";
+import { readSecret } from "./io.js";
 import {
   integerFlag,
   labelsOf,
@@ -28,12 +32,20 @@ export const environmentsUsage = `nylorun environments <command>
 The Tenant's Environments (one sandbox and one vault each), through the Runtime API with an
 application key (or NYLORUN_TOKEN).
 
-  list [--label <key=value>]... [--limit <n>] [--cursor <c>] [--json]
-                                      id, kind, state, sessions and labels
+  list [--label <key=value>]... [--behind] [--limit <n>] [--cursor <c>] [--json]
+                                      id, kind, manifest, state, sessions and labels;
+                                      --behind: those made from an older manifest version
   get <id>                            the Environment, as JSON
-  put <id> [<recipe.json|->] [--kind <virtual|pod|none>] [--label <key=value>]...
-                                      create it, or find it and change its labels (what
-                                      it runs never changes: fork it for that)
+  put <id> --manifest <name[@n]> [--label <key=value>]...
+  put <id> [<inline.json|->] [--kind <virtual|pod|none>] [--label <key=value>]...
+                                      create it from a manifest (its latest version, or n)
+                                      or inline fields, or find it and change its labels
+                                      (what it runs never changes: fork it for that)
+  fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>]
+       [--secrets <copy|none>] [--label <key=value>]... [--dry-run]
+                                      a new Environment from a manifest version (default
+                                      its manifest's latest), with this one's disk and the
+                                      secrets it declares; --dry-run prints the plan
   stop <id> | reset <id>              stop its sandbox; reset its disk
   delete <id>                         delete it: its sandbox, files and vault (refused while a
                                       turn runs in it)
@@ -46,16 +58,23 @@ application key (or NYLORUN_TOKEN).
                                       connection, naming the turns running), as JSON
   secrets list <id>                   its secrets' names, types and bindings (never a value)
   secrets get <id> <name>
+  secrets put <id> <name>             the value of a slot its manifest declares, piped in
+                                      on standard input
   secrets put <id> <name> <secret.json|->
                                       create or replace a secret: {"type": "bearer", ...}, read
                                       from a file or standard input
   secrets rm <id> <name>
+${manifestsUsage}
 
 ${runtimeFlagsUsage}`;
 
 async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun environments list [--label <key=value>]... [--limit <n>] [--cursor <c>] [--json]";
-  const flags = parseFlags(args, { booleans: ["--json"], values: ["--limit", "--cursor"], lists: ["--label"] }, usage);
+  const usage = "nylorun environments list [--label <key=value>]... [--behind] [--limit <n>] [--cursor <c>] [--json]";
+  const flags = parseFlags(
+    args,
+    { booleans: ["--json", "--behind"], values: ["--limit", "--cursor"], lists: ["--label"] },
+    usage,
+  );
   positional(flags, 0, usage);
   const labels = labelsOf(flags);
   const limit = integerFlag(flags, "--limit");
@@ -74,7 +93,18 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
         environments: await runtimeCall(() => client.environments.list(labels ? { labels } : {})),
         nextCursor: null,
       };
-  const environments = page.environments as EnvironmentView[];
+  let environments = page.environments as EnvironmentView[];
+  if (flags.booleans.has("--behind")) {
+    // Made from a manifest version older than its latest: fork them to move on (D63).
+    const latest = new Map(
+      (await runtimeCall(() => client.environments.manifests.list())).map((manifest) => [manifest.name, manifest.version]),
+    );
+    environments = environments.filter(
+      (environment) =>
+        environment.manifestName !== undefined &&
+        (environment.manifestVersion ?? 0) < (latest.get(environment.manifestName) ?? 0),
+    );
+  }
   if (flags.booleans.has("--json")) {
     printJson(deps, paged ? page : environments);
     return 0;
@@ -82,10 +112,11 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
   if (environments.length === 0) deps.out(`No Environments on ${connection.label}.`);
   else
     printTable(deps, [
-      ["ID", "KIND", "STATE", "SESSIONS", "LABELS"],
+      ["ID", "KIND", "MANIFEST", "STATE", "SESSIONS", "LABELS"],
       ...environments.map((environment) => [
         environment.id,
         environment.kind,
+        environment.manifestName === undefined ? "-" : `${environment.manifestName}@${environment.manifestVersion}`,
         environment.state,
         String(environment.sessions.length),
         Object.entries(environment.labels)
@@ -113,20 +144,66 @@ function byId(
 }
 
 async function put(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun environments put <id> [<recipe.json|->] [--kind <virtual|pod|none>] [--label <key=value>]...";
-  const flags = parseFlags(args, { values: ["--kind"], lists: ["--label"] }, usage);
+  const usage =
+    "nylorun environments put <id> [--manifest <name[@n]> | <inline.json|-> [--kind <virtual|pod|none>]] [--label <key=value>]...";
+  const flags = parseFlags(args, { values: ["--kind", "--manifest"], lists: ["--label"] }, usage);
   if (flags.rest.length < 1 || flags.rest.length > 2) throw usageError(`Usage: ${usage}`);
   const [id, path] = flags.rest as [string, string | undefined];
-  const recipe = path === undefined ? {} : await readJson(path, "The recipe");
+  const manifest = flags.values.get("--manifest");
   const kind = flags.values.get("--kind");
+  if (manifest !== undefined && (path !== undefined || kind !== undefined))
+    throw usageError("--manifest makes it from the manifest: give no inline fields or --kind with it.");
+  const recipe = path === undefined ? {} : await readJson(path, "The inline fields");
   const labels = labelsOf(flags);
   const body = {
     ...recipe,
+    ...(manifest ? { manifest } : {}),
     ...(kind ? { kind } : {}),
     ...(labels ? { labels: { ...(recipe.labels as Record<string, string> | undefined), ...labels } } : {}),
   };
   const { client } = await runtimeClient(deps, flags);
   printJson(deps, await runtimeCall(() => client.environments.put(id, body as never)));
+  return 0;
+}
+
+async function fork(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const usage =
+    "nylorun environments fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>] [--secrets <copy|none>] [--label <key=value>]... [--dry-run]";
+  const flags = parseFlags(
+    args,
+    { booleans: ["--dry-run"], values: ["--manifest", "--disk", "--secrets"], lists: ["--label"] },
+    usage,
+  );
+  const [id, next] = positional(flags, 2, usage);
+  const disk = flags.values.get("--disk");
+  if (disk !== undefined && disk !== "latest" && disk !== "empty" && !/^[1-9]\d*$/.test(disk))
+    throw usageError("--disk is latest, empty or a version number.");
+  const secrets = flags.values.get("--secrets");
+  if (secrets !== undefined && secrets !== "copy" && secrets !== "none") throw usageError("--secrets is copy or none.");
+  const manifest = flags.values.get("--manifest");
+  const labels = labelsOf(flags);
+  const options = {
+    id: next!,
+    ...(manifest ? { manifest } : {}),
+    ...(disk === undefined ? {} : { disk: disk === "latest" || disk === "empty" ? (disk as "latest" | "empty") : Number(disk) }),
+    ...(secrets ? { secrets: secrets as "copy" | "none" } : {}),
+    ...(labels ? { labels } : {}),
+  };
+  const { client, connection } = await runtimeClient(deps, flags);
+  if (flags.booleans.has("--dry-run")) {
+    printJson(deps, await runtimeCall(() => client.environments.planFork(id!, options)));
+    return 0;
+  }
+  const forked = await runtimeCall(() => client.environments.fork(id!, options));
+  const { plan } = forked;
+  deps.err(
+    `Forked Environment ${id} into ${next} on ${connection.label}: ${plan.manifest ? `${plan.manifest.name}@${plan.manifest.version}` : "its fields"}, ${
+      plan.disk === null ? "an empty disk" : `disk version ${plan.disk}`
+    }, ${plan.secrets.copied.length} secrets copied${plan.setup ? "; its setup runs before the first turn" : ""}.`,
+  );
+  if (plan.secrets.missing.length > 0)
+    deps.err(`  set before use: ${plan.secrets.missing.join(", ")} (nylorun environments secrets put ${next} <name>)`);
+  printJson(deps, forked);
   return 0;
 }
 
@@ -219,13 +296,21 @@ async function secrets(deps: StackDeps, args: readonly string[]): Promise<number
     return 0;
   }
   if (verb === "put") {
-    const usage = "nylorun environments secrets put <id> <name> <secret.json|->";
+    const usage = "nylorun environments secrets put <id> <name> [<secret.json|->]";
     const flags = parseFlags(rest, {}, usage);
-    const [id, name, path] = positional(flags, 3, usage);
-    const secret = await readJson(path!, "The secret");
+    if (flags.rest.length < 2 || flags.rest.length > 3) throw usageError(`Usage: ${usage}`);
+    const [id, name, path] = flags.rest as [string, string, string | undefined];
+    if (path === undefined) {
+      // A slot its manifest declares (D64): the value only, piped in; the binding is the slot's.
+      const value = await readSecret(deps, `value of ${name}`, `printf %s "$TOKEN" | nylorun environments secrets put ${id} ${name}`);
+      const { client } = await runtimeClient(deps, flags);
+      printJson(deps, await runtimeCall(() => client.environments.secrets.put(id, name, { value })));
+      return 0;
+    }
+    const secret = await readJson(path, "The secret");
     if (typeof secret.type !== "string") throw usageError('The secret needs a "type".');
     const { client } = await runtimeClient(deps, flags);
-    printJson(deps, await runtimeCall(() => client.environments.secrets.put(id!, name!, secret as never)));
+    printJson(deps, await runtimeCall(() => client.environments.secrets.put(id, name, secret as never)));
     return 0;
   }
   if (verb === "rm" || verb === "delete") {
@@ -255,6 +340,8 @@ const COMMANDS: Record<string, (deps: StackDeps, args: readonly string[]) => Pro
   "delete-version": deleteVersion,
   events,
   secrets,
+  fork,
+  manifests: (deps, args) => manifestsCommand(deps, args, manifestsUsage),
 };
 
 /** `nylorun environments <command> ...` */

@@ -26,10 +26,11 @@ The Tenant's saved agents, through the Runtime API with an application key (or N
 
   list [--json]                       id, kind and description of each agent
   get <id>                            the agent's manifest, as JSON
-  save <manifest.json|-> [--files <dir>]... [--implementation-version <v>]
+  save <manifest.json|-> [--files <dir>]... [--implementation-version <v>] [--dry-run]
                                       save the agent the manifest describes, first uploading the
                                       definition files it names from the folders given (found by
-                                      their SHA-256, whatever their paths)
+                                      their SHA-256, whatever their paths); --dry-run checks it
+                                      and saves nothing
 
 ${runtimeFlagsUsage}`;
 
@@ -116,8 +117,13 @@ async function get(deps: StackDeps, args: readonly string[]): Promise<number> {
 
 async function save(deps: StackDeps, args: readonly string[]): Promise<number> {
   const usage =
-    "nylorun agents save <manifest.json|-> [--files <dir>]... [--implementation-version <v>]";
-  const flags = parseFlags(args, { values: ["--implementation-version"], lists: ["--files"] }, usage);
+    "nylorun agents save <manifest.json|-> [--files <dir>]... [--implementation-version <v>] [--dry-run]";
+  const flags = parseFlags(
+    args,
+    { booleans: ["--dry-run"], values: ["--implementation-version"], lists: ["--files"] },
+    usage,
+  );
+  const dryRun = flags.booleans.has("--dry-run");
   const [path] = positional(flags, 1, usage);
   const manifest = await readJson(path!, "The manifest");
   if (typeof manifest.id !== "string" || manifest.id === "")
@@ -145,11 +151,11 @@ async function save(deps: StackDeps, args: readonly string[]): Promise<number> {
   const saved = await runtimeCall(() =>
     client.saveAgent(
       { id: manifest.id as string, manifest: manifest as never },
-      version === undefined ? {} : { implementationVersion: version },
+      { ...(version === undefined ? {} : { implementationVersion: version }), ...(dryRun ? { dryRun } : {}) },
     ),
   );
   deps.err(
-    `Saved agent ${manifest.id} on ${connection.label}${
+    `${dryRun ? "Checked (and saved nothing of)" : "Saved"} agent ${manifest.id} on ${connection.label}${
       named.size ? ` (${named.size} files, ${uploaded} uploaded)` : ""
     }.`,
   );
