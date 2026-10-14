@@ -410,3 +410,121 @@ test("proxy forwards a session's pinned manifest read and nothing else under the
     },
   );
 });
+
+test("proxy streams a same-origin attachment upload into a session that exists, with its type and length", async () => {
+  const seen: { line: string; body: Buffer; headers: Record<string, string | string[] | undefined> }[] = [];
+  await withUpstream(
+    async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      seen.push({ line: `${req.method} ${req.url}`, body: Buffer.concat(chunks), headers: { ...req.headers } });
+      if (req.method === "GET")
+        return req.url === "/v1/sessions/s1"
+          ? (res.writeHead(200, { "content-type": "application/json" }), res.end("{}"))
+          : (res.writeHead(404, { "content-type": "application/json" }), res.end("{}"));
+      res.writeHead(201, { "content-type": "application/json" });
+      res.end(JSON.stringify({ artifact: { artifactId: "art_1" }, version: { version: 1 } }));
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret", maxUploadBytes: 16 });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      const base = `http://127.0.0.1:${address.port}/_studio/runtime/v1/artifacts`;
+      const post = (query: string, body: BodyInit, headers: Record<string, string> = {}) =>
+        fetch(`${base}${query}`, { method: "POST", headers: { origin, ...headers }, body });
+      try {
+        const uploaded = await post(
+          "?name=chart.png&sessionId=s1&label=team%3Dops",
+          new Uint8Array([137, 80, 78, 71]),
+          { "content-type": "image/png" },
+        );
+        assert.equal(uploaded.status, 201);
+        assert.deepEqual(
+          seen.map((s) => s.line),
+          ["GET /v1/sessions/s1", "POST /v1/artifacts?name=chart.png&sessionId=s1"],
+          "only name and sessionId reach the Runtime",
+        );
+        const forwarded = seen[1]!;
+        assert.deepEqual([...forwarded.body], [137, 80, 78, 71]);
+        assert.equal(forwarded.headers["content-type"], "image/png");
+        assert.equal(forwarded.headers["content-length"], "4");
+        assert.equal(forwarded.headers.authorization, "Bearer server-secret");
+        // No type: bytes.
+        assert.equal((await post("?name=a.bin&sessionId=s1", new Blob([new Uint8Array([1])]))).status, 201);
+        assert.equal(seen.at(-1)!.headers["content-type"], "application/octet-stream");
+        const count = seen.length;
+        // Refused before anything is forwarded.
+        assert.equal((await post("?name=a.png", new Uint8Array([1]))).status, 400);
+        assert.equal((await post("?sessionId=s1", new Uint8Array([1]))).status, 400);
+        assert.equal(
+          (await fetch(`${base}?name=a.png&sessionId=s1`, { method: "POST", headers: { origin: "https://evil.example" }, body: new Uint8Array([1]) })).status,
+          403,
+        );
+        assert.equal((await post("?name=a.png&sessionId=s1", new Uint8Array(17))).status, 413);
+        assert.equal(seen.length, count, "refused uploads never reach the Runtime");
+        // A stream with no length.
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1, 2]));
+            controller.close();
+          },
+        });
+        const unsized = await fetch(`${base}?name=a.png&sessionId=s1`, {
+          method: "POST",
+          headers: { origin },
+          body: stream,
+          duplex: "half",
+        } as RequestInit);
+        assert.equal(unsized.status, 411);
+        assert.equal(seen.length, count);
+        // A session that does not exist: checked, nothing uploaded.
+        const missing = await post("?name=a.png&sessionId=s-missing", new Uint8Array([1]));
+        assert.equal(missing.status, 404);
+        assert.deepEqual(seen.slice(count).map((s) => s.line), ["GET /v1/sessions/s-missing"]);
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});
+
+test("proxy forwards a same-origin model inputs change on the Management API", async () => {
+  const seen: { line: string; body: string }[] = [];
+  await withUpstream(
+    async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      seen.push({ line: `${req.method} ${req.url}`, body });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret" });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      const url = `http://127.0.0.1:${address.port}/_studio/runtime/v1/tenant/models/inputs`;
+      const body = JSON.stringify({ provider: "openai", model: "gpt-5", inputs: ["pdf"] });
+      try {
+        const put = (from: string) =>
+          fetch(url, { method: "PUT", headers: { origin: from, "content-type": "application/json" }, body });
+        assert.equal((await put(origin)).status, 200);
+        assert.equal((await put("https://evil.example")).status, 403);
+        assert.deepEqual(seen, [{ line: "PUT /v1/tenant/models/inputs", body }]);
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});

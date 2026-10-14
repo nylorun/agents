@@ -17,5 +17,5 @@ export type {
   StudioServerOptions,
   StudioTenantSummary,
 } from "./server.js";
-export { proxyRuntime } from "./proxy.js";
+export { MAX_UPLOAD_BYTES, proxyRuntime } from "./proxy.js";
 export type { StudioProxyOptions } from "./proxy.js";

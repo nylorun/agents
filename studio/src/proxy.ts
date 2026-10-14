@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { Readable } from "node:stream";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
 
 const LOCAL_OWNER = "local-developer";
@@ -58,7 +59,33 @@ export type StudioProxyOptions = {
   prefix?: string;
   /** Origins allowed to change state. Default: only `origin`. */
   allowedOrigins?: ReadonlySet<string>;
+  /** The largest file a message attachment upload forwards. Default `MAX_UPLOAD_BYTES`. */
+  maxUploadBytes?: number;
 };
+
+/** Default cap on one attachment upload (`POST /v1/artifacts`): 32 MiB. */
+export const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
+
+/**
+ * The bytes of a request, as a stream that errors once more than `limit` bytes have passed
+ * (Node's parser already holds a body to its `Content-Length`; this holds it to the cap).
+ */
+function countedBody(request: IncomingMessage, limit: number, onExceeded: () => void) {
+  let seen = 0;
+  return (Readable.toWeb(request) as ReadableStream<Uint8Array>).pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        seen += chunk.byteLength;
+        if (seen > limit) {
+          onExceeded();
+          controller.error(new Error("Upload exceeds its limit"));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+}
 
 /**
  * Trusted Runtime proxy: forwards one allowlisted Tenant API request with the
@@ -112,7 +139,11 @@ export async function proxyRuntime(
     (method === "POST" && /^\/v1\/sessions\/[^/]+\/commands$/.test(path));
   const tenantWrite =
     method === "PUT" &&
-    (path === "/v1/tenant/model" || path === "/v1/tenant/model/selection");
+    (path === "/v1/tenant/model" ||
+      path === "/v1/tenant/model/selection" ||
+      path === "/v1/tenant/models/inputs");
+  // A message attachment: one file into one session, streamed to the Runtime.
+  const upload = method === "POST" && path === "/v1/artifacts";
   const managementCheck = isManagementCheck(method, path);
   const environmentWrite = isEnvironmentWrite(method, path);
   if (
@@ -122,7 +153,8 @@ export async function proxyRuntime(
     !tenantWrite &&
     !managementCheck &&
     !environmentWrite &&
-    !artifactLink
+    !artifactLink &&
+    !upload
   )
     return fail(404, "Unsupported Studio operation");
   const requestOrigin = request.headers.origin;
@@ -131,11 +163,64 @@ export async function proxyRuntime(
       tenantWrite ||
       managementCheck ||
       environmentWrite ||
-      artifactLink) &&
+      artifactLink ||
+      upload) &&
     (requestOrigin === undefined || !allowed.has(requestOrigin))
   )
     return fail(403, "Studio mutations require a same-origin request");
-  let body: string | undefined;
+  const controller = new AbortController();
+  response.on("close", () => controller.abort());
+  let body: string | ReadableStream<Uint8Array> | undefined;
+  let search = incoming.search;
+  let uploadHeaders: Record<string, string> = {};
+  let uploadTooLarge = false;
+  if (upload) {
+    const refuse = (status: number, message: string) => {
+      request.resume();
+      fail(status, message);
+    };
+    const name = incoming.searchParams.get("name");
+    const sessionId = incoming.searchParams.get("sessionId");
+    if (!name || !sessionId)
+      return refuse(400, "An upload names its file (name) and its session (sessionId)");
+    const declared = request.headers["content-length"];
+    if (declared === undefined || !/^\d+$/.test(declared))
+      return refuse(411, "An upload needs a Content-Length");
+    const length = Number(declared);
+    const limit = options.maxUploadBytes ?? MAX_UPLOAD_BYTES;
+    if (length > limit)
+      return refuse(413, `A file can be at most ${limit} bytes`);
+    // Only into a session that exists: Studio's key could otherwise make Tenant-wide artifacts.
+    try {
+      const session = await fetch(
+        `${options.runtimeUrl}/v1/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          redirect: "error",
+          signal: controller.signal,
+          headers: {
+            authorization: `Bearer ${options.serverKey}`,
+            [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+            accept: "application/json",
+          },
+        },
+      );
+      await session.body?.cancel().catch(() => {});
+      if (session.status === 404) return refuse(404, "Session not found");
+      if (!session.ok)
+        return refuse(session.status, "The upload's session could not be read");
+    } catch {
+      return refuse(502, "Runtime is unavailable");
+    }
+    search = `?${new URLSearchParams({ name, sessionId })}`;
+    body = countedBody(request, limit, () => {
+      uploadTooLarge = true;
+    });
+    uploadHeaders = {
+      "content-type":
+        request.headers["content-type"] ?? "application/octet-stream",
+      "content-length": String(length),
+    };
+  }
   if (
     write ||
     tenantWrite ||
@@ -186,12 +271,12 @@ export async function proxyRuntime(
       );
     body = JSON.stringify(value);
   }
-  const controller = new AbortController();
-  response.on("close", () => controller.abort());
   try {
-    const upstream = await fetch(options.runtimeUrl + path + incoming.search, {
+    const upstream = await fetch(options.runtimeUrl + path + search, {
       method,
       body,
+      // A stream is sent as it is read.
+      ...(upload ? ({ duplex: "half" } as object) : {}),
       redirect: "error",
       signal: controller.signal,
       headers: {
@@ -199,7 +284,8 @@ export async function proxyRuntime(
           ? {}
           : { authorization: `Bearer ${options.serverKey}` }),
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
-        ...(body ? { "content-type": "application/json" } : {}),
+        ...(typeof body === "string" ? { "content-type": "application/json" } : {}),
+        ...uploadHeaders,
         ...(request.headers["last-event-id"]
           ? { "last-event-id": String(request.headers["last-event-id"]) }
           : {}),
@@ -259,7 +345,8 @@ export async function proxyRuntime(
       }
     response.end();
   } catch {
-    if (!response.headersSent) fail(502, "Runtime is unavailable");
+    if (!response.headersSent)
+      fail(uploadTooLarge ? 413 : 502, uploadTooLarge ? "Upload exceeds its limit" : "Runtime is unavailable");
     else response.end();
   }
 }

@@ -124,6 +124,11 @@ export type StudioServerOptions = Readonly<{
    * loads no analytics.
    */
   analyticsId?: string;
+  /**
+   * The largest file a message attachment uploads through the proxy (`POST /v1/artifacts`).
+   * Default 32 MiB (`MAX_UPLOAD_BYTES`).
+   */
+  maxUploadBytes?: number;
   /** Where Studio logs state changes made by an embedded session. Default: stdout. */
   log?: (entry: Readonly<Record<string, unknown>>) => void;
   /** Clock for login-token and session expiry (tests). */
@@ -1140,6 +1145,9 @@ export async function startStudioServer(
         serverKey: studioKey,
         prefix: `/_studio/tenants/${segment}/runtime`,
         allowedOrigins: sameOrigins,
+        ...(options.maxUploadBytes === undefined
+          ? {}
+          : { maxUploadBytes: options.maxUploadBytes }),
       });
     }
 
