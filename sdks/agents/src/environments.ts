@@ -37,6 +37,7 @@ import {
   type SaveEnvironmentManifestResponse,
   type DeleteEnvironmentResponse,
   type EnvironmentEvent,
+  type EnvironmentEventType,
   type EnvironmentRestore,
   type EnvironmentSecretView,
   type EnvironmentSnapshot,
@@ -391,13 +392,30 @@ export class EnvironmentsClient {
     return this.transport.json(this.path(environmentId), "DELETE", undefined, options.signal);
   }
 
-  /** The Environment's lifecycle events, from `from` on. */
+  /**
+   * The Environment's events, from `from` on: its lifecycle, and `environment.egress` for every
+   * connection its sandbox opens (with the turns that were running). `types` keeps only those
+   * types; `since` and `until` keep events recorded in that window (ISO times or `Date`s).
+   */
   async events(
     environmentId: string,
-    options: { from?: number; signal?: AbortSignal } = {},
+    options: {
+      from?: number;
+      types?: readonly EnvironmentEventType[];
+      since?: string | Date;
+      until?: string | Date;
+      signal?: AbortSignal;
+    } = {},
   ): Promise<EnvironmentEvent[]> {
+    const query = new URLSearchParams();
+    if (options.from !== undefined) query.set("from", String(options.from));
+    if (options.types !== undefined && options.types.length > 0) query.set("types", options.types.join(","));
+    const iso = (at: string | Date) => (at instanceof Date ? at.toISOString() : at);
+    if (options.since !== undefined) query.set("since", iso(options.since));
+    if (options.until !== undefined) query.set("until", iso(options.until));
+    const search = query.toString();
     const reply = await this.transport.json<{ events: EnvironmentEvent[] }>(
-      `${this.path(environmentId)}/events${options.from === undefined ? "" : `?from=${options.from}`}`,
+      `${this.path(environmentId)}/events${search === "" ? "" : `?${search}`}`,
       "GET",
       undefined,
       options.signal,

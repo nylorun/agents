@@ -12,7 +12,7 @@
  * Nothing here knows a tool: the header name and its format are the credential's. A release the
  * vault refuses (two secrets for one host, an unreadable value) answers 502 and is logged, never
  * as an event; a value never is. Upgrades (WebSocket) and HTTP/2 are not served on this path.
- * Each connection keeps a tally for its `egress.connection` event (R7.3): how many requests it
+ * Each connection keeps a tally for its `environment.egress` event (R7.3, D67): how many requests it
  * read and which credentials it set, by id.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";

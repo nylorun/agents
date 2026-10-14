@@ -30,6 +30,23 @@ together. Sessions, Environments and their vaults carry over.
 - **Studio** edits only an Environment's labels and owner guard; its setup and files are
   read-only.
 
+## Parallel turns, and egress on the Environment
+
+Part of protocol 14 (D66, D67).
+
+- **Sessions on one Environment run their turns at the same time.** A turn start is no longer
+  `409 environment_busy` because another session on the Environment has a turn running; one turn
+  per session stays. If your app relied on the refusal to keep agents apart, send one session's
+  message at a time yourself, or give each piece of work its own Environment (or a fork).
+  `environment_busy` still answers stop, reset, snapshot and restore while any turn runs, and a
+  turn while a disk copy runs.
+- **Egress is on the Environment's stream.** `egress.connection` is gone from session logs and from
+  turn traces (no `CONNECT` span). Every connection is `environment.egress` on
+  `GET /v1/environments/{id}/events`, with `runningTurns: [{ sessionId, turnId }]`, the turns
+  running when it opened (at most 16). To see a turn's egress, read the Environment's events
+  with `types=environment.egress` and `since`/`until` around the turn
+  (`client.environments.events(id, { types, since, until })`).
+
 # One command: `nylo` is part of `nylorun`
 
 `nylorun` is the one command. `nylo` keeps its name for one release, and each of its commands
@@ -204,7 +221,8 @@ No protocol change, and nothing to do unless you read the session log yourself:
   histories already skip both.
 - **New event types.** `node.completed` ends a flow's HTTP stage, `egress.connection` records a
   pod's connection through egress-gate in the session log, and `environment.egress` records one
-  on the Environment's stream while no turn holds it. Clients ignore event types they do not know.
+  on the Environment's stream while no turn holds it. (Since protocol 14 every connection is
+  `environment.egress`; see "Parallel turns, and egress on the Environment".) Clients ignore event types they do not know.
 - **More fields on existing events.** Model and tool outcomes carry `effectId`, `durationMs` and
   the gate's own times; turn ends carry `durationMs`, `pausedMs`, `agentId` and `totals`. A turn
   started before this release has no `durationMs`.

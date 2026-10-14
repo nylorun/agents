@@ -8,7 +8,11 @@ export { hashManifest } from "./utils/hash.js";
  * only its labels and owner guard (`409 environment_immutable`), and its view's `recipe` is now
  * `manifest`. A manifest's `secrets` declares slots: a write sends only the value, and a name it
  * does not declare is `409 secret_not_in_manifest`. An agent manifest's `requires` is checked
- * when a session opens (`409 environment_unsuitable`). The Host serves protocol 14 only.
+ * when a session opens (`409 environment_unsuitable`). Sessions on one Environment run their
+ * turns in parallel (D66), so a turn start is no longer `environment_busy` because another
+ * session's turn runs, and every egress connection is an `environment.egress` event on the
+ * Environment's stream naming the turns that were running; `egress.connection` is gone from
+ * session logs and traces (D67). The Host serves protocol 14 only.
  * Protocol 13: the flat agent manifest (v7), a fresh start. A manifest has no capabilities: its
  * instructions, tools, skills and MCP servers are top-level, and a skill or server from an Agent
  * Plugin carries a `plugin` label. A session's pinned manifest carries the Runtime's `runtime`
@@ -219,7 +223,7 @@ export const ERROR_CODES = [
   "subject_required",
   /** A token caller's Environment grants do not reach the Environment. */
   "environment_not_granted",
-  /** Another session's turn holds the Environment: turns are serial per Environment. */
+  /** Disk work (snapshot, restore, stop, reset) while a turn runs, or a turn while a disk copy runs. */
   "environment_busy",
   /** The Environment is gone, or its kind cannot run on this Runtime. */
   "environment_unavailable",

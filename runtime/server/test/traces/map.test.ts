@@ -84,42 +84,6 @@ function turnRows() {
       },
       { time: "2026-10-11T09:14:06.350Z" },
     ),
-    row(
-      "egress.connection",
-      {
-        environmentId: "users/alice/web",
-        host: "github.com",
-        port: 443,
-        outcome: "allowed",
-        mode: "credential",
-        credentialBound: true,
-        credentialIds: ["cred_8Kd"],
-        requests: 14,
-        bytesUp: 9214,
-        bytesDown: 1873310,
-        durationMs: 3080,
-        startedAt: "2026-10-11T09:14:03.020Z",
-      },
-      { source: { kind: "egress-gate", id: "egress-gate" }, time: "2026-10-11T09:14:06.100Z" },
-    ),
-    row(
-      "egress.connection",
-      {
-        environmentId: "users/alice/web",
-        host: "pypi.org",
-        port: 443,
-        outcome: "refused",
-        reason: "host_not_allowed",
-        status: 403,
-        mode: "tunnel",
-        credentialBound: false,
-        bytesUp: 0,
-        bytesDown: 0,
-        durationMs: 0,
-        startedAt: "2026-10-11T09:14:04.400Z",
-      },
-      { source: { kind: "egress-gate", id: "egress-gate" } },
-    ),
     row("transcript.updated", { keep: 0, entries: [], length: 0 }, { visibility: "internal" }),
     row(
       "model.failed",
@@ -156,11 +120,11 @@ describe("spanOf", () => {
     const out = spans(plain);
     const traceId = traceIdOf(key, TENANT, SESSION, TURN);
     const turnSpan = turnSpanOf(key, TURN);
-    const [start, chat, mcp, bash, egress, refused, internal, failed, paused, approve, root] = out;
+    const [start, chat, mcp, bash, internal, failed, paused, approve, root] = out;
     expect(start).toBeUndefined();
     expect(internal).toBeUndefined();
     for (const span of out.filter(Boolean)) expect(span!.traceId).toBe(traceId);
-    for (const span of [chat, mcp, bash, egress, refused, failed, paused, approve])
+    for (const span of [chat, mcp, bash, failed, paused, approve])
       expect(span!.parentSpanId).toBe(turnSpan);
 
     expect(root).toMatchObject({ spanId: turnSpan, name: "invoke_agent coder", kind: SPAN_KIND.internal, status: { code: STATUS.ok } });
@@ -210,18 +174,6 @@ describe("spanOf", () => {
     expect(ms(bash!.endTimeUnixNano) - ms(bash!.startTimeUnixNano)).toBe(3440);
     expect(bash!.status).toEqual({ code: STATUS.error });
     expect(attrs(bash)).toMatchObject({ "gen_ai.tool.type": "function", "error.type": "sandbox.exit" });
-
-    expect(egress).toMatchObject({ name: "CONNECT github.com", kind: SPAN_KIND.client });
-    expect(ms(egress!.startTimeUnixNano)).toBe(Date.parse("2026-10-11T09:14:03.020Z"));
-    expect(ms(egress!.endTimeUnixNano) - ms(egress!.startTimeUnixNano)).toBe(3080);
-    expect(attrs(egress)).toMatchObject({
-      "server.address": "github.com",
-      "server.port": "443",
-      "nylorun.egress.credential_ids": ["cred_8Kd"],
-      "nylorun.egress.bytes_down": "1873310",
-    });
-    expect(refused!.status.code).toBe(STATUS.error);
-    expect(attrs(refused)).toMatchObject({ "error.type": "host_not_allowed", "nylorun.egress.status": "403" });
 
     expect(failed).toMatchObject({ name: "chat", status: { code: STATUS.error } });
     expect(failed!.status.message).toBeUndefined();

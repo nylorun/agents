@@ -407,10 +407,10 @@ let writes = 0;
 function record(): EgressRecord {
   const inner = storeEgressRecord(runs.store);
   return {
-    holder: (environmentId) => inner.holder(environmentId),
-    async write(holder, connection) {
+    runningTurns: (environmentId) => inner.runningTurns(environmentId),
+    async write(connection) {
       try {
-        await inner.write(holder, connection);
+        await inner.write(connection);
       } finally {
         writes += 1;
       }
@@ -432,32 +432,34 @@ async function sessionRows(): Promise<{ sessionId: string; body: Record<string, 
   return [...rows.values()].flat().map((row) => ({ sessionId: row.sessionId, body: row.body as Record<string, any> }));
 }
 
-const egressOf = async (sessionId: string) =>
-  (await sessionRows()).filter((row) => row.sessionId === sessionId && row.body.type === "egress.connection").map((row) => row.body);
+/** The `environment.egress` events on Environment `id`'s stream. */
+const egressOf = async (id: string) =>
+  (await runs.store.tx((t) => t.environmentEvents(id, { types: ["environment.egress"] }))) as Record<string, any>[];
 
-describe("egress-gate events (R7.3)", () => {
-  it("records one egress.connection per tunnel, at the turn that held the Environment when it opened", async () => {
+describe("egress-gate events (R7.3, D67)", () => {
+  it("records one environment.egress per tunnel, naming the turns that ran when it opened", async () => {
     await podEnvironment("egress-held", ["allowed.test"]);
     await sessionOn("egress-held-s", "egress-held", "turn-1");
+    await sessionOn("egress-held-t", "egress-held", "turn-9");
+    await sessionOn("egress-held-u", "egress-held", null);
     const proxy = await gate({ record: record() });
     writes = 0;
     const open = await tunnel(proxy, "allowed.test:443", basic(await token("egress-held")));
     expect(open.status).toBe(200);
     expect(await roundTrip(open.socket, "ping")).toBe("ping");
     expect(await roundTrip(open.socket, "hello")).toBe("hello");
-    // The turn ends (another starts) before the tunnel closes: the event keeps the turn read at open.
+    // A turn ends (another starts) before the tunnel closes: the event keeps the turns read at open.
     await runs.update("egress-held-s", { activeTurnId: "turn-2" });
     open.socket.destroy();
     await until(() => writes === 1);
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(writes).toBe(1);
-    const events = await egressOf("egress-held-s");
+    const events = await egressOf("egress-held");
     expect(events).toHaveLength(1);
     const [event] = events;
     expect(event).toMatchObject({
-      turnId: "turn-1",
-      source: { kind: "egress-gate", id: "egress" },
-      evidence: "observed",
+      type: "environment.egress",
+      environmentId: "egress-held",
       payload: {
         environmentId: "egress-held",
         host: "allowed.test",
@@ -467,13 +469,18 @@ describe("egress-gate events (R7.3)", () => {
         credentialBound: false,
         bytesUp: 9,
         bytesDown: 9,
+        runningTurns: [
+          { sessionId: "egress-held-s", turnId: "turn-1" },
+          { sessionId: "egress-held-t", turnId: "turn-9" },
+        ],
       },
     });
     expect(event!.payload).not.toHaveProperty("reason");
     expect(event!.payload).not.toHaveProperty("requests");
     expect(event!.payload.durationMs).toBeGreaterThanOrEqual(0);
     expect(Date.parse(event!.payload.startedAt)).toBeLessThanOrEqual(Date.parse(event!.time));
-    expect(await runs.store.tx((t) => t.environmentEvents("egress-held"))).toEqual([]);
+    // No session log holds it.
+    expect((await sessionRows()).filter((row) => row.body.type === "egress.connection")).toEqual([]);
   });
 
   it("records a refusal at once with its reason and status, and a bad token not at all", async () => {
@@ -490,7 +497,7 @@ describe("egress-gate events (R7.3)", () => {
     await until(() => writes === 3);
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(writes).toBe(3);
-    const events = await egressOf("egress-refused-s");
+    const events = await egressOf("egress-refused");
     expect(events.map((event) => [event.payload.host, event.payload.port, event.payload.reason, event.payload.status])).toEqual(
       expect.arrayContaining([
         ["other.test", 443, "host_not_allowed", 403],
@@ -500,12 +507,17 @@ describe("egress-gate events (R7.3)", () => {
     );
     expect(events).toHaveLength(3);
     for (const event of events) {
-      expect(event.turnId).toBe("turn-1");
-      expect(event.payload).toMatchObject({ outcome: "refused", mode: "tunnel", bytesUp: 0, bytesDown: 0 });
+      expect(event.payload).toMatchObject({
+        outcome: "refused",
+        mode: "tunnel",
+        bytesUp: 0,
+        bytesDown: 0,
+        runningTurns: [{ sessionId: "egress-refused-s", turnId: "turn-1" }],
+      });
     }
   });
 
-  it("records traffic while no turn holds the Environment on the Environment's own stream", async () => {
+  it("records traffic while no turn runs with no running turns", async () => {
     await podEnvironment("egress-idle", ["allowed.test"]);
     await sessionOn("egress-idle-s", "egress-idle", null);
     const proxy = await gate({ record: record() });
@@ -514,14 +526,21 @@ describe("egress-gate events (R7.3)", () => {
     expect(await roundTrip(open.socket, "x")).toBe("x");
     open.socket.destroy();
     await until(() => writes === 1);
-    expect(await egressOf("egress-idle-s")).toEqual([]);
-    const events = await runs.store.tx((t) => t.environmentEvents("egress-idle"));
+    const events = await egressOf("egress-idle");
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       type: "environment.egress",
       environmentId: "egress-idle",
-      payload: { environmentId: "egress-idle", host: "allowed.test", port: 80, outcome: "allowed", bytesUp: 1, bytesDown: 1 },
+      payload: { environmentId: "egress-idle", host: "allowed.test", port: 80, outcome: "allowed", bytesUp: 1, bytesDown: 1, runningTurns: [] },
     });
+  });
+
+  it("names at most 16 running turns", async () => {
+    await podEnvironment("egress-many", ["allowed.test"]);
+    for (let i = 0; i < 20; i += 1) await sessionOn(`egress-many-${String(i).padStart(2, "0")}`, "egress-many", `turn-${i}`);
+    const turns = await storeEgressRecord(runs.store).runningTurns("egress-many");
+    expect(turns).toHaveLength(16);
+    expect(turns[0]).toEqual({ sessionId: "egress-many-00", turnId: "turn-0" });
   });
 
   it("never records a header value, a path or a body", async () => {
@@ -540,7 +559,7 @@ describe("egress-gate events (R7.3)", () => {
       ...(await sessionRows()).map((row) => row.body),
       ...(await runs.store.tx((t) => t.environmentEvents("egress-scan"))),
     ]);
-    expect(rows).toContain("egress.connection");
+    expect(rows).toContain("environment.egress");
     for (const secret of [raw, basic(raw), "header-value-1", "/secret/path", "body-bytes", "Authorization", "nylo:"])
       expect(rows).not.toContain(secret);
   });
@@ -549,8 +568,10 @@ describe("egress-gate events (R7.3)", () => {
     await podEnvironment("egress-failing", ["allowed.test"]);
     const proxy = await gate({
       record: {
-        holder: async () => ({ sessionId: "egress-missing-session", turnId: "turn-1" }),
-        write: (holder, connection) => storeEgressRecord(runs.store).write(holder, connection),
+        runningTurns: async () => [],
+        write: async () => {
+          throw new Error("the record is down");
+        },
       },
     });
     const open = await tunnel(proxy, "allowed.test:443", basic(await token("egress-failing")));

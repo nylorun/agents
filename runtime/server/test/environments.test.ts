@@ -1,8 +1,13 @@
 /**
  * Environments (protocol 11, D55, D56): an Environment has its own id, recipe and vault and
+<<<<<<< HEAD
  * outlives the sessions that name it; sessions on one share its workspace; turns are serial per
  * Environment with a sandbox; it never changes what it runs (protocol 14: only labels and the
  * owner guard change, anything else is `409 environment_immutable`);
+=======
+ * outlives the sessions that name it; sessions on one share its workspace and run their turns at
+ * once (D66); a recipe change bumps its version; kind and storage are fixed;
+>>>>>>> 762429d2 (feat(runtime): sessions on one Environment run their turns at once; egress is recorded on the Environment (D66, D67))
  * the owner guard admits only its owner's sessions, at open and at every turn start; a token
  * caller reaches only the Environments its issuer grants, at every turn start;
  * `environments:write` guards changes; the Tenant limits how many there are; and
@@ -375,35 +380,44 @@ describe("sessions on an Environment", { timeout: 60_000 }, () => {
     expect(events.body.events[0].environmentId).toBe("shared/ws");
   });
 
-  it("runs one turn at a time per Environment with a sandbox, and none for kind none", async () => {
-    await call("PUT", path("serial/ws"), {});
-    await open("serial-a", "serial/ws");
-    await open("serial-b", "serial/ws");
-    hold("serial-a");
-    expect((await message("serial-a")).status).toBe(200);
-    const busy = await message("serial-b");
-    expect(busy.status).toBe(409);
-    expect(busy.body.code).toBe("environment_busy");
-    // Nor can it be deleted under a running turn.
-    const deleting = await call("DELETE", path("serial/ws"));
+  it("runs the turns of several sessions on one Environment at once (D66); disk work waits for them", async () => {
+    await call("PUT", path("parallel/ws"), {});
+    await open("parallel-a", "parallel/ws");
+    await open("parallel-b", "parallel/ws");
+    await open("parallel-c", "parallel/ws");
+    hold("parallel-a");
+    hold("parallel-b");
+    expect((await message("parallel-a")).status).toBe(200);
+    // A second session's turn starts while the first runs.
+    expect((await message("parallel-b")).status).toBe(200);
+    // The shared workspace serves a third session while both turns run.
+    expect((await tool("parallel-c", "write", { path: "c.txt", content: "c" })).status).toBe(200);
+    // Delete waits until no turn runs.
+    const deleting = await call("DELETE", path("parallel/ws"));
     expect(deleting.status).toBe(409);
     expect(deleting.body.code).toBe("environment_busy");
-    release("serial-a");
-    expect(await settled("serial-a")).toBe("completed");
-    expect((await message("serial-b")).status).toBe(200);
-    expect(await settled("serial-b")).toBe("completed");
+    release("parallel-a");
+    release("parallel-b");
+    expect(await settled("parallel-a")).toBe("completed");
+    expect(await settled("parallel-b")).toBe("completed");
+    expect(JSON.stringify((await tool("parallel-a", "read", { path: "c.txt" })).body)).toContain("c");
+    expect((await call("DELETE", path("parallel/ws"))).body).toEqual({ id: "parallel/ws", deleted: true });
+  });
 
-    // Kind none has no sandbox to share: its sessions' turns run side by side.
-    await call("PUT", path("serial/none"), { kind: "none" });
-    await open("none-a", "serial/none");
-    await open("none-b", "serial/none");
-    expect((await tool("none-a", "read", { path: "x" })).status).toBe(404);
-    hold("none-a");
-    expect((await message("none-a")).status).toBe(200);
-    expect((await message("none-b")).status).toBe(200);
-    release("none-a");
-    expect(await settled("none-a")).toBe("completed");
-    expect(await settled("none-b")).toBe("completed");
+  it("filters an Environment's events by type and time", async () => {
+    await call("PUT", path("filtered/ws"), {});
+    await open("filtered-a", "filtered/ws");
+    const all = await call("GET", `${path("filtered/ws")}/events`);
+    expect(all.body.events.map((event: { type: string }) => event.type)).toEqual(["environment.created", "environment.attached"]);
+    const attached = await call("GET", `${path("filtered/ws")}/events?types=environment.attached,environment.egress`);
+    expect(attached.body.events.map((event: { type: string }) => event.type)).toEqual(["environment.attached"]);
+    const future = new Date(Date.now() + 60_000).toISOString();
+    expect((await call("GET", `${path("filtered/ws")}/events?since=${future}`)).body.events).toEqual([]);
+    expect((await call("GET", `${path("filtered/ws")}/events?until=${future}`)).body.events).toHaveLength(2);
+    const unknown = await call("GET", `${path("filtered/ws")}/events?types=egress.connection`);
+    expect(unknown.status).toBe(400);
+    expect(unknown.body.message).toContain("egress.connection");
+    expect((await call("GET", `${path("filtered/ws")}/events?since=yesterday`)).status).toBe(400);
   });
 
   it("delete removes the Environment and its files; a session's next turn is refused", async () => {

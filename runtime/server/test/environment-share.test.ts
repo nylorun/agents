@@ -1,7 +1,7 @@
 /**
  * Sharing an Environment (protocol 11): sessions that name one Environment share its sandbox's
- * workspace, keyed by the Environment's id; their turns are serial (`environment_busy`), except
- * that a flow tree's sessions, which nest their turns in the flow's, do not block each other.
+ * workspace, keyed by the Environment's id, and run their turns at the same time (D66), a flow
+ * tree's sessions and other sessions alike.
  * `{ session }` sharing is gone: the Environment is what sessions share.
  */
 import { afterEach, expect, it } from "vitest";
@@ -123,8 +123,8 @@ async function boot(model: ModelProvider) {
   return { tenant, client, call, message, view, until, settled };
 }
 
-it("shares the workspace of one Environment between sessions, one turn at a time", { timeout: 60_000 }, async () => {
-  const { model, open } = gated("solo-b");
+it("shares the workspace of one Environment between sessions, and runs their turns at once", { timeout: 60_000 }, async () => {
+  const { model, open } = gated("none");
   const { client, call, message, view, until, settled } = await boot(model);
   const bot = Agent({ id: "bot" }).instructions("Work.").build();
   const helper = Agent({ id: "helper" }).instructions("Help.").build();
@@ -142,21 +142,19 @@ it("shares the workspace of one Environment between sessions, one turn at a time
     "from a"
   );
 
-  // One turn at a time.
+  // Both turns run at once (D66).
   expect((await message("solo-a")).status).toBe(200);
   await until(async () => ((await view("solo-a")).activeTurnId ? true : undefined));
-  const busy = await message("solo-b");
-  expect(busy.status).toBe(409);
-  expect(busy.body.code).toBe("environment_busy");
-  expect(busy.body.details).toMatchObject({ retryAfterSeconds: 5 });
+  expect((await message("solo-b")).status).toBe(200);
+  await until(async () => ((await view("solo-b")).activeTurnId ? true : undefined));
+  expect((await view("solo-a")).activeTurnId).not.toBeNull();
   open();
   expect(await settled("solo-a")).toBe("completed");
-  expect((await message("solo-b")).status).toBe(200);
   expect(await settled("solo-b")).toBe("completed");
 });
 
-it("lets a flow tree's sessions run their turns together, and holds the Environment for others", { timeout: 60_000 }, async () => {
-  const { model, open } = gated("outsider");
+it("runs a flow tree's turns and another session's turn on one Environment together", { timeout: 60_000 }, async () => {
+  const { model, open } = gated("none");
   const { client, call, message, view, until, settled } = await boot(model);
   const desk = Agent({ id: "desk" })
     .pipe(Agent({ id: "drafter" }).instructions("Draft."))
@@ -179,14 +177,12 @@ it("lets a flow tree's sessions run their turns together, and holds the Environm
   });
   expect((await view("desk-1")).activeTurnId).not.toBeNull();
   expect((await view(leaf)).environment).toEqual({ id: "desk/ws", version: 1 });
-  // Another session's turn waits for the tree's.
-  const busy = await message("outsider");
-  expect(busy.status).toBe(409);
-  expect(busy.body.code).toBe("environment_busy");
+  // Another session's turn starts beside the tree's.
+  expect((await message("outsider")).status).toBe(200);
+  await until(async () => ((await view("outsider")).activeTurnId ? true : undefined));
   open();
   expect(await settled("desk-1")).toBe("completed");
   expect(await settled(leaf)).toBe("completed");
-  expect((await message("outsider")).status).toBe(200);
   expect(await settled("outsider")).toBe("completed");
 });
 

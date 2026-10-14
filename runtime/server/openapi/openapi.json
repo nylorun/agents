@@ -10072,9 +10072,6 @@
             "$ref": "#/components/schemas/EnvironmentAttachedEvent"
           },
           {
-            "$ref": "#/components/schemas/EgressConnectionEvent"
-          },
-          {
             "$ref": "#/components/schemas/NodeStartedEvent"
           },
           {
@@ -10129,7 +10126,6 @@
             "environment.state": "#/components/schemas/EnvironmentStateEvent",
             "environment.exec": "#/components/schemas/EnvironmentExecEvent",
             "environment.attached": "#/components/schemas/EnvironmentAttachedEvent",
-            "egress.connection": "#/components/schemas/EgressConnectionEvent",
             "node.started": "#/components/schemas/NodeStartedEvent",
             "node.completed": "#/components/schemas/NodeCompletedEvent",
             "node.agent": "#/components/schemas/NodeAgentEvent",
@@ -14467,260 +14463,6 @@
             },
             "required": [
               "environmentId"
-            ],
-            "additionalProperties": {}
-          }
-        },
-        "required": [
-          "schema",
-          "eventId",
-          "tenantId",
-          "sessionId",
-          "runId",
-          "turnId",
-          "incarnation",
-          "epoch",
-          "seq",
-          "cursor",
-          "time",
-          "schemaVersion",
-          "source",
-          "evidence",
-          "visibility",
-          "retention",
-          "type",
-          "payload"
-        ]
-      },
-      "EgressConnectionEvent": {
-        "type": "object",
-        "properties": {
-          "schema": {
-            "type": "string",
-            "enum": [
-              "nylorun.event/2"
-            ]
-          },
-          "eventId": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "sessionId": {
-            "type": "string"
-          },
-          "runId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "turnId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "incarnation": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "epoch": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "seq": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "time": {
-            "type": "string"
-          },
-          "schemaVersion": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "source": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "client",
-                  "core",
-                  "model-gate",
-                  "tool-gate",
-                  "egress-gate",
-                  "sandboxes",
-                  "edge",
-                  "init",
-                  "controller",
-                  "loop",
-                  "supervisor",
-                  "harness",
-                  "evidence",
-                  "operator",
-                  "human",
-                  "api"
-                ]
-              },
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ]
-          },
-          "evidence": {
-            "type": "string",
-            "enum": [
-              "observed",
-              "measured",
-              "attested",
-              "claimed",
-              "asserted"
-            ]
-          },
-          "principal": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "application",
-                  "subject",
-                  "flow-host",
-                  "core"
-                ]
-              },
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ],
-            "additionalProperties": false
-          },
-          "trace": {
-            "type": "object",
-            "properties": {
-              "traceId": {
-                "type": "string"
-              },
-              "spanId": {
-                "type": "string"
-              },
-              "parentSpanId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "traceId",
-              "spanId"
-            ]
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "public",
-              "internal",
-              "restricted"
-            ]
-          },
-          "retention": {
-            "type": "string",
-            "enum": [
-              "full",
-              "metadata"
-            ]
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "egress.connection"
-            ]
-          },
-          "payload": {
-            "type": "object",
-            "properties": {
-              "environmentId": {
-                "type": "string"
-              },
-              "host": {
-                "type": "string"
-              },
-              "port": {
-                "type": "integer"
-              },
-              "outcome": {
-                "type": "string",
-                "enum": [
-                  "allowed",
-                  "refused"
-                ]
-              },
-              "reason": {
-                "type": "string"
-              },
-              "status": {
-                "type": "integer"
-              },
-              "mode": {
-                "type": "string",
-                "enum": [
-                  "tunnel",
-                  "credential"
-                ]
-              },
-              "credentialBound": {
-                "type": "boolean"
-              },
-              "credentialIds": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "requests": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "bytesUp": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "bytesDown": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "durationMs": {
-                "type": "number",
-                "minimum": 0
-              },
-              "startedAt": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "environmentId",
-              "host",
-              "port",
-              "outcome",
-              "mode",
-              "credentialBound",
-              "bytesUp",
-              "bytesDown",
-              "durationMs",
-              "startedAt"
             ],
             "additionalProperties": {}
           }
@@ -23427,9 +23169,6 @@
                       "$ref": "#/components/schemas/EnvironmentAttachedEvent"
                     },
                     {
-                      "$ref": "#/components/schemas/EgressConnectionEvent"
-                    },
-                    {
                       "$ref": "#/components/schemas/NodeStartedEvent"
                     },
                     {
@@ -26032,8 +25771,8 @@
         "tags": [
           "Environments"
         ],
-        "summary": "Read an Environment's lifecycle events",
-        "description": "`environment.created`, `.attached`, `.detached`, `.deleted` and a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, in order, numbered from 0.",
+        "summary": "Read an Environment's events",
+        "description": "`environment.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, and `environment.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most 1000 per call.",
         "security": [
           {
             "applicationKey": []
@@ -26070,6 +25809,36 @@
             "required": false,
             "description": "The first `seq` to return",
             "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only these event types, comma-separated (`environment.egress`)"
+            },
+            "required": false,
+            "description": "Only these event types, comma-separated (`environment.egress`)",
+            "name": "types",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only events recorded at or after this ISO time"
+            },
+            "required": false,
+            "description": "Only events recorded at or after this ISO time",
+            "name": "since",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only events recorded before this ISO time"
+            },
+            "required": false,
+            "description": "Only events recorded before this ISO time",
+            "name": "until",
             "in": "query"
           },
           {
