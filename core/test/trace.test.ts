@@ -55,6 +55,13 @@ it("matches a sandbox tool's input on the skills' mount path", () => {
   expect(
     skillOfToolCall(agent, "read", { path: "/skills/notes/references/a.md" }),
   ).toBe("notes");
+  // A version's folder (D66).
+  expect(
+    skillOfToolCall(agent, "bash", { command: "python /skills/triage@0123456789ab/scripts/run.py" }),
+  ).toBe("triage");
+  expect(
+    skillOfToolCall(agent, "read", { path: "/skills/notes@abcdef012345/a.md" }),
+  ).toBe("notes");
   expect(
     skillOfToolCall(agent, "grep", {
       pattern: "todo",

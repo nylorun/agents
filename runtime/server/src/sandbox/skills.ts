@@ -1,48 +1,50 @@
 /**
- * A sandbox's skills (track R2 M4): each skill of the session's agent, and of the agents it uses
- * as tools (they share its sandbox), gets its files under `/skills/<name>/`, read-only, so the
- * model can read them and run their scripts with bash. The SandboxManager mounts them on a
- * workspace before the first call of a session's run that opens it, and again when a session
- * with other skills uses it; the bytes come from the Tenant's definition files.
+ * A sandbox's skills (track R2 M4, D66): each version of a skill of the session's agent, and of
+ * the agents it uses as tools (they share its sandbox), gets its files in its own folder,
+ * `/skills/<name>@<hash>/` (`skillFolderOf`), read-only, so the model can read them and run their
+ * scripts with bash. A version's folder is written once and never replaced: sessions whose agents
+ * carry different versions of one skill share an Environment, and run turns at once, without
+ * changing each other's files. The SandboxManager mounts the folders a session needs before the
+ * first call that needs them; the bytes come from the Tenant's definition files. Folders live
+ * outside the persisted disk, so a stop clears them and the next open mounts what is in use.
  */
 import { posix } from "node:path";
-import { SKILLS_MOUNT, type AgentManifest } from "@nylorun/core/define";
-import { canonical } from "../store/canonical.js";
+import { skillFolderOf, type AgentManifest } from "@nylorun/core/define";
 import { quote } from "./tools.js";
 import type { SandboxHandle } from "./types.js";
 
 /** A skill's files, by path in its folder, as `sha256:<hex>`. */
 export type SkillFiles = Readonly<Record<string, string>>;
 
-/** The skills of the agent and the agents it uses as tools; the first of a name wins. */
+/**
+ * The skill versions of the agent and the agents it uses as tools, by folder
+ * (`/skills/<name>@<hash>`): each distinct version once.
+ */
 export function sandboxSkillsOf(
   manifest: AgentManifest | undefined,
   into = new Map<string, SkillFiles>()
 ): Map<string, SkillFiles> {
-  for (const skill of Object.values(manifest?.skills ?? {}))
-    if (!into.has(skill.name)) into.set(skill.name, skill.files);
+  for (const skill of Object.values(manifest?.skills ?? {})) {
+    const folder = skillFolderOf(skill);
+    if (!into.has(folder)) into.set(folder, skill.files);
+  }
   for (const tool of manifest?.tools ?? [])
     if (tool.agent !== undefined && !("kind" in tool.agent)) sandboxSkillsOf(tool.agent, into);
   return into;
 }
 
-/** What a mounted skill holds, to tell whether a workspace has these files already. */
-export function skillSignature(files: SkillFiles): string {
-  return canonical(files);
-}
-
 /**
- * Writes one skill's files to `/skills/<name>/` of the sandbox, replacing what was there, and
- * makes them read-only. `read` gives a file's bytes by `sha256:<hex>`.
+ * Writes one skill version's files to its folder `root` (`/skills/<name>@<hash>`), replacing a
+ * partial copy a failed mount left, and makes them read-only. `read` gives a file's bytes by
+ * `sha256:<hex>`.
  */
 export async function mountSkill(
   handle: SandboxHandle,
-  name: string,
+  root: string,
   files: SkillFiles,
   read: (sha256: string) => Promise<Uint8Array>,
   signal: AbortSignal
 ): Promise<void> {
-  const root = `${SKILLS_MOUNT}/${name}`;
   const exec = async (command: string) => {
     const result = await handle.exec({ command, cwd: "/", timeoutMs: 60_000 }, signal);
     if (result.exitCode !== 0)

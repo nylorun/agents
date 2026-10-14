@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent, AgentsClient } from "@nylorun/agents";
 import { DEFINITION_FILE_MAX_BYTES } from "@nylorun/core/contracts";
-import { DELEGATE_INPUT_SCHEMA } from "@nylorun/core/define";
+import { DELEGATE_INPUT_SCHEMA, skillFolderOf } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 
@@ -247,6 +247,10 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
   });
 
   it("puts a plugin skill's files in the sandbox, read-only, names them, and traces each call to the skill and its plugin", async () => {
+    const agent = Agent({ id: "triager", instructions: "Triage." }).plugin(pluginFolder()).build();
+    // The version's own folder (D66).
+    const folder = skillFolderOf(agent.manifest.skills!.triage!);
+    expect(folder).toMatch(/^\/skills\/triage@[0-9a-f]{12}$/);
     const runtime = await boot({
       harness,
       modelProvider: scripted([
@@ -254,14 +258,12 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
         {
           name: "bash",
           args: {
-            command:
-              "sh /skills/triage/scripts/run.sh; wc -c < /skills/triage/assets/logo.png; cat /skills/triage/references/labels.md",
+            command: `sh ${folder}/scripts/run.sh; wc -c < ${folder}/assets/logo.png; cat ${folder}/references/labels.md`,
           },
         },
         { name: "read_skill_resource", args: { name: "triage", path: "assets/logo.png" } },
       ]),
     });
-    const agent = Agent({ id: "triager", instructions: "Triage." }).plugin(pluginFolder()).build();
     const client = new AgentsClient({ url: runtime.url, key: APP });
     await client.saveAgent(agent, { implementationVersion: "dev" });
     await client.environments.put("triage", { kind: "virtual" });
@@ -269,12 +271,12 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     await session.input("Triage this.", { idempotencyKey: "m1" });
     expect(await settle(runtime, session.id)).toBe("completed");
     const [loaded, ran, logo] = await toolOutcomes(runtime, session.id);
-    expect(loaded.output).toMatchObject({ sandboxPath: "/skills/triage/" });
+    expect(loaded.output).toMatchObject({ sandboxPath: `${folder}/` });
     expect(ran.output).toMatchObject({ exitCode: 0 });
     expect(ran.output.stdout).toContain("triaged");
     expect(ran.output.stdout).toContain(`${LOGO.length}`);
     expect(ran.output.stdout).toContain("P0, P1");
-    expect(logo.error.message).toContain("/skills/triage/assets/logo.png");
+    expect(logo.error.message).toContain(`${folder}/assets/logo.png`);
     // From the log alone: each call names the skill it ran and the plugin that brought it.
     const plugin = { name: "ops", version: "1.2.0" };
     expect(loaded).toMatchObject({ kind: "platform", skill: "triage", plugin });
@@ -282,6 +284,6 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     expect(logo).toMatchObject({ skill: "triage", plugin });
     const { manifest } = await session.manifest();
     const runtimeBlock = (manifest as { runtime?: { instructions?: string[] } }).runtime;
-    expect(runtimeBlock?.instructions?.join("\n")).toContain("/skills/triage/");
+    expect(runtimeBlock?.instructions?.join("\n")).toContain(`${folder}/`);
   });
 });

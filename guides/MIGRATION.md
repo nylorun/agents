@@ -46,6 +46,14 @@ Part of protocol 14 (D66, D67).
   running when it opened (at most 16). To see a turn's egress, read the Environment's events
   with `types=environment.egress` and `since`/`until` around the turn
   (`client.environments.events(id, { types, since, until })`).
+- **A skill's files are in a folder per version.** In a sandbox, a skill's files are under
+  `/skills/<name>@<hash>/`, not `/skills/<name>/`, so two agents with different versions of a
+  skill can share an Environment. The instructions and `load_skill`'s `sandboxPath` give the
+  folder; a skill whose `SKILL.md` names `/skills/<name>/` should use paths relative to its own
+  folder instead.
+- **Sandbox commands of different sessions run at the same time.** Each session's commands keep
+  their order. A long command in one session no longer holds back another session's commands on
+  the same Environment.
 
 # One command: `nylo` is part of `nylorun`
 

@@ -78,7 +78,7 @@ export interface ToolCallPlace {
 
 /**
  * Where a tool call runs, and what it traces to: an MCP call names its server and the plugin
- * that brought it; a skill tool, or a sandbox tool whose input names `/skills/<name>/`, names the
+ * that brought it; a skill tool, or a sandbox tool whose input names `/skills/<name>@<hash>/`, names the
  * skill and its plugin. A tool the turn's harness declared (`nativeTools`) runs in the harness.
  */
 export function toolKindOf(
