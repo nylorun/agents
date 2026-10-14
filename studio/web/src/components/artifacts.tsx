@@ -4,6 +4,7 @@ import {
   useMemo,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ArtifactView, FolderEntry } from "@nylorun/agents";
@@ -36,17 +37,30 @@ import {
 const date = (value: string) => new Date(value).toLocaleString();
 const size = (bytes: number) => `${bytes.toLocaleString()} bytes`;
 
-/** Global and session inspectors share the same UI, with independent URL state. */
-function useSelection(session = false) {
+/**
+ * The artifacts page, a session's Outputs tab and an Environment's Disk tab share one
+ * inspector, each with its own URL state.
+ */
+export type ArtifactSelectionScope = "page" | "session" | "disk";
+const SELECTION_FIELDS = {
+  page: { selected: "selected", version: "version", tab: "tab", file: "file" },
+  session: {
+    selected: "artifact",
+    version: "artifactVersion",
+    tab: "artifactTab",
+    file: "artifactFile",
+  },
+  disk: {
+    selected: "diskArtifact",
+    version: "diskVersion",
+    tab: "diskTab",
+    file: "diskFile",
+  },
+} as const;
+
+export function useArtifactSelection(scope: ArtifactSelectionScope = "page") {
   const [query, setQuery] = useSearchParams();
-  const fields = session
-    ? {
-        selected: "artifact",
-        version: "artifactVersion",
-        tab: "artifactTab",
-        file: "artifactFile",
-      }
-    : { selected: "selected", version: "version", tab: "tab", file: "file" };
+  const fields = SELECTION_FIELDS[scope];
   const id = query.get(fields.selected) ?? "";
   const rawVersion = query.get(fields.version);
   const version = rawVersion === null ? undefined : Number(rawVersion);
@@ -68,7 +82,8 @@ function useSelection(session = false) {
       if (value === null) next.delete(field);
       else if (value !== undefined) next.set(field, value);
     }
-    if (session && values.selected) next.set("inspector", "artifacts");
+    if (scope === "session" && values.selected) next.set("inspector", "artifacts");
+    if (scope === "disk" && values.selected) next.set("tab", "disk");
     setQuery(next, { replace });
   }
   return {
@@ -80,13 +95,14 @@ function useSelection(session = false) {
     update,
   };
 }
+type ArtifactSelection = ReturnType<typeof useArtifactSelection>;
 
 export function Artifacts({ tenantId }: { tenantId: string }) {
   const [query, setQuery] = useSearchParams();
   const sessionId = query.get("sessionId") ?? "";
   const [sessionInput, setSessionInput] = useState(sessionId);
   const [artifactInput, setArtifactInput] = useState("");
-  const selection = useSelection();
+  const selection = useArtifactSelection("page");
   useEffect(() => setSessionInput(sessionId), [sessionId]);
   const close = () => selection.update({ selected: null });
   function filter(event: FormEvent) {
@@ -137,13 +153,13 @@ export function Artifacts({ tenantId }: { tenantId: string }) {
           />
         ) : (
           <div className="space-y-3 rounded border p-4 text-sm">
-            <h2 className="font-medium">
-              Tenant-wide artifact browsing needs a paged API
-            </h2>
+            <h2 className="font-medium">Open an artifact</h2>
             <p className="text-muted-foreground">
-              The current Runtime lists all tenant artifacts in one response.
-              Select a session above or open an artifact by ID. A public
-              artifact pagination API is required for the tenant-wide table.
+              Artifacts live with what made them: a session's outputs on its
+              Outputs tab, and an Environment's disk versions on its Disk tab.
+              Open one here by ID, such as an input file an Environment's
+              recipe copies in. Studio lists no Tenant-wide table: the Runtime
+              has no paged list of every artifact.
             </p>
             <form
               className="flex flex-wrap gap-2"
@@ -185,7 +201,7 @@ export function SessionArtifacts({
   sessionId: string;
   revision: string;
 }) {
-  const selection = useSelection(true);
+  const selection = useArtifactSelection("session");
   return (
     <div className="min-h-0 flex-1 overflow-auto p-4">
       <ArtifactList
@@ -193,6 +209,7 @@ export function SessionArtifacts({
         sessionId={sessionId}
         selection={selection}
         revision={revision}
+        heading="Outputs"
       />
       {selection.id ? (
         <div className="mt-4 border-t">
@@ -213,11 +230,13 @@ function ArtifactList({
   sessionId,
   selection,
   revision = "",
+  heading = `Artifacts · ${sessionId}`,
 }: {
   tenantId: string;
   sessionId: string;
-  selection: ReturnType<typeof useSelection>;
+  selection: ArtifactSelection;
   revision?: string;
+  heading?: string;
 }) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
   const load = useCallback(
@@ -228,9 +247,7 @@ function ArtifactList({
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-medium break-all">
-          Artifacts · {sessionId}
-        </h2>
+        <h2 className="text-sm font-medium break-all">{heading}</h2>
         <Button
           size="sm"
           variant="outline"
@@ -294,21 +311,24 @@ function ArtifactList({
         empty={
           read.data?.length
             ? undefined
-            : "No exported artifacts yet. Artifacts appear when a client uploads a file or a turn exports outputs."
+            : "No outputs yet. They appear when a client uploads a file to the session or a turn exports outputs."
         }
       />
     </section>
   );
 }
 
-function ArtifactInspector({
+export function ArtifactInspector({
   tenantId,
   selection,
   onClose,
+  owner,
 }: {
   tenantId: string;
-  selection: ReturnType<typeof useSelection>;
+  selection: ArtifactSelection;
   onClose: () => void;
+  /** Who holds it, when not a session or the Tenant: an Environment's disk. */
+  owner?: { label: string; value: ReactNode };
 }) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
   const { id, version, validVersion, tab, file, update } = selection;
@@ -392,7 +412,7 @@ function ArtifactInspector({
               entries={[
                 ["Artifact ID", id],
                 ["Kind", artifact.kind],
-                [
+                owner ? [owner.label, owner.value] : [
                   "Session",
                   artifact.sessionId ? (
                     <Link

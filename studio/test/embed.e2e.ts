@@ -55,7 +55,12 @@ async function fakeRuntime({ listsMissing = false } = {}) {
       return res.end(
         JSON.stringify({
           status: "ok",
-          protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
+          protocol: {
+            min: PROTOCOL_VERSION,
+            max: PROTOCOL_VERSION,
+            // The Environments page reads its list in pages (`session-reads`).
+            features: [...PROTOCOL_FEATURES, ...(listsMissing ? ["session-reads"] : [])],
+          },
         }),
       );
     if (path === "/v1/tenant") return res.end(JSON.stringify({ tenant: { id: TENANT, name: "orders" } }));
@@ -329,7 +334,8 @@ test("a Runtime answering {} for provider and Environment lists leaves the dashb
         await page.getByText("The Runtime did not return connected model providers.").waitFor();
         await page.getByText("Agent One").first().waitFor();
 
-        await page.goto(`${studioUrl}/tenants/${TENANT}/settings/credentials`);
+        // The Environments page reports the missing list instead of crashing.
+        await page.goto(`${studioUrl}/tenants/${TENANT}/environments`);
         await page.getByText("The Runtime did not return the Tenant's Environments.").waitFor();
         assert.equal(await page.getByText("Something went wrong in this view").count(), 0);
         assert.deepEqual(pageErrors, []);

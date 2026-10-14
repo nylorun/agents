@@ -343,6 +343,10 @@ test("New session creates the session for the local developer, with no Environme
     assert.equal(puts[0]!.body.agentId, AGENT);
     assert.equal(puts[0]!.body.ownerUserId, "local-developer");
     assert.equal(puts[0]!.body.environment, undefined);
+    // Its Environment tab says it has none: no sandbox, no secrets.
+    await page.getByText("Environment: None", { exact: true }).waitFor();
+    await page.getByRole("tab", { name: "Environment", exact: true }).click();
+    await page.getByText("This session names no Environment", { exact: false }).waitFor();
   });
 });
 

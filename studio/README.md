@@ -85,63 +85,98 @@ session (agent, owner, status), filtered to an agent from the table or from the
 agents listed under Sessions in the sidebar, with **New session** for a
 registered agent; `/tenants/<id>/sessions?agent=<agentId>` is the filtered list,
 and `/tenants/<id>/agents/<agentId>` opens it. Each session shows chat beside an
-**Events** inspector, an Artifacts tab and an optional Agent Manifest tab.
-**Environments** and **Artifacts** sit under Sessions in the sidebar. The sidebar's header
-shows the Tenant and the Runtime's status; selecting the Tenant opens its
-Overview. **Models** and **Credentials** have their own entries at the bottom
-of the sidebar. Credentials picks an Environment (`?environment=<id>`) and
-manages the secrets of its vault through the Runtime API
-(`PUT|DELETE /v1/environments/{id}/secrets/{name}`): a Bearer token or a Headers
-map (name and value rows) bound to a URL, with an optional gateway URL (`via`)
-and identity header, or a shell secret or variable for skills' CLIs in its
-sandbox. A `PUT` replaces the secret, so rotating sends the whole credential
-again. **Preview tools** on a URL-bound one lists the MCP server's tools behind
-it with that Environment's credential (`POST /v1/tenant/mcp/preview`, Management
-API, which Overview and Models use too); secret reads return names, types and
-bindings, never values. There are no user or installation vaults. **New
-session** opens an Environment picker first when the Tenant has Environments or
-the agent's MCP servers or HTTP tools take a credential: **None** (no sandbox, no
-credentials) or one Environment, with what each server and tool would get from
-its secrets (`POST /v1/tenant/credential-coverage { agentId, environmentId }`):
-covered, no credential (an MCP server is called without one) or a call that
-would fail. An Environment whose owner guard names another owner than Studio's
+**Events** inspector, an **Outputs** tab (the session's artifacts), an
+**Environment** tab and an optional Agent Manifest tab. The sidebar holds
+**Sessions** and **Environments**; its header shows the Tenant and the Runtime's
+status, and selecting the Tenant opens its Overview. **Models** is the one
+setting, at the bottom of the sidebar. **New session** opens an Environment
+picker first when the Tenant has Environments or the agent's MCP servers or HTTP
+tools take a credential: **None** (no sandbox, no credentials) or one
+Environment, with what each server and tool would get from its secrets
+(`POST /v1/tenant/credential-coverage { agentId, environmentId }`): covered, no
+credential (an MCP server is called without one) or a call that would fail. An
+Environment whose owner guard names another owner than Studio's
 (`local-developer`) cannot be picked. The session opens with `environment: <id>`.
 Otherwise the session starts at once, without an Environment.
 
-Settings links use `/tenants/<id>/settings/overview`, `/settings/models` and
-`/settings/credentials` under the same Tenant prefix. Legacy `/settings` and
-`/vault` links redirect to Models and Credentials respectively, including embeds.
+A session's **Environment** tab shows where it runs: the Environment it names
+(linked to its page), its kind and state, the recipe version the session opened
+on beside the current one, the harness, sandbox and allowed hosts, what this
+agent's MCP servers and HTTP tools get from the Environment's secrets (the same
+coverage check), its latest disk version, and the other sessions that name it.
+It only reads: a reset, a restore or a secret change applies to every session
+that names the Environment, so those stay on the Environment's page. A session
+without an Environment says it has no sandbox and no secrets.
+
+Settings links use `/tenants/<id>/settings/overview` and `/settings/models`
+under the same Tenant prefix; a legacy `/settings` link redirects to Models.
 A session paused on a tool call the Tenant's tool policy holds shows an approval card with the
 tool, why it is held and its input, with **Approve** and **Deny**. Token streaming and media are
 deferred.
 
-## Environments and artifacts
+## Environments
 
-The sidebar includes Environments and Artifacts even before agents register.
-The Environments table lists each one's kind and state, recipe version (and the
-version a pod still runs), owner guard, labels, sessions and last use, with
-server paging and label filters. **New Environment** opens a form built from the
-recipe (`PUT /v1/environments/{id}`): id, kind (`virtual`, `pod` or `none`),
-image and storage for a pod, CPUs and memory, allowed hosts, labels, owner
-guard, and `lifecycle.idle` and `lifecycle.deleteAfter`. Rows open a resizable
-right-hand inspector (a sheet on narrow screens) with metadata and the recipe,
-the vault's secrets (names, types and bindings, never values), paged sessions
-that name it and manually refreshed lifecycle events, and **Edit recipe** (the
-same form; kind and storage are fixed), **Stop** and **Reset** for a pod, and
-**Delete**. Old `/sandboxes` links redirect to `/environments`. Session links
-open the dedicated session page; Environment and artifact inspectors preserve
-their selection and tabs in the URL.
+An Environment is where sessions run: one sandbox (kind `virtual`, `pod` or
+`none`), one vault of secrets and versions of its disk. Studio shows them on one
+page per Environment instead of separate Sandboxes, Credentials and Artifacts
+pages. The sidebar includes Environments even before agents register.
 
-Artifacts are browsable by session or known artifact ID. The inspector pins a
-numbered version and shows metadata, version history, bounded previews, exported
-folder files and changes between adjacent versions. Session artifact events and
-versioned message file parts open that exact version. Text previews stop at
-256 KiB; raster images at 10 MiB. HTML and SVG appear as escaped source.
-Downloads stream through the proxy as attachments using a 60-second capability
-minted by the existing Runtime API, including in embeds. No full-file browser
-buffer is used for downloads.
+The Environments table (`/environments`) lists each one's kind and state, recipe
+version (and the version a pod still runs), owner guard, labels, sessions and
+last use, with server paging and label filters. **New Environment** opens a form
+built from the recipe (`PUT /v1/environments/{id}`): id, kind, image and storage
+for a pod, CPUs and memory, allowed hosts, harness, a pod's setup commands
+(command, directory, timeout) and input files (a Tenant-wide artifact's version
+and the path it is copied to), labels, owner guard, and `lifecycle.idle` and
+`lifecycle.deleteAfter`.
 
-Tenant-wide artifact browsing awaits the public paged artifact API described in
+Each Environment's page is `/environments/<id>` (the id percent-encoded as one
+segment), with **Edit recipe** (the same form; kind and storage are fixed),
+**Stop** and **Reset** for a pod, and **Delete**; confirmations name how many
+sessions still name it. Its tabs (`?tab=`):
+
+- **Overview**: its sandbox, recipe and use, as fields, with the recipe as JSON.
+- **Secrets**: its vault, through the Runtime API
+  (`PUT|DELETE /v1/environments/{id}/secrets/{name}`): a Bearer token or a
+  Headers map (name and value rows) bound to a URL, with an optional gateway URL
+  (`via`) and identity header, or a shell secret or variable for skills' CLIs in
+  its sandbox (not offered for kind `none`). A `PUT` replaces the secret, so
+  rotating sends the whole credential again. **Preview tools** on a URL-bound one
+  lists the MCP server's tools behind it with that Environment's credential
+  (`POST /v1/tenant/mcp/preview`, Management API); secret reads return names,
+  types and bindings, never values. There are no user or installation vaults.
+- **Disk** (not for kind `none`): its disk versions, newest first. **Snapshot
+  disk** keeps one; **Restore** puts one back (a pod gets a new volume seeded
+  before the next turn); **New Environment** creates one whose disk starts from
+  that version (`PUT … { from }`; its vault starts empty); **Delete** removes one;
+  **Browse** opens the version in the artifact inspector (files and changes),
+  since the versions are versions of a folder artifact the Environment owns.
+- **Setup & files**: a pod's input files (linked to the artifact) and setup
+  commands, run on a new disk; a change applies at the next reset.
+- **Sessions**: paged sessions that name it, each linked to its page and Outputs.
+- **Events**: manually refreshed lifecycle events.
+
+Old links redirect, including in embeds: `/environments?selected=<id>&tab=…` to
+the page, `/settings/credentials?environment=<id>` and `/vault?environment=<id>`
+to its Secrets tab (without an Environment, to `/environments`), and
+`/sandboxes` to `/environments`. Pages keep their selection and tabs in the URL.
+
+## Artifacts
+
+Artifacts open where they belong: a session's outputs on its Outputs tab, an
+Environment's disk versions on its Disk tab, and an input file from its
+Environment's Setup & files tab. `/artifacts` has no sidebar entry; it opens a
+known artifact by id (`/artifacts?selected=<id>&version=<n>`) or a session's
+artifacts (`?sessionId=`), which keeps existing and embedded links working. The
+inspector pins a numbered version and shows metadata, version history, bounded
+previews, exported folder files and changes between adjacent versions. Session
+artifact events and versioned message file parts open that exact version. Text
+previews stop at 256 KiB; raster images at 10 MiB. HTML and SVG appear as
+escaped source. Downloads stream through the proxy as attachments using a
+60-second capability minted by the existing Runtime API, including in embeds. No
+full-file browser buffer is used for downloads.
+
+A Tenant-wide artifact table awaits the public paged artifact API described in
 [API_REQUIREMENTS.md](API_REQUIREMENTS.md). Studio never requests an unbounded
 tenant artifact list or accesses databases, Kubernetes or object storage.
 Artifact uploads, deletion and sharing are deferred.

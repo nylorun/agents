@@ -3,14 +3,14 @@
 Studio uses only the public Runtime and Management APIs through its authenticated
 same-origin proxy. This change adds no database connection, storage client,
 Runtime route or SDK method. Artifacts are read-only in this increment; Environments
-(protocol 11) are created, changed, stopped, reset and deleted through their public
-routes.
+(protocol 11) are created, changed, stopped, reset and deleted, and their disk versions
+kept, restored, forked and deleted, through their public routes.
 
 ## Required parallel PR: artifact pagination
 
 `GET /v1/artifacts` currently returns the entire reachable collection. Studio
-calls it **only with a session ID**. The tenant-wide Artifacts view offers a
-session filter and lookup by artifact ID; it does not fetch the entire Tenant,
+calls it **only with a session ID**. The `/artifacts` page (no sidebar entry)
+offers a session filter and lookup by artifact ID; it does not fetch the entire Tenant,
 truncate an unbounded response, or simulate pagination in the browser.
 
 Add opt-in pagination to that public route and expose it to all clients:
@@ -43,8 +43,14 @@ session-scoped lists. This is the only API blocker for the browsing design.
 | Environment metadata and recipe | `environments.get()` → `GET /v1/environments/{id}` |
 | New Environment, Edit recipe | `environments.put(id, recipe)` → `PUT /v1/environments/{id}` |
 | Stop, Reset (pods), Delete | `environments.stop()`, `.reset()`, `.delete()` → `POST /v1/environments/{id}/stop`, `POST …/reset`, `DELETE /v1/environments/{id}` |
-| Secrets (names, types, bindings) | `environments.secrets.list()` → `GET /v1/environments/{id}/secrets` |
-| Credentials forms | `environments.secrets.put()`, `.delete()` → `PUT`, `DELETE /v1/environments/{id}/secrets/{name}` |
+| Secrets tab (names, types, bindings) | `environments.secrets.list()` → `GET /v1/environments/{id}/secrets` |
+| Secrets tab forms | `environments.secrets.put()`, `.delete()` → `PUT`, `DELETE /v1/environments/{id}/secrets/{name}` |
+| Disk tab: versions | `environments.versions()` → `GET /v1/environments/{id}/versions` |
+| Disk tab: Snapshot disk, Restore, Delete | `environments.snapshot()`, `.restore(id, version)`, `.deleteVersion()` → `POST …/snapshot`, `POST …/restore`, `DELETE …/versions/{n}` |
+| Disk tab: New Environment from a version | `environments.put(id, { …recipe, from: { environment, version } })` → `PUT /v1/environments/{id}` |
+| Disk tab: Browse a version | the artifact reads below, on the `artifactId` the versions read names |
+| Setup & files tab | the recipe's `setup` and `files` from `GET /v1/environments/{id}`; edited with `PUT` |
+| Session's Environment tab | `session.inspect()` (`environment: { id, version }`), `environments.get()`, Management `coverage({ agentId, environmentId })` |
 | Sessions that name it | `sessions.page({ environmentId })` → `GET /v1/sessions?limit=50&environmentId=…` |
 | Lifecycle events, manual refresh | `environments.events({ from })` → `GET /v1/environments/{id}/events?from=…` |
 | New session's Environment picker | `environments.list()` → `GET /v1/environments`; Management `coverage({ agentId, environmentId })` → `POST /v1/tenant/credential-coverage` |
@@ -71,6 +77,6 @@ polls or attaches an Environment SSE stream. Bounded event pages would improve l
 histories, but are not a blocker for this increment.
 
 Artifact version histories and folder trees are also ordinary existing reads.
-Their pagination, lifecycle controls, uploads, deletion, share UI, workspace
-browsing and snapshots are deferred. Do not introduce Studio-only data endpoints
+Their pagination, lifecycle controls, uploads, deletion, share UI and live
+workspace browsing are deferred (a disk version is browsable once kept). Do not introduce Studio-only data endpoints
 or direct infrastructure access to fill these gaps.

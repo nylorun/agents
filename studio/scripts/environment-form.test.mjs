@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   EMPTY_ENVIRONMENT_FORM,
   environmentForm,
+  forkForm,
   environmentRequest,
   isEnvironmentIdText,
   parseLabels,
@@ -100,6 +101,9 @@ test("an edit sends the recipe as the form holds it, never kind or storage; a cl
     ownerUserId: "local-developer",
     idle: "15m",
     deleteAfter: "",
+    harness: "",
+    setup: [],
+    files: [],
   });
   assert.deepEqual(environmentRequest({ ...filled, ownerUserId: "", idle: "", allowedHosts: "" }, view), {
     labels: { project: "build" },
@@ -109,6 +113,99 @@ test("an edit sends the recipe as the form holds it, never kind or storage; a cl
     ownerUserId: null,
     lifecycle: {},
   });
+});
+
+const ARTIFACT = "af_01k7aaaaaaaaaaaaaaaaaaaaaa";
+
+test("a pod's setup commands and input files are sent in order; empty rows are dropped", () => {
+  assert.deepEqual(
+    environmentRequest(
+      form({
+        id: "team/build",
+        kind: "pod",
+        setup: [
+          { command: " pip install -r requirements.txt ", cwd: "/workspace/app", timeout: "15m" },
+          { command: "", cwd: "", timeout: "" },
+          { command: "make", cwd: "", timeout: "" },
+        ],
+        files: [{ artifactId: ARTIFACT, version: "2", path: "/workspace/data" }],
+      }),
+    ),
+    {
+      kind: "pod",
+      setup: [
+        { command: "pip install -r requirements.txt", cwd: "/workspace/app", timeout: "15m" },
+        { command: "make" },
+      ],
+      files: [{ artifactId: ARTIFACT, version: 2, path: "/workspace/data" }],
+    },
+  );
+});
+
+test("refuses setup and files off a pod, and rows the Runtime would refuse, naming the row", () => {
+  const setup = [{ command: "make", cwd: "", timeout: "" }];
+  assert.throws(() => environmentRequest(form({ setup })), /Only a pod runs setup/);
+  const pod = (fields) => form({ kind: "pod", ...fields });
+  assert.throws(() => environmentRequest(pod({ setup: [{ command: "", cwd: "/workspace", timeout: "" }] })), /Setup command 1 has no command/);
+  assert.throws(() => environmentRequest(pod({ setup: [{ command: "make", cwd: "/tmp", timeout: "" }] })), /directory must be \/workspace/);
+  assert.throws(() => environmentRequest(pod({ setup: [{ command: "make", cwd: "/workspace/../etc", timeout: "" }] })), /directory/);
+  assert.throws(() => environmentRequest(pod({ setup: [{ command: "make", cwd: "", timeout: "soon" }] })), /timeout must be a duration/);
+  assert.throws(() => environmentRequest(pod({ files: [{ artifactId: "report", version: "1", path: "/workspace" }] })), /Input file 1 needs an artifact id/);
+  assert.throws(() => environmentRequest(pod({ files: [{ artifactId: ARTIFACT, version: "0", path: "/workspace" }] })), /needs a version/);
+  assert.throws(() => environmentRequest(pod({ files: [{ artifactId: ARTIFACT, version: "1", path: "data" }] })), /path must be \/workspace/);
+  const many = Array.from({ length: 17 }, () => ({ command: "true", cwd: "", timeout: "" }));
+  assert.throws(() => environmentRequest(pod({ setup: many })), /at most 16 setup commands/);
+});
+
+test("an edit sends setup and files only when the recipe has them or the form adds them", () => {
+  const view = {
+    kind: "pod",
+    recipe: { harness: "nylorun", lifecycle: {}, setup: [{ command: "make" }] },
+  };
+  const filled = { ...EMPTY_ENVIRONMENT_FORM, kind: "pod", setup: [] };
+  // Clearing the recipe's setup sends []; files it never had stay unsent.
+  assert.deepEqual(environmentRequest(filled, view), {
+    labels: {},
+    network: { allowedHosts: [] },
+    ownerUserId: null,
+    lifecycle: {},
+    setup: [],
+  });
+});
+
+test("a harness id is sent when set; a cleared custom harness goes back to ours", () => {
+  assert.deepEqual(environmentRequest(form({ harness: "codex" })), { kind: "virtual", harness: "codex" });
+  assert.throws(() => environmentRequest(form({ harness: "Codex CLI" })), /Harness must be a harness id/);
+  const view = { kind: "virtual", recipe: { harness: "codex", lifecycle: {} } };
+  assert.equal(environmentRequest(form({ harness: "" }), view).harness, "nylorun");
+  assert.equal(environmentForm({ ...view, id: "a", labels: {}, ownerUserId: null }).harness, "codex");
+});
+
+test("a new Environment can start from another's disk version: the source's recipe, no owner guard", () => {
+  const source = {
+    id: "team/build",
+    kind: "pod",
+    labels: { project: "build" },
+    recipe: { harness: "nylorun", lifecycle: {}, storage: "5GiB" },
+    ownerUserId: "local-developer",
+  };
+  const fork = forkForm(source, "team/build-copy");
+  assert.equal(fork.id, "team/build-copy");
+  assert.equal(fork.ownerUserId, "");
+  assert.deepEqual(environmentRequest(fork, undefined, { environment: "team/build", version: 3 }), {
+    kind: "pod",
+    labels: { project: "build" },
+    storage: "5GiB",
+    from: { environment: "team/build", version: 3 },
+  });
+  assert.throws(
+    () => environmentRequest(fork, source, { environment: "team/build", version: 3 }),
+    /Only a new Environment starts from a disk version/,
+  );
+  assert.throws(
+    () => environmentRequest(form({ kind: "none" }), undefined, { environment: "a", version: 1 }),
+    /kind none has no disk/,
+  );
 });
 
 test("an Environment id is /-separated segments of letters, digits, '.', '_' and '-'", () => {

@@ -607,7 +607,7 @@ Either kind may add:
 - **`identity: { header }`**: a header that carries the session owner's subject, for a gateway
   that keeps each person's accounts ([Reaching a person's accounts](#reaching-a-persons-accounts)).
 
-Write one on Studio's Credentials page (in the sidebar), with `@nylorun/agents`, or with
+Write one on the Environment's Secrets tab in Studio (Environments, then the Environment), with `@nylorun/agents`, or with
 `PUT /v1/environments/{id}/secrets/{name}`:
 
 ```ts
@@ -801,7 +801,7 @@ nylorun mcp inspect https://mcp.linear.app/mcp --server linear --environment pro
 the URL (its headers and `via`, never an identity header), or with none when you name no
 Environment, lists the server's tools within 15 s, and calls none. So do
 `admin.mcp.preview({ url, environmentId })`, `POST /v1/tenant/mcp/preview` with
-`{ url, environmentId }` and **Preview tools** on Studio's Credentials page. It shows each tool's model name (as a manifest naming the server
+`{ url, environmentId }` and **Preview tools** on an Environment's Secrets tab in Studio. It shows each tool's model name (as a manifest naming the server
 `--server` would give it), its hints and the size of its input schema, and the tools renamed for
 the model. A server that answers `401` needs a credential: the preview says so and shows the
 server's sign-in metadata (RFC 9728), so you know to add a key or reach it through a gateway. Use
@@ -939,7 +939,7 @@ with `409 credential_conflict`. Every session on the Environment gets its secret
 owner guard (`ownerUserId`) on an Environment that holds a person's own token. Pod Environments
 only: a virtual one gets the variables but no header. A refused release is a `502` to the CLI and
 an `egress_credential_refused` line in the gateway's log, never a session event. Write, replace
-and delete them in Studio's Credentials page (type **Secret** or **Variable**), with
+and delete them on an Environment's Secrets tab in Studio (type **Secret** or **Variable**), with
 `client.environments.secrets` in `@nylorun/agents`, or on the Runtime API.
 
 ## The harness: agent turns, MCP servers and workspaces

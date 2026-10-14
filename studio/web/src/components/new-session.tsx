@@ -10,7 +10,6 @@ import {
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { EnvironmentView } from "@nylorun/agents";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -22,13 +21,11 @@ import {
 } from "@/components/ui/sheet";
 import {
   coverageCounts,
-  coverageCredentialLabel,
-  coverageEntryLabel,
-  coverageStatusLabel,
-  coverageTone,
   environmentUnavailable,
   type Coverage,
 } from "@/credential-coverage";
+import { CoverageList } from "@/components/coverage-list";
+import { environmentPath } from "@/environment-path";
 import { createTenantClient, createTenantManagementClient } from "@/proxy-client";
 import {
   STUDIO_OWNER,
@@ -134,12 +131,6 @@ export function useStartSession(): (agent: SessionAgent) => void {
     [start, navigate],
   );
 }
-
-const TONE_CLASS = {
-  ok: "border-emerald-600/40 text-emerald-700 dark:text-emerald-400",
-  warn: "border-amber-500/50 text-amber-700 dark:text-amber-400",
-  error: "border-red-600/50 text-red-600 dark:text-red-400",
-} as const;
 
 /**
  * The Environment a new session names, or none, with what the agent's MCP servers and HTTP
@@ -268,38 +259,11 @@ function NewSessionSheet({
               <h3 id="new-session-coverage" className="text-sm font-medium">
                 What the tools get{checking ? " · checking…" : ""}
               </h3>
-              <ul className="grid gap-2">
-                {coverage.entries.map((entry) => {
-                  const tone = coverageTone(entry);
-                  const credential = coverageCredentialLabel(entry);
-                  return (
-                    <li
-                      key={`${entry.kind}:${entry.agentId ?? ""}:${entry.stage ?? ""}:${entry.name}`}
-                      className="grid gap-1 rounded-md border p-3 text-sm"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {coverageEntryLabel(entry)}
-                        </span>
-                        <Badge variant="outline" className={TONE_CLASS[tone]}>
-                          {coverageStatusLabel(entry)}
-                        </Badge>
-                      </div>
-                      <code className="truncate text-xs text-muted-foreground" title={entry.url}>
-                        {entry.url}
-                      </code>
-                      {credential ? (
-                        <p className="text-xs text-muted-foreground">Sends {credential}</p>
-                      ) : null}
-                      <p className="text-muted-foreground">{entry.message}</p>
-                    </li>
-                  );
-                })}
-              </ul>
+              <CoverageList coverage={coverage} />
               {picked ? (
                 <Link
                   className="text-sm text-primary underline underline-offset-4"
-                  to={`/settings/credentials?${new URLSearchParams({ environment: picked.id })}`}
+                  to={environmentPath(picked.id, "secrets")}
                 >
                   Manage {picked.id}'s credentials
                 </Link>

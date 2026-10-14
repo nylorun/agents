@@ -2,12 +2,10 @@ import type { StudioTenantInfo } from "@/config";
 import type { SettingsSection } from "@/components/app-sidebar";
 import { ModelSettings } from "@/components/model-settings";
 import { TenantOverview } from "@/components/tenant-overview";
-import { CredentialsModule } from "@/components/vault";
 
 export const SETTINGS_SECTIONS: Readonly<Record<SettingsSection, string>> = {
   overview: "Tenant overview",
   models: "Models",
-  credentials: "Credentials",
 };
 
 export function settingsSection(pathname: string): SettingsSection | undefined {
@@ -17,7 +15,10 @@ export function settingsSection(pathname: string): SettingsSection | undefined {
     : undefined;
 }
 
-/** One Tenant settings section; the sidebar navigates between them. */
+/**
+ * One Tenant settings section; the sidebar navigates between them. Secrets are not here: each
+ * Environment holds its own vault, on its page.
+ */
 export function TenantSettings({
   tenant,
   section,
@@ -26,6 +27,5 @@ export function TenantSettings({
   section: SettingsSection;
 }) {
   if (section === "models") return <ModelSettings tenantId={tenant.id} />;
-  if (section === "credentials") return <CredentialsModule tenantId={tenant.id} />;
   return <TenantOverview tenant={tenant} />;
 }

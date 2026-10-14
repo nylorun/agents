@@ -11,26 +11,28 @@ const matches = (pattern: string, path: string) =>
 
 /**
  * Environment reads on the Runtime API: the list (with label filters and pages), one
- * Environment, its lifecycle events, and its secrets' names, types and bindings (never a
- * value).
+ * Environment, its lifecycle events, its disk versions, and its secrets' names, types and
+ * bindings (never a value).
  */
 function isEnvironmentRead(method: string, path: string): boolean {
   return (
     method === "GET" &&
     (path === "/v1/environments" ||
-      matches(`${ENVIRONMENT}(?:/events|/secrets(?:/[^/]+)?)?`, path))
+      matches(`${ENVIRONMENT}(?:/events|/versions|/secrets(?:/[^/]+)?)?`, path))
   );
 }
 
 /**
- * Environment writes on the Runtime API: create or change one (`PUT`), stop or reset it,
- * delete it, and write or delete one of its secrets.
+ * Environment writes on the Runtime API: create or change one (`PUT`), stop or reset it, keep
+ * or restore a version of its disk, delete it or one of its disk versions, and write or delete
+ * one of its secrets.
  */
 function isEnvironmentWrite(method: string, path: string): boolean {
   return (
     (method === "PUT" && matches(`${ENVIRONMENT}(?:/secrets/[^/]+)?`, path)) ||
-    (method === "POST" && matches(`${ENVIRONMENT}/(?:stop|reset)`, path)) ||
-    (method === "DELETE" && matches(`${ENVIRONMENT}(?:/secrets/[^/]+)?`, path))
+    (method === "POST" && matches(`${ENVIRONMENT}/(?:stop|reset|snapshot|restore)`, path)) ||
+    (method === "DELETE" &&
+      matches(`${ENVIRONMENT}(?:/secrets/[^/]+|/versions/[1-9]\\d*)?`, path))
   );
 }
 

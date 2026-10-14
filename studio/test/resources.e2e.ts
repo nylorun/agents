@@ -8,6 +8,8 @@ import {
   TENANT,
   SESSION,
   ENVIRONMENT,
+  POD,
+  INPUT_ARTIFACT,
 } from "./support/resource-runtime.ts";
 
 async function withStudio(
@@ -43,7 +45,10 @@ async function withStudio(
     if (!mutates)
       assert.deepEqual(
         runtime.requests.filter(
-          (r) => r.method !== "GET" && !r.path.endsWith("/links"),
+          (r) =>
+            r.method !== "GET" &&
+            !r.path.endsWith("/links") &&
+            r.path !== "/v1/tenant/credential-coverage",
         ),
         [],
         "resource browsing never mutates a session, Environment or artifact",
@@ -60,17 +65,20 @@ async function withStudio(
   }
 }
 
-test("Environments work before agent registration: server paging, label navigation, secrets, events and sessions", async () => {
+test("Environments work before agent registration: server paging, label navigation, an Environment's page, its secrets, events and sessions", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
     // No agent is registered; the session list still lists the Tenant's sessions.
     await page
       .getByRole("heading", { name: "Sessions", exact: true })
       .waitFor();
+    // Environments hold sandboxes, secrets and disk versions: no Artifacts or Credentials entry.
+    assert.equal(await page.getByRole("link", { name: "Artifacts", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("link", { name: "Credentials", exact: true }).count(), 0);
     await page.getByRole("link", { name: "Environments", exact: true }).click();
-    await page.getByRole("button", { name: ENVIRONMENT, exact: true }).waitFor();
+    await page.getByRole("link", { name: ENVIRONMENT, exact: true }).waitFor();
     await page.getByRole("button", { name: "Load more Environments" }).click();
-    await page.getByRole("button", { name: "z-last", exact: true }).waitFor();
+    await page.getByRole("link", { name: "z-last", exact: true }).waitFor();
     assert.ok(
       requests.some((r) => r.path === "/v1/environments?limit=50&cursor=page2"),
     );
@@ -79,13 +87,15 @@ test("Environments work before agent registration: server paging, label navigati
       .fill("project=build");
     await page.getByRole("button", { name: "Apply labels" }).click();
     await page.waitForURL(/label=project%3Dbuild/);
-    await page.getByRole("button", { name: ENVIRONMENT, exact: true }).click();
-    await page.getByText("Virtual workspace;", { exact: false }).waitFor();
-    assert.ok(page.url().includes("selected=team%2Fbuild"));
+    await page.getByRole("link", { name: ENVIRONMENT, exact: true }).click();
+    await page.waitForURL(/\/environments\/team%2Fbuild$/);
+    await page.getByRole("heading", { name: ENVIRONMENT, exact: true }).waitFor();
+    await page.getByText("A virtual workspace has no pod", { exact: false }).waitFor();
     // A virtual Environment has no pod to stop or reset.
     assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).count(), 0);
     assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).count(), 0);
     await page.getByRole("tab", { name: "Secrets", exact: true }).click();
+    await page.waitForURL(/tab=secrets/);
     await page.getByText("github", { exact: true }).waitFor();
     await page.getByText("https://api.githubcopilot.com/mcp/", { exact: true }).waitFor();
     await page.getByRole("tab", { name: "Events", exact: true }).click();
@@ -106,7 +116,7 @@ test("Environments work before agent registration: server paging, label navigati
     await page.waitForURL(
       new RegExp(`/agents/external-agent/sessions/${SESSION}$`),
     );
-    await page.getByRole("tab", { name: "Artifacts", exact: true }).click();
+    await page.getByRole("tab", { name: "Outputs", exact: true }).click();
     await page
       .getByRole("button", { name: "report.html", exact: true })
       .click();
@@ -115,7 +125,36 @@ test("Environments work before agent registration: server paging, label navigati
     await page
       .getByRole("link", { name: `Environment: ${ENVIRONMENT}`, exact: true })
       .click();
-    await page.getByRole("tab", { name: "Details", exact: true }).waitFor();
+    await page.waitForURL(/\/environments\/team%2Fbuild$/);
+    await page.getByRole("tab", { name: "Overview", exact: true, selected: true }).waitFor();
+  });
+});
+
+test("a session's Environment tab shows where it runs: the version it opened on, coverage, disk and who shares it", async () => {
+  await withStudio(async (page, base, requests) => {
+    await page.goto(base + `/sessions/${SESSION}?inspector=environment`);
+    await page.getByRole("tab", { name: "Environment", exact: true, selected: true }).waitFor();
+    const panel = page.getByRole("tabpanel", { name: "Environment" });
+    // Opened on version 2, and still on it.
+    await panel.getByText("Version 2", { exact: true }).first().waitFor();
+    assert.equal(await panel.getByText("Version 2", { exact: true }).count(), 2);
+    // The coverage this agent's tools get from the Environment's secrets.
+    await panel.getByText("MCP server github", { exact: true }).waitFor();
+    await panel.getByText("Covered", { exact: true }).waitFor();
+    await panel.getByText("Sends github", { exact: true }).waitFor();
+    const coverage = requests.find((r) => r.path === "/v1/tenant/credential-coverage");
+    const { requestId: _id, ...checked } = coverage?.body as Record<string, unknown>;
+    assert.deepEqual(checked, { agentId: "external-agent", environmentId: ENVIRONMENT });
+    // Its disk, and the other session that names it.
+    await panel.getByText("v2", { exact: true }).waitFor();
+    await panel.getByRole("link", { name: "s-other", exact: true }).waitFor();
+    await panel.getByText("running a turn", { exact: false }).waitFor();
+    // It only reads: what changes an Environment is on its page.
+    for (const name of ["Reset", "Restore", "Snapshot disk", "Add credential"])
+      assert.equal(await panel.getByRole("button", { name, exact: true }).count(), 0, name);
+    await panel.getByRole("link", { name: "Disk versions", exact: true }).click();
+    await page.waitForURL(/\/environments\/team%2Fbuild\?tab=disk$/);
+    await page.getByRole("tab", { name: "Disk", exact: true, selected: true }).waitFor();
   });
 });
 
@@ -132,8 +171,10 @@ test("an Environment is created from the recipe form, its recipe edited, and it 
       await sheet.getByRole("textbox", { name: "Labels" }).fill("project=web");
       await sheet.getByRole("textbox", { name: "Owner (optional)" }).fill("local-developer");
       await sheet.getByRole("textbox", { name: "Delete after" }).fill("30d");
+      // Only a pod takes setup commands and input files.
+      assert.equal(await sheet.getByRole("button", { name: "Add setup command" }).count(), 0);
       await sheet.getByRole("button", { name: "Create Environment" }).click();
-      await page.waitForURL(/selected=users%2Falice%2Fweb/);
+      await page.waitForURL(/\/environments\/users%2Falice%2Fweb$/);
       const created = requests.find(
         (r) => r.method === "PUT" && r.path === "/v1/environments/users%2Falice%2Fweb",
       );
@@ -148,7 +189,7 @@ test("an Environment is created from the recipe form, its recipe edited, and it 
         lifecycle: { deleteAfter: "30d" },
       });
 
-      await page.goto(base + `/environments?selected=${encodeURIComponent(ENVIRONMENT)}`);
+      await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}`);
       await page.getByRole("button", { name: "Edit recipe" }).click();
       const edit = page.getByRole("dialog", { name: `Edit ${ENVIRONMENT}` });
       await edit.getByRole("textbox", { name: "Idle" }).fill("30m");
@@ -168,9 +209,15 @@ test("an Environment is created from the recipe form, its recipe edited, and it 
         lifecycle: { idle: "30m" },
       });
 
-      page.once("dialog", (dialog) => void dialog.accept());
+      let confirmation = "";
+      page.once("dialog", (dialog) => {
+        confirmation = dialog.message();
+        void dialog.accept();
+      });
       await page.getByRole("button", { name: "Delete", exact: true }).click();
-      await page.waitForURL((url) => !url.searchParams.has("selected"));
+      await page.waitForURL((url) => url.pathname.endsWith("/environments"));
+      // The confirmation says another session still names it.
+      assert.match(confirmation, /2 sessions name it/);
       assert.ok(
         requests.some((r) => r.method === "DELETE" && r.path === "/v1/environments/team%2Fbuild"),
       );
@@ -180,11 +227,30 @@ test("an Environment is created from the recipe form, its recipe edited, and it 
   );
 });
 
-test("the Credentials page lists and writes an Environment's secrets", async () => {
+test("old Environment, Credentials and vault links open the Environment's page", async () => {
+  await withStudio(async (page, base) => {
+    await page.goto(base + `/environments?selected=${encodeURIComponent(ENVIRONMENT)}&tab=events`);
+    await page.waitForURL(/\/environments\/team%2Fbuild\?tab=events$/);
+    await page.getByRole("tab", { name: "Events", exact: true, selected: true }).waitFor();
+    await page.goto(base + `/vault?environment=${encodeURIComponent(ENVIRONMENT)}`);
+    await page.waitForURL(/\/environments\/team%2Fbuild\?tab=secrets$/);
+    await page.goto(base + "/settings/credentials");
+    await page.waitForURL((url) => url.pathname.endsWith("/environments"));
+    // The server answers 400 for an undecodable path: only in-app navigation reaches one.
+    await page.evaluate((url) => {
+      history.pushState(null, "", url);
+      dispatchEvent(new PopStateEvent("popstate"));
+    }, new URL(base).pathname + "/environments/%E0");
+    await page.getByRole("heading", { name: "Environment not found" }).waitFor();
+  });
+});
+
+test("an Environment's Secrets tab lists and writes the secrets of its vault, also through an old Credentials link", async () => {
   await withStudio(
     async (page, base, requests) => {
       await page.goto(base + `/settings/credentials?environment=${encodeURIComponent(ENVIRONMENT)}`);
-      await page.getByRole("combobox", { name: "Environment" }).waitFor();
+      await page.waitForURL(/\/environments\/team%2Fbuild\?tab=secrets$/);
+      await page.getByRole("tab", { name: "Secrets", exact: true, selected: true }).waitFor();
       await page.getByText("github", { exact: true }).waitFor();
       await page.getByRole("button", { name: "Add credential" }).click();
       const sheet = page.getByRole("dialog", { name: "Add credential" });
@@ -211,13 +277,112 @@ test("the Credentials page lists and writes an Environment's secrets", async () 
   );
 });
 
+test("an Environment's Disk tab keeps, browses, restores, forks and deletes disk versions", async () => {
+  await withStudio(
+    async (page, base, requests) => {
+      await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}?tab=disk`);
+      await page.getByRole("cell", { name: "v2 latest" }).waitFor();
+      await page.getByRole("cell", { name: "v1", exact: true }).waitFor();
+      await page.getByRole("button", { name: "Snapshot disk" }).click();
+      await page.getByText("Kept version 3: 12 entries", { exact: false }).waitFor();
+      assert.ok(
+        requests.some((r) => r.method === "POST" && r.path === "/v1/environments/team%2Fbuild/snapshot"),
+      );
+
+      // A version's files, through the folder artifact the Environment owns.
+      await page.getByRole("button", { name: "Browse version 1" }).click();
+      await page.waitForURL(/diskArtifact=a-disk&diskVersion=1/);
+      await page.getByRole("button", { name: /nested\/a \+b.html/ }).click();
+      await page.getByText("Report version 1", { exact: false }).waitFor();
+      assert.ok(requests.some((r) => r.path.startsWith("/v1/artifacts/a-disk/versions/1/")));
+
+      let confirmation = "";
+      page.once("dialog", (dialog) => {
+        confirmation = dialog.message();
+        void dialog.accept();
+      });
+      await page.getByRole("button", { name: "Restore version 1" }).click();
+      await page.getByText("Restored version 1.", { exact: true }).waitFor();
+      // Restoring changes the disk of every session that names it.
+      assert.match(confirmation, /2 sessions name it/);
+      const restore = requests.find((r) => r.path === "/v1/environments/team%2Fbuild/restore");
+      assert.equal((restore?.body as { version: number }).version, 1);
+
+      await page.getByRole("button", { name: "New Environment from version 2" }).click();
+      const fork = page.getByRole("dialog", { name: `New Environment from ${ENVIRONMENT} v2` });
+      await fork.getByRole("textbox", { name: "ID", exact: true }).fill("team/build-fork");
+      await fork.getByRole("button", { name: "Create from version" }).click();
+      await page.waitForURL(/\/environments\/team%2Fbuild-fork$/);
+      const created = requests.find(
+        (r) => r.method === "PUT" && r.path === "/v1/environments/team%2Fbuild-fork",
+      );
+      const { requestId: _id, ...forked } = created!.body as Record<string, unknown>;
+      assert.deepEqual(forked, {
+        kind: "virtual",
+        labels: { project: "build" },
+        resources: { cpus: 1, memory: "1024MiB" },
+        network: { allowedHosts: ["pypi.org"] },
+        lifecycle: { idle: "15m" },
+        from: { environment: ENVIRONMENT, version: 2 },
+      });
+
+      await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}?tab=disk`);
+      page.once("dialog", (dialog) => void dialog.accept());
+      await page.getByRole("button", { name: "Delete version 1" }).click();
+      await page.getByText("Deleted version 1.", { exact: true }).waitFor();
+      assert.ok(
+        requests.some((r) => r.method === "DELETE" && r.path === "/v1/environments/team%2Fbuild/versions/1"),
+      );
+    },
+    false,
+    true,
+  );
+});
+
+test("a pod's Setup & files tab shows its setup commands and input files, and edits them in the recipe", async () => {
+  await withStudio(
+    async (page, base, requests) => {
+      await page.goto(base + `/environments/${encodeURIComponent(POD)}?tab=setup`);
+      await page.getByText("pip install -r requirements.txt", { exact: true }).waitFor();
+      await page.getByText("1. in /workspace/app · timeout 10m", { exact: true }).waitFor();
+      await page.getByRole("link", { name: `${INPUT_ARTIFACT} · v1` }).waitFor();
+      await page.getByRole("button", { name: "Edit setup & files" }).click();
+      const edit = page.getByRole("dialog", { name: `Edit ${POD}` });
+      await edit.getByRole("button", { name: "Add setup command" }).click();
+      await edit.getByRole("textbox", { name: "Setup command 2", exact: true }).fill("make build");
+      await edit.getByRole("textbox", { name: "Setup command 2 timeout" }).fill("20m");
+      await edit.getByRole("button", { name: "Remove input file 1" }).click();
+      await edit.getByRole("button", { name: "Save recipe" }).click();
+      await edit.waitFor({ state: "hidden" });
+      const edited = requests.find((r) => r.method === "PUT" && r.path === "/v1/environments/team%2Fpod");
+      const { requestId: _id, ...change } = edited!.body as Record<string, unknown>;
+      assert.deepEqual(change, {
+        labels: { project: "build" },
+        image: "python:3.13-slim",
+        resources: { cpus: 1, memory: "1024MiB" },
+        network: { allowedHosts: ["pypi.org"] },
+        ownerUserId: null,
+        lifecycle: { idle: "15m" },
+        setup: [
+          { command: "pip install -r requirements.txt", cwd: "/workspace/app" },
+          { command: "make build", timeout: "20m" },
+        ],
+        files: [],
+      });
+      // A virtual Environment has neither.
+      await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}?tab=setup`);
+      await page.getByText("A virtual Environment has none.", { exact: false }).waitFor();
+    },
+    false,
+    true,
+  );
+});
+
 test("artifacts pin versions, escape HTML, browse folder files and diff, and stream native downloads", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base + "/artifacts");
     await page
-      .getByRole("heading", {
-        name: "Tenant-wide artifact browsing needs a paged API",
-      })
+      .getByRole("heading", { name: "Open an artifact" })
       .waitFor();
     await page
       .getByRole("textbox", { name: "Session ID", exact: true })
@@ -299,7 +464,7 @@ test("an exact-version event opens the session artifact inspector, including thr
       .first()
       .click();
     await page
-      .getByRole("tab", { name: "Artifacts", exact: true, selected: true })
+      .getByRole("tab", { name: "Outputs", exact: true, selected: true })
       .waitFor();
     await page.locator("pre", { hasText: "Report version 1" }).waitFor();
   });

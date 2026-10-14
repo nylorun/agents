@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
 import type { EnvironmentSecretView, EnvironmentView } from "@nylorun/agents";
 import { KeyRound, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -104,15 +103,18 @@ function messageOf(cause: unknown): string {
 }
 
 /**
- * The Credentials page (protocol 11, D56): the secrets of one Environment's vault, picked with
- * `?environment=`. There are no user or installation vaults: an Environment's secrets reach the
- * sessions that name it.
+ * An Environment's Secrets tab (protocol 11, D56): the secrets of its one vault. There are no
+ * user or installation vaults: an Environment's secrets reach the sessions that name it. A
+ * vault-only Environment (kind `none`) has no sandbox, so it takes no shell secrets.
  */
-export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) {
+export function EnvironmentSecrets({
+  tenantId,
+  environment,
+}: Readonly<{ tenantId: string; environment: EnvironmentView }>) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
-  const [query, setQuery] = useSearchParams();
-  const [environments, setEnvironments] = useState<EnvironmentView[]>();
-  const [rows, setRows] = useState<EnvironmentSecretView[]>([]);
+  const selectedId = environment.id;
+  const sandbox = environment.kind !== "none";
+  const [rows, setRows] = useState<EnvironmentSecretView[]>();
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [pending, setPending] = useState(false);
@@ -133,35 +135,7 @@ export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) 
   const [shellFormat, setShellFormat] = useState("");
   const [preview, setPreview] = useState<McpPreview | undefined>();
 
-  const requested = query.get("environment") ?? "";
-  const selectedId =
-    environments?.some((environment) => environment.id === requested)
-      ? requested
-      : (environments?.[0]?.id ?? "");
-  const selected = environments?.find((environment) => environment.id === selectedId);
-
-  const selectEnvironment = (id: string) => {
-    const next = new URLSearchParams(query);
-    if (id) next.set("environment", id);
-    else next.delete("environment");
-    setQuery(next, { replace: true });
-  };
-
-  const refreshEnvironments = useCallback(async () => {
-    setEnvironments(
-      listFrom<EnvironmentView>(
-        { environments: await sdk.environments.list() },
-        "environments",
-        "The Runtime did not return the Tenant's Environments.",
-      ),
-    );
-  }, [sdk]);
-
   const refreshSecrets = useCallback(async () => {
-    if (!selectedId) {
-      setRows([]);
-      return;
-    }
     setRows(
       listFrom<EnvironmentSecretView>(
         { secrets: await sdk.environments.secrets.list(selectedId) },
@@ -173,18 +147,10 @@ export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) 
 
   useEffect(() => {
     let cancelled = false;
-    refreshEnvironments().then(
+    refreshSecrets().then(
       () => !cancelled && setError(""),
       (cause: unknown) => !cancelled && setError(messageOf(cause)),
     );
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshEnvironments]);
-
-  useEffect(() => {
-    let cancelled = false;
-    refreshSecrets().catch((cause: unknown) => !cancelled && setError(messageOf(cause)));
     return () => {
       cancelled = true;
     };
@@ -260,7 +226,6 @@ export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) 
     };
     try {
       if (panelMode === "add" || panelMode === "update") {
-        if (!selectedId) throw new Error("Create an Environment first.");
         const updating = panelMode === "update";
         if (isShellType(credentialType)) {
           const { name, secret: body } = shellSecretRequest(credentialType, {
@@ -439,59 +404,33 @@ export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) 
   );
 
   return (
-    <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-auto p-8">
+    <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Credentials</h1>
-          <p className="mt-2 text-muted-foreground">
-            Each Environment has its own vault: credentials for remote MCP servers and
-            HTTP tools, and the secrets and variables skills' CLIs use in its sandbox.
-            Sessions that name the Environment use them. Secrets stay encrypted in the
-            Runtime; reads return metadata only.
-          </p>
-        </div>
-        <Button
-          onClick={() => openPanel("add")}
-          disabled={pending || !selected}
-        >
-          <Plus />
-          Add credential
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="grid min-w-56 flex-1 gap-1 text-sm">
-          Environment
-          <select
-            className="h-9 rounded-md border bg-transparent px-3"
-            value={selectedId}
-            onChange={(event) => selectEnvironment(event.target.value)}
-            disabled={!environments?.length}
-          >
-            {!environments?.length ? (
-              <option value="">
-                {environments ? "No Environments yet" : "Loading Environments…"}
-              </option>
-            ) : (
-              environments.map((environment) => (
-                <option key={environment.id} value={environment.id}>
-                  {environment.id} · {environment.kind}
-                </option>
-              ))
-            )}
-          </select>
-        </label>
-        <Button variant="outline" asChild>
-          <Link
-            to={
-              selected
-                ? `/environments?${new URLSearchParams({ selected: selected.id })}`
-                : "/environments"
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          {sandbox
+            ? "This Environment's vault: credentials for remote MCP servers and HTTP tools, and the secrets and variables skills' CLIs use in its sandbox. "
+            : "This Environment's vault: credentials for remote MCP servers and HTTP tools. It has no sandbox, so it holds no shell secrets. "}
+          Sessions that name it use them. Secrets stay encrypted in the Runtime; reads
+          return metadata only.
+        </p>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={pending}
+            onClick={() =>
+              void refreshSecrets().then(
+                () => setError(""),
+                (cause: unknown) => setError(messageOf(cause)),
+              )
             }
           >
-            {selected ? "Open Environment" : "Environments"}
-          </Link>
-        </Button>
+            Refresh secrets
+          </Button>
+          <Button onClick={() => openPanel("add")} disabled={pending}>
+            <Plus />
+            Add credential
+          </Button>
+        </div>
       </div>
 
       {error && !panelOpen ? (
@@ -513,17 +452,13 @@ export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) 
             </TableRow>
           </TableHeader>
           <TableBody>
-            {environments !== undefined && environments.length === 0 ? (
+            {rows === undefined ? (
               <TableRow>
                 <TableCell
                   colSpan={5}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  Create an Environment on the{" "}
-                  <Link className="text-primary underline underline-offset-4" to="/environments">
-                    Environments page
-                  </Link>{" "}
-                  to store credentials.
+                  {error ? "Secrets unavailable." : "Loading secrets…"}
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
@@ -606,7 +541,7 @@ export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) 
             matching destination URL. A session without an Environment sends none.
           </p>
           <pre className="whitespace-pre-wrap break-all rounded-md border bg-background p-3 text-xs text-foreground">
-            {`await client.environments.secrets.put(${JSON.stringify(selected?.id ?? "environment-id")}, "github", {\n  type: "bearer",\n  url: "https://api.githubcopilot.com/mcp/",\n  value: process.env.GITHUB_TOKEN,\n});\nawait client.createSession({\n  agentId: "assistant",\n  ownerUserId: "developer",\n  environment: ${JSON.stringify(selected?.id ?? "environment-id")},\n});`}
+            {`await client.environments.secrets.put(${JSON.stringify(selectedId)}, "github", {\n  type: "bearer",\n  url: "https://api.githubcopilot.com/mcp/",\n  value: process.env.GITHUB_TOKEN,\n});\nawait client.createSession({\n  agentId: "assistant",\n  ownerUserId: "developer",\n  environment: ${JSON.stringify(selectedId)},\n});`}
           </pre>
           <p>
             A skill's CLI in the sandbox sees a secret's variable as{" "}
@@ -617,8 +552,8 @@ export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) 
           </p>
           <p>
             Studio's New session lets you pick the Environment, and shows which of the
-            agent's servers and tools it covers. Model-provider credentials are managed in
-            the Models tab.
+            agent's servers and tools it covers; so does a session's Environment tab.
+            Model-provider credentials are managed in Settings, under Models.
           </p>
           <a
             className="text-primary underline underline-offset-4"
@@ -644,7 +579,7 @@ export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) 
                     ? "Type the credential name to confirm. This cannot be undone."
                     : credentialType === "environment_variable"
                       ? "A variable is not secret: the sandbox sees its value."
-                      : `The Runtime encrypts secrets in ${selectedId || "the Environment"}'s vault. Studio never keeps a copy.`}
+                      : `The Runtime encrypts secrets in ${selectedId}'s vault. Studio never keeps a copy.`}
             </SheetDescription>
           </SheetHeader>
           <form
@@ -667,10 +602,12 @@ export function CredentialsModule({ tenantId }: Readonly<{ tenantId: string }>) 
                         <option value="bearer">Bearer token</option>
                         <option value="headers">Headers</option>
                       </optgroup>
-                      <optgroup label="Skills in the sandbox">
-                        <option value="environment_secret">Secret</option>
-                        <option value="environment_variable">Variable</option>
-                      </optgroup>
+                      {sandbox ? (
+                        <optgroup label="Skills in the sandbox">
+                          <option value="environment_secret">Secret</option>
+                          <option value="environment_variable">Variable</option>
+                        </optgroup>
+                      ) : null}
                     </select>
                   ) : (
                     <Input value={TYPE_LABELS[credentialType] ?? credentialType} readOnly />

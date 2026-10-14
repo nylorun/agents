@@ -4,9 +4,7 @@ import {
   Box,
   Building2,
   Cpu,
-  Files,
   GitBranch,
-  KeyRound,
   LoaderCircle,
   MessagesSquare,
 } from "lucide-react";
@@ -110,7 +108,7 @@ function TenantNavigation({
     </SidebarMenuItem>
   );
 }
-export type SettingsSection = "overview" | "models" | "credentials";
+export type SettingsSection = "overview" | "models";
 export function AppSidebar({
   connection,
   tenant,
@@ -126,6 +124,7 @@ export function AppSidebar({
   /** The agent the session list is filtered on, or the open session's agent. */
   activeAgentId?: string;
   settingsSection?: SettingsSection;
+  /** The list of Environments or one Environment's page is open (an artifact opened by id is neither). */
   resourceActive?: "environments" | "artifacts";
 }>) {
   const agents = sessionAgents(connection);
@@ -215,23 +214,18 @@ export function AppSidebar({
                   ) : null}
                 </SidebarMenuSub>
               </SidebarMenuItem>
-              {(["environments", "artifacts"] as const).map((resource) => {
-                const label = resource === "environments" ? "Environments" : "Artifacts";
-                return (
-                  <SidebarMenuItem key={resource}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={resourceActive === resource}
-                      tooltip={label}
-                    >
-                      <Link to={`/${resource}`}>
-                        {resource === "environments" ? <Box /> : <Files />}
-                        <span>{label}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={resourceActive === "environments"}
+                  tooltip="Environments"
+                >
+                  <Link to="/environments">
+                    <Box />
+                    <span>Environments</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -251,18 +245,6 @@ export function AppSidebar({
                   <Link to="/settings/models">
                     <Cpu />
                     <span>Models</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={settingsSection === "credentials"}
-                  tooltip="Credentials"
-                >
-                  <Link to="/settings/credentials">
-                    <KeyRound />
-                    <span>Credentials</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
