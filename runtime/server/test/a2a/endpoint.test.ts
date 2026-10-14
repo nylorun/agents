@@ -13,6 +13,7 @@ import {
 import { Agent, createClient } from "@nylorun/agents";
 import { createA2aHandler, toNodeListener } from "@nylorun/agents/a2a";
 import type { ModelProvider } from "../../src/core/provider.js";
+import { contextSessionId } from "../../src/api/a2a/tasks.js";
 import { startTestTenant } from "../support/tenant.js";
 import { startToolServer, type ToolServer } from "../support/tool-server.js";
 import { setToolPolicy } from "../support/tool-policy.js";
@@ -92,6 +93,7 @@ function agents(service: ToolServer) {
 }
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
+let runtimeClient: ReturnType<typeof createClient>;
 let service: ToolServer;
 let server: Server;
 let base: string;
@@ -114,6 +116,7 @@ beforeAll(async () => {
       return "waited";
     },
   });
+  runtimeClient = client;
   const built = agents(service);
   for (const agent of built) await client.saveAgent(agent, { implementationVersion: "dev" });
   // The guarded agent's save waits for a person (R5 step 2).
@@ -319,6 +322,68 @@ describe("contexts and retries", () => {
     expect(theirs.body.error.code).toBe(-32001);
     const cancel = await rpc("CancelTask", { id: taskId }, { key: "key-beta" });
     expect(cancel.body.error.code).toBe(-32001);
+  });
+});
+
+describe("files sent inline", () => {
+  /** A 1×1 PNG. */
+  const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const artifactsOf = (contextId: string) =>
+    runtimeClient.artifacts.list({ sessionId: contextSessionId("a2a:acme", "support", contextId) });
+
+  it("stores a raw part as an artifact of the context's session, once for a retried message", async () => {
+    const params = {
+      message: {
+        messageId: `file-${++messages}`,
+        role: "ROLE_USER",
+        parts: [{ text: "What is this?" }, { raw: PNG, mediaType: "image/png", filename: "room.png" }],
+      },
+    };
+    const first = await rpc("SendMessage", params);
+    const task = first.body.result.task;
+    expect(task.status.state).toBe("TASK_STATE_COMPLETED");
+    const stored = await artifactsOf(task.contextId);
+    expect(stored).toMatchObject([{ name: "room.png", contentType: "image/png" }]);
+    // The task's history names the file by its artifact, never its bytes.
+    expect(task.history[0].parts).toEqual([
+      { text: "What is this?" },
+      { data: { type: "file", artifactId: stored[0]!.artifactId, version: 1 } },
+    ]);
+    const retry = await rpc("SendMessage", params);
+    expect(retry.body.result.task.id).toBe(task.id);
+    expect(await artifactsOf(task.contextId)).toHaveLength(1);
+  });
+
+  it("refuses bad base64, files with data, and a reply with files", async () => {
+    const bad = await rpc("SendMessage", {
+      message: { messageId: `file-${++messages}`, role: "ROLE_USER", parts: [{ raw: "%%%", mediaType: "image/png" }] },
+    });
+    expect(bad.body.error).toMatchObject({ code: -32602, message: expect.stringMatching(/base64/) });
+    const mixed = await rpc("SendMessage", {
+      message: { messageId: `file-${++messages}`, role: "ROLE_USER", parts: [{ data: 1 }, { raw: PNG }] },
+    });
+    expect(mixed.body.error.code).toBe(-32005);
+    const task = (await rpc("SendMessage", wireMessage("Hi"))).body.result.task;
+    const reply = await rpc("SendMessage", {
+      message: { messageId: `file-${++messages}`, role: "ROLE_USER", taskId: task.id, parts: [{ raw: PNG }] },
+    });
+    expect(reply.body.error.code).toBe(-32005);
+  });
+
+  it("deletes the files of a refused message", async () => {
+    const first = await rpc("SendMessage", wireMessage("Text first"));
+    const { contextId } = first.body.result.task;
+    // The same message id with a file is another message: refused, and its file deleted.
+    const reused = await rpc("SendMessage", {
+      message: {
+        messageId: `raw-${messages}`,
+        role: "ROLE_USER",
+        contextId,
+        parts: [{ text: "Text first" }, { raw: PNG, mediaType: "image/png" }],
+      },
+    });
+    expect(reused.body.error.code).toBe(-32602);
+    expect(await artifactsOf(contextId)).toEqual([]);
   });
 });
 

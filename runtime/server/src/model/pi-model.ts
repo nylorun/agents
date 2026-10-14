@@ -42,6 +42,7 @@ import type { HostModelSecret } from "../vault/service.js";
 import { capabilitiesOf } from "./capabilities.js";
 import { classifyAssistantError, failure } from "./classify.js";
 import { modelsFor } from "./models.js";
+import { NativeBlocks, nativeKindsOf, type NativeFileKind } from "./native-blocks.js";
 import { projectSecrets } from "./settings.js";
 
 export interface ModelPreview {
@@ -166,7 +167,10 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       ...found,
       input: inputs.includes("image") ? ["text", "image"] : ["text"],
     };
-    const request = await buildContext(call, selected, inputs, options);
+    // PDFs, Office documents, audio and video go in the API's own blocks: pi-ai builds the
+    // request with a marker in each one's place and `onPayload` swaps it for the bytes.
+    const natives = new NativeBlocks();
+    const request = await buildContext(call, selected, inputs, options, natives);
     // Publish only portable references, never the materialized provider image bytes.
     context.reportPreparedCall?.({
       adapter: "runtime.pi-ai",
@@ -184,7 +188,19 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       timeoutMs: settings.requestTimeoutMs,
       maxRetries: 2,
       maxRetryDelayMs: 60_000,
+      ...(natives.size > 0
+        ? {
+            // A file that cannot be carried stops the request before it is sent.
+            onPayload: (payload: unknown) => {
+              const rewritten = natives.rewrite(payload, selected.api);
+              if (natives.error) throw new Error(natives.error);
+              return rewritten;
+            },
+          }
+        : {}),
     };
+    // A file the request could not carry fails the call at once: no message, so never retried.
+    const nativeFailure = (): AssistantMessage => failedMessage(selected);
     const attempt = async (): Promise<AssistantMessage> => {
       const idle = new AbortController();
       const signal = AbortSignal.any([context.signal, idle.signal]);
@@ -218,11 +234,13 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
           }
         }
         const response = await stream.result();
+        if (natives.error) return nativeFailure();
         if (idle.signal.aborted && !context.signal.aborted)
           return idleTimeout(selected, settings.idleTimeoutMs);
         return response;
       } catch (error) {
         if (context.signal.aborted) throw error;
+        if (natives.error) return nativeFailure();
         if (idle.signal.aborted)
           return idleTimeout(selected, settings.idleTimeoutMs);
         return {
@@ -244,6 +262,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
     );
     // An abort is never a failure outcome: the host decides what it means.
     context.signal.throwIfAborted();
+    if (natives.error) return redacted(failure("invalid_request", natives.error, false));
     if (response.stopReason === "aborted")
       return redacted(failure("transient", "The provider stream was aborted.", true));
     if (response.stopReason === "error") {
@@ -344,14 +363,16 @@ async function buildContext(
   selected: Model<Api>,
   inputs: readonly ModelInput[],
   options: PiModelOptions,
+  natives: NativeBlocks,
 ): Promise<Context> {
   const messages: Message[] = [];
   const instructions: string[] = [];
   /**
    * A file a media part names (protocol 6, 12), as the model gets it: a text file as a `<file>`
-   * block, an image the model reads as an image, and anything else, or a file that cannot be read,
-   * as a note. Its bytes go only into the provider request built here, never into the transcript
-   * or the journal, and no file fails the call.
+   * block, an image the model reads as an image, a PDF, Office document, audio or video the model
+   * reads as a marker for its native block (`natives`), and anything else, or a file that cannot
+   * be read, as a note. Its bytes go only into the provider request built here, never into the
+   * transcript or the journal, and no file fails the call here.
    */
   const materialize = async (
     part: Extract<PromptContentPart, { type: "media" }>,
@@ -390,7 +411,15 @@ async function buildContext(
         text: `<file name=${JSON.stringify(file.name)} type=${JSON.stringify(type)}>\n${text}\n</file>`,
       };
     }
-    return note(`the Runtime does not send ${inputLabel(modelInputOf(file.mediaType))} to a model yet`);
+    const kind = modelInputOf(file.mediaType);
+    if (isNativeKind(kind) && nativeKindsOf(selected.api).includes(kind))
+      return natives.add({
+        kind,
+        mediaType: type,
+        name: file.name,
+        data: Buffer.from(file.bytes).toString("base64"),
+      });
+    return note(`the Runtime does not send ${inputLabel(kind)} to this model's API (${selected.api})`);
   };
   const content = async (
     parts: readonly PromptContentPart[],
@@ -445,6 +474,9 @@ async function buildContext(
     tools,
   };
 }
+
+const isNativeKind = (input: ModelInput | undefined): input is NativeFileKind =>
+  input === "pdf" || input === "office" || input === "audio" || input === "video";
 
 /**
  * A replayed assistant message keeps the model that produced it, so pi-ai converts

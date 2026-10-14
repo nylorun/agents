@@ -281,8 +281,8 @@ describe("files a message names (protocol 12)", () => {
     const text = JSON.stringify(body.messages);
     expect(text).toContain('<file name=\\"data.csv\\" type=\\"text/csv\\">\\na,b\\n1,2\\n</file>');
     expect(text).toContain('(File \\"gone.csv\\", text/csv, is not shown: Artifact af_gone version 1 is not available.)');
-    // A PDF the model reads waits for its native block; a type no model reads is a note too.
-    expect(text).toContain("is not shown: the Runtime does not send PDFs to a model yet.");
+    // A PDF the model reads goes in its native block; a type no model reads is a note.
+    expect(text).toContain(`"file_data":"data:application/pdf;base64,${Buffer.from(bytes).toString("base64")}"`);
     expect(text).toContain('(File \\"x.zip\\", application/zip, is not shown: no model reads application/zip files.)');
   });
 
@@ -291,6 +291,115 @@ describe("files a message names (protocol 12)", () => {
     expect(JSON.stringify(body.messages)).toContain("is not shown: this model does not read PDFs.");
     const unresolved = await send([file("a.txt", "text/plain")], undefined);
     expect(JSON.stringify(unresolved.body.messages)).toContain("is not shown: files are unavailable.");
+  });
+});
+describe("native blocks: PDFs, Office documents, audio and video (multimodal messages M4)", () => {
+  const PDF = new TextEncoder().encode("%PDF-1.7 bytes");
+  const pdf = Buffer.from(PDF).toString("base64");
+  const media = (name: string, mediaType: string) => ({
+    type: "media" as const,
+    mediaType,
+    reference: { artifactId: `af_${name}`, version: 1, name },
+  });
+  /** The provider's request body (the provider answers 400: only the request matters here). */
+  async function send(
+    model: Parameters<typeof host>[0],
+    parts: ReturnType<typeof media>[],
+    bytes: Uint8Array = PDF,
+  ) {
+    let body = "";
+    const fetch = vi.fn(async (url: unknown, options?: { body?: unknown }) => {
+      body = String(options?.body ?? (url instanceof Request ? await url.text() : ""));
+      return new Response(JSON.stringify({ error: { message: "stop here" } }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const reported: unknown[] = [];
+    const files = async (value: unknown) => {
+      const { name } = value as { name: string };
+      return { name, mediaType: parts.find((part) => part.reference.name === name)!.mediaType, bytes };
+    };
+    const result = await piModel({ ...host(model), files, settings: { attempts: 1 } })(
+      { ...call, prompt: [{ kind: "message", role: "user", content: [{ type: "text", text: "read" }, ...parts] }] },
+      { signal: signal(), reportPreparedCall: (prepared) => void reported.push(prepared) },
+    );
+    return { result, body, fetch, reported: JSON.stringify(reported) };
+  }
+
+  it("sends a PDF as an Anthropic document block", async () => {
+    const { body, reported } = await send(
+      { provider: "anthropic", model: "claude-sonnet-4-5", addedInputs: { "anthropic/claude-sonnet-4-5": ["pdf"] } },
+      [media("spec.pdf", "application/pdf")],
+    );
+    const content = (JSON.parse(body) as { messages: { content: Record<string, unknown>[] }[] }).messages[0]!.content;
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: pdf },
+        title: "spec.pdf",
+      }),
+    );
+    expect(body).not.toContain("nylorun-file");
+    // The bytes reach the provider request only, never the reported call.
+    expect(reported).not.toContain(pdf);
+  });
+
+  it("sends a PDF as an OpenAI Responses input_file", async () => {
+    const { body } = await send(
+      { provider: "openai", model: "gpt-4.1-mini", addedInputs: { "openai/gpt-4.1-mini": ["pdf"] } },
+      [media("spec.pdf", "application/pdf")],
+    );
+    expect(JSON.parse(body).input[0].content).toContainEqual({
+      type: "input_file",
+      filename: "spec.pdf",
+      file_data: `data:application/pdf;base64,${pdf}`,
+    });
+  });
+
+  it("sends a PDF as Google inline data", async () => {
+    const { body } = await send(
+      {
+        provider: "google",
+        model: "gemini-flash-latest",
+        key: "test-google-secret",
+        addedInputs: { "google/gemini-flash-latest": ["pdf"] },
+      },
+      [media("spec.pdf", "application/pdf")],
+    );
+    expect(JSON.parse(body).contents[0].parts).toContainEqual({
+      inlineData: { mimeType: "application/pdf", data: pdf },
+    });
+  });
+
+  it("sends a PDF and audio to a custom completions model as file and input_audio parts", async () => {
+    const { body } = await send({ settings: { inputs: ["pdf", "audio"] } }, [
+      media("spec.pdf", "application/pdf"),
+      media("voice.mp3", "audio/mpeg"),
+    ]);
+    const content = JSON.parse(body).messages[0].content;
+    expect(content).toContainEqual({ type: "file", file: { filename: "spec.pdf", file_data: `data:application/pdf;base64,${pdf}` } });
+    expect(content).toContainEqual({ type: "input_audio", input_audio: { data: pdf, format: "mp3" } });
+  });
+
+  it("fails the call without sending or retrying when a file has no block in the API", async () => {
+    const { result, fetch } = await send({ settings: { inputs: ["audio"] } }, [media("voice.ogg", "audio/ogg")]);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      kind: "failed",
+      code: "invalid_request",
+      retryable: false,
+      message: expect.stringContaining("WAV and MP3 audio only"),
+    });
+  });
+
+  it("gives a note for a kind the model's API cannot carry, and sends no bytes", async () => {
+    const { body } = await send({ settings: { inputs: ["pdf"] } }, [
+      media("deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+    ]);
+    expect(body).toContain("is not shown: this model does not read Office documents.");
+    expect(body).not.toContain(pdf);
   });
 });
 it("returns provider tool calls using the portable model contract", async () => {

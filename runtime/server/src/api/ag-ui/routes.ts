@@ -12,7 +12,9 @@
  * - `POST …/threads/:thread/cancel` — cancel the running turn.
  *
  * Each thread maps to one session per subject, agent and thread. The message id is the
- * idempotency key, approvals become interrupts resumed through `resume`, and the last AG-UI
+ * idempotency key, a message's media parts become file parts (bytes sent inline are stored as
+ * artifacts of the session, `../inbound-files.ts`; a file the model does not read is a
+ * `RUN_ERROR`), approvals become interrupts resumed through `resume`, and the last AG-UI
  * event made from each Runtime event carries its cursor as the SSE id. A run's session is
  * created on its first run with the options in `forwardedProps.nylorun.session` and never
  * changed afterwards. A stream opened with an issuer token ends at the token's expiry with
@@ -23,6 +25,7 @@ import type { ServerResponse } from "node:http";
 import {
   EventType,
   type BaseEvent,
+  type ContentPart,
   type Message,
   type RunAgentInput,
 } from "@ag-ui/core";
@@ -31,7 +34,14 @@ import {
   PutSessionRequestSchema,
   type LiveEvent,
 } from "@nylorun/core/contracts";
-import { messagesFromEvents } from "./history.js";
+import { messagesFromEvents, NYLORUN_FILE_PROVIDER } from "./history.js";
+import {
+  discardFiles,
+  inlineFileName,
+  messageParts,
+  refuseUrl,
+  type InboundPart,
+} from "../inbound-files.js";
 import { sessionIdFor } from "./session-id.js";
 import { SSE_CONTENT_TYPE, SSE_HEARTBEAT, sseFrame } from "./sse.js";
 import { RunTranslator } from "./translate.js";
@@ -92,11 +102,48 @@ function runError(error: HttpError): BaseEvent {
   return { type: EventType.RUN_ERROR, message, code } as BaseEvent;
 }
 
-/** The trailing user message: the Runtime keeps the transcript, AG-UI resends all of it. */
-function lastUserMessage(messages: readonly Message[]): { id: string; text: string } {
+/** A media part's file: bytes sent inline, or an artifact the Runtime already holds. */
+function inboundFile(part: Exclude<ContentPart, { type: "text" }>, index: number): InboundPart {
+  const { source } = part;
+  if (source.type === "url") return refuseUrl();
+  if (source.type === "file") {
+    if (source.provider !== NYLORUN_FILE_PROVIDER)
+      return fail(
+        400,
+        `A file source names an artifact: provider "${NYLORUN_FILE_PROVIDER}" and its artifact id`,
+        { code: "invalid_request" }
+      );
+    return { type: "artifact", artifactId: source.value };
+  }
+  const metadata = (part.metadata ?? {}) as { filename?: unknown; name?: unknown };
+  const named = [metadata.filename, metadata.name].find(
+    (value): value is string => typeof value === "string" && value !== ""
+  );
+  return {
+    type: "inline",
+    name: named ?? inlineFileName(source.mimeType, index),
+    mediaType: source.mimeType,
+    data: source.value,
+  };
+}
+
+/**
+ * The trailing user message: the Runtime keeps the transcript, AG-UI resends all of it. Its
+ * text, or its parts when it carries a media part.
+ */
+function lastUserMessage(
+  messages: readonly Message[]
+): { id: string; text: string; parts?: InboundPart[] } {
   const last = messages.at(-1);
   if (!last || last.role !== "user")
     return fail(400, "The run's last message must be a user message");
+  if (typeof last.content !== "string" && last.content.some((part) => part.type !== "text")) {
+    let files = 0;
+    const parts = last.content.map((part): InboundPart =>
+      part.type === "text" ? { type: "text", text: part.text } : inboundFile(part, files++)
+    );
+    return { id: last.id, text: "", parts };
+  }
   const text =
     typeof last.content === "string"
       ? last.content
@@ -209,18 +256,34 @@ async function submit(
   const message = lastUserMessage(input.messages);
   // The AG-UI message id is the idempotency key: a retried run replays the same turn, and
   // history gives the message back its client id.
-  return accepted(
-    ctx,
-    id,
-    {
-      type: "message",
-      requestId: randomUUID(),
-      idempotencyKey: message.id,
-      content: message.text,
-    },
-    scope,
-    trace
-  );
+  if (!message.parts)
+    return accepted(
+      ctx,
+      id,
+      {
+        type: "message",
+        requestId: randomUUID(),
+        idempotencyKey: message.id,
+        content: message.text,
+      },
+      scope,
+      trace
+    );
+  const access = accessOf(scope);
+  const { parts, stored } = await messageParts(ctx, id, message.id, message.parts, access);
+  try {
+    return await accepted(
+      ctx,
+      id,
+      { type: "message", requestId: randomUUID(), idempotencyKey: message.id, parts },
+      scope,
+      trace
+    );
+  } catch (error) {
+    // A refused message leaves no files behind.
+    await discardFiles(ctx, stored, access);
+    throw error;
+  }
 }
 
 /**
@@ -364,8 +427,9 @@ export async function startRun(
   try {
     cursor = await submit(ctx, id, input, scope, trace);
   } catch (error) {
-    // A busy session or a limit is a run that could not start, not a transport failure.
-    if (error instanceof HttpError && (error.status === 409 || error.status === 429))
+    // A busy session, a limit or a file the model does not read is a run that could not start,
+    // not a transport failure.
+    if (error instanceof HttpError && [409, 422, 429].includes(error.status))
       return stream(response, translator, undefined, [runError(error)]);
     throw error;
   }

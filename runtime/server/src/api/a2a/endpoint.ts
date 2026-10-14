@@ -7,6 +7,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import type { TenantEnv } from "../http/app.js";
 import { readText } from "../http/body.js";
+import { INLINE_BODY_MAX_BYTES } from "../inbound-files.js";
 import { TraceHeaders, tenantRoute } from "../http/define.js";
 import { traceContextOf } from "../../traces/ids.js";
 import { jsonResponse } from "../http/respond.js";
@@ -76,7 +77,7 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: TAGS,
       summary: "Call an agent over A2A",
       description:
-        "A2A 1.0 JSON-RPC, for a subject: `SendMessage` (blocking up to 5 minutes, or `returnImmediately`), `GetTask` and `CancelTask`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors.",
+        "A2A 1.0 JSON-RPC, for a subject: `SendMessage` (blocking up to 5 minutes, or `returnImmediately`), `GetTask` and `CancelTask`. A message is text, one data part, or text and `raw` files (at most 20 MiB each, stored as artifacts of the context's session); a file `url` is `ContentTypeNotSupportedError`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors.",
       externalDocs: A2A_SPECIFICATION,
       request: {
         params: agentId,
@@ -104,7 +105,8 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
           scope,
           c.req.param("agentId")!,
           {
-            body: () => readText(c.req.raw),
+            // A message may carry files inline.
+            body: () => readText(c.req.raw, INLINE_BODY_MAX_BYTES),
             version: typeof version === "string" ? version : (c.req.query("A2A-Version") ?? null),
             ...(trace ? { trace } : {}),
           },

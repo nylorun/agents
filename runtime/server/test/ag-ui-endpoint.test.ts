@@ -216,6 +216,118 @@ describe("with an application key", () => {
   });
 });
 
+/** A 1×1 PNG. */
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+const withParts = (threadId: string, messageId: string, content: unknown[]) => ({
+  ...input(threadId, messageId),
+  messages: [{ id: messageId, role: "user", content }],
+});
+
+/** The artifacts of a thread's session, as the application sees them. */
+async function artifactsOf(subject: string, threadId: string) {
+  const id = sessionIdFor(subject, "bot", threadId);
+  return (await tenant.call("GET", `/v1/artifacts?sessionId=${encodeURIComponent(id)}`)).body
+    .artifacts as { artifactId: string; name: string; contentType: string }[];
+}
+
+describe("files in a message", () => {
+  it("stores inline bytes as an artifact of the thread's session and gives them back as a file source", async () => {
+    const token = await mint("app:fay");
+    const image = { type: "image", source: { type: "data", value: PNG, mimeType: "image/png" }, metadata: { filename: "room.png" } };
+    const first = await run(
+      tenant.runtime.url,
+      "bot",
+      withParts("f1", "m1", [{ type: "text", text: "What is this?" }, image]),
+      bearer(token)
+    );
+    expect(first.status, first.text).toBe(200);
+    expect(first.events.at(-1).type).toBe("RUN_FINISHED");
+    const [stored, ...others] = await artifactsOf("app:fay", "f1");
+    expect(others).toEqual([]);
+    expect(stored).toMatchObject({ name: "room.png", contentType: "image/png" });
+    // The next message names the stored artifact; a file the client did not name gets one.
+    const pdf = Buffer.from("%PDF-1.4 brief").toString("base64");
+    const second = await run(
+      tenant.runtime.url,
+      "bot",
+      withParts("f1", "m2", [
+        { type: "image", source: { type: "file", value: stored!.artifactId, provider: "nylorun" } },
+        { type: "document", source: { type: "data", value: pdf, mimeType: "application/pdf" } },
+      ]),
+      bearer(token)
+    );
+    expect(second.status, second.text).toBe(200);
+    expect((await artifactsOf("app:fay", "f1")).map((a) => a.name)).toEqual(["room.png", "file-2.pdf"]);
+    const messages = await (
+      await fetch(`${tenant.runtime.url}/v1/ag-ui/agents/bot/threads/f1/messages`, { headers: bearer(token) })
+    ).json();
+    const source = { type: "file", value: stored!.artifactId, provider: "nylorun", mimeType: "image/png" };
+    expect(messages.filter((m: any) => m.role === "user")).toEqual([
+      { id: "m1", role: "user", content: [{ type: "text", text: "What is this?" }, { type: "image", source }] },
+      {
+        id: "m2",
+        role: "user",
+        content: [
+          { type: "image", source },
+          {
+            type: "document",
+            source: { type: "file", value: expect.any(String), provider: "nylorun", mimeType: "application/pdf" },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("replays a retried message with the files it stored the first time", async () => {
+    const body = withParts("f2", "m1", [
+      { type: "text", text: "Read this" },
+      { type: "image", source: { type: "data", value: PNG, mimeType: "image/png" } },
+    ]);
+    const first = await run(tenant.runtime.url, "bot", body, asSubject("app:gus"));
+    const again = await run(tenant.runtime.url, "bot", body, asSubject("app:gus"));
+    expect(again.status, again.text).toBe(200);
+    expect(again.events.map((e) => e.type)).toEqual(first.events.map((e) => e.type));
+    expect(await artifactsOf("app:gus", "f2")).toHaveLength(1);
+  });
+
+  it("takes a body past 1 MiB", async () => {
+    const big = Buffer.alloc(3 * 1024 * 1024, 7).toString("base64");
+    const result = await run(
+      tenant.runtime.url,
+      "bot",
+      withParts("f3", "m1", [{ type: "document", source: { type: "data", value: big, mimeType: "text/plain" } }]),
+      asSubject("app:hal")
+    );
+    expect(result.status, result.text).toBe(200);
+    expect(await artifactsOf("app:hal", "f3")).toMatchObject([{ name: "file-1.txt", contentType: "text/plain" }]);
+  });
+
+  it.each([
+    ["a URL", { type: "image", source: { type: "url", value: "https://example.test/a.png" } }, /not fetched/],
+    ["bad base64", { type: "image", source: { type: "data", value: "%%%", mimeType: "image/png" } }, /base64/],
+    ["another provider's handle", { type: "document", source: { type: "file", value: "file-abc", provider: "openai" } }, /provider "nylorun"/],
+  ])("refuses %s", async (_name, part, message) => {
+    const result = await run(tenant.runtime.url, "bot", withParts("f4", "m1", [part]), asSubject("app:ida"));
+    expect(result.status).toBe(400);
+    expect(JSON.parse(result.text).message ?? result.text).toMatch(message);
+  });
+
+  it("deletes the files it stored when the message is refused", async () => {
+    const result = await run(
+      tenant.runtime.url,
+      "bot",
+      withParts("f5", "m1", [
+        { type: "image", source: { type: "data", value: PNG, mimeType: "image/png" } },
+        { type: "image", source: { type: "file", value: "af_00000000000000000000000000", provider: "nylorun" } },
+      ]),
+      asSubject("app:jon")
+    );
+    expect(result.status).toBe(404);
+    expect(await artifactsOf("app:jon", "f5")).toEqual([]);
+  });
+});
+
 describe("a token that expires during a run", () => {
   it("ends the stream with nylorun.stream_closed and no RUN_FINISHED", async () => {
     let release!: () => void;
