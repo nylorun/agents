@@ -87,6 +87,8 @@ export type {
   SubjectScope,
   EnvironmentView,
   EnvironmentEvent,
+  EnvironmentEventType,
+  EgressRunningTurn,
   EnvironmentKind,
   EnvironmentRecipe,
   EnvironmentSecretView,
@@ -115,7 +117,7 @@ export type {
   ArtifactDiff,
   FolderEntry,
 } from "@nylorun/core/contracts";
-export { SUBJECT_SCOPES } from "@nylorun/core/contracts";
+export { ENVIRONMENT_EVENT_TYPES, SUBJECT_SCOPES } from "@nylorun/core/contracts";
 export { AgentsClient, SessionClient, createClient } from "./client.js";
 export { ArtifactsClient } from "./artifacts.js";
 export { FilesClient, definitionFileHash } from "./files.js";

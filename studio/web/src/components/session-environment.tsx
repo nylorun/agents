@@ -11,11 +11,13 @@ import { Metadata, ReadState } from "@/components/resource-layout";
 import { CoverageList } from "@/components/coverage-list";
 import { Section } from "@/components/environment-page";
 import { date, stateOf } from "@/components/environments";
+import { EgressRow, egressOf } from "@/components/environment-egress";
 
 /**
  * A session's Environment tab: where the session runs. It shows the Environment the session
  * names (or that it names none), the recipe version it opened on, what this agent's MCP servers
- * and HTTP tools get from its secrets, its disk and the other sessions that share it. It only
+ * and HTTP tools get from its secrets, its disk, the connections its sandbox opened while this
+ * session's turns ran, and the other sessions that share it. It only
  * reads: what changes an Environment (a reset, a restore, a secret) changes it for every session
  * that names it, so those are on the Environment's own page.
  */
@@ -204,6 +206,9 @@ export function SessionEnvironmentPanel({
               </Link>
             </Section>
           ) : null}
+          {s.kind === "pod" ? (
+            <SessionConnections tenantId={tenantId} sessionId={sessionId} environmentId={environment.id} />
+          ) : null}
           <Section title="Shared with">
             {others.length ? (
               <ul className="grid gap-1 text-sm">
@@ -231,5 +236,62 @@ export function SessionEnvironmentPanel({
         </>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The connections the Environment's sandbox opened while this session had a turn running (D67).
+ * They are the Environment's: another session's turn may have been running too, and each row
+ * says so. Reads the Environment's `environment.egress` events and keeps those naming this
+ * session; the newest 50.
+ */
+function SessionConnections({
+  tenantId,
+  sessionId,
+  environmentId,
+}: {
+  tenantId: string;
+  sessionId: string;
+  environmentId: string;
+}) {
+  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
+  const load = useCallback(
+    async (signal: AbortSignal) => {
+      const events = await sdk.environments.events(environmentId, { types: ["environment.egress"], signal });
+      const mine = events
+        .map((event) => egressOf(event))
+        .filter((egress) => egress?.runningTurns?.some((turn) => turn.sessionId === sessionId));
+      return { rows: mine.slice(-50).reverse(), truncated: events.length >= 1000 };
+    },
+    [sdk, environmentId, sessionId],
+  );
+  const read = useRead(load);
+  return (
+    <Section
+      title="Connections during this session's turns"
+      actions={
+        <Button variant="outline" size="sm" disabled={read.pending} onClick={read.reload}>
+          Refresh
+        </Button>
+      }
+    >
+      <p className="text-xs text-muted-foreground">
+        Every connection is the Environment's. Sessions on it run their turns at once, so a
+        connection opened while this session's turn ran may belong to another session's turn.
+      </p>
+      <ReadState
+        {...read}
+        onRetry={read.reload}
+        empty={read.data?.rows.length ? undefined : "No connection opened during its turns."}
+      />
+      {read.data?.rows.map((egress, index) =>
+        egress ? <EgressRow key={`${egress.startedAt}:${index}`} egress={egress} sessionId={sessionId} /> : null,
+      )}
+      {read.data?.truncated ? (
+        <Link className="text-xs underline" to={environmentPath(environmentId, "events")}>
+          Older connections: the Environment's events
+        </Link>
+      ) : null}
+    </Section>
   );
 }

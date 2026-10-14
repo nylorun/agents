@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import type { EnvironmentEvent, EnvironmentView } from "@nylorun/agents";
+import { ENVIRONMENT_EVENT_TYPES, type EnvironmentEvent, type EnvironmentEventType, type EnvironmentView } from "@nylorun/agents";
 import { ChevronLeft } from "lucide-react";
 import { createTenantClient } from "@/proxy-client";
 import { messageOf, usePages, useRead } from "@/resources/reads";
@@ -27,6 +27,7 @@ import { EnvironmentSecrets } from "@/components/environment-secrets";
 import { EnvironmentDisk } from "@/components/environment-disk";
 import { ForkSheet } from "@/components/environment-fork";
 import { environmentPath } from "@/environment-path";
+import { EgressRow, egressOf } from "@/components/environment-egress";
 
 /** A titled block of an Environment's page. */
 export function Section({
@@ -577,7 +578,50 @@ function EnvironmentSessions({
   );
 }
 
+/** The Environment's events: all of them, its lifecycle, or the connections its sandbox opened. */
+type EventsView = "all" | "lifecycle" | "connections";
+
+/** Every type but egress: what happened to the Environment itself. */
+const LIFECYCLE_TYPES: readonly EnvironmentEventType[] = ENVIRONMENT_EVENT_TYPES.filter(
+  (type) => type !== "environment.egress",
+);
+
 function EnvironmentEvents({ tenantId, id }: { tenantId: string; id: string }) {
+  const [view, setView] = useState<EventsView>("all");
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Which events">
+        {(
+          [
+            ["all", "All"],
+            ["lifecycle", "Lifecycle"],
+            ["connections", "Connections"],
+          ] as const
+        ).map(([value, label]) => (
+          <Button
+            key={value}
+            size="sm"
+            variant={view === value ? "secondary" : "outline"}
+            aria-pressed={view === value}
+            onClick={() => setView(value)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {view === "connections" ? (
+        <p className="text-xs text-muted-foreground">
+          Every connection the sandbox opened through egress-gate. A connection is the
+          Environment's: sessions on it run their turns at once, so the turns listed were running
+          when it opened.
+        </p>
+      ) : null}
+      <EnvironmentEventList key={view} tenantId={tenantId} id={id} view={view} />
+    </div>
+  );
+}
+
+function EnvironmentEventList({ tenantId, id, view }: { tenantId: string; id: string; view: EventsView }) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
   const accumulated = useRef<EnvironmentEvent[]>([]);
   const load = useCallback(
@@ -586,7 +630,9 @@ function EnvironmentEvents({ tenantId, id }: { tenantId: string; id: string }) {
         (n, e) => Math.max(n, e.seq + 1),
         0,
       );
-      const next = await sdk.environments.events(id, { from, signal });
+      const types =
+        view === "connections" ? (["environment.egress"] as const) : view === "lifecycle" ? LIFECYCLE_TYPES : undefined;
+      const next = await sdk.environments.events(id, { from, ...(types ? { types } : {}), signal });
       signal.throwIfAborted();
       accumulated.current = Array.from(
         new Map(
@@ -595,7 +641,7 @@ function EnvironmentEvents({ tenantId, id }: { tenantId: string; id: string }) {
       ).sort((a, b) => a.seq - b.seq);
       return accumulated.current;
     },
-    [sdk, id],
+    [sdk, id, view],
   );
   const read = useRead(load);
   return (
@@ -606,22 +652,26 @@ function EnvironmentEvents({ tenantId, id }: { tenantId: string; id: string }) {
       <ReadState
         {...read}
         onRetry={read.reload}
-        empty={read.data?.length ? undefined : "No lifecycle events."}
+        empty={read.data?.length ? undefined : view === "connections" ? "No connections." : "No events."}
       />
-      {read.data?.map((e) => (
-        <details key={e.eventId} className="border-b py-2 text-sm">
-          <summary className="break-all">
-            {e.seq} · {e.type}
-            <span className="block text-xs text-muted-foreground">
-              {date(e.time)}
-            </span>
-          </summary>
-          <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-muted p-2 text-xs">
-            {JSON.stringify(e.payload, null, 2)}
-          </pre>
-        </details>
-      ))}
+      {read.data?.map((e) => {
+        const egress = egressOf(e);
+        return (
+          <details key={e.eventId} className="border-b py-2 text-sm">
+            <summary className="break-all">
+              {e.seq} · {e.type}
+              {egress ? ` · ${egress.host}:${egress.port} · ${egress.outcome}` : ""}
+              <span className="block text-xs text-muted-foreground">
+                {date(e.time)}
+              </span>
+            </summary>
+            {egress ? <EgressRow egress={egress} /> : null}
+            <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-muted p-2 text-xs">
+              {JSON.stringify(e.payload, null, 2)}
+            </pre>
+          </details>
+        );
+      })}
     </div>
   );
 }
-
