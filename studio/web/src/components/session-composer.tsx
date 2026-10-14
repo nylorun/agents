@@ -8,9 +8,10 @@ import { cn } from "@/lib/utils";
 const MAX_HEIGHT = 240;
 
 /**
- * The message box under a session's chat: one card holding the text, the
- * model picker and a single action button. The button sends while the
- * session is idle and stops the turn while it runs.
+ * The message box under a session's chat: one card holding the text and a
+ * single action button, with the model picker under it. The button sends
+ * while the session is idle and stops the turn while it runs; Enter sends
+ * and Shift+Enter adds a line.
  */
 export function SessionComposer({
   tenantId,
@@ -98,12 +99,7 @@ export function SessionComposer({
           placeholder={placeholder}
           disabled={disabled}
         />
-        <div className="flex items-center gap-2 px-2 pb-2">
-          <SessionModelPicker
-            tenantId={tenantId}
-            disabled={disabled}
-            className="min-w-0 flex-1"
-          />
+        <div className="flex items-center justify-end gap-2 px-2 pb-2">
           {running && !sending ? (
             <Button
               type="button"
@@ -134,11 +130,7 @@ export function SessionComposer({
           )}
         </div>
       </div>
-      <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">
-        <kbd className="font-sans">Enter</kbd> to send ·{" "}
-        <kbd className="font-sans">Shift</kbd> +{" "}
-        <kbd className="font-sans">Enter</kbd> for a new line
-      </p>
+      <SessionModelPicker tenantId={tenantId} disabled={disabled} className="mt-1" />
     </form>
   );
 }
