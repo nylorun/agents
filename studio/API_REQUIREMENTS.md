@@ -6,34 +6,15 @@ Runtime route or SDK method. Artifacts are read-only in this increment; Environm
 (protocol 11) are created, changed, stopped, reset and deleted, and their disk versions
 kept, restored, forked and deleted, through their public routes.
 
-## Required parallel PR: artifact pagination
+## Artifact pages
 
-`GET /v1/artifacts` currently returns the entire reachable collection. Studio
-calls it **only with a session ID**. The `/artifacts` page (no sidebar entry)
-offers a session filter and lookup by artifact ID; it does not fetch the entire Tenant,
-truncate an unbounded response, or simulate pagination in the browser.
-
-Add opt-in pagination to that public route and expose it to all clients:
-
-- Explicit `limit` activates `{ artifacts: ArtifactListItem[], nextCursor: string | null }`.
-  Preserve the existing `{ artifacts: ArtifactView[] }` response without `limit`.
-- SDK `artifacts.page()`: default 50 rows, limits 1–200. Reuse existing metadata
-  summaries; omit version histories and bytes from list responses.
-- Order by `(createdAt DESC, artifactId DESC)` with opaque keyset cursors bound
-  to the Tenant, route and normalized filters. Reapply grants/ownership on every
-  page, including after permissions change. Return ordinary public errors for
-  malformed or mismatched cursors.
-- Equality filters: `sessionId`, `kind`, and existing label syntax. Define
-  `sessionId` semantics for tenant-owned artifacts explicitly. A future text
-  search is optional, not required for this Studio increment.
-- Keep OpenAPI and shared schemas aligned. Publish an `artifact-reads` feature
-  once the route and SDK ship; Studio enables the tenant table only after
-  feature discovery confirms it. No protocol bump is needed for opt-in paging.
-- Verify equal timestamps, concurrent inserts, filter changes, denied rows,
-  cursor rejection and legacy response compatibility through public interfaces.
-
-Once available, Studio can add the tenant table and use the same paging for
-session-scoped lists. This is the only API blocker for the browsing design.
+The Tenant-wide Artifacts table uses the opt-in pages of `GET /v1/artifacts`
+(`artifacts.page()`, Host feature `artifact-reads`): `limit=50`, the opaque
+`nextCursor`, and the `sessionId`, `kind` and `label` filters. Studio checks the
+feature on `/health` first; without it, the page offers a session lookup and
+opening by ID, and never fetches the unbounded legacy list. An artifact view's
+`environmentId` names the Environment whose disk versions it holds, so the table
+and inspector link it to that Environment.
 
 ## Existing APIs used now
 
@@ -55,6 +36,7 @@ session-scoped lists. This is the only API blocker for the browsing design.
 | Lifecycle events, manual refresh | `environments.events({ from })` → `GET /v1/environments/{id}/events?from=…` |
 | New session's Environment picker | `environments.list()` → `GET /v1/environments`; Management `coverage({ agentId, environmentId })` → `POST /v1/tenant/credential-coverage` |
 | Preview tools | Management `mcp.preview({ url, environmentId })` → `POST /v1/tenant/mcp/preview` |
+| Tenant artifacts table | `artifacts.page({ kind, sessionId, labels, cursor })` → `GET /v1/artifacts?limit=50&…` |
 | Session artifact list | `artifacts.list({ sessionId })` → `GET /v1/artifacts?sessionId=…` |
 | Artifact metadata and versions | `artifacts.get()` → `GET /v1/artifacts/{id}` |
 | Pinned file preview | `artifacts.download({ version, range })` → version `content` |

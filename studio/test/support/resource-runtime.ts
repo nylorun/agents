@@ -73,6 +73,18 @@ const disk = {
   artifactId: "a-disk",
   name: "disk",
   sessionId: undefined,
+  environmentId: ENVIRONMENT,
+};
+/** A Tenant-owned file an application uploaded: a pod's input file. */
+const input = {
+  ...file,
+  artifactId: INPUT_ARTIFACT,
+  name: "requirements.txt",
+  contentType: "text/plain",
+  sessionId: undefined,
+  latestVersion: 1,
+  labels: { purpose: "input" },
+  versions: [version(1, "text/plain")],
 };
 const pod = (id: string) =>
   environment(id, {
@@ -126,7 +138,8 @@ const event = {
   payload: { artifactId: file.artifactId, version: 1, name: file.name },
 };
 
-export async function resourceRuntime() {
+/** `artifactReads: false`: a Host without artifact pages. */
+export async function resourceRuntime({ artifactReads = true } = {}) {
   const requests: {
     method: string;
     path: string;
@@ -160,6 +173,7 @@ export async function resourceRuntime() {
             "session-reads",
             "environment-setup",
             "environment-disk-versions",
+            ...(artifactReads ? ["artifact-reads"] : []),
           ],
         },
       });
@@ -324,12 +338,35 @@ export async function resourceRuntime() {
         manifestHash: "h",
         implementationVersion: "1",
       });
+    if (path === "/v1/artifacts" && url.searchParams.has("limit")) {
+      // Newest first; page 2 holds the oldest. Filters as the Runtime applies them.
+      const sessionFilter = url.searchParams.get("sessionId");
+      const kindFilter = url.searchParams.get("kind");
+      const labelFilters = url.searchParams.getAll("label");
+      const all = [input, disk, folder, file]
+        .filter((a) => sessionFilter === null || a.sessionId === sessionFilter)
+        .filter((a) => kindFilter === null || a.kind === kindFilter)
+        .filter((a) =>
+          labelFilters.every((l) => {
+            const [k, v] = [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)];
+            return (a as { labels?: Record<string, string> }).labels?.[k] === v;
+          }),
+        )
+        .map(({ versions: _, ...a }) => a);
+      const second = url.searchParams.get("cursor") === "artifacts2";
+      const items = second ? all.slice(3) : all.slice(0, 3);
+      return send(200, {
+        artifacts: items,
+        nextCursor: !second && all.length > 3 ? "artifacts2" : null,
+      });
+    }
     if (path === "/v1/artifacts")
       return send(200, {
         artifacts: [file, folder].map(({ versions: _, ...a }) => a),
       });
     if (path === "/v1/artifacts/a-report") return send(200, file);
     if (path === "/v1/artifacts/a-disk") return send(200, disk);
+    if (path === `/v1/artifacts/${INPUT_ARTIFACT}`) return send(200, input);
     if (path === "/v1/artifacts/a-folder") return send(200, folder);
     if (path === "/v1/artifacts/a-slow") {
       setTimeout(() => {

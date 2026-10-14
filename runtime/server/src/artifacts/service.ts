@@ -100,6 +100,7 @@ export function artifactView(row: ArtifactRow, versions?: ArtifactVersionRow[]):
     name: row.name,
     contentType: row.contentType,
     ...(row.sessionId === null ? {} : { sessionId: row.sessionId }),
+    ...(row.environmentId === null ? {} : { environmentId: row.environmentId }),
     latestVersion: row.latestVersion,
     ...(row.labelsJson === null ? {} : { labels: JSON.parse(row.labelsJson) as Record<string, string> }),
     createdAt: row.createdAt,
