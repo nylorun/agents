@@ -358,9 +358,11 @@ async function i3(url, stack) {
     },
   });
   assert.equal(rejected.status, 426, await rejected.text());
-  // Protocol 11 accepts no older client: a protocol 10 request is a 426 too.
+  // The Host serves protocols 11 and 12: a protocol 10 request is a 426 too, and 11 is served.
   const older = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "10" } });
   assert.equal(older.status, 426, "a protocol 10 client");
+  const eleven = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "11" } });
+  assert.equal(eleven.status, 200, "a protocol 11 client");
   assert.ok(
     !(await runtimeGet(url, key, "/v1/agents")).agents.some((agent) => agent.manifest.id === "too-new"),
     "no agent was written",

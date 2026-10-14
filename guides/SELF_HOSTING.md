@@ -67,7 +67,7 @@ sessions, Environments and artifacts) for apps and people, and the **Management 
 application key sent with one (`403 origin_rejected`).
 
 **Browsers and apps** present the token your identity provider gave the person, with
-`Nylorun-Protocol: 11`. The Runtime verifies it against the identity file and takes the subject,
+`Nylorun-Protocol: 12` (the Runtime still serves 11). The Runtime verifies it against the identity file and takes the subject,
 scopes, agents and Environment grants from it. Nylorun mints no token and ships no browser client:
 use your provider's SDK to sign in, and put the Runtime behind a reverse proxy that answers
 [CORS](#cors-at-your-proxy). An issuer's token cannot act for anyone else: with

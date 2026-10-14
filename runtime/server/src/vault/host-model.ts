@@ -7,6 +7,7 @@
  * Decryption runs after the read commits; the key is resolved before the write's transaction.
  */
 import type { SessionStore } from "../store/types.js";
+import { readAddedInputs } from "../tenant/model-setting.js";
 import { encryptSecret } from "./crypto.js";
 import { VaultError } from "./error.js";
 import {
@@ -33,9 +34,15 @@ export class HostModelVault {
     this.kek = options.kek;
   }
 
-  /** Reads the active host model secret. Decrypts after the read commits. */
+  /**
+   * Reads the active host model secret, with the inputs the operator added to catalog models
+   * (protocol 12). Decrypts after the read commits.
+   */
   async readHostModel(): Promise<HostModelSecret | undefined> {
-    const row = await this.store.tx((t) => activeHostCredentialRow(t));
+    const { row, addedInputs } = await this.store.tx(async (t) => ({
+      row: await activeHostCredentialRow(t),
+      addedInputs: await readAddedInputs(t),
+    }));
     if (!row) return undefined;
     const binding = modelBinding(row);
     const payload = readHostPayload(this.kek(), row, binding);
@@ -52,6 +59,7 @@ export class HostModelVault {
       model: binding.model,
       ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
       ...(binding.settings ? { settings: binding.settings } : {}),
+      addedInputs,
       authType: binding.authType,
       credential,
     };

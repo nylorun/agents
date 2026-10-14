@@ -283,6 +283,11 @@ export { bindTool } from "./definition/bind-tool.js";
 export { bindOutputContract } from "./definition/output-contract.js";
 export type { TurnOutputContract } from "./definition/output-contract.js";
 export { agentFrom } from "./definition/from.js";
+export {
+  mediaReferenceLine,
+  mediaReferenceOf,
+  type MediaReference,
+} from "./definition/media-reference.js";
 export type { SessionToolRef } from "./definition/from.js";
 export { schemaFromJSON } from "./definition/schema-json.js";
 export { normalizeSchema } from "./definition/schema.js";

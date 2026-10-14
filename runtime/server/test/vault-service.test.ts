@@ -596,6 +596,7 @@ describe("VaultService host model", () => {
       provider: "custom",
       model: "fixture",
       baseUrl: "https://models.example.test/v1",
+      addedInputs: {},
       authType: "api_key",
       credential: { type: "api_key", key: secret },
     });
@@ -627,6 +628,9 @@ describe("VaultService host model", () => {
       ]),
     );
     expect(JSON.stringify(both)).not.toContain(secret);
+    // What each provider's model reads (protocol 12): a custom endpoint text only by default.
+    expect(both.providers.find((provider) => provider.id === "custom")?.inputs).toEqual(["text"]);
+    expect(both.providers.find((provider) => provider.id === "openai")?.inputs).toContain("text");
 
     expect(
       await vault.selectHostModel({
@@ -684,6 +688,23 @@ describe("VaultService host model", () => {
     });
     expect(await hostModel.readHostModel()).toMatchObject({ model: "qwen3-14b", settings });
     expect((await vault.listHostProviders()).providers[0]?.settings).toEqual(settings);
+  });
+
+  it("checks a custom endpoint's inputs against what an OpenAI-compatible API carries (protocol 12)", async () => {
+    const { vault } = await setup();
+    const put = (inputs: ("image" | "pdf" | "office" | "audio")[], key: string) =>
+      vault.putHostModel({
+        requestId: key,
+        idempotencyKey: key,
+        provider: "custom",
+        model: "vision",
+        baseUrl: "http://127.0.0.1:8000/v1",
+        settings: { inputs },
+        auth: { type: "api_key", key: "local" },
+      });
+    expect(await status(put(["office"], "inputs-1"))).toBe(400);
+    expect(await put(["image", "pdf", "audio"], "inputs-2")).toMatchObject({ settings: { inputs: ["image", "pdf", "audio"] } });
+    expect((await vault.listHostProviders()).providers[0]?.inputs).toEqual(["text", "image", "pdf", "audio"]);
   });
 
   it("refuses model settings for a catalog provider", async () => {

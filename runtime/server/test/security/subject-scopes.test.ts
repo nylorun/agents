@@ -137,6 +137,7 @@ const routes = (): Route[] => [
   // `tenant:settings` is retired (protocol 8): no scope reaches the Tenant's settings.
   { method: "GET", path: "/v1/tenant", needs: "never" },
   { method: "GET", path: "/v1/tenant/models", needs: "never" },
+  { method: "PUT", path: "/v1/tenant/models/inputs", needs: "never", body: () => ({}) },
   { method: "GET", path: "/v1/tenant/providers", needs: "never" },
   { method: "GET", path: "/v1/tenant/sandbox", needs: "never" },
   { method: "GET", path: "/v1/tenant/model", needs: "never" },

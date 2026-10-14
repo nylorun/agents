@@ -127,6 +127,8 @@ describe("OpenAI image integrations", () => {
           provider: "custom",
           model: "vision-test",
           baseUrl: "https://provider.example/v1",
+          // A custom endpoint reads text only unless its settings say more (protocol 12).
+          settings: { inputs: ["image"] },
           authType: "api_key",
           credential: { type: "api_key", key: "test-provider-key" },
         }),

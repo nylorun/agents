@@ -222,6 +222,91 @@ describe("compact", () => {
   });
 });
 
+describe("compaction and files (protocol 12)", () => {
+  const upload = (
+    turnId: string,
+    artifactId: string,
+    mediaType: string,
+    size: number,
+  ): TranscriptEntry => ({
+    kind: "input",
+    turnId,
+    event: {
+      kind: "user-message",
+      content: [
+        { type: "text", text: "see" },
+        {
+          type: "media",
+          mediaType,
+          reference: { artifactId, version: 1, name: `${artifactId}.bin`, size },
+        },
+      ],
+    },
+  });
+  const answered = (turnId: string, totalTokens: number): TranscriptEntry => ({
+    kind: "candidate",
+    turnId,
+    stepId: `${turnId}-s`,
+    candidate: { output: [{ type: "text", text: "ok" }], usage: { totalTokens } },
+  });
+
+  it("carries the summarized part's files as reference lines", async () => {
+    const calls: { call: ModelCall; invocationId: string }[] = [];
+    const transcript = [
+      upload("t1", "af_a", "image/png", 10),
+      ...toolStep("t1", 1),
+      input("t2", "the current request"),
+      ...toolStep("t2", 1),
+      ...toolStep("t2", 2),
+      ...toolStep("t2", 3),
+    ];
+    const next = await compact({
+      transcript: [
+        {
+          kind: "compaction",
+          turnId: "t0",
+          stepId: "s",
+          summary: "EARLIER",
+          trigger: "threshold",
+          tokensBefore: 1,
+          tokensAfter: 1,
+          files: ['[Uploaded artifact "old" · af_old v1 · read_artifact to view]'],
+        },
+        ...transcript,
+      ],
+      executionId: "session",
+      turnId: "t2",
+      stepId: "t2-s4",
+      trigger: "threshold",
+      budget: { contextWindow: 1_000, reserve: 100 },
+      invoke: summarizer(calls),
+      signal: new AbortController().signal,
+    });
+    const line = '[Uploaded artifact "af_a.bin" · af_a v1 · read_artifact to view]';
+    expect(next![0]).toMatchObject({
+      kind: "compaction",
+      files: ['[Uploaded artifact "old" · af_old v1 · read_artifact to view]', line],
+    });
+    // The summarizer reads the file as its line, never as media.
+    expect(JSON.stringify(calls[0]!.call.prompt)).toContain("af_a v1");
+    expect(JSON.stringify(calls[0]!.call.prompt)).not.toContain('"media"');
+  });
+
+  it("counts this turn's files by size, and takes an earlier turn's off the reported usage", () => {
+    // An image counts 1,600 tokens, text a quarter of its bytes, another file an eighth (at most 100k).
+    const image = upload("t1", "af_i", "image/png", 1_000_000);
+    const pdf = upload("t1", "af_p", "application/pdf", 80_000);
+    expect(estimateTokens([image, pdf], "t1")).toBe(estimateTokens([image, pdf]) + 1_600 + 10_000);
+    // The reported call of turn t1 carried both files; in turn t2 they are lines.
+    const transcript = [image, pdf, answered("t1", 20_000), input("t2", "next")];
+    expect(estimateTokens(transcript, "t2")).toBe(
+      20_000 - 1_600 - 10_000 + Math.ceil("[User]: next".length / 4),
+    );
+    // In turn t1 the reported usage already counts them.
+    expect(estimateTokens(transcript.slice(0, 3), "t1")).toBe(20_000);
+  });
+});
+
 describe("compaction in the turn loop", () => {
   const agent = () =>
     Agent({ id: "long", name: "Long" })

@@ -127,17 +127,38 @@ let offered: string[] = [];
 /** Every tool result in the model's last prompt. */
 let results: Seen[] = [];
 let calls = 0;
-const seenOf = (item: Extract<ModelCall["prompt"][number], { kind: "tool-result" }>): Seen => ({
-  status: item.status,
-  payload: JSON.parse((item.content.find((part) => part.type === "text") as { text: string }).text),
-  media: item.content.filter((part) => part.type === "media") as Seen["media"],
-});
+/**
+ * The turn's files (protocol 12): the media of the user message the call ends with, after the
+ * conversation, each labelled with the reference line its tool result holds.
+ */
+const turnFiles = (prompt: ModelCall["prompt"]): Seen["media"] => {
+  const last = prompt.at(-1);
+  const first = last?.content[0];
+  return last?.kind === "message" && first?.type === "text" && first.text === "Files for this turn:"
+    ? (last.content.filter((part) => part.type === "media") as Seen["media"])
+    : [];
+};
+const seenOf = (
+  item: Extract<ModelCall["prompt"][number], { kind: "tool-result" }>,
+  files: Seen["media"],
+): Seen => {
+  const [payload, ...lines] = item.content.flatMap((part) => (part.type === "text" ? [part.text] : []));
+  return {
+    status: item.status,
+    payload: JSON.parse(payload!),
+    media: files.filter((file) =>
+      lines.some((line) => line.includes(` · ${(file.reference as { artifactId: string }).artifactId} v`)),
+    ),
+  };
+};
 const model: ModelProvider = async (effect: { input: unknown }) => {
   const input = effect.input as ModelCall;
   offered = input.tools.map((tool) => tool.name);
-  results = input.prompt.flatMap((item) => (item.kind === "tool-result" ? [seenOf(item)] : []));
-  const last = input.prompt.at(-1);
-  const next = brain(last?.kind === "tool-result" ? seenOf(last) : undefined);
+  const files = turnFiles(input.prompt);
+  const conversation = files.length > 0 ? input.prompt.slice(0, -1) : input.prompt;
+  results = conversation.flatMap((item) => (item.kind === "tool-result" ? [seenOf(item, files)] : []));
+  const last = conversation.at(-1);
+  const next = brain(last?.kind === "tool-result" ? seenOf(last, files) : undefined);
   if (!next) return { output: [{ type: "text", text: "done" }] };
   return {
     output: (Array.isArray(next) ? next : [next]).map((call) => {
@@ -320,7 +341,7 @@ describe("images and other files (Q23)", () => {
       {
         type: "media",
         mediaType: "image/png",
-        reference: { artifactId: image!.artifactId, version: 1, name: "files__screenshot-result-2.png" },
+        reference: { artifactId: image!.artifactId, version: 1, name: "files__screenshot-result-2.png", size: 70 },
       },
     ]);
     expect((await download(image!.artifactId)).toString("base64")).toBe(PNG);
@@ -380,13 +401,13 @@ describe("the gate's cap", () => {
 });
 
 describe("read_artifact (Q24)", () => {
-  it("is offered to an agent with MCP or HTTP tools, and not to one without", async () => {
+  it("is offered to every agent (protocol 12)", async () => {
     once("files__screenshot");
     await run();
     expect(offered).toContain("read_artifact");
     brain = () => undefined;
     await run("plain");
-    expect(offered).not.toContain("read_artifact");
+    expect(offered).toContain("read_artifact");
   });
 
   it("reads only the session's own artifacts", async () => {
@@ -418,6 +439,70 @@ describe("read_artifact (Q24)", () => {
     expect(seen[1]!.media).toEqual([
       expect.objectContaining({ type: "media", mediaType: "image/png", reference: expect.objectContaining({ artifactId }) }),
     ]);
+  });
+});
+
+describe("read_artifact and the files of messages (protocol 12)", () => {
+  const app = { authorization: `Bearer ${APP}` };
+  async function upload(path: string, body: string, contentType: string) {
+    const response = await fetch(`${runtime.url}${path}`, {
+      method: "POST",
+      headers: { ...app, "content-type": contentType },
+      body,
+    });
+    expect(response.status, await response.clone().text()).toBe(201);
+    return ((await response.json()) as { artifact: { artifactId: string } }).artifact.artifactId;
+  }
+  /** Runs a turn of session `id` whose message names `files`; the model reads `read` once. */
+  async function turn(id: string, files: string[], read: Record<string, unknown>) {
+    const seen: Seen[] = [];
+    brain = (result) => {
+      if (!result) return { name: "read_artifact", args: read };
+      seen.push(result);
+      return undefined;
+    };
+    const sent = await fetch(`${runtime.url}/v1/sessions/${id}/commands`, {
+      method: "POST",
+      headers: { ...app, "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "message",
+        requestId: id,
+        idempotencyKey: id,
+        parts: [{ type: "text", text: "go" }, ...files.map((artifactId) => ({ type: "file", artifactId }))],
+      }),
+    });
+    expect(sent.status, await sent.clone().text()).toBe(200);
+    for (let attempt = 0; attempt < 400 && seen.length === 0; attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    return seen[0]!;
+  }
+
+  it("reads a Tenant-wide artifact the session's messages named, at a version", async () => {
+    const notes = await upload("/v1/artifacts?name=notes.txt", "first", "text/plain");
+    await upload(`/v1/artifacts/${notes}/versions`, "second", "text/plain");
+    await client.createSession({ id: "named-1", agentId: "plain", ownerUserId: "u:ada" });
+    expect((await turn("named-1", [notes], { artifactId: notes, version: 1 })).payload).toMatchObject({
+      artifactId: notes,
+      version: 1,
+      content: "first",
+    });
+    // A session whose messages did not name it does not reach it.
+    await client.createSession({ id: "named-2", agentId: "plain", ownerUserId: "u:ada" });
+    expect((await turn("named-2", [], { artifactId: notes })).payload).toMatchObject({
+      kind: "failed",
+      code: "artifact.not_found",
+    });
+  });
+
+  it("refuses a type the model does not read", async () => {
+    await client.createSession({ id: "named-3", agentId: "plain", ownerUserId: "u:ada" });
+    const pdf = await upload("/v1/artifacts?name=own.pdf&sessionId=named-3", "%PDF-1.4", "application/pdf");
+    // Without a model in the vault, read_artifact shows text and images only.
+    expect((await turn("named-3", [], { artifactId: pdf })).payload).toMatchObject({
+      kind: "failed",
+      code: "artifact.unsupported",
+      message: "own.pdf is application/pdf: this model does not read PDFs.",
+    });
   });
 });
 
@@ -516,8 +601,9 @@ describe("the pinned manifest", () => {
     expect(sandboxed.ok && names(sandboxed.manifest)).toEqual(expect.arrayContaining(["save_artifact", "read_artifact"]));
   });
 
-  it("adds nothing to an agent without them, and no read_artifact to one with its own", () => {
-    expect(withPlatformTools(Agent({ id: "plain" }).instructions("Answer.").build().manifest)).toBeUndefined();
+  it("adds read_artifact to every agent (protocol 12), and none to one with its own", () => {
+    const plain = withPlatformTools(Agent({ id: "plain" }).instructions("Answer.").build().manifest);
+    expect(plain?.ok && names(plain.manifest)).toEqual(["read_artifact"]);
     const readArtifact = http({ name: "read_artifact", input: z.object({}), url: "https://own.example.invalid/read" });
     expect(withPlatformTools(Agent({ id: "own" }).tools(readArtifact).build().manifest)).toBeUndefined();
     // With an MCP server it gets only `nylorun.tools` (R2b C10), which is empty.

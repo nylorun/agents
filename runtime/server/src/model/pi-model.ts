@@ -22,15 +22,24 @@ import type {
   RuntimeModelAdapter,
   RuntimeModelCandidate,
 } from "../contracts.js";
-import type { ModelFailureOutcome } from "@nylorun/core/define";
+import type { ModelInput } from "@nylorun/core/contracts";
+import { mediaReferenceOf, type ModelFailureOutcome } from "@nylorun/core/define";
 import {
   FileUnavailableError,
   type FileResolver,
   type ResolvedFile,
 } from "../artifacts/files.js";
-import { essence, isModelImage, isText } from "../artifacts/media-types.js";
+import {
+  essence,
+  inputLabel,
+  isModelImage,
+  isText,
+  modelInputOf,
+  unreadableReason,
+} from "../artifacts/media-types.js";
 import { scrub } from "../redact.js";
 import type { HostModelSecret } from "../vault/service.js";
+import { capabilitiesOf } from "./capabilities.js";
 import { classifyAssistantError, failure } from "./classify.js";
 import { modelsFor } from "./models.js";
 import { projectSecrets } from "./settings.js";
@@ -91,8 +100,6 @@ const noAmbientAuth: AuthContext = {
   },
 };
 
-class InvalidRequest extends Error {}
-
 /**
  * Node model adapter. Local provider configuration is read only when invoked.
  * A provider failure is returned as a failure outcome; only an abort is thrown.
@@ -140,21 +147,26 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       hostCredentialStore(stored, options.writeHostCredential),
       { environment: false, authContext: noAmbientAuth },
     );
-    const selected = registry.getModel(selection.provider, selection.model);
-    if (!selected)
+    const found = registry.getModel(selection.provider, selection.model);
+    if (!found)
       return failure(
         "invalid_request",
         "Unknown model. Run nylo configure (npx @nylorun/cli configure).",
         false,
       );
-    let request: Context;
-    try {
-      request = await buildContext(call, selected, options);
-    } catch (error) {
-      if (error instanceof InvalidRequest)
-        return failure("invalid_request", error.message, false);
-      throw error;
-    }
+    // What the model reads (protocol 12): its catalog's inputs and the operator's additions.
+    // pi-ai drops an image the model's `input` lacks, so the call's model carries an added one.
+    const { inputs } = capabilitiesOf(
+      found,
+      selection.custom
+        ? stored.settings?.inputs
+        : stored.addedInputs?.[`${selection.provider}/${selection.model}`],
+    );
+    const selected: Model<Api> = {
+      ...found,
+      input: inputs.includes("image") ? ["text", "image"] : ["text"],
+    };
+    const request = await buildContext(call, selected, inputs, options);
     // Publish only portable references, never the materialized provider image bytes.
     context.reportPreparedCall?.({
       adapter: "runtime.pi-ai",
@@ -330,89 +342,63 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
 async function buildContext(
   call: Parameters<RuntimeModelAdapter>[0],
   selected: Model<Api>,
+  inputs: readonly ModelInput[],
   options: PiModelOptions,
 ): Promise<Context> {
   const messages: Message[] = [];
   const instructions: string[] = [];
+  /**
+   * A file a media part names (protocol 6, 12), as the model gets it: a text file as a `<file>`
+   * block, an image the model reads as an image, and anything else, or a file that cannot be read,
+   * as a note. Its bytes go only into the provider request built here, never into the transcript
+   * or the journal, and no file fails the call.
+   */
+  const materialize = async (
+    part: Extract<PromptContentPart, { type: "media" }>,
+  ): Promise<TextContent | ImageContent> => {
+    let name = mediaReferenceOf(part.reference)?.name ?? "file";
+    let type = essence(part.mediaType);
+    const note = (why: string): TextContent => ({
+      type: "text",
+      text: `(File ${JSON.stringify(name)}, ${type}, is not shown: ${why}.)`,
+    });
+    const refused = unreadableReason(part.mediaType, inputs);
+    if (refused) return note(refused);
+    if (!options.files) return note("files are unavailable");
+    let file: ResolvedFile;
+    try {
+      file = await options.files(part.reference);
+    } catch (error) {
+      if (!(error instanceof FileUnavailableError)) throw error;
+      return note(error.message.replace(/\.$/u, ""));
+    }
+    name = file.name;
+    type = essence(file.mediaType);
+    const stored = unreadableReason(file.mediaType, inputs);
+    if (stored) return note(stored);
+    if (isModelImage(file.mediaType))
+      return { type: "image", data: Buffer.from(file.bytes).toString("base64"), mimeType: type };
+    if (isText(file.mediaType)) {
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
+      } catch {
+        return note("it is not UTF-8 text");
+      }
+      return {
+        type: "text",
+        text: `<file name=${JSON.stringify(file.name)} type=${JSON.stringify(type)}>\n${text}\n</file>`,
+      };
+    }
+    return note(`the Runtime does not send ${inputLabel(modelInputOf(file.mediaType))} to a model yet`);
+  };
   const content = async (
     parts: readonly PromptContentPart[],
-    toolResult = false,
   ): Promise<(TextContent | ImageContent)[]> => {
     const result: (TextContent | ImageContent)[] = [];
     for (const part of parts) {
       if (part.type === "text") result.push({ type: "text", text: part.text });
-      else if (part.type === "media" && toolResult) {
-        // An image a tool returned, stored as an artifact (R2b C11): shown to a model that
-        // reads images. Otherwise, or when it cannot be read, a note: the call still goes.
-        const note = (why: string): TextContent => ({
-          type: "text",
-          text: `(The tool returned an image, ${essence(part.mediaType)}, that is not shown: ${why}.)`,
-        });
-        if (!selected.input.includes("image") || !isModelImage(part.mediaType)) {
-          result.push(
-            note(
-              selected.input.includes("image")
-                ? "the model reads PNG, JPEG, GIF and WebP images only"
-                : "this model does not accept images",
-            ),
-          );
-          continue;
-        }
-        if (!options.files) {
-          result.push(note("files are unavailable"));
-          continue;
-        }
-        try {
-          const file = await options.files(part.reference);
-          if (!isModelImage(file.mediaType)) result.push(note(`it is ${essence(file.mediaType)}`));
-          else
-            result.push({
-              type: "image",
-              data: Buffer.from(file.bytes).toString("base64"),
-              mimeType: essence(file.mediaType),
-            });
-        } catch (error) {
-          if (!(error instanceof FileUnavailableError)) throw error;
-          result.push(note(error.message.replace(/\.$/u, "")));
-        }
-      } else if (part.type === "media") {
-        // A file the message named by artifact (protocol 6): its bytes go only into the
-        // provider request built here, never into the transcript or the journal.
-        if (!options.files)
-          throw new InvalidRequest(
-            "Files are unavailable; pass a file resolver to piModel({ files }).",
-          );
-        let file: ResolvedFile;
-        try {
-          file = await options.files(part.reference);
-        } catch (error) {
-          if (error instanceof FileUnavailableError) throw new InvalidRequest(error.message);
-          throw error;
-        }
-        if (isModelImage(file.mediaType)) {
-          if (!selected.input.includes("image"))
-            throw new InvalidRequest("The configured model does not accept images.");
-          result.push({
-            type: "image",
-            data: Buffer.from(file.bytes).toString("base64"),
-            mimeType: essence(file.mediaType),
-          });
-        } else if (isText(file.mediaType)) {
-          let text: string;
-          try {
-            text = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
-          } catch {
-            throw new InvalidRequest(`${file.name} is not UTF-8 text.`);
-          }
-          result.push({
-            type: "text",
-            text: `<file name=${JSON.stringify(file.name)} type=${JSON.stringify(essence(file.mediaType))}>\n${text}\n</file>`,
-          });
-        } else
-          throw new InvalidRequest(
-            `The model reads images and text files; ${file.name} is ${essence(file.mediaType)}.`,
-          );
-      }
+      else if (part.type === "media") result.push(await materialize(part));
     }
     return result;
   };
@@ -430,7 +416,7 @@ async function buildContext(
         toolName: item.toolName,
         isError: item.status !== "completed",
         timestamp: Date.now(),
-        content: await content(item.content, true),
+        content: await content(item.content),
       });
     } else if (item.kind === "message" && item.role === "assistant") {
       messages.push(assistantMessage(item, selected));

@@ -397,10 +397,34 @@ _Avoid_: "presigned URL" (the Object store's own URLs never leave the Runtime).
 **Message parts**: A user message's `parts` (protocol 6): `text`, and `file` naming an artifact
 the caller may read, of the session or Tenant-wide, at a version or its latest. The commands
 service pins each file to a version and gives the engine an opaque media part whose reference is
-`{ artifactId, version }`; model-gate reads the bytes (`artifacts/files.ts`) only for the call's
+`{ artifactId, version, name, size }`; model-gate reads the bytes (`artifacts/files.ts`) only for the call's
 session, the run token's on the gate's route, and reads none for a call without one, so the
-transcript and the record hold only the reference. An image becomes image input, a text file text, and
-another file a refused call (`invalid_request`).
+transcript and the record hold only the reference. An agent session's message naming a file its
+model does not read is refused at accept (`422 attachment_unsupported`, the type only, never the
+size; skipped with no model in the vault), and the files a session's messages named are kept on
+it (`Session.fileArtifacts`) for `read_artifact`. At the gate (`buildContext` in
+`model/pi-model.ts`) an image the model reads becomes image input, a text file a `<file>` block,
+and anything else, or a file it cannot read, a note: no file fails a call.
+
+**Model inputs**: What a model reads (protocol 12): `text`, `image`, `pdf`, `office`, `audio`
+and `video` (`MODEL_INPUTS`). `capabilitiesOf(model, added)` (`model/capabilities.ts`) is its
+pi-ai catalog's `input` plus what the operator added, only where its API carries the input
+natively (`NATIVE_INPUTS`): images everywhere, PDFs on the Anthropic, OpenAI, Azure and Google
+APIs, Office documents on the OpenAI Responses APIs, audio and video on Google's and
+OpenAI-compatible completions. Added inputs are the Tenant setting `model.inputs` (`PUT
+/v1/tenant/models/inputs`, `tenant/model-setting.ts`) for catalog models, and a custom
+endpoint's `settings.inputs` (text only by default). One function serves the catalog, the accept
+check (`currentModelInputs` in `model/catalog.ts`), the Model Gate (which gives pi-ai a model
+with an added image, so it is not dropped) and `read_artifact`. A file's input is
+`modelInputOf(mediaType)` (`artifacts/media-types.ts`).
+
+**Reference line**: How a file stands in a prompt once its turn is over (protocol 12,
+`mediaReferenceLine` in `@nylorun/core/define`): `[Uploaded artifact "name" · <artifactId> v<n> ·
+read_artifact to view]`, or `[Tool <name> returned artifact …]` for a tool result's file. Our
+harness projects every media part of the transcript as its line, and the media of the turn in
+progress once more, in one trailing user message after the conversation and the context, so a
+message projects the same in every later call and bytes reach a model only in their own turn
+(`loop/model/project.ts`). Compaction keeps the summarized part's lines on its entry (`files`).
 
 **`save_artifact`**: Our engine's built-in tool (`nylorun.artifacts` capability, added beside the
 sandbox capability to a session with a sandbox): it saves a sandbox file (`path`) or text
@@ -424,14 +448,15 @@ result past 1 KiB reserves its share on its effect row (`resultBytes`) and is ca
 step's other results left (`resultLimit`), down to a 512-byte stub naming its artifact.
 _Avoid_: "offloaded result" or "spill file".
 
-**`read_artifact`**: Our engine's built-in tool that reads a text artifact of its own session in
-pages of at most 32 KiB from a byte `offset`, returning `nextOffset` while more remains, and shows
-an image artifact as a file (R2b C11, Q24; `tenant/artifact-tool.ts`). The `nylorun.artifacts`
-capability gives it to each agent of a session's tree with a remote MCP server or an HTTP tool,
-with or without a sandbox, unless the agent declares a tool of that name
-(`sandbox/session-sandbox.ts`), so such a session pins its definition with it added, and its
-`manifestHash` differs from the definition's; the session view's `definitionHash` names the
-definition it was opened from. It never reads a Tenant-wide artifact or another
+**`read_artifact`**: Our engine's built-in tool that reads a text artifact in pages of at most
+32 KiB from a byte `offset`, returning `nextOffset` while more remains, at a `version` or the
+latest, and shows another file the Tenant's model reads as a file of the result; one it does not
+read fails `artifact.unsupported` (R2b C11, Q24, protocol 12; `tenant/artifact-tool.ts`). The
+`nylorun.artifacts` capability gives it to every agent of a session's tree, with or without a
+sandbox, unless the agent declares a tool of that name (`sandbox/session-sandbox.ts`), so every
+agent session pins its definition with it added, and its `manifestHash` differs from the
+definition's; the session view's `definitionHash` names the definition it was opened from. It
+reads the session's artifacts and the Tenant-wide ones its messages named, never another
 session's.
 
 **Definition file**: A file a definition names by the SHA-256 of its bytes (`sha256:<hex>`), today
@@ -452,11 +477,13 @@ workspace before the first call that opens it (`sandbox/skills.ts`), with bytes 
 store, or in a harness from core (`definition.file`, for the run that made the call).
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 11`; the Host serves protocol 11 only and answers older
-clients `426`; required features `studio-principal`, `artifacts`, `management-api`,
-`resource-server` and `environments`; optional Host features `tenant-fixture-model`,
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 12`; the Host serves protocols 11 and 12 and answers
+older clients `426`; required features `studio-principal`, `artifacts`, `management-api`,
+`resource-server`, `environments` and `model-inputs`; optional Host features `tenant-fixture-model`,
 `transcript-events`, `subject-headers`, `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`,
 `trusted-issuers`, `session-reads`, `calls-export`, `credential-coverage` and `traces`).
+Protocol 12 added **model inputs**, the accept check (`422 attachment_unsupported`), **reference
+lines** and `read_artifact` for every agent; it changes nothing a protocol 11 client sends.
 Protocol 11 replaced sandbox resources, session vaults and user and installation vaults with
 Environments (D55, D56): a fresh start (migration 0020) that closed every older session.
 Protocol 10 removed MCP credential custody (D49).

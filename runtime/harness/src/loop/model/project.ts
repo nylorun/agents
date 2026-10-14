@@ -10,15 +10,38 @@ import type {
 import type { ContextItem } from "@nylorun/core/define";
 import type { TranscriptEntry } from "@nylorun/core/define";
 import type { ToolResult } from "@nylorun/core/define";
-import { copyJson, freezeGraph } from "@nylorun/core/define";
+import { copyJson, freezeGraph, mediaReferenceLine, mediaReferenceOf } from "@nylorun/core/define";
+import type { JsonValue } from "@nylorun/core/define";
 import { summaryPrompt } from "../compaction/index.js";
 
+/** A file of the turn in progress: its reference line and the media part the model call reads. */
+interface LiveFile {
+  readonly line: string;
+  readonly part: { readonly mediaType: string; readonly reference: JsonValue };
+}
+
+/**
+ * The model call for `request`. Every file in the transcript is its reference line (protocol 12),
+ * so a message projects the same in every later call. The files of the turn in progress (its
+ * messages, tool results and `read_artifact` loads) also go once, as media, in one user message
+ * after the conversation and the context: their bytes reach the model only in their own turn.
+ */
 export function projectModelCall(request: ModelRequest): ModelCall {
+  const live = new Map<string, LiveFile>();
+  const collect = (entry: TranscriptEntry, line: string, part: LiveFile["part"]) => {
+    if (entry.turnId !== request.turnId) return;
+    const reference = mediaReferenceOf(part.reference);
+    const key = reference
+      ? `${reference.artifactId}@${reference.version}`
+      : JSON.stringify(part.reference);
+    if (!live.has(key)) live.set(key, { line, part });
+  };
   return freezeGraph({
     prompt: Object.freeze([
       ...projectInstructions(request.instructions),
-      ...request.transcript.flatMap((entry) => projectEntry(entry, request.turnId)),
+      ...request.transcript.flatMap((entry) => projectEntry(entry, request.turnId, collect)),
       ...projectContext(request.context),
+      ...projectFiles([...live.values()]),
     ]),
     tools: Object.freeze(
       request.configuration.tools.map((tool): ModelCallTool =>
@@ -66,7 +89,35 @@ function renderContext(items: readonly ContextItem[]): string {
   ].join("\n");
 }
 
-function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptItem[] {
+/** The files of the turn in progress, each labelled with its reference line. */
+function projectFiles(files: readonly LiveFile[]): readonly PromptItem[] {
+  if (files.length === 0) return [];
+  return [
+    freezeItem({
+      kind: "message",
+      role: "user",
+      content: [
+        textPart("Files for this turn:"),
+        ...files.flatMap(({ line, part }): PromptContentPart[] => [
+          textPart(line),
+          Object.freeze({
+            type: "media" as const,
+            mediaType: part.mediaType,
+            reference: copyJson(part.reference),
+          }),
+        ]),
+      ],
+    }),
+  ];
+}
+
+type Collect = (entry: TranscriptEntry, line: string, part: LiveFile["part"]) => void;
+
+function projectEntry(
+  entry: TranscriptEntry,
+  turnId: string,
+  collect: Collect,
+): readonly PromptItem[] {
   if (entry.kind === "input") {
     if (entry.event.kind !== "user-message" && entry.event.kind !== "interrupt") return [];
     return [
@@ -75,15 +126,12 @@ function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptIt
         role: "user",
         content:
           "content" in entry.event
-            ? entry.event.content.map((part): PromptContentPart =>
-                part.type === "text"
-                  ? textPart(part.text)
-                  : Object.freeze({
-                      type: "media" as const,
-                      mediaType: part.mediaType,
-                      reference: copyJson(part.reference),
-                    }),
-              )
+            ? entry.event.content.map((part): PromptContentPart => {
+                if (part.type === "text") return textPart(part.text);
+                const line = mediaReferenceLine(part, "uploaded");
+                collect(entry, line, part);
+                return textPart(line);
+              })
             : [textPart(entry.event.text)],
       }),
     ];
@@ -124,7 +172,10 @@ function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptIt
       }),
     ];
   }
-  if (entry.kind === "tool-results") return entry.results.map(projectToolResult);
+  if (entry.kind === "tool-results")
+    return entry.results.map((result) =>
+      projectToolResult(result, (line, part) => collect(entry, line, part)),
+    );
   if (entry.kind === "compaction")
     return [
       freezeItem({ kind: "message", role: "user", content: [textPart(summaryPrompt(entry))] }),
@@ -132,7 +183,10 @@ function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptIt
   return [];
 }
 
-function projectToolResult(result: ToolResult): PromptItem {
+function projectToolResult(
+  result: ToolResult,
+  collect: (line: string, part: LiveFile["part"]) => void,
+): PromptItem {
   return freezeItem({
     kind: "tool-result",
     toolCallId: result.callId,
@@ -140,15 +194,14 @@ function projectToolResult(result: ToolResult): PromptItem {
     status: result.kind,
     content: [
       textPart(JSON.stringify(toolResultPayload(result))),
-      // Images the tool returned, stored by the host (R2b C11): the model call resolves them.
+      // Files the tool returned, stored by the host (R2b C11): each is its reference line, and
+      // goes to the model in its own turn with the turn's files.
       ...(result.kind === "completed" && result.files
-        ? result.files.map((file): PromptContentPart =>
-            Object.freeze({
-              type: "media" as const,
-              mediaType: file.mediaType,
-              reference: copyJson(file.reference),
-            }),
-          )
+        ? result.files.map((file): PromptContentPart => {
+            const line = mediaReferenceLine(file, { tool: result.toolName });
+            collect(line, file);
+            return textPart(line);
+          })
         : []),
     ],
   });

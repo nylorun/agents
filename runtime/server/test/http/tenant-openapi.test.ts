@@ -153,6 +153,7 @@ it("documents Tenant settings and credential coverage for management keys only (
     ["post", "/v1/tenant/mcp/preview"],
     ["post", "/v1/tenant/reset"],
     ["get", "/v1/tenant/models"],
+    ["put", "/v1/tenant/models/inputs"],
     ["get", "/v1/tenant/providers"],
     ["put", "/v1/tenant/sandbox"],
   ] as const) {

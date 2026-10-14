@@ -73,7 +73,7 @@ function entryAt(value: unknown, index: number): TranscriptEntry {
     case "compaction": {
       exactKeys(
         entry,
-        ["kind", "turnId", "stepId", "summary", "trigger", "tokensBefore", "tokensAfter"],
+        ["kind", "turnId", "stepId", "summary", "trigger", "tokensBefore", "tokensAfter", "files"],
         `Transcript entry ${index}`,
       );
       requiredString(entry.stepId, `Transcript entry ${index} stepId`);
@@ -83,6 +83,11 @@ function entryAt(value: unknown, index: number): TranscriptEntry {
       for (const key of ["tokensBefore", "tokensAfter"] as const)
         if (!Number.isInteger(entry[key]) || (entry[key] as number) < 0)
           fail(`Transcript entry ${index} ${key}`);
+      if (
+        entry.files !== undefined &&
+        (!Array.isArray(entry.files) || entry.files.some((line) => typeof line !== "string"))
+      )
+        fail(`Transcript entry ${index} files`);
       return Object.freeze({
         kind: "compaction",
         turnId: entry.turnId as string,
@@ -91,6 +96,9 @@ function entryAt(value: unknown, index: number): TranscriptEntry {
         trigger: entry.trigger,
         tokensBefore: entry.tokensBefore as number,
         tokensAfter: entry.tokensAfter as number,
+        ...(entry.files === undefined
+          ? {}
+          : { files: Object.freeze([...(entry.files as string[])]) }),
       });
     }
     case "final":

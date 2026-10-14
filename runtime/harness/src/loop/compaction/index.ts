@@ -15,7 +15,12 @@ import type {
   TranscriptCompactionEntry,
   TranscriptEntry,
 } from "@nylorun/core/define";
-import { HarnessError, isModelFailureOutcome } from "@nylorun/core/define";
+import {
+  HarnessError,
+  isModelFailureOutcome,
+  mediaReferenceLine,
+  mediaReferenceOf,
+} from "@nylorun/core/define";
 
 /** Characters per token for the heuristic estimate; the reserve absorbs its error. */
 const CHARS_PER_TOKEN = 4;
@@ -60,9 +65,12 @@ export function contextBudget(transcript: readonly TranscriptEntry[]): ContextBu
 /**
  * Tokens the next prompt needs: the last reported usage, which already counts the
  * instructions, tools and everything before it, plus an estimate of what came after.
- * Without usage, everything is estimated.
+ * Without usage, everything is estimated. The files of turn `turnId` go to the model as media
+ * (protocol 12) and count by their size; those of an earlier turn the reported call carried are
+ * reference lines now, and come off it.
  */
-export function estimateTokens(transcript: readonly TranscriptEntry[]): number {
+export function estimateTokens(transcript: readonly TranscriptEntry[], turnId?: string): number {
+  const live = (item: TranscriptEntry) => (item.turnId === turnId ? fileTokens(item) : 0);
   for (let index = transcript.length - 1; index >= 0; index--) {
     const entry = transcript[index]!;
     if (entry.kind !== "candidate" || !entry.candidate.usage) continue;
@@ -74,9 +82,78 @@ export function estimateTokens(transcript: readonly TranscriptEntry[]): number {
         (usage.cacheWriteTokens ?? 0) +
         (usage.outputTokens ?? 0);
     if (reported <= 0) continue;
-    return reported + transcript.slice(index + 1).reduce((sum, item) => sum + entryTokens(item), 0);
+    const dropped =
+      entry.turnId === turnId
+        ? 0
+        : transcript
+            .slice(0, index)
+            .reduce((sum, item) => sum + (item.turnId === entry.turnId ? fileTokens(item) : 0), 0);
+    return Math.max(
+      0,
+      reported -
+        dropped +
+        transcript.slice(index + 1).reduce((sum, item) => sum + entryTokens(item) + live(item), 0),
+    );
   }
-  return transcript.reduce((sum, item) => sum + entryTokens(item), 0);
+  return transcript.reduce((sum, item) => sum + entryTokens(item) + live(item), 0);
+}
+
+/** Tokens per image, and the most one other file counts for, in the estimate. */
+const IMAGE_TOKENS = 1_600;
+const FILE_TOKENS_MAX = 100_000;
+
+/** A rough token count of the files an entry names, as media: by type and size. */
+function fileTokens(entry: TranscriptEntry): number {
+  return filesOf(entry).reduce((sum, { part }) => {
+    const size = mediaReferenceOf(part.reference)?.size ?? 0;
+    const type = part.mediaType.split(";")[0]!.trim().toLowerCase();
+    if (type.startsWith("image/")) return sum + IMAGE_TOKENS;
+    if (isTextType(type)) return sum + Math.ceil(size / CHARS_PER_TOKEN);
+    return sum + Math.min(Math.ceil(size / 8), FILE_TOKENS_MAX);
+  }, 0);
+}
+
+function isTextType(type: string): boolean {
+  return (
+    type.startsWith("text/") ||
+    type.endsWith("+json") ||
+    type.endsWith("+xml") ||
+    [
+      "application/json",
+      "application/xml",
+      "application/yaml",
+      "application/x-yaml",
+      "application/javascript",
+    ].includes(type)
+  );
+}
+
+/** The files an entry names (protocol 12): a message's media parts, and a tool result's files. */
+function filesOf(
+  entry: TranscriptEntry,
+): { readonly line: string; readonly part: { mediaType: string; reference: JsonValue } }[] {
+  if (entry.kind === "input") {
+    const event = entry.event;
+    if (
+      (event.kind !== "user-message" && event.kind !== "interrupt") ||
+      !("content" in event) ||
+      !event.content
+    )
+      return [];
+    return event.content.flatMap((part) =>
+      part.type === "media" ? [{ line: mediaReferenceLine(part, "uploaded"), part }] : [],
+    );
+  }
+  if (entry.kind === "tool-results")
+    return entry.results.flatMap((result) =>
+      result.kind === "completed" && result.files
+        ? result.files.map((part) => ({
+            line: mediaReferenceLine(part, { tool: result.toolName }),
+            part,
+          }))
+        : [],
+    );
+  return [];
 }
 
 /** A rough token count of what one entry contributes to a prompt. */
@@ -124,7 +201,7 @@ export async function compact(
   input: CompactionInput,
 ): Promise<readonly TranscriptEntry[] | undefined> {
   const { transcript } = input;
-  const tokensBefore = estimateTokens(transcript);
+  const tokensBefore = estimateTokens(transcript, input.turnId);
   const window = input.budget?.contextWindow ?? tokensBefore;
   const keepTokens = Math.max(1, Math.min(KEEP_TOKENS, Math.floor(window * KEEP_SHARE)));
   const cut = findCut(transcript, keepTokens);
@@ -140,6 +217,15 @@ export async function compact(
       (entry.event.kind === "user-message" || entry.event.kind === "interrupt"),
   );
   const tail = [...request, ...transcript.slice(cut)];
+  // The files the summarized part named stay readable by their reference lines (protocol 12).
+  const files = [
+    ...new Set([
+      ...(previous?.files ?? []),
+      ...older
+        .filter((entry) => !request.includes(entry))
+        .flatMap((entry) => filesOf(entry).map(({ line }) => line)),
+    ]),
+  ];
   const keptTokens = tail.reduce((sum, entry) => sum + entryTokens(entry), 0);
   const reserve = input.budget?.reserve ?? DEFAULT_RESERVE;
   const maxOutputTokens = Math.max(256, Math.floor(reserve * 0.8));
@@ -192,6 +278,7 @@ export async function compact(
     trigger: input.trigger,
     tokensBefore,
     tokensAfter: keptTokens + Math.ceil(summary.length / CHARS_PER_TOKEN),
+    ...(files.length > 0 ? { files } : {}),
   };
   return Object.freeze([Object.freeze(entry), ...tail]);
 }
@@ -203,6 +290,7 @@ export function summaryPrompt(entry: TranscriptCompactionEntry): string {
     "<summary>",
     entry.summary,
     "</summary>",
+    ...(entry.files?.length ? ["Files in this session:", ...entry.files] : []),
   ].join("\n");
 }
 
@@ -311,7 +399,9 @@ function entryText(entry: TranscriptEntry, clip: number): string {
         return `[User]: ${
           "content" in event && event.content
             ? event.content
-                .map((part) => (part.type === "text" ? part.text : `[${part.mediaType}]`))
+                .map((part) =>
+                  part.type === "text" ? part.text : mediaReferenceLine(part, "uploaded"),
+                )
                 .join(" ")
             : (event.text ?? "")
         }`;
@@ -334,7 +424,12 @@ function entryText(entry: TranscriptEntry, clip: number): string {
       return entry.results
         .map((result) =>
           result.kind === "completed"
-            ? `[Tool ${result.toolName} result]: ${clipped(result.output as JsonValue, clip)}`
+            ? [
+                `[Tool ${result.toolName} result]: ${clipped(result.output as JsonValue, clip)}`,
+                ...(result.files ?? []).map((file) =>
+                  mediaReferenceLine(file, { tool: result.toolName }),
+                ),
+              ].join("\n")
             : result.kind === "denied"
               ? `[Tool ${result.toolName} denied]: ${result.reason ?? ""}`
               : `[Tool ${result.toolName} failed]: ${result.message}`,

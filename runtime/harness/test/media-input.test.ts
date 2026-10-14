@@ -51,7 +51,22 @@ describe("media input", () => {
       ],
     ]);
     expect(session.state.transcript[0]).toMatchObject({ event: { content: expected } });
-    expect(calls[0]?.prompt).toContainEqual({ kind: "message", role: "user", content: expected });
+    // The message names the file by its line (protocol 12); the turn's files follow, as media.
+    const line = "[Uploaded artifact (image/png)]";
+    expect(calls[0]?.prompt).toContainEqual({
+      kind: "message",
+      role: "user",
+      content: [expected[0], { type: "text", text: line }, expected[2]],
+    });
+    expect(calls[0]?.prompt.at(-1)).toEqual({
+      kind: "message",
+      role: "user",
+      content: [
+        { type: "text", text: "Files for this turn:" },
+        { type: "text", text: line },
+        expected[1],
+      ],
+    });
     expect(Object.isFrozen(calls[0]?.prompt[0]?.content)).toBe(true);
   });
 
@@ -69,7 +84,9 @@ describe("media input", () => {
       state: JSON.parse(JSON.stringify(result.state)),
       input: "next",
       onModelCall: async (call) => {
-        expect(JSON.stringify(call)).toContain("https://cdn.example.test/seed.png");
+        // A file of an earlier turn reaches the model as its reference line only (protocol 12).
+        expect(JSON.stringify(call)).not.toContain("https://cdn.example.test/seed.png");
+        expect(JSON.stringify(call)).toContain("[Uploaded artifact (image/png)]");
         return "ok";
       },
     });
@@ -104,8 +121,12 @@ describe("media input", () => {
     expect(calls[0]?.prompt).toContainEqual({
       kind: "message",
       role: "user",
-      content: [{ type: "text", text: "Inspect." }, pdf],
+      content: [
+        { type: "text", text: "Inspect." },
+        { type: "text", text: "[Uploaded artifact (application/pdf)]" },
+      ],
     });
+    expect(calls[0]?.prompt.at(-1)).toMatchObject({ content: expect.arrayContaining([pdf]) });
     expect(result.events).toContainEqual(
       expect.objectContaining({
         type: "tripwire",

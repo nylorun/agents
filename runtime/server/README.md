@@ -160,6 +160,7 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 | `/v1/*` Runtime API routes (all but `/v1/tenant/*`) | application key or trusted issuer's token | Require `Nylorun-Protocol`; nothing names the Tenant. A management key is `403 key_role_mismatch`, except on `/v1/me` and the public `GET /v1/access/jwks` |
 | `/v1/tenant/*` Management API routes | management key | Require `Nylorun-Protocol`. An application key, alone or acting for a subject, is `403 key_role_mismatch`; a management key with `Nylorun-Subject` or `Nylorun-Scopes` is `403 subject_invalid` |
 | `PUT /v1/tenant/keys/{keyId}` | management key | Creates application key `keyId` or rotates it, and returns it once; `GET /v1/tenant/keys` lists every key (id, role, when issued, never the keys) and `DELETE` deletes one. `studio`, `bootstrap` and management keys are refused |
+| `PUT /v1/tenant/models/inputs` | management key | What a catalog model reads beyond its catalog's inputs (protocol 12): only inputs in its `addableInputs`; an empty list removes them. `GET /v1/tenant/models` gives each model `inputs` and `addableInputs`. A custom endpoint sets `settings.inputs` on `PUT /v1/tenant/model` (text only by default) |
 | `GET /v1/artifact-links/{token}` | the link itself | A capability link to one artifact version (protocol 6): no credential, no `Nylorun-Protocol`, Range supported; a folder's link opens its zip, or one of its files |
 
 Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodies
@@ -171,7 +172,9 @@ are refused from browsers before they are looked up. The Runtime sends no CORS h
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
 unsupported protocol → `426` before authentication, unless the request sends neither
-`Nylorun-Protocol` nor `Authorization` (the Host serves protocol 11 only; protocol 11 replaces
+`Nylorun-Protocol` nor `Authorization` (the Host serves protocols 11 and 12; protocol 12 adds
+model inputs, the `422 attachment_unsupported` accept check and `read_artifact` for every agent,
+and changes nothing a protocol 11 client sends; protocol 11 replaces
 sandbox resources, the Tenant's default sandbox, inline sandboxes and user and installation
 vaults with Environments, each one sandbox and one vault, under `/v1/environments`, and
 removes the Management API's vault routes, so a protocol 10 client gets `426`; protocol 10 removes
@@ -304,6 +307,7 @@ the Project link (outside a project it runs the Tenant `default`); the project's
 | `database-layout-old` | The database holds `tenant_<id>` schemas of an older Runtime, or the `schema_version` tables of a pre-release one: point the Runtime at a new database (locally, a new Tenant: `nylorun start --tenant <new name>`); the old one is left as it is |
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
 | `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, send a trusted issuer's token, never a key |
+| `422 attachment_unsupported` | A message names a file the Tenant's model does not read (`details.parts` says which and why): choose a model that reads it, add the input with `PUT /v1/tenant/models/inputs` (or a custom endpoint's `settings.inputs`), or send it as another type |
 | `403 key_role_mismatch` | The key belongs to the other API: use a management key on `/v1/tenant/*` (`@nylorun/admin`) and an application key everywhere else (`@nylorun/agents`) |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
 | Port in use | Change `NYLORUN_PORT` in `~/.nylorun/tenants/<name>/docker/.env` and run `nylorun start` |

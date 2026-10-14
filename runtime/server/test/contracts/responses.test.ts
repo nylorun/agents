@@ -20,6 +20,7 @@ import {
   EnvironmentViewSchema,
   HealthResponseSchema,
   HostModelCatalogSchema,
+  ModelInputsViewSchema,
   HostModelViewSchema,
   JwksSchema,
   ListAgentsResponseSchema,
@@ -163,7 +164,21 @@ it("agents and sessions", async () => {
 
 it("Tenant settings", async () => {
   await answer(TenantStatusSchema, "GET", "/v1/tenant");
-  await answer(HostModelCatalogSchema, "GET", "/v1/tenant/models");
+  const catalog = await answer(HostModelCatalogSchema, "GET", "/v1/tenant/models");
+  // What a catalog model reads, and what the operator may add (protocol 12).
+  const groq = catalog.providers
+    .find((provider) => provider.id === "groq")!
+    .models.find((model) => model.id === "llama-3.1-8b-instant")!;
+  expect(groq).toMatchObject({ inputs: ["text"], addableInputs: ["image", "pdf", "audio", "video"] });
+  expect(
+    await answer(ModelInputsViewSchema, "PUT", "/v1/tenant/models/inputs", {
+      body: { requestId: "i1", provider: "groq", model: "llama-3.1-8b-instant", inputs: ["image"] },
+    }),
+  ).toEqual({ provider: "groq", model: "llama-3.1-8b-instant", inputs: ["text", "image"] });
+  const added = await answer(HostModelCatalogSchema, "GET", "/v1/tenant/models");
+  expect(
+    added.providers.find((provider) => provider.id === "groq")!.models.find((model) => model.id === groq.id)!.inputs,
+  ).toEqual(["text", "image"]);
   await answer(ListProvidersResponseSchema, "GET", "/v1/tenant/providers");
   await answer(HostModelViewSchema, "GET", "/v1/tenant/model");
   await answer(TenantSandboxViewSchema, "GET", "/v1/tenant/sandbox");

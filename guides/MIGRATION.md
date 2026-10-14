@@ -1,3 +1,31 @@
+# Model inputs and files (protocol 12)
+
+Protocol 12 only adds to protocol 11: the Runtime serves clients of both, and nothing a protocol
+11 client sends changes meaning. What changes:
+
+- **A custom endpoint reads text only by default.** A custom OpenAI-compatible endpoint used to
+  be sent images. Now it reads what its settings say: if yours reads images, set
+  `settings.inputs: ["image"]` on `PUT /v1/tenant/model`. It may also read `pdf`, `audio` and
+  `video`.
+- **A file the model does not read is refused at accept.** A message whose `parts` name a file of
+  a type the Tenant's model does not read is answered `422 attachment_unsupported`, with each
+  refused file in `details.parts` (`artifactId`, `name`, `mediaType`, `reason`), and no turn
+  starts. It used to start a turn that failed at its model call. Only the type is checked, never
+  the size: a file the provider refuses fails that turn.
+- **What a model reads.** `GET /v1/tenant/models` gives each model `inputs` (what it reads) and
+  `addableInputs` (what its API carries that its catalog does not list), and
+  `GET /v1/tenant/providers` each provider's `inputs`. `PUT /v1/tenant/models/inputs`
+  (`admin.models.setInputs({ provider, model, inputs })`) adds inputs to a catalog model.
+- **A file is a reference line after its turn.** The model gets a file's bytes only in the turn
+  that brought it (a message, a tool result, a `read_artifact` load). Later turns show the line
+  `[Uploaded artifact "name" · <artifactId> v<n> · read_artifact to view]`, and the model reads
+  the file again with `read_artifact`. Every agent now has `read_artifact`, so each session
+  pins its definition with it added: `manifestHash` differs from the definition's
+  (`definitionHash` in the session view names the definition). An agent that declares its own
+  `read_artifact` keeps it.
+
+No migration runs.
+
 # Each turn is a trace, and every row that ends a call carries its timing (R7)
 
 No protocol change, and nothing to do unless you read the session log yourself:

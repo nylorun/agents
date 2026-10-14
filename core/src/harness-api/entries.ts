@@ -104,6 +104,7 @@ export const TranscriptEntrySchema = z.discriminatedUnion("kind", [
     trigger: z.enum(["threshold", "overflow"]),
     tokensBefore: z.number(),
     tokensAfter: z.number(),
+    files: z.array(z.string()).optional(),
   }),
 ]);
 

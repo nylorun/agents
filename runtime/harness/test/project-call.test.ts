@@ -289,35 +289,94 @@ describe("projectModelCall", () => {
     });
   });
 
-  it("gives the model a result's files after its output (R2b C11)", () => {
-    const reference = { artifactId: "af_1", version: 1 };
+  it("names a result's files by reference lines, and sends this turn's after the conversation (R2b C11, protocol 12)", () => {
+    const reference = { artifactId: "af_1", version: 1, name: "shot.png", size: 10 };
+    const line =
+      '[Tool files__screenshot returned artifact "shot.png" · af_1 v1 · read_artifact to view]';
+    const results = (turnId: string) => ({
+      kind: "tool-results" as const,
+      turnId,
+      stepId: "step",
+      results: [
+        {
+          callId: "shot_1",
+          toolName: "files__screenshot",
+          kind: "completed" as const,
+          output: [{ type: "image", artifactId: "af_1" }],
+          files: [{ mediaType: "image/png", reference }],
+        },
+      ],
+    });
     const call = projectModelCall(
       request({
-        transcript: [
-          {
-            kind: "tool-results",
-            turnId: "turn",
-            stepId: "step",
-            results: [
-              {
-                callId: "shot_1",
-                toolName: "files__screenshot",
-                kind: "completed",
-                output: [{ type: "image", artifactId: "af_1" }],
-                files: [{ mediaType: "image/png", reference }],
-              },
-            ],
-          },
-        ],
+        context: contextSnapshot([{ type: "fixture", value: 1 }]),
+        transcript: [results("turn")],
       }),
     );
     expect(call.prompt[0]).toMatchObject({
       status: "completed",
       content: [
         { type: "text", text: '[{"type":"image","artifactId":"af_1"}]' },
+        { type: "text", text: line },
+      ],
+    });
+    // After the context: the turn's files, once, as media.
+    expect(call.prompt.map((item) => item.kind)).toEqual(["tool-result", "context", "message"]);
+    expect(call.prompt[2]).toEqual({
+      kind: "message",
+      role: "user",
+      content: [
+        { type: "text", text: "Files for this turn:" },
+        { type: "text", text: line },
         { type: "media", mediaType: "image/png", reference },
       ],
     });
+    // In a later turn the result projects the same, and its file is a line only.
+    const later = projectModelCall(request({ turnId: "next", transcript: [results("turn")] }));
+    expect(later.prompt).toEqual([call.prompt[0]]);
+  });
+
+  it("names a message's files by reference lines, the same in every turn (protocol 12)", () => {
+    const pdf = { artifactId: "af_2", version: 3, name: "spec.pdf" };
+    const input = {
+      kind: "input" as const,
+      turnId: "turn",
+      event: {
+        kind: "user-message" as const,
+        content: [
+          { type: "text" as const, text: "Read this." },
+          { type: "media" as const, mediaType: "application/pdf", reference: pdf },
+          // The same file again goes once.
+          { type: "media" as const, mediaType: "application/pdf", reference: pdf },
+        ],
+      },
+    };
+    const line = '[Uploaded artifact "spec.pdf" · af_2 v3 · read_artifact to view]';
+    const message = {
+      kind: "message",
+      role: "user",
+      content: [
+        { type: "text", text: "Read this." },
+        { type: "text", text: line },
+        { type: "text", text: line },
+      ],
+    };
+    const now = projectModelCall(request({ transcript: [input] }));
+    expect(now.prompt).toEqual([
+      message,
+      {
+        kind: "message",
+        role: "user",
+        content: [
+          { type: "text", text: "Files for this turn:" },
+          { type: "text", text: line },
+          { type: "media", mediaType: "application/pdf", reference: pdf },
+        ],
+      },
+    ]);
+    expect(projectModelCall(request({ turnId: "next", transcript: [input] })).prompt).toEqual([
+      message,
+    ]);
   });
 
   it("passes the projected call and invocation context to the ModelAdapter", async () => {

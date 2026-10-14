@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ERROR_CODES,
   HOST_PROTOCOL,
   OPTIONAL_HOST_FEATURES,
   PROTOCOL_FEATURES,
@@ -166,15 +167,20 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 11 clients only; they require environments", () => {
-    expect(PROTOCOL_VERSION).toBe(11);
+  it("serves protocol 11 and 12 clients; they require environments, and 12 model inputs", () => {
+    expect(PROTOCOL_VERSION).toBe(12);
     // Protocol 8 clients require the Management API (key roles); protocol 9 clients the OAuth
-    // resource server's 401 challenges; protocol 11 clients Environments.
+    // resource server's 401 challenges; protocol 11 clients Environments; protocol 12 clients
+    // model inputs.
     expect(PROTOCOL_FEATURES).toContain("management-api");
     expect(PROTOCOL_FEATURES).toContain("resource-server");
     expect(PROTOCOL_FEATURES).toContain("environments");
     expect(PROTOCOL_FEATURES).toContain("artifacts");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 11, max: 11 });
+    expect(PROTOCOL_FEATURES).toContain("model-inputs");
+    expect(HOST_PROTOCOL).toMatchObject({ min: 11, max: 12 });
+    // Protocol 12 only adds to 11: a protocol 11 client is still served.
+    expect(checkCompatibility({ version: 11, required: [] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
+    expect(ERROR_CODES).toContain("attachment_unsupported");
     // Protocol 11 removed sandbox resources (R2d): no `sandboxes` Host feature.
     expect(HOST_PROTOCOL.features).not.toContain("sandboxes");
     // The compatibility window for protocol 4 to 10 clients is closed (R2d Q3).

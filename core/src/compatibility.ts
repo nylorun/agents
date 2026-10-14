@@ -1,14 +1,21 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 12: model inputs and files as artifacts. What the Tenant's model reads (`text`,
+ * `image`, `pdf`, `office`, `audio`, `video`) is its catalog's input list plus the operator's
+ * additions (`PUT /v1/tenant/models/inputs`, a custom endpoint's `settings.inputs`); the catalog
+ * and the provider list say it. A message naming a file the model does not read is refused at
+ * accept (`422 attachment_unsupported`), with no turn. After its turn a file is a reference line
+ * the model reads again with `read_artifact`, which every agent now has. The Host accepts
+ * protocol 11 and 12: the change is additive.
  * Protocol 11: Environments (R2d, D55, D56), a fresh start. `/v1/environments/{id}` replaces
  * `/v1/sandboxes`: an Environment is one sandbox (kind `virtual`, `pod` or `none`) with a recipe
  * that can change and one vault, written on the Runtime API
  * (`PUT /v1/environments/{id}/secrets/{name}`). Sessions name an `environment` or nothing; the
  * session fields `sandbox`, `vaultIds` and `credentialSelections`, the Tenant's default sandbox,
  * user and installation vaults and `/v1/tenant/vaults` are gone. Error codes, event types, the
- * scope (`environments:write`) and identity-file grants (`environments`) say Environment. The
- * Host accepts protocol 11 only: an older client is answered `426`.
+ * scope (`environments:write`) and identity-file grants (`environments`) say Environment. An
+ * older client is answered `426`.
  * Protocol 10: MCP credential custody leaves OSS (D49). The vault credential type `oauth`, the
  * MCP OAuth connect (`/v1/tenant/vaults/{vaultId}/oauth/start`, `/v1/oauth/callback`) and the
  * credential resolver are gone: a session's MCP servers and HTTP tools reach their credentials
@@ -31,7 +38,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -55,6 +62,12 @@ export const PROTOCOL_FEATURES = [
    * subject create, change and delete the Environments it is granted.
    */
   "environments",
+  /**
+   * Protocol 12: the model catalog and provider list say which inputs each model reads, and a
+   * message naming a file the Tenant's model does not read is refused with
+   * `422 attachment_unsupported`.
+   */
+  "model-inputs",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -121,13 +134,13 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 /**
- * What this Host serves: protocol 11 only (R2d Q3). Protocol 11 removed routes and session fields
+ * What this Host serves: protocols 11 and 12. Protocol 11 removed routes and session fields
  * older clients send, so an older client is answered `426` naming the protocol it needs rather
- * than a `404` or a `400` on a removed field.
+ * than a `404` or a `400` on a removed field (R2d Q3). Protocol 12 only adds to it.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 11,
-  max: 11,
+  max: 12,
   features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
@@ -231,6 +244,12 @@ export const ERROR_CODES = [
    * credentials to one URL.
    */
   "credential_conflict",
+  /**
+   * A message names a file the Tenant's model does not read (protocol 12): `422` at accept, and
+   * no turn starts. `details.parts` lists each refused file's `artifactId`, `name`, `mediaType`
+   * and `reason`.
+   */
+  "attachment_unsupported",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

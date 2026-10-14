@@ -9,11 +9,13 @@
  * The version commits with `artifact.created` (or `artifact.version.created`) on the session's
  * stream, carrying the turn and the tool call.
  *
- * `read_artifact` (R2b C11, Q24), which an agent with a remote MCP server or an HTTP tool has,
- * reads a text artifact of its own session in pages of at most 32 KiB, from a byte `offset`:
- * how the model reads a tool result the Runtime stored because it was too large to show
- * (`tool-results.ts`). An image is shown to a model that reads images, as a file of the result.
- * It reaches only the session's own artifacts, never a Tenant-wide one or another session's.
+ * `read_artifact` (R2b C11, Q24; every agent since protocol 12) reads a text artifact in pages of
+ * at most 32 KiB, from a byte `offset`: how the model reads a tool result the Runtime stored
+ * because it was too large to show (`tool-results.ts`), and a file of an earlier turn again, by
+ * its reference line. Another file is shown as a file of the result when the Tenant's model reads
+ * its type, and refused (`artifact.unsupported`) when it does not. It reaches the session's own
+ * artifacts and the Tenant-wide ones its messages named (`Session.fileArtifacts`), never another
+ * session's. `version` picks a version; the latest by default.
  *
  * Expected problems (no such file, too large, the Tenant's total reached, not text) are failed
  * outcomes the model sees; only infrastructure errors throw.
@@ -29,13 +31,13 @@ import type { HostEffect } from "@nylorun/harness/run";
 import { isArtifactId } from "@nylorun/core/compatibility";
 import { readArtifactLimits } from "../artifacts/config.js";
 import {
-  MODEL_FILE_MAX_BYTES,
   contentTypeFor,
   essence,
-  isModelImage,
   isText,
   normalizeContentType,
+  unreadableReason,
 } from "../artifacts/media-types.js";
+import { currentModelInputs } from "../model/catalog.js";
 import { uploadArtifact } from "../artifacts/service.js";
 import { DEFAULT_CONTENT_TYPE } from "../blob/index.js";
 import { sandboxCapabilityOf } from "../sandbox/manager.js";
@@ -168,11 +170,12 @@ export async function callSaveArtifact(
 
 interface ReadInput {
   artifactId?: unknown;
+  version?: unknown;
   offset?: unknown;
   length?: unknown;
 }
 
-/** What `read_artifact` returns: a page of a text artifact, or an image as a file. */
+/** What `read_artifact` returns: a page of a text artifact, or a file the model reads. */
 interface ReadOutcome {
   readonly kind: "completed";
   readonly output: Record<string, unknown>;
@@ -186,10 +189,13 @@ export async function callReadArtifact(
 ): Promise<ReadOutcome | SandboxToolOutcome> {
   const input = (request.input ?? {}) as ReadInput;
   const artifactId = typeof input.artifactId === "string" ? input.artifactId : "";
+  const wanted = input.version;
   const offset = input.offset ?? 0;
   const length = input.length ?? READ_ARTIFACT_MAX_BYTES;
   if (
     artifactId === "" ||
+    (wanted !== undefined &&
+      (typeof wanted !== "number" || !Number.isSafeInteger(wanted) || wanted < 1)) ||
     typeof offset !== "number" ||
     !Number.isSafeInteger(offset) ||
     offset < 0 ||
@@ -200,19 +206,30 @@ export async function callReadArtifact(
   )
     return failed(
       "artifact.invalid_input",
-      `Give artifactId, an offset of 0 or more, and a length of 1 to ${READ_ARTIFACT_MAX_BYTES}.`,
+      `Give artifactId, a version of 1 or more if any, an offset of 0 or more, and a length of 1 to ${READ_ARTIFACT_MAX_BYTES}.`,
     );
   const found = await ctx.store.tx(async (t) => {
     const s = await sessionOf(t, request.sessionId);
     if (!isArtifactId(artifactId)) return undefined;
-    // Only an artifact of this session: never a Tenant-wide one, nor another session's.
+    // An artifact of this session, or a Tenant-wide one its messages named; never another
+    // session's.
     const artifact = await t.artifact(artifactId);
-    if (!artifact || artifact.sessionId !== s.id) return undefined;
-    const version = await t.artifactVersion(artifact.id, artifact.latestVersion);
-    return version ? { artifact, version } : undefined;
+    if (
+      !artifact ||
+      (artifact.sessionId !== s.id &&
+        !(artifact.sessionId === null && s.fileArtifacts?.includes(artifact.id)))
+    )
+      return undefined;
+    const version = await t.artifactVersion(
+      artifact.id,
+      typeof wanted === "number" ? wanted : artifact.latestVersion,
+    );
+    return { artifact, version };
   });
   if (!found)
     return failed("artifact.not_found", `Artifact ${artifactId} is not an artifact of this session.`);
+  if (!found.version)
+    return failed("artifact.not_found", `Artifact ${artifactId} has no version ${String(wanted)}.`);
   const { artifact, version } = found;
   const about = {
     artifactId: artifact.id,
@@ -223,22 +240,32 @@ export async function callReadArtifact(
   };
   if (artifact.kind !== "file")
     return failed("artifact.not_text", `${artifact.name} is a folder; read_artifact reads a file.`);
-  if (isModelImage(version.contentType) && version.size <= MODEL_FILE_MAX_BYTES)
+  if (!isText(version.contentType)) {
+    // A file the Tenant's model reads goes to it beside the result (protocol 12). Without a
+    // model in the vault (a test's fake provider), text and images.
+    const inputs = (await currentModelInputs(ctx)) ?? ["text", "image"];
+    const reason = unreadableReason(version.contentType, inputs);
+    if (reason)
+      return failed(
+        "artifact.unsupported",
+        `${artifact.name} is ${essence(version.contentType)}: ${reason}.`,
+      );
     return {
       kind: "completed",
       output: about,
       files: [
         {
           mediaType: version.contentType,
-          reference: { artifactId: artifact.id, version: version.version, name: artifact.name },
+          reference: {
+            artifactId: artifact.id,
+            version: version.version,
+            name: artifact.name,
+            size: version.size,
+          },
         },
       ],
     };
-  if (!isText(version.contentType))
-    return failed(
-      "artifact.not_text",
-      `${artifact.name} is ${essence(version.contentType)}, not text; read_artifact reads text and shows images.`,
-    );
+  }
   if (offset > version.size || (offset === version.size && version.size > 0))
     return failed(
       "artifact.invalid_input",

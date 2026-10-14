@@ -17,6 +17,8 @@ const host = (
     model?: string;
     key?: string;
     baseUrl?: string;
+    settings?: { inputs?: ("text" | "image" | "pdf" | "office" | "audio" | "video")[] };
+    addedInputs?: Record<string, ("text" | "image" | "pdf" | "office" | "audio" | "video")[]>;
   } = {},
 ) => {
   const provider = input.provider ?? selection.provider;
@@ -27,6 +29,8 @@ const host = (
       ...(provider === "custom"
         ? { baseUrl: input.baseUrl ?? selection.custom.baseUrl }
         : {}),
+      ...(input.settings ? { settings: input.settings } : {}),
+      ...(input.addedInputs ? { addedInputs: input.addedInputs } : {}),
       authType: "api_key" as const,
       credential: {
         type: "api_key" as const,
@@ -187,7 +191,7 @@ describe("an image a tool returned (R2b C11, Q23)", () => {
     ],
   };
   /** The provider's request body, and the references the model call read. */
-  async function send(model: { provider?: string; model?: string }) {
+  async function send(model: Parameters<typeof host>[0]) {
     let body = "";
     vi.stubGlobal(
       "fetch",
@@ -206,7 +210,7 @@ describe("an image a tool returned (R2b C11, Q23)", () => {
   }
 
   it("shows it to a model that reads images", async () => {
-    const { result, body, read } = await send({});
+    const { result, body, read } = await send({ settings: { inputs: ["image"] } });
     expect(result.output).toEqual([{ type: "text", text: "seen" }]);
     expect(read).toEqual([reference]);
     expect(body).toContain(`data:image/png;base64,${Buffer.from(PNG).toString("base64")}`);
@@ -217,7 +221,76 @@ describe("an image a tool returned (R2b C11, Q23)", () => {
     expect(result.output).toEqual([{ type: "text", text: "seen" }]);
     expect(read).toEqual([]);
     expect(body).not.toContain(Buffer.from(PNG).toString("base64"));
-    expect(body).toContain("The tool returned an image, image/png, that is not shown: this model does not accept images.");
+    expect(body).toContain(
+      '(File \\"files__screenshot-result-2.png\\", image/png, is not shown: this model does not read images.)',
+    );
+  });
+
+  it("shows it to a catalog model the operator says reads images (protocol 12)", async () => {
+    const { body, read } = await send({
+      provider: "groq",
+      model: "llama-3.1-8b-instant",
+      addedInputs: { "groq/llama-3.1-8b-instant": ["image"] },
+    });
+    expect(read).toEqual([reference]);
+    expect(body).toContain(`data:image/png;base64,${Buffer.from(PNG).toString("base64")}`);
+  });
+});
+describe("files a message names (protocol 12)", () => {
+  const file = (name: string, mediaType: string) => ({
+    type: "media" as const,
+    mediaType,
+    reference: { artifactId: `af_${name}`, version: 1, name },
+  });
+  async function send(
+    parts: ReturnType<typeof file>[],
+    files: ((value: unknown) => Promise<{ name: string; mediaType: string; bytes: Uint8Array }>) | undefined,
+    model: Parameters<typeof host>[0] = {},
+  ) {
+    let body = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url, options) => {
+        body = String(options.body);
+        return response({ role: "assistant", content: "ok" });
+      }),
+    );
+    const result = await piModel({ ...host(model), ...(files ? { files } : {}) })(
+      { ...call, prompt: [{ kind: "message", role: "user", content: [{ type: "text", text: "look" }, ...parts] }] },
+      { signal: signal() },
+    );
+    return { result, body: JSON.parse(body) as { messages: { content: unknown }[] } };
+  }
+
+  it("sends a text file as a file block, and never fails the call over a file", async () => {
+    const bytes = new TextEncoder().encode("a,b\n1,2");
+    const resolve = async (value: unknown) => {
+      const { name } = value as { name: string };
+      if (name === "gone.csv") {
+        const { FileUnavailableError } = await import("../src/artifacts/files.js");
+        throw new FileUnavailableError("Artifact af_gone version 1 is not available.");
+      }
+      return { name, mediaType: name.endsWith(".pdf") ? "application/pdf" : "text/csv", bytes };
+    };
+    const { result, body } = await send(
+      [file("data.csv", "text/csv"), file("gone.csv", "text/csv"), file("spec.pdf", "application/pdf"), file("x.zip", "application/zip")],
+      resolve,
+      { settings: { inputs: ["pdf"] } },
+    );
+    expect(result).toMatchObject({ output: [{ type: "text", text: "ok" }] });
+    const text = JSON.stringify(body.messages);
+    expect(text).toContain('<file name=\\"data.csv\\" type=\\"text/csv\\">\\na,b\\n1,2\\n</file>');
+    expect(text).toContain('(File \\"gone.csv\\", text/csv, is not shown: Artifact af_gone version 1 is not available.)');
+    // A PDF the model reads waits for its native block; a type no model reads is a note too.
+    expect(text).toContain("is not shown: the Runtime does not send PDFs to a model yet.");
+    expect(text).toContain('(File \\"x.zip\\", application/zip, is not shown: no model reads application/zip files.)');
+  });
+
+  it("gives a note for a file the model does not read, or with no resolver", async () => {
+    const { body } = await send([file("spec.pdf", "application/pdf")], undefined);
+    expect(JSON.stringify(body.messages)).toContain("is not shown: this model does not read PDFs.");
+    const unresolved = await send([file("a.txt", "text/plain")], undefined);
+    expect(JSON.stringify(unresolved.body.messages)).toContain("is not shown: files are unavailable.");
   });
 });
 it("returns provider tool calls using the portable model contract", async () => {
