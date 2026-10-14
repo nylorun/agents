@@ -129,6 +129,13 @@ exists, needs a `Content-Length` and streams the bytes, refusing a file over
 why, and a resend reuses the files already uploaded. In the chat, a message's files
 show their name, type and an image's thumbnail, and open the artifact.
 
+**Models** shows each connected provider's model's **Inputs** (protocol 12): what its
+catalog reads (its `inputs` less `addableInputs`) checked and fixed, and what the
+operator may add (`addableInputs`: images, PDF, Office documents, audio or video,
+as the model's API carries them) as checkboxes that call `models.setInputs()`. A type
+the model neither reads nor may add is not shown. The custom endpoint's form sets
+Images, PDF, Audio and Video in `settings.inputs` (text only when none).
+
 ## Environments
 
 An Environment is where sessions run: one sandbox (kind `virtual`, `pod` or

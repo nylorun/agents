@@ -31,13 +31,6 @@ type ModelOption = {
   inputs?: readonly string[];
 };
 
-/** A list of input names, or undefined (an older Runtime sends none). */
-function inputsOf(value: unknown): readonly string[] | undefined {
-  return Array.isArray(value) && value.every((item) => typeof item === "string")
-    ? (value as string[])
-    : undefined;
-}
-
 function optionKey(providerId: string, modelId: string): string {
   return `${providerId}\0${modelId}`;
 }
@@ -96,7 +89,7 @@ export function SessionModelPicker({
     const next: ModelOption[] = [];
     for (const provider of providers) {
       const listed = catalogById.get(provider.id);
-      const models =
+      const models: ReadonlyArray<{ id: string; name: string; inputs?: readonly string[] }> =
         listed && Array.isArray(listed.models) && listed.models.length > 0
           ? listed.models
           : [{ id: provider.model, name: provider.model }];
@@ -104,9 +97,7 @@ export function SessionModelPicker({
         const active = provider.active && provider.model === model.id;
         // The provider reports its selected model's inputs, overrides included; the catalog, each model's.
         const inputs =
-          (provider.model === model.id
-            ? inputsOf((provider as { inputs?: unknown }).inputs)
-            : undefined) ?? inputsOf((model as { inputs?: unknown }).inputs);
+          (provider.model === model.id ? provider.inputs : undefined) ?? model.inputs;
         next.push({
           key: optionKey(provider.id, model.id),
           providerId: provider.id,
