@@ -102,6 +102,8 @@ export interface StackDeps {
   confirm?(question: string): Promise<boolean>;
   /** A developer is at a terminal. */
   interactive?: boolean;
+  /** Standard input, for a body or a secret piped in; undefined when there is none. */
+  stdin?: { isTTY: boolean; text(): Promise<string> };
   /** Open `url` in a browser; false when no browser could be started. */
   openBrowser(url: string): Promise<boolean>;
   /** Is this process id alive? (launcher-managed Runtime detection) */
@@ -291,8 +293,8 @@ export function parseStackFlags(
   for (let index = 0; index < args.length; index += 1) {
     const raw = args[index]!;
     const arg = allowed.aliases?.[raw] ?? raw;
-    // `-` is an argument: standard input.
-    if (!arg.startsWith("-") || arg === "-") {
+    // `-` alone is an argument: standard input.
+    if (arg === "-" || !arg.startsWith("-")) {
       rest.push(arg);
       continue;
     }

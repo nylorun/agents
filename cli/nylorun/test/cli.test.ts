@@ -42,7 +42,9 @@ describe("nylorun", () => {
     expect(stdout).toMatch(/^ {2}sessions {6}list \| create \| get \| send/m);
     expect(stdout).toMatch(/^ {2}environments {2}list \| get \| put \| stop/m);
     expect(stdout).toMatch(/^ {2}artifacts {5}list \| get \| upload/m);
-    expect(stdout).toMatch(/^ {2}tenant {8}reset \| keys \| signing-keys \| models \| mcp/m);
+    expect(stdout).toMatch(
+      /^ {2}tenant {8}reset \| keys \| signing-keys \| models \| usage \| calls \| budgets \| tool-policy \|\n {16}settings \| coverage \| mcp$/m,
+    );
     expect(stdout).toMatch(/^ {2}local {9}ls \| delete \| logs \| reset \| sandbox \| telemetry/m);
     expect(stdout).not.toMatch(/\bnylo\b|legacy|--name|\bdev\b|configure/i);
   });
@@ -79,11 +81,13 @@ describe("nylorun", () => {
     [["sandbox", "enable"], /^nylorun sandbox moved: nylorun local sandbox enable$/m],
     [["local", "sandbox", "ls"], /^nylorun sandbox ls moved: nylorun environments list$/m],
     [["local", "nothing"], /^Unknown local command nothing\./m],
-    [["tenant"], /^nylorun tenant <reset\|keys/m],
+    [["tenant"], /^nylorun tenant <command>/m],
     [["tenant", "list"], /^Unknown tenant command list\./m],
     [["tenant", "keys"], /keys put <id>/],
     [["tenant", "keys", "put"], /Usage: nylorun tenant keys put <id>/],
-    [["tenant", "models"], /Usage: nylorun tenant models set/],
+    [["tenant", "models"], /^ {2}models set --provider <id> --model <id>/m],
+    [["tenant", "models", "set", "--provider", "openai"], /Pass both --provider and --model/],
+    [["tenant", "budgets", "put"], /Usage: nylorun tenant budgets \[get \| put <file\|->\]/],
     [["tenant", "reset", "--sessions", "--all"], /Pass only one of --sessions, --environments, --all/],
     [["environments"], /^nylorun environments <command>/m],
     [["agents"], /^nylorun agents <list\|get\|save>/m],

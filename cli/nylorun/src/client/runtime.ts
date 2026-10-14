@@ -147,21 +147,7 @@ export function integerFlag(flags: Flags, name: string): number | undefined {
   return Number(raw);
 }
 
-export function printJson(deps: StackDeps, value: unknown): void {
-  deps.out(JSON.stringify(value, null, 2));
-}
-
-/** Rows as aligned columns; the last column is not padded. */
-export function printTable(deps: StackDeps, rows: readonly (readonly string[])[]): void {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map((row) => row[column]!.length)));
-  for (const row of rows)
-    deps.out(
-      row
-        .map((cell, column) => (column === row.length - 1 ? cell : cell.padEnd(widths[column]!)))
-        .join("  ")
-        .trimEnd(),
-    );
-}
+export { printJson, printTable } from "./io.js";
 
 /** A page's `next cursor` hint, when there is one. */
 export function printCursor(deps: StackDeps, cursor: string | null | undefined): void {
