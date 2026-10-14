@@ -76,6 +76,8 @@ async function diskTarget(
       activeTurnId: null,
       manifest: { manifestSchemaVersion: 7, id: "disk" } as unknown as SandboxSessionRef["manifest"],
       environmentId: environment.id,
+      // Not through a host a restore or a lost volume retired: its connection outlives the commit.
+      ...(environment.pod === undefined ? {} : { hostEpoch: environment.pod.hostEpoch }),
     },
     spec,
   };
@@ -485,7 +487,8 @@ export async function runPendingSeed(ctx: TenantContext, id: string): Promise<vo
     if (!environment || !seed) return;
     if (environment.kind === "pod") {
       const deadline = Date.now() + ENGINE_WAIT_MS;
-      while (!ctx.harness.hosting(id)) {
+      // The engine on the new volume: the old one's connection may still be open.
+      while (!ctx.harness.hosting(id, environment.pod?.hostEpoch)) {
         if (Date.now() > deadline) return;
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
@@ -516,7 +519,8 @@ export async function sweepPendingSeeds(ctx: TenantContext): Promise<void> {
     (environment) => environment.diskSeed !== undefined && environment.pod?.desired !== "deleted",
   );
   for (const environment of pending)
-    if (environment.kind !== "pod" || ctx.harness.hosting(environment.id)) void runPendingSeed(ctx, environment.id);
+    if (environment.kind !== "pod" || ctx.harness.hosting(environment.id, environment.pod?.hostEpoch))
+      void runPendingSeed(ctx, environment.id);
 }
 
 /**

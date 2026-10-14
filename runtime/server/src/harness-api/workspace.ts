@@ -111,6 +111,8 @@ export interface RemoteWorkspaceOptions {
   readonly preference: string;
   /** The pod sandbox whose host serves these workspaces (F7.2). */
   readonly pod?: string;
+  /** With `pod`: the oldest host epoch that may serve them (`SandboxSessionRef.hostEpoch`). */
+  readonly minEpoch?: number;
 }
 
 function sessionOf(session: SandboxSessionRef) {
@@ -124,7 +126,10 @@ function sessionOf(session: SandboxSessionRef) {
 /** The workspaces of the harness that serves them. */
 export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort {
   const { store } = options;
-  const target = options.pod === undefined ? undefined : { pod: options.pod };
+  const target =
+    options.pod === undefined
+      ? undefined
+      : { pod: options.pod, ...(options.minEpoch === undefined ? {} : { minEpoch: options.minEpoch }) };
   const unavailable = (error: NoWorkspaceHarness): never =>
     error.pod === undefined
       ? fail(503, error.message, { code: "request_rejected" })
@@ -289,7 +294,11 @@ export function withPodWorkspaces(
 ): WorkspacePort {
   const routed = async (session: SandboxSessionRef): Promise<WorkspacePort> =>
     session.environmentId !== undefined && (await options.isPod(session.environmentId))
-      ? remoteWorkspace({ ...options, pod: session.environmentId })
+      ? remoteWorkspace({
+          ...options,
+          pod: session.environmentId,
+          ...(session.hostEpoch === undefined ? {} : { minEpoch: session.hostEpoch }),
+        })
       : base;
   return {
     ...base,
