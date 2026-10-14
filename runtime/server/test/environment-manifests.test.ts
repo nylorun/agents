@@ -276,3 +276,107 @@ describe("the agent save's dry run", () => {
     expect((await open("draft-2", "draft")).status).toBe(200);
   });
 });
+
+describe("forking", { timeout: 60_000 }, () => {
+  const fork = (id: string, body: Record<string, unknown>) => call("POST", `${environments(id)}/fork`, body);
+  const sessionOn = async (id: string, environment: string) => {
+    const reply = await open(id, "bot", environment);
+    expect(reply.status, JSON.stringify(reply.body)).toBe(200);
+    return id;
+  };
+  const write = (sessionId: string, file: string, content: string) =>
+    call("POST", `/v1/sessions/${sessionId}/sandbox/write`, { path: file, content });
+  const read = async (sessionId: string, file: string) =>
+    JSON.stringify((await call("POST", `/v1/sessions/${sessionId}/sandbox/read`, { path: file })).body);
+
+  it("makes a new Environment from the latest version, with the disk and the secrets, and leaves the source as it was", async () => {
+    const slots = {
+      GH_TOKEN: { type: "environment_secret", allowedHosts: ["api.github.com"], required: true },
+      OLD: { type: "environment_variable" },
+    };
+    expect((await call("PUT", manifests("forked"), box({ name: "forked", secrets: slots }))).status).toBe(200);
+    expect((await call("PUT", environments("forks/v1"), { manifest: "forked" })).status).toBe(200);
+    await call("PUT", `${environments("forks/v1")}/secrets/GH_TOKEN`, { value: "ghp_example" });
+    await call("PUT", `${environments("forks/v1")}/secrets/OLD`, { value: "kept-behind" });
+    const s = await sessionOn("fork-src", "forks/v1");
+    expect((await write(s, "notes.txt", "from v1\n")).status).toBe(200);
+
+    // v2 widens the hosts, adds a required slot and drops OLD.
+    const v2 = box({
+      name: "forked",
+      network: { allowedHosts: ["api.github.com", "pypi.org"] },
+      secrets: { GH_TOKEN: slots.GH_TOKEN, PYPI: { type: "environment_secret", allowedHosts: ["pypi.org"], required: true } },
+    });
+    expect((await call("PUT", manifests("forked"), v2)).body.manifest.version).toBe(2);
+    // Saving v2 changed nothing in v1's Environment (D63).
+    expect((await call("GET", environments("forks/v1"))).body).toMatchObject({ manifestName: "forked", manifestVersion: 1 });
+
+    const plan = await fork("forks/v1", { id: "forks/v2", dryRun: true });
+    expect(plan.status, JSON.stringify(plan.body)).toBe(200);
+    expect(plan.body).toEqual({
+      dryRun: true,
+      plan: {
+        source: "forks/v1",
+        id: "forks/v2",
+        kind: "virtual",
+        manifest: { name: "forked", version: 2 },
+        disk: "latest",
+        setup: false,
+        secrets: { copied: ["GH_TOKEN"], dropped: ["OLD"], missing: ["PYPI"] },
+        changes: expect.arrayContaining([
+          expect.objectContaining({ path: "network.allowedHosts" }),
+          expect.objectContaining({ path: "secrets.OLD" }),
+          expect.objectContaining({ path: "secrets.PYPI" }),
+        ]),
+        sessions: 1,
+      },
+    });
+    expect((await call("GET", environments("forks/v2"))).status).toBe(404);
+
+    const made = await fork("forks/v1", { id: "forks/v2", labels: { stage: "next" } });
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    expect(made.body.plan).toMatchObject({ disk: 1, secrets: { copied: ["GH_TOKEN"], dropped: ["OLD"], missing: ["PYPI"] } });
+    expect(made.body.environment).toMatchObject({
+      id: "forks/v2",
+      labels: { stage: "next" },
+      manifestName: "forked",
+      manifestVersion: 2,
+      forkedFrom: { environment: "forks/v1", disk: 1 },
+      slots: [
+        { name: "GH_TOKEN", type: "environment_secret", required: true, set: true },
+        { name: "PYPI", type: "environment_secret", required: true, set: false },
+      ],
+    });
+    const copied = await call("GET", `${environments("forks/v2")}/secrets/GH_TOKEN`);
+    expect(copied.body).toMatchObject({ type: "environment_secret", binding: { allowedHosts: ["api.github.com"] } });
+    const s2 = await sessionOn("fork-dst", "forks/v2");
+    expect(await read(s2, "notes.txt")).toContain("from v1");
+    // The fork diverges; the source keeps what it runs, its disk and its session.
+    await write(s2, "notes.txt", "from v2\n");
+    expect(await read(s, "notes.txt")).toContain("from v1");
+    expect((await call("GET", environments("forks/v1"))).body).toMatchObject({
+      manifestVersion: 1,
+      sessions: [expect.objectContaining({ id: "fork-src" })],
+    });
+    const events = await call("GET", `${environments("forks/v1")}/events`);
+    expect(JSON.stringify(events.body)).toContain("environment.forked");
+    // The fork's id is new: a second fork onto it is refused.
+    expect((await fork("forks/v1", { id: "forks/v2" })).status).toBe(409);
+  });
+
+  it("starts an empty disk, copies no secrets, takes a named version, and refuses what it cannot fork", async () => {
+    const made = await fork("forks/v1", { id: "forks/bare", manifest: "forked@1", disk: "empty", secrets: "none" });
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    expect(made.body.environment).toMatchObject({ manifestVersion: 1, forkedFrom: { environment: "forks/v1", disk: null } });
+    expect(made.body.plan.secrets).toEqual({ copied: [], dropped: ["GH_TOKEN", "OLD"], missing: ["GH_TOKEN"] });
+    const s = await sessionOn("fork-bare", "forks/bare");
+    expect(await read(s, "notes.txt")).toContain("sandbox.not_found");
+
+    expect((await call("PUT", environments("forks/inline"), {})).status).toBe(200);
+    expect((await fork("forks/inline", { id: "forks/inline-2" })).status).toBe(400);
+    expect((await fork("forks/v1", { id: "forks/v1" })).status).toBe(400);
+    expect((await fork("forks/v1", { id: "forks/x", manifest: "forked@9" })).body.code).toBe("manifest_not_found");
+    expect((await fork("forks/v1", { id: "forks/x", disk: 99 })).status).toBe(404);
+    expect((await fork("forks/missing", { id: "forks/x" })).status).toBe(404);
+  });
+});

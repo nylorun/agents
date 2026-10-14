@@ -116,6 +116,39 @@ describe("prepareDisk", () => {
     expect(JSON.parse(await readFile(join(root, "setup.json"), "utf8")).recipeVersion).toBe(2);
   });
 
+  it("skips a seeded volume, but on a fork onto other setup waits for the written disk and runs it (Q17)", async () => {
+    const work = join(root, "workspace");
+    const setup: DiskSetup = {
+      recipeVersion: 1,
+      files: [],
+      commands: [{ command: "cat carried.txt > seen.txt", cwd: work, timeoutMs: 10_000 }],
+      environment: {},
+    };
+    const options = { exec, volumeFile: join(root, "volume-id"), markerFile: join(root, "setup.json"), logger, pollMs: 10 };
+    // Seeded from a version of the same setup: the version holds what it made.
+    const seeded = { ...host(setup), seeded: true };
+    await prepareDisk({ ...options, host: seeded });
+    expect(seeded.reports).toEqual([]);
+    expect(JSON.parse(await readFile(join(root, "setup.json"), "utf8")).status).toBe("ok");
+
+    // A fork onto other setup, on a new volume: core answers no retry until it has written the disk.
+    await writeFile(join(root, "volume-id"), "vol-2\n");
+    const fake = { ...host(setup), seeded: true, afterSeed: true };
+    let written = false;
+    fake.setupState = async () => (written ? { retry: true, setup } : { retry: false });
+    const done = prepareDisk({ ...options, host: fake });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.reports).toEqual([]);
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(work, { recursive: true });
+    await writeFile(join(work, "carried.txt"), "from the source\n");
+    written = true;
+    await done;
+    expect(await readFile(join(work, "seen.txt"), "utf8")).toBe("from the source\n");
+    expect(fake.reports).toEqual([{ status: "ok" }]);
+    expect(JSON.parse(await readFile(join(root, "setup.json"), "utf8"))).toMatchObject({ volumeId: "vol-2", status: "ok" });
+  });
+
   it("refuses a folder entry that would leave its path", async () => {
     const work = join(root, "workspace");
     const fake = {

@@ -8,6 +8,10 @@
  *
  * A failure is reported to core, which fails the pod and the turn waiting for it; the engine then
  * polls until a turn start asks the pod to run again, and runs the setup again from the start.
+ *
+ * A volume seeded from a disk version skips it (the version holds what setup made), except on a
+ * fork onto other setup (Q17): the engine connects first, waits until core has written the
+ * version, then runs the setup on it as above. Turns wait until it reports the setup done.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -17,6 +21,8 @@ import type { DiskSetup, DiskSetupReport, PodHost } from "./pod.js";
 
 /** How often a failed setup asks whether to run again. */
 export const SETUP_RETRY_POLL_MS = 5_000;
+/** How often a fork's setup asks whether its disk version is written (Q17). */
+const AFTER_SEED_POLL_MS = 1_000;
 /** The end of a failed command's output kept in its report. */
 const REPORT_TAIL = 4 * 1024;
 
@@ -24,6 +30,8 @@ export interface DiskSetupOptions {
   readonly host: Pick<PodHost, "setup" | "setupState" | "reportSetup" | "setupFile"> & {
     /** The volume starts from a disk version (R2d step 3): it holds what setup made. */
     readonly seeded?: boolean;
+    /** A fork onto other setup (Q17): run it once core has written the version. */
+    readonly afterSeed?: boolean;
   };
   /** Runs one command as the sandbox tools do (`localExec`). */
   readonly exec: (request: ExecRequest, signal: AbortSignal) => Promise<ExecResult>;
@@ -121,7 +129,23 @@ async function runOnce(options: DiskSetupOptions, setup: DiskSetup): Promise<Dis
 export async function prepareDisk(options: DiskSetupOptions): Promise<void> {
   let setup = options.host.setup;
   const volumeId = await readText(options.volumeFile);
-  if (options.host.seeded) {
+  if (options.host.afterSeed) {
+    // A fork onto other setup (Q17): wait until core has written the disk version, then run it.
+    for (;;) {
+      if (options.signal?.aborted) return;
+      const state = await options.host.setupState().catch(() => undefined);
+      if (state?.retry) {
+        setup = state.setup;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, options.pollMs ?? AFTER_SEED_POLL_MS));
+    }
+    if (!setup) {
+      // Nothing to run: say so, so the fork's turns may start.
+      await options.host.reportSetup({ status: "ok" }).catch(() => undefined);
+      return;
+    }
+  } else if (options.host.seeded) {
     // A volume seeded from a disk version: the version holds what setup made, so mark it done.
     if (volumeId) {
       const done: Marker = { volumeId, recipeVersion: setup?.recipeVersion ?? 0, status: "ok" };

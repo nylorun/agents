@@ -17237,6 +17237,26 @@
                 "manifestHash": {
                   "type": "string"
                 },
+                "forkedFrom": {
+                  "type": "object",
+                  "properties": {
+                    "environment": {
+                      "type": "string"
+                    },
+                    "disk": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "environment",
+                    "disk"
+                  ],
+                  "additionalProperties": false
+                },
                 "slots": {
                   "type": "array",
                   "items": {
@@ -17748,6 +17768,26 @@
           },
           "manifestHash": {
             "type": "string"
+          },
+          "forkedFrom": {
+            "type": "object",
+            "properties": {
+              "environment": {
+                "type": "string"
+              },
+              "disk": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "environment",
+              "disk"
+            ],
+            "additionalProperties": false
           },
           "slots": {
             "type": "array",
@@ -18298,6 +18338,7 @@
                     "environment.lost",
                     "environment.reset",
                     "environment.failed",
+                    "environment.forked",
                     "environment.egress"
                   ]
                 },
@@ -18447,6 +18488,846 @@
         },
         "required": [
           "version"
+        ],
+        "additionalProperties": false
+      },
+      "ForkEnvironmentResponse": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "dryRun": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "plan": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "virtual",
+                      "pod",
+                      "none"
+                    ]
+                  },
+                  "manifest": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "version"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "disk": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "latest"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "setup": {
+                    "type": "boolean"
+                  },
+                  "secrets": {
+                    "type": "object",
+                    "properties": {
+                      "copied": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "dropped": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "missing": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "copied",
+                      "dropped",
+                      "missing"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "changes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "from": {},
+                        "to": {}
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "sessions": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "source",
+                  "id",
+                  "kind",
+                  "manifest",
+                  "disk",
+                  "setup",
+                  "secrets",
+                  "changes",
+                  "sessions"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "dryRun",
+              "plan"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "environment": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "virtual",
+                      "pod",
+                      "none"
+                    ]
+                  },
+                  "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "manifest": {
+                    "type": "object",
+                    "properties": {
+                      "image": {
+                        "type": "string"
+                      },
+                      "resources": {
+                        "type": "object",
+                        "properties": {
+                          "cpus": {
+                            "type": "integer"
+                          },
+                          "memory": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "cpus",
+                          "memory"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "storage": {
+                        "type": "string"
+                      },
+                      "network": {
+                        "type": "object",
+                        "properties": {
+                          "allowedHosts": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "allowedHosts"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "harness": {
+                        "type": "string"
+                      },
+                      "lifecycle": {
+                        "type": "object",
+                        "properties": {
+                          "idle": {
+                            "type": "string"
+                          },
+                          "deleteAfter": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "setup": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "command": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            },
+                            "cwd": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1024
+                            },
+                            "timeout": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "command"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "files": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "artifactId": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "path": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1024
+                            }
+                          },
+                          "required": [
+                            "artifactId",
+                            "version",
+                            "path"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "secrets": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "environment_secret"
+                                  ]
+                                },
+                                "allowedHosts": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "minItems": 1,
+                                  "maxItems": 32
+                                },
+                                "inject": {
+                                  "type": "object",
+                                  "properties": {
+                                    "header": {
+                                      "type": "string",
+                                      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                    },
+                                    "format": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    }
+                                  },
+                                  "required": [
+                                    "header",
+                                    "format"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "description": {
+                                  "type": "string",
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "allowedHosts"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "environment_variable"
+                                  ]
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "description": {
+                                  "type": "string",
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "type"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "bearer"
+                                  ]
+                                },
+                                "url": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "via": {
+                                  "type": "string"
+                                },
+                                "identity": {
+                                  "type": "object",
+                                  "properties": {
+                                    "header": {
+                                      "type": "string",
+                                      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                    }
+                                  },
+                                  "required": [
+                                    "header"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "description": {
+                                  "type": "string",
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "headers"
+                                  ]
+                                },
+                                "url": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "via": {
+                                  "type": "string"
+                                },
+                                "identity": {
+                                  "type": "object",
+                                  "properties": {
+                                    "header": {
+                                      "type": "string",
+                                      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                    }
+                                  },
+                                  "required": [
+                                    "header"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "description": {
+                                  "type": "string",
+                                  "maxLength": 500
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "harness",
+                      "lifecycle"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "manifestName": {
+                    "type": "string"
+                  },
+                  "manifestVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "manifestHash": {
+                    "type": "string"
+                  },
+                  "forkedFrom": {
+                    "type": "object",
+                    "properties": {
+                      "environment": {
+                        "type": "string"
+                      },
+                      "disk": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "required": [
+                      "environment",
+                      "disk"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "slots": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "set": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "type",
+                        "required",
+                        "set"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "appliedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "ownerUserId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "state": {
+                    "type": "string",
+                    "description": "ready, creating, running or stopped; an open set"
+                  },
+                  "pod": {
+                    "type": "object",
+                    "properties": {
+                      "desired": {
+                        "type": "string",
+                        "enum": [
+                          "running",
+                          "suspended",
+                          "deleted"
+                        ]
+                      },
+                      "observed": {
+                        "type": "string",
+                        "enum": [
+                          "creating",
+                          "running",
+                          "suspended",
+                          "lost",
+                          "failed",
+                          "deleting"
+                        ]
+                      },
+                      "volumeGeneration": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "hostEpoch": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "desired",
+                      "observed",
+                      "volumeGeneration",
+                      "hostEpoch"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "lastUsedAt": {
+                    "type": "string"
+                  },
+                  "disk": {
+                    "type": "object",
+                    "properties": {
+                      "latestVersion": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "exclusiveMinimum": 0
+                      },
+                      "operation": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "snapshot",
+                              "restore",
+                              "seed"
+                            ]
+                          },
+                          "version": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "startedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "startedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "latestVersion"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "sessions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "activeTurnId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "activeTurnId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "labels",
+                  "manifest",
+                  "version",
+                  "appliedVersion",
+                  "ownerUserId",
+                  "state",
+                  "lastUsedAt",
+                  "sessions",
+                  "createdAt",
+                  "updatedAt"
+                ],
+                "additionalProperties": false
+              },
+              "plan": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "virtual",
+                      "pod",
+                      "none"
+                    ]
+                  },
+                  "manifest": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "version"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "disk": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "latest"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "setup": {
+                    "type": "boolean"
+                  },
+                  "secrets": {
+                    "type": "object",
+                    "properties": {
+                      "copied": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "dropped": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "missing": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "copied",
+                      "dropped",
+                      "missing"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "changes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "from": {},
+                        "to": {}
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "sessions": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "source",
+                  "id",
+                  "kind",
+                  "manifest",
+                  "disk",
+                  "setup",
+                  "secrets",
+                  "changes",
+                  "sessions"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "environment",
+              "plan"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ForkEnvironmentRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "string",
+            "description": "An Environment id, such as `user-42` or `users/alice/web`"
+          },
+          "manifest": {
+            "type": "string",
+            "description": "`name` (the latest version when the Environment is created) or `name@n`"
+          },
+          "disk": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "latest"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "empty"
+                ]
+              },
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            ]
+          },
+          "secrets": {
+            "type": "string",
+            "enum": [
+              "copy",
+              "none"
+            ]
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[\\x20-\\x7e]{0,256}$"
+            }
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "dryRun": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
         ],
         "additionalProperties": false
       },
@@ -27246,6 +28127,154 @@
           },
           "409": {
             "description": "A turn or another copy holds the disk (`environment_busy`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/environments/{environmentId}/fork": {
+      "post": {
+        "tags": [
+          "Environments"
+        ],
+        "summary": "Fork an Environment",
+        "description": "How an Environment gets a new manifest version (Q15): a new Environment `id`, made from `manifest` (default the source's manifest at its latest version), its disk started from a version of this one's (`disk`: `latest`, the default, takes a snapshot first; a version number; or `empty`) and its secrets copied inside the Runtime (`secrets`: `copy`, the default, copies those the new manifest declares; `none`). On a fork onto other setup the new manifest's setup runs on the copied disk before its first turn. This Environment keeps what it runs, its disk and its sessions. `dryRun` answers the plan and makes nothing.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`"
+            },
+            "required": true,
+            "description": "The Environment id, percent-encoded: `users%2Falice%2Fweb` for `users/alice/web`",
+            "name": "environmentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
+            },
+            "required": true,
+            "description": "The protocol version, `14`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkEnvironmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The plan (`dryRun`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForkEnvironmentResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The new Environment, and the plan it ran",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForkEnvironmentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The source was made from inline fields and no manifest is named, or the manifest does not resolve"
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Environment, manifest version (`manifest_not_found`) or disk version"
+          },
+          "409": {
+            "description": "The id exists, or a turn or another copy holds the source's disk (`environment_busy`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",

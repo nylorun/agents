@@ -492,6 +492,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
             ...(row.manifestName === null ? {} : { manifestName: row.manifestName }),
             ...(row.manifestVersion === null ? {} : { manifestVersion: row.manifestVersion }),
             ...(row.manifestHash === null ? {} : { manifestHash: row.manifestHash }),
+            ...(row.forkedFrom ? { forkedFrom: row.forkedFrom as NonNullable<EnvironmentView["forkedFrom"]> } : {}),
             version: row.version,
             appliedVersion: row.appliedVersion,
             ownerUserId: row.ownerUserId,

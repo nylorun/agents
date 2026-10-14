@@ -440,6 +440,19 @@ before they save):
   session opens: an Environment of the wrong kind, none at all, or a vault
   without one of the secrets is `409 environment_unsuitable` with
   `details.missing`. The agent still names no Environment.
+- **Forking onto a new version.** An Environment never changes what it runs,
+  so it moves to a new version by a fork: `POST /v1/environments/{id}/fork`
+  with `{ "id": "users/alice/analyst-2" }` (`client.environments.fork()`) makes
+  a new Environment from the source's manifest at its latest version (or
+  `manifest: "name@n"`). Its disk starts from a version of the source's
+  (`disk: "latest"`, the default, snapshots first between turns; a version
+  number; or `"empty"`), and the secrets the new manifest declares are copied
+  inside the Runtime (`secrets: "none"` copies none); values never leave it.
+  On a pod, the new version's setup runs on the copied disk before the first
+  turn. The source keeps what it runs, its disk and its sessions: move them
+  when you are ready. `dryRun: true` (`planFork()`) answers the plan: the disk,
+  the secrets copied and left behind, required slots still missing, and the
+  changes.
 - **Versions and deleting.** `GET /v1/environment-manifests` lists each
   manifest's latest, `GET .../{name}/versions` every version with the
   Environments made from it, and `DELETE` removes all of them, refused while an

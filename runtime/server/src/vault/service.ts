@@ -248,6 +248,67 @@ export class VaultService {
     await this.audit(t, { actor, action: "delete", vaultId: vault.id, target: environmentId, outcome: "deleted" });
   }
 
+  /**
+   * Copies Environment `from`'s secrets into Environment `to`'s new vault (a fork, Q15), in the
+   * transaction that creates `to`. Each value is unsealed and sealed again under the new vault's
+   * and credential's ids, which its AAD binds, so no value leaves the Runtime. With `slots` (what
+   * `to` runs declares secret slots, D64), only the names it declares are copied, each with its
+   * slot's binding; a value the slot's type cannot take is left behind.
+   */
+  async copyEnvironmentSecrets(
+    t: Tx,
+    from: string,
+    to: string,
+    actor: string,
+    slots?: Readonly<Record<string, Record<string, unknown>>>,
+  ): Promise<{ copied: string[]; dropped: string[] }> {
+    const source = await t.vaultOfEnvironment(from);
+    const target = await t.vaultOfEnvironment(to);
+    if (!source || !target) return { copied: [], dropped: [] };
+    const kek = this.kek();
+    const copied: UserCredentialRow[] = [];
+    const dropped: string[] = [];
+    const now = new Date().toISOString();
+    for (const row of (await t.credentialsForVault(source.id)).filter(isUserCredential)) {
+      const payload = readPayload(kek, row);
+      let type = row.type;
+      let binding = credentialBinding(row);
+      let sealed = payload;
+      if (slots !== undefined) {
+        const slot = slots[row.name];
+        const rebound = slot === undefined ? undefined : rebind(row.name, slot, row, payload, binding);
+        if (rebound === undefined) {
+          dropped.push(row.name);
+          continue;
+        }
+        ({ type, binding, payload: sealed } = rebound);
+        try {
+          conflictOf(type, binding, copied);
+        } catch (error) {
+          if (!(error instanceof VaultError)) throw error;
+          dropped.push(row.name);
+          continue;
+        }
+      }
+      const id = randomUUID();
+      const credential: UserCredentialRow = {
+        id,
+        vaultId: target.id,
+        name: row.name,
+        type,
+        bindingJson: JSON.stringify(binding),
+        expiresAt: row.expiresAt,
+        createdAt: now,
+        rotatedAt: null,
+        ...encryptSecret(kek, credentialAad(target.id, id, type, binding), Buffer.from(JSON.stringify(sealed), "utf8")),
+      };
+      await t.insertCredential(credential);
+      await this.audit(t, { actor, action: "create", vaultId: target.id, credentialId: id, target: from, outcome: "copied" });
+      copied.push(credential);
+    }
+    return { copied: copied.map((row) => row.name).sort(), dropped: dropped.sort() };
+  }
+
   // --- an Environment's secrets ----------------------------------------------------
 
   /**
@@ -1181,6 +1242,44 @@ function credentialAad(
     ),
     "utf8",
   );
+}
+
+/**
+ * A copied credential's type, binding and payload under a slot of the fork (D64): its value with
+ * the slot's binding, or undefined when the slot's type cannot take it.
+ */
+function rebind(
+  name: string,
+  slot: Record<string, unknown>,
+  row: UserCredentialRow,
+  payload: SecretPayload,
+  binding: CredentialBinding,
+): { type: UserCredentialRow["type"]; binding: CredentialBinding; payload: SecretPayload } | undefined {
+  const type = slot.type as UserCredentialRow["type"];
+  const value =
+    row.type === "environment_variable" ? binding.variableValue : row.type === "bearer" ? payload.token : payload.value;
+  try {
+    if (type === "environment_secret" || type === "environment_variable") {
+      if (value === undefined) return undefined;
+      const made = environmentCredential(name, { ...slot, type, value } as Parameters<typeof environmentCredential>[1]);
+      return { type, ...made };
+    }
+    const auth =
+      type === "headers"
+        ? payload.headers === undefined
+          ? undefined
+          : ({ type, headers: payload.headers } as const)
+        : value === undefined
+          ? undefined
+          : ({ type: "bearer", value } as const);
+    if (auth === undefined) return undefined;
+    const sealed = payloadOf(auth);
+    const routing = slot as { url: string; via?: string | null; identity?: CredentialIdentity | null };
+    return { type, payload: sealed, binding: bindingOf(normalizeVaultUrl(routing.url), sealed, routing) };
+  } catch (error) {
+    if (error instanceof VaultError) return undefined;
+    throw error;
+  }
 }
 
 /** The sealed payload and unsealed binding of a shell credential named `name` (R2c). */

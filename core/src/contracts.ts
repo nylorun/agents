@@ -925,6 +925,14 @@ export const EnvironmentViewSchema = z
     manifestVersion: z.number().int().positive().optional(),
     /** The hash of what it runs (`manifest`). */
     manifestHash: z.string().optional(),
+    /**
+     * The Environment it was forked from (`POST .../fork`, Q15), and the disk version it started
+     * from (`null` for an empty disk).
+     */
+    forkedFrom: z
+      .object({ environment: z.string(), disk: z.number().int().positive().nullable() })
+      .strict()
+      .optional(),
     /** Each secret slot its manifest declares, and whether its vault holds a value for it. */
     slots: z
       .array(
@@ -1102,6 +1110,8 @@ export const ENVIRONMENT_EVENT_TYPES = [
   "environment.lost",
   "environment.reset",
   "environment.failed",
+  // Forked into a new Environment (Q15).
+  "environment.forked",
   // egress-gate: every connection the Environment opens (R7, D67).
   "environment.egress",
 ] as const;
@@ -1114,6 +1124,11 @@ export const ENVIRONMENT_EVENT_PAYLOADS = {
       labels: z.record(z.string(), z.string()),
       /** The environment manifest and version it was made from (protocol 14, D63). */
       manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict().optional(),
+      /** The Environment it was forked from, and the disk version it started from (Q15). */
+      forkedFrom: z
+        .object({ environment: z.string(), disk: z.number().int().positive().nullable() })
+        .strict()
+        .optional(),
     })
     .passthrough(),
   "environment.attached": z.object({ sessionId: z.string() }).passthrough(),
@@ -1136,6 +1151,15 @@ export const ENVIRONMENT_EVENT_PAYLOADS = {
   "environment.reset": z.object({ volumeGeneration: z.number().int() }).passthrough(),
   /** The pod did not become ready. */
   "environment.failed": z.object({ reason: z.string() }).passthrough(),
+  /** Forked into Environment `to`: its disk started from version `disk`, `secrets` were copied. */
+  "environment.forked": z
+    .object({
+      to: z.string(),
+      disk: z.number().int().positive().nullable(),
+      manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict().optional(),
+      secrets: z.number().int().nonnegative(),
+    })
+    .passthrough(),
   /** A connection through egress-gate, with the turns running as it opened (D67). */
   "environment.egress": EgressConnectionPayloadSchema,
 } as const satisfies Record<EnvironmentEventType, z.ZodType>;
@@ -1620,6 +1644,67 @@ export const DeleteEnvironmentManifestResponseSchema = z
   .object({ name: z.string(), deleted: z.boolean() })
   .strict();
 export type DeleteEnvironmentManifestResponse = z.infer<typeof DeleteEnvironmentManifestResponseSchema>;
+/**
+ * `POST /v1/environments/{id}/fork` (Q15): how an Environment gets a new manifest version. The
+ * fork is a new Environment, made from the version, its disk started from a version of the
+ * source's disk and its secrets copied inside the Runtime. The source keeps what it runs, its
+ * disk and its sessions.
+ */
+export const ForkEnvironmentRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    /** The new Environment's id. */
+    id: EnvironmentIdSchema,
+    /** `name` or `name@n`; default the source's manifest at its latest version. */
+    manifest: EnvironmentManifestRefSchema.optional(),
+    /** Where its disk starts: `latest` (a snapshot taken first; the default), a version, or `empty`. */
+    disk: z.union([z.literal("latest"), z.literal("empty"), z.number().int().positive()]).optional(),
+    /** `copy` (the default): the source's secrets the new manifest declares (all, without slots). */
+    secrets: z.enum(["copy", "none"]).optional(),
+    labels: EnvironmentLabelsSchema.optional(),
+    ownerUserId: z.string().min(1).nullable().optional(),
+    /** Answer the plan and make nothing. */
+    dryRun: z.boolean().optional(),
+  })
+  .strict();
+export type ForkEnvironmentRequest = z.infer<typeof ForkEnvironmentRequestSchema>;
+/** What a fork does (or, with `dryRun`, would do). */
+export const EnvironmentForkPlanSchema = z
+  .object({
+    source: z.string(),
+    id: z.string(),
+    kind: z.enum(ENVIRONMENT_KINDS),
+    /** The manifest version it is made from, or `null` for the source's inline fields. */
+    manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict().nullable(),
+    /** The disk version it starts from: `latest` in a dry run (the snapshot is taken at the fork); `null` for an empty disk. */
+    disk: z.union([z.number().int().positive(), z.literal("latest")]).nullable(),
+    /** Whether the new manifest's setup runs on the copied disk: it differs from what the source runs. */
+    setup: z.boolean(),
+    secrets: z
+      .object({
+        /** Copied, by name. */
+        copied: z.array(z.string()),
+        /** The source's secrets the new manifest does not declare: left behind. */
+        dropped: z.array(z.string()),
+        /** Required slots of the new manifest no copied secret fills. */
+        missing: z.array(z.string()),
+      })
+      .strict(),
+    /** How what it runs differs from what the source runs. */
+    changes: z.array(
+      z.object({ path: z.string(), from: z.unknown().optional(), to: z.unknown().optional() }).strict(),
+    ),
+    /** The source's sessions: they stay on it. */
+    sessions: z.number().int().nonnegative(),
+  })
+  .strict();
+export type EnvironmentForkPlan = z.infer<typeof EnvironmentForkPlanSchema>;
+/** `POST /v1/environments/{id}/fork`: the new Environment and the plan it ran, or with `dryRun` the plan only. */
+export const ForkEnvironmentResponseSchema = z.union([
+  z.object({ dryRun: z.literal(true), plan: EnvironmentForkPlanSchema }).strict(),
+  z.object({ environment: EnvironmentViewSchema, plan: EnvironmentForkPlanSchema }).strict(),
+]);
+export type ForkEnvironmentResponse = z.infer<typeof ForkEnvironmentResponseSchema>;
 /**
  * What a model may read (protocol 12): `text` always; `image`, `pdf`, `office` (Word, Excel,
  * PowerPoint), `audio` and `video` when its catalog entry or the operator says so. In this order.

@@ -7,9 +7,9 @@ together. Sessions, Environments and their vaults carry over.
   may change only `labels` and `ownerUserId`. A field that matches what it runs is accepted, so a
   get-or-create call with the same body works as before; any other difference is
   `409 environment_immutable`, with `details.fields`. Code that changed an Environment's image,
-  network, harness, lifecycle, setup or files in place makes a new Environment instead (a new id,
-  optionally with `from: { environment, version }` to start from its disk), and points new
-  sessions at it.
+  network, harness, lifecycle, setup or files in place forks it instead:
+  `POST /v1/environments/{id}/fork` (`client.environments.fork()`) makes a new Environment with
+  its disk and secrets, from the new manifest version, and new sessions name the new id.
 - **The view's `recipe` is `manifest`.** `EnvironmentView.recipe` is renamed `manifest`; it also
   carries `manifestName`, `manifestVersion` and `manifestHash`, and `slots` when it declares
   secrets. `version` and `appliedVersion` no longer move. In `@nylorun/agents`,

@@ -46,6 +46,7 @@ export async function runHarness(
 
   // A pod's engine trusts the network only once its NetworkPolicy blocks what it must.
   let pod: PodHost | undefined;
+  let prepare: (() => Promise<void>) | undefined;
   if (config.pod) {
     const { waitedMs } = await awaitNetworkPolicy({
       addresses: config.pod.blocked,
@@ -59,13 +60,16 @@ export async function runHarness(
     // Join, then make the disk ready (R2d step 2) before taking any turn.
     await pod.token();
     const host = pod;
-    await prepareDisk({
-      host,
-      exec: localExec({ env: baseline, proxyEnv: () => host.proxyEnv() }),
-      volumeFile: join(config.root, "volume-id"),
-      markerFile: join(config.root, "setup.json"),
-      logger,
-    });
+    prepare = () =>
+      prepareDisk({
+        host,
+        exec: localExec({ env: baseline, proxyEnv: () => host.proxyEnv() }),
+        volumeFile: join(config.root, "volume-id"),
+        markerFile: join(config.root, "setup.json"),
+        logger,
+      });
+    // A fork onto other setup (Q17) runs it after connecting: core writes its disk through the connection.
+    if (!pod.afterSeed) await prepare();
   }
   const token = pod ? () => pod.token() : config.token;
   if (token === undefined) throw new Error("--service harness needs NYLORUN_HARNESS_TOKEN");
@@ -85,6 +89,10 @@ export async function runHarness(
     version: RUNTIME_VERSION,
     onGrant: (grant) => runTokens.grant(grant),
   });
+  if (pod?.afterSeed && prepare)
+    void prepare().catch((error: unknown) =>
+      logger.warn("environment_setup_failed", { message: error instanceof Error ? error.message : String(error) }),
+    );
 
   const health = createServer((request, response) => {
     if (request.url !== "/health") {

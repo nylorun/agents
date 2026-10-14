@@ -88,6 +88,23 @@ describe("client.environments", () => {
     expect(sent[0]!.body).toMatchObject({ type: "environment_secret", value: "ghp_x" });
   });
 
+  it("forks into a new Environment, and plans a fork without making one", async () => {
+    const plan = { source: "users/alice/web", id: "users/alice/web-2", disk: 3 };
+    const { client, sent } = fake((_method, _path, body) =>
+      Response.json(body.dryRun ? { dryRun: true, plan } : { environment: { id: "users/alice/web-2" }, plan }),
+    );
+    const forked = await client.environments.fork("users/alice/web", { id: "users/alice/web-2", manifest: "web@2" });
+    expect(forked.environment.id).toBe("users/alice/web-2");
+    expect(await client.environments.planFork("users/alice/web", { id: "users/alice/web-2", disk: "empty" })).toEqual(plan);
+    expect(sent.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      "POST /v1/environments/users%2Falice%2Fweb/fork",
+      "POST /v1/environments/users%2Falice%2Fweb/fork",
+    ]);
+    expect(sent[0]!.body).toMatchObject({ id: "users/alice/web-2", manifest: "web@2" });
+    expect(sent[0]!.body.requestId).toEqual(expect.any(String));
+    expect(sent[1]!.body).toEqual({ id: "users/alice/web-2", disk: "empty", dryRun: true });
+  });
+
   it("refuses an id the Runtime would refuse, before sending anything", async () => {
     const { client, sent } = fake();
     await expect(client.environments.put("bad id!")).rejects.toThrow(TypeError);

@@ -203,6 +203,7 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
           epoch,
           setup: row ? await setupPlanOf(ctx, t, row) : undefined,
           seeded: row?.diskSeed !== undefined,
+          afterSeed: row?.diskSeed?.setup === true,
         };
       });
       if ("lost" in joined) {
@@ -218,6 +219,8 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
       if (joined.seeded) {
         // The engine connects next; the seed waits for it, then writes the version.
         void runPendingSeed(ctx, sandboxId);
+        // A fork onto other setup (Q17): the engine runs it once the version is written.
+        if (joined.afterSeed) return { ...answer, seeded: true, afterSeed: true, ...(joined.setup ? { setup: joined.setup } : {}) };
         return { ...answer, seeded: true };
       }
       return joined.setup ? { ...answer, setup: joined.setup } : answer;

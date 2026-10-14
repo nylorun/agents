@@ -404,6 +404,7 @@ function environmentOf(row: typeof environments.$inferSelect): Environment {
     ...(row.manifestName !== null ? { manifestName: row.manifestName } : {}),
     ...(row.manifestVersion !== null ? { manifestVersion: row.manifestVersion } : {}),
     ...(row.manifestHash !== null ? { manifestHash: row.manifestHash } : {}),
+    ...(row.forkedFrom ? { forkedFrom: row.forkedFrom as Environment["forkedFrom"] } : {}),
     ...(row.k8sName !== null && row.desired !== null && row.observed !== null
       ? {
           pod: {
@@ -892,7 +893,7 @@ class PostgresTx implements Tx {
     if (found) return "exists";
     const [counted] = await this.db.select({ n: count() }).from(environments);
     if ((counted?.n ?? 0) >= limit) return "limit";
-    const { pod, ownerUserId, diskOp, diskSeed, manifestName, manifestVersion, manifestHash, ...environment } = row;
+    const { pod, ownerUserId, diskOp, diskSeed, manifestName, manifestVersion, manifestHash, forkedFrom, ...environment } = row;
     await this.db.insert(environments).values({
       ...environment,
       ownerUserId: ownerUserId ?? null,
@@ -901,6 +902,7 @@ class PostgresTx implements Tx {
       manifestName: manifestName ?? null,
       manifestVersion: manifestVersion ?? null,
       manifestHash: manifestHash ?? null,
+      forkedFrom: forkedFrom ?? null,
       ...(pod ? podColumns(pod) : {}),
     });
     return "created";

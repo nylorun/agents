@@ -22,6 +22,9 @@
  * Disk versions (Host feature `environment-disk-versions`): `snapshot(id)` keeps a version of
  * the Environment's disk between turns, `restore(id, version)` puts one back, and
  * `put(id, { from: { environment, version } })` creates a new Environment from another's version.
+ *
+ * `fork(id, { id: next })` is how an Environment gets a new manifest version (Q15): a new
+ * Environment made from it, with the source's disk and secrets; `planFork` answers what it would do.
  */
 import {
   ENVIRONMENT_MANIFEST_SCHEMA_VERSION,
@@ -33,7 +36,9 @@ import {
   type EnvironmentManifest,
   type EnvironmentManifestPlan,
   type EnvironmentManifestVersions,
+  type EnvironmentForkPlan,
   type EnvironmentManifestView,
+  type ForkEnvironmentRequest,
   type SaveEnvironmentManifestResponse,
   type DeleteEnvironmentResponse,
   type EnvironmentEvent,
@@ -362,6 +367,39 @@ export class EnvironmentsClient {
       { requestId: id(), version },
       options.signal,
     );
+  }
+
+  /**
+   * Forks the Environment into a new one, `options.id` (Q15): how an Environment gets a new
+   * manifest version, since none ever changes what it runs. It is made from `options.manifest`
+   * (default the source's manifest at its latest version), its disk starts from `options.disk`
+   * (`latest`, the default, snapshots first; a version; or `empty`) and the secrets the new
+   * manifest declares are copied (`options.secrets: "none"` copies none). The source keeps what
+   * it runs, its disk and its sessions. Answers the new Environment and the plan it ran.
+   */
+  async fork(
+    environmentId: string,
+    options: Omit<ForkEnvironmentRequest, "requestId" | "dryRun"> & { signal?: AbortSignal },
+  ): Promise<{ environment: EnvironmentView; plan: EnvironmentForkPlan }> {
+    const { signal, ...body } = options;
+    await this.transport.requireFeature("environment-manifests", signal);
+    return this.transport.json(`${this.path(environmentId)}/fork`, "POST", { requestId: id(), ...body }, signal);
+  }
+
+  /** What `fork` would do (the disk, the secrets copied and left behind, the changes), making nothing. */
+  async planFork(
+    environmentId: string,
+    options: Omit<ForkEnvironmentRequest, "requestId" | "dryRun"> & { signal?: AbortSignal },
+  ): Promise<EnvironmentForkPlan> {
+    const { signal, ...body } = options;
+    await this.transport.requireFeature("environment-manifests", signal);
+    const answer = await this.transport.json<{ plan: EnvironmentForkPlan }>(
+      `${this.path(environmentId)}/fork`,
+      "POST",
+      { ...body, dryRun: true },
+      signal,
+    );
+    return answer.plan;
   }
 
   /** The Environment's disk versions, newest first. */

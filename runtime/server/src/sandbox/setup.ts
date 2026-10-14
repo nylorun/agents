@@ -2,7 +2,8 @@
  * Setup and input files (R2d step 2, Host feature `environment-setup`): what a pod Environment's
  * engine runs and copies when its disk is made or reset, before it takes any turn. The plan is
  * the applied recipe's `setup` and `files`, handed to the engine with its host token (the join
- * answer, and `GET host/setup` while it waits to retry); the engine keeps a marker on the volume
+ * answer, and `GET host/setup` while it waits to retry, or, on a fork onto other setup, for its
+ * disk version to be written: Q17); the engine keeps a marker on the volume
  * (`/harness/setup.json`), so a resume never runs it again and a reset (a new volume) does.
  *
  * Input files come only through the routes here, indexed into the applied recipe's `files`:
@@ -99,7 +100,12 @@ export async function recordSetup(
     const environment = await t.environment(id, { lock: true });
     const pod = environment?.pod;
     if (!environment || !pod || pod.hostEpoch !== epoch || pod.desired !== "running") return;
-    if (report.status === "ok") return;
+    if (report.status === "ok") {
+      // A fork's setup ran on its written disk (Q17): its turns may start.
+      if (environment.diskSeed?.setup && environment.diskSeed.written)
+        await t.updateEnvironment(id, { diskSeed: null }, new Date().toISOString());
+      return;
+    }
     const command = report.index === undefined ? undefined : environment.applied.setup?.[report.index];
     const what =
       command === undefined ? "copying the input files failed" : `command ${report.index! + 1} (${command.command.slice(0, 80)}) exited ${report.exitCode ?? "abnormally"}`;
@@ -120,7 +126,10 @@ export async function recordSetup(
   else ctx.config.logger.info("environment setup done", { environmentId: id });
 }
 
-/** Whether the engine of `id` should run its setup again: the pod is no longer `failed`. */
+/**
+ * Whether the engine of `id` should run its setup (again): the pod is no longer `failed`, and
+ * the disk version a fork starts from is written (Q17).
+ */
 export async function setupState(
   ctx: TenantContext,
   id: string,
@@ -130,6 +139,7 @@ export async function setupState(
     const pod = environment?.pod;
     if (!environment || !pod) return { retry: false };
     if (pod.observed === "failed") return { retry: false };
+    if (environment.diskSeed && !environment.diskSeed.written) return { retry: false };
     const setup = await setupPlanOf(ctx, t, environment);
     return { retry: true, ...(setup ? { setup } : {}) };
   });

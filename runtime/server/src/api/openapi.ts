@@ -226,6 +226,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "DELETE /v1/environments/{environmentId}/secrets/{name}",
       "POST /v1/environments/{environmentId}/snapshot",
       "POST /v1/environments/{environmentId}/restore",
+      "POST /v1/environments/{environmentId}/fork",
       "GET /v1/environments/{environmentId}/versions",
       "DELETE /v1/environments/{environmentId}/versions/{version}",
     ],

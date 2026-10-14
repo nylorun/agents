@@ -13,8 +13,9 @@
  *   version back: directories, files (large ones in appended ranges), then links.
  * - **Restore** puts a version back: on a virtual Environment at once; on a pod as a reset whose
  *   new volume is seeded before any turn (`disk_seed`, run once the new pod's engine connects).
- *   **Fork** (`from` on a create) and the **recovery of a lost volume** (from the latest version)
- *   are seeds too.
+ *   **Fork** (`from` on a create, and `POST .../fork`) and the **recovery of a lost volume** (from
+ *   the latest version) are seeds too. A fork onto other setup (Q17) keeps its seed, `written`,
+ *   until the engine has run that setup on the written disk; turns wait for both.
  *
  * Nothing here runs inside a transaction but the lease and the commit. No event type is new:
  * a restore or recovery is `environment.reset` with `reason` and `from`.
@@ -34,7 +35,7 @@ import { sandboxSpecOf } from "../sandbox/resolve.js";
 import type { DiskAnswer, DiskOp, DiskPut } from "../sandbox/disk-fs.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import type { SandboxSessionRef } from "../sandbox/manager.js";
-import type { ArtifactRow, ArtifactVersionRow, Environment, Tx } from "../store/types.js";
+import type { ArtifactRow, ArtifactVersionRow, DiskSeed, Environment, Tx } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
 import {
   assertReaches,
@@ -139,16 +140,19 @@ function heartbeat(ctx: TenantContext, id: string, ms = LEASE_MS) {
   }, HEARTBEAT_MS);
   timer.unref();
   return {
-    async stop(options: { seed?: { artifactId: string; version: number } } = {}) {
+    async stop(options: { seed?: DiskSeed } = {}) {
       clearInterval(timer);
       await ctx.store.tx(async (t) => {
         const environment = await t.environment(id, { lock: true });
         if (!environment) return;
-        const clearSeed =
+        const seed = environment.diskSeed;
+        const written =
           options.seed !== undefined &&
-          environment.diskSeed?.artifactId === options.seed.artifactId &&
-          environment.diskSeed.version === options.seed.version;
-        await t.updateEnvironment(id, { diskOp: null, ...(clearSeed ? { diskSeed: null } : {}) }, new Date().toISOString());
+          seed?.artifactId === options.seed.artifactId &&
+          seed.version === options.seed.version;
+        // A seed with setup stays, written, until the engine reports the setup done (Q17).
+        const next = !written ? {} : seed.setup ? { diskSeed: { ...seed, written: true as const } } : { diskSeed: null };
+        await t.updateEnvironment(id, { diskOp: null, ...next }, new Date().toISOString());
       });
     },
   };
@@ -484,7 +488,7 @@ export async function runPendingSeed(ctx: TenantContext, id: string): Promise<vo
   try {
     const environment = await ctx.store.tx((t) => liveEnvironment(t, id));
     const seed = environment?.diskSeed;
-    if (!environment || !seed) return;
+    if (!environment || !seed || seed.written) return;
     if (environment.kind === "pod") {
       const deadline = Date.now() + ENGINE_WAIT_MS;
       // The engine on the new volume: the old one's connection may still be open.
@@ -516,7 +520,8 @@ export async function runPendingSeed(ctx: TenantContext, id: string): Promise<vo
 /** Starts the pending seeds whose engine is connected and whose lease lapsed (Tenant sweep). */
 export async function sweepPendingSeeds(ctx: TenantContext): Promise<void> {
   const pending = (await ctx.store.tx((t) => t.listEnvironments())).filter(
-    (environment) => environment.diskSeed !== undefined && environment.pod?.desired !== "deleted",
+    (environment) =>
+      environment.diskSeed !== undefined && !environment.diskSeed.written && environment.pod?.desired !== "deleted",
   );
   for (const environment of pending)
     if (environment.kind !== "pod" || ctx.harness.hosting(environment.id, environment.pod?.hostEpoch))
