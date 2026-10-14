@@ -17237,6 +17237,26 @@
                 "manifestHash": {
                   "type": "string"
                 },
+                "forkedFrom": {
+                  "type": "object",
+                  "properties": {
+                    "environment": {
+                      "type": "string"
+                    },
+                    "disk": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "environment",
+                    "disk"
+                  ],
+                  "additionalProperties": false
+                },
                 "slots": {
                   "type": "array",
                   "items": {
@@ -17748,6 +17768,26 @@
           },
           "manifestHash": {
             "type": "string"
+          },
+          "forkedFrom": {
+            "type": "object",
+            "properties": {
+              "environment": {
+                "type": "string"
+              },
+              "disk": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "environment",
+              "disk"
+            ],
+            "additionalProperties": false
           },
           "slots": {
             "type": "array",
@@ -18298,6 +18338,7 @@
                     "environment.lost",
                     "environment.reset",
                     "environment.failed",
+                    "environment.forked",
                     "environment.egress"
                   ]
                 },

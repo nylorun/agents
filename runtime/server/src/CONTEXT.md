@@ -213,6 +213,18 @@ Environment. `DELETE` removes every version, refused while an Environment names 
 Environment when the session opens (`409 environment_unsuitable`, `tenant/sessions.ts`).
 _Avoid_: "recipe" for the manifest (the recipe is what one Environment runs), "template".
 
+**Fork**: How an Environment gets a new manifest version (Q15, `forkEnvironment` in
+`tenant/environments.ts`), since none ever changes what it runs: `POST /v1/environments/{id}/fork`
+makes a new Environment from the version (default the source's manifest at its latest), its disk
+seeded from a version of the source's (`latest` snapshots first) and its secrets copied inside the
+Runtime (`VaultService.copyEnvironmentSecrets`: unsealed and sealed again under the new vault's ids,
+only the names its slots declare, with the slots' bindings). The view's `forkedFrom` names the
+source; the source gets `environment.forked` and keeps what it runs, its disk and its sessions. A
+pod fork onto other setup (Q17) keeps its `disk_seed` (`setup`, then `written`) until the engine,
+which connects first (`afterSeed` in the join answer), has run that setup on the written disk;
+turns wait for both.
+_Avoid_: "upgrade" or "update" for a fork (the source does not change).
+
 **Disk setup**: A pod Environment's `files` and `setup` (R2d step 2, `sandbox/setup.ts`,
 `harness/setup.ts`), run once per new disk: the join answer carries the plan (`setupPlanOf`), the
 engine copies the input files through `GET host/files/{index}` and runs the commands before it

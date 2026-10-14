@@ -1,0 +1,1 @@
+ALTER TABLE "nylorun"."environments" ADD COLUMN "forked_from" json;

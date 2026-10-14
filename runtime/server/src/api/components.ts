@@ -77,6 +77,9 @@ import {
   EnvironmentViewSchema,
   EnvironmentSnapshotSchema,
   RestoreEnvironmentRequestSchema,
+  ForkEnvironmentRequestSchema,
+  EnvironmentForkPlanSchema,
+  ForkEnvironmentResponseSchema,
   EnvironmentRestoreSchema,
   EnvironmentVersionsSchema,
   ListEnvironmentsResponseSchema,
@@ -141,6 +144,9 @@ export const PutEnvironmentSecretValueRequest = named("PutEnvironmentSecretValue
 export const EnvironmentSnapshot = named("EnvironmentSnapshot", EnvironmentSnapshotSchema);
 export const RestoreEnvironmentRequest = named("RestoreEnvironmentRequest", RestoreEnvironmentRequestSchema);
 export const EnvironmentRestore = named("EnvironmentRestore", EnvironmentRestoreSchema);
+export const ForkEnvironmentRequest = named("ForkEnvironmentRequest", ForkEnvironmentRequestSchema);
+export const EnvironmentForkPlan = named("EnvironmentForkPlan", EnvironmentForkPlanSchema);
+export const ForkEnvironmentResponse = named("ForkEnvironmentResponse", ForkEnvironmentResponseSchema);
 export const EnvironmentVersions = named("EnvironmentVersions", EnvironmentVersionsSchema);
 export const ListEnvironmentsResponse = named("ListEnvironmentsResponse", ListEnvironmentsResponseSchema);
 export const DeleteEnvironmentResponse = named("DeleteEnvironmentResponse", DeleteEnvironmentResponseSchema);

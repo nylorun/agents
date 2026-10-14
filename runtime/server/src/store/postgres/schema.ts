@@ -261,7 +261,11 @@ export const environments = nylorun.table(
      * restore or a seed copies the disk; turns are refused until it ends or `until` passes.
      */
     diskOp: jsonText(),
-    /** The disk version the next volume starts from: `{ artifactId, version }` (R2d step 3). */
+    /**
+     * The disk version the next volume starts from: `{ artifactId, version }` (R2d step 3). A
+     * fork onto other setup adds `setup: true` (Q17): once the version is written (`written`),
+     * the seed stays until the engine reports the setup done, and turns wait for both.
+     */
     diskSeed: jsonText(),
     /**
      * The environment manifest it was made from and its version (D63): null for an Environment
@@ -271,6 +275,8 @@ export const environments = nylorun.table(
     manifestVersion: integer(),
     /** The hash of what it runs (`recipe`), from creation on. */
     manifestHash: textC(),
+    /** The Environment it was forked from: `{ environment, disk }` (Q15). Never changed. */
+    forkedFrom: jsonText(),
   },
   (t) => [
     check("environments_kind_check", sql`${t.kind} IN ('virtual', 'pod', 'none')`),

@@ -10,6 +10,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import {
   ENVIRONMENT_EVENT_TYPES,
+  ForkEnvironmentRequestSchema,
   isEnvironmentId,
   PutEnvironmentRequestSchema,
   RestoreEnvironmentRequestSchema,
@@ -27,6 +28,8 @@ import {
   EnvironmentRestore,
   EnvironmentSnapshot,
   EnvironmentVersions,
+  ForkEnvironmentRequest,
+  ForkEnvironmentResponse,
   RestoreEnvironmentRequest,
   EnvironmentSecretView,
   EnvironmentView,
@@ -43,6 +46,7 @@ import {
   assertReaches,
   deleteEnvironment,
   environmentEventsOf,
+  forkEnvironment,
   getEnvironment,
   listEnvironments,
   putEnvironment,
@@ -339,6 +343,35 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
         200,
         await restoreEnvironment(c.env.tenant, idOf(c.req.param("environmentId")), c.get("scope"), body.version),
       );
+    },
+  );
+
+  tenantRoute(
+    api,
+    WRITE,
+    {
+      method: "post",
+      path: "/v1/environments/{environmentId}/fork",
+      tags: ["Environments"],
+      summary: "Fork an Environment",
+      description:
+        "How an Environment gets a new manifest version (Q15): a new Environment `id`, made from `manifest` (default the source's manifest at its latest version), its disk started from a version of this one's (`disk`: `latest`, the default, takes a snapshot first; a version number; or `empty`) and its secrets copied inside the Runtime (`secrets`: `copy`, the default, copies those the new manifest declares; `none`). On a fork onto other setup the new manifest's setup runs on the copied disk before its first turn. This Environment keeps what it runs, its disk and its sessions. `dryRun` answers the plan and makes nothing.",
+      request: {
+        params: environmentId,
+        body: { required: true, content: { "application/json": { schema: ForkEnvironmentRequest } } },
+      },
+      responses: {
+        200: json(ForkEnvironmentResponse, "The plan (`dryRun`)"),
+        201: json(ForkEnvironmentResponse, "The new Environment, and the plan it ran"),
+        400: { description: "The source was made from inline fields and no manifest is named, or the manifest does not resolve" },
+        404: { description: "No such Environment, manifest version (`manifest_not_found`) or disk version" },
+        409: { description: "The id exists, or a turn or another copy holds the source's disk (`environment_busy`)" },
+      },
+    },
+    async (c) => {
+      const body = ForkEnvironmentRequestSchema.parse(await readJson(c.req.raw));
+      const answer = await forkEnvironment(c.env.tenant, idOf(c.req.param("environmentId")), body, c.get("scope"));
+      return jsonResponse("dryRun" in answer ? 200 : 201, answer);
     },
   );
 

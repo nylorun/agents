@@ -45,10 +45,13 @@ import {
   parseEnvironmentManifestRef,
   PutEnvironmentSecretRequestSchema,
   PutEnvironmentSecretValueRequestSchema,
+  type EnvironmentForkPlan,
   type EnvironmentKind,
   type EnvironmentRecipe,
   type EnvironmentSecretSlot,
   type EnvironmentView,
+  type ForkEnvironmentRequest,
+  type ForkEnvironmentResponse,
   type PutEnvironmentRequest,
   type PutEnvironmentSecretRequest,
 } from "@nylorun/core/contracts";
@@ -64,8 +67,8 @@ import { podLifecycleConfig } from "../sandbox/pods/spec.js";
 import { SETUP_FAILED } from "../sandbox/pods/lifecycle.js";
 import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
-import { deleteDiskArtifact, forkSeedOf, runPendingSeed } from "../artifacts/disk.js";
-import { manifestRecipeRequest } from "./environment-manifests.js";
+import { deleteDiskArtifact, forkSeedOf, runPendingSeed, snapshotEnvironment } from "../artifacts/disk.js";
+import { manifestChanges, manifestRecipeRequest } from "./environment-manifests.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 
@@ -141,6 +144,7 @@ async function viewOf(
     ...(environment.manifestName === undefined ? {} : { manifestName: environment.manifestName }),
     ...(environment.manifestVersion === undefined ? {} : { manifestVersion: environment.manifestVersion }),
     ...(environment.manifestHash === undefined ? {} : { manifestHash: environment.manifestHash }),
+    ...(environment.forkedFrom === undefined ? {} : { forkedFrom: environment.forkedFrom }),
     ...(slots === undefined ? {} : { slots }),
     version: environment.version,
     appliedVersion: environment.appliedVersion,
@@ -331,7 +335,9 @@ export async function putEnvironment(
   id: string,
   body: PutEnvironmentRequest,
   scope: AuthScope,
+  options: { fork?: Fork } = {},
 ): Promise<EnvironmentView> {
+  const fork = options.fork;
   reachable(environmentGrantsOf(scope), id);
   const ref = body.manifest === undefined ? undefined : parseEnvironmentManifestRef(body.manifest);
   if (body.manifest !== undefined) {
@@ -373,6 +379,7 @@ export async function putEnvironment(
         }, { "retry-after": "5" });
     };
     const found = async (existing: Environment): Promise<EnvironmentView> => {
+      if (fork !== undefined) fail(409, `Environment ${id} exists: a fork makes a new Environment, so name another id.`);
       if (body.from !== undefined)
         fail(409, `Environment ${id} exists: from applies only when a PUT creates one.`);
       if (ref !== undefined) {
@@ -416,7 +423,9 @@ export async function putEnvironment(
     if (manifest && kind === "pod") await requirePods(ctx.pods, `Environment manifest ${manifest.name} is of kind pod, and a pod Environment`);
     const recipe = resolve(kind, manifest ? manifestRecipeRequest(manifest.body) : recipeRequest(body));
     await checkFiles(t, recipe.files);
-    const seed = body.from === undefined ? undefined : await forkSource(t, scope, kind, body.from);
+    const from = body.from === undefined ? undefined : await forkSource(t, scope, kind, body.from);
+    // A fork onto other setup runs it on the written disk (Q17).
+    const seed = from && fork?.setup ? { ...from, setup: true as const } : from;
     const row: Environment = {
       id,
       kind,
@@ -431,6 +440,7 @@ export async function putEnvironment(
       updatedAt: now,
       ...(manifest ? { manifestName: manifest.name, manifestVersion: manifest.version } : {}),
       manifestHash: recipeHash(recipe),
+      ...(fork ? { forkedFrom: { environment: fork.source, disk: seed?.version ?? null } } : {}),
       ...(seed
         ? {
             diskSeed: seed,
@@ -470,12 +480,27 @@ export async function putEnvironment(
       return found(again);
     }
     await ctx.vault.createEnvironmentVault(t, id, actorOf(scope));
+    if (fork?.secrets === "copy") {
+      const slots = recipe.secrets === undefined ? undefined : Object.fromEntries(
+        Object.entries(recipe.secrets).map(([name, slot]) => [name, slotRequest(slot)]),
+      );
+      fork.copied = await ctx.vault.copyEnvironmentSecrets(t, fork.source, id, actorOf(scope), slots);
+    }
+    const madeFrom = manifest ? { manifest: { name: manifest.name, version: manifest.version } } : {};
     await t.environmentEvent(id, "environment.created", {
       kind,
       labels: row.labels,
-      ...(manifest ? { manifest: { name: manifest.name, version: manifest.version } } : {}),
+      ...madeFrom,
       ...(seed ? { from: { environment: body.from!.environment, version: seed.version } } : {}),
+      ...(row.forkedFrom ? { forkedFrom: row.forkedFrom } : {}),
     });
+    if (fork)
+      await t.environmentEvent(fork.source, "environment.forked", {
+        to: id,
+        disk: seed?.version ?? null,
+        ...madeFrom,
+        secrets: fork.copied?.copied.length ?? 0,
+      });
     if (row.pod) {
       // Created at once; idle from now if no turn comes.
       await reconcileAfter(t, id);
@@ -559,6 +584,131 @@ async function forkSource(
   const subject = subjectOf(scope);
   if (subject !== undefined && source.ownerUserId !== undefined && source.ownerUserId !== subject) notFound();
   return forkSeedOf(t, from);
+}
+
+/** What a create does for a fork (`POST .../fork`); `copied` is filled in by the create. */
+interface Fork {
+  source: string;
+  setup: boolean;
+  secrets: "copy" | "none";
+  copied?: { copied: string[]; dropped: string[] };
+}
+
+/**
+ * `POST /v1/environments/{id}/fork` (Q15): how an Environment gets a new manifest version. A new
+ * Environment `body.id` is made from the manifest version (default the source's manifest at its
+ * latest), its disk started from a version of the source's (`latest` takes a snapshot first,
+ * refused during a turn), and its secrets copied inside the Runtime. A fork onto other setup
+ * runs that setup on the copied disk before its first turn (Q17). The source keeps what it runs,
+ * its disk and its sessions. With `dryRun`, the plan only.
+ */
+export async function forkEnvironment(
+  ctx: TenantContext,
+  sourceId: string,
+  body: ForkEnvironmentRequest,
+  scope: AuthScope,
+): Promise<ForkEnvironmentResponse> {
+  const grants = environmentGrantsOf(scope);
+  reachable(grants, sourceId);
+  reachable(grants, body.id);
+  if (body.id === sourceId) fail(400, "A fork is a new Environment: give it another id.");
+  const planned = await ctx.store.tx(async (t) => {
+    const source = (await liveEnvironment(t, sourceId)) ?? notFound();
+    const subject = subjectOf(scope);
+    if (subject !== undefined && source.ownerUserId !== undefined && source.ownerUserId !== subject) notFound();
+    const ref = body.manifest === undefined ? undefined : parseEnvironmentManifestRef(body.manifest);
+    if (body.manifest !== undefined && ref === undefined)
+      fail(400, "manifest is an environment manifest's name, or name@version such as analyst-box@3.");
+    const name =
+      ref?.name ??
+      source.manifestName ??
+      fail(
+        400,
+        `Environment ${sourceId} was made from inline fields, not a manifest: name the manifest to fork it onto (manifest).`,
+      );
+    const manifest =
+      (await t.environmentManifest(name, ref?.version)) ??
+      fail(
+        404,
+        ref?.version === undefined
+          ? `No environment manifest is named ${name}.`
+          : `Environment manifest ${name} has no version ${ref.version}.`,
+        { code: "manifest_not_found" },
+      );
+    const kind = manifest.body.kind ?? "virtual";
+    const resolved = resolveRecipe(kind, manifestRecipeRequest(manifest.body), effectiveSandboxConfig(await readSandboxConfig(t)));
+    if (resolved.kind === "error") return fail(400, resolved.errors.join(" "));
+    const recipe = resolved.recipe;
+    const asked = body.disk ?? "latest";
+    const disk =
+      kind === "none" || source.kind === "none" || asked === "empty"
+        ? null
+        : asked === "latest"
+          ? ("latest" as const)
+          : (await forkSeedOf(t, { environment: sourceId, version: asked })).version;
+    const vault = await t.vaultOfEnvironment(sourceId);
+    const names = vault
+      ? (await t.credentialsForVault(vault.id)).filter((row) => row.type !== "model").map((row) => row.name).sort()
+      : [];
+    const copied = body.secrets === "none" ? [] : names.filter((item) => recipe.secrets === undefined || item in recipe.secrets);
+    const plan: EnvironmentForkPlan = {
+      source: sourceId,
+      id: body.id,
+      kind,
+      manifest: { name: manifest.name, version: manifest.version },
+      disk,
+      setup:
+        kind === "pod" &&
+        disk !== null &&
+        recipeHash(recipe) !== source.manifestHash &&
+        Boolean(recipe.setup?.length || recipe.files?.length),
+      secrets: {
+        copied,
+        dropped: names.filter((item) => !copied.includes(item)),
+        missing: (Object.entries(recipe.secrets ?? {}) as [string, EnvironmentSecretSlot][])
+          .filter(([item, slot]) => slot.required === true && !copied.includes(item))
+          .map(([item]) => item)
+          .sort(),
+      },
+      changes: manifestChanges(source.recipe, recipe),
+      sessions: (await t.sessionsOnEnvironment(sourceId)).length,
+    };
+    return plan;
+  });
+  if (body.dryRun) return { dryRun: true, plan: planned };
+  // `latest`: a version of the disk as it is now, between turns (an unchanged disk makes none).
+  const disk = planned.disk === "latest" ? (await snapshotEnvironment(ctx, sourceId, scope)).version : planned.disk;
+  const fork: Fork = { source: sourceId, setup: planned.setup, secrets: body.secrets ?? "copy" };
+  const environment = await putEnvironment(
+    ctx,
+    body.id,
+    {
+      ...(body.requestId === undefined ? {} : { requestId: body.requestId }),
+      manifest: `${planned.manifest!.name}@${planned.manifest!.version}`,
+      ...(body.labels === undefined ? {} : { labels: body.labels }),
+      ...(body.ownerUserId === undefined ? {} : { ownerUserId: body.ownerUserId }),
+      ...(disk === null ? {} : { from: { environment: sourceId, version: disk } }),
+    },
+    scope,
+    { fork },
+  );
+  const copied = fork.copied ?? { copied: [], dropped: planned.secrets.copied };
+  const dropped = [...new Set([...planned.secrets.dropped, ...copied.dropped])].sort();
+  return {
+    environment,
+    plan: {
+      ...planned,
+      disk,
+      secrets: {
+        copied: copied.copied,
+        dropped,
+        missing: Object.entries(environment.manifest.secrets ?? {})
+          .filter(([item, slot]) => slot.required === true && !copied.copied.includes(item))
+          .map(([item]) => item)
+          .sort(),
+      },
+    },
+  };
 }
 
 /** `GET /v1/environments/{id}`. */

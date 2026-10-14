@@ -241,3 +241,51 @@ describe("disk versions of a pod Environment", { timeout: 90_000 }, () => {
     }
   });
 });
+
+describe("a pod fork onto other setup (Q17)", { timeout: 90_000 }, () => {
+  it("copies the disk through the source's engine, then holds turns until the new setup has run on it", async () => {
+    const manifest = (setup: string) => ({ manifestSchemaVersion: 1, name: "podbox", kind: "pod", setup: [{ command: setup }] });
+    expect((await call("PUT", "/v1/environment-manifests/podbox", manifest("echo v1"))).status).toBe(200);
+    const created = await until("created", () => call("PUT", path("forkpod/v1"), { manifest: "podbox" }), (reply) => reply.status !== 409);
+    expect(created.status, JSON.stringify(created.body)).toBe(200);
+    const sourceName = podName(tenantId, "forkpod/v1", 0);
+    await until("the source pod runs", async () => fake.podUid(sourceName), (uid) => uid !== undefined);
+    const source = await engine("forkpod/v1", sourceName);
+    let fork: Awaited<ReturnType<typeof engine>> | undefined;
+    try {
+      await writeFile(join(source.workspace, "notes.txt"), "carried\n");
+      expect((await call("PUT", "/v1/environment-manifests/podbox", manifest("echo v2"))).body.manifest.version).toBe(2);
+
+      const forked = await call("POST", `${path("forkpod/v1")}/fork`, { id: "forkpod/v2" });
+      expect(forked.status, JSON.stringify(forked.body)).toBe(201);
+      expect(forked.body.plan).toMatchObject({ kind: "pod", manifest: { name: "podbox", version: 2 }, disk: 1, setup: true });
+      expect(forked.body.environment).toMatchObject({ forkedFrom: { environment: "forkpod/v1", disk: 1 } });
+
+      const name = podName(tenantId, "forkpod/v2", 0);
+      await until("the fork's pod runs", async () => fake.podUid(name), (uid) => uid !== undefined);
+      fork = await engine("forkpod/v2", name);
+      expect(fork.host.seeded).toBe(true);
+      expect(fork.host.afterSeed).toBe(true);
+      // Core writes the version through the fork's engine, then hands over the setup to run on it.
+      await until("seeded", () => view("forkpod/v2"), (body) => body.disk.operation === undefined);
+      expect(await readFile(join(fork.workspace, "notes.txt"), "utf8")).toBe("carried\n");
+      const state = await fork.host.setupState();
+      expect(state.retry).toBe(true);
+      expect(state.setup?.commands.map((command) => command.command)).toEqual(["echo v2"]);
+
+      // Its turns wait for the setup.
+      expect((await open("forkpod-s1", "forkpod/v2")).status).toBe(200);
+      expect((await message("forkpod-s1")).status).toBe(200);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect((await call("GET", "/v1/sessions/forkpod-s1")).body.status).not.toBe("completed");
+      await fork.host.reportSetup({ status: "ok" });
+      expect((await settled("forkpod-s1")).status).toBe("completed");
+      // The source runs v1 still, on its own disk.
+      expect((await view("forkpod/v1")).manifestVersion).toBe(1);
+      expect(await readFile(join(source.workspace, "notes.txt"), "utf8")).toBe("carried\n");
+    } finally {
+      await fork?.stop();
+      await source.stop();
+    }
+  });
+});

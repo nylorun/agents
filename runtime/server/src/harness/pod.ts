@@ -63,8 +63,13 @@ export interface PodHost {
   readonly epoch: number | undefined;
   /** The disk's setup from the last join, if its recipe has one. */
   readonly setup: DiskSetup | undefined;
-  /** The last join's volume starts from a disk version core writes: no setup runs on it. */
+  /** The last join's volume starts from a disk version core writes: no setup runs on it… */
   readonly seeded: boolean;
+  /**
+   * …unless it is a fork onto other setup (Q17): the setup runs once core has written the
+   * version, which it does through this engine's connection, so the engine connects first.
+   */
+  readonly afterSeed: boolean;
   /** Whether to run the setup again after a failure, with the plan to run now. */
   setupState(): Promise<{ retry: boolean; setup?: DiskSetup }>;
   /** Reports how the setup ended. */
@@ -92,6 +97,7 @@ export function podHost(
   let held: Held | undefined;
   let setup: DiskSetup | undefined;
   let seeded = false;
+  let afterSeed = false;
   /** The CA in the bundle on disk, once one is written. */
   let bundled: string | undefined;
 
@@ -116,11 +122,13 @@ export function podHost(
       caCertificate?: string;
       setup?: DiskSetup;
       seeded?: boolean;
+      afterSeed?: boolean;
     };
     if (typeof body.caCertificate === "string") await writeBundle(body.caCertificate);
     if (path === "join") {
       setup = body.setup;
       seeded = body.seeded === true;
+      afterSeed = body.afterSeed === true;
     }
     return {
       hostToken: body.hostToken,
@@ -237,6 +245,9 @@ export function podHost(
     },
     get seeded() {
       return seeded;
+    },
+    get afterSeed() {
+      return afterSeed;
     },
     async setupState() {
       const response = await authorized("setup", { method: "GET" });

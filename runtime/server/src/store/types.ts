@@ -218,13 +218,28 @@ export interface Environment {
   pod?: SandboxPodState;
   /** The disk lease while a snapshot, restore or seed copies the disk (R2d step 3). */
   diskOp?: DiskOperation;
-  /** The disk version the next volume starts from (R2d step 3). */
-  diskSeed?: { artifactId: string; version: number };
+  /**
+   * The disk version the next volume starts from (R2d step 3). `setup` (a fork onto other setup,
+   * Q17): the setup runs once the version is written (`written`), and the seed stays until it is done.
+   */
+  diskSeed?: DiskSeed;
   /** The environment manifest it was made from and its version (D63); absent for an inline one. */
   manifestName?: string;
   manifestVersion?: number;
   /** The hash of what it runs (`recipe`), recorded at creation (protocol 14). */
   manifestHash?: string;
+  /** The Environment it was forked from and the disk version it started from (Q15). */
+  forkedFrom?: { environment: string; disk: number | null };
+}
+
+/** A pending seed of an Environment's disk (`disk_seed`). */
+export interface DiskSeed {
+  artifactId: string;
+  version: number;
+  /** Run the setup on the seeded disk (a fork onto other setup, Q17). */
+  setup?: true;
+  /** The version is written; with `setup`, the seed waits for the setup to be done. */
+  written?: true;
 }
 
 /** One version of an environment manifest (`environment_manifests`, D63). */
@@ -709,7 +724,7 @@ export interface Tx {
       ownerUserId?: string | null;
       lastUsedAt?: string;
       diskOp?: DiskOperation | null;
-      diskSeed?: { artifactId: string; version: number } | null;
+      diskSeed?: DiskSeed | null;
     },
     updatedAt: string,
   ): Promise<void>;
