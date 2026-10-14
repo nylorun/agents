@@ -134,22 +134,28 @@ export interface HarnessApiServer {
   offer(offer: RunOffer): Promise<RunEnd>;
   /**
    * Sends a `workspace.*` request to a harness that serves workspaces: with `pod`, the host of
-   * that pod sandbox; otherwise one that hosts no sandbox. Throws `NoWorkspaceHarness` when
-   * none is attached.
+   * that pod sandbox (with `minEpoch`, one that joined at that host epoch or later, so a pod's
+   * new volume is never written through its old host); otherwise one that hosts no sandbox.
+   * Throws `NoWorkspaceHarness` when none is attached.
    */
   workspace<M extends CoreMethod>(
     method: M,
     params: ParamsOf<M>,
     signal?: AbortSignal,
-    target?: { readonly pod?: string }
+    target?: { readonly pod?: string; readonly minEpoch?: number }
   ): Promise<ResultOf<M>>;
   /**
    * Pod sandbox `sandboxId`'s host epoch moved to `epoch` (F7.2): connections hosting it at an
    * older epoch are closed.
    */
   revokeHost(sandboxId: string, epoch: number): void;
-  /** Whether a host of pod sandbox `sandboxId` is connected. */
-  hosting(sandboxId: string): boolean;
+  /**
+   * Whether a host of pod sandbox `sandboxId` is connected: with `minEpoch`, one that joined at
+   * that host epoch or later. A restore or a lost volume moves the epoch before the old host's
+   * connection is closed (`host.revoked` is delivered after the commit), so a caller that writes
+   * the new volume passes the Environment's epoch.
+   */
+  hosting(sandboxId: string, minEpoch?: number): boolean;
   /** Harnesses attached now, and whether one serves workspaces. */
   status(): HarnessStatus;
   /** Harnesses attached now. */
@@ -550,9 +556,12 @@ export function createHarnessApiServer(
         ),
       };
     },
-    hosting(sandboxId) {
+    hosting(sandboxId, minEpoch) {
       return [...connections].some(
-        (connection) => connection.host?.sandboxId === sandboxId && !connection.channel.closed
+        (connection) =>
+          connection.host?.sandboxId === sandboxId &&
+          connection.host.epoch >= (minEpoch ?? 0) &&
+          !connection.channel.closed
       );
     },
     revokeHost(sandboxId, epoch) {
@@ -575,6 +584,7 @@ export function createHarnessApiServer(
           item.workspace &&
           !item.channel.closed &&
           item.host?.sandboxId === pod &&
+          (item.host === undefined || item.host.epoch >= (target?.minEpoch ?? 0)) &&
           (pod !== undefined || item.harness === harness)
       );
       if (!connection) throw new NoWorkspaceHarness(pod);

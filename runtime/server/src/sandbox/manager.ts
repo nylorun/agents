@@ -75,6 +75,11 @@ export interface SandboxSessionRef {
    * so every session attached to it shares the files; absent, the workspace is the session's.
    */
   readonly environmentId?: string;
+  /**
+   * For a pod Environment: the host epoch it is at, so the call reaches a host that joined at
+   * that epoch or later, never one a restore or a lost volume retired.
+   */
+  readonly hostEpoch?: number;
   /** Variables every command of the call gets (R2c): secret names set to the sentinel, plain values. */
   readonly environment?: Readonly<Record<string, string>>;
   /**
