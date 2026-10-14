@@ -152,6 +152,8 @@ it("journals a tool the harness declared, and records an undeclared one as unava
   expect(completed).toEqual([
     expect.objectContaining({
       toolName: "apply_patch",
+      // A tool the harness declared runs in the harness.
+      kind: "harness",
       output: "patched; HTTPS_PROXY=http://nylorun:[nylorun token redacted]@egress:3128",
     }),
     expect.objectContaining({ toolName: "rm_rf", error: expect.objectContaining({ code: "tool.unavailable" }) }),

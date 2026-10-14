@@ -4,6 +4,9 @@ import {
   eventLabel,
   eventSummary,
   mergeStudioEvents,
+  pluginLabel,
+  toolTrace,
+  toolTraceText,
 } from "../web/src/event-presentation.ts";
 
 const base = {
@@ -134,5 +137,69 @@ test("names delegations and the agent behind child tool calls", () => {
       payload: { agent, toolName: "search_orders", output: { found: 7 } },
     }),
     'researcher › Tool · search_orders: {"found":7}',
+  );
+});
+
+test("traces a tool call to its server or skill and the plugin that brought it", () => {
+  const plugin = { name: "acme-tools", version: "1.2.0" };
+  assert.deepEqual(toolTrace({ toolName: "search", kind: "mcp", server: "docs", plugin }), {
+    kind: "MCP",
+    server: "docs",
+    plugin,
+  });
+  assert.equal(
+    eventSummary({
+      type: "tool.completed",
+      payload: { toolName: "search", kind: "mcp", server: "docs", plugin, output: { hits: 2 } },
+    }),
+    'Tool · search (MCP docs, plugin acme-tools 1.2.0): {"hits":2}',
+  );
+  assert.equal(
+    eventSummary({
+      type: "tool.completed",
+      payload: { toolName: "bash", kind: "sandbox", skill: "pdf", plugin: { name: "office" }, output: "ok" },
+    }),
+    "Tool · bash (Sandbox, skill pdf, plugin office): ok",
+  );
+  assert.equal(
+    toolTraceText(toolTrace({ toolName: "load_skill", kind: "platform", skill: "pdf" })),
+    "Runtime, skill pdf",
+  );
+  assert.equal(
+    toolTraceText(toolTrace({ toolName: "fetch", kind: "http", server: "api.example.com" })),
+    "HTTP api.example.com",
+  );
+});
+
+test("names a harness's own tool and reads tool call rows' nulls as absent", () => {
+  assert.equal(
+    eventSummary({ type: "tool.completed", payload: { toolName: "web_fetch", kind: "harness", output: "page" } }),
+    "Tool · web_fetch (Harness): page",
+  );
+  assert.deepEqual(
+    toolTrace({ toolName: "lookup", kind: null, server: null, skill: null, plugin: null }),
+    {},
+  );
+  assert.equal(
+    eventSummary({ type: "tool.completed", payload: { toolName: "lookup", output: 1 } }),
+    "Tool · lookup: 1",
+  );
+  assert.equal(pluginLabel(null), undefined);
+  assert.equal(pluginLabel({ version: "1.0.0" }), undefined);
+  assert.deepEqual(pluginLabel({ name: "office", version: 3 }), { name: "office" });
+});
+
+test("names the plugin that brought each discovered MCP server", () => {
+  assert.equal(
+    eventSummary({
+      type: "mcp.discovered",
+      payload: {
+        servers: [
+          { serverName: "docs", plugin: { name: "acme-tools", version: "1.2.0" }, outcome: "connected", message: "Connected", tools: 1 },
+          { serverName: "own", outcome: "connected", message: "Connected", tools: 3 },
+        ],
+      },
+    }),
+    "docs (plugin acme-tools 1.2.0): 1 tool · own: 3 tools",
   );
 });

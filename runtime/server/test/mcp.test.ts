@@ -302,7 +302,7 @@ it("discovers a remote MCP server with a bearer and calls it from the Runtime", 
   }
 });
 
-it("writes tool.completed with the output or the tool error of each MCP call", async () => {
+it("writes tool.completed with the output or the tool error of each MCP call, traced to the server's plugin", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mcp-transcript-"));
   const remote = await probe({ name: "github", tool: "get_issue" });
   const runtime = await boot(directory, async (effect: { input: unknown }) => {
@@ -326,7 +326,13 @@ it("writes tool.completed with the output or the tool error of each MCP call", a
         github: { name: "github", type: "streamable-http", url: remote.url },
       })
       .build();
-    await register(runtime, agent.manifest);
+    // As `.plugin(dir)` labels a plugin's servers.
+    const plugin = { name: "repo-tools", version: "0.3.1" };
+    const manifest = {
+      ...agent.manifest,
+      mcpServers: { github: { ...agent.manifest.mcpServers!.github!, plugin } },
+    };
+    await register(runtime, manifest);
     await openSession(runtime, "s1");
     await say(runtime, "s1", "read two issues");
     expect((await until(runtime, "s1", ["completed", "failed", "uncertain"])).status).toBe(
@@ -351,6 +357,16 @@ it("writes tool.completed with the output or the tool error of each MCP call", a
       }),
     ]);
     expect(completed[1]).not.toHaveProperty("output");
+    for (const call of completed)
+      expect(call).toMatchObject({ kind: "mcp", server: "github", plugin });
+    const discovered = history.items.find((item: { type: string }) => item.type === "mcp.discovered");
+    expect(discovered.payload.servers).toEqual([expect.objectContaining({ serverName: "github", plugin })]);
+    const rows = await (
+      await fetch(`${runtime.url}/v1/sessions/s1/calls/tool`, { headers: serverHeaders })
+    ).json();
+    expect(rows.calls).toEqual(
+      expect.arrayContaining([expect.objectContaining({ server: "github", skill: null, plugin })]),
+    );
   } finally {
     await runtime.close();
     await remote.close();

@@ -4,6 +4,7 @@
  * Payload schemas: `@nylorun/core/contracts` (`parseTranscriptEvent`).
  */
 import type { HostEffect } from "@nylorun/harness/run";
+import type { PluginLabel } from "@nylorun/core/define";
 import type { TOOL_CALL_KINDS, TOOL_CALL_STATUSES } from "@nylorun/core/contracts";
 import { isModelFailureOutcome } from "@nylorun/core/define";
 
@@ -191,6 +192,8 @@ export interface ToolCallFacts {
   readonly status: ToolCallStatus;
   readonly kind?: ToolCallKind;
   readonly server?: string;
+  readonly skill?: string;
+  readonly plugin?: PluginLabel;
   readonly attempts?: number;
   readonly durationMs?: number;
   readonly effectId?: string;
@@ -241,6 +244,8 @@ export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolC
           status: facts.status,
           ...(facts.kind === undefined ? {} : { kind: facts.kind }),
           ...(facts.server === undefined ? {} : { server: facts.server }),
+          ...(facts.skill === undefined ? {} : { skill: facts.skill }),
+          ...(facts.plugin === undefined ? {} : { plugin: facts.plugin }),
           ...(facts.attempts === undefined ? {} : { attempts: facts.attempts }),
           ...(facts.durationMs === undefined ? {} : { durationMs: facts.durationMs }),
           ...(facts.effectId === undefined ? {} : { effectId: facts.effectId }),

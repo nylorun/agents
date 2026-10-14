@@ -8,7 +8,6 @@ import {
   Info,
   LayoutList,
   Plug,
-  Puzzle,
   Server,
   Terminal,
   Workflow,
@@ -22,6 +21,7 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { PluginBadge } from "@/components/tool-trace";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -340,15 +340,6 @@ function ManifestSections({
         <SandboxFallback />
       ) : null}
     </>
-  );
-}
-
-function PluginBadge({ plugin }: Readonly<{ plugin: PluginLabel }>) {
-  return (
-    <Badge variant="outline" className="gap-1 font-normal">
-      <Puzzle className="size-3" />
-      {pluginText(plugin)}
-    </Badge>
   );
 }
 

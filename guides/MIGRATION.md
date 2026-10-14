@@ -66,6 +66,23 @@ turn at its start. A harness reads the flat manifest: `tools` and `runtime.tools
 Studio's Agent tab shows the manifest in sections (instructions, tools, skills, MCP servers),
 with a badge for each plugin, and a session's Runtime section from `manifest.runtime`.
 
+## Tracing a tool call
+
+Every tool call can be traced from the log alone to its skill or MCP server and the plugin that
+brought it. No protocol change beyond 13.
+
+- **`tool.completed`** gains `skill` and `plugin` (`{ name, version? }`), and the rows of
+  `GET /v1/sessions/{id}/calls/tool` (`session.toolCalls()`) gain `skill` and `plugin`, `null`
+  when there is none. An MCP call gets its server's plugin. `load_skill` and
+  `read_skill_resource` get the skill they name, and a sandbox tool (`bash`, `read`, `grep`,
+  `glob`, …) whose input names `/skills/<name>/` gets that skill; both get the skill's plugin.
+- **`kind: "harness"`** marks a tool the turn's harness declared in `hello.features.tools` and
+  ran itself. Before, such a call said `platform`.
+- **`mcp.discovered`** names each server's `plugin`.
+
+Studio shows each tool call's kind, server or skill, and a plugin badge, in the chat and the
+event details, and the plugin of each server `mcp.discovered` lists.
+
 # Step middleware and capability bundles are removed
 
 An agent is its manifest: nothing of yours runs in a step, here or in the local engine. No

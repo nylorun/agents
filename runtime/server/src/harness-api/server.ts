@@ -465,7 +465,7 @@ export function createHarnessApiServer(
           current.id,
           run.grant.turnId,
           "mcp.discovered",
-          mcpDiscovered(current.mcpSnapshot, diagnostics),
+          mcpDiscovered(current.mcpSnapshot, diagnostics, current.manifest),
           run.connection ? writerOf(run.connection, run.grant.runId) : undefined
         );
       } else if (diagnostics.length > 0) {

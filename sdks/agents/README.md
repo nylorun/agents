@@ -71,7 +71,10 @@ crash, a restart or a lost connection to the gateway sends the call again with
 that key, up to 3 sends; after that the model gets `tool.interrupted` ("may
 have run") and decides. A tool that honors the key runs once; one that ignores
 it may act twice, and `attempts` above 1 in `tool.completed` and in
-`session.toolCalls()` marks where. A sandbox command (`bash`, `write` and the
+`session.toolCalls()` marks where. Both also say where each call ran (`kind`:
+`mcp`, `http`, `sandbox`, `platform` for the Runtime's own tools, or `harness`),
+its `server`, the `skill` it ran and the `plugin` that brought its server or
+skill. A sandbox command (`bash`, `write` and the
 rest) is never run twice by the Runtime: a crash fails it to the model as
 `tool.interrupted`. When the model decides the same call again, in a later
 turn say, that is a new call with a new key: put a business key (an order or

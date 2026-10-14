@@ -12706,12 +12706,20 @@
                   "mcp",
                   "http",
                   "sandbox",
-                  "platform"
+                  "platform",
+                  "harness"
                 ]
               },
               "server": {
                 "type": "string",
                 "minLength": 1
+              },
+              "skill": {
+                "type": "string",
+                "minLength": 1
+              },
+              "plugin": {
+                "$ref": "#/components/schemas/PluginLabel"
               },
               "attempts": {
                 "type": "integer",
@@ -13630,6 +13638,9 @@
                     },
                     "serverName": {
                       "type": "string"
+                    },
+                    "plugin": {
+                      "$ref": "#/components/schemas/PluginLabel"
                     },
                     "outcome": {
                       "type": "string",
@@ -19745,6 +19756,7 @@
               "http",
               "sandbox",
               "platform",
+              "harness",
               null
             ]
           },
@@ -19752,6 +19764,25 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "skill": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plugin": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PluginLabel"
+              },
+              {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
             ]
           },
           "status": {
@@ -19816,6 +19847,8 @@
           "toolName",
           "kind",
           "server",
+          "skill",
+          "plugin",
           "status",
           "attempts",
           "error",
