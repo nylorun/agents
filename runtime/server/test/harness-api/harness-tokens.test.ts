@@ -34,7 +34,7 @@ async function connect(url: string, bearer: string): Promise<HarnessChannel> {
   return channel;
 }
 
-const hello = (name: string) => ({ api: 2, name, version: "0", capabilities: {} });
+const hello = (name: string) => ({ api: 3, name, version: "0", features: {} });
 
 it("binds a harness's own token to its id, and the harness token to ours", async () => {
   const runtime: Started = await boot({ harness: "remote" });
@@ -65,11 +65,11 @@ it("binds a harness's own token to its id, and the harness token to ours", async
     code: "invalid",
     message: expect.stringContaining("for the acme-mini harness"),
   });
-  await expect(acme.request("hello", hello("acme-mini"))).resolves.toMatchObject({ api: 2 });
+  await expect(acme.request("hello", hello("acme-mini"))).resolves.toMatchObject({ api: 3 });
 
   const ours = await connect(listener.url, TOKEN);
   await expect(ours.request("hello", hello("acme-mini"))).rejects.toMatchObject({ code: "invalid" });
-  await expect(ours.request("hello", hello("nylorun"))).resolves.toMatchObject({ api: 2 });
+  await expect(ours.request("hello", hello("nylorun"))).resolves.toMatchObject({ api: 3 });
 
   // An unknown token is refused at the upgrade.
   await expect(connect(listener.url, acmeToken)).rejects.toThrow("upgrade 401");

@@ -7,11 +7,10 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   Agent,
-  artifactsCapabilityManifest,
   codeToolRefusal,
   codeToolsOf,
   http,
-  sandboxCapabilityManifest,
+  runtimeManifestFor,
   tool,
 } from "../src/define.js";
 import type { AgentManifest } from "../src/types/manifest.js";
@@ -42,20 +41,14 @@ describe("code tools", () => {
   });
 
   it("leaves the Runtime's built-ins: sandbox tools, save_artifact, read_artifact and the skill tools", () => {
+    const skills = { review: { name: "review", description: "Review.", files: { "SKILL.md": "sha256:00" } } };
     const manifest: AgentManifest = {
-      manifestSchemaVersion: 5,
+      manifestSchemaVersion: 7,
       id: "worker",
-      capabilities: [
-        sandboxCapabilityManifest({ image: "node:24" }),
-        artifactsCapabilityManifest({ read: true }),
-        {
-          id: "skills",
-          type: "agent",
-          skills: { review: { name: "review", description: "Review.", files: { "SKILL.md": "sha256:00" } } },
-          tools: [{ name: "load_skill", inputSchema: { type: "object" } }],
-        },
-      ],
+      skills,
+      runtime: runtimeManifestFor({ skills }, { sandbox: { image: "node:24" }, read: true }),
     };
+    expect(manifest.runtime?.tools?.map((item) => item.name)).toContain("load_skill");
     expect(codeToolsOf(manifest)).toEqual([]);
   });
 

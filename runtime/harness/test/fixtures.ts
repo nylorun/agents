@@ -7,7 +7,7 @@ import {
   tool as typedTool,
   type AgentTool,
   type BuiltAgent,
-  type CapabilityInput,
+  type PartDeclaration,
   type JsonObject,
   type ModelCandidate,
   type ModelAdapter,
@@ -48,7 +48,7 @@ export function testAgent(options: any = {}): any {
     return fixture;
   };
   /** Adds a part with its own id, as the SDK's `.skills()` and `.plugin()` do. */
-  fixture.part = (declaration: CapabilityInput) => {
+  fixture.part = (declaration: PartDeclaration) => {
     builder = addPart(builder, declaration);
     return fixture;
   };
@@ -199,8 +199,8 @@ export function turn(agent: any, input: any = "go", options: any = {}) {
 }
 
 /** Adds a raw definition part with a chosen id (the protected `withPart` the SDK uses). */
-export function addPart<B>(builder: B, declaration: CapabilityInput): B {
-  return (builder as unknown as { withPart(d: CapabilityInput, method: string): B }).withPart(
+export function addPart<B>(builder: B, declaration: PartDeclaration): B {
+  return (builder as unknown as { withPart(d: PartDeclaration, method: string): B }).withPart(
     declaration,
     "part()",
   );

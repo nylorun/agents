@@ -85,7 +85,6 @@ it("reaches a localhost server on the Docker host in the local stack, and stream
   const connection = await open(`http://localhost:${port}/mcp`, { loopback: "docker-host" });
   try {
     const listed = await listMcpTools(connection.client, {
-      capabilityId: "mcp",
       serverName: "local",
       taken: new Set(),
     });
@@ -119,7 +118,7 @@ it("refuses private addresses when the Host does, before connecting", async () =
       (failure: unknown) => failure,
     );
     expect(error, url).toBeDefined();
-    expect(diagnosticFromError("mcp", "local", error).message).toMatch(/private addresses/);
+    expect(diagnosticFromError("local", error).message).toMatch(/private addresses/);
   }
   expect(hosts).toEqual([]);
 });
@@ -131,7 +130,7 @@ it("says why a server could not be reached instead of 'fetch failed'", async () 
     () => undefined,
     (failure: unknown) => failure,
   );
-  expect(diagnosticFromError("mcp", "local", error).message).toMatch(/ECONNREFUSED/);
+  expect(diagnosticFromError("local", error).message).toMatch(/ECONNREFUSED/);
 });
 
 describe("a call that never reached its server (R2b C7)", () => {
@@ -142,7 +141,7 @@ describe("a call that never reached its server (R2b C7)", () => {
   async function connected(host: string) {
     const port = await serveMcp();
     const connection = await open(`http://${host}:${port}/mcp`, {});
-    await listMcpTools(connection.client, { capabilityId: "mcp", serverName: "local", taken: new Set() });
+    await listMcpTools(connection.client, { serverName: "local", taken: new Set() });
     const server = servers.at(-1)!;
     server.closeAllConnections();
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -190,7 +189,6 @@ describe("a call that never reached its server (R2b C7)", () => {
     });
     const outcome = await pool.call({
       sessionId: "s1",
-      capabilityId: agent.manifest.capabilities.find((capability) => capability.mcpServers)!.id,
       serverName: "local",
       serverToolName: "echo",
       args: {},

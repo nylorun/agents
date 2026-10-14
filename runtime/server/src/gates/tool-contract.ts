@@ -30,7 +30,7 @@
  * answers `{ok: false, error: {uncertain: true}}`, and the caller sends it again.
  *
  * HTTP tools (R2 M3). `POST /nylorun/v1/http-calls` `{tool, effectId, turnId, input}`: one call
- * of an HTTP tool. The loop names the tool (`{sessionId?, agentId?, capabilityId, toolName}`), or a
+ * of an HTTP tool. The loop names the tool (`{sessionId?, agentId?, toolName}`), or a
  * flow's HTTP stage or HTTP verifier by its stage key (`{sessionId?, stage}`); the gate finds its
  * URL, method and credential in the session's pinned manifest
  * (`gates/http-tool.ts`). A run token's turn is the call's; `turnId` counts only under core's

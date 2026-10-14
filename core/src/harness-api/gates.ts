@@ -83,7 +83,6 @@ export const McpServerRefSchema = z.object({
   sessionId: z.string().min(1).optional(),
   /** The agent used as a tool that declares the server; absent for the session's root agent. */
   agentId: z.string().min(1).optional(),
-  capabilityId: z.string().min(1),
   serverName: z.string().min(1),
 });
 export type McpServerRef = z.infer<typeof McpServerRefSchema>;
@@ -107,7 +106,7 @@ export const ToolCallBodySchema = z.object({
 export type ToolCallBody = z.infer<typeof ToolCallBodySchema>;
 
 /**
- * `http-calls`: one call of an HTTP tool, named by its agent, capability and tool, or a flow's
+ * `http-calls`: one call of an HTTP tool, named by its agent and tool, or a flow's
  * HTTP stage or verifier by its stage key. The gate finds its URL, method and credential in the
  * session's pinned manifest. A run token's turn is the call's; `turnId` counts only under core's
  * credential.
@@ -117,7 +116,6 @@ export const HttpCallBodySchema = z.object({
     z.object({
       sessionId: z.string().min(1).optional(),
       agentId: z.string().min(1).optional(),
-      capabilityId: z.string().min(1),
       toolName: z.string().min(1),
     }),
     z.object({

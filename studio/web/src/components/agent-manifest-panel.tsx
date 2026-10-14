@@ -2,26 +2,19 @@ import { Fragment, useRef, useState, type ReactNode } from "react";
 import {
   BookOpen,
   Bot,
-  Box,
   Braces,
   Check,
   Copy,
-  Globe,
   Info,
   LayoutList,
   Plug,
   Puzzle,
+  Server,
   Terminal,
   Workflow,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,30 +26,22 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import {
   SANDBOX_TOOLS,
+  byPlugin,
   isOutdated,
   manifestStats,
   manifestView,
+  pluginText,
   shortHash,
   fieldText,
-  type CapabilityView,
+  type ManifestView,
   type PinnedManifestState,
-  type ToolKind,
+  type PluginFilter,
+  type PluginLabel,
+  type RuntimeView,
   type ToolView,
 } from "@/manifest/model";
 import { useSessionManifest } from "@/manifest/use-session-manifest";
 import type { AgentManifest } from "@/studio-types";
-
-const TOOL_GROUPS: readonly {
-  kinds: readonly ToolKind[];
-  title: string;
-  note: string;
-  icon: LucideIcon;
-}[] = [
-  { kinds: ["code"], title: "Code tools", note: "the Runtime runs none", icon: Wrench },
-  { kinds: ["http"], title: "HTTP tools", note: "requests the Runtime makes", icon: Globe },
-  { kinds: ["subagent", "flow-subagent"], title: "Subagents", note: "take a { task }", icon: Bot },
-  { kinds: ["built-in"], title: "Skill tools", note: "added by the engine", icon: BookOpen },
-];
 
 /** A segmented control: the active view is raised on the muted track. */
 const SEGMENT =
@@ -97,6 +82,9 @@ export function AgentManifestPanel({
     agent.kind === "workflow" || (manifest as { kind?: unknown }).kind === "workflow";
   const view = manifestView(manifest);
   const stats = manifestStats(view);
+  // A pinned manifest says itself whether the session has a sandbox; else its Environment does.
+  const sandboxOn =
+    pinned.kind === "pinned" && view.runtime ? view.runtime.sandbox !== undefined : hasSandbox;
   return (
     // Radix sizes the viewport's child as a table, which grows to the longest line.
     <ScrollArea className="h-full [&_[data-slot=scroll-area-viewport]>div]:block!">
@@ -151,31 +139,17 @@ export function AgentManifestPanel({
               <Stat icon={Plug} value={stats.mcpServers} label="MCP servers" />
               <Stat
                 icon={Terminal}
-                value={hasSandbox ? "On" : "Off"}
+                value={sandboxOn ? "On" : "Off"}
                 label="Sandbox"
-                muted={!hasSandbox}
+                muted={!sandboxOn}
               />
             </div>
 
-            <Section
-              title="Capabilities"
-              hint="Applied in this order. Each bundles instructions, tools, skills and MCP servers."
-            >
-              {view.capabilities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">None declared</p>
-              ) : (
-                <Accordion
-                  type="multiple"
-                  defaultValue={view.capabilities[0] ? [view.capabilities[0].id] : []}
-                  className="rounded-lg border"
-                >
-                  {view.capabilities.map((capability) => (
-                    <CapabilityItem key={capability.id} capability={capability} />
-                  ))}
-                  {hasSandbox ? <SandboxItem /> : null}
-                </Accordion>
-              )}
-            </Section>
+            <ManifestSections
+              view={view}
+              pinned={pinned.kind === "pinned"}
+              hasSandbox={hasSandbox}
+            />
           </>
         )}
       </div>
@@ -275,101 +249,185 @@ function VersionAlert({ pinned }: Readonly<{ pinned: PinnedManifestState }>) {
   return null;
 }
 
-function capabilityIcon(capability: CapabilityView): LucideIcon {
-  if (capability.type === "agent-plugin") return Puzzle;
-  if (capability.id === "agent") return Bot;
-  if (capability.tools.length === 0 && capability.mcpServers.length) return Plug;
-  if (capability.tools.every((tool) => tool.kind === "built-in") && capability.skills.length)
-    return BookOpen;
-  return Box;
-}
-
-function plural(n: number, noun: string): string {
-  return `${n} ${noun}${n === 1 ? "" : "s"}`;
-}
-
-function CapabilityItem({ capability }: Readonly<{ capability: CapabilityView }>) {
-  const Icon = capabilityIcon(capability);
-  const counts = [
-    capability.tools.length ? plural(capability.tools.length, "tool") : "",
-    capability.skills.length ? plural(capability.skills.length, "skill") : "",
-    capability.mcpServers.length ? plural(capability.mcpServers.length, "server") : "",
-  ].filter(Boolean);
+/** The agent's parts, flat: instructions, tools, skills, MCP servers, then the Runtime's block. */
+function ManifestSections({
+  view,
+  pinned,
+  hasSandbox,
+}: Readonly<{ view: ManifestView; pinned: boolean; hasSandbox: boolean }>) {
+  const [filter, setFilter] = useState<PluginFilter>("all");
+  const skills = byPlugin(view.skills, filter);
+  const servers = byPlugin(view.mcpServers, filter);
   return (
-    <AccordionItem value={capability.id} className="px-3">
-      <AccordionTrigger className="items-center py-3 hover:no-underline">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Icon className="size-4 shrink-0 text-muted-foreground" />
-          <span className="font-mono text-[13px]">{capability.id}</span>
-          {capability.id === "agent" ? (
-            <span className="text-xs font-normal text-muted-foreground">own</span>
-          ) : null}
-          {capability.type === "agent-plugin" ? <Badge variant="outline">plugin</Badge> : null}
-          <span className="ml-auto flex shrink-0 gap-1">
-            {counts.map((label) => (
-              <Badge key={label} variant="secondary" className="font-normal">
-                {label}
-              </Badge>
+    <>
+      <Section title="Instructions" hint="The agent's own, in order.">
+        {view.instructions.length ? (
+          <Instructions instructions={view.instructions} label={false} />
+        ) : (
+          <p className="text-sm text-muted-foreground">None</p>
+        )}
+      </Section>
+
+      <Section title="Tools" hint="The Runtime makes an HTTP tool's request and runs an agent tool; it runs no code tool.">
+        {view.tools.length ? (
+          <ul className="divide-y rounded-md border">
+            {view.tools.map((tool) => (
+              <ToolRow key={tool.name} tool={tool} />
             ))}
-          </span>
-        </div>
-      </AccordionTrigger>
-      <AccordionContent className="space-y-4">
-        {capability.description ? (
-          <p className="text-sm text-muted-foreground">{capability.description}</p>
-        ) : null}
-        {capability.instructions.length ? (
-          <Instructions instructions={capability.instructions} />
-        ) : null}
-        {TOOL_GROUPS.map((group) => {
-          const tools = capability.tools.filter((tool) => group.kinds.includes(tool.kind));
-          return tools.length ? (
-            <Group key={group.title} icon={group.icon} title={group.title} note={group.note}>
-              <ul className="divide-y rounded-md border">
-                {tools.map((tool) => (
-                  <ToolRow key={tool.name} tool={tool} />
-                ))}
-              </ul>
-            </Group>
-          ) : null;
-        })}
-        {capability.skills.length ? (
-          <Group icon={BookOpen} title="Skills" note="loaded on demand">
-            <ul className="divide-y rounded-md border">
-              {capability.skills.map((skill) => (
-                <li key={skill.name} className="px-3 py-2">
-                  <div className="font-mono text-[13px] font-medium">{skill.name}</div>
-                  {skill.description ? (
-                    <p className="text-xs text-muted-foreground">{skill.description}</p>
-                  ) : null}
-                  {skill.files.length ? (
-                    <ul className="mt-1 font-mono text-[11px] text-muted-foreground">
-                      {skill.files.map((path) => (
-                        <li key={path}>{path}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </li>
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">None</p>
+        )}
+      </Section>
+
+      {view.plugins.length ? (
+        <PluginFilterBar plugins={view.plugins} value={filter} onChange={setFilter} />
+      ) : null}
+
+      <Section title="Skills" hint="Loaded on demand with load_skill.">
+        {skills.length ? (
+          <ul className="divide-y rounded-md border">
+            {skills.map((skill) => (
+              <li key={skill.name} className="px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[13px] font-medium">{skill.name}</span>
+                  {skill.plugin ? <PluginBadge plugin={skill.plugin} /> : null}
+                </div>
+                {skill.description ? (
+                  <p className="text-xs text-muted-foreground">{skill.description}</p>
+                ) : null}
+                {skill.files.length ? (
+                  <ul className="mt-1 font-mono text-[11px] text-muted-foreground">
+                    {skill.files.map((path) => (
+                      <li key={path}>{path}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">None</p>
+        )}
+      </Section>
+
+      <Section title="MCP servers" hint="Their tools are discovered on the first turn.">
+        {servers.length ? (
+          <ul className="divide-y rounded-md border">
+            {servers.map((server) => (
+              <li key={server.name} className="space-y-0.5 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[13px] font-medium">{server.name}</span>
+                  {server.plugin ? <PluginBadge plugin={server.plugin} /> : null}
+                  {server.approval ? <Badge variant="outline">approval</Badge> : null}
+                </div>
+                {server.url ? (
+                  <p className="font-mono text-[11.5px] break-all text-muted-foreground">
+                    {server.url}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">None</p>
+        )}
+      </Section>
+
+      {pinned && view.runtime ? (
+        <RuntimeSection runtime={view.runtime} />
+      ) : hasSandbox ? (
+        <SandboxFallback />
+      ) : null}
+    </>
+  );
+}
+
+function PluginBadge({ plugin }: Readonly<{ plugin: PluginLabel }>) {
+  return (
+    <Badge variant="outline" className="gap-1 font-normal">
+      <Puzzle className="size-3" />
+      {pluginText(plugin)}
+    </Badge>
+  );
+}
+
+/** Narrows the skills and servers to the agent's own or one plugin's. */
+function PluginFilterBar({
+  plugins,
+  value,
+  onChange,
+}: Readonly<{ plugins: readonly PluginLabel[]; value: PluginFilter; onChange: (value: PluginFilter) => void }>) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-2">
+      <span className="text-xs text-muted-foreground">Skills and servers from</span>
+      <ToggleGroup
+        type="single"
+        size="sm"
+        value={value}
+        onValueChange={(next) => {
+          if (next) onChange(next);
+        }}
+        aria-label="Filter by plugin"
+        className="flex-wrap gap-0.5 rounded-lg bg-muted p-0.5"
+      >
+        <ToggleGroupItem value="all" className={FILTER}>
+          All
+        </ToggleGroupItem>
+        <ToggleGroupItem value="own" className={FILTER}>
+          Own
+        </ToggleGroupItem>
+        {plugins.map((plugin) => (
+          <ToggleGroupItem key={pluginText(plugin)} value={pluginText(plugin)} className={FILTER}>
+            {pluginText(plugin)}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </div>
+  );
+}
+
+const FILTER =
+  "h-6 rounded-md! px-2 text-xs text-muted-foreground hover:bg-transparent data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm!";
+
+/** What the Runtime added when it pinned the session's agent: `manifest.runtime`. */
+function RuntimeSection({ runtime }: Readonly<{ runtime: RuntimeView }>) {
+  return (
+    <Section title="Runtime" hint="Added by the Runtime when the session pinned the agent.">
+      <div className="space-y-4">
+        {runtime.sandbox ? (
+          <Group icon={Terminal} title="Sandbox" note="from the session's Environment">
+            <ul className="rounded-md bg-muted px-2.5 py-2 font-mono text-[11.5px] leading-5">
+              {runtime.sandbox.map((line) => (
+                <li key={line}>{line}</li>
               ))}
             </ul>
           </Group>
         ) : null}
-        {capability.mcpServers.length ? (
-          <Group icon={Plug} title="MCP servers" note="tools discovered on the first turn">
+        {runtime.tools.length ? (
+          <Group icon={Server} title="Tools" note="the Runtime serves them">
             <div className="flex flex-wrap gap-1">
-              {capability.mcpServers.map((name) => (
-                <Badge key={name} variant="outline" className="font-mono">
-                  {name}
-                  {capability.mcpApproval.includes(name) ? (
-                    <span className="font-sans text-muted-foreground">approval</span>
+              {runtime.tools.map((tool) => (
+                <Tooltip key={tool.name}>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="cursor-default font-mono">
+                      {tool.name}
+                    </Badge>
+                  </TooltipTrigger>
+                  {tool.description ? (
+                    <TooltipContent className="max-w-xs">{tool.description}</TooltipContent>
                   ) : null}
-                </Badge>
+                </Tooltip>
               ))}
             </div>
           </Group>
         ) : null}
-      </AccordionContent>
-    </AccordionItem>
+        {runtime.instructions.length ? <Instructions instructions={runtime.instructions} /> : null}
+        {!runtime.sandbox && !runtime.tools.length && !runtime.instructions.length ? (
+          <p className="text-sm text-muted-foreground">Nothing added</p>
+        ) : null}
+      </div>
+    </Section>
   );
 }
 
@@ -392,13 +450,16 @@ function Group({
 }
 
 /** Instructions fold after a few lines; skill catalogs and plugins make them long. */
-function Instructions({ instructions }: Readonly<{ instructions: readonly string[] }>) {
+function Instructions({
+  instructions,
+  label = true,
+}: Readonly<{ instructions: readonly string[]; label?: boolean }>) {
   const [open, setOpen] = useState(false);
   const text = instructions.join("\n\n");
   const long = text.split("\n").length > 4 || text.length > 320;
   return (
     <div className="space-y-1">
-      <div className="text-xs font-medium">Instructions</div>
+      {label ? <div className="text-xs font-medium">Instructions</div> : null}
       <div className="rounded-md border-l-2 bg-muted/50 px-3 py-2">
         <p
           className={cn(
@@ -428,7 +489,7 @@ function ToolRow({ tool }: Readonly<{ tool: ToolView }>) {
     <li className="space-y-1.5 px-3 py-2.5">
       <div className="flex items-center gap-2">
         <code className="font-mono text-[13px] font-medium">{tool.name}</code>
-        {tool.kind === "flow-subagent" ? <Badge variant="outline">flow</Badge> : null}
+        <ToolKindBadge tool={tool} />
         {tool.approval ? <Badge variant="outline">approval</Badge> : null}
       </div>
       {tool.http ? (
@@ -507,25 +568,42 @@ function ManifestJson({ manifest }: Readonly<{ manifest: unknown }>) {
   );
 }
 
-function SandboxItem() {
+function ToolKindBadge({ tool }: Readonly<{ tool: ToolView }>) {
+  if (tool.kind === "http")
+    return (
+      <Badge variant="outline" className="font-normal">
+        HTTP
+      </Badge>
+    );
+  if (tool.kind === "subagent")
+    return (
+      <Badge variant="outline" className="gap-1 font-normal">
+        <Bot className="size-3" />
+        agent
+      </Badge>
+    );
+  if (tool.kind === "flow-subagent")
+    return (
+      <Badge variant="outline" className="gap-1 font-normal">
+        <Workflow className="size-3" />
+        flow agent
+      </Badge>
+    );
+  if (tool.kind === "code")
+    return (
+      <Badge variant="secondary" className="gap-1 font-normal">
+        <Wrench className="size-3" />
+        code
+      </Badge>
+    );
+  return null;
+}
+
+/** The registered manifest has no `runtime` block: the session's Environment has a sandbox. */
+function SandboxFallback() {
   return (
-    <AccordionItem value="sandbox" className="px-3">
-      <AccordionTrigger className="items-center py-3 hover:no-underline">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Terminal className="size-4 shrink-0 text-muted-foreground" />
-          <span className="font-mono text-[13px]">sandbox</span>
-          <span className="text-xs font-normal text-muted-foreground">from the session</span>
-          <span className="ml-auto">
-            <Badge variant="secondary" className="font-normal">
-              {plural(SANDBOX_TOOLS.length, "tool")}
-            </Badge>
-          </span>
-        </div>
-      </AccordionTrigger>
-      <AccordionContent className="space-y-2">
-        <p className="text-xs text-muted-foreground">
-          The Runtime runs these on the session's persistent <code>/workspace</code>.
-        </p>
+    <Section title="Runtime" hint="The session's Environment has a sandbox.">
+      <Group icon={Terminal} title="Sandbox tools" note={`on the session's persistent /workspace`}>
         <div className="flex flex-wrap gap-1">
           {SANDBOX_TOOLS.map((name) => (
             <Badge key={name} variant="outline" className="font-mono">
@@ -533,7 +611,7 @@ function SandboxItem() {
             </Badge>
           ))}
         </div>
-      </AccordionContent>
-    </AccordionItem>
+      </Group>
+    </Section>
   );
 }

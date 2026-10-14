@@ -41,19 +41,17 @@ export function credentialNeeds(manifest: AgentManifest | WorkflowManifest): Cre
   const owner = (agentId: string | undefined) => (agentId === undefined ? {} : { agentId });
 
   const agent = (manifest: AgentManifest, agentId?: string): void => {
-    for (const capability of manifest.capabilities) {
-      for (const server of Object.values(capability.mcpServers ?? {}))
-        add({ kind: "mcp", ...owner(agentId), name: server.name, serverName: server.name, url: server.url });
-      for (const tool of capability.tools ?? [])
-        if (tool.http?.credential !== undefined)
-          add({
-            kind: "http",
-            ...owner(agentId),
-            name: tool.name,
-            serverName: tool.http.credential,
-            url: tool.http.url,
-          });
-    }
+    for (const tool of manifest.tools ?? [])
+      if (tool.http?.credential !== undefined)
+        add({
+          kind: "http",
+          ...owner(agentId),
+          name: tool.name,
+          serverName: tool.http.credential,
+          url: tool.http.url,
+        });
+    for (const server of Object.values(manifest.mcpServers ?? {}))
+      add({ kind: "mcp", ...owner(agentId), name: server.name, serverName: server.name, url: server.url });
     for (const child of delegatesOf(manifest)) agent(child.manifest, child.manifest.id);
     for (const child of flowDelegatesOf(manifest)) flow(child.manifest, child.manifest.id);
   };

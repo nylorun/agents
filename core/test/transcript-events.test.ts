@@ -61,7 +61,6 @@ describe("parseTranscriptEvent", () => {
       event("tool.completed", {
         callId: "call-1",
         invocationId: "inv_2",
-        capabilityId: "sandbox",
         toolName: "read",
         output: "text",
       })
@@ -70,7 +69,6 @@ describe("parseTranscriptEvent", () => {
       event("tool.completed", {
         callId: "call-1",
         invocationId: "inv_2",
-        capabilityId: "sandbox",
         toolName: "read",
         error: { code: "sandbox.error", message: "missing" },
       })
@@ -108,7 +106,6 @@ describe("parseTranscriptEvent", () => {
         event("tool.completed", {
           callId: "call-1",
           invocationId: "inv_2",
-          capabilityId: "mcp",
           toolName: "send",
           effectId: "turn_1:0:tool:1",
           gate,
@@ -122,7 +119,6 @@ describe("parseTranscriptEvent", () => {
         event("tool.completed", {
           callId: "call-1",
           invocationId: "inv_2",
-          capabilityId: "mcp",
           toolName: "send",
           policy: { decision: "allow", reason: "x" },
         })

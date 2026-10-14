@@ -1,5 +1,5 @@
 /**
- * The workspace capability (F6.2): what core does with the Tenant's sandbox workspaces outside a
+ * The workspace feature (F6.2): what core does with the Tenant's sandbox workspaces outside a
  * run. `ctx.sandbox` is a `WorkspacePort`: the sandbox tool route (`POST
  * /v1/sessions/:id/sandbox/:tool`), Tenant status, the Tenant sweep, a sandbox resource's deletion and a sandboxes reset.
  *
@@ -18,7 +18,7 @@
  *   starting they are `409 environment_unavailable`.
  */
 import { HarnessApiError, type CoreMethod, type WorkspaceRecord } from "@nylorun/core/harness-api";
-import type { CapabilityManifest, SandboxToolName } from "@nylorun/core/define";
+import type { SandboxManifest, SandboxToolName } from "@nylorun/core/define";
 import type { SandboxManager, SandboxSessionRef } from "../sandbox/manager.js";
 import { fromWireAnswer, toWireOp, type DiskOp } from "../sandbox/disk-fs.js";
 import { DEFAULT_SANDBOX_IMAGE } from "../sandbox/policy.js";
@@ -38,7 +38,7 @@ export interface WorkspacePort {
   /** Runs one sandbox tool in the workspace of `session`. */
   run(
     session: SandboxSessionRef,
-    capability: CapabilityManifest,
+    sandbox: SandboxManifest | undefined,
     toolName: SandboxToolName,
     input: unknown,
     signal: AbortSignal
@@ -46,7 +46,7 @@ export interface WorkspacePort {
   /** Lists the files under `dir` of the workspace of `session` (the turn-end export, F8.2). */
   listFiles(
     session: SandboxSessionRef,
-    capability: CapabilityManifest,
+    sandbox: SandboxManifest | undefined,
     dir: string,
     maxEntries: number,
     signal: AbortSignal
@@ -54,7 +54,7 @@ export interface WorkspacePort {
   /** Reads a file of the workspace of `session` as bytes, at most `maxBytes` (`save_artifact`). */
   readBytes(
     session: SandboxSessionRef,
-    capability: CapabilityManifest,
+    sandbox: SandboxManifest | undefined,
     path: string,
     maxBytes: number,
     signal: AbortSignal
@@ -62,7 +62,7 @@ export interface WorkspacePort {
   /** One operation on the disk of the workspace of `session` (R2d step 3). */
   disk(
     session: SandboxSessionRef,
-    capability: CapabilityManifest,
+    sandbox: SandboxManifest | undefined,
     op: DiskOp,
     signal: AbortSignal
   ): ReturnType<SandboxManager["disk"]>;
@@ -79,13 +79,13 @@ export interface WorkspacePort {
 /** The Tenant's own SandboxManager. */
 export function localWorkspace(manager: SandboxManager): WorkspacePort {
   return {
-    run: (session, capability, toolName, input, signal) =>
-      manager.run(session, capability, toolName, input, signal),
-    listFiles: (session, capability, dir, maxEntries, signal) =>
-      manager.listFiles(session, capability, dir, maxEntries, signal),
-    readBytes: (session, capability, path, maxBytes, signal) =>
-      manager.readBytes(session, capability, path, maxBytes, signal),
-    disk: (session, capability, op, signal) => manager.disk(session, capability, op, signal),
+    run: (session, sandbox, toolName, input, signal) =>
+      manager.run(session, sandbox, toolName, input, signal),
+    listFiles: (session, sandbox, dir, maxEntries, signal) =>
+      manager.listFiles(session, sandbox, dir, maxEntries, signal),
+    readBytes: (session, sandbox, path, maxBytes, signal) =>
+      manager.readBytes(session, sandbox, path, maxBytes, signal),
+    disk: (session, sandbox, op, signal) => manager.disk(session, sandbox, op, signal),
     report: () => manager.report(),
     sweep: (options) => manager.sweep(options),
     removeSandbox: (environmentId) => manager.removeSandbox(environmentId),
@@ -167,13 +167,13 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
     });
   };
   return {
-    async run(session, capability, toolName, input, signal) {
+    async run(session, sandbox, toolName, input, signal) {
       try {
         return (await options.server.workspace(
           METHODS[toolName],
           {
             session: sessionOf(session),
-            spec: capability.sandbox ?? {},
+            spec: sandbox ?? {},
             tool: toolName,
             input: input ?? {},
           },
@@ -189,11 +189,11 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
         throw error;
       }
     },
-    async listFiles(session, capability, dir, maxEntries, signal) {
+    async listFiles(session, sandbox, dir, maxEntries, signal) {
       try {
         const answer = (await options.server.workspace(
           "workspace.read",
-          { session: sessionOf(session), spec: capability.sandbox ?? {}, list: { dir, maxEntries } },
+          { session: sessionOf(session), spec: sandbox ?? {}, list: { dir, maxEntries } },
           signal,
           target
         )) as { kind: string; path?: string; listing?: unknown; code?: string; message?: string };
@@ -211,13 +211,13 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
         throw error;
       }
     },
-    async readBytes(session, capability, path, maxBytes, signal) {
+    async readBytes(session, sandbox, path, maxBytes, signal) {
       try {
         const answer = (await options.server.workspace(
           "workspace.read",
           {
             session: sessionOf(session),
-            spec: capability.sandbox ?? {},
+            spec: sandbox ?? {},
             bytes: { path, maxBytes },
           },
           signal,
@@ -233,11 +233,11 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
         throw error;
       }
     },
-    async disk(session, capability, op, signal) {
+    async disk(session, sandbox, op, signal) {
       try {
         const answer = (await options.server.workspace(
           "list" in op || "read" in op ? "workspace.read" : "workspace.write",
-          { session: sessionOf(session), spec: capability.sandbox ?? {}, disk: toWireOp(op) as never },
+          { session: sessionOf(session), spec: sandbox ?? {}, disk: toWireOp(op) as never },
           signal,
           target
         )) as Record<string, unknown>;
@@ -293,13 +293,13 @@ export function withPodWorkspaces(
       : base;
   return {
     ...base,
-    run: async (session, capability, toolName, input, signal) =>
-      (await routed(session)).run(session, capability, toolName, input, signal),
-    listFiles: async (session, capability, dir, maxEntries, signal) =>
-      (await routed(session)).listFiles(session, capability, dir, maxEntries, signal),
-    readBytes: async (session, capability, path, maxBytes, signal) =>
-      (await routed(session)).readBytes(session, capability, path, maxBytes, signal),
-    disk: async (session, capability, op, signal) =>
-      (await routed(session)).disk(session, capability, op, signal),
+    run: async (session, sandbox, toolName, input, signal) =>
+      (await routed(session)).run(session, sandbox, toolName, input, signal),
+    listFiles: async (session, sandbox, dir, maxEntries, signal) =>
+      (await routed(session)).listFiles(session, sandbox, dir, maxEntries, signal),
+    readBytes: async (session, sandbox, path, maxBytes, signal) =>
+      (await routed(session)).readBytes(session, sandbox, path, maxBytes, signal),
+    disk: async (session, sandbox, op, signal) =>
+      (await routed(session)).disk(session, sandbox, op, signal),
   };
 }

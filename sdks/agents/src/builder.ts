@@ -4,7 +4,7 @@ import {
 } from "@nylorun/core/define";
 import type {
   AgentOptions,
-  CapabilityInput,
+  PartDeclaration,
   ToolSchemaSource,
 } from "@nylorun/core/define";
 import { skills } from "./skills/skills.js";
@@ -21,12 +21,12 @@ export class AgentBuilder<
 > extends CoreAgentBuilder<Info, Schema, Id> {
   /** Load an Agent Skills folder. */
   skills(directory: string): this {
-    return this.withPart(skills(directory) as CapabilityInput<Info>, "skills()");
+    return this.withPart(skills(directory) as PartDeclaration<Info>, "skills()");
   }
 
   /** Attach an Agent Plugin package. */
   plugin(directory: string): this {
-    return this.withPart(plugin(directory) as CapabilityInput<Info>, "plugin()");
+    return this.withPart(plugin(directory) as PartDeclaration<Info>, "plugin()");
   }
 
   override output<S extends ToolSchemaSource>(schema: S): AgentBuilder<Info, S, Id> {

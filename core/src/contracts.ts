@@ -11,17 +11,13 @@ import {
   parseSandboxSize,
 } from "./utils/sandbox.js";
 import {
-  REMOVED_CAPABILITY_FIELDS,
   REMOVED_MANIFEST_FIELDS,
   manifestVersionIssue,
   workflowVersionIssue,
 } from "./definition/removed.js";
+import { RUNTIME_TOOL_NAMES } from "./utils/runtime-tools.js";
 import { DELEGATE_INPUT_SCHEMA, DELEGATE_NAME_PATTERN } from "./definition/delegate.js";
-import {
-  mcpToolSettingsVersionIssue,
-  stdioMcpRefusal,
-  usesMcpToolSettings,
-} from "./definition/mcp.js";
+import { stdioMcpRefusal } from "./definition/mcp.js";
 import {
   APPROVAL_MODES,
   HTTP_TOOL_MAX_TIMEOUT_MS,
@@ -74,7 +70,12 @@ const modelFacingName = (what: string) =>
     error: (issue) =>
       `${what} name '${String(issue.input)}' may use only letters, digits, _ and -, up to 64 characters, so that every model provider accepts it`,
   });
-/** One tool's settings on an MCP server (manifest v6, R2b C9). */
+/** Which Agent Plugin brought a skill or an MCP server. */
+const pluginLabelSchema = z
+  .object({ name: z.string().min(1), version: z.string().min(1).optional() })
+  .strict()
+  .meta({ id: "PluginLabel" });
+/** One tool's settings on an MCP server (R2b C9). */
 const mcpToolSettingsSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -83,10 +84,11 @@ const mcpToolSettingsSchema = z
   })
   .strict()
   .meta({ id: "McpToolSettings" });
-/** Manifest v6 (R2b C9, C10): per-tool settings keyed by the server's tool names, `"*"` for the rest. */
+/** Per-tool settings keyed by the server's tool names, `"*"` for the rest (R2b C9, C10). */
 const mcpServerSettings = {
   deferred: z.boolean().optional(),
   tools: z.record(z.string().min(1), mcpToolSettingsSchema).optional(),
+  plugin: pluginLabelSchema.optional(),
 };
 const mcpServerSchema = z.discriminatedUnion(
   "type",
@@ -128,6 +130,7 @@ const skillManifestSchema = z
     name: z.string().min(1),
     description: z.string().min(1),
     files: z.record(z.string(), z.string()),
+    plugin: pluginLabelSchema.optional(),
   })
   .strict()
   .superRefine((skill, ctx) => {
@@ -219,7 +222,7 @@ const toolManifestSchema = z
         message: `Tool '${tool.name}' takes approval only as an HTTP tool`,
       });
   });
-/** A manifest or capability naming a removed field is refused with what replaces it. */
+/** A manifest naming a removed field is refused with what replaces it. */
 const removedFieldError =
   (removedFields: Readonly<Record<string, string>>) =>
   (issue: { code?: string; keys?: readonly string[] }) => {
@@ -227,11 +230,18 @@ const removedFieldError =
     const removed = issue.keys?.find((key) => removedFields[key] !== undefined);
     return removed === undefined ? undefined : removedFields[removed];
   };
+/** What the Runtime adds to a session's agent; only the Runtime writes it. */
+const runtimeManifestSchema = z
+  .object({
+    sandbox: sandboxManifestSchema.optional(),
+    tools: z.array(toolManifestSchema).optional(),
+    instructions: z.array(z.string()).optional(),
+  })
+  .strict();
 const agentManifestSchema = z
   .strictObject(
     {
-      // 6 adds an MCP server's `tools` and `deferred` (R2b C9); 5 is accepted unchanged.
-      manifestSchemaVersion: z.union([z.literal(5), z.literal(6)], {
+      manifestSchemaVersion: z.literal(7, {
         error: (issue) => manifestVersionIssue(issue.input),
       }),
       id: z.string().min(1),
@@ -239,24 +249,11 @@ const agentManifestSchema = z
       description: z.string().optional(),
       metadata: definitionJson.optional(),
       outputSchema: definitionJson.optional(),
-      capabilities: z.array(
-        z.strictObject(
-          {
-            id: z.string().min(1),
-            type: z.enum(["agent", "agent-plugin"]),
-            name: z.string().min(1).optional(),
-            description: z.string().optional(),
-            metadata: definitionJson.optional(),
-            instructions: z.array(z.string()).optional(),
-            skills: z.record(z.string(), skillManifestSchema).optional(),
-            tools: z.array(toolManifestSchema).optional(),
-            mcpServers: z.record(z.string(), mcpServerSchema).optional(),
-            sandbox: sandboxManifestSchema.optional(),
-          },
-          { error: removedFieldError(REMOVED_CAPABILITY_FIELDS) }
-        )
-      ),
-      runtime: z.object({}).strict().optional(),
+      instructions: z.array(z.string()).optional(),
+      tools: z.array(toolManifestSchema).optional(),
+      skills: z.record(z.string(), skillManifestSchema).optional(),
+      mcpServers: z.record(z.string(), mcpServerSchema).optional(),
+      runtime: runtimeManifestSchema.optional(),
       // Reserved for Functions, which are deferred: developer code the Runtime will run from
       // uploaded definition files (a `functions/` folder). Any value is refused below.
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
@@ -269,122 +266,83 @@ const agentManifestSchema = z
     delegationIssues(manifest, (message) =>
       ctx.addIssue({ code: "custom", message })
     );
-    const ids = new Set<string>();
     const names = new Set<string>();
-    const servers = new Set<string>();
-    const skills = new Set<string>();
-    let sandboxes = 0;
-    for (const capability of manifest.capabilities) {
-      if (capability.sandbox) {
-        sandboxes += 1;
-        if (sandboxes > 1)
-          ctx.addIssue({
-            code: "custom",
-            message: "At most one capability may declare a sandbox",
-          });
-        const declared = new Set((capability.tools ?? []).map((tool) => tool.name));
-        for (const name of SANDBOX_TOOL_NAMES)
-          if (!declared.has(name))
-            ctx.addIssue({
-              code: "custom",
-              message: `Sandbox capability '${capability.id}' must declare the built-in '${name}' tool`,
-            });
-      }
-      if (ids.has(capability.id))
-        ctx.addIssue({ code: "custom", message: "Duplicate capability id" });
-      ids.add(capability.id);
-      for (const tool of capability.tools ?? []) {
-        if (names.has(tool.name))
-          ctx.addIssue({
-            code: "custom",
-            message: "Tool names must be unique",
-          });
-        names.add(tool.name);
-      }
-      if (capability.skills && Object.keys(capability.skills).length === 0)
+    for (const tool of manifest.tools ?? []) {
+      if (RUNTIME_TOOL_NAMES.has(tool.name))
         ctx.addIssue({
           code: "custom",
-          message: "skills must be omitted when a capability declares no skills",
+          message: `Tool '${tool.name}' takes the name of a tool the Runtime serves; rename it`,
         });
-      for (const [key, skill] of Object.entries(capability.skills ?? {})) {
-        if (key !== skill.name)
-          ctx.addIssue({
-            code: "custom",
-            message: `skills key '${key}' must equal the skill name`,
-          });
-        if (skills.has(skill.name))
-          ctx.addIssue({
-            code: "custom",
-            message: `Duplicate skill '${skill.name}'`,
-          });
-        skills.add(skill.name);
-      }
-      if (capability.mcpServers && Object.keys(capability.mcpServers).length === 0)
+      if (tool.name.includes("__"))
         ctx.addIssue({
           code: "custom",
-          message: "mcpServers must be omitted when a capability declares no servers",
+          message: `Tool '${tool.name}' must not contain '__', which names an MCP server's tools`,
         });
-      for (const [key, server] of Object.entries(capability.mcpServers ?? {})) {
-        if (key !== server.name)
-          ctx.addIssue({
-            code: "custom",
-            message: `mcpServers key '${key}' must equal the server name`,
-          });
-        if (servers.has(server.name))
-          ctx.addIssue({
-            code: "custom",
-            message: `Duplicate MCP server '${server.name}'`,
-          });
-        servers.add(server.name);
-        if (manifest.manifestSchemaVersion === 5 && usesMcpToolSettings(server))
-          ctx.addIssue({ code: "custom", message: mcpToolSettingsVersionIssue(server.name) });
-      }
     }
+    for (const tool of [...(manifest.tools ?? []), ...(manifest.runtime?.tools ?? [])]) {
+      if (names.has(tool.name))
+        ctx.addIssue({ code: "custom", message: "Tool names must be unique" });
+      names.add(tool.name);
+    }
+    for (const tool of manifest.runtime?.tools ?? [])
+      if (!RUNTIME_TOOL_NAMES.has(tool.name))
+        ctx.addIssue({
+          code: "custom",
+          message: `runtime.tools holds only the tools the Runtime serves, not '${tool.name}'`,
+        });
+    if (manifest.runtime?.sandbox !== undefined) {
+      const pinned = new Set((manifest.runtime.tools ?? []).map((tool) => tool.name));
+      for (const name of SANDBOX_TOOL_NAMES)
+        if (!pinned.has(name))
+          ctx.addIssue({
+            code: "custom",
+            message: `runtime.sandbox comes with the sandbox tools; runtime.tools has no '${name}'`,
+          });
+    }
+    if (manifest.skills && Object.keys(manifest.skills).length === 0)
+      ctx.addIssue({ code: "custom", message: "skills must be omitted when the agent has no skills" });
+    for (const [key, skill] of Object.entries(manifest.skills ?? {}))
+      if (key !== skill.name)
+        ctx.addIssue({ code: "custom", message: `skills key '${key}' must equal the skill name` });
+    if (manifest.mcpServers && Object.keys(manifest.mcpServers).length === 0)
+      ctx.addIssue({ code: "custom", message: "mcpServers must be omitted when the agent has no servers" });
+    for (const [key, server] of Object.entries(manifest.mcpServers ?? {}))
+      if (key !== server.name)
+        ctx.addIssue({ code: "custom", message: `mcpServers key '${key}' must equal the server name` });
   });
 /**
- * An agent's manifest (manifest v5 and v6). Its output is checked against `AgentManifest` here and
- * below (`ManifestDrift`): the hand-written type keeps its read-only fields and its docs.
+ * An agent's manifest (manifest v7). Its output is checked against `AgentManifest` here and below
+ * (`ManifestDrift`): the hand-written type keeps its read-only fields and its docs.
  */
 export const AgentManifestSchema: z.ZodType<AgentManifest> = agentManifestSchema;
 /** Agents used as tools: one level deep, `{ task }` input, one shared sandbox spec. */
 function delegationIssues(manifest: AgentManifest, issue: (message: string) => void): void {
   const sandboxes = new Set<string>();
-  const addSandboxes = (agent: AgentManifest) => {
-    for (const capability of agent.capabilities)
-      if (capability.sandbox) sandboxes.add(canonical(capability.sandbox));
+  const addSandbox = (agent: AgentManifest) => {
+    if (agent.runtime?.sandbox) sandboxes.add(canonical(agent.runtime.sandbox));
   };
-  addSandboxes(manifest);
-  for (const capability of manifest.capabilities)
-    for (const tool of capability.tools ?? []) {
-      const child = tool.agent;
-      if (!child) continue;
-      if ("kind" in child) {
-        // A flow agent runs in its own linked session; its leaves may delegate in turn.
-        if (tool.name !== child.id)
-          issue(`Tool '${tool.name}' must be named after the agent it runs ('${child.id}')`);
-        if (!child.description?.trim() || tool.description !== child.description)
-          issue(`Agent tool '${tool.name}' must carry the agent's non-empty description`);
-        if (canonical(tool.inputSchema) !== canonical(DELEGATE_INPUT_SCHEMA))
-          issue(`Agent tool '${tool.name}' must take the standard { task } input`);
-        if (tool.outputSchema !== undefined)
-          issue(`Agent tool '${tool.name}' must not declare outputSchema; the agent's outputSchema applies`);
-        if (child.sandbox !== undefined && Object.keys(child.sandbox).length > 0)
-          sandboxes.add(canonical(child.sandbox));
-        continue;
-      }
-      if (tool.name !== child.id)
-        issue(`Tool '${tool.name}' must be named after the agent it runs ('${child.id}')`);
-      if (!child.description?.trim() || tool.description !== child.description)
-        issue(`Agent tool '${tool.name}' must carry the agent's non-empty description`);
-      if (canonical(tool.inputSchema) !== canonical(DELEGATE_INPUT_SCHEMA))
-        issue(`Agent tool '${tool.name}' must take the standard { task } input`);
-      if (tool.outputSchema !== undefined)
-        issue(`Agent tool '${tool.name}' must not declare outputSchema; the agent's outputSchema applies`);
-      for (const inner of child.capabilities)
-        if (inner.tools?.some((item) => item.agent !== undefined))
-          issue(`'${child.id}' delegates to another agent; nested delegation is not supported yet`);
-      addSandboxes(child);
+  addSandbox(manifest);
+  for (const tool of manifest.tools ?? []) {
+    const child = tool.agent;
+    if (!child) continue;
+    if (tool.name !== child.id)
+      issue(`Tool '${tool.name}' must be named after the agent it runs ('${child.id}')`);
+    if (!child.description?.trim() || tool.description !== child.description)
+      issue(`Agent tool '${tool.name}' must carry the agent's non-empty description`);
+    if (canonical(tool.inputSchema) !== canonical(DELEGATE_INPUT_SCHEMA))
+      issue(`Agent tool '${tool.name}' must take the standard { task } input`);
+    if (tool.outputSchema !== undefined)
+      issue(`Agent tool '${tool.name}' must not declare outputSchema; the agent's outputSchema applies`);
+    if ("kind" in child) {
+      // A flow agent runs in its own linked session; its leaves may delegate in turn.
+      if (child.sandbox !== undefined && Object.keys(child.sandbox).length > 0)
+        sandboxes.add(canonical(child.sandbox));
+      continue;
     }
+    if (child.tools?.some((item) => item.agent !== undefined))
+      issue(`'${child.id}' delegates to another agent; nested delegation is not supported yet`);
+    addSandbox(child);
+  }
   if (sandboxes.size > 1)
     issue("An agent and the agents it uses as tools must declare identical sandboxes");
 }
@@ -2028,11 +1986,10 @@ export const ToolCompletedPayloadSchema = z
     ...toolIds,
     /** The tool call's effect id (R7.1). */
     effectId: z.string().min(1).optional(),
-    capabilityId: z.string().min(1),
     toolName: z.string().min(1),
     status: z.enum(TOOL_CALL_STATUSES).optional(),
     kind: z.enum(TOOL_CALL_KINDS).optional(),
-    /** The MCP server, or the HTTP tool's capability. */
+    /** The MCP server, or the HTTP tool's URL host. */
     server: z.string().min(1).optional(),
     /** How many times the call was sent: 0 when the Runtime refused it, above 1 after a crash re-sent it. */
     attempts: z.number().int().nonnegative().optional(),
@@ -2374,7 +2331,6 @@ export const McpServerOutcomeSchema = z
   .object({
     /** The agent used as a tool that declares the server; absent for the session's root agent. */
     agentId: z.string().optional(),
-    capabilityId: z.string(),
     serverName: z.string(),
     /** `refused`: the vault has no usable credential for it; `failed`: it could not be reached or listed. */
     outcome: z.enum(["connected", "refused", "failed"]),
@@ -3195,8 +3151,8 @@ export const SessionViewSchema = z
     manifestHash: z.string(),
     /**
      * The hash of the definition the session was opened from (R2b C11). `manifestHash` differs
-     * from it when the Runtime pinned its own capabilities beside the definition: a sandbox's
-     * tools and `save_artifact`, or `read_artifact`. Compare this one with the registered
+     * from it when the Runtime pinned its `runtime` block on the definition: a sandbox's tools,
+     * the artifact tools and the skill tools. Compare this one with the registered
      * definition's hash. Absent for a session opened before this release.
      */
     definitionHash: z.string().optional(),
@@ -3217,8 +3173,9 @@ export const SessionViewSchema = z
      */
     harness: z.string(),
     /**
-     * Why the session takes no new turn, when it is closed: `protocol_11` for a session opened
-     * before protocol 11 (a new turn is `409 session_closed`; its history stays readable).
+     * Why the session takes no new turn, when it is closed: `protocol_13` for a session opened
+     * before protocol 13, `protocol_11` for one opened before protocol 11 (a new turn is
+     * `409 session_closed`; its history stays readable).
      */
     closedReason: z.string().optional(),
     mcpSnapshot: z.record(z.string(), z.unknown()).nullable(),
@@ -4037,7 +3994,6 @@ export const ToolCallSchema = z
     effectId: z.string(),
     turnId: z.string(),
     callId: z.string().nullable(),
-    capabilityId: z.string().nullable(),
     toolName: z.string().nullable(),
     kind: z.enum(TOOL_CALL_KINDS).nullable(),
     server: z.string().nullable(),

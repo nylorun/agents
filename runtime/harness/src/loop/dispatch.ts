@@ -83,7 +83,7 @@ export async function dispatchPlan(invocation: Invocation): Promise<"paused" | u
           callId: call.callId,
           invocationId: call.invocationId,
           toolName: call.toolName,
-          middlewareId: call.reference.capabilityId,
+          partId: definition.owner.partId,
           slot: definition.owner.slot,
         };
         observe({ type: "tool.started", ...eventIds, attributes: { args: call.args } });

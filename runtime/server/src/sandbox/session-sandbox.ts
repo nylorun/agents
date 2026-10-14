@@ -1,38 +1,30 @@
 /**
- * Gives a session the sandbox chosen when it was opened, and the platform tools its agents
- * need. An agent session's pinned manifest is its definition plus:
+ * Gives a session the sandbox chosen when it was opened, and the Runtime tools its agents need.
+ * An agent session's pinned manifest is its definition with a `runtime` block
+ * (`runtimeManifestFor`) on each agent of the tree:
  *
- * - with a sandbox, the `nylorun.sandbox` capability (the six built-in tools, the sandbox
- *   instructions and the resolved spec) and the `nylorun.artifacts` capability
- *   (`save_artifact`), also added to each agent it uses as a tool, so the tree shares one spec.
- *   The sandbox's instructions name the agent's skills' folders (`/skills/<name>/`);
- * - for each agent of the tree, `read_artifact` in its `nylorun.artifacts` capability (R2b C11,
- *   protocol 12), with or without a sandbox: the Runtime stores a result of an MCP or HTTP tool
- *   too large to show as an artifact, and the model reads it in pages; a file of an earlier turn
- *   is a reference line the model reads again with it. An agent that declares a tool named
- *   `read_artifact` keeps its own;
- * - for each agent of the tree with a remote MCP server, the `nylorun.tools` capability (R2b
- *   C10), empty: when the session defers some of the agent's MCP tools, its session tools put
- *   `tool_search` and `tool_call` there. An agent that declares either name defers nothing.
+ * - with a sandbox, the six sandbox tools, their instructions and the resolved spec, and
+ *   `save_artifact`, so files the agent makes reach the user (F8.1). The agents it uses as tools
+ *   get the same spec, so the tree shares one sandbox. The sandbox's instructions name the
+ *   agent's skills' folders (`/skills/<name>/`);
+ * - with or without a sandbox, `read_artifact` (R2b C11, protocol 12): the Runtime stores a result
+ *   of an MCP or HTTP tool too large to show as an artifact, and the model reads it in pages; a
+ *   file of an earlier turn is a reference line the model reads again with it;
+ * - with skills, `load_skill`, `read_skill_resource` and the skill catalog.
  *
- * The definition in the registry never changes.
+ * `tool_search` and `tool_call` are not pinned: they are session tools, given per run when the
+ * session defers some MCP tools (R2b C10). An author tool may not take any of these names (the
+ * manifest schema refuses it), so a tool's name alone says whose it is. The definition in the
+ * registry never changes.
  */
 import { AgentManifestSchema } from "@nylorun/core/contracts";
 import {
-  READ_ARTIFACT_TOOL,
-  TOOL_CALL_TOOL,
-  TOOL_SEARCH_TOOL,
-  TOOLS_CAPABILITY_ID,
-  artifactsCapabilityManifest,
   hashManifest,
-  sandboxCapabilityManifest,
-  toolsCapabilityManifest,
+  runtimeManifestFor,
   type AgentManifest,
-  type CapabilityManifest,
   type SandboxManifest,
   type ToolManifest,
 } from "@nylorun/core/define";
-import { sandboxSpecOf } from "./share.js";
 
 export type SandboxedManifest =
   | { readonly ok: true; readonly manifest: AgentManifest; readonly manifestHash: string }
@@ -43,117 +35,57 @@ function isAgentManifest(value: unknown): value is AgentManifest {
     typeof value === "object" &&
     value !== null &&
     (value as { kind?: unknown }).kind !== "workflow" &&
-    Array.isArray((value as AgentManifest).capabilities)
+    typeof (value as AgentManifest).id === "string"
   );
 }
 
-/** The names of the agent's own skills. */
-function skillNamesOf(manifest: AgentManifest): string[] {
-  return manifest.capabilities.flatMap((capability) => Object.keys(capability.skills ?? {})).sort();
-}
-
-/**
- * True when no tool of the agent's own is named `read_artifact`: every agent reads its session's
- * artifacts, stored tool results (R2b C11) and the files of earlier turns (protocol 12).
- */
-function readsArtifacts(manifest: AgentManifest): boolean {
-  return !manifest.capabilities.some((capability) =>
-    (capability.tools ?? []).some((tool) => tool.name === READ_ARTIFACT_TOOL)
-  );
-}
-
-/**
- * True when the agent itself declares a remote MCP server, some of whose tools the session may
- * defer (R2b C10), and names no tool `tool_search` or `tool_call` (it then keeps every tool in
- * its list).
- */
-function defersTools(manifest: AgentManifest): boolean {
-  const servers = manifest.capabilities.some(
-    (capability) => Object.keys(capability.mcpServers ?? {}).length > 0
-  );
-  const taken = manifest.capabilities.some(
-    (capability) =>
-      capability.id === TOOLS_CAPABILITY_ID ||
-      (capability.tools ?? []).some(
-        (tool) => tool.name === TOOL_SEARCH_TOOL || tool.name === TOOL_CALL_TOOL
-      )
-  );
-  return servers && !taken;
-}
-
-/** `manifest` with the session's capabilities added; the same object when none are. */
-function addCapabilities(manifest: AgentManifest, spec: SandboxManifest | undefined): AgentManifest {
+/** `manifest` with its `runtime` block, and each agent it uses as a tool with its own. */
+function pinRuntime(manifest: AgentManifest, spec: SandboxManifest | undefined): AgentManifest {
   let changed = false;
-  const capabilities = manifest.capabilities.map((capability): CapabilityManifest => {
-    if (capability.tools === undefined) return capability;
-    let toolsChanged = false;
-    const tools = capability.tools.map((tool): ToolManifest => {
-      // Agents used as tools share the session's sandbox; flow agents used as tools run in
-      // linked sessions that inherit it. One that declares its own sandbox keeps it.
-      if (tool.agent === undefined || !isAgentManifest(tool.agent)) return tool;
-      const agent = addCapabilities(
-        tool.agent,
-        sandboxSpecOf(tool.agent) === undefined ? spec : undefined
-      );
-      if (agent === tool.agent) return tool;
-      toolsChanged = true;
-      return { ...tool, agent };
-    });
-    if (!toolsChanged) return capability;
+  const tools = manifest.tools?.map((tool): ToolManifest => {
+    // Agents used as tools share the session's sandbox; flow agents used as tools run in linked
+    // sessions that inherit it.
+    if (tool.agent === undefined || !isAgentManifest(tool.agent)) return tool;
+    const agent = pinRuntime(tool.agent, spec);
+    if (agent === tool.agent) return tool;
     changed = true;
-    return { ...capability, tools };
+    return { ...tool, agent };
   });
-  const save = spec !== undefined;
-  const read = readsArtifacts(manifest);
-  const defer = defersTools(manifest);
-  if (!save && !read && !defer && !changed) return manifest;
+  const runtime = runtimeManifestFor(manifest, {
+    ...(spec === undefined ? {} : { sandbox: spec }),
+    save: spec !== undefined,
+    read: true,
+  });
+  if (runtime === undefined && !changed) return manifest;
   return {
     ...manifest,
-    // With a sandbox comes `save_artifact`, so files the agent makes reach the user (F8.1). The
-    // sandbox's instructions name where the agent's skills are (R2 M4).
-    capabilities: [
-      ...capabilities,
-      ...(spec === undefined
-        ? []
-        : [sandboxCapabilityManifest(spec, { skills: skillNamesOf(manifest) })]),
-      ...(save || read ? [artifactsCapabilityManifest({ save, read })] : []),
-      // Empty: when the session defers MCP tools, its tools put tool_search and tool_call here.
-      ...(defer ? [toolsCapabilityManifest()] : []),
-    ],
+    ...(changed ? { tools } : {}),
+    ...(runtime === undefined ? {} : { runtime }),
   };
 }
 
-/** `sandboxed` checked as a manifest, with its hash. */
-function checked(original: AgentManifest, sandboxed: AgentManifest): SandboxedManifest {
-  const parsed = AgentManifestSchema.safeParse(sandboxed);
+/** `pinned` checked as a manifest, with its hash. */
+function checked(original: AgentManifest, pinned: AgentManifest): SandboxedManifest {
+  const parsed = AgentManifestSchema.safeParse(pinned);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((issue) => issue.message);
-    const clash = issues.some((message) => message === "Tool names must be unique");
     return {
       ok: false,
-      message: clash
-        ? `'${original.id}' declares a tool named like a sandbox tool (bash, read, write, edit, grep, glob, save_artifact). Rename it, or open the session on no Environment or one of kind none.`
-        : `'${original.id}' cannot take this sandbox: ${[...new Set(issues)].join("; ")}`,
+      message: `'${original.id}' cannot take the Runtime's tools: ${[...new Set(issues)].join("; ")}`,
     };
   }
-  return { ok: true, manifest: sandboxed, manifestHash: hashManifest(sandboxed) };
+  return { ok: true, manifest: pinned, manifestHash: hashManifest(pinned) };
 }
 
-/** The agent's manifest with the sandbox capability added, or why it cannot take one. */
-export function withSandboxCapability(
-  manifest: AgentManifest,
-  spec: SandboxManifest
-): SandboxedManifest {
-  return checked(manifest, addCapabilities(manifest, spec));
+/** The agent's pinned manifest with the session's sandbox, or why it cannot take one. */
+export function withSandbox(manifest: AgentManifest, spec: SandboxManifest): SandboxedManifest {
+  return checked(manifest, pinRuntime(manifest, spec));
 }
 
 /**
  * The pinned manifest of an agent session without a sandbox: `read_artifact` for each agent of
- * the tree (R2b C11, protocol 12), and `nylorun.tools` for each with a remote MCP server (R2b
- * C10). Undefined when nothing is added (every agent declares its own `read_artifact`), and the
- * session pins its definition as it is.
+ * the tree (R2b C11, protocol 12), and the skill tools for each with skills.
  */
-export function withPlatformTools(manifest: AgentManifest): SandboxedManifest | undefined {
-  const pinned = addCapabilities(manifest, undefined);
-  return pinned === manifest ? undefined : checked(manifest, pinned);
+export function withRuntimeTools(manifest: AgentManifest): SandboxedManifest {
+  return checked(manifest, pinRuntime(manifest, undefined));
 }

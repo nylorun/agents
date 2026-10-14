@@ -1,5 +1,5 @@
 /**
- * `@nylorun/core/harness-api`: the public contract between core and a harness (Harness API 2).
+ * `@nylorun/core/harness-api`: the public contract between core and a harness (Harness API 3).
  * Everything a harness sends or reads has a schema here, and the Runtime validates with the same
  * schemas, so these types are the enforced ones: the frames and messages (`schema.ts`), the
  * transport and the pod join (`transport.ts`), the Model and Tool Gate bodies (`gates.ts`), the
@@ -7,7 +7,7 @@
  * request hash and transcript edits. No engine and no I/O.
  *
  * Three version numbers apply: the transport (path and header, 1), the messages
- * (`HARNESS_API_VERSION`, 2) and the Runtime protocol, which only the Runtime's own APIs carry.
+ * (`HARNESS_API_VERSION`, 3) and the Runtime protocol, which only the Runtime's own APIs carry.
  */
 export * from "./messages.js";
 export { HarnessApiError } from "./errors.js";

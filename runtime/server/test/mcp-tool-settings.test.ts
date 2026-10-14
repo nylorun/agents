@@ -1,10 +1,10 @@
 /**
- * R2b C9 and C10 end to end over the Runtime API. Per-tool settings on an MCP server (manifest
- * v6): an allowlist through `"*": {enabled: false}`, approval per tool, a diagnostic for a key
- * that names no tool, and turn variants that may only tighten them. Deferred tools: an agent
+ * R2b C9 and C10 end to end over the Runtime API. Per-tool settings on an MCP server: an
+ * allowlist through `"*": {enabled: false}`, approval per tool, a diagnostic for a key that names
+ * no tool, and turn variants that may only tighten them. Deferred tools: an agent
  * whose MCP tools pass a tenth of the model's context window gets `tool_search` and `tool_call`
  * in their place, decided once for the session, and `tool_call` runs a tool as a direct call
- * would (arguments checked, approval asked, the tool named). v5 manifests are accepted unchanged.
+ * would (arguments checked, approval asked, the tool named). Manifests before 7 are refused.
  * With `NYLORUN_TEST_MODEL_GATE=http` the gates service makes every call; otherwise the Tenant
  * does, in process.
  */
@@ -15,7 +15,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
-import { hashManifest, type AgentManifest, type ModelCall } from "@nylorun/core/define";
+import { type AgentManifest, type ModelCall } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { contextWindowOf, hostModelCatalog } from "../src/model/catalog.js";
 import { pinDeferral, sessionToolsOf, type McpSnapshot } from "../src/mcp/snapshot.js";
@@ -280,27 +280,18 @@ describe("per-tool settings (C9)", () => {
     script();
     const session = await open("allow");
     await settled(session);
-    const pinned = (await session.manifest()).manifest as unknown as AgentManifest;
+    // A variant never sets `runtime`: the turn runs with the pin's.
+    const { runtime: _runtime, ...pinned } = (await session.manifest()).manifest as unknown as AgentManifest;
+    const github = pinned.mcpServers!.github!;
     const variant: AgentManifest = {
       ...pinned,
-      manifestSchemaVersion: 6,
-      capabilities: pinned.capabilities.map((capability) =>
-        capability.mcpServers?.github
-          ? {
-              ...capability,
-              mcpServers: {
-                github: {
-                  ...capability.mcpServers.github,
-                  tools: {
-                    ...capability.mcpServers.github.tools,
-                    search_issues: { enabled: true },
-                    create_issue: { enabled: false },
-                  },
-                },
-              },
-            }
-          : capability
-      ),
+      mcpServers: {
+        ...pinned.mcpServers,
+        github: {
+          ...github,
+          tools: { ...github.tools, search_issues: { enabled: true }, create_issue: { enabled: false } },
+        },
+      },
     };
     offered = [];
     script({ name: "github__search_issues", args: { q: "flaky" } });
@@ -311,19 +302,13 @@ describe("per-tool settings (C9)", () => {
     // A variant cannot ask for an approval: tool approvals are the Tenant's tool policy.
     const asking: AgentManifest = {
       ...variant,
-      capabilities: variant.capabilities.map((capability) =>
-        capability.mcpServers?.github
-          ? {
-              ...capability,
-              mcpServers: {
-                github: {
-                  ...capability.mcpServers.github,
-                  tools: { ...capability.mcpServers.github.tools, search_issues: { enabled: true, approval: "always" } },
-                },
-              },
-            }
-          : capability
-      ),
+      mcpServers: {
+        ...variant.mcpServers,
+        github: {
+          ...variant.mcpServers!.github!,
+          tools: { ...variant.mcpServers!.github!.tools, search_issues: { enabled: true, approval: "always" } },
+        },
+      },
     };
     await expect(
       session.command({ type: "message", requestId: "variant-3", idempotencyKey: "variant-3", content: "ask", manifest: asking })
@@ -332,20 +317,10 @@ describe("per-tool settings (C9)", () => {
     // Widening is refused: enabling a tool the pin's allowlist leaves out.
     const widened: AgentManifest = {
       ...pinned,
-      manifestSchemaVersion: 6,
-      capabilities: pinned.capabilities.map((capability) =>
-        capability.mcpServers?.github
-          ? {
-              ...capability,
-              mcpServers: {
-                github: {
-                  ...capability.mcpServers.github,
-                  tools: { ...capability.mcpServers.github.tools, delete_repo: { enabled: true } },
-                },
-              },
-            }
-          : capability
-      ),
+      mcpServers: {
+        ...pinned.mcpServers,
+        github: { ...github, tools: { ...github.tools, delete_repo: { enabled: true } } },
+      },
     };
     await expect(
       session.command({ type: "message", requestId: "variant-2", idempotencyKey: "variant-2", content: "wider", manifest: widened })
@@ -434,32 +409,29 @@ describe("deferred tools (C10)", () => {
   });
 });
 
-it("accepts a v5 manifest unchanged", async () => {
+it("refuses a manifest of an earlier version: it is rebuilt (manifest 7)", async () => {
   const json = {
-    manifestSchemaVersion: 5,
+    manifestSchemaVersion: 6,
     id: "legacy",
-    capabilities: [
-      { id: "mcp", type: "agent", mcpServers: { small: { name: "small", type: "streamable-http", url: github.url } } },
-    ],
+    mcpServers: { small: { name: "small", type: "streamable-http", url: github.url } },
   };
-  await put(json);
-  const listed = (await client.listAgents()).agents.find((agent) => agent.agentId === "legacy")!;
-  expect(listed.manifestHash).toBe(hashManifest(json as AgentManifest));
+  const response = await fetch(`${runtime.url}/v1/agents/legacy`, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
+    body: JSON.stringify({ requestId: "put-legacy", manifest: json, implementationVersion: "dev" }),
+  });
+  expect(response.status).toBe(400);
+  expect((await client.listAgents()).agents.find((agent) => agent.agentId === "legacy")).toBeUndefined();
 });
 
 describe("deciding deferral (Q21)", () => {
   const manifest = Agent({ id: "a" })
     .mcp({ s: { type: "streamable-http", url: "https://s.example.invalid/mcp" } })
     .build().manifest;
-  const pinnedManifest: AgentManifest = {
-    ...manifest,
-    capabilities: [...manifest.capabilities, { id: "nylorun.tools", type: "agent" }],
-  };
   const snapshot = (count: number, size: number): McpSnapshot => ({
     snapshotSchemaVersion: 1,
     manifestHash: "h",
     mcpTools: Array.from({ length: count }, (_, i) => ({
-      capabilityId: "mcp",
       serverName: "s",
       serverToolName: `t${i}`,
       name: `s__t${i}`,
@@ -471,15 +443,17 @@ describe("deciding deferral (Q21)", () => {
   it("defers past a tenth of the window, at 4 characters a token", () => {
     // 10 tools of about 1,050 characters: 10,500, against 10% of 4 × 25,000 = 10,000.
     const deferred = (window: number) =>
-      pinDeferral(snapshot(10, 1_000), pinnedManifest, window).mcpTools.filter((tool) => tool.deferred).length;
+      pinDeferral(snapshot(10, 1_000), manifest, window).mcpTools.filter((tool) => tool.deferred).length;
     expect(deferred(25_000)).toBe(10);
     expect(deferred(30_000)).toBe(0);
   });
 
-  it("defers nothing for an agent without the nylorun.tools capability", () => {
+  it("gives an agent with deferred tools tool_search and tool_call as session tools", () => {
     const pinned = pinDeferral(snapshot(10, 1_000), manifest, 1_024);
-    expect(pinned.mcpTools.some((tool) => tool.deferred)).toBe(false);
-    expect(sessionToolsOf(pinned, manifest)!.map((tool) => tool.name)).toHaveLength(10);
+    expect(pinned.mcpTools.every((tool) => tool.deferred)).toBe(true);
+    const tools = sessionToolsOf(pinned, manifest)!;
+    expect(tools.filter((tool) => !tool.deferred).map((tool) => tool.name)).toEqual(["tool_search", "tool_call"]);
+    expect(tools.filter((tool) => tool.deferred)).toHaveLength(10);
   });
 
   it("knows a catalog model's window, and assumes a small one otherwise", () => {

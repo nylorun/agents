@@ -15,8 +15,8 @@ import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
 import { sandboxSpecOf } from "../sandbox/resolve.js";
-import { withPlatformTools, withSandboxCapability } from "../sandbox/session-sandbox.js";
-import { declaredSandboxes } from "../sandbox/share.js";
+import { withRuntimeTools, withSandbox } from "../sandbox/session-sandbox.js";
+import { authoredRuntimeBlocks, declaredSandboxes } from "../sandbox/share.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import { HARNESS_ID, checkPlacement, requirePods } from "../sandbox/placement.js";
 import { openEnvironment, recordAttachment } from "./environments.js";
@@ -97,6 +97,12 @@ export async function putDefinition(
     fail(
       400,
       `${declared.join(", ")} declares a sandbox. Agents no longer declare one: remove .sandbox(), create an Environment with the sandbox (PUT /v1/environments/{id}) and open the session on it, createSession({ environment }). See MIGRATION.md.`
+    );
+  const runtime = authoredRuntimeBlocks(body.manifest);
+  if (runtime.length > 0)
+    fail(
+      400,
+      `${runtime.join(", ")} sets runtime, which only the Runtime writes when it pins a session's agent. Remove it and register the manifest your builder makes.`
     );
   const definition = {
     ...body,
@@ -231,7 +237,7 @@ export async function putSession(
       environment === undefined || environment.kind === "none"
         ? undefined
         : sandboxSpecOf(environment.applied, effectiveSandboxConfig(config).limits.idle);
-    const pinned = spec === undefined ? platformTools(definition) : pin(definition, spec);
+    const pinned = spec === undefined ? runtimeTools(definition) : pin(definition, spec);
     const created: Session = {
       id,
       agentId: body.agentId,
@@ -257,25 +263,24 @@ export async function putSession(
 }
 
 /**
- * The manifest a session without a sandbox pins: its agents' `read_artifact` (R2b C11), when
- * one has a remote MCP server or an HTTP tool; nothing otherwise, and for a workflow.
+ * The manifest a session without a sandbox pins: each agent's `runtime` block, with
+ * `read_artifact` (R2b C11) and its skill tools; nothing for a workflow.
  */
-function platformTools(definition: Definition): { manifest?: AgentManifest; manifestHash?: string } {
+function runtimeTools(definition: Definition): { manifest?: AgentManifest; manifestHash?: string } {
   if (isWorkflowManifest(definition.manifest)) return {};
-  const pinned = withPlatformTools(definition.manifest as AgentManifest);
-  if (pinned === undefined) return {};
+  const pinned = withRuntimeTools(definition.manifest as AgentManifest);
   if (!pinned.ok) return fail(400, pinned.message);
   return { manifest: pinned.manifest, manifestHash: pinned.manifestHash };
 }
 
-/** The manifest a session with a sandbox pins: the definition with the sandbox capability. */
+/** The manifest a session with a sandbox pins: the definition with the sandbox in its `runtime` block. */
 function pin(
   definition: Definition,
   spec: SandboxManifest
 ): { manifest?: AgentManifest; manifestHash?: string } {
   // A workflow's manifest stays as registered: its agents inherit the sandbox when they start.
   if (isWorkflowManifest(definition.manifest)) return {};
-  const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec);
+  const sandboxed = withSandbox(definition.manifest as AgentManifest, spec);
   if (!sandboxed.ok) return fail(400, sandboxed.message);
   return { manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
 }

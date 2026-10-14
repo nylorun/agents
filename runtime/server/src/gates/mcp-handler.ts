@@ -95,7 +95,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
   const opening = new Map<string, Promise<Live>>();
 
   const keyOf = (server: McpServerRef) =>
-    JSON.stringify([server.sessionId, server.agentId ?? null, server.capabilityId, server.serverName]);
+    JSON.stringify([server.sessionId, server.agentId ?? null, server.serverName]);
 
   /** The declared remote server, from the session's pinned manifest. */
   async function declared(
@@ -104,7 +104,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
   ): Promise<McpServerManifest> {
     const session = await vault.session(server.sessionId);
     if (!session) throw new NotDeclared(`Session ${server.sessionId} not found`);
-    const found = findServer(session.manifest, server.agentId, server.capabilityId, server.serverName);
+    const found = findServer(session.manifest, server.agentId, server.serverName);
     if (!found) throw new NotDeclared(`MCP server '${server.serverName}' is not declared`);
     return found.server;
   }
@@ -288,7 +288,6 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
 function fields(server: McpServerRef) {
   return {
     session: server.sessionId,
-    capability: server.capabilityId,
     server: server.serverName,
     ...(server.agentId === undefined ? {} : { agent: server.agentId }),
   };

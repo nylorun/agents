@@ -4,8 +4,8 @@
     "title": "Nylorun Runtime API",
     "version": "0.0.0",
     "x-nylorun-protocol": {
-      "min": 11,
-      "max": 12,
+      "min": 13,
+      "max": 13,
       "features": [
         "studio-principal",
         "artifacts",
@@ -13,6 +13,7 @@
         "resource-server",
         "environments",
         "model-inputs",
+        "flat-manifest",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -6438,19 +6439,9 @@
                 "type": "object",
                 "properties": {
                   "manifestSchemaVersion": {
-                    "anyOf": [
-                      {
-                        "type": "number",
-                        "enum": [
-                          5
-                        ]
-                      },
-                      {
-                        "type": "number",
-                        "enum": [
-                          6
-                        ]
-                      }
+                    "type": "number",
+                    "enum": [
+                      7
                     ]
                   },
                   "id": {
@@ -6472,299 +6463,353 @@
                     "type": "object",
                     "additionalProperties": {}
                   },
-                  "capabilities": {
+                  "instructions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "tools": {
                     "type": "array",
                     "items": {
                       "type": "object",
                       "properties": {
-                        "id": {
+                        "name": {
                           "type": "string",
-                          "minLength": 1
+                          "pattern": "^[A-Za-z0-9_-]{1,64}$"
                         },
-                        "type": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "inputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "outputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "agent": {
+                          "$ref": "#/components/schemas/ToolAgentManifest"
+                        },
+                        "http": {
+                          "type": "object",
+                          "properties": {
+                            "url": {
+                              "type": "string"
+                            },
+                            "method": {
+                              "type": "string",
+                              "enum": [
+                                "POST",
+                                "PUT",
+                                "PATCH"
+                              ]
+                            },
+                            "credential": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "timeoutMs": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 300000
+                            }
+                          },
+                          "required": [
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "approval": {
                           "type": "string",
                           "enum": [
-                            "agent",
-                            "agent-plugin"
+                            "never",
+                            "always"
                           ]
                         },
+                        "fn": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        },
+                        "command": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "inputSchema"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "skills": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
                         "name": {
                           "type": "string",
                           "minLength": 1
                         },
                         "description": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
-                        "metadata": {
+                        "files": {
                           "type": "object",
-                          "additionalProperties": {}
-                        },
-                        "instructions": {
-                          "type": "array",
-                          "items": {
+                          "additionalProperties": {
                             "type": "string"
                           }
                         },
-                        "skills": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "description": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "files": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "type": "string"
-                                }
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "description",
-                              "files"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "tools": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                              },
-                              "description": {
-                                "type": "string"
-                              },
-                              "inputSchema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                              },
-                              "outputSchema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                              },
-                              "agent": {
-                                "$ref": "#/components/schemas/ToolAgentManifest"
-                              },
-                              "http": {
-                                "type": "object",
-                                "properties": {
-                                  "url": {
-                                    "type": "string"
-                                  },
-                                  "method": {
-                                    "type": "string",
-                                    "enum": [
-                                      "POST",
-                                      "PUT",
-                                      "PATCH"
-                                    ]
-                                  },
-                                  "credential": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "timeoutMs": {
-                                    "type": "integer",
-                                    "exclusiveMinimum": 0,
-                                    "maximum": 300000
-                                  }
-                                },
-                                "required": [
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              },
-                              "approval": {
-                                "type": "string",
-                                "enum": [
-                                  "never",
-                                  "always"
-                                ]
-                              },
-                              "fn": {
-                                "description": "Reserved for a later kind of tool; refused for now."
-                              },
-                              "command": {
-                                "description": "Reserved for a later kind of tool; refused for now."
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "inputSchema"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "mcpServers": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "oneOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "streamable-http"
-                                    ]
-                                  },
-                                  "url": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "headers": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "approval": {
-                                    "type": "string",
-                                    "enum": [
-                                      "never",
-                                      "always"
-                                    ]
-                                  },
-                                  "deferred": {
-                                    "type": "boolean"
-                                  },
-                                  "tools": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "$ref": "#/components/schemas/McpToolSettings"
-                                    }
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "sse"
-                                    ]
-                                  },
-                                  "url": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "headers": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "approval": {
-                                    "type": "string",
-                                    "enum": [
-                                      "never",
-                                      "always"
-                                    ]
-                                  },
-                                  "deferred": {
-                                    "type": "boolean"
-                                  },
-                                  "tools": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "$ref": "#/components/schemas/McpToolSettings"
-                                    }
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              }
-                            ]
-                          }
-                        },
-                        "sandbox": {
-                          "type": "object",
-                          "properties": {
-                            "image": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "network": {
-                              "type": "object",
-                              "properties": {
-                                "preset": {
-                                  "type": "string",
-                                  "enum": [
-                                    "none",
-                                    "dev",
-                                    "open"
-                                  ]
-                                },
-                                "allow": {
-                                  "type": "array",
-                                  "items": {
-                                    "type": "string"
-                                  }
-                                }
-                              },
-                              "additionalProperties": false
-                            },
-                            "resources": {
-                              "type": "object",
-                              "properties": {
-                                "cpus": {
-                                  "type": "integer",
-                                  "minimum": 1,
-                                  "maximum": 64
-                                },
-                                "memory": {
-                                  "type": "string"
-                                }
-                              },
-                              "additionalProperties": false
-                            },
-                            "idle": {
-                              "type": "string"
-                            }
-                          },
-                          "additionalProperties": false
+                        "plugin": {
+                          "$ref": "#/components/schemas/PluginLabel"
                         }
                       },
                       "required": [
-                        "id",
-                        "type"
+                        "name",
+                        "description",
+                        "files"
                       ],
                       "additionalProperties": false
                     }
                   },
+                  "mcpServers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "streamable-http"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "headers": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "deferred": {
+                              "type": "boolean"
+                            },
+                            "tools": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "$ref": "#/components/schemas/McpToolSettings"
+                              }
+                            },
+                            "plugin": {
+                              "$ref": "#/components/schemas/PluginLabel"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "sse"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "headers": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "deferred": {
+                              "type": "boolean"
+                            },
+                            "tools": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "$ref": "#/components/schemas/McpToolSettings"
+                              }
+                            },
+                            "plugin": {
+                              "$ref": "#/components/schemas/PluginLabel"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
                   "runtime": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                      "sandbox": {
+                        "type": "object",
+                        "properties": {
+                          "image": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "network": {
+                            "type": "object",
+                            "properties": {
+                              "preset": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "dev",
+                                  "open"
+                                ]
+                              },
+                              "allow": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "resources": {
+                            "type": "object",
+                            "properties": {
+                              "cpus": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 64
+                              },
+                              "memory": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "idle": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "tools": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "inputSchema": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            },
+                            "outputSchema": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            },
+                            "agent": {
+                              "$ref": "#/components/schemas/ToolAgentManifest"
+                            },
+                            "http": {
+                              "type": "object",
+                              "properties": {
+                                "url": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string",
+                                  "enum": [
+                                    "POST",
+                                    "PUT",
+                                    "PATCH"
+                                  ]
+                                },
+                                "credential": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "timeoutMs": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 300000
+                                }
+                              },
+                              "required": [
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "fn": {
+                              "description": "Reserved for a later kind of tool; refused for now."
+                            },
+                            "command": {
+                              "description": "Reserved for a later kind of tool; refused for now."
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "inputSchema"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "instructions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
                     "additionalProperties": false
                   },
                   "functions": {
@@ -6773,8 +6818,7 @@
                 },
                 "required": [
                   "manifestSchemaVersion",
-                  "id",
-                  "capabilities"
+                  "id"
                 ],
                 "additionalProperties": false
               },
@@ -6813,19 +6857,9 @@
                 "type": "object",
                 "properties": {
                   "manifestSchemaVersion": {
-                    "anyOf": [
-                      {
-                        "type": "number",
-                        "enum": [
-                          5
-                        ]
-                      },
-                      {
-                        "type": "number",
-                        "enum": [
-                          6
-                        ]
-                      }
+                    "type": "number",
+                    "enum": [
+                      7
                     ]
                   },
                   "id": {
@@ -6847,299 +6881,353 @@
                     "type": "object",
                     "additionalProperties": {}
                   },
-                  "capabilities": {
+                  "instructions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "tools": {
                     "type": "array",
                     "items": {
                       "type": "object",
                       "properties": {
-                        "id": {
+                        "name": {
                           "type": "string",
-                          "minLength": 1
+                          "pattern": "^[A-Za-z0-9_-]{1,64}$"
                         },
-                        "type": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "inputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "outputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "agent": {
+                          "$ref": "#/components/schemas/ToolAgentManifest"
+                        },
+                        "http": {
+                          "type": "object",
+                          "properties": {
+                            "url": {
+                              "type": "string"
+                            },
+                            "method": {
+                              "type": "string",
+                              "enum": [
+                                "POST",
+                                "PUT",
+                                "PATCH"
+                              ]
+                            },
+                            "credential": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "timeoutMs": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 300000
+                            }
+                          },
+                          "required": [
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "approval": {
                           "type": "string",
                           "enum": [
-                            "agent",
-                            "agent-plugin"
+                            "never",
+                            "always"
                           ]
                         },
+                        "fn": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        },
+                        "command": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "inputSchema"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "skills": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
                         "name": {
                           "type": "string",
                           "minLength": 1
                         },
                         "description": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
-                        "metadata": {
+                        "files": {
                           "type": "object",
-                          "additionalProperties": {}
-                        },
-                        "instructions": {
-                          "type": "array",
-                          "items": {
+                          "additionalProperties": {
                             "type": "string"
                           }
                         },
-                        "skills": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "description": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "files": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "type": "string"
-                                }
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "description",
-                              "files"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "tools": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                              },
-                              "description": {
-                                "type": "string"
-                              },
-                              "inputSchema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                              },
-                              "outputSchema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                              },
-                              "agent": {
-                                "$ref": "#/components/schemas/ToolAgentManifest"
-                              },
-                              "http": {
-                                "type": "object",
-                                "properties": {
-                                  "url": {
-                                    "type": "string"
-                                  },
-                                  "method": {
-                                    "type": "string",
-                                    "enum": [
-                                      "POST",
-                                      "PUT",
-                                      "PATCH"
-                                    ]
-                                  },
-                                  "credential": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "timeoutMs": {
-                                    "type": "integer",
-                                    "exclusiveMinimum": 0,
-                                    "maximum": 300000
-                                  }
-                                },
-                                "required": [
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              },
-                              "approval": {
-                                "type": "string",
-                                "enum": [
-                                  "never",
-                                  "always"
-                                ]
-                              },
-                              "fn": {
-                                "description": "Reserved for a later kind of tool; refused for now."
-                              },
-                              "command": {
-                                "description": "Reserved for a later kind of tool; refused for now."
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "inputSchema"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "mcpServers": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "oneOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "streamable-http"
-                                    ]
-                                  },
-                                  "url": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "headers": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "approval": {
-                                    "type": "string",
-                                    "enum": [
-                                      "never",
-                                      "always"
-                                    ]
-                                  },
-                                  "deferred": {
-                                    "type": "boolean"
-                                  },
-                                  "tools": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "$ref": "#/components/schemas/McpToolSettings"
-                                    }
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "sse"
-                                    ]
-                                  },
-                                  "url": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "headers": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "approval": {
-                                    "type": "string",
-                                    "enum": [
-                                      "never",
-                                      "always"
-                                    ]
-                                  },
-                                  "deferred": {
-                                    "type": "boolean"
-                                  },
-                                  "tools": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "$ref": "#/components/schemas/McpToolSettings"
-                                    }
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              }
-                            ]
-                          }
-                        },
-                        "sandbox": {
-                          "type": "object",
-                          "properties": {
-                            "image": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "network": {
-                              "type": "object",
-                              "properties": {
-                                "preset": {
-                                  "type": "string",
-                                  "enum": [
-                                    "none",
-                                    "dev",
-                                    "open"
-                                  ]
-                                },
-                                "allow": {
-                                  "type": "array",
-                                  "items": {
-                                    "type": "string"
-                                  }
-                                }
-                              },
-                              "additionalProperties": false
-                            },
-                            "resources": {
-                              "type": "object",
-                              "properties": {
-                                "cpus": {
-                                  "type": "integer",
-                                  "minimum": 1,
-                                  "maximum": 64
-                                },
-                                "memory": {
-                                  "type": "string"
-                                }
-                              },
-                              "additionalProperties": false
-                            },
-                            "idle": {
-                              "type": "string"
-                            }
-                          },
-                          "additionalProperties": false
+                        "plugin": {
+                          "$ref": "#/components/schemas/PluginLabel"
                         }
                       },
                       "required": [
-                        "id",
-                        "type"
+                        "name",
+                        "description",
+                        "files"
                       ],
                       "additionalProperties": false
                     }
                   },
+                  "mcpServers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "streamable-http"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "headers": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "deferred": {
+                              "type": "boolean"
+                            },
+                            "tools": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "$ref": "#/components/schemas/McpToolSettings"
+                              }
+                            },
+                            "plugin": {
+                              "$ref": "#/components/schemas/PluginLabel"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "sse"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "headers": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "deferred": {
+                              "type": "boolean"
+                            },
+                            "tools": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "$ref": "#/components/schemas/McpToolSettings"
+                              }
+                            },
+                            "plugin": {
+                              "$ref": "#/components/schemas/PluginLabel"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
                   "runtime": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                      "sandbox": {
+                        "type": "object",
+                        "properties": {
+                          "image": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "network": {
+                            "type": "object",
+                            "properties": {
+                              "preset": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "dev",
+                                  "open"
+                                ]
+                              },
+                              "allow": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "resources": {
+                            "type": "object",
+                            "properties": {
+                              "cpus": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 64
+                              },
+                              "memory": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "idle": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "tools": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "inputSchema": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            },
+                            "outputSchema": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            },
+                            "agent": {
+                              "$ref": "#/components/schemas/ToolAgentManifest"
+                            },
+                            "http": {
+                              "type": "object",
+                              "properties": {
+                                "url": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string",
+                                  "enum": [
+                                    "POST",
+                                    "PUT",
+                                    "PATCH"
+                                  ]
+                                },
+                                "credential": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "timeoutMs": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 300000
+                                }
+                              },
+                              "required": [
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "fn": {
+                              "description": "Reserved for a later kind of tool; refused for now."
+                            },
+                            "command": {
+                              "description": "Reserved for a later kind of tool; refused for now."
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "inputSchema"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "instructions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
                     "additionalProperties": false
                   },
                   "functions": {
@@ -7148,8 +7236,7 @@
                 },
                 "required": [
                   "manifestSchemaVersion",
-                  "id",
-                  "capabilities"
+                  "id"
                 ],
                 "additionalProperties": false
               },
@@ -7187,19 +7274,9 @@
                 "type": "object",
                 "properties": {
                   "manifestSchemaVersion": {
-                    "anyOf": [
-                      {
-                        "type": "number",
-                        "enum": [
-                          5
-                        ]
-                      },
-                      {
-                        "type": "number",
-                        "enum": [
-                          6
-                        ]
-                      }
+                    "type": "number",
+                    "enum": [
+                      7
                     ]
                   },
                   "id": {
@@ -7221,299 +7298,353 @@
                     "type": "object",
                     "additionalProperties": {}
                   },
-                  "capabilities": {
+                  "instructions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "tools": {
                     "type": "array",
                     "items": {
                       "type": "object",
                       "properties": {
-                        "id": {
+                        "name": {
                           "type": "string",
-                          "minLength": 1
+                          "pattern": "^[A-Za-z0-9_-]{1,64}$"
                         },
-                        "type": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "inputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "outputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "agent": {
+                          "$ref": "#/components/schemas/ToolAgentManifest"
+                        },
+                        "http": {
+                          "type": "object",
+                          "properties": {
+                            "url": {
+                              "type": "string"
+                            },
+                            "method": {
+                              "type": "string",
+                              "enum": [
+                                "POST",
+                                "PUT",
+                                "PATCH"
+                              ]
+                            },
+                            "credential": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "timeoutMs": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 300000
+                            }
+                          },
+                          "required": [
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "approval": {
                           "type": "string",
                           "enum": [
-                            "agent",
-                            "agent-plugin"
+                            "never",
+                            "always"
                           ]
                         },
+                        "fn": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        },
+                        "command": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "inputSchema"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "skills": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
                         "name": {
                           "type": "string",
                           "minLength": 1
                         },
                         "description": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
-                        "metadata": {
+                        "files": {
                           "type": "object",
-                          "additionalProperties": {}
-                        },
-                        "instructions": {
-                          "type": "array",
-                          "items": {
+                          "additionalProperties": {
                             "type": "string"
                           }
                         },
-                        "skills": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "description": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "files": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "type": "string"
-                                }
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "description",
-                              "files"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "tools": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                              },
-                              "description": {
-                                "type": "string"
-                              },
-                              "inputSchema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                              },
-                              "outputSchema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                              },
-                              "agent": {
-                                "$ref": "#/components/schemas/ToolAgentManifest"
-                              },
-                              "http": {
-                                "type": "object",
-                                "properties": {
-                                  "url": {
-                                    "type": "string"
-                                  },
-                                  "method": {
-                                    "type": "string",
-                                    "enum": [
-                                      "POST",
-                                      "PUT",
-                                      "PATCH"
-                                    ]
-                                  },
-                                  "credential": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "timeoutMs": {
-                                    "type": "integer",
-                                    "exclusiveMinimum": 0,
-                                    "maximum": 300000
-                                  }
-                                },
-                                "required": [
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              },
-                              "approval": {
-                                "type": "string",
-                                "enum": [
-                                  "never",
-                                  "always"
-                                ]
-                              },
-                              "fn": {
-                                "description": "Reserved for a later kind of tool; refused for now."
-                              },
-                              "command": {
-                                "description": "Reserved for a later kind of tool; refused for now."
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "inputSchema"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "mcpServers": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "oneOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "streamable-http"
-                                    ]
-                                  },
-                                  "url": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "headers": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "approval": {
-                                    "type": "string",
-                                    "enum": [
-                                      "never",
-                                      "always"
-                                    ]
-                                  },
-                                  "deferred": {
-                                    "type": "boolean"
-                                  },
-                                  "tools": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "$ref": "#/components/schemas/McpToolSettings"
-                                    }
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "sse"
-                                    ]
-                                  },
-                                  "url": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "headers": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "approval": {
-                                    "type": "string",
-                                    "enum": [
-                                      "never",
-                                      "always"
-                                    ]
-                                  },
-                                  "deferred": {
-                                    "type": "boolean"
-                                  },
-                                  "tools": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "$ref": "#/components/schemas/McpToolSettings"
-                                    }
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              }
-                            ]
-                          }
-                        },
-                        "sandbox": {
-                          "type": "object",
-                          "properties": {
-                            "image": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "network": {
-                              "type": "object",
-                              "properties": {
-                                "preset": {
-                                  "type": "string",
-                                  "enum": [
-                                    "none",
-                                    "dev",
-                                    "open"
-                                  ]
-                                },
-                                "allow": {
-                                  "type": "array",
-                                  "items": {
-                                    "type": "string"
-                                  }
-                                }
-                              },
-                              "additionalProperties": false
-                            },
-                            "resources": {
-                              "type": "object",
-                              "properties": {
-                                "cpus": {
-                                  "type": "integer",
-                                  "minimum": 1,
-                                  "maximum": 64
-                                },
-                                "memory": {
-                                  "type": "string"
-                                }
-                              },
-                              "additionalProperties": false
-                            },
-                            "idle": {
-                              "type": "string"
-                            }
-                          },
-                          "additionalProperties": false
+                        "plugin": {
+                          "$ref": "#/components/schemas/PluginLabel"
                         }
                       },
                       "required": [
-                        "id",
-                        "type"
+                        "name",
+                        "description",
+                        "files"
                       ],
                       "additionalProperties": false
                     }
                   },
+                  "mcpServers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "streamable-http"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "headers": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "deferred": {
+                              "type": "boolean"
+                            },
+                            "tools": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "$ref": "#/components/schemas/McpToolSettings"
+                              }
+                            },
+                            "plugin": {
+                              "$ref": "#/components/schemas/PluginLabel"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "sse"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "headers": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "deferred": {
+                              "type": "boolean"
+                            },
+                            "tools": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "$ref": "#/components/schemas/McpToolSettings"
+                              }
+                            },
+                            "plugin": {
+                              "$ref": "#/components/schemas/PluginLabel"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
                   "runtime": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                      "sandbox": {
+                        "type": "object",
+                        "properties": {
+                          "image": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "network": {
+                            "type": "object",
+                            "properties": {
+                              "preset": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "dev",
+                                  "open"
+                                ]
+                              },
+                              "allow": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "resources": {
+                            "type": "object",
+                            "properties": {
+                              "cpus": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 64
+                              },
+                              "memory": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "idle": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "tools": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "inputSchema": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            },
+                            "outputSchema": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            },
+                            "agent": {
+                              "$ref": "#/components/schemas/ToolAgentManifest"
+                            },
+                            "http": {
+                              "type": "object",
+                              "properties": {
+                                "url": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string",
+                                  "enum": [
+                                    "POST",
+                                    "PUT",
+                                    "PATCH"
+                                  ]
+                                },
+                                "credential": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "timeoutMs": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 300000
+                                }
+                              },
+                              "required": [
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "fn": {
+                              "description": "Reserved for a later kind of tool; refused for now."
+                            },
+                            "command": {
+                              "description": "Reserved for a later kind of tool; refused for now."
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "inputSchema"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "instructions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
                     "additionalProperties": false
                   },
                   "functions": {
@@ -7522,8 +7653,7 @@
                 },
                 "required": [
                   "manifestSchemaVersion",
-                  "id",
-                  "capabilities"
+                  "id"
                 ],
                 "additionalProperties": false
               },
@@ -7696,19 +7826,9 @@
             "type": "object",
             "properties": {
               "manifestSchemaVersion": {
-                "anyOf": [
-                  {
-                    "type": "number",
-                    "enum": [
-                      5
-                    ]
-                  },
-                  {
-                    "type": "number",
-                    "enum": [
-                      6
-                    ]
-                  }
+                "type": "number",
+                "enum": [
+                  7
                 ]
               },
               "id": {
@@ -7730,299 +7850,353 @@
                 "type": "object",
                 "additionalProperties": {}
               },
-              "capabilities": {
+              "instructions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tools": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "id": {
+                    "name": {
                       "type": "string",
-                      "minLength": 1
+                      "pattern": "^[A-Za-z0-9_-]{1,64}$"
                     },
-                    "type": {
+                    "description": {
+                      "type": "string"
+                    },
+                    "inputSchema": {
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "outputSchema": {
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "agent": {
+                      "$ref": "#/components/schemas/ToolAgentManifest"
+                    },
+                    "http": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        },
+                        "method": {
+                          "type": "string",
+                          "enum": [
+                            "POST",
+                            "PUT",
+                            "PATCH"
+                          ]
+                        },
+                        "credential": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "timeoutMs": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 300000
+                        }
+                      },
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "approval": {
                       "type": "string",
                       "enum": [
-                        "agent",
-                        "agent-plugin"
+                        "never",
+                        "always"
                       ]
                     },
+                    "fn": {
+                      "description": "Reserved for a later kind of tool; refused for now."
+                    },
+                    "command": {
+                      "description": "Reserved for a later kind of tool; refused for now."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "inputSchema"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "skills": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
                     "name": {
                       "type": "string",
                       "minLength": 1
                     },
                     "description": {
-                      "type": "string"
+                      "type": "string",
+                      "minLength": 1
                     },
-                    "metadata": {
+                    "files": {
                       "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "instructions": {
-                      "type": "array",
-                      "items": {
+                      "additionalProperties": {
                         "type": "string"
                       }
                     },
-                    "skills": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "object",
-                        "properties": {
-                          "name": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "description": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "files": {
-                            "type": "object",
-                            "additionalProperties": {
-                              "type": "string"
-                            }
-                          }
-                        },
-                        "required": [
-                          "name",
-                          "description",
-                          "files"
-                        ],
-                        "additionalProperties": false
-                      }
-                    },
-                    "tools": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "name": {
-                            "type": "string",
-                            "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                          },
-                          "description": {
-                            "type": "string"
-                          },
-                          "inputSchema": {
-                            "type": "object",
-                            "additionalProperties": {}
-                          },
-                          "outputSchema": {
-                            "type": "object",
-                            "additionalProperties": {}
-                          },
-                          "agent": {
-                            "$ref": "#/components/schemas/ToolAgentManifest"
-                          },
-                          "http": {
-                            "type": "object",
-                            "properties": {
-                              "url": {
-                                "type": "string"
-                              },
-                              "method": {
-                                "type": "string",
-                                "enum": [
-                                  "POST",
-                                  "PUT",
-                                  "PATCH"
-                                ]
-                              },
-                              "credential": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "timeoutMs": {
-                                "type": "integer",
-                                "exclusiveMinimum": 0,
-                                "maximum": 300000
-                              }
-                            },
-                            "required": [
-                              "url"
-                            ],
-                            "additionalProperties": false
-                          },
-                          "approval": {
-                            "type": "string",
-                            "enum": [
-                              "never",
-                              "always"
-                            ]
-                          },
-                          "fn": {
-                            "description": "Reserved for a later kind of tool; refused for now."
-                          },
-                          "command": {
-                            "description": "Reserved for a later kind of tool; refused for now."
-                          }
-                        },
-                        "required": [
-                          "name",
-                          "inputSchema"
-                        ],
-                        "additionalProperties": false
-                      }
-                    },
-                    "mcpServers": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                              },
-                              "type": {
-                                "type": "string",
-                                "enum": [
-                                  "streamable-http"
-                                ]
-                              },
-                              "url": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "headers": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "type": "string"
-                                }
-                              },
-                              "approval": {
-                                "type": "string",
-                                "enum": [
-                                  "never",
-                                  "always"
-                                ]
-                              },
-                              "deferred": {
-                                "type": "boolean"
-                              },
-                              "tools": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "$ref": "#/components/schemas/McpToolSettings"
-                                }
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "type",
-                              "url"
-                            ],
-                            "additionalProperties": false
-                          },
-                          {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                              },
-                              "type": {
-                                "type": "string",
-                                "enum": [
-                                  "sse"
-                                ]
-                              },
-                              "url": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "headers": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "type": "string"
-                                }
-                              },
-                              "approval": {
-                                "type": "string",
-                                "enum": [
-                                  "never",
-                                  "always"
-                                ]
-                              },
-                              "deferred": {
-                                "type": "boolean"
-                              },
-                              "tools": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "$ref": "#/components/schemas/McpToolSettings"
-                                }
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "type",
-                              "url"
-                            ],
-                            "additionalProperties": false
-                          }
-                        ]
-                      }
-                    },
-                    "sandbox": {
-                      "type": "object",
-                      "properties": {
-                        "image": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "network": {
-                          "type": "object",
-                          "properties": {
-                            "preset": {
-                              "type": "string",
-                              "enum": [
-                                "none",
-                                "dev",
-                                "open"
-                              ]
-                            },
-                            "allow": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            }
-                          },
-                          "additionalProperties": false
-                        },
-                        "resources": {
-                          "type": "object",
-                          "properties": {
-                            "cpus": {
-                              "type": "integer",
-                              "minimum": 1,
-                              "maximum": 64
-                            },
-                            "memory": {
-                              "type": "string"
-                            }
-                          },
-                          "additionalProperties": false
-                        },
-                        "idle": {
-                          "type": "string"
-                        }
-                      },
-                      "additionalProperties": false
+                    "plugin": {
+                      "$ref": "#/components/schemas/PluginLabel"
                     }
                   },
                   "required": [
-                    "id",
-                    "type"
+                    "name",
+                    "description",
+                    "files"
                   ],
                   "additionalProperties": false
                 }
               },
+              "mcpServers": {
+                "type": "object",
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "streamable-http"
+                          ]
+                        },
+                        "url": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "headers": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "approval": {
+                          "type": "string",
+                          "enum": [
+                            "never",
+                            "always"
+                          ]
+                        },
+                        "deferred": {
+                          "type": "boolean"
+                        },
+                        "tools": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "$ref": "#/components/schemas/McpToolSettings"
+                          }
+                        },
+                        "plugin": {
+                          "$ref": "#/components/schemas/PluginLabel"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "type",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "sse"
+                          ]
+                        },
+                        "url": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "headers": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "approval": {
+                          "type": "string",
+                          "enum": [
+                            "never",
+                            "always"
+                          ]
+                        },
+                        "deferred": {
+                          "type": "boolean"
+                        },
+                        "tools": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "$ref": "#/components/schemas/McpToolSettings"
+                          }
+                        },
+                        "plugin": {
+                          "$ref": "#/components/schemas/PluginLabel"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "type",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
               "runtime": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                  "sandbox": {
+                    "type": "object",
+                    "properties": {
+                      "image": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "network": {
+                        "type": "object",
+                        "properties": {
+                          "preset": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "dev",
+                              "open"
+                            ]
+                          },
+                          "allow": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "resources": {
+                        "type": "object",
+                        "properties": {
+                          "cpus": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 64
+                          },
+                          "memory": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "idle": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "inputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "outputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "agent": {
+                          "$ref": "#/components/schemas/ToolAgentManifest"
+                        },
+                        "http": {
+                          "type": "object",
+                          "properties": {
+                            "url": {
+                              "type": "string"
+                            },
+                            "method": {
+                              "type": "string",
+                              "enum": [
+                                "POST",
+                                "PUT",
+                                "PATCH"
+                              ]
+                            },
+                            "credential": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "timeoutMs": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 300000
+                            }
+                          },
+                          "required": [
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "approval": {
+                          "type": "string",
+                          "enum": [
+                            "never",
+                            "always"
+                          ]
+                        },
+                        "fn": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        },
+                        "command": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "inputSchema"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "instructions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
                 "additionalProperties": false
               },
               "functions": {
@@ -8031,8 +8205,7 @@
             },
             "required": [
               "manifestSchemaVersion",
-              "id",
-              "capabilities"
+              "id"
             ],
             "additionalProperties": false
           }
@@ -8137,19 +8310,9 @@
                   "type": "object",
                   "properties": {
                     "manifestSchemaVersion": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "enum": [
-                            5
-                          ]
-                        },
-                        {
-                          "type": "number",
-                          "enum": [
-                            6
-                          ]
-                        }
+                      "type": "number",
+                      "enum": [
+                        7
                       ]
                     },
                     "id": {
@@ -8171,299 +8334,353 @@
                       "type": "object",
                       "additionalProperties": {}
                     },
-                    "capabilities": {
+                    "instructions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "tools": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "id": {
+                          "name": {
                             "type": "string",
-                            "minLength": 1
+                            "pattern": "^[A-Za-z0-9_-]{1,64}$"
                           },
-                          "type": {
+                          "description": {
+                            "type": "string"
+                          },
+                          "inputSchema": {
+                            "type": "object",
+                            "additionalProperties": {}
+                          },
+                          "outputSchema": {
+                            "type": "object",
+                            "additionalProperties": {}
+                          },
+                          "agent": {
+                            "$ref": "#/components/schemas/ToolAgentManifest"
+                          },
+                          "http": {
+                            "type": "object",
+                            "properties": {
+                              "url": {
+                                "type": "string"
+                              },
+                              "method": {
+                                "type": "string",
+                                "enum": [
+                                  "POST",
+                                  "PUT",
+                                  "PATCH"
+                                ]
+                              },
+                              "credential": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "timeoutMs": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 300000
+                              }
+                            },
+                            "required": [
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "approval": {
                             "type": "string",
                             "enum": [
-                              "agent",
-                              "agent-plugin"
+                              "never",
+                              "always"
                             ]
                           },
+                          "fn": {
+                            "description": "Reserved for a later kind of tool; refused for now."
+                          },
+                          "command": {
+                            "description": "Reserved for a later kind of tool; refused for now."
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "inputSchema"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "skills": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
                           "name": {
                             "type": "string",
                             "minLength": 1
                           },
                           "description": {
-                            "type": "string"
+                            "type": "string",
+                            "minLength": 1
                           },
-                          "metadata": {
+                          "files": {
                             "type": "object",
-                            "additionalProperties": {}
-                          },
-                          "instructions": {
-                            "type": "array",
-                            "items": {
+                            "additionalProperties": {
                               "type": "string"
                             }
                           },
-                          "skills": {
-                            "type": "object",
-                            "additionalProperties": {
-                              "type": "object",
-                              "properties": {
-                                "name": {
-                                  "type": "string",
-                                  "minLength": 1
-                                },
-                                "description": {
-                                  "type": "string",
-                                  "minLength": 1
-                                },
-                                "files": {
-                                  "type": "object",
-                                  "additionalProperties": {
-                                    "type": "string"
-                                  }
-                                }
-                              },
-                              "required": [
-                                "name",
-                                "description",
-                                "files"
-                              ],
-                              "additionalProperties": false
-                            }
-                          },
-                          "tools": {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "name": {
-                                  "type": "string",
-                                  "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                },
-                                "description": {
-                                  "type": "string"
-                                },
-                                "inputSchema": {
-                                  "type": "object",
-                                  "additionalProperties": {}
-                                },
-                                "outputSchema": {
-                                  "type": "object",
-                                  "additionalProperties": {}
-                                },
-                                "agent": {
-                                  "$ref": "#/components/schemas/ToolAgentManifest"
-                                },
-                                "http": {
-                                  "type": "object",
-                                  "properties": {
-                                    "url": {
-                                      "type": "string"
-                                    },
-                                    "method": {
-                                      "type": "string",
-                                      "enum": [
-                                        "POST",
-                                        "PUT",
-                                        "PATCH"
-                                      ]
-                                    },
-                                    "credential": {
-                                      "type": "string",
-                                      "minLength": 1
-                                    },
-                                    "timeoutMs": {
-                                      "type": "integer",
-                                      "exclusiveMinimum": 0,
-                                      "maximum": 300000
-                                    }
-                                  },
-                                  "required": [
-                                    "url"
-                                  ],
-                                  "additionalProperties": false
-                                },
-                                "approval": {
-                                  "type": "string",
-                                  "enum": [
-                                    "never",
-                                    "always"
-                                  ]
-                                },
-                                "fn": {
-                                  "description": "Reserved for a later kind of tool; refused for now."
-                                },
-                                "command": {
-                                  "description": "Reserved for a later kind of tool; refused for now."
-                                }
-                              },
-                              "required": [
-                                "name",
-                                "inputSchema"
-                              ],
-                              "additionalProperties": false
-                            }
-                          },
-                          "mcpServers": {
-                            "type": "object",
-                            "additionalProperties": {
-                              "oneOf": [
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "name": {
-                                      "type": "string",
-                                      "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                    },
-                                    "type": {
-                                      "type": "string",
-                                      "enum": [
-                                        "streamable-http"
-                                      ]
-                                    },
-                                    "url": {
-                                      "type": "string",
-                                      "minLength": 1
-                                    },
-                                    "headers": {
-                                      "type": "object",
-                                      "additionalProperties": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "approval": {
-                                      "type": "string",
-                                      "enum": [
-                                        "never",
-                                        "always"
-                                      ]
-                                    },
-                                    "deferred": {
-                                      "type": "boolean"
-                                    },
-                                    "tools": {
-                                      "type": "object",
-                                      "additionalProperties": {
-                                        "$ref": "#/components/schemas/McpToolSettings"
-                                      }
-                                    }
-                                  },
-                                  "required": [
-                                    "name",
-                                    "type",
-                                    "url"
-                                  ],
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "name": {
-                                      "type": "string",
-                                      "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                    },
-                                    "type": {
-                                      "type": "string",
-                                      "enum": [
-                                        "sse"
-                                      ]
-                                    },
-                                    "url": {
-                                      "type": "string",
-                                      "minLength": 1
-                                    },
-                                    "headers": {
-                                      "type": "object",
-                                      "additionalProperties": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "approval": {
-                                      "type": "string",
-                                      "enum": [
-                                        "never",
-                                        "always"
-                                      ]
-                                    },
-                                    "deferred": {
-                                      "type": "boolean"
-                                    },
-                                    "tools": {
-                                      "type": "object",
-                                      "additionalProperties": {
-                                        "$ref": "#/components/schemas/McpToolSettings"
-                                      }
-                                    }
-                                  },
-                                  "required": [
-                                    "name",
-                                    "type",
-                                    "url"
-                                  ],
-                                  "additionalProperties": false
-                                }
-                              ]
-                            }
-                          },
-                          "sandbox": {
-                            "type": "object",
-                            "properties": {
-                              "image": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "network": {
-                                "type": "object",
-                                "properties": {
-                                  "preset": {
-                                    "type": "string",
-                                    "enum": [
-                                      "none",
-                                      "dev",
-                                      "open"
-                                    ]
-                                  },
-                                  "allow": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  }
-                                },
-                                "additionalProperties": false
-                              },
-                              "resources": {
-                                "type": "object",
-                                "properties": {
-                                  "cpus": {
-                                    "type": "integer",
-                                    "minimum": 1,
-                                    "maximum": 64
-                                  },
-                                  "memory": {
-                                    "type": "string"
-                                  }
-                                },
-                                "additionalProperties": false
-                              },
-                              "idle": {
-                                "type": "string"
-                              }
-                            },
-                            "additionalProperties": false
+                          "plugin": {
+                            "$ref": "#/components/schemas/PluginLabel"
                           }
                         },
                         "required": [
-                          "id",
-                          "type"
+                          "name",
+                          "description",
+                          "files"
                         ],
                         "additionalProperties": false
                       }
                     },
+                    "mcpServers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "streamable-http"
+                                ]
+                              },
+                              "url": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "headers": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              },
+                              "approval": {
+                                "type": "string",
+                                "enum": [
+                                  "never",
+                                  "always"
+                                ]
+                              },
+                              "deferred": {
+                                "type": "boolean"
+                              },
+                              "tools": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "$ref": "#/components/schemas/McpToolSettings"
+                                }
+                              },
+                              "plugin": {
+                                "$ref": "#/components/schemas/PluginLabel"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "type",
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "sse"
+                                ]
+                              },
+                              "url": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "headers": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              },
+                              "approval": {
+                                "type": "string",
+                                "enum": [
+                                  "never",
+                                  "always"
+                                ]
+                              },
+                              "deferred": {
+                                "type": "boolean"
+                              },
+                              "tools": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "$ref": "#/components/schemas/McpToolSettings"
+                                }
+                              },
+                              "plugin": {
+                                "$ref": "#/components/schemas/PluginLabel"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "type",
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
                     "runtime": {
                       "type": "object",
-                      "properties": {},
+                      "properties": {
+                        "sandbox": {
+                          "type": "object",
+                          "properties": {
+                            "image": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "network": {
+                              "type": "object",
+                              "properties": {
+                                "preset": {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "dev",
+                                    "open"
+                                  ]
+                                },
+                                "allow": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "resources": {
+                              "type": "object",
+                              "properties": {
+                                "cpus": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 64
+                                },
+                                "memory": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "idle": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "tools": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                              },
+                              "description": {
+                                "type": "string"
+                              },
+                              "inputSchema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "outputSchema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "agent": {
+                                "$ref": "#/components/schemas/ToolAgentManifest"
+                              },
+                              "http": {
+                                "type": "object",
+                                "properties": {
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "POST",
+                                      "PUT",
+                                      "PATCH"
+                                    ]
+                                  },
+                                  "credential": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "timeoutMs": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 300000
+                                  }
+                                },
+                                "required": [
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "approval": {
+                                "type": "string",
+                                "enum": [
+                                  "never",
+                                  "always"
+                                ]
+                              },
+                              "fn": {
+                                "description": "Reserved for a later kind of tool; refused for now."
+                              },
+                              "command": {
+                                "description": "Reserved for a later kind of tool; refused for now."
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "inputSchema"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "instructions": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
                       "additionalProperties": false
                     },
                     "functions": {
@@ -8472,8 +8689,7 @@
                   },
                   "required": [
                     "manifestSchemaVersion",
-                    "id",
-                    "capabilities"
+                    "id"
                   ],
                   "additionalProperties": false
                 }
@@ -8755,6 +8971,23 @@
         },
         "additionalProperties": false
       },
+      "PluginLabel": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
       "McpToolSettings": {
         "type": "object",
         "properties": {
@@ -8916,19 +9149,9 @@
                 "type": "object",
                 "properties": {
                   "manifestSchemaVersion": {
-                    "anyOf": [
-                      {
-                        "type": "number",
-                        "enum": [
-                          5
-                        ]
-                      },
-                      {
-                        "type": "number",
-                        "enum": [
-                          6
-                        ]
-                      }
+                    "type": "number",
+                    "enum": [
+                      7
                     ]
                   },
                   "id": {
@@ -8950,299 +9173,353 @@
                     "type": "object",
                     "additionalProperties": {}
                   },
-                  "capabilities": {
+                  "instructions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "tools": {
                     "type": "array",
                     "items": {
                       "type": "object",
                       "properties": {
-                        "id": {
+                        "name": {
                           "type": "string",
-                          "minLength": 1
+                          "pattern": "^[A-Za-z0-9_-]{1,64}$"
                         },
-                        "type": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "inputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "outputSchema": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "agent": {
+                          "$ref": "#/components/schemas/ToolAgentManifest"
+                        },
+                        "http": {
+                          "type": "object",
+                          "properties": {
+                            "url": {
+                              "type": "string"
+                            },
+                            "method": {
+                              "type": "string",
+                              "enum": [
+                                "POST",
+                                "PUT",
+                                "PATCH"
+                              ]
+                            },
+                            "credential": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "timeoutMs": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 300000
+                            }
+                          },
+                          "required": [
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "approval": {
                           "type": "string",
                           "enum": [
-                            "agent",
-                            "agent-plugin"
+                            "never",
+                            "always"
                           ]
                         },
+                        "fn": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        },
+                        "command": {
+                          "description": "Reserved for a later kind of tool; refused for now."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "inputSchema"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "skills": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
                         "name": {
                           "type": "string",
                           "minLength": 1
                         },
                         "description": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
-                        "metadata": {
+                        "files": {
                           "type": "object",
-                          "additionalProperties": {}
-                        },
-                        "instructions": {
-                          "type": "array",
-                          "items": {
+                          "additionalProperties": {
                             "type": "string"
                           }
                         },
-                        "skills": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "description": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "files": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "type": "string"
-                                }
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "description",
-                              "files"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "tools": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                              },
-                              "description": {
-                                "type": "string"
-                              },
-                              "inputSchema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                              },
-                              "outputSchema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                              },
-                              "agent": {
-                                "$ref": "#/components/schemas/ToolAgentManifest"
-                              },
-                              "http": {
-                                "type": "object",
-                                "properties": {
-                                  "url": {
-                                    "type": "string"
-                                  },
-                                  "method": {
-                                    "type": "string",
-                                    "enum": [
-                                      "POST",
-                                      "PUT",
-                                      "PATCH"
-                                    ]
-                                  },
-                                  "credential": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "timeoutMs": {
-                                    "type": "integer",
-                                    "exclusiveMinimum": 0,
-                                    "maximum": 300000
-                                  }
-                                },
-                                "required": [
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              },
-                              "approval": {
-                                "type": "string",
-                                "enum": [
-                                  "never",
-                                  "always"
-                                ]
-                              },
-                              "fn": {
-                                "description": "Reserved for a later kind of tool; refused for now."
-                              },
-                              "command": {
-                                "description": "Reserved for a later kind of tool; refused for now."
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "inputSchema"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "mcpServers": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "oneOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "streamable-http"
-                                    ]
-                                  },
-                                  "url": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "headers": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "approval": {
-                                    "type": "string",
-                                    "enum": [
-                                      "never",
-                                      "always"
-                                    ]
-                                  },
-                                  "deferred": {
-                                    "type": "boolean"
-                                  },
-                                  "tools": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "$ref": "#/components/schemas/McpToolSettings"
-                                    }
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "sse"
-                                    ]
-                                  },
-                                  "url": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "headers": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "approval": {
-                                    "type": "string",
-                                    "enum": [
-                                      "never",
-                                      "always"
-                                    ]
-                                  },
-                                  "deferred": {
-                                    "type": "boolean"
-                                  },
-                                  "tools": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "$ref": "#/components/schemas/McpToolSettings"
-                                    }
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "url"
-                                ],
-                                "additionalProperties": false
-                              }
-                            ]
-                          }
-                        },
-                        "sandbox": {
-                          "type": "object",
-                          "properties": {
-                            "image": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "network": {
-                              "type": "object",
-                              "properties": {
-                                "preset": {
-                                  "type": "string",
-                                  "enum": [
-                                    "none",
-                                    "dev",
-                                    "open"
-                                  ]
-                                },
-                                "allow": {
-                                  "type": "array",
-                                  "items": {
-                                    "type": "string"
-                                  }
-                                }
-                              },
-                              "additionalProperties": false
-                            },
-                            "resources": {
-                              "type": "object",
-                              "properties": {
-                                "cpus": {
-                                  "type": "integer",
-                                  "minimum": 1,
-                                  "maximum": 64
-                                },
-                                "memory": {
-                                  "type": "string"
-                                }
-                              },
-                              "additionalProperties": false
-                            },
-                            "idle": {
-                              "type": "string"
-                            }
-                          },
-                          "additionalProperties": false
+                        "plugin": {
+                          "$ref": "#/components/schemas/PluginLabel"
                         }
                       },
                       "required": [
-                        "id",
-                        "type"
+                        "name",
+                        "description",
+                        "files"
                       ],
                       "additionalProperties": false
                     }
                   },
+                  "mcpServers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "streamable-http"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "headers": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "deferred": {
+                              "type": "boolean"
+                            },
+                            "tools": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "$ref": "#/components/schemas/McpToolSettings"
+                              }
+                            },
+                            "plugin": {
+                              "$ref": "#/components/schemas/PluginLabel"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "sse"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "headers": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "deferred": {
+                              "type": "boolean"
+                            },
+                            "tools": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "$ref": "#/components/schemas/McpToolSettings"
+                              }
+                            },
+                            "plugin": {
+                              "$ref": "#/components/schemas/PluginLabel"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
                   "runtime": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                      "sandbox": {
+                        "type": "object",
+                        "properties": {
+                          "image": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "network": {
+                            "type": "object",
+                            "properties": {
+                              "preset": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "dev",
+                                  "open"
+                                ]
+                              },
+                              "allow": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "resources": {
+                            "type": "object",
+                            "properties": {
+                              "cpus": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 64
+                              },
+                              "memory": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "idle": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "tools": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "inputSchema": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            },
+                            "outputSchema": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            },
+                            "agent": {
+                              "$ref": "#/components/schemas/ToolAgentManifest"
+                            },
+                            "http": {
+                              "type": "object",
+                              "properties": {
+                                "url": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string",
+                                  "enum": [
+                                    "POST",
+                                    "PUT",
+                                    "PATCH"
+                                  ]
+                                },
+                                "credential": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "timeoutMs": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 300000
+                                }
+                              },
+                              "required": [
+                                "url"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "approval": {
+                              "type": "string",
+                              "enum": [
+                                "never",
+                                "always"
+                              ]
+                            },
+                            "fn": {
+                              "description": "Reserved for a later kind of tool; refused for now."
+                            },
+                            "command": {
+                              "description": "Reserved for a later kind of tool; refused for now."
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "inputSchema"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "instructions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
                     "additionalProperties": false
                   },
                   "functions": {
@@ -9251,8 +9528,7 @@
                 },
                 "required": [
                   "manifestSchemaVersion",
-                  "id",
-                  "capabilities"
+                  "id"
                 ],
                 "additionalProperties": false
               },
@@ -12412,10 +12688,6 @@
                 "type": "string",
                 "minLength": 1
               },
-              "capabilityId": {
-                "type": "string",
-                "minLength": 1
-              },
               "toolName": {
                 "type": "string",
                 "minLength": 1
@@ -12541,7 +12813,6 @@
             "required": [
               "callId",
               "invocationId",
-              "capabilityId",
               "toolName"
             ],
             "additionalProperties": {}
@@ -13357,9 +13628,6 @@
                     "agentId": {
                       "type": "string"
                     },
-                    "capabilityId": {
-                      "type": "string"
-                    },
                     "serverName": {
                       "type": "string"
                     },
@@ -13419,7 +13687,6 @@
                     }
                   },
                   "required": [
-                    "capabilityId",
                     "serverName",
                     "outcome",
                     "message",
@@ -19462,12 +19729,6 @@
               "null"
             ]
           },
-          "capabilityId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "toolName": {
             "type": [
               "string",
@@ -19552,7 +19813,6 @@
           "effectId",
           "turnId",
           "callId",
-          "capabilityId",
           "toolName",
           "kind",
           "server",
@@ -19753,10 +20013,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19893,10 +20153,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20032,10 +20292,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -20167,10 +20427,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -20277,10 +20537,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20424,10 +20684,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20614,10 +20874,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20758,10 +21018,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20941,10 +21201,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21201,10 +21461,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21341,10 +21601,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21478,10 +21738,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21614,10 +21874,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21750,10 +22010,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21868,10 +22128,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21994,10 +22254,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22126,10 +22386,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22318,10 +22578,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22464,10 +22724,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22610,10 +22870,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22744,10 +23004,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22894,10 +23154,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23063,10 +23323,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23214,10 +23474,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23351,10 +23611,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23522,10 +23782,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23679,10 +23939,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23818,10 +24078,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23953,10 +24213,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24089,10 +24349,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24239,10 +24499,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24386,10 +24646,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24546,10 +24806,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24685,10 +24945,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24823,10 +25083,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24969,10 +25229,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25116,10 +25376,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25304,10 +25564,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25506,10 +25766,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25650,10 +25910,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25785,10 +26045,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25925,10 +26185,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26087,10 +26347,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26301,10 +26561,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26458,10 +26718,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26682,10 +26942,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26829,10 +27089,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26967,10 +27227,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27113,10 +27373,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": false,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27356,10 +27616,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27512,10 +27772,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `12`"
+              "description": "The protocol version, `13`"
             },
             "required": true,
-            "description": "The protocol version, `12`",
+            "description": "The protocol version, `13`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },

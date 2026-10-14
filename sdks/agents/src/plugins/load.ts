@@ -53,6 +53,7 @@ export class PluginError extends Error {
 export interface LoadedPlugin {
   readonly root: string;
   readonly name: string;
+  readonly version?: string;
   readonly description?: string;
   readonly skills: Readonly<Record<string, LoadedSkill>>;
   readonly mcpServers: Readonly<Record<string, McpServerManifest>>;
@@ -122,6 +123,7 @@ export function loadPlugin(directory: string): LoadedPlugin {
   return {
     root,
     name: parsed.name,
+    ...(typeof parsed.version === "string" ? { version: parsed.version } : {}),
     ...(typeof parsed.description === "string" ? { description: parsed.description } : {}),
     skills,
     mcpServers,

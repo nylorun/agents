@@ -54,7 +54,6 @@ describe("normalizeToolName", () => {
 describe("listing a server's tools", () => {
   it("renames a dotted name, keeps the server's name for the call, and lists the rename", async () => {
     const listed = await listMcpTools(client(["read.v2", "write"]), {
-      capabilityId: "mcp",
       serverName: "files",
       taken: new Set(),
     });
@@ -67,7 +66,7 @@ describe("listing a server's tools", () => {
   });
 
   it("shortens a 100-character name", async () => {
-    const listed = await listMcpTools(client([LONG]), { capabilityId: "mcp", serverName: "docs", taken: new Set() });
+    const listed = await listMcpTools(client([LONG]), { serverName: "docs", taken: new Set() });
     expect(listed.tools).toHaveLength(1);
     expect(listed.tools[0]!.name).toMatch(MODEL_NAME);
     expect(listed.tools[0]!.serverToolName).toBe(LONG);
@@ -79,7 +78,7 @@ describe("listing a server's tools", () => {
       ["read.v2", "read_v2"],
       ["read_v2", "read.v2"],
     ]) {
-      const listed = await listMcpTools(client(names), { capabilityId: "mcp", serverName: "files", taken: new Set() });
+      const listed = await listMcpTools(client(names), { serverName: "files", taken: new Set() });
       const byServerName = Object.fromEntries(listed.tools.map((tool) => [tool.serverToolName, tool.name]));
       // The server's own `read_v2` keeps its name; the dotted one, renamed onto it, is suffixed.
       expect(byServerName).toEqual({
@@ -93,7 +92,6 @@ describe("listing a server's tools", () => {
 
   it("gives a renamed tool the hash when a declared tool has its name", async () => {
     const listed = await listMcpTools(client(["read.v2"]), {
-      capabilityId: "mcp",
       serverName: "files",
       taken: new Set(["files__read_v2"]),
     });
@@ -128,7 +126,6 @@ describe("the pool", () => {
     ]);
     const outcome = await pool.call({
       sessionId: "s1",
-      capabilityId: found.snapshot.mcpTools[0]!.capabilityId,
       serverName: "files",
       serverToolName: found.snapshot.mcpTools[0]!.serverToolName,
       args: {},

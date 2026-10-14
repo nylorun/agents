@@ -140,7 +140,7 @@ const putAgent = (url, key, agentId, name = agentId) =>
     body: {
       requestId: randomUUID(),
       implementationVersion: "dev",
-      manifest: { id: agentId, name, manifestSchemaVersion: 5, capabilities: [] },
+      manifest: { id: agentId, name, manifestSchemaVersion: 7 },
     },
   }).then(ok);
 
@@ -354,15 +354,15 @@ async function i3(url, stack) {
     body: {
       requestId: randomUUID(),
       implementationVersion: "dev",
-      manifest: { id: "too-new", name: "too-new", manifestSchemaVersion: 5, capabilities: [] },
+      manifest: { id: "too-new", name: "too-new", manifestSchemaVersion: 7 },
     },
   });
   assert.equal(rejected.status, 426, await rejected.text());
-  // The Host serves protocols 11 and 12: a protocol 10 request is a 426 too, and 11 is served.
-  const older = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "10" } });
-  assert.equal(older.status, 426, "a protocol 10 client");
-  const eleven = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "11" } });
-  assert.equal(eleven.status, 200, "a protocol 11 client");
+  // The Host serves protocol 13 only: a protocol 12 request is a 426 too, and 13 is served.
+  const older = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "12" } });
+  assert.equal(older.status, 426, "a protocol 12 client");
+  const current = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "13" } });
+  assert.equal(current.status, 200, "a protocol 13 client");
   assert.ok(
     !(await runtimeGet(url, key, "/v1/agents")).agents.some((agent) => agent.manifest.id === "too-new"),
     "no agent was written",

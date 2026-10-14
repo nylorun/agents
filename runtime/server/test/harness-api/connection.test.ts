@@ -34,7 +34,7 @@ function attach(runtime: Started): HarnessChannel {
   return channels.harness;
 }
 
-const hello = { api: 2, name: "nylorun", version: "0", capabilities: {} };
+const hello = { api: 3, name: "nylorun", version: "0", features: {} };
 
 it("binds a run to its connection, and offers it again when that connection is lost", async () => {
   const runtime = await boot({ harness: "remote", ownerLeaseMs: 300 });

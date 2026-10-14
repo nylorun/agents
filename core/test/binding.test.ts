@@ -20,10 +20,11 @@ it("keeps live code and schemas in a non-serialized binding", () => {
   expect(JSON.parse(JSON.stringify(agent))).toEqual(agent.manifest);
   expect(binding.outputSchema).toBe(outputSchema);
   expect(binding.manifest).toBe(agent.manifest);
-  expect(typeof binding.implementations.agent.tools?.value.execute).toBe(
+  expect(typeof binding.implementations.tools?.value.execute).toBe(
     "function"
   );
-  expect(binding.declarations.map((d) => d.id)).toEqual(["agent"]);
+  expect(binding.parts.map((d) => d.id)).toEqual(["agent"]);
+  expect(binding.tools[0]!.owner).toMatchObject({ partId: "agent" });
   expect(Object.isFrozen(binding)).toBe(true);
 });
 
@@ -64,45 +65,84 @@ it("projects optional description and metadata onto the manifest", () => {
   );
 });
 
-it("omits an unset agent name and projects capability name and description", () => {
+it("omits an unset agent name and merges its parts into the flat manifest", () => {
   const unnamed = Agent({ id: "unnamed" }).build();
   expect(unnamed.name).toBeUndefined();
   expect(unnamed.manifest).not.toHaveProperty("name");
   expect(AgentManifestSchema.safeParse(unnamed.toJSON()).success).toBe(true);
 
-  const agent = addPart(Agent({ id: "support" }), {
+  const lookup = tool({ name: "lookup", input: z.object({}), run: async () => "ok" });
+  const agent = addPart(Agent({ id: "support" }).instructions("Help."), {
     id: "orders",
-    name: "Orders",
-    description: "Looks up orders.",
     instructions: ["Look up first."],
+    tools: [lookup],
   }).build();
-  expect(agent.manifest.capabilities).toEqual([
-    expect.objectContaining({
-      id: "orders",
-      name: "Orders",
-      description: "Looks up orders.",
-    }),
-  ]);
+  expect(agent.manifest).toEqual({
+    manifestSchemaVersion: 7,
+    id: "support",
+    instructions: ["Help.", "Look up first."],
+    tools: [expect.objectContaining({ name: "lookup" })],
+  });
+  expect(agent.getBinding().parts.map((part) => part.id)).toEqual(["agent", "orders"]);
   const json = agent.toJSON();
   expect(AgentManifestSchema.safeParse(json).success).toBe(true);
-  const restored = Agent.from(json, {});
+  const restored = Agent.from(json, { tools: { lookup } });
   expect(restored.manifest).toEqual(agent.manifest);
   expect(hashManifest(restored.manifest)).toBe(hashManifest(agent.manifest));
-
-  const labelOnly = addPart(Agent({ id: "labeled" }), {
-    id: "label",
-    name: "Label",
-    description: "Just a label.",
-  }).build();
-  expect(labelOnly.manifest.capabilities[0]).toEqual({
-    id: "label",
-    type: "agent",
-    name: "Label",
-    description: "Just a label.",
-  });
+  // Rebuilt, the manifest is one part: the agent's.
+  expect(restored.getBinding().parts.map((part) => part.id)).toEqual(["agent"]);
+  expect(() => Agent.from(json, {})).toThrow(/Missing tool implementation 'lookup'/);
 
   expect(() => Agent({ id: "a", name: "" }).build()).toThrow(AgentBuildError);
+  expect(() => addPart(Agent({ id: "a" }), { id: "" }).build()).toThrow(AgentBuildError);
   expect(() =>
-    addPart(Agent({ id: "a" }), { id: "orders", name: "" }).build()
-  ).toThrow(AgentBuildError);
+    addPart(addPart(Agent({ id: "a" }), { id: "same" }), { id: "same" }).build()
+  ).toThrow(/'same' is added twice/);
+});
+
+it("projects .mcp() and a raw part flat, with plugin labels and no skill tools", () => {
+  const SKILL_MD = `sha256:${"a".repeat(64)}`;
+  const label = { name: "ops", version: "2.1.0" };
+  const agent = addPart(
+    Agent({ id: "support" })
+      .instructions("Help.")
+      .mcp({ linear: { type: "streamable-http", url: "https://mcp.example.com/linear" } }),
+    {
+      id: "plugin:ops",
+      instructions: ["Follow the runbook."],
+      skills: {
+        deploy: { name: "deploy", description: "Deploy a service.", files: { "SKILL.md": SKILL_MD }, plugin: label },
+      },
+      mcpServers: {
+        pager: { name: "pager", type: "sse", url: "https://mcp.example.com/pager", plugin: label },
+      },
+    }
+  ).build();
+  expect(agent.manifest).toEqual({
+    manifestSchemaVersion: 7,
+    id: "support",
+    instructions: ["Help.", "Follow the runbook."],
+    skills: {
+      deploy: { name: "deploy", description: "Deploy a service.", files: { "SKILL.md": SKILL_MD }, plugin: label },
+    },
+    mcpServers: {
+      linear: { name: "linear", type: "streamable-http", url: "https://mcp.example.com/linear" },
+      pager: { name: "pager", type: "sse", url: "https://mcp.example.com/pager", plugin: label },
+    },
+  });
+  // The Runtime pins load_skill and the catalog; the definition carries neither.
+  expect(agent.manifest).not.toHaveProperty("tools");
+  expect(agent.manifest).not.toHaveProperty("runtime");
+  expect(JSON.stringify(agent.manifest)).not.toContain("load_skill");
+  expect(JSON.stringify(agent.manifest)).not.toContain("available_skills");
+  expect(agent.getBinding().tools).toEqual([]);
+  expect(agent.getBinding().parts.map((part) => part.id)).toEqual(["agent", "mcp", "plugin:ops"]);
+  expect(AgentManifestSchema.safeParse(agent.manifest).success).toBe(true);
+  // A skill or server named twice, by two parts, fails the build.
+  expect(() =>
+    addPart(Agent({ id: "a" }).mcp({ pager: { type: "sse", url: "https://mcp.example.com/p" } }), {
+      id: "plugin:ops",
+      mcpServers: { pager: { name: "pager", type: "sse", url: "https://mcp.example.com/pager" } },
+    }).build()
+  ).toThrow(/Duplicate MCP server 'pager'/);
 });

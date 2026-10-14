@@ -103,7 +103,7 @@ const byName = (body: { entries: any[] }) =>
   );
 
 describe("credentialNeeds", () => {
-  it("lists an agent's credentialed HTTP tools and MCP servers in capability order, then its agents'", () => {
+  it("lists an agent's credentialed HTTP tools, then its MCP servers, then its agents'", () => {
     expect(credentialNeeds(triage.manifest)).toEqual([
       { kind: "http", name: "refund_order", serverName: "billing", url: BILLING },
       { kind: "mcp", name: "tickets", serverName: "tickets", url: TICKETS },

@@ -4,14 +4,8 @@
  * sandbox spec is pinned for the session's life. The agent definition declares nothing.
  */
 import { expect, it } from "vitest";
-import {
-  Agent,
-  SANDBOX_CAPABILITY_ID,
-  hashManifest,
-  sandboxCapabilityManifest,
-} from "@nylorun/core/define";
+import { Agent, hashManifest, runtimeManifestFor } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
-import { withTestSessionStore } from "./support/store.js";
 import type { ModelProvider } from "../src/core/provider.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -68,14 +62,12 @@ async function environment(runtime: { url: string }, id: string, recipe: Record<
   return response;
 }
 
-/** The sandbox spec the session pinned: its pinned manifest's sandbox capability. */
+/** The sandbox spec the session pinned: its pinned manifest's `runtime` block. */
 async function pinnedSandbox(runtime: { url: string }, id: string): Promise<unknown> {
   const response = await fetch(`${runtime.url}/v1/sessions/${id}/manifest`, { headers: serverHeaders });
   expect(response.ok, await response.clone().text()).toBe(true);
-  const view = (await response.json()) as {
-    manifest: { capabilities: { id: string; sandbox?: unknown }[] };
-  };
-  return view.manifest.capabilities.find((item) => item.id === SANDBOX_CAPABILITY_ID)?.sandbox;
+  const view = (await response.json()) as { manifest: { runtime?: { sandbox?: unknown } } };
+  return view.manifest.runtime?.sandbox;
 }
 
 function tool(runtime: { url: string }, id: string, name: string, args: Record<string, unknown>) {
@@ -147,11 +139,9 @@ it("pins the Environment's sandbox and adds the sandbox tools to the session onl
     // The registered definition is unchanged.
     const listed = (await (
       await fetch(`${runtime.url}/v1/agents`, { headers: serverHeaders })
-    ).json()) as { agents: { agentId: string; manifest: { capabilities: { id: string }[] } }[] };
+    ).json()) as { agents: { agentId: string; manifest: { runtime?: unknown } }[] };
     const definition = listed.agents.find((item) => item.agentId === "bot")!;
-    expect(definition.manifest.capabilities.map((item) => item.id)).not.toContain(
-      SANDBOX_CAPABILITY_ID
-    );
+    expect(definition.manifest.runtime).toBeUndefined();
 
     // The model sees the six tools and runs one in the sandbox.
     await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
@@ -276,54 +266,17 @@ it("fixes the Environment for the session's life: a different one is a 409", asy
   }
 });
 
-/** A definition that declares a sandbox, as agents built with `.sandbox()` did before Sandboxes v3. */
-function declaredSandbox(id: string) {
-  const manifest = plain(id).manifest;
-  return {
-    ...manifest,
-    capabilities: [...manifest.capabilities, { ...sandboxCapabilityManifest({}), id: "sandbox" }],
-  };
-}
-
-it("refuses to register a definition that declares a sandbox", async () => {
+it("refuses to register a definition that sets runtime, which only the Runtime writes", async () => {
   const runtime = await boot();
   try {
+    const manifest = { ...plain("old").manifest, runtime: runtimeManifestFor({}, { sandbox: {} }) };
     const refused = await fetch(`${runtime.url}/v1/agents/old`, {
       method: "PUT",
       headers: serverHeaders,
-      body: JSON.stringify({ requestId: "put-old", manifest: declaredSandbox("old"), implementationVersion: "dev" }),
+      body: JSON.stringify({ requestId: "put-old", manifest, implementationVersion: "dev" }),
     });
     expect(refused.status).toBe(400);
-    const text = await refused.text();
-    expect(text).toContain("'old' (capability 'sandbox') declares a sandbox");
-    expect(text).toContain("PUT /v1/environments/{id}");
-  } finally {
-    await runtime.close();
-  }
-});
-
-it("keeps a sandbox declared by a definition stored before the upgrade", async () => {
-  const runtime = await boot();
-  try {
-    const manifest = declaredSandbox("old");
-    await withTestSessionStore({ root: runtime.root, tenantId: runtime.tenantId }, (store) =>
-      store.tx((t) =>
-        t.put("definitions", "old", {
-          manifest,
-          manifestHash: hashManifest(manifest),
-          implementationVersion: "dev",
-        })
-      )
-    );
-    const legacy = await open(runtime, "legacy", { agentId: "old" });
-    expect(legacy.ok, await legacy.clone().text()).toBe(true);
-    expect(((await legacy.json()) as { environment: unknown }).environment).toBeNull();
-    expect((await tool(runtime, "legacy", "bash", { command: "echo ok" })).ok).toBe(true);
-    // On an Environment too, it cannot take a second sandbox.
-    await environment(runtime, "legacy/ws");
-    const refused = await open(runtime, "both", { agentId: "old", environment: "legacy/ws" });
-    expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("'old'");
+    expect(await refused.text()).toContain("'old' sets runtime, which only the Runtime writes");
   } finally {
     await runtime.close();
   }
@@ -375,38 +328,40 @@ it("gives the agents a session uses as tools the same sandbox", async () => {
     expect(opened.ok, await opened.clone().text()).toBe(true);
     const pinned = (await (
       await fetch(`${runtime.url}/v1/sessions/s1/manifest`, { headers: serverHeaders })
-    ).json()) as { manifest: { capabilities: { tools?: { name: string; agent?: unknown }[] }[] } };
-    const child = pinned.manifest.capabilities
-      .flatMap((item) => item.tools ?? [])
-      .find((item) => item.name === "helper")?.agent;
-    expect(
-      (child as { capabilities: { id: string }[] } | undefined)?.capabilities.map((item) => item.id)
-    ).toContain(SANDBOX_CAPABILITY_ID);
+    ).json()) as { manifest: { runtime?: { sandbox?: unknown }; tools?: { name: string; agent?: unknown }[] } };
+    const child = pinned.manifest.tools?.find((item) => item.name === "helper")?.agent as
+      | { runtime?: { sandbox?: unknown; tools?: { name: string }[] } }
+      | undefined;
+    expect(child?.runtime?.sandbox).toEqual(pinned.manifest.runtime?.sandbox);
+    expect(child?.runtime?.tools?.map((item) => item.name)).toContain("bash");
   } finally {
     await runtime.close();
   }
 });
 
-it("refuses an Environment with a sandbox for an agent with a tool named like a sandbox tool", async () => {
+it("refuses to register an agent with a tool named like a sandbox tool", async () => {
   const runtime = await boot();
   try {
-    const { http } = await import("@nylorun/core/define");
-    const { z } = await import("zod");
-    const bash = http({
-      name: "bash",
-      description: "Not the sandbox's bash.",
-      input: z.object({}),
-      url: "https://tools.example.com/bash",
+    const manifest = {
+      manifestSchemaVersion: 7,
+      id: "clash",
+      instructions: ["x"],
+      tools: [
+        {
+          name: "bash",
+          description: "Not the sandbox's bash.",
+          inputSchema: { type: "object", properties: {} },
+          http: { url: "https://tools.example.com/bash" },
+        },
+      ],
+    };
+    const refused = await fetch(`${runtime.url}/v1/agents/clash`, {
+      method: "PUT",
+      headers: serverHeaders,
+      body: JSON.stringify({ requestId: "put-clash", manifest, implementationVersion: "dev" }),
     });
-    const clash = Agent({ id: "clash", name: "clash" }).instructions("x").tools(bash).build();
-    await register(runtime, clash);
-    await environment(runtime, "clash/ws");
-    const refused = await open(runtime, "s1", { agentId: "clash", environment: "clash/ws" });
     expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("declares a tool named like a sandbox tool");
-    // Kind none has no sandbox tools to clash with.
-    await environment(runtime, "clash/none", { kind: "none" });
-    expect((await open(runtime, "s2", { agentId: "clash", environment: "clash/none" })).ok).toBe(true);
+    expect(await refused.text()).toContain("takes the name of a tool the Runtime serves");
   } finally {
     await runtime.close();
   }

@@ -62,7 +62,7 @@ export type HttpOutcome =
 
 /**
  * One declared HTTP tool of a session: what the gate finds it by in the pinned manifest. An
- * agent's HTTP tool is named by its capability and tool; a flow's HTTP stage or HTTP verifier
+ * agent's HTTP tool is named by its agent and tool name; a flow's HTTP stage or HTTP verifier
  * by its stage key.
  */
 export type HttpToolRef =
@@ -70,7 +70,6 @@ export type HttpToolRef =
       readonly sessionId: string;
       /** The agent used as a tool that declares it; absent for the session's root agent. */
       readonly agentId?: string;
-      readonly capabilityId: string;
       readonly toolName: string;
     }
   | {
@@ -98,19 +97,17 @@ export interface HttpToolTenant {
   authorize(sessionId: string, request: McpCredentialRequest): Promise<AuthorizeResult>;
 }
 
-/** The HTTP tool `capabilityId`/`toolName` of the agent `agentId` (the root when absent). */
+/** The HTTP tool `toolName` of the agent `agentId` (the root when absent). */
 export function declaredHttpTool(
   manifest: unknown,
   agentId: string | undefined,
-  capabilityId: string | undefined,
   toolName: string | undefined,
 ): (ToolManifest & { readonly http: HttpToolTarget }) | undefined {
   const root = manifest as AgentManifest | undefined;
-  if (!root || !Array.isArray(root.capabilities)) return undefined;
+  if (!root || typeof root !== "object" || isWorkflowManifest(root as never) || toolName === undefined)
+    return undefined;
   const agent = agentId === undefined ? root : delegateManifest(root, agentId);
-  const tool = agent?.capabilities
-    .find((capability) => capability.id === capabilityId)
-    ?.tools?.find((item) => item.name === toolName);
+  const tool = agent?.tools?.find((item) => item.name === toolName);
   return tool?.http ? (tool as ToolManifest & { http: HttpToolTarget }) : undefined;
 }
 
@@ -127,18 +124,17 @@ export function declaredFlowHttp(manifest: unknown, stage: string | undefined) {
  */
 export function isHttpToolCall(manifest: unknown, request: HostEffect): boolean {
   if (request.kind !== "tool") return false;
-  if (request.capabilityId === undefined) return declaredFlowHttp(manifest, request.key) !== undefined;
-  return declaredHttpTool(manifest, request.agent?.id, request.capabilityId, request.toolName) !== undefined;
+  if (request.toolName === undefined) return declaredFlowHttp(manifest, request.key) !== undefined;
+  return declaredHttpTool(manifest, request.agent?.id, request.toolName) !== undefined;
 }
 
 /** The ref a `tool` effect calls the Tool Gate with: its agent's HTTP tool, or its flow stage. */
 export function httpToolRefOf(request: HostEffect): HttpToolRef {
-  if (request.capabilityId === undefined) return { sessionId: request.sessionId, stage: request.key! };
+  if (request.toolName === undefined) return { sessionId: request.sessionId, stage: request.key! };
   return {
     sessionId: request.sessionId,
     ...(request.agent ? { agentId: request.agent.id } : {}),
-    capabilityId: request.capabilityId,
-    toolName: request.toolName!,
+    toolName: request.toolName,
   };
 }
 
@@ -233,7 +229,6 @@ export async function runHttpTool(
     ...("stage" in tool
       ? { stage: tool.stage }
       : {
-          capability: tool.capabilityId,
           tool: tool.toolName,
           ...(tool.agentId === undefined ? {} : { agent: tool.agentId }),
         }),
@@ -250,7 +245,7 @@ export async function runHttpTool(
     const declared =
       "stage" in tool
         ? declaredFlowHttp(session.manifest, tool.stage)
-        : declaredHttpTool(session.manifest, agentId, tool.capabilityId, tool.toolName);
+        : declaredHttpTool(session.manifest, agentId, tool.toolName);
     if (!declared)
       return failed(
         "http.undeclared",

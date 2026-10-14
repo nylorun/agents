@@ -172,7 +172,10 @@ are refused from browsers before they are looked up. The Runtime sends no CORS h
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
 unsupported protocol → `426` before authentication, unless the request sends neither
-`Nylorun-Protocol` nor `Authorization` (the Host serves protocols 11 and 12; protocol 12 adds
+`Nylorun-Protocol` nor `Authorization` (the Host serves protocol 13 only; protocol 13 makes the
+manifest flat, manifest 7: no `capabilities`, tools known by name, the Runtime's own tools in the
+pinned manifest's `runtime` block and no `capabilityId` on events, tool call rows or the Harness
+API, now 3; it closes every session opened before it; protocol 12 adds
 model inputs, the `422 attachment_unsupported` accept check and `read_artifact` for every agent,
 and changes nothing a protocol 11 client sends; protocol 11 replaces
 sandbox resources, the Tenant's default sandbox, inline sandboxes and user and installation
@@ -286,7 +289,8 @@ an epoch; a Worker that takes over after a crash marks in-flight model effects
 `uncertain`, and sends an interrupted MCP or HTTP tool call again with the same key (R5). Vault ciphertext needs that Tenant's own KEK.
 
 A session that names an Environment of kind `virtual` or `pod` gets Runtime-executed
-sandbox tools; the agent declares nothing. The Tenant owns each Environment; backend
+sandbox tools, pinned in its manifest's `runtime` block with `save_artifact`; the agent declares
+nothing, and none of its own tools may take a Runtime tool's name. The Tenant owns each Environment; backend
 names are prefixed `nylorun-<tenant-id>-`.
 
 ## Local Project workflow

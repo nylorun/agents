@@ -1,14 +1,12 @@
 import type { DefinitionPart } from "./bound.js";
 import type { BuiltAgent } from "../types/agent.js";
-import type { AgentManifest, ManifestSchemaVersion, RuntimeManifest } from "../types/manifest.js";
+import type { AgentManifest, RuntimeManifest } from "../types/manifest.js";
 import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import type { ToolSchemaSource } from "../types/tool.js";
-import type { SkillManifest } from "../types/manifest.js";
 import { bindAgent } from "./bind-agent.js";
-import { createManifest } from "./manifest.js";
-import { createSkillTools } from "./skill-tools.js";
+import { createManifest, RUNTIME_PART_ID } from "./manifest.js";
 import { DELEGATE_NAME_PATTERN, delegateOf, delegatesOf } from "./delegate.js";
-import { SANDBOX_CAPABILITY_ID } from "./sandbox-capability.js";
+import { isRuntimeToolName } from "../utils/runtime-tools.js";
 
 type BuildResult<Agent> =
   | {
@@ -25,16 +23,15 @@ const diagnostic = (
 ): BuildDiagnostic => Object.freeze({ code, message, ...extra });
 
 export function assembleAgent(
-  middleware: readonly DefinitionPart[],
+  parts: readonly DefinitionPart[],
   identity: Readonly<{
     id: string;
     name?: string;
     description?: string;
     metadata?: JsonObject;
     outputSchema?: ToolSchemaSource;
+    /** A pinned manifest's `runtime` block, kept as it was (`agentFrom`). */
     runtime?: RuntimeManifest;
-    /** A manifest rebuilt from JSON keeps its version (`agentFrom`); a new one takes the least. */
-    manifestSchemaVersion?: ManifestSchemaVersion;
   }>
 ): BuildResult<BuiltAgent> {
   const diagnostics: BuildDiagnostic[] = [];
@@ -55,50 +52,55 @@ export function assembleAgent(
 
   const partIds = new Set<string>();
   const frozen: DefinitionPart[] = [];
-  for (const item of middleware) {
-    if (!item.id)
-      diagnostics.push(diagnostic("capability.invalid-id", "Capability id must not be empty"));
+  for (const item of parts) {
+    if (!item.id) diagnostics.push(diagnostic("part.invalid-id", "A part's id must not be empty"));
     else if (partIds.has(item.id))
-      diagnostics.push(diagnostic("capability.duplicate-id", `Duplicate capability id '${item.id}'`));
-    else if (item.name !== undefined && item.name.length === 0)
-      diagnostics.push(
-        diagnostic("capability.invalid", `Capability '${item.id}' name must be a non-empty string`)
-      );
+      diagnostics.push(diagnostic("part.duplicate-id", `'${item.id}' is added twice`));
     else {
       partIds.add(item.id);
       frozen.push(Object.freeze({ ...item }));
     }
   }
 
-  const skilled = attachSkillTools(frozen);
-  diagnostics.push(...skilled.diagnostics);
-  // The wire schema rejects tool names shared across capabilities; report them at build time
-  // with both owners. Duplicates within one capability keep their registration-time error.
-  const toolOwners = new Map<string, string>();
-  for (const item of skilled.items)
+  // The wire schema rejects a tool name used twice; report it at build time.
+  const toolNames = new Set<string>();
+  for (const item of frozen)
     for (const entry of item.tools ?? []) {
-      const owner = toolOwners.get(entry.name);
-      if (owner !== undefined && owner !== item.id)
+      if (toolNames.has(entry.name))
+        diagnostics.push(
+          diagnostic("tool.duplicate-name", `Tool '${entry.name}' is declared twice`, {
+            toolName: entry.name,
+          })
+        );
+      toolNames.add(entry.name);
+      if (item.id !== RUNTIME_PART_ID && isRuntimeToolName(entry.name))
         diagnostics.push(
           diagnostic(
-            "tool.duplicate-name",
-            `Tool '${entry.name}' is declared by capabilities '${owner}' and '${item.id}'`
+            "tool.reserved-name",
+            `Tool '${entry.name}' takes the name of a tool the Runtime serves; rename it`,
+            { toolName: entry.name }
           )
         );
-      else toolOwners.set(entry.name, item.id);
+      if (item.id !== RUNTIME_PART_ID && entry.name.includes("__"))
+        diagnostics.push(
+          diagnostic(
+            "tool.invalid-name",
+            `Tool '${entry.name}' must not contain '__', which names an MCP server's tools`,
+            { toolName: entry.name }
+          )
+        );
     }
-
-  diagnostics.push(...delegationDiagnostics(skilled.items));
-  diagnostics.push(...sandboxDiagnostics(skilled.items));
+  diagnostics.push(...nameDiagnostics(frozen, "skills", "skill.duplicate-name", "skill"));
+  diagnostics.push(...nameDiagnostics(frozen, "mcpServers", "mcp.duplicate-server", "MCP server"));
+  diagnostics.push(...delegationDiagnostics(frozen));
+  diagnostics.push(...sandboxDiagnostics(frozen));
 
   if (diagnostics.length)
     return Object.freeze({
       ok: false,
       diagnostics: Object.freeze(diagnostics),
     });
-  const frozenMiddleware = Object.freeze(
-    skilled.items.map((item) => Object.freeze(item))
-  );
+  const frozenParts = Object.freeze(frozen);
   const manifest = createManifest({
     id: identity.id,
     name: identity.name,
@@ -106,13 +108,28 @@ export function assembleAgent(
     metadata: identity.metadata,
     outputSchema: identity.outputSchema,
     runtime: identity.runtime,
-    middleware: frozenMiddleware,
-    ...(identity.manifestSchemaVersion === undefined
-      ? {}
-      : { manifestSchemaVersion: identity.manifestSchemaVersion }),
+    parts: frozenParts,
   });
-  const agent = bindAgent(frozenMiddleware, manifest, identity);
+  const agent = bindAgent(frozenParts, manifest, identity);
   return Object.freeze({ ok: true, agent, manifest });
+}
+
+/** A skill or MCP server name declared by two parts (two plugins, or a plugin and the agent). */
+function nameDiagnostics(
+  parts: readonly DefinitionPart[],
+  field: "skills" | "mcpServers",
+  code: string,
+  what: string
+): BuildDiagnostic[] {
+  const found: BuildDiagnostic[] = [];
+  const seen = new Set<string>();
+  for (const part of parts)
+    for (const [key, value] of Object.entries(part[field] ?? {})) {
+      if (key !== value.name || seen.has(value.name))
+        found.push(diagnostic(code, `Duplicate ${what} '${value.name}'`));
+      seen.add(value.name);
+    }
+  return found;
 }
 
 /** v1 delegation is one level deep and non-interactive; anything else fails the build by name. */
@@ -136,7 +153,7 @@ function delegationDiagnostics(items: readonly DefinitionPart[]): BuildDiagnosti
         found.push(
           diagnostic(
             "delegation.description-required",
-            `Agent '${child.id}' is used as a tool by capability '${item.id}' and needs a description: the parent's model reads it to decide when to delegate`,
+            `Agent '${child.id}' is used as a tool and needs a description: the parent's model reads it to decide when to delegate`,
             extra
           )
         );
@@ -165,56 +182,17 @@ function delegationDiagnostics(items: readonly DefinitionPart[]): BuildDiagnosti
 }
 
 /**
- * Definitions declare no sandbox: a session gets one when it is opened (Sandboxes v3). A
- * capability that still carries `sandbox` fails the build instead of being silently dropped.
- * The Runtime's own capability (`nylorun.sandbox`, in a session's pinned manifest) is exempt.
+ * Definitions declare no sandbox: a session gets one when it is opened (Sandboxes v3), and the
+ * Runtime pins it in the manifest's `runtime` block. A part that still carries `sandbox` fails the
+ * build instead of being silently dropped.
  */
 function sandboxDiagnostics(items: readonly DefinitionPart[]): BuildDiagnostic[] {
   return items
-    .filter((item) => item.sandbox !== undefined && item.id !== SANDBOX_CAPABILITY_ID)
-    .map((item) =>
+    .filter((item) => item.sandbox !== undefined)
+    .map(() =>
       diagnostic(
         "sandbox.in-definition",
-        `Capability '${item.id}' declares a sandbox. Agents no longer declare one: open the session with it instead, createSession({ sandbox: { image, network: { allow }, resources } }), or set the Tenant's default sandbox.`
+        "Agents no longer declare a sandbox: open the session with it instead, createSession({ sandbox: { image, network: { allow }, resources } }), or set the Tenant's default sandbox."
       )
     );
-}
-
-/**
- * Gives the first capability with skills `load_skill` (and `read_skill_resource`) for every skill
- * of the agent. A tool of that name it already has is kept: an agent rebuilt from its manifest
- * brings the hosted ones the Runtime serves.
- */
-function attachSkillTools(items: readonly DefinitionPart[]): {
-  readonly items: DefinitionPart[];
-  readonly diagnostics: readonly BuildDiagnostic[];
-} {
-  const skills = new Map<string, SkillManifest>();
-  const diagnostics: BuildDiagnostic[] = [];
-  let ownerId: string | undefined;
-  for (const item of items)
-    for (const [key, skill] of Object.entries(item.skills ?? {})) {
-      if (key !== skill.name || skills.has(skill.name)) {
-        diagnostics.push(
-          diagnostic(
-            "skill.duplicate-name",
-            `Duplicate skill '${skill.name}' on capability '${item.id}'`
-          )
-        );
-        continue;
-      }
-      skills.set(skill.name, skill);
-      ownerId ??= item.id;
-    }
-  if (diagnostics.length > 0 || ownerId === undefined)
-    return { items: [...items], diagnostics };
-  const skillTools = createSkillTools(skills);
-  const next = items.map((item) => {
-    if (item.id !== ownerId) return item;
-    const declared = new Set((item.tools ?? []).map((entry) => entry.name));
-    const added = skillTools.filter((entry) => !declared.has(entry.name));
-    if (added.length === 0) return item;
-    return { ...item, tools: Object.freeze([...(item.tools ?? []), ...added]) };
-  });
-  return { items: next, diagnostics };
 }

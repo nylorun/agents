@@ -25,7 +25,7 @@ const vaults: TenantVaults = { open: async () => ({ tenantId, store }) as never 
 const request = (held: { mcp: McpHandler }, name = "echo") => (signal: AbortSignal) =>
   held.mcp.call(
     undefined,
-    { server: { sessionId: "s1", capabilityId: "mcp", serverName: "remote" }, effectId: "e", name, arguments: {} },
+    { server: { sessionId: "s1", serverName: "remote" }, effectId: "e", name, arguments: {} },
     signal,
   );
 

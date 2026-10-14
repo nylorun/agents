@@ -235,7 +235,6 @@ export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolC
       : {};
   return {
     ...ids,
-    capabilityId: request.capabilityId!,
     toolName: request.toolName!,
     ...(facts
       ? {

@@ -20,7 +20,7 @@ import type { EventPayload } from "@nylorun/core/contracts";
 import {
   SANDBOX_WORKSPACE,
   type AgentManifest,
-  type CapabilityManifest,
+  type SandboxManifest,
   type SandboxToolName,
 } from "@nylorun/core/define";
 import {
@@ -62,7 +62,7 @@ import {
   type SandboxSpec,
 } from "./types.js";
 
-export { sandboxCapabilityOf } from "./capability.js";
+export { sandboxToolSpec } from "./runtime-tools.js";
 export type { SandboxRecord, SandboxRecords, SandboxState } from "./records.js";
 
 export interface SandboxSessionRef {
@@ -250,12 +250,12 @@ export class SandboxManager {
 
   async run(
     session: SandboxSessionRef,
-    capability: CapabilityManifest,
+    sandbox: SandboxManifest | undefined,
     toolName: SandboxToolName,
     input: unknown,
     signal: AbortSignal
   ): Promise<SandboxToolOutcome> {
-    const prepared = await this.prepare(session, capability);
+    const prepared = await this.prepare(session, sandbox);
     if ("kind" in prepared) return prepared;
     const { live: entry, spec } = prepared;
     const task = entry.tail.then(() => this.execute(entry, session, spec, toolName, input, signal));
@@ -270,7 +270,7 @@ export class SandboxManager {
    */
   async readBytes(
     session: SandboxSessionRef,
-    capability: CapabilityManifest,
+    sandbox: SandboxManifest | undefined,
     path: string,
     maxBytes: number,
     signal: AbortSignal
@@ -279,7 +279,7 @@ export class SandboxManager {
     | { kind: "missing"; path: string }
     | Extract<SandboxToolOutcome, { kind: "failed" }>
   > {
-    return this.withHandle(session, capability, signal, async (handle, live) => {
+    return this.withHandle(session, sandbox, signal, async (handle, live) => {
       const resolved = resolveSandboxPath(path, handle.workspace ?? SANDBOX_WORKSPACE);
       if (!handle.readBytes)
         return {
@@ -311,7 +311,7 @@ export class SandboxManager {
    */
   async listFiles(
     session: SandboxSessionRef,
-    capability: CapabilityManifest,
+    sandbox: SandboxManifest | undefined,
     dir: string,
     maxEntries: number,
     signal: AbortSignal
@@ -325,7 +325,7 @@ export class SandboxManager {
       const record = await this.options.records.get(key);
       if (!record) return { kind: "missing", path: dir };
     }
-    return this.withHandle(session, capability, signal, async (handle, live) => {
+    return this.withHandle(session, sandbox, signal, async (handle, live) => {
       const resolved = resolveSandboxPath(dir, handle.workspace ?? SANDBOX_WORKSPACE);
       if (!handle.listFiles)
         return {
@@ -346,11 +346,11 @@ export class SandboxManager {
    */
   async disk(
     session: SandboxSessionRef,
-    capability: CapabilityManifest,
+    sandbox: SandboxManifest | undefined,
     op: DiskOp,
     signal: AbortSignal
   ): Promise<DiskAnswer | Extract<SandboxToolOutcome, { kind: "failed" }>> {
-    return this.withHandle(session, capability, signal, async (handle, live) => {
+    return this.withHandle(session, sandbox, signal, async (handle, live) => {
       if (!handle.diskRoots)
         return {
           kind: "failed" as const,
@@ -364,11 +364,11 @@ export class SandboxManager {
   /** Runs `use` on the session's sandbox in its queue, starting it first when it is stopped. */
   private async withHandle<T>(
     session: SandboxSessionRef,
-    capability: CapabilityManifest,
+    sandbox: SandboxManifest | undefined,
     signal: AbortSignal,
     use: (handle: SandboxHandle, live: Live) => Promise<T>
   ): Promise<T | Extract<SandboxToolOutcome, { kind: "failed" }>> {
-    const prepared = await this.prepare(session, capability);
+    const prepared = await this.prepare(session, sandbox);
     if ("kind" in prepared) return prepared;
     const { live, spec } = prepared;
     const task = live.tail.then(async () => {
@@ -402,7 +402,7 @@ export class SandboxManager {
   /** The session's live sandbox entry and spec, or why it cannot run here. */
   private async prepare(
     session: SandboxSessionRef,
-    capability: CapabilityManifest
+    sandbox: SandboxManifest | undefined
   ): Promise<{ live: Live; spec: SandboxSpec } | Extract<SandboxToolOutcome, { kind: "failed" }>> {
     const selection = await this.ready;
     const backend = selection.backend;
@@ -415,10 +415,10 @@ export class SandboxManager {
     const key = this.keyFor(session);
     const spec: SandboxSpec = {
       key,
-      image: capability.sandbox?.image ?? DEFAULT_SANDBOX_IMAGE,
-      cpus: capability.sandbox?.resources?.cpus ?? DEFAULT_SANDBOX_CPUS,
-      memoryMiB: memoryMiBOf(capability.sandbox),
-      network: resolveNetwork(capability.sandbox),
+      image: sandbox?.image ?? DEFAULT_SANDBOX_IMAGE,
+      cpus: sandbox?.resources?.cpus ?? DEFAULT_SANDBOX_CPUS,
+      memoryMiB: memoryMiBOf(sandbox),
+      network: resolveNetwork(sandbox),
     };
     const unmet = backend.unmet(spec);
     if (unmet)
@@ -433,7 +433,7 @@ export class SandboxManager {
         sessionId: session.id,
         ...(session.environmentId === undefined ? {} : { environmentId: session.environmentId }),
         backend,
-        idleMs: idleMsOf(capability.sandbox),
+        idleMs: idleMsOf(sandbox),
         active: 0,
         lastUsedAt: Date.now(),
         tail: Promise.resolve(),

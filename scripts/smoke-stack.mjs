@@ -112,7 +112,7 @@ async function harnessChecks(stack, images, status) {
     await call("/v1/agents/plugged", "PUT", {
       requestId: randomUUID(),
       implementationVersion: "dev",
-      manifest: { id: "plugged", name: "Plugged", manifestSchemaVersion: 5, capabilities: [] },
+      manifest: { id: "plugged", name: "Plugged", manifestSchemaVersion: 7 },
     });
     await call("/v1/environments/plugged", "PUT", { requestId: randomUUID(), kind: "virtual" });
     await call("/v1/sessions/plugged", "PUT", {

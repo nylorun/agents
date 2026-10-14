@@ -1,5 +1,4 @@
-import type { CapabilityDeclaration } from "@nylorun/core/define";
-import { formatSkillCatalog, SKILLS_USAGE } from "../skills/catalog.js";
+import type { PartDeclaration, PluginLabel } from "@nylorun/core/define";
 import { skillsDeclaration } from "../skills/skills.js";
 import {
   loadPlugin,
@@ -7,7 +6,7 @@ import {
   type PluginDiagnostic,
 } from "./load.js";
 
-export interface PluginCapability extends CapabilityDeclaration {
+export interface PluginPart extends PartDeclaration {
   readonly diagnostics: readonly PluginDiagnostic[];
 }
 
@@ -17,10 +16,10 @@ export interface PluginCapability extends CapabilityDeclaration {
  * says why the agent has less than the package declares. A stdio MCP server throws: Nylorun
  * accepts remote servers only.
  */
-export function plugin(directory: string): PluginCapability {
+export function plugin(directory: string): PluginPart {
   const loaded = loadPlugin(directory);
   warn(loaded);
-  return capabilityFromPlugin(loaded);
+  return partFromPlugin(loaded);
 }
 
 function warn(loaded: LoadedPlugin): void {
@@ -34,29 +33,27 @@ function warn(loaded: LoadedPlugin): void {
   }
 }
 
-export function capabilityFromPlugin(loaded: LoadedPlugin): PluginCapability {
-  const names = Object.values(loaded.skills);
-  const instructions =
-    names.length === 0
-      ? undefined
-      : [
-          SKILLS_USAGE,
-          formatSkillCatalog(
-            names.map((skill) => ({
-              name: skill.name,
-              description: skill.description,
-            }))
-          ),
-        ];
+/**
+ * The part a plugin adds: its skills and remote MCP servers, each labelled with the plugin's name
+ * and version. The plugin itself is not in the manifest; the labels say where each part came from.
+ */
+export function partFromPlugin(loaded: LoadedPlugin): PluginPart {
+  const label: PluginLabel = {
+    name: loaded.name,
+    ...(loaded.version === undefined ? {} : { version: loaded.version }),
+  };
+  const skills = Object.values(loaded.skills);
+  const servers = Object.entries(loaded.mcpServers);
   return {
-    id: loaded.name,
-    type: "agent-plugin",
-    ...(loaded.description === undefined ? {} : { description: loaded.description }),
-    ...(instructions === undefined ? {} : { instructions }),
-    ...(names.length === 0 ? {} : skillsDeclaration(names)),
-    ...(Object.keys(loaded.mcpServers).length === 0
+    id: `plugin:${loaded.name}`,
+    ...(skills.length === 0 ? {} : skillsDeclaration(skills, label)),
+    ...(servers.length === 0
       ? {}
-      : { mcpServers: loaded.mcpServers }),
+      : {
+          mcpServers: Object.fromEntries(
+            servers.map(([name, server]) => [name, { ...server, plugin: label }])
+          ),
+        }),
     diagnostics: loaded.diagnostics,
   };
 }

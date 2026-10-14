@@ -91,7 +91,6 @@ interface ToolRowBody {
   readonly request: {
     readonly effectId: string;
     readonly turnId: string;
-    readonly capabilityId?: string;
     readonly toolName?: string;
     readonly input?: unknown;
     readonly context?: { readonly callId?: unknown };
@@ -119,7 +118,6 @@ function publicToolCall(body: ToolRowBody): ToolCall {
     effectId: request.effectId,
     turnId: request.turnId,
     callId: typeof request.context?.callId === "string" ? request.context.callId : null,
-    capabilityId: request.capabilityId ?? null,
     toolName: request.toolName ?? null,
     kind: body.toolKind ?? null,
     server: body.server ?? null,

@@ -19,12 +19,10 @@ export function sandboxSkillsOf(
   manifest: AgentManifest | undefined,
   into = new Map<string, SkillFiles>()
 ): Map<string, SkillFiles> {
-  for (const capability of manifest?.capabilities ?? []) {
-    for (const skill of Object.values(capability.skills ?? {}))
-      if (!into.has(skill.name)) into.set(skill.name, skill.files);
-    for (const tool of capability.tools ?? [])
-      if (tool.agent !== undefined && !("kind" in tool.agent)) sandboxSkillsOf(tool.agent, into);
-  }
+  for (const skill of Object.values(manifest?.skills ?? {}))
+    if (!into.has(skill.name)) into.set(skill.name, skill.files);
+  for (const tool of manifest?.tools ?? [])
+    if (tool.agent !== undefined && !("kind" in tool.agent)) sandboxSkillsOf(tool.agent, into);
   return into;
 }
 

@@ -5,25 +5,24 @@ import { ToolError } from "./tool-error.js";
 import { SANDBOX_WORKSPACE } from "../utils/sandbox.js";
 import { SKILLS_MOUNT } from "../utils/definition-files.js";
 import { normalizedSchemasFor } from "./schema.js";
+import { createSkillTools, formatSkillCatalog, SKILLS_USAGE } from "./skill-tools.js";
 import { copyJsonObject } from "../utils/immutable.js";
-import type { CapabilityManifest, SandboxManifest, ToolManifest } from "../types/manifest.js";
+import { READ_ARTIFACT_TOOL, SAVE_ARTIFACT_TOOL } from "../utils/runtime-tools.js";
+import type {
+  AgentManifest,
+  RuntimeManifest,
+  SandboxManifest,
+  ToolManifest,
+} from "../types/manifest.js";
 import type { JsonObject } from "../types/shared.js";
+import type { ToolDefinition } from "../types/tool.js";
 
-/** Id of the capability the Runtime adds to a session whose sandbox was chosen at open. */
-export const SANDBOX_CAPABILITY_ID = "nylorun.sandbox";
 /**
- * Id of the capability that gives our engine `save_artifact` (protocol 6): the Runtime adds it
- * beside the sandbox capability, so `nylorun.artifacts/save_artifact` is the built-in tool
- * `nylorun.save_artifact`.
+ * `save_artifact` stores a file the agent made (protocol 6). `read_artifact` reads an artifact of
+ * the session in pages (R2b C11, Q24): a tool result the Runtime stored because it was too large
+ * to show, or a file of an earlier turn (protocol 12).
  */
-export const ARTIFACTS_CAPABILITY_ID = "nylorun.artifacts";
-export const SAVE_ARTIFACT_TOOL = "save_artifact";
-/**
- * The tool that reads an artifact of the session in pages (R2b C11, Q24): how the model reads a
- * tool result the Runtime stored because it was too large to show, and a file of an earlier turn
- * again (protocol 12). Every agent of a session has it, with or without a sandbox.
- */
-export const READ_ARTIFACT_TOOL = "read_artifact";
+export { READ_ARTIFACT_TOOL, SAVE_ARTIFACT_TOOL };
 /** The most `read_artifact` returns per call (R2b C11): 32 KiB, the inline cap of a tool result. */
 export const READ_ARTIFACT_MAX_BYTES = 32 * 1024;
 
@@ -42,46 +41,6 @@ async function artifactsRuntimeOnly(): Promise<never> {
     "artifacts.runtime-only",
     "The artifact tools run in the Nylorun Runtime. Connect the agent to a Runtime to use them."
   );
-}
-
-/** What the `nylorun.artifacts` capability gives a session. */
-export interface ArtifactsCapabilityOptions {
-  /** `save_artifact`, which comes with a sandbox. Default true. */
-  readonly save?: boolean;
-  /**
-   * `read_artifact` (R2b C11), which reads the session's artifacts: its stored tool results and
-   * the files its messages named. Default false.
-   */
-  readonly read?: boolean;
-}
-
-/**
- * The capability manifest that gives a session `save_artifact`, which stores a sandbox file, or
- * inline text, as a file artifact of the session, and `read_artifact`, which reads one in pages.
- * Its schemas are part of the hashed manifest; change them deliberately.
- */
-export function artifactsCapabilityManifest(
-  options: ArtifactsCapabilityOptions = {}
-): CapabilityManifest {
-  const save = options.save ?? true;
-  const read = options.read ?? false;
-  const tools = [...(save ? [saveArtifactTool()] : []), ...(read ? [readArtifactTool()] : [])];
-  return {
-    id: ARTIFACTS_CAPABILITY_ID,
-    type: "agent",
-    instructions: [
-      ...(save ? [ARTIFACTS_INSTRUCTIONS] : []),
-      ...(read ? [READ_ARTIFACT_INSTRUCTIONS] : []),
-    ],
-    tools: tools.map((item): ToolManifest => {
-      const schemas = normalizedSchemasFor(item);
-      return {
-        name: item.name,
-        ...(item.description === undefined ? {} : { description: item.description }),
-        inputSchema: schemas.inputSchema.jsonSchema,
-      };
-    }),
-  };
 }
 
 function readArtifactTool() {
@@ -134,47 +93,86 @@ function saveArtifactTool() {
   });
 }
 
+/** What the Runtime adds to a session's agent (`runtimeManifestFor`). */
+export interface RuntimeManifestOptions {
+  /** The session's sandbox: the six sandbox tools, their instructions and the spec. */
+  readonly sandbox?: SandboxManifest;
+  /** The workspace path the backend uses, named in the tools' text. Default `/workspace`. */
+  readonly workspace?: string;
+  /** `save_artifact`, which stores a sandbox file or text. Default: with a sandbox. */
+  readonly save?: boolean;
+  /** `read_artifact`, which reads the session's artifacts. Default false. */
+  readonly read?: boolean;
+}
+
 /**
- * The capability manifest that gives a session its sandbox: the six built-in tools, the sandbox
- * instructions and the resolved spec. The Runtime adds it to a session's pinned manifest. Its
- * tools are projected the way the builder projects any tool.
+ * The `runtime` block the Runtime pins on a session's agent: the sandbox and its tools, the
+ * artifact tools, and the skill tools with the skill catalog when the agent has skills. Its tools
+ * are projected the way the builder projects any tool, so their schemas are part of the pinned
+ * manifest's hash; change them deliberately. Undefined when the Runtime adds nothing.
  */
-export function sandboxCapabilityManifest(
-  spec: SandboxManifest,
-  options: {
-    /** The workspace path the backend uses, named in the tools' text. Default `/workspace`. */
-    readonly workspace?: string;
-    /** The agent's skills, whose files the sandbox holds under `/skills/<name>/`. */
-    readonly skills?: readonly string[];
-  } = {}
-): CapabilityManifest {
+export function runtimeManifestFor(
+  manifest: Pick<AgentManifest, "skills">,
+  options: RuntimeManifestOptions = {}
+): RuntimeManifest | undefined {
   const workspace = options.workspace ?? SANDBOX_WORKSPACE;
   const text = (value: string) => value.replaceAll(SANDBOX_WORKSPACE, workspace);
-  const tools = createSandboxTools().map((tool): ToolManifest => {
-    const schemas = normalizedSchemasFor(tool);
-    return {
-      name: tool.name,
-      ...(tool.description === undefined ? {} : { description: text(tool.description) }),
-      inputSchema: schemas.inputSchema.jsonSchema,
-      ...(schemas.outputSchema === undefined
-        ? {}
-        : { outputSchema: schemas.outputSchema.jsonSchema }),
-    };
-  });
+  const skills = Object.values(manifest.skills ?? {});
+  const save = options.save ?? options.sandbox !== undefined;
+  const read = options.read ?? false;
+  const instructions: string[] = [];
+  const tools: ToolDefinition[] = [];
+  if (skills.length > 0)
+    instructions.push(
+      SKILLS_USAGE,
+      formatSkillCatalog(skills.map(({ name, description }) => ({ name, description })))
+    );
+  if (options.sandbox !== undefined) {
+    instructions.push(text(SANDBOX_INSTRUCTIONS));
+    if (skills.length > 0)
+      instructions.push(
+        `Each skill's files are in the sandbox, read-only, under ${SKILLS_MOUNT}/<name>/ (${skills
+          .map((skill) => `${SKILLS_MOUNT}/${skill.name}/`)
+          .join(", ")}): read them there and run their scripts with bash.`
+      );
+    tools.push(...createSandboxTools());
+  }
+  if (save) {
+    instructions.push(ARTIFACTS_INSTRUCTIONS);
+    tools.push(saveArtifactTool());
+  }
+  if (read) {
+    instructions.push(READ_ARTIFACT_INSTRUCTIONS);
+    tools.push(readArtifactTool());
+  }
+  if (skills.length > 0)
+    tools.push(...createSkillTools(new Map(skills.map((skill) => [skill.name, skill]))));
+  if (instructions.length === 0 && tools.length === 0 && options.sandbox === undefined)
+    return undefined;
   return {
-    id: SANDBOX_CAPABILITY_ID,
-    type: "agent",
-    instructions: [
-      text(SANDBOX_INSTRUCTIONS),
-      ...(options.skills?.length
-        ? [
-            `Each skill's files are in the sandbox, read-only, under ${SKILLS_MOUNT}/<name>/ (${options.skills
-              .map((name) => `${SKILLS_MOUNT}/${name}/`)
-              .join(", ")}): read them there and run their scripts with bash.`,
-          ]
-        : []),
-    ],
-    tools,
-    sandbox: copyJsonObject(spec as unknown as JsonObject, "sandbox") as SandboxManifest,
+    ...(options.sandbox === undefined
+      ? {}
+      : { sandbox: copyJsonObject(options.sandbox as unknown as JsonObject, "sandbox") as SandboxManifest }),
+    ...(tools.length === 0 ? {} : { tools: tools.map((tool) => projectRuntimeTool(tool, text)) }),
+    ...(instructions.length === 0 ? {} : { instructions }),
+  };
+}
+
+/** The tool of `name` the Runtime added to `manifest`, if any. */
+export function runtimeToolOf(
+  manifest: AgentManifest | undefined,
+  name: string | undefined
+): ToolManifest | undefined {
+  if (name === undefined) return undefined;
+  return manifest?.runtime?.tools?.find((tool) => tool.name === name);
+}
+
+function projectRuntimeTool(tool: ToolDefinition, text: (value: string) => string): ToolManifest {
+  const schemas = normalizedSchemasFor(tool);
+  return {
+    name: tool.name,
+    ...(tool.description === undefined ? {} : { description: text(tool.description) }),
+    inputSchema: schemas.inputSchema.jsonSchema,
+    ...(schemas.outputSchema === undefined ? {} : { outputSchema: schemas.outputSchema.jsonSchema }),
   };
 }

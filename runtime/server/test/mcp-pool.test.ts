@@ -44,7 +44,6 @@ function harness() {
   const call = () =>
     pool.call({
       sessionId: "s1",
-      capabilityId: "mcp",
       serverName: "local",
       serverToolName: "echo",
       args: {},

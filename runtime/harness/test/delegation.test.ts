@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, tool, type ModelAdapter, type ModelCall } from "@nylorun/core/define";
+import {
+  Agent,
+  runtimeManifestFor,
+  tool,
+  type ModelAdapter,
+  type ModelCall,
+} from "@nylorun/core/define";
 import { addPart } from "./fixtures.js";
 import {
   bindingFromAgent,
@@ -198,8 +204,8 @@ describe("agents used as tools, in process", () => {
     expect(started).toBe(2);
   });
 
-  it("advertises a child's own skills, which only the Runtime serves", async () => {
-    const researcher = addPart(
+  it("advertises a child's own skills where the Runtime pinned them, which only it serves", async () => {
+    const authored = addPart(
       Agent({
         id: "researcher",
         description: "Investigates with a skill.",
@@ -216,6 +222,12 @@ describe("agents used as tools, in process", () => {
         },
       },
     ).build();
+    // The builder adds no skill tools; the Runtime pins the child's own `runtime` block.
+    expect(JSON.stringify(authored.manifest)).not.toContain("load_skill");
+    const researcher = Agent.from(
+      { ...authored.manifest, runtime: runtimeManifestFor(authored.manifest) },
+      {},
+    );
     const parent = Agent({
       id: "support",
       instructions: "Delegate.",
@@ -253,7 +265,7 @@ describe("agents used as tools, in process", () => {
     if (result.status !== "completed") return;
     expect(result.output).toBe("completed:skill used");
     expect(seen[0]!.tools).toContain("load_skill");
-    expect(JSON.stringify(seen[1]!.loaded)).toContain("Skills are served by the Nylorun Runtime");
+    expect(JSON.stringify(seen[1]!.loaded)).toContain("runs in the Nylorun Runtime");
   });
 
   it.each(["ask", "approve", "sleep", "waitFor"] as const)(
@@ -400,10 +412,10 @@ describe("agents used as tools, durable", () => {
     for (const action of actions) {
       expect(action).toMatchObject({
         agentId: "support",
-        capabilityId: "agent",
         toolName: "search_orders",
         agent: { id: "researcher", path: "support/researcher" },
       });
+      expect(action).not.toHaveProperty("capabilityId");
       expect(action.effectId).toContain(`:tool:${action.agent!.delegationId}/`);
       expect((action.context as any).idempotencyKey).toContain(`${action.agent!.delegationId}/`);
     }
@@ -506,7 +518,6 @@ describe("agents used as tools, durable", () => {
       sessionTools: [
         {
           agentId: "researcher",
-          capabilityId: "agent",
           name: "github__get_issue",
           inputSchema: { type: "object" },
         },

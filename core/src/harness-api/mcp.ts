@@ -11,7 +11,6 @@ const jsonObject = z.record(z.string(), z.unknown());
 export const McpToolRecordSchema = z.object({
   /** The agent used as a tool that declares the server; absent for the session's root agent. */
   agentId: z.string().optional(),
-  capabilityId: z.string(),
   serverName: z.string(),
   /** The tool's name on its server, which the call sends. */
   serverToolName: z.string(),
@@ -31,7 +30,6 @@ export const McpToolRecordSchema = z.object({
 /** A server's own instructions (MCP `initialize`), for the note on its deferred tools. */
 export const McpServerNoteSchema = z.object({
   agentId: z.string().optional(),
-  capabilityId: z.string(),
   serverName: z.string(),
   instructions: z.string(),
 });

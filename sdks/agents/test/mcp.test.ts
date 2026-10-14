@@ -18,9 +18,7 @@ it("declares servers with .mcp()", () => {
     .mcp({ github: { ...github, headers: { "X-Tenant": "public" } } })
     .build();
 
-  expect(agent.manifest.capabilities.find((item) => item.id === "mcp")).toMatchObject({
-    id: "mcp",
-    type: "agent",
+  expect(agent.manifest).toMatchObject({
     mcpServers: {
       github: {
         name: "github",
@@ -37,7 +35,7 @@ it("accepts the sse transport and merges .mcp() calls", () => {
     .mcp({ github })
     .mcp({ legacy: { type: "sse", url: "https://mcp.example.com/sse" } })
     .build();
-  expect(agent.manifest.capabilities.find((item) => item.id === "mcp")?.mcpServers).toEqual({
+  expect(agent.manifest.mcpServers).toEqual({
     github,
     legacy: { name: "legacy", type: "sse", url: "https://mcp.example.com/sse" },
   });

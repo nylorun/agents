@@ -116,29 +116,23 @@ export function delegateOf(tool: unknown): Delegate | undefined {
 }
 
 /**
- * The ReAct agents a manifest delegates to, which the engine runs inside the parent's run,
- * with the capability that declares each. Flow agents are in `flowDelegatesOf`.
+ * The ReAct agents a manifest delegates to, which the engine runs inside the parent's run.
+ * Flow agents are in `flowDelegatesOf`.
  */
-export function delegatesOf(
-  manifest: AgentManifest
-): readonly { readonly capabilityId: string; readonly manifest: AgentManifest }[] {
-  const found: { capabilityId: string; manifest: AgentManifest }[] = [];
-  for (const capability of manifest.capabilities)
-    for (const tool of capability.tools ?? [])
-      if (tool.agent && !("kind" in tool.agent))
-        found.push({ capabilityId: capability.id, manifest: tool.agent });
+export function delegatesOf(manifest: AgentManifest): readonly { readonly manifest: AgentManifest }[] {
+  const found: { manifest: AgentManifest }[] = [];
+  for (const tool of manifest.tools ?? [])
+    if (tool.agent && !("kind" in tool.agent)) found.push({ manifest: tool.agent });
   return found;
 }
 
 /** The flow agents a manifest delegates to: each runs in its own linked session. */
 export function flowDelegatesOf(
   manifest: AgentManifest
-): readonly { readonly capabilityId: string; readonly manifest: WorkflowManifest }[] {
-  const found: { capabilityId: string; manifest: WorkflowManifest }[] = [];
-  for (const capability of manifest.capabilities)
-    for (const tool of capability.tools ?? [])
-      if (tool.agent && "kind" in tool.agent)
-        found.push({ capabilityId: capability.id, manifest: tool.agent });
+): readonly { readonly manifest: WorkflowManifest }[] {
+  const found: { manifest: WorkflowManifest }[] = [];
+  for (const tool of manifest.tools ?? [])
+    if (tool.agent && "kind" in tool.agent) found.push({ manifest: tool.agent });
   return found;
 }
 

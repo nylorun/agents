@@ -9,7 +9,7 @@ import { HarnessError } from "../errors.js";
 export interface AgentBinding {
   readonly manifest: AgentManifest;
   readonly tools: readonly BoundToolDefinition[];
-  readonly declarations: readonly DefinitionPart[];
+  readonly parts: readonly DefinitionPart[];
   readonly implementations: Implementations;
   readonly outputSchema?: ToolSchemaSource;
 }

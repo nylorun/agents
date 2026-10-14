@@ -157,11 +157,9 @@ describe("PUT and HEAD /v1/files/{file}", () => {
 
 describe("a definition naming definition files", () => {
   const skill = (files: Record<string, string>) => ({
-    id: "skills",
-    type: "agent",
     skills: { triage: { name: "triage", description: "Triage an issue.", files } },
   });
-  const manifest = (id: string, capabilities: unknown[]) => ({ manifestSchemaVersion: 5, id, capabilities });
+  const manifest = (id: string, parts: Record<string, unknown>) => ({ manifestSchemaVersion: 7, id, ...parts });
 
   it("is refused while the Runtime lacks a file, its agents' used as tools included", async () => {
     const runtime = await boot();
@@ -172,7 +170,7 @@ describe("a definition naming definition files", () => {
         body: JSON.stringify({ requestId: "r", manifest: document, implementationVersion: "dev" }),
       });
     const files = { "SKILL.md": sha256(SKILL_MD), "references/labels.md": sha256(LABELS) };
-    const refused = await putAgent(manifest("bot", [skill(files)]));
+    const refused = await putAgent(manifest("bot", skill(files)));
     expect(refused.status).toBe(400);
     const body = (await refused.json()) as { code: string; message: string; details: { missing: string[] } };
     expect(body.code).toBe("definition_files_missing");
@@ -180,26 +178,22 @@ describe("a definition naming definition files", () => {
     expect(body.message).toContain(sha256(LABELS));
 
     await put(runtime, sha256(SKILL_MD), SKILL_MD);
-    const nested = manifest("lead", [
-      {
-        id: "agent",
-        type: "agent",
-        tools: [
-          {
-            name: "helper",
-            description: "Helps.",
-            inputSchema: DELEGATE_INPUT_SCHEMA,
-            agent: { ...manifest("helper", [skill(files)]), description: "Helps." },
-          },
-        ],
-      },
-    ]);
+    const nested = manifest("lead", {
+      tools: [
+        {
+          name: "helper",
+          description: "Helps.",
+          inputSchema: DELEGATE_INPUT_SCHEMA,
+          agent: { ...manifest("helper", skill(files)), description: "Helps." },
+        },
+      ],
+    });
     const missing = await putAgent(nested);
     expect(missing.status, await missing.clone().text()).toBe(400);
     expect(await missing.json()).toMatchObject({ details: { missing: [sha256(LABELS)] } });
 
     await put(runtime, sha256(LABELS), LABELS);
-    expect((await putAgent(manifest("bot", [skill(files)]))).status).toBe(200);
+    expect((await putAgent(manifest("bot", skill(files)))).status).toBe(200);
   });
 });
 
@@ -267,9 +261,7 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     expect(ran.output.stdout).toContain("P0, P1");
     expect(logo.error.message).toContain("/skills/triage/assets/logo.png");
     const { manifest } = await session.manifest();
-    const sandbox = (manifest.capabilities as { id: string; instructions?: string[] }[]).find(
-      (item) => item.id === "nylorun.sandbox",
-    );
-    expect(sandbox?.instructions?.join("\n")).toContain("/skills/triage/");
+    const runtimeBlock = (manifest as { runtime?: { instructions?: string[] } }).runtime;
+    expect(runtimeBlock?.instructions?.join("\n")).toContain("/skills/triage/");
   });
 });

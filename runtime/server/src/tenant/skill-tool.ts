@@ -1,6 +1,6 @@
 /**
- * The skill tools (track R2 M4): `load_skill` and `read_skill_resource`, which the build gives
- * the first capability with skills. The Runtime runs them itself, like `save_artifact`, from the
+ * The skill tools (track R2 M4): `load_skill` and `read_skill_resource`, which the Runtime pins
+ * in the `runtime` block of an agent with skills. The Runtime runs them itself, like `save_artifact`, from the
  * definition files uploaded with the agent: no developer process is involved.
  *
  * - `load_skill`: the skill's instructions (its `SKILL.md` after the frontmatter), the paths of
@@ -14,7 +14,6 @@
 import type { SandboxToolOutcome } from "@nylorun/core/contracts";
 import {
   LOAD_SKILL_TOOL,
-  SANDBOX_CAPABILITY_ID,
   SKILL_ENTRY,
   SKILLS_MOUNT,
   isSkillTool,
@@ -23,7 +22,7 @@ import {
   type SkillManifest,
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
-import { sandboxCapabilityOf } from "../sandbox/capability.js";
+import { sandboxToolSpec } from "../sandbox/runtime-tools.js";
 import { readDefinitionFile } from "./definition-files.js";
 import type { TenantContext } from "./context.js";
 
@@ -31,21 +30,12 @@ const failed = (code: string, message: string): SandboxToolOutcome => ({ kind: "
 
 /** True when `request` calls a skill tool the Runtime serves for `manifest`'s agent. */
 export function isSkillToolCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
-  return (
-    request.kind === "tool" &&
-    isSkillTool(
-      manifest?.capabilities.find((capability) => capability.id === request.capabilityId),
-      request.toolName
-    )
-  );
+  return request.kind === "tool" && isSkillTool(manifest, request.toolName);
 }
 
 /** Every skill of the agent, by name. */
 function skillsOf(manifest: AgentManifest): Map<string, SkillManifest> {
-  const skills = new Map<string, SkillManifest>();
-  for (const capability of manifest.capabilities)
-    for (const skill of Object.values(capability.skills ?? {})) skills.set(skill.name, skill);
-  return skills;
+  return new Map(Object.values(manifest.skills ?? {}).map((skill) => [skill.name, skill]));
 }
 
 /** UTF-8 text, or undefined for bytes that are not (a NUL byte, or invalid UTF-8). */
@@ -72,7 +62,7 @@ export async function callSkillTool(
     return request.toolName === LOAD_SKILL_TOOL
       ? { kind: "completed", output: { unknown: name, available: [...skills.keys()].sort() } }
       : failed("skill.unknown", `There is no skill '${name}'.`);
-  const sandboxed = sandboxCapabilityOf(manifest, SANDBOX_CAPABILITY_ID, "bash") !== undefined;
+  const sandboxed = sandboxToolSpec(manifest, "bash") !== undefined;
   const directory = `${SKILLS_MOUNT}/${skill.name}/`;
   const read = async (path: string) => {
     const bytes = await readDefinitionFile(ctx.blobs, skill.files[path]!, signal);

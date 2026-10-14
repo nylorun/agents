@@ -169,6 +169,13 @@
       "when": 1791730977999,
       "tag": "0023_artifact_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791986741535,
+      "tag": "0024_flat_manifest",
+      "breakpoints": true
     }
   ]
 }

@@ -193,7 +193,7 @@ async function fakeRuntime(environments = false) {
     if (path === "/v1/agents")
       return send(200, {
         agents: [
-          { agentId: AGENT, manifest: { id: AGENT, name: "Orders", capabilities: [] }, manifestHash: "h", implementationVersion: "1" },
+          { agentId: AGENT, manifest: { manifestSchemaVersion: 7, id: AGENT, name: "Orders" }, manifestHash: "h", implementationVersion: "1" },
           {
             agentId: FLOW,
             manifest: {
@@ -202,7 +202,7 @@ async function fakeRuntime(environments = false) {
               id: FLOW,
               name: "Shipping",
               root: { chain: [{ agent: CHILD_AGENT }] },
-              agents: { [CHILD_AGENT]: { id: CHILD_AGENT, name: "Logistics planner", capabilities: [] } },
+              agents: { [CHILD_AGENT]: { manifestSchemaVersion: 7, id: CHILD_AGENT, name: "Logistics planner" } },
             },
             manifestHash: "h",
             implementationVersion: "1",

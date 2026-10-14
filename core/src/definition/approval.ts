@@ -20,17 +20,15 @@ export function approvalsOf(manifest: AgentManifest | WorkflowManifest, into: st
     return into;
   }
   const agent = manifest as AgentManifest;
-  for (const capability of agent.capabilities) {
-    for (const tool of capability.tools ?? []) {
-      if (tool.agent !== undefined) approvalsOf(tool.agent as AgentManifest | WorkflowManifest, into);
-      else if (tool.approval !== undefined) into.push(`tool '${tool.name}' of agent '${agent.id}'`);
-    }
-    for (const [key, server] of Object.entries(capability.mcpServers ?? {})) {
-      if (server.approval !== undefined) into.push(`MCP server '${server.name ?? key}' of agent '${agent.id}'`);
-      for (const [name, settings] of Object.entries(server.tools ?? {}))
-        if (settings.approval !== undefined)
-          into.push(`tool '${name}' of MCP server '${server.name ?? key}' of agent '${agent.id}'`);
-    }
+  for (const tool of agent.tools ?? []) {
+    if (tool.agent !== undefined) approvalsOf(tool.agent as AgentManifest | WorkflowManifest, into);
+    else if (tool.approval !== undefined) into.push(`tool '${tool.name}' of agent '${agent.id}'`);
+  }
+  for (const [key, server] of Object.entries(agent.mcpServers ?? {})) {
+    if (server.approval !== undefined) into.push(`MCP server '${server.name ?? key}' of agent '${agent.id}'`);
+    for (const [name, settings] of Object.entries(server.tools ?? {}))
+      if (settings.approval !== undefined)
+        into.push(`tool '${name}' of MCP server '${server.name ?? key}' of agent '${agent.id}'`);
   }
   return into;
 }

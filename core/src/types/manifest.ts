@@ -2,11 +2,16 @@ import type { JsonObject } from "./shared.js";
 import type { WorkflowManifest } from "./workflow.js";
 
 /**
- * Published manifest schema version (no top-level model — Runtime-owned). Version 6 (R2b C9) adds
- * an MCP server's `tools` and `deferred`; a manifest that uses neither stays version 5, so its
- * hash is unchanged, and the Runtime accepts both.
+ * Published manifest schema version (no top-level model — Runtime-owned). Version 7 is flat: the
+ * agent's instructions, tools, skills and MCP servers sit at the top level, with no capabilities.
  */
-export type ManifestSchemaVersion = 5 | 6;
+export type ManifestSchemaVersion = 7;
+
+/** Which Agent Plugin brought a skill or an MCP server: its `plugin.json` name and version. */
+export interface PluginLabel {
+  readonly name: string;
+  readonly version?: string;
+}
 
 /**
  * Whether each call waits for a person's approval, in a manifest saved before R5 step 2 (the
@@ -67,6 +72,8 @@ export interface SkillManifest {
    * the Runtime holds and serves. `SKILL.md` is required.
    */
   readonly files: Readonly<Record<string, string>>;
+  /** The Agent Plugin that brought the skill. Absent: the agent's own. */
+  readonly plugin?: PluginLabel;
 }
 
 /**
@@ -100,6 +107,8 @@ interface McpServerFields {
    * entry per wanted tool make an allowlist.
    */
   readonly tools?: Readonly<Record<string, McpToolSettings>>;
+  /** The Agent Plugin that brought the server. Absent: the agent's own. */
+  readonly plugin?: PluginLabel;
 }
 
 /** A remote MCP server, declared by URL. Nylorun accepts no stdio servers (`stdioMcpRefusal`). */
@@ -132,22 +141,16 @@ export interface SandboxManifest {
   readonly idle?: string;
 }
 
-export interface CapabilityManifest {
-  readonly id: string;
-  readonly type: "agent" | "agent-plugin";
-  readonly name?: string;
-  readonly description?: string;
-  readonly metadata?: JsonObject;
-  readonly instructions?: readonly string[];
-  readonly skills?: Readonly<Record<string, SkillManifest>>;
-  readonly tools?: readonly ToolManifest[];
-  readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
-  /** Present when this capability gives the agent a Runtime-owned sandbox. */
+/**
+ * What the Runtime adds to a session's agent when it pins it: the session's sandbox, the tools the
+ * Runtime serves (the sandbox tools, the artifact tools, the skill tools) and the text that goes
+ * with them. Only the Runtime writes it; a definition or a turn variant that sets it is refused.
+ */
+export interface RuntimeManifest {
   readonly sandbox?: SandboxManifest;
+  readonly tools?: readonly ToolManifest[];
+  readonly instructions?: readonly string[];
 }
-
-/** Reserved. Empty until later fields are defined. Omit `runtime` while it has no fields. */
-export interface RuntimeManifest {}
 
 export interface AgentManifest {
   readonly manifestSchemaVersion: ManifestSchemaVersion;
@@ -156,6 +159,9 @@ export interface AgentManifest {
   readonly description?: string;
   readonly metadata?: JsonObject;
   readonly outputSchema?: JsonObject;
-  readonly capabilities: readonly CapabilityManifest[];
+  readonly instructions?: readonly string[];
+  readonly tools?: readonly ToolManifest[];
+  readonly skills?: Readonly<Record<string, SkillManifest>>;
+  readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
   readonly runtime?: RuntimeManifest;
 }

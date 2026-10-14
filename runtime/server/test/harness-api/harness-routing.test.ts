@@ -26,7 +26,7 @@ function attach(runtime: Started, peer: { name: string; harness?: string } = { n
   return channels.harness;
 }
 
-const hello = (name: string) => ({ api: 2, name, version: "0", capabilities: {} });
+const hello = (name: string) => ({ api: 3, name, version: "0", features: {} });
 
 async function call(runtime: Started, method: string, path: string, body?: unknown, headers = server) {
   const response = await fetch(`${runtime.url}${path}`, {
@@ -163,7 +163,7 @@ it("never serves a custom harness's session from our harness's workspaces", asyn
     if ((params as { session?: unknown }).session !== undefined) asked.push(method);
     return { kind: "completed", output: { content: "ours" } };
   });
-  await ours.request("hello", { ...hello("nylorun"), capabilities: { workspace: { backends: ["local"] } } });
+  await ours.request("hello", { ...hello("nylorun"), features: { workspace: { backends: ["local"] } } });
   expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "virtual", harness: "acme-mini" })).status).toBe(200);
   await openSession(runtime, "s-ours");
   expect((await openOn(runtime, "s-acme", "env-acme")).status).toBe(200);

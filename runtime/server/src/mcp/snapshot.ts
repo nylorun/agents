@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import type { EventPayload } from "@nylorun/core/contracts";
 import type { JsonObject } from "@nylorun/core/define";
 import {
-  TOOLS_CAPABILITY_ID,
   deferredToolsInstructions,
   deferredToolsTools,
   delegateManifest,
@@ -16,7 +15,6 @@ import type { DurableSessionTool, HostEffect } from "@nylorun/harness/run";
 export interface McpToolRecord {
   /** The agent used as a tool that declares the server; absent for the session's root agent. */
   readonly agentId?: string;
-  readonly capabilityId: string;
   readonly serverName: string;
   /** The tool's name on its server, which the call sends. */
   readonly serverToolName: string;
@@ -35,7 +33,6 @@ export interface McpToolRecord {
 /** A server's own instructions (MCP `initialize`), for the note on its deferred tools (R2b C10). */
 export interface McpServerNote {
   readonly agentId?: string;
-  readonly capabilityId: string;
   readonly serverName: string;
   /** Cut to `SERVER_INSTRUCTIONS_MAX_CHARS`. */
   readonly instructions: string;
@@ -52,7 +49,6 @@ export interface McpSnapshot {
 export interface McpDiagnostic {
   /** The agent used as a tool that declares the server; absent for the session's root agent. */
   readonly agentId?: string;
-  readonly capabilityId: string;
   readonly serverName: string;
   readonly outcome: "connected" | "refused" | "failed";
   readonly message: string;
@@ -76,8 +72,8 @@ export function mcpDiscovered(
   snapshot: McpSnapshot,
   diagnostics: readonly McpDiagnostic[]
 ): EventPayload<"mcp.discovered"> {
-  const key = (item: { agentId?: string; capabilityId: string; serverName: string }) =>
-    JSON.stringify([item.agentId ?? null, item.capabilityId, item.serverName]);
+  const key = (item: { agentId?: string; serverName: string }) =>
+    JSON.stringify([item.agentId ?? null, item.serverName]);
   const tools = new Map<string, number>();
   const deferred = new Map<string, number>();
   for (const tool of snapshot.mcpTools) {
@@ -87,7 +83,6 @@ export function mcpDiscovered(
   return {
     servers: diagnostics.map((item) => ({
       ...(item.agentId === undefined ? {} : { agentId: item.agentId }),
-      capabilityId: item.capabilityId,
       serverName: item.serverName,
       outcome: item.outcome,
       message: item.message,
@@ -125,17 +120,15 @@ export function normalizeToolName(
   return `${name.slice(0, MODEL_TOOL_NAME_MAX - 9)}_${hash}`;
 }
 
+/** The names of the agent's tools: its own and those the Runtime pinned. */
 export function declaredToolNames(manifest: AgentManifest): Set<string> {
-  const names = new Set<string>();
-  for (const capability of manifest.capabilities)
-    for (const tool of capability.tools ?? []) names.add(tool.name);
-  return names;
+  return new Set([...(manifest.tools ?? []), ...(manifest.runtime?.tools ?? [])].map((tool) => tool.name));
 }
 
 /** The declaration of the server a tool of the snapshot comes from, in `manifest`. */
 function serverOf(manifest: AgentManifest, tool: McpToolRecord): McpServerManifest | undefined {
   const agent = tool.agentId === undefined ? manifest : delegateManifest(manifest, tool.agentId);
-  return agent?.capabilities.find((item) => item.id === tool.capabilityId)?.mcpServers?.[tool.serverName];
+  return agent?.mcpServers?.[tool.serverName];
 }
 
 /** The tool's settings in `manifest` (R2b C9); the defaults when its server is not there. */
@@ -144,22 +137,15 @@ export function mcpToolSettingsIn(manifest: AgentManifest, tool: McpToolRecord):
   return server ? mcpToolSettings(server, tool.serverToolName) : { enabled: true, approval: "never" };
 }
 
-/** True when the agent the tool belongs to has `tool_search` and `tool_call` (`nylorun.tools`). */
-function reachesDeferred(manifest: AgentManifest, agentId: string | undefined): boolean {
-  const agent = agentId === undefined ? manifest : delegateManifest(manifest, agentId);
-  return agent?.capabilities.some((capability) => capability.id === TOOLS_CAPABILITY_ID) === true;
-}
-
 /**
  * The tools of a snapshot, as the engine gets them for a turn whose manifest is `manifest` (the
  * session's pin, or a turn variant that tightened its MCP servers' tools):
  *
  * - a tool its settings disable is left out (R2b C9); the Tool Gate holds a call its approval
  *   or the Tenant's tool policy asks a person about (R5 step 2);
- * - a deferred tool (R2b C10) is marked so, out of the model's list, and its agent gets
- *   `tool_search`, with the note on the servers it holds deferred tools of, and `tool_call` in
- *   its `nylorun.tools` capability. An agent whose turn has no such capability keeps its tools in
- *   its list.
+ * - a deferred tool (R2b C10) is marked so, out of the model's list, and its agent gets the
+ *   session tools `tool_search`, with the note on the servers it holds deferred tools of, and
+ *   `tool_call`. Their names are reserved: no tool of the agent's own takes them.
  *
  * Nothing here changes between the steps of a turn, so neither does the model's tool list.
  */
@@ -174,10 +160,9 @@ export function sessionToolsOf(
   for (const tool of snapshot.mcpTools) {
     const settings = mcpToolSettingsIn(manifest, tool);
     if (!settings.enabled) continue;
-    const defer = tool.deferred === true && reachesDeferred(manifest, tool.agentId);
+    const defer = tool.deferred === true;
     const entry: DurableSessionTool = {
       ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
-      capabilityId: tool.capabilityId,
       name: tool.name,
       ...(tool.description === undefined ? {} : { description: tool.description }),
       inputSchema: tool.inputSchema,
@@ -193,7 +178,7 @@ export function sessionToolsOf(
     servers.set(tool.serverName, (servers.get(tool.serverName) ?? 0) + 1);
     notes.set(tool.agentId, servers);
   }
-  const platform: DurableSessionTool[] = [];
+  const session: DurableSessionTool[] = [];
   for (const [agentId, tools] of deferred) {
     const servers = [...notes.get(agentId)!].map(([serverName, count]) => {
       const instructions = snapshot.servers?.find(
@@ -206,14 +191,10 @@ export function sessionToolsOf(
       { ...search!, instructions: [deferredToolsInstructions(servers)] },
       call!,
     ])
-      platform.push({
-        ...(agentId === undefined ? {} : { agentId }),
-        capabilityId: TOOLS_CAPABILITY_ID,
-        ...tool,
-      });
-    platform.push(...tools);
+      session.push({ ...(agentId === undefined ? {} : { agentId }), ...tool });
+    session.push(...tools);
   }
-  return [...inline, ...platform];
+  return [...inline, ...session];
 }
 
 /** The share of the model's context window past which an agent's MCP tools are deferred (Q21). */
@@ -225,9 +206,7 @@ export const CHARS_PER_TOKEN = 4;
  * The snapshot with its deferred tools marked (R2b C10, Q21), decided once for the session when
  * core records it. A tool's own setting, then `"*"`'s, then its server's, decides; a tool none
  * sets is deferred when the JSON of its agent's MCP tools that would be listed passes a tenth of
- * the model's context window (`contextWindow` tokens, at 4 characters a token). An agent without
- * the `nylorun.tools` capability (its definition names a tool `tool_search` or `tool_call`, or the
- * session was opened before it existed) defers nothing.
+ * the model's context window (`contextWindow` tokens, at 4 characters a token).
  */
 export function pinDeferral(
   snapshot: McpSnapshot,
@@ -244,7 +223,6 @@ export function pinDeferral(
   });
   const mcpTools = snapshot.mcpTools.map((tool, i): McpToolRecord => {
     const { deferred: _, ...rest } = tool;
-    if (!reachesDeferred(manifest, tool.agentId)) return rest;
     const defer = set[i] ?? (listed.get(tool.agentId) ?? 0) > limit;
     return defer ? { ...rest, deferred: true } : rest;
   });
@@ -257,14 +235,12 @@ export function pinDeferral(
  */
 export function mcpToolOf(
   snapshot: McpSnapshot | undefined,
-  request: Pick<HostEffect, "agent" | "capabilityId" | "toolName">,
+  request: Pick<HostEffect, "agent" | "toolName">,
   manifest?: AgentManifest
 ): McpToolRecord | undefined {
   const tool = snapshot?.mcpTools.find(
     (tool) =>
-      tool.agentId === request.agent?.id &&
-      tool.capabilityId === request.capabilityId &&
-      tool.name === request.toolName
+      tool.agentId === request.agent?.id && tool.name === request.toolName
   );
   if (tool && manifest && !isEnabledIn(manifest, tool)) return undefined;
   return tool;

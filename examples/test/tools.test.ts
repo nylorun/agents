@@ -99,10 +99,7 @@ describe("tools()", () => {
       .instructions("Be concise.")
       .tools(...(await tools()))
       .build();
-    expect(agent.manifest.capabilities.map((item) => item.id)).toEqual(["agent"]);
-    const offered =
-      agent.manifest.capabilities.find((item) => item.id === "agent")?.tools ??
-      [];
+    const offered = agent.manifest.tools ?? [];
     expect(offered.map((tool) => tool.name).sort()).toEqual([
       "calculate",
       "convert",

@@ -297,7 +297,6 @@ it("gives an agent used as a tool its own MCP servers and the session's sandbox"
     expect(done.mcpSnapshot.mcpTools).toEqual([
       expect.objectContaining({
         agentId: "coder",
-        capabilityId: "mcp",
         name: "local__echo",
       }),
     ]);

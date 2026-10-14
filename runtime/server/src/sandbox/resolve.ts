@@ -1,6 +1,6 @@
 /**
  * Resolves an Environment's recipe (`PUT /v1/environments/{id}`) against its Tenant's limits,
- * and the sandbox spec a recipe gives the session's sandbox capability and the pod. Pure: the
+ * and the sandbox spec a recipe gives a session's pinned manifest (its `runtime` block) and the pod. Pure: the
  * caller supplies the configuration. Every problem is reported, not only the first, so one
  * response lists all of them.
  */
@@ -100,7 +100,7 @@ export function resolveRecipe(
 }
 
 /**
- * The sandbox spec of a recipe: what the session's sandbox capability pins and the virtual
+ * The sandbox spec of a recipe: what a session's `runtime` block pins and the virtual
  * workspace runs. Idle is the Environment's `lifecycle.idle`, else the Tenant's.
  */
 export function sandboxSpecOf(recipe: EnvironmentRecipe, tenantIdle: string): SandboxManifest {

@@ -6,7 +6,7 @@ import {
   WorkflowManifestSchema,
 } from "../src/contracts.js";
 
-const coder = { manifestSchemaVersion: 5 as const, id: "coder", capabilities: [] };
+const coder = { manifestSchemaVersion: 7 as const, id: "coder" };
 const shipFeature = {
   kind: "workflow" as const,
   workflowSchemaVersion: 3 as const,
@@ -94,9 +94,8 @@ it("still registers an agent document without kind", () => {
   const parsed = PutAgentRequestSchema.parse({
     requestId: "r1",
     manifest: {
-      manifestSchemaVersion: 5,
+      manifestSchemaVersion: 7,
       id: "coder",
-      capabilities: [],
     },
     implementationVersion: "dev",
   });
@@ -128,9 +127,9 @@ it("message is exactly one of content or data", () => {
 
 it("message may carry an optional agent manifest", () => {
   const manifest = {
-    manifestSchemaVersion: 5 as const,
+    manifestSchemaVersion: 7 as const,
     id: "coder",
-    capabilities: [],
+    instructions: ["Retry."],
   };
   const parsed = MessageEventBodySchema.parse({
     requestId: "r1",

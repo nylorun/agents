@@ -6,9 +6,6 @@ import {
   parseTranscriptEvent,
   type LiveEvent,
 } from "@nylorun/core/contracts";
-import {
-  SANDBOX_CAPABILITY_ID,
-} from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 import { startToolServer } from "./support/tool-server.js";
@@ -125,7 +122,6 @@ it("writes message.assistant per model step and tool.completed for Runtime-run t
     expect(tools).toHaveLength(2);
     expect(tools[0]).toMatchObject({
       callId: "call-0",
-      capabilityId: SANDBOX_CAPABILITY_ID,
       toolName: "write",
     });
     expect(tools[0].invocationId).toEqual(expect.any(String));

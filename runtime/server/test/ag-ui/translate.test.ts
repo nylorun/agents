@@ -78,7 +78,6 @@ describe("RunTranslator", () => {
     const done = {
       callId: "call-1",
       invocationId: "inv_t",
-      capabilityId: "billing",
       toolName: "refund",
       output: { ok: true },
     };
@@ -92,7 +91,6 @@ describe("RunTranslator", () => {
       event("tool.completed", {
         callId: "call-2",
         invocationId: "inv_2",
-        capabilityId: "sandbox",
         toolName: "read",
         error: { code: "sandbox.error", message: "missing" },
       })
@@ -187,7 +185,6 @@ describe("messagesFromEvents", () => {
       event("tool.completed", {
         callId: "call-1",
         invocationId: "inv_t",
-        capabilityId: "orders",
         toolName: "lookup",
         output: "shipped",
       }),

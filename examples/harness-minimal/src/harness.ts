@@ -63,15 +63,19 @@ const MAX_STEPS = 16;
 /** The longest stdout or stderr a command returns; the middle of longer output is dropped. */
 const OUTPUT_LIMIT = 32 * 1024;
 
-/** The parts of an agent manifest this harness reads. */
+/**
+ * The parts of an agent manifest (v7) this harness reads: the agent's instructions, and the
+ * `runtime` block the Runtime pinned, with the session's sandbox, its tools and their text.
+ */
 interface Manifest {
   readonly id: string;
-  readonly capabilities: readonly {
-    readonly id: string;
-    readonly instructions?: readonly string[];
-    readonly tools?: readonly ModelCallTool[];
+  readonly instructions?: readonly string[];
+  readonly tools?: readonly ModelCallTool[];
+  readonly runtime?: {
     readonly sandbox?: unknown;
-  }[];
+    readonly tools?: readonly ModelCallTool[];
+    readonly instructions?: readonly string[];
+  };
 }
 
 /** The parts of a checkpoint this harness reads. `state` is what it settled the last turn with. */
@@ -156,7 +160,7 @@ export async function serve(channel: HarnessChannel, options: HarnessOptions): P
     api: HARNESS_API_VERSION,
     name: options.name,
     version: options.version ?? "0.1.0",
-    capabilities: {},
+    features: {},
   });
   let current: Run | undefined;
   const stop = (run: Run, reason: AbortReason, message: string = reason) => {
@@ -264,11 +268,14 @@ async function segment(
   const manifest = run.start.manifest as Manifest;
   const segmentNo = checkpoint.segment ?? 0;
   const recorded = new Map(run.start.outcomes.map((outcome) => [outcome.effectId, outcome]));
-  // The sandbox capability's bash is the one tool offered; the instructions are the manifest's.
-  const sandbox = manifest.capabilities.find((capability) => capability.sandbox !== undefined);
-  const bash = sandbox?.tools?.find((tool) => tool.name === "bash");
+  // The sandbox's bash, from the Runtime's block, is the one tool offered. The instructions are the
+  // agent's own, then the Runtime's.
+  const bash =
+    manifest.runtime?.sandbox === undefined
+      ? undefined
+      : manifest.runtime.tools?.find((tool) => tool.name === "bash");
   const tools: ModelCallTool[] = bash ? [bash] : [];
-  const instructions = manifest.capabilities.flatMap((capability) => capability.instructions ?? []);
+  const instructions = [...(manifest.instructions ?? []), ...(manifest.runtime?.instructions ?? [])];
 
   const { entries: before } = await channel.request("transcript.read", { runId });
   const added: TranscriptEntry[] = [{ kind: "input", turnId, event }];
@@ -334,7 +341,6 @@ async function segment(
         {
           effectId: effectIdOf(turnId, segmentNo, "tool", `${step}:${toolCall.id}`),
           kind: "tool",
-          capabilityId: sandbox!.id,
           toolName: bash.name,
           input: toolCall.args,
           context: { callId: toolCall.id, invocationId: `${stepId}:${toolCall.id}`, stepId },
@@ -349,7 +355,7 @@ async function segment(
   return failed("harness.max_steps", `The model took more than ${MAX_STEPS} steps`);
 }
 
-type Effect = Pick<EffectIntent, "effectId" | "kind" | "capabilityId" | "toolName" | "context"> & {
+type Effect = Pick<EffectIntent, "effectId" | "kind" | "toolName" | "context"> & {
   input: unknown;
 };
 type Resolved =

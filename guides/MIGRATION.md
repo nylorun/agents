@@ -1,3 +1,71 @@
+# The flat agent manifest (protocol 13)
+
+A fresh start: the Runtime speaks protocol 13 only, and refuses older manifests. Upgrade the
+Runtime, the SDKs, Studio and the CLI together, then save your agents again (`saveAgent`, or
+`PUT /v1/agents/{id}`). Sessions opened on protocol 12 do not carry over: open new ones.
+
+**Manifest v7 has no capabilities.** The agent's parts sit at the top level:
+
+```jsonc
+{
+  "manifestSchemaVersion": 7,
+  "id": "support",
+  "instructions": ["Answer in two sentences."],
+  "tools": [{ "name": "refund_order", "inputSchema": {}, "http": { "url": "https://…" } }],
+  "skills": { "triage": { "name": "triage", "description": "…", "files": {}, "plugin": { "name": "github", "version": "1.2.0" } } },
+  "mcpServers": { "github": { "name": "github", "type": "streamable-http", "url": "https://…", "plugin": { "name": "github", "version": "1.2.0" } } },
+  "runtime": { "sandbox": {}, "tools": [], "instructions": [] }
+}
+```
+
+- **Versions 3 to 6, and a `capabilities` field, are refused** with a message to rebuild the agent.
+  The SDK builds v7: rebuild and save.
+- **Plugin labels.** `.plugin(dir)` adds its skills and servers to `skills` and `mcpServers`,
+  each with `plugin: { name, version }` from its `plugin.json`. No `plugins` key and no
+  `agent-plugin` part.
+- **The `runtime` block** is what the Runtime adds when a session pins the agent: the session's
+  `sandbox` spec, the tools it serves (the sandbox tools, `save_artifact`, `read_artifact`,
+  `load_skill`, `read_skill_resource`) and their instructions (the skill catalog, the sandbox and
+  artifact notes). Only the Runtime writes it: a definition or a turn variant that sets it is
+  refused. It replaces the `nylorun.sandbox`, `nylorun.artifacts` and `nylorun.tools`
+  capabilities. `GET /v1/sessions/{id}/manifest` returns it.
+- **The skill tools and the catalog come from the Runtime.** `.skills()` and `.plugin()` no
+  longer add `load_skill`, `read_skill_resource` or the catalog to the agent's instructions:
+  `runtimeManifestFor(manifest, options)` in `@nylorun/core/define` shows what a session gets.
+- **Reserved names.** An agent's tool may not take a Runtime tool's name (`RUNTIME_TOOL_NAMES`:
+  `bash`, `read`, `write`, `edit`, `grep`, `glob`, `save_artifact`, `read_artifact`,
+  `load_skill`, `read_skill_resource`, `tool_search`, `tool_call`), nor contain `__`, which MCP
+  tool names use. Names are unique across tools, skills and servers.
+- **Turn variants.** A variant may remove tools, tighten MCP servers' tool settings, and change
+  instructions, name, description and metadata. Its skills are fixed (equal to the pin's), and it
+  may not set `runtime`, change `outputSchema` or add a part.
+
+**Tools are known by name.** `capabilityId` is gone from `tool.completed`, `mcp.discovered`, the
+rows of `GET /v1/sessions/{id}/calls/tool` and the Harness API. An HTTP tool's `server` is its
+URL's host.
+
+**Harness API 3.** `hello.capabilities` is renamed `features` (`features.tools`,
+`features.workspace`), effects and gate calls carry no `capabilityId`, and there is no `harness`
+pseudo-capability: a native tool is known by its name, and one whose name is taken fails the
+turn at its start. A harness reads the flat manifest: `tools` and `runtime.tools`,
+`instructions` then `runtime.instructions`. Core refuses `api: 2`. See
+[HARNESS_API.md](./HARNESS_API.md) and [`examples/harness-minimal`](../examples/harness-minimal/README.md).
+
+**In code:**
+
+| Before | After |
+| --- | --- |
+| `manifest.capabilities.find((c) => c.id === "agent").tools` | `manifest.tools` |
+| `Agent.from(json, { agent: { tools: { lookup } } })` | `Agent.from(json, { tools: { lookup } })`: `Implementations` is keyed by tool name |
+| `binding.declarations` | `binding.parts`: `agent`, `mcp`, `skills:<folder>`, `plugin:<name>` |
+| `middlewareId` in observe events and `ToolOwner` | `partId` |
+| `SessionToolRef { capabilityId, name }` | `{ name, instructions? }` |
+| `sandboxCapabilityManifest`, `artifactsCapabilityManifest`, `toolsCapabilityManifest` | `runtimeManifestFor` |
+| `createHarness({ capabilities })` | `createHarness({ features })` |
+
+Studio's Agent tab shows the manifest in sections (instructions, tools, skills, MCP servers),
+with a badge for each plugin, and a session's Runtime section from `manifest.runtime`.
+
 # Step middleware and capability bundles are removed
 
 An agent is its manifest: nothing of yours runs in a step, here or in the local engine. No

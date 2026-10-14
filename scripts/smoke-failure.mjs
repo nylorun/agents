@@ -199,7 +199,7 @@ try {
         body: {
           requestId: randomUUID(),
           implementationVersion: "dev",
-          manifest: { id: "bot", name: "Bot", manifestSchemaVersion: 5, capabilities: [] },
+          manifest: { id: "bot", name: "Bot", manifestSchemaVersion: 7 },
         },
       });
       await request(runtimeUrl, tenant, "/v1/sessions/s1", {
@@ -547,14 +547,8 @@ try {
           manifest: {
             id: "tooler",
             name: "Tooler",
-            manifestSchemaVersion: 5,
-            capabilities: [
-              {
-                id: "remote-tools",
-                type: "agent",
-                mcpServers: { remote: { name: "remote", type: "streamable-http", url: `http://${MCP_ALIAS}:8080/mcp` } },
-              },
-            ],
+            manifestSchemaVersion: 7,
+            mcpServers: { remote: { name: "remote", type: "streamable-http", url: `http://${MCP_ALIAS}:8080/mcp` } },
           },
         },
       });

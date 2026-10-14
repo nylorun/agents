@@ -94,6 +94,13 @@ it("restores an approval in a fresh process without redispatching its settled si
   expect(stdout).not.toContain("original approved");
 });
 
+it("names a pending call's tool by name alone in the saved state", async () => {
+  const first = await pause();
+  const reference = (first.state as any).plan.calls[0].reference;
+  expect(Object.keys(reference).sort()).toEqual(["descriptor", "toolName"]);
+  expect(reference).toMatchObject({ toolName: "job", descriptor: { name: "job" } });
+});
+
 it.each(["arguments", "order", "reference", "active", "failed"])(
   "rejects corrupted %s before invoking dependencies",
   async (kind) => {

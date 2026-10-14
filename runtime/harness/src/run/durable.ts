@@ -9,12 +9,7 @@ import type { AgentRef, ModelAdapter } from "@nylorun/core/define";
 import type { DelegationHost } from "../loop/delegation.js";
 import type { AgentDefinition } from "../definition/agent-definition.js";
 import { AgentManifestSchema } from "@nylorun/core/contracts";
-import {
-  TOOL_CALL_TOOL,
-  TOOLS_CAPABILITY_ID,
-  agentFrom,
-  withHttpTarget,
-} from "@nylorun/core/define";
+import { TOOL_CALL_TOOL, agentFrom, withHttpTarget } from "@nylorun/core/define";
 import { definitionFor } from "../definition/agent-definition.js";
 import { schemaFromJSON } from "@nylorun/core/define";
 import { hashManifest } from "@nylorun/core/define";
@@ -50,7 +45,6 @@ export interface HostEffect {
   readonly kind: "model" | "tool" | "delegation" | "agent";
   /** Set on work for an agent used as a tool; `agentId` stays the session's root agent. */
   readonly agent?: AgentRef;
-  readonly capabilityId?: string;
   readonly toolName?: string;
   /** Workflow node path (flow effects). */
   readonly path?: string;
@@ -86,7 +80,6 @@ export type DurableResult =
 export interface DurableSessionTool {
   /** The agent used as a tool that owns this tool; absent for the root agent. */
   readonly agentId?: string;
-  readonly capabilityId: string;
   readonly name: string;
   readonly description?: string;
   readonly inputSchema: JsonObject;
@@ -96,7 +89,7 @@ export interface DurableSessionTool {
    * with `tool_call`, which makes the call as this tool's own.
    */
   readonly deferred?: boolean;
-  /** Text the model reads with the capability's instructions while this tool is advertised. */
+  /** Text the model reads with the Runtime's instructions while this tool is advertised. */
   readonly instructions?: readonly string[];
 }
 export function createDurableCheckpoint(input: {
@@ -157,7 +150,7 @@ export async function runDurable(options: {
     input: unknown,
     context: Record<string, unknown>,
     identity: string,
-    target: Pick<HostEffect, "capabilityId" | "toolName" | "agent"> = {},
+    target: Pick<HostEffect, "toolName" | "agent"> = {},
   ): Promise<EffectOutcome> => {
     const effectId = effectIdOf(checkpoint.turnId, checkpoint.segment, kind, identity);
     const request: HostEffect = JSON.parse(
@@ -190,15 +183,12 @@ export async function runDurable(options: {
   /** Tools of one agent. Each agent keeps its own patch order; children namespace their effects. */
   const hostedTools = (ref?: AgentRef) => {
     let patchTail: Promise<void> = Promise.resolve();
-    return (
-      capabilityId: string,
-      tool: {
-        readonly name: string;
-        readonly description?: string;
-        readonly inputSchema: JsonObject;
-        readonly outputSchema?: JsonObject;
-      },
-    ) => ({
+    return (tool: {
+      readonly name: string;
+      readonly description?: string;
+      readonly inputSchema: JsonObject;
+      readonly outputSchema?: JsonObject;
+    }) => ({
       name: tool.name,
       ...(tool.description === undefined ? {} : { description: tool.description }),
       inputSchema: schemaFromJSON(tool.inputSchema),
@@ -228,7 +218,7 @@ export async function runDurable(options: {
               resume: ctx.resume,
             },
             scoped(ref, ctx.invocationId),
-            { capabilityId, toolName: tool.name, ...(ref ? { agent: ref } : {}) },
+            { toolName: tool.name, ...(ref ? { agent: ref } : {}) },
           );
           // Apply concurrently resolved patches in manifest call order, independent of host I/O timing.
           await previous;
@@ -259,27 +249,25 @@ export async function runDurable(options: {
     // Deferred tools stay out of the model's list; `tool_call` runs them (R2b C10).
     const owned = mine.filter((tool) => !tool.deferred);
     const deferred = new Map(mine.filter((tool) => tool.deferred).map((tool) => [tool.name, tool]));
-    const implementations: Record<string, Implementations[string]> = {};
-    for (const capability of agent.capabilities) {
-      const tools: Record<string, any> = {};
-      // Agents used as tools are rebuilt from their manifest body; the engine runs them. An
-      // HTTP tool keeps its target (the manifest's hash covers it) and runs as a host effect.
-      for (const tool of capability.tools ?? [])
-        if (tool.http)
-          // A pinned `approval` stays for the definition's hash; the Tool Gate holds the call.
-          tools[tool.name] = withHttpTarget(hostedTool(capability.id, tool), {
-            http: tool.http,
-            ...(tool.approval === undefined ? {} : { approval: tool.approval }),
-          });
-        else if (!tool.agent) tools[tool.name] = hostedTool(capability.id, tool);
-      for (const tool of owned)
-        if (tool.capabilityId === capability.id)
-          tools[tool.name] =
-            capability.id === TOOLS_CAPABILITY_ID && tool.name === TOOL_CALL_TOOL
-              ? deferredToolCall(tool, deferred, hostedTool)
-              : hostedTool(capability.id, tool);
-      implementations[capability.id] = { tools };
-    }
+    const tools: Record<string, any> = {};
+    // Agents used as tools are rebuilt from their manifest body; the engine runs them. An
+    // HTTP tool keeps its target (the manifest's hash covers it) and runs as a host effect.
+    for (const tool of agent.tools ?? [])
+      if (tool.http)
+        // A pinned `approval` stays for the definition's hash; the Tool Gate holds the call.
+        tools[tool.name] = withHttpTarget(hostedTool(tool), {
+          http: tool.http,
+          ...(tool.approval === undefined ? {} : { approval: tool.approval }),
+        });
+      else if (!tool.agent) tools[tool.name] = hostedTool(tool);
+    // The tools the Runtime added (its `runtime` block) run as host effects too.
+    for (const tool of agent.runtime?.tools ?? []) tools[tool.name] = hostedTool(tool);
+    for (const tool of owned)
+      tools[tool.name] =
+        tool.name === TOOL_CALL_TOOL
+          ? deferredToolCall(tool, deferred, hostedTool)
+          : hostedTool(tool);
+    const implementations: Implementations = { tools };
     return definitionFor(
       agentFrom(
         agent,
@@ -288,7 +276,6 @@ export async function runDurable(options: {
           ? undefined
           : {
               sessionTools: owned.map((tool) => ({
-                capabilityId: tool.capabilityId,
                 name: tool.name,
                 ...(tool.instructions?.length ? { instructions: tool.instructions } : {}),
               })),
@@ -373,10 +360,9 @@ function scoped(ref: AgentRef | undefined, identity: string): string {
   return ref ? `${ref.delegationId}/${identity}` : identity;
 }
 
-type HostedTool = (
-  capabilityId: string,
-  tool: DurableSessionTool,
-) => { execute(args: unknown, ctx: unknown): Promise<unknown> };
+type HostedTool = (tool: DurableSessionTool) => {
+  execute(args: unknown, ctx: unknown): Promise<unknown>;
+};
 
 /**
  * `tool_call` (R2b C10): runs a deferred tool by name, as that tool's own call. It checks the
@@ -419,7 +405,7 @@ function deferredToolCall(
         };
       let run = hosted.get(target.name);
       if (!run) {
-        run = hostedTool(target.capabilityId, target);
+        run = hostedTool(target);
         hosted.set(target.name, run);
       }
       return run.execute(checked.value, ctx);

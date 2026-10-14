@@ -9,36 +9,30 @@ import type { ToolReference } from "../types/execution.js";
 /** Definition-only lookup; no per-run selections or progress live here. */
 export class ToolRegistry {
   private readonly tools = new Map<string, BoundToolDefinition>();
-  private readonly owners = new WeakMap<object, string>();
+  private readonly registered = new WeakSet<object>();
 
-  constructor(middleware: readonly DefinitionPart[], snapshots?: readonly BoundToolDefinition[]) {
-    for (const capability of middleware) {
-      for (const tool of [...(capability.tools ?? []), ...(capability.sessionTools ?? [])]) {
-        const key = JSON.stringify([capability.id, tool.name]);
-        if (this.tools.has(key) || this.owners.has(tool))
-          throw new HarnessError(
-            "tool.invalid",
-            `Duplicate registered tool '${tool.name}' in '${capability.id}'`,
-          );
+  constructor(parts: readonly DefinitionPart[], snapshots?: readonly BoundToolDefinition[]) {
+    for (const part of parts) {
+      for (const tool of [...(part.tools ?? []), ...(part.sessionTools ?? [])]) {
+        if (this.tools.has(tool.name) || this.registered.has(tool))
+          throw new HarnessError("tool.invalid", `Duplicate registered tool '${tool.name}'`);
         this.tools.set(
-          key,
+          tool.name,
           snapshots?.find((snapshot) => snapshot.source === tool) ??
-            bindTool(tool, { middlewareId: capability.id, slot: capability.id }),
+            bindTool(tool, { partId: part.id, slot: part.id }),
         );
-        this.owners.set(tool, capability.id);
+        this.registered.add(tool);
       }
     }
   }
 
   reference(tool: BoundToolDefinition): ToolReference {
-    const capabilityId = this.owners.get(tool.source);
-    if (!capabilityId)
+    if (!this.registered.has(tool.source))
       throw new HarnessError(
         "tool.unregistered",
-        `Tool '${tool.name}' is not registered. Declare it in capability.tools.`,
+        `Tool '${tool.name}' is not registered. Declare it with .tools().`,
       );
     const reference = copyJson({
-      capabilityId,
       toolName: tool.source.name,
       descriptor: descriptor(tool),
     });
@@ -52,7 +46,7 @@ export class ToolRegistry {
         "execution.incompatible",
         "Saved state uses a removed tool-family reference. Register an ordinary tool and start a new execution.",
       );
-    const registered = this.tools.get(JSON.stringify([reference.capabilityId, reference.toolName]));
+    const registered = this.tools.get(reference.toolName);
     if (!registered || canonical(descriptor(registered)) !== canonical(reference.descriptor))
       throw new HarnessError(
         "execution.incompatible",

@@ -131,6 +131,28 @@ async function harnessFor(core: ReturnType<typeof fakeCore>, run: HarnessExecuto
 }
 
 describe("a harness", () => {
+  it("says hello with Harness API 3 and its features, not capabilities", async () => {
+    const plain = fakeCore({});
+    await harnessFor(
+      plain,
+      executors(async () => "done"),
+    );
+    const [method, hello] = plain.calls[0]!;
+    expect(method).toBe("hello");
+    expect(hello).toMatchObject({ api: 3, features: {} });
+    expect(hello).not.toHaveProperty("capabilities");
+
+    const serving = fakeCore({});
+    const harness = createHarness({
+      channel: serving.channel,
+      executors: executors(async () => "done"),
+      features: { workspace: { backends: ["docker"] } },
+    });
+    harnesses.push(harness);
+    await harness.start();
+    expect(serving.calls[0]![1].features).toEqual({ workspace: { backends: ["docker"] } });
+  });
+
   it("runs a leased turn: the prompt stays here, and the output carries edits and a lean state", async () => {
     const core = fakeCore({});
     const prompts: unknown[] = [];

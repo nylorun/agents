@@ -10,7 +10,7 @@ describe("step pipeline", () => {
         .tools(tool("echo"), tool("echo"))
         .with(model(async () => "done"))
         .build(),
-    ).toThrow(/Duplicate registered tool/);
+    ).toThrow(/Tool 'echo' is declared twice/);
   });
 
   it("freezes the tool snapshot so later mutations do not change the bound input schema", async () => {

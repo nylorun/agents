@@ -105,7 +105,7 @@ export interface ModelConfigurationMutationOptions {
 }
 
 export interface ModelConfigurationContributor {
-  readonly middlewareId: string;
+  readonly partId: string;
   readonly slot: string;
   readonly order: number;
   readonly reason?: string;
@@ -141,7 +141,7 @@ export interface ContextMutationOptions {
 }
 
 export interface ContextContributor {
-  readonly middlewareId: string;
+  readonly partId: string;
   readonly slot: string;
   readonly order: number;
   readonly reason?: string;

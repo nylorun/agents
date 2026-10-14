@@ -1,17 +1,18 @@
 /**
- * The Agent Manifest tab's view of a published agent manifest: capabilities with their own
- * instructions and tools, tools sorted by where they run, and compact schema fields.
+ * The Agent Manifest tab's view of an agent manifest (v7, flat): the agent's instructions, tools,
+ * skills and MCP servers, each skill and server with the plugin that brought it, and for a
+ * session's pinned manifest the `runtime` block the Runtime added (sandbox, tools, instructions).
  * Pure, so `scripts/manifest-model.test.mjs` runs it without a browser.
  */
-
-/** Tools the engine adds for a skills catalog; not the author's code. */
-const SKILL_TOOLS = new Set(["load_skill", "read_skill_resource"]);
 
 /** Tools the Runtime runs in a session's sandbox (core `createSandboxTools`). */
 export const SANDBOX_TOOLS = ["bash", "read", "write", "edit", "grep", "glob"] as const;
 
-/** `code`: a tool that would run your code, which the Runtime refuses at save (track R2). */
-export type ToolKind = "code" | "http" | "subagent" | "flow-subagent" | "built-in";
+/**
+ * `code`: a tool that would run your code, which the Runtime refuses at save (track R2).
+ * `runtime`: a tool of the pinned manifest's `runtime` block, which the Runtime serves.
+ */
+export type ToolKind = "code" | "http" | "subagent" | "flow-subagent" | "runtime";
 
 export type SchemaField = {
   name: string;
@@ -31,22 +32,42 @@ export type ToolView = {
   approval?: true;
 };
 
-export type CapabilityView = {
-  id: string;
-  type: string;
+/** The Agent Plugin that brought a skill or a server: its `plugin.json` name and version. */
+export type PluginLabel = { name: string; version?: string };
+
+export type SkillView = {
+  name: string;
   description?: string;
-  instructions: string[];
+  /** The paths of the skill's files (names only). */
+  files: string[];
+  plugin?: PluginLabel;
+};
+
+export type McpServerView = {
+  name: string;
+  url?: string;
+  plugin?: PluginLabel;
+  /** Every tool call waits for approval (a manifest saved before R5 step 2). */
+  approval?: true;
+};
+
+/** What the Runtime added when it pinned the session's agent (`manifest.runtime`). */
+export type RuntimeView = {
+  /** The sandbox spec, one short line per setting; absent without a sandbox. */
+  sandbox?: string[];
   tools: ToolView[];
-  /** Each skill, with the paths of its files (names only). */
-  skills: { name: string; description?: string; files: string[] }[];
-  mcpServers: string[];
-  /** The MCP servers whose every tool call waits for approval. */
-  mcpApproval: string[];
+  instructions: string[];
 };
 
 export type ManifestView = {
   description?: string;
-  capabilities: CapabilityView[];
+  instructions: string[];
+  tools: ToolView[];
+  skills: SkillView[];
+  mcpServers: McpServerView[];
+  /** Every plugin a skill or server names, once each, in order of appearance. */
+  plugins: PluginLabel[];
+  runtime?: RuntimeView;
 };
 
 type Json = Record<string, unknown>;
@@ -83,18 +104,18 @@ export function schemaFields(schema: unknown): SchemaField[] {
   }));
 }
 
-function toolView(tool: Json, capability: Json): ToolView {
+function toolView(tool: Json, runtime = false): ToolView {
   const name = String(tool.name);
   const agent = tool.agent;
   const http = isRecord(tool.http) ? tool.http : undefined;
-  const kind: ToolKind = isRecord(agent)
-    ? agent.kind === "workflow"
-      ? "flow-subagent"
-      : "subagent"
-    : http
-      ? "http"
-      : SKILL_TOOLS.has(name) && isRecord(capability.skills)
-        ? "built-in"
+  const kind: ToolKind = runtime
+    ? "runtime"
+    : isRecord(agent)
+      ? agent.kind === "workflow"
+        ? "flow-subagent"
+        : "subagent"
+      : http
+        ? "http"
         : "code";
   const output = tool.outputSchema ?? tool.output;
   return {
@@ -110,47 +131,114 @@ function toolView(tool: Json, capability: Json): ToolView {
   };
 }
 
+function toolsOf(value: unknown, runtime = false): ToolView[] {
+  return (Array.isArray(value) ? value : []).filter(isRecord).map((tool) => toolView(tool, runtime));
+}
+
 function instructionsOf(value: unknown): string[] {
   if (typeof value === "string") return value ? [value] : [];
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function pluginOf(value: unknown): { plugin?: PluginLabel } {
+  if (!isRecord(value) || typeof value.name !== "string") return {};
+  return {
+    plugin: {
+      name: value.name,
+      ...(typeof value.version === "string" ? { version: value.version } : {}),
+    },
+  };
+}
+
+/** A plugin as its badge reads: `name version`, or the name alone. */
+export function pluginText(plugin: PluginLabel): string {
+  return plugin.version === undefined ? plugin.name : `${plugin.name} ${plugin.version}`;
+}
+
+/** A sandbox spec as short lines: image, network, resources, idle; Runtime defaults when empty. */
+export function sandboxSummary(sandbox: unknown): string[] {
+  const spec = isRecord(sandbox) ? sandbox : {};
+  const lines: string[] = [];
+  if (typeof spec.image === "string") lines.push(`image ${spec.image}`);
+  if (isRecord(spec.network)) {
+    const allow = Array.isArray(spec.network.allow)
+      ? spec.network.allow.filter((host): host is string => typeof host === "string")
+      : [];
+    const preset = typeof spec.network.preset === "string" ? spec.network.preset : "dev";
+    lines.push(`network ${preset}${allow.length ? ` + ${allow.join(", ")}` : ""}`);
+  }
+  if (isRecord(spec.resources)) {
+    const parts = [
+      typeof spec.resources.cpus === "number"
+        ? `${spec.resources.cpus} cpu${spec.resources.cpus === 1 ? "" : "s"}`
+        : "",
+      typeof spec.resources.memory === "string" ? spec.resources.memory : "",
+    ].filter(Boolean);
+    if (parts.length) lines.push(parts.join(", "));
+  }
+  if (typeof spec.idle === "string") lines.push(`stops after ${spec.idle} idle`);
+  return lines.length ? lines : ["Runtime defaults"];
+}
+
 export function manifestView(manifest: unknown): ManifestView {
   const root = isRecord(manifest) ? manifest : {};
-  const capabilities = (Array.isArray(root.capabilities) ? root.capabilities : [])
-    .filter(isRecord)
-    .map((capability): CapabilityView => ({
-      id: String(capability.id),
-      type: typeof capability.type === "string" ? capability.type : "agent",
-      ...(typeof capability.description === "string"
-        ? { description: capability.description }
-        : {}),
-      instructions: instructionsOf(capability.instructions),
-      tools: (Array.isArray(capability.tools) ? capability.tools : [])
+  const skills: SkillView[] = isRecord(root.skills)
+    ? Object.values(root.skills)
         .filter(isRecord)
-        .map((tool) => toolView(tool, capability)),
-      skills: isRecord(capability.skills)
-        ? Object.values(capability.skills)
-            .filter(isRecord)
-            .map((skill) => ({
-              name: String(skill.name),
-              ...(typeof skill.description === "string"
-                ? { description: skill.description }
-                : {}),
-              files: isRecord(skill.files) ? Object.keys(skill.files).sort() : [],
-            }))
-        : [],
-      mcpServers: isRecord(capability.mcpServers) ? Object.keys(capability.mcpServers) : [],
-      mcpApproval: isRecord(capability.mcpServers)
-        ? Object.entries(capability.mcpServers)
-            .filter(([, server]) => isRecord(server) && server.approval === "always")
-            .map(([name]) => name)
-        : [],
-    }));
+        .map((skill) => ({
+          name: String(skill.name),
+          ...(typeof skill.description === "string" ? { description: skill.description } : {}),
+          files: isRecord(skill.files) ? Object.keys(skill.files).sort() : [],
+          ...pluginOf(skill.plugin),
+        }))
+    : [];
+  const mcpServers: McpServerView[] = isRecord(root.mcpServers)
+    ? Object.entries(root.mcpServers)
+        .filter((entry): entry is [string, Json] => isRecord(entry[1]))
+        .map(([name, server]) => ({
+          name,
+          ...(typeof server.url === "string" ? { url: server.url } : {}),
+          ...pluginOf(server.plugin),
+          ...(server.approval === "always" ? { approval: true as const } : {}),
+        }))
+    : [];
+  const plugins = new Map<string, PluginLabel>();
+  for (const item of [...skills, ...mcpServers])
+    if (item.plugin && !plugins.has(pluginText(item.plugin)))
+      plugins.set(pluginText(item.plugin), item.plugin);
+  const runtime = isRecord(root.runtime) ? root.runtime : undefined;
   return {
     ...(typeof root.description === "string" ? { description: root.description } : {}),
-    capabilities,
+    instructions: instructionsOf(root.instructions),
+    tools: toolsOf(root.tools),
+    skills,
+    mcpServers,
+    plugins: [...plugins.values()],
+    ...(runtime
+      ? {
+          runtime: {
+            ...("sandbox" in runtime ? { sandbox: sandboxSummary(runtime.sandbox) } : {}),
+            tools: toolsOf(runtime.tools, true),
+            instructions: instructionsOf(runtime.instructions),
+          },
+        }
+      : {}),
   };
+}
+
+/**
+ * Which skills and servers to show: all, the agent's own (`own`: no plugin), or one plugin's
+ * (named as `pluginText` reads it).
+ */
+export type PluginFilter = "all" | "own" | string;
+
+export function byPlugin<T extends { plugin?: PluginLabel }>(
+  items: readonly T[],
+  filter: PluginFilter,
+): T[] {
+  if (filter === "all") return [...items];
+  if (filter === "own") return items.filter((item) => item.plugin === undefined);
+  return items.filter((item) => item.plugin !== undefined && pluginText(item.plugin) === filter);
 }
 
 /** The first 12 characters of a manifest hash, enough to tell versions apart. */
@@ -162,7 +250,7 @@ export type PinnedManifestState =
   /**
    * The Runtime returned the session's own manifest. `definitionHash` is the definition it was
    * opened from (a newer Runtime's session view): the pinned manifest differs from it by the
-   * capabilities the Runtime added (sandbox tools, `save_artifact`, `read_artifact`).
+   * `runtime` block the Runtime added (sandbox tools, artifact tools, skill tools).
    */
   | {
       kind: "pinned";
@@ -178,8 +266,8 @@ export type PinnedManifestState =
 
 /**
  * True when the session runs an older manifest than the one now registered for its agent: the
- * definition it was opened from is not the registered one. The capabilities the Runtime adds to
- * a session's pin do not make it older.
+ * definition it was opened from is not the registered one. The `runtime` block the Runtime adds
+ * to a session's pin does not make it older.
  */
 export function isOutdated(
   state: PinnedManifestState,
@@ -203,17 +291,13 @@ export type ManifestStats = {
   mcpServers: number;
 };
 
-/** Totals for the overview. Built-in skill tools count under skills, not tools. */
+/** Totals for the overview: the author's tools, not the ones the Runtime adds. */
 export function manifestStats(view: ManifestView): ManifestStats {
-  const all = view.capabilities.flatMap((capability) => capability.tools);
   return {
-    tools: all.filter((tool) => tool.kind === "code" || tool.kind === "http").length,
-    subagents: all.filter((tool) => tool.kind === "subagent" || tool.kind === "flow-subagent")
+    tools: view.tools.filter((tool) => tool.kind === "code" || tool.kind === "http").length,
+    subagents: view.tools.filter((tool) => tool.kind === "subagent" || tool.kind === "flow-subagent")
       .length,
-    skills: view.capabilities.reduce((sum, capability) => sum + capability.skills.length, 0),
-    mcpServers: view.capabilities.reduce(
-      (sum, capability) => sum + capability.mcpServers.length,
-      0,
-    ),
+    skills: view.skills.length,
+    mcpServers: view.mcpServers.length,
   };
 }

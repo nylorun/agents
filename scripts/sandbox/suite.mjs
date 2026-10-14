@@ -256,7 +256,7 @@ try {
       await api("PUT", "/v1/agents/bot", {
         requestId: randomUUID(),
         implementationVersion: "dev",
-        manifest: { id: "bot", name: "Bot", manifestSchemaVersion: 5, capabilities: [] },
+        manifest: { id: "bot", name: "Bot", manifestSchemaVersion: 7 },
       });
 
       step(`nylorun sandbox enable --context ${context}`);

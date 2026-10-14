@@ -19,7 +19,7 @@ TENANT=${NYLORUN_TENANT:-selfhost}
 NYLORUN=${NYLORUN_CLI:-npx --yes nylorun}
 KEYCLOAK_URL=${KEYCLOAK_URL:-http://localhost:8180}
 PROXY_URL=${PROXY_URL:-http://localhost:4180}
-PROTOCOL=11
+PROTOCOL=13
 RUN="$(date +%s)-$$"
 
 work=$(mktemp -d)
@@ -106,7 +106,7 @@ check 'v.code === "origin_rejected"' "the operator key from a browser is origin_
 AGENT=self-host-smoke
 rt PUT "/v1/agents/$AGENT" "$KEY" -H "content-type: application/json" -d "$(json_of '{
   requestId: a[0], implementationVersion: "smoke",
-  manifest: { id: a[1], name: "Self-host smoke", manifestSchemaVersion: 5, capabilities: [] } }' "agent-$RUN" "$AGENT")"
+  manifest: { id: a[1], name: "Self-host smoke", manifestSchemaVersion: 7 } }' "agent-$RUN" "$AGENT")"
 expect 200 "PUT /v1/agents/$AGENT with the operator key"
 
 OWN="smoke-$RUN-ben"

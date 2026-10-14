@@ -4,7 +4,6 @@
  * session's routing comes with the run (`TurnStart.routing`).
  */
 import {
-  ARTIFACTS_CAPABILITY_ID,
   READ_ARTIFACT_TOOL,
   SAVE_ARTIFACT_TOOL,
   type AgentManifest,
@@ -20,7 +19,7 @@ import { httpToolRefOf } from "../gates/http-tool.js";
 import { classifyThrown } from "../model/classify.js";
 import { findServer, type McpPool } from "../mcp/pool.js";
 import { manifestFor, mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
-import { sandboxCapabilityOf } from "../sandbox/capability.js";
+import { isPinnedRuntimeTool, sandboxToolSpec } from "../sandbox/runtime-tools.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 
 /** Where a Tenant's model calls go. */
@@ -106,12 +105,12 @@ export function abortOn(signal: AbortSignal, kinds: readonly AbortReason[]): Abo
   return controller.signal;
 }
 
-/** True when `request` calls `save_artifact` of the `nylorun.artifacts` capability `manifest` has. */
+/** True when `request` calls `save_artifact`, which the Runtime pinned on `manifest`. */
 export function isSaveArtifactCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
   return isArtifactsToolCall(manifest, request, SAVE_ARTIFACT_TOOL);
 }
 
-/** True when `request` calls `read_artifact` (R2b C11) of the `nylorun.artifacts` capability. */
+/** True when `request` calls `read_artifact` (R2b C11), which the Runtime pinned on `manifest`. */
 export function isReadArtifactCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
   return isArtifactsToolCall(manifest, request, READ_ARTIFACT_TOOL);
 }
@@ -123,13 +122,8 @@ function isArtifactsToolCall(
 ): boolean {
   return (
     request.kind === "tool" &&
-    request.capabilityId === ARTIFACTS_CAPABILITY_ID &&
     request.toolName === toolName &&
-    manifest?.capabilities.some(
-      (capability) =>
-        capability.id === ARTIFACTS_CAPABILITY_ID &&
-        capability.tools?.some((tool) => tool.name === toolName) === true
-    ) === true
+    isPinnedRuntimeTool(manifest, toolName)
   );
 }
 
@@ -141,7 +135,7 @@ export function isRemoteMcpCall(
   if (request.kind !== "tool") return false;
   const tool = mcpToolOf(routing.mcpSnapshot, request);
   if (!tool) return false;
-  return findServer(routing.rootManifest, tool.agentId, tool.capabilityId, tool.serverName) !== undefined;
+  return findServer(routing.rootManifest, tool.agentId, tool.serverName) !== undefined;
 }
 
 export async function callMcpTool(
@@ -158,7 +152,6 @@ export async function callMcpTool(
   return mcp.call({
     sessionId: request.sessionId,
     ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
-    capabilityId: tool.capabilityId,
     serverName: tool.serverName,
     serverToolName: tool.serverToolName,
     args: request.input,
@@ -200,12 +193,8 @@ export async function callSandboxTool(
   request: HostEffect,
   signal: AbortSignal
 ): Promise<unknown> {
-  const capability = sandboxCapabilityOf(
-    manifestFor(routing.rootManifest, request.agent),
-    request.capabilityId,
-    request.toolName
-  );
-  if (!capability) throw new Error(`'${request.toolName ?? ""}' is not a sandbox tool`);
+  const spec = sandboxToolSpec(manifestFor(routing.rootManifest, request.agent), request.toolName);
+  if (!spec) throw new Error(`'${request.toolName ?? ""}' is not a sandbox tool`);
   // Agents used as tools share the session's sandbox; the tree declares one sandbox spec.
   return sandbox.run(
     {
@@ -216,7 +205,7 @@ export async function callSandboxTool(
       ...(routing.environment === undefined ? {} : { environment: routing.environment }),
       ...(routing.claim === undefined ? {} : { claim: routing.claim }),
     },
-    capability,
+    spec,
     request.toolName as never,
     request.input,
     signal

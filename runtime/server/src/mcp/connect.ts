@@ -399,7 +399,6 @@ export function serverInstructions(text: unknown, secrets: readonly string[]): s
 export async function listMcpTools(
   client: McpClient,
   input: {
-    capabilityId: string;
     serverName: string;
     taken: Set<string>;
     signal?: AbortSignal;
@@ -480,7 +479,6 @@ export async function listMcpTools(
     const { tool, inputSchema } = candidate;
     const outputSchema = tool.outputSchema ? usableSchema(tool.outputSchema) : undefined;
     tools.push({
-      capabilityId: input.capabilityId,
       serverName: input.serverName,
       serverToolName: tool.name,
       name,
@@ -562,7 +560,6 @@ function onlyText(content: unknown): boolean {
 }
 
 export function diagnosticFromError(
-  capabilityId: string,
   serverName: string,
   error: unknown,
 ): McpDiagnostic {
@@ -574,7 +571,6 @@ export function diagnosticFromError(
     error instanceof Error && error.message.startsWith("MCP authorization refused");
   if (refused) {
     return {
-      capabilityId,
       serverName,
       outcome: "refused",
       message: error.message,
@@ -590,7 +586,6 @@ export function diagnosticFromError(
     code === 401 ||
     (error instanceof Error && /\b401\b/.test(error.message));
   return {
-    capabilityId,
     serverName,
     outcome: "failed",
     message: unauthorized

@@ -21,7 +21,7 @@ import {
   type PromptContentPart,
 } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
-import { withPlatformTools, withSandboxCapability } from "../src/sandbox/session-sandbox.js";
+import { withRuntimeTools, withSandbox } from "../src/sandbox/session-sandbox.js";
 import { startTestTenant } from "./support/tenant.js";
 import { withTestSessionStore } from "./support/store.js";
 
@@ -583,35 +583,31 @@ describe("the session view", () => {
 
 describe("the pinned manifest", () => {
   const files = { files: { type: "streamable-http" as const, url: "https://files.example.invalid/mcp" } };
-  const names = (manifest: AgentManifest) =>
-    manifest.capabilities.flatMap((capability) => (capability.tools ?? []).map((tool) => tool.name));
+  const names = (manifest: AgentManifest) => (manifest.runtime?.tools ?? []).map((tool) => tool.name);
 
   it("adds read_artifact to an agent with MCP or HTTP tools, and to an agent it uses as a tool", () => {
     const lookup = Agent({ id: "lookup", description: "Looks things up." })
       .tools(http({ name: "find", input: z.object({}), url: "https://lookup.example.invalid/find" }))
       .build();
     const lead = Agent({ id: "lead" }).mcp(files).subagents(lookup).build();
-    const pinned = withPlatformTools(lead.manifest);
-    expect(pinned?.ok).toBe(true);
+    const pinned = withRuntimeTools(lead.manifest);
+    expect(pinned.ok).toBe(true);
     const manifest = (pinned as { manifest: AgentManifest }).manifest;
     expect(names(manifest)).toContain("read_artifact");
     expect(names(delegateManifest(manifest, "lookup")!)).toContain("read_artifact");
     // A session with a sandbox gets both artifact tools.
-    const sandboxed = withSandboxCapability(lead.manifest, { network: { preset: "none" } });
+    const sandboxed = withSandbox(lead.manifest, { network: { preset: "none" } });
     expect(sandboxed.ok && names(sandboxed.manifest)).toEqual(expect.arrayContaining(["save_artifact", "read_artifact"]));
   });
 
-  it("adds read_artifact to every agent (protocol 12), and none to one with its own", () => {
-    const plain = withPlatformTools(Agent({ id: "plain" }).instructions("Answer.").build().manifest);
-    expect(plain?.ok && names(plain.manifest)).toEqual(["read_artifact"]);
+  it("adds read_artifact to every agent (protocol 12), and never tool_search or tool_call", () => {
+    const plain = withRuntimeTools(Agent({ id: "plain" }).instructions("Answer.").build().manifest);
+    expect(plain.ok && names(plain.manifest)).toEqual(["read_artifact"]);
+    // tool_search and tool_call are session tools, given per run when tools are deferred (R2b C10).
+    const pinned = withRuntimeTools(Agent({ id: "mcp" }).mcp(files).build().manifest);
+    expect(pinned.ok && names(pinned.manifest)).toEqual(["read_artifact"]);
+    // An author tool may not take a Runtime tool's name: the manifest schema refuses it.
     const readArtifact = http({ name: "read_artifact", input: z.object({}), url: "https://own.example.invalid/read" });
-    expect(withPlatformTools(Agent({ id: "own" }).tools(readArtifact).build().manifest)).toBeUndefined();
-    // With an MCP server it gets only `nylorun.tools` (R2b C10), which is empty.
-    const pinned = withPlatformTools(Agent({ id: "own" }).mcp(files).tools(readArtifact).build().manifest);
-    expect(pinned?.ok).toBe(true);
-    const manifest = (pinned as { manifest: AgentManifest }).manifest;
-    expect(manifest.capabilities.map((capability) => capability.id)).not.toContain("nylorun.artifacts");
-    expect(manifest.capabilities.at(-1)).toMatchObject({ id: "nylorun.tools" });
-    expect(manifest.capabilities.at(-1)!.tools).toBeUndefined();
+    expect(() => Agent({ id: "own" }).tools(readArtifact).build()).toThrow(/read_artifact/);
   });
 });

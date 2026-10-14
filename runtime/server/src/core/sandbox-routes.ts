@@ -11,7 +11,6 @@ import type { SandboxSessionRef } from "../sandbox/manager.js";
 import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { SandboxToolOutcome } from "../sandbox/tools.js";
 import {
-  capabilityForSandbox,
   sandboxWorkspaceOf,
   sessionSandboxSpec,
   type SessionSandboxRef,
@@ -75,7 +74,7 @@ async function runTool(
     manifest: session.manifest as SandboxSessionRef["manifest"],
     ...(workspace.environmentId === undefined ? {} : { environmentId: workspace.environmentId }),
   };
-  return deps.sandbox.run(ref, capabilityForSandbox(spec), tool, input, signal);
+  return deps.sandbox.run(ref, spec, tool, input, signal);
 }
 
 /**

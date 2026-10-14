@@ -46,8 +46,8 @@ test("summarizes each MCP server's outcome", () => {
       type: "mcp.discovered",
       payload: {
         servers: [
-          { capabilityId: "mcp", serverName: "docs", outcome: "connected", message: "Connected", tools: 2 },
-          { capabilityId: "mcp", serverName: "local", outcome: "failed", message: "connect ECONNREFUSED 127.0.0.1:3002", tools: 0 },
+          { serverName: "docs", outcome: "connected", message: "Connected", tools: 2 },
+          { serverName: "local", outcome: "failed", message: "connect ECONNREFUSED 127.0.0.1:3002", tools: 0 },
         ],
       },
     }),

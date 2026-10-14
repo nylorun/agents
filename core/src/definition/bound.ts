@@ -1,11 +1,10 @@
-import type { JsonObject } from "../types/shared.js";
 import type {
   McpServerManifest,
   SandboxManifest,
   SkillManifest,
 } from "../types/manifest.js";
 import type { Delegate } from "./delegate.js";
-import type { SkillFileSource } from "../types/middleware.js";
+import type { SkillFileSource } from "../types/part.js";
 import type {
   ToolApproval,
   ToolDefinition,
@@ -39,21 +38,18 @@ export interface BoundToolDefinition<Info = unknown>
 }
 
 /**
- * One part of an agent definition: what one builder call, skills folder or plugin added. The
- * engine offers its tools and instructions to the model in part order.
+ * One part of an agent definition: what one builder call, skills folder or plugin added, or (in
+ * an agent rebuilt from a pinned manifest) the `runtime` block. The engine offers each part's
+ * tools and instructions to the model in part order; the manifest holds the parts merged.
  */
 export interface DefinitionPart {
   readonly id: string;
-  readonly name?: string;
-  readonly description?: string;
   readonly tools?: readonly ToolDefinition<any, any, any>[];
   /** Execution-only tools. Advertised for this run and omitted from the manifest. */
   readonly sessionTools?: readonly ToolDefinition<any, any, any>[];
   readonly instructions?: readonly string[];
   /** Text the model reads while the session tools are advertised. Not in the manifest. */
   readonly sessionInstructions?: readonly string[];
-  readonly manifestType?: "agent" | "agent-plugin";
-  readonly metadata?: JsonObject;
   readonly skills?: Readonly<Record<string, SkillManifest>>;
   /** Each skill file's bytes, by `sha256:<hex>`. Not a manifest field. */
   readonly skillFiles?: Readonly<Record<string, SkillFileSource>>;

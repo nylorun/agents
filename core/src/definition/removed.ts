@@ -1,30 +1,25 @@
-/**
- * Capability fields that manifest v5 removed, and what replaces each. Manifest v5 (with workflow
- * manifest v3 for flow agents) is the first where the Runtime never calls the developer's code
- * during a session (see MIGRATION.md). `model` went earlier: the Runtime owns the model.
- */
-export const REMOVED_CAPABILITY_FIELDS: Readonly<Record<string, string>> = Object.freeze({
+/** Why a part may not carry a field that manifest v5 removed. */
+export const REMOVED_PART_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   hooks:
-    "hooks were removed: the Runtime runs agents from their manifests alone. Use an HTTP tool, approval on a tool, or a loop verifier instead (see MIGRATION.md)",
-  beforeModelCall: "beforeModelCall was removed with hooks (see MIGRATION.md)",
-  afterModelCall: "afterModelCall was removed with hooks (see MIGRATION.md)",
-  model: "A capability must not include model; the Runtime owns model resolution",
+    "hooks were removed: the Runtime runs agents from their manifests alone. Use an HTTP tool, the Tenant's tool policy, or a loop verifier instead (see MIGRATION.md)",
+  model: "An agent must not include model; the Runtime owns model resolution",
 });
 
 /** Manifest fields an older SDK wrote, and why each is refused. */
 export const REMOVED_MANIFEST_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   schemaVersion: "Manifest field schemaVersion was renamed to manifestSchemaVersion",
   model: "Manifest must not include top-level model; Runtime owns model resolution",
+  hooks:
+    "hooks were removed: the Runtime runs agents from their manifests alone. Use an HTTP tool, the Tenant's tool policy, or a loop verifier instead (see MIGRATION.md)",
+  capabilities:
+    "Manifest v7 has no capabilities: the agent's instructions, tools, skills and mcpServers are top-level fields. Rebuild the agent with the current SDK (see MIGRATION.md)",
 });
 
-/**
- * Why a manifest with this `manifestSchemaVersion` is refused, or undefined for version 5 and
- * version 6 (R2b C9: an MCP server's `tools` and `deferred`; v5 is accepted unchanged).
- */
+/** Why a manifest with this `manifestSchemaVersion` is refused, or undefined for version 7. */
 export function manifestVersionIssue(version: unknown): string | undefined {
-  if (version === 5 || version === 6) return undefined;
-  if (version === 4 || version === 3)
-    return `manifestSchemaVersion ${version} is no longer supported: manifest v5 removed hooks. Rebuild the agent with the current SDK (see MIGRATION.md)`;
+  if (version === 7) return undefined;
+  if (typeof version === "number" && version >= 3 && version <= 6)
+    return `manifestSchemaVersion ${version} is no longer supported: manifest v7 has no capabilities. Rebuild the agent with the current SDK (see MIGRATION.md)`;
   return `Unsupported manifestSchemaVersion ${String(version)}`;
 }
 

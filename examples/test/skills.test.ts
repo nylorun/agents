@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { runtimeManifestFor } from "@nylorun/core/define";
 import { describe, expect, it } from "vitest";
 import { createSkills, SKILLS_CATALOG } from "../agents/skills/agent.js";
 
@@ -10,9 +11,7 @@ const sha256 = (path: string) =>
 describe("the Skills agent", () => {
   it("names each skill's files by hash and leaves their bodies out of the manifest", async () => {
     const agent = await createSkills({ provider: "configured", model: "x" } as never);
-    // `.skills(dir)` names its part after the folder.
-    const catalog = agent.manifest.capabilities.find((item) => item.id === "catalog");
-    expect(catalog?.skills).toEqual({
+    expect(agent.manifest.skills).toEqual({
       "code-review": {
         name: "code-review",
         description: expect.any(String),
@@ -24,11 +23,14 @@ describe("the Skills agent", () => {
         files: { "SKILL.md": sha256("structured-summary/SKILL.md") },
       },
     });
-    expect(catalog?.instructions?.join("\n")).toContain("<name>structured-summary</name>");
     expect(JSON.stringify(agent.manifest)).not.toContain("## Claim");
-    // The Runtime serves load_skill; with no file besides SKILL.md there is no read_skill_resource.
-    expect(catalog?.tools?.map((tool) => tool.name)).toEqual(["load_skill"]);
-    const declaration = agent.getBinding().declarations.find((item) => item.id === "catalog");
+    // The Runtime adds the catalog and load_skill when it pins the agent; with no file besides
+    // SKILL.md there is no read_skill_resource.
+    const runtime = runtimeManifestFor(agent.manifest);
+    expect(runtime?.instructions?.join("\n")).toContain("<name>structured-summary</name>");
+    expect(runtime?.tools?.map((tool) => tool.name)).toEqual(["load_skill"]);
+    // `.skills(dir)` names its part after the folder.
+    const declaration = agent.getBinding().parts.find((item) => item.id === "skills:catalog");
     expect(Object.keys(declaration?.skillFiles ?? {}).sort()).toEqual(
       [sha256("code-review/SKILL.md"), sha256("structured-summary/SKILL.md")].sort(),
     );

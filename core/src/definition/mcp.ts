@@ -1,4 +1,4 @@
-import type { ApprovalMode, ManifestSchemaVersion, McpServerManifest } from "../types/manifest.js";
+import type { ApprovalMode, McpServerManifest } from "../types/manifest.js";
 import { APPROVAL_REMOVED } from "./approval.js";
 
 type WithOptionalName<T> = T extends { readonly name: string }
@@ -98,30 +98,6 @@ export function mcpToolSettings(
     approval: own?.approval ?? defaults?.approval ?? server.approval ?? "never",
     ...(deferred === undefined ? {} : { deferred }),
   };
-}
-
-/** True when the server sets `tools` or `deferred`, which need manifest v6 (R2b C9, Q19). */
-export function usesMcpToolSettings(server: McpServerManifest): boolean {
-  return server.tools !== undefined || server.deferred !== undefined;
-}
-
-/** Why a manifest v5 with this server is refused (R2b C9, Q19). */
-export function mcpToolSettingsVersionIssue(serverName: string): string {
-  return `MCP server '${serverName}' sets tools or deferred, which need manifestSchemaVersion 6. Rebuild the agent with the current SDK`;
-}
-
-/**
- * The manifest version a definition with these capabilities needs: 6 when an MCP server sets
- * `tools` or `deferred`, else 5, so a manifest that uses neither keeps its hash (Q19).
- */
-export function manifestVersionFor(
-  capabilities: readonly { readonly mcpServers?: Readonly<Record<string, McpServerManifest>> }[]
-): ManifestSchemaVersion {
-  return capabilities.some((capability) =>
-    Object.values(capability.mcpServers ?? {}).some(usesMcpToolSettings)
-  )
-    ? 6
-    : 5;
 }
 
 function freezeServer(server: McpServerManifest): McpServerManifest {

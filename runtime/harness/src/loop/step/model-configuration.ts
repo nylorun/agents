@@ -19,8 +19,8 @@ export class ModelConfigurationDraft {
   #tools = new SlotDraft<readonly BoundToolDefinition[]>();
 
   setInstructions(
-    middlewareId: string,
-    middlewareOrder: number,
+    partId: string,
+    partOrder: number,
     slot: string,
     items: readonly string[],
     options?: ModelConfigurationMutationOptions,
@@ -31,8 +31,8 @@ export class ModelConfigurationDraft {
         "Model configuration instructions must be strings",
       );
     this.#instructions.set({
-      middlewareId,
-      middlewareOrder,
+      partId,
+      partOrder,
       slot,
       value: Object.freeze([...items]),
       order: options?.order,
@@ -45,8 +45,8 @@ export class ModelConfigurationDraft {
   }
 
   setTools(
-    middlewareId: string,
-    middlewareOrder: number,
+    partId: string,
+    partOrder: number,
     slot: string,
     tools: readonly ToolDefinition[],
     options?: ModelConfigurationMutationOptions,
@@ -57,10 +57,10 @@ export class ModelConfigurationDraft {
         "Model configuration tools must be an array",
       );
     this.#tools.set({
-      middlewareId,
-      middlewareOrder,
+      partId,
+      partOrder,
       slot,
-      value: Object.freeze(tools.map((tool) => bindTool(tool, { middlewareId, slot }))),
+      value: Object.freeze(tools.map((tool) => bindTool(tool, { partId, slot }))),
       order: options?.order,
       reason: options?.reason,
       invalidSlot: "configuration.invalid-slot",
@@ -115,7 +115,7 @@ export class ModelConfigurationDraft {
 
 function contributor(owner: SlotOwner, reason?: string): ModelConfigurationContributor {
   return Object.freeze({
-    middlewareId: owner.middlewareId,
+    partId: owner.partId,
     slot: owner.slot,
     order: owner.order,
     ...(reason === undefined ? {} : { reason }),

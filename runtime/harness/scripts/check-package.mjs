@@ -135,8 +135,21 @@ try {
     if (!(name in (name === "checkCompatibility" ? entry : definitions)))
       throw new Error(`Missing public export: ${name}`);
   }
-  // An agent is its manifest: no step middleware and no capability bundles.
-  for (const name of ["capability", "CapabilityBuilder", "model", "middleware"])
+  // An agent is its manifest: no step middleware, no capability bundles, no capability manifests.
+  for (const name of [
+    "capability",
+    "CapabilityBuilder",
+    "model",
+    "middleware",
+    "sandboxCapabilityManifest",
+    "artifactsCapabilityManifest",
+    "toolsCapabilityManifest",
+    "SANDBOX_CAPABILITY_ID",
+    "ARTIFACTS_CAPABILITY_ID",
+    "TOOLS_CAPABILITY_ID",
+    "manifestVersionFor",
+    "usesMcpToolSettings",
+  ])
     if (name in definitions) throw new Error(`Removed export is still public: ${name}`);
   const execution = await import(new URL("../dist/run/index.js", import.meta.url));
   for (const name of [

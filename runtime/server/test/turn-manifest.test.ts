@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentManifest } from "@nylorun/core/contracts";
 import { hashManifest } from "@nylorun/core/compatibility";
+import { DELEGATE_INPUT_SCHEMA, runtimeManifestFor } from "@nylorun/core/define";
 import {
   allowedManifestHashes,
   pinTurnManifest,
@@ -26,19 +27,13 @@ function manifest(
   overrides: Partial<AgentManifest> & { id?: string } = {}
 ): AgentManifest {
   return {
-    manifestSchemaVersion: 5,
+    manifestSchemaVersion: 7,
     id: "coder",
-    capabilities: [
+    instructions: ["Fix."],
+    tools: [
       {
-        id: "main",
-        type: "agent",
-        instructions: ["Fix."],
-        tools: [
-          {
-            name: "deploy",
-            inputSchema: { type: "object", properties: {} },
-          },
-        ],
+        name: "deploy",
+        inputSchema: { type: "object", properties: {} },
       },
     ],
     ...overrides,
@@ -50,17 +45,7 @@ describe("turn-manifest", () => {
     const pinned = manifest({ name: "pinned" });
     const pinnedHash = hashManifest(pinned);
     const store = memoryStore();
-    const variant = manifest({
-      name: "one-turn",
-      capabilities: [
-        {
-          id: "main",
-          type: "agent",
-          instructions: ["Be careful."],
-          tools: [],
-        },
-      ],
-    });
+    const variant = manifest({ name: "one-turn", instructions: ["Be careful."], tools: [] });
     const pinnedTurn = pinTurnManifest({
       candidate: variant,
       pinned,
@@ -82,21 +67,13 @@ describe("turn-manifest", () => {
 
   it("rejects a non-variant message.manifest (LOOP-A6)", () => {
     const pinned = manifest({
-      capabilities: [
-        {
-          id: "policy",
-          type: "agent",
-          mcpServers: { gh: { name: "gh", type: "streamable-http", url: "https://x.example/mcp" } },
-          tools: [],
-        },
-      ],
+      mcpServers: { gh: { name: "gh", type: "streamable-http", url: "https://x.example/mcp" } },
+      tools: [],
     });
     const store = memoryStore();
+    const { mcpServers: _servers, ...withoutServers } = pinned;
     const bad = pinTurnManifest({
-      candidate: {
-        ...pinned,
-        capabilities: [{ id: "policy", type: "agent", tools: [] }],
-      },
+      candidate: withoutServers,
       pinned,
       store,
     });
@@ -104,20 +81,37 @@ describe("turn-manifest", () => {
     expect(store.map.size).toBe(0);
   });
 
+  it("runs a variant with the pin's runtime block, and refuses one that sets its own", () => {
+    const runtime = runtimeManifestFor({}, { read: true })!;
+    const pinned = manifest({ runtime });
+    const store = memoryStore();
+    const variant = manifest({ instructions: ["Be careful."] });
+    const turn = pinTurnManifest({ candidate: variant, pinned, store });
+    if (!turn.ok) throw new Error("expected ok");
+    expect(turn.manifest).toEqual({ ...variant, runtime });
+    expect(turn.hash).toBe(hashManifest({ ...variant, runtime }));
+    expect(store.get(turn.hash)).toEqual({ ...variant, runtime });
+
+    const own = pinTurnManifest({ candidate: { ...variant, runtime }, pinned, store: memoryStore() });
+    expect(own).toMatchObject({ ok: false, code: "loop.invalid-agent", message: expect.stringContaining("runtime") });
+  });
+
+  it("gives a variant's agents used as tools the runtime block the pin gave them", () => {
+    const child: AgentManifest = { manifestSchemaVersion: 7, id: "helper", description: "Helps.", instructions: ["Help."] };
+    const tool = { name: "helper", description: "Helps.", inputSchema: DELEGATE_INPUT_SCHEMA as Record<string, unknown> };
+    const runtime = runtimeManifestFor({}, { read: true })!;
+    const pinned = manifest({ runtime, tools: [{ ...tool, agent: { ...child, runtime } }] });
+    const variant = manifest({ instructions: ["Delegate."], tools: [{ ...tool, agent: child }] });
+    const turn = pinTurnManifest({ candidate: variant, pinned, store: memoryStore() });
+    if (!turn.ok) throw new Error(turn.message);
+    expect(turn.manifest.tools).toEqual(pinned.tools);
+  });
+
   it("rebases state.manifestHash across pinned and variant turns (LOOP-R27, LOOP-A5)", () => {
     const pinned = manifest();
     const pinnedHash = hashManifest(pinned);
     const store = memoryStore();
-    const variant = manifest({
-      capabilities: [
-        {
-          id: "main",
-          type: "agent",
-          instructions: ["variant"],
-          tools: [],
-        },
-      ],
-    });
+    const variant = manifest({ instructions: ["variant"], tools: [] });
     const turn = pinTurnManifest({ candidate: variant, pinned, store });
     if (!turn.ok) throw new Error("expected ok");
     const allowed = allowedManifestHashes({

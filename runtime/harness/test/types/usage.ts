@@ -6,7 +6,7 @@ import {
   type ModelRequest,
   type ToolDescriptor,
   tool,
-  type CapabilityDeclaration,
+  type PartDeclaration,
 } from "@nylorun/core/define";
 import { type ExecutionState, type RunResult, type Session } from "../../src/index.js";
 // @ts-expect-error Private binding implementation is not public.
@@ -100,7 +100,7 @@ await run<Info>({
   },
 });
 // @ts-expect-error Legacy state factories are removed.
-const bad: CapabilityDeclaration = { id: "bad", state: { create: () => ({}) } };
+const bad: PartDeclaration = { id: "bad", state: { create: () => ({}) } };
 
 const typedAgent: BuiltAgent<Info, { count: number }> = scopedTyped;
 const initialized: ExecutionState = createExecutionState(typedAgent);
@@ -128,7 +128,7 @@ import type { SealedToolCall } from "@nylorun/core/define";
 declare const modelRequest: ModelRequest;
 const descriptor: ToolDescriptor = modelRequest.tools[0]!;
 const descriptionSchema = descriptor.inputSchema.jsonSchema;
-const owner: string = descriptor.owner.middlewareId;
+const owner: string = descriptor.owner.partId;
 // @ts-expect-error Adapters cannot dispatch tools through descriptors.
 descriptor.execute({}, {});
 // @ts-expect-error Descriptors do not expose original definitions.

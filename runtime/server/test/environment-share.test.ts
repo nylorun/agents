@@ -7,7 +7,6 @@
 import { afterEach, expect, it } from "vitest";
 import { Agent, createClient } from "@nylorun/agents";
 import {
-  capabilityForSandbox,
   sandboxSpecOf,
   sandboxWorkspaceOf,
   sessionHasSandbox,
@@ -18,12 +17,10 @@ import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const agentManifest = (sandbox?: Record<string, unknown>) => ({
-  schemaVersion: 4 as const,
+  manifestSchemaVersion: 7 as const,
   id: "bot",
   name: "Bot",
-  capabilities: sandbox
-    ? [{ id: "sandbox", type: "agent" as const, sandbox }]
-    : [],
+  ...(sandbox ? { runtime: { sandbox } } : {}),
 });
 
 const workflowManifest = (sandbox?: Record<string, unknown>) => ({
@@ -35,7 +32,7 @@ const workflowManifest = (sandbox?: Record<string, unknown>) => ({
   ...(sandbox ? { sandbox } : {}),
 });
 
-it("reads sandbox specs from agent capabilities and workflow manifests", () => {
+it("reads sandbox specs from a pinned agent's runtime block and workflow manifests", () => {
   expect(sandboxSpecOf(agentManifest({ image: "node:22" }))).toEqual({
     image: "node:22",
   });
@@ -43,9 +40,6 @@ it("reads sandbox specs from agent capabilities and workflow manifests", () => {
     image: "node:22",
   });
   expect(sandboxSpecOf(agentManifest())).toBeUndefined();
-  expect(capabilityForSandbox({ image: "node:22" }).sandbox).toEqual({
-    image: "node:22",
-  });
 });
 
 it("keys a session's workspace by its Environment, and its events by the session", () => {

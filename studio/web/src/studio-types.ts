@@ -1,10 +1,5 @@
 import type { WorkflowManifest } from "@/workflow/types";
 
-export type HookPoint = {
-  at: "before" | "after";
-  scope: "turn" | "step";
-};
-
 /** Agent definition as listed by Runtime (no `kind`, or legacy). */
 export type AgentDefinition = {
   id: string;
@@ -18,12 +13,8 @@ export type AgentDefinition = {
     id?: string;
     kind?: undefined;
     description?: string;
-    capabilities: readonly {
-      id: string;
-      tools?: readonly { name: string; description?: string }[];
-      hooks?: readonly HookPoint[];
-      instructions?: string;
-    }[];
+    /** The agent's own tools (manifest v7 is flat); the full manifest is `rawManifest`. */
+    tools?: readonly { name: string; description?: string }[];
   };
 };
 

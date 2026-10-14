@@ -2,18 +2,10 @@ import { z } from "zod";
 import { tool } from "./helpers.js";
 import { ToolError } from "./tool-error.js";
 import { normalizedSchemasFor } from "./schema.js";
-import type { CapabilityManifest, ToolManifest } from "../types/manifest.js";
+import type { ToolManifest } from "../types/manifest.js";
+import { TOOL_CALL_TOOL, TOOL_SEARCH_TOOL } from "../utils/runtime-tools.js";
 
-/**
- * Id of the capability that holds `tool_search` and `tool_call` (R2b C10): the Runtime adds it at
- * session open to each agent with a remote MCP server, empty. When some of the agent's MCP tools
- * are deferred, the session's tools put `tool_search` and `tool_call` in it.
- */
-export const TOOLS_CAPABILITY_ID = "nylorun.tools";
-/** Finds deferred tools by a query (BM25 over their names and descriptions). */
-export const TOOL_SEARCH_TOOL = "tool_search";
-/** Runs a deferred tool by name, as a call of that tool. */
-export const TOOL_CALL_TOOL = "tool_call";
+export { TOOL_CALL_TOOL, TOOL_SEARCH_TOOL };
 /** How many tools `tool_search` returns when the model sets no `limit`. */
 export const TOOL_SEARCH_DEFAULT_LIMIT = 8;
 /** The most tools one `tool_search` returns. */
@@ -35,15 +27,6 @@ async function toolsRuntimeOnly(): Promise<never> {
     "tools.runtime-only",
     "tool_search and tool_call run in the Nylorun Runtime. Connect the agent to a Runtime to use them."
   );
-}
-
-/** The capability the Runtime adds to an agent with a remote MCP server: empty, until tools are deferred. */
-export function toolsCapabilityManifest(): CapabilityManifest {
-  return {
-    id: TOOLS_CAPABILITY_ID,
-    type: "agent",
-    description: "Deferred MCP tools: tool_search finds them and tool_call runs them.",
-  };
 }
 
 /**

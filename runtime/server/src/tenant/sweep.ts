@@ -29,7 +29,7 @@
  *    wiped (§17.11), or a parked outbox row.
  * 4. **Sandboxes.** Idle sandboxes are stopped, records of compute no longer held are marked
  *    stopped, and sandboxes whose session or Environment is gone are removed, by the
- *    workspace capability (`harness-api/workspace.ts`: here, or in the harness that serves
+ *    workspace feature (`harness-api/workspace.ts`: here, or in the harness that serves
  *    workspaces). Idle MCP connections of the in-process harness are closed. As often as the
  *    orphan scan, pod Environments whose change stalled get a reconcile (`reconcileStalePods`).
  *    Environments unused for their `lifecycle.deleteAfter` are deleted

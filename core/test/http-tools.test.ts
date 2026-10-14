@@ -14,16 +14,10 @@ const input = { type: "object", properties: { orderId: { type: "string" } }, req
 
 function manifest(tool: Record<string, unknown>, mcpServers?: Record<string, unknown>) {
   return {
-    manifestSchemaVersion: 5 as const,
+    manifestSchemaVersion: 7 as const,
     id: "orders",
-    capabilities: [
-      {
-        id: "order-tools",
-        type: "agent" as const,
-        tools: [{ name: "refund", inputSchema: input, ...tool }],
-        ...(mcpServers ? { mcpServers } : {}),
-      },
-    ],
+    tools: [{ name: "refund", inputSchema: input, ...tool }],
+    ...(mcpServers ? { mcpServers } : {}),
   };
 }
 
@@ -65,7 +59,7 @@ describe("the manifest's HTTP tools", () => {
   });
 
   it("refuses a tool that is both an agent and an HTTP request", () => {
-    const agent = { manifestSchemaVersion: 5, id: "helper", capabilities: [] };
+    const agent = { manifestSchemaVersion: 7, id: "helper" };
     expect(issues(manifest({ http: { url: "https://example.com/x" }, agent }))).toContain(
       "Tool 'refund' is an agent or an HTTP request, not both",
     );
@@ -104,10 +98,10 @@ describe("the manifest's HTTP tools", () => {
       approval: "always",
     });
     const restored = Agent.from(json, {});
-    expect(restored.manifest.capabilities[0]!.tools![0]).toEqual(json.capabilities[0]!.tools[0]);
+    expect(restored.manifest.tools![0]).toEqual(json.tools[0]);
     expect(hashManifest(restored.manifest)).toBe(hashManifest(json));
     const tool = restored.getBinding().tools[0]!;
-    expect(httpToolOf(tool)).toEqual({ http: json.capabilities[0]!.tools[0]!.http, approval: "always" });
+    expect(httpToolOf(tool)).toEqual({ http: json.tools[0]!.http, approval: "always" });
     // The Tool Gate holds such a call (R5 step 2): the tool itself never asks.
     expect(tool.approval).toBeUndefined();
   });

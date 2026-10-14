@@ -1,24 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent } from "@nylorun/core/define";
-import { expectBuildError, model, testAgent, tool, turn } from "./fixtures.js";
+import { addPart, expectBuildError, model, testAgent, tool, turn } from "./fixtures.js";
 
 describe("build", () => {
-  it("keeps part order and returns a frozen adapter-free manifest", () => {
-    const builder = testAgent().part({ id: "first" }).part({ id: "second" });
+  it("keeps part order and returns a frozen adapter-free flat manifest", () => {
+    const builder = testAgent()
+      .part({ id: "first", instructions: ["One."] })
+      .part({ id: "second", instructions: ["Two."] });
     const agent = builder.build();
     expect(builder.build()).toBe(agent);
     expect(agent.id).toBe("test");
     expect(agent.name).toBe("Test");
     expect(agent.manifest).toEqual({
-      manifestSchemaVersion: 5,
+      manifestSchemaVersion: 7,
       id: "test",
       name: "Test",
-      capabilities: [
-        { id: "first", type: "agent" },
-        { id: "second", type: "agent" },
-      ],
+      instructions: ["One.", "Two."],
     });
+    expect(
+      addPart(addPart(Agent({ id: "a" }), { id: "first" }), { id: "second" })
+        .getBinding()
+        .parts.map((part) => part.id),
+    ).toEqual(["first", "second"]);
     expect(agent.manifest).not.toHaveProperty("adapters");
     expect(Object.isFrozen(agent.manifest)).toBe(true);
   });
@@ -28,14 +32,13 @@ describe("build", () => {
     builder.build();
     const next = builder.instructions("Late.");
     expect(next).not.toBe(builder);
-    expect(next.build().manifest.capabilities).toEqual([
-      { id: "agent", type: "agent", instructions: ["Late."] },
-    ]);
+    expect(next.build().manifest.instructions).toEqual(["Late."]);
+    expect(builder.build().manifest).not.toHaveProperty("instructions");
   });
 
   it("rejects duplicate part ids", () => {
     const builder = testAgent().part({ id: "same" }).part({ id: "same" });
-    expect(() => builder.build()).toThrow(/Duplicate capability id/);
+    expect(() => builder.build()).toThrow(/'same' is added twice/);
   });
 
   it("snapshots static part instructions and tools", () => {
@@ -46,15 +49,11 @@ describe("build", () => {
         tools: [tool("write_note")],
       })
       .build();
-    expect(agent.manifest.capabilities).toEqual([
-      {
-        id: "notes",
-        type: "agent",
-        instructions: ["Write notes."],
-        tools: [{ name: "write_note", inputSchema: expect.any(Object) }],
-      },
-    ]);
-    expect(agent.manifest.capabilities[0]?.tools?.[0]?.inputSchema).toMatchObject({
+    expect(agent.manifest).toMatchObject({
+      instructions: ["Write notes."],
+      tools: [{ name: "write_note", inputSchema: expect.any(Object) }],
+    });
+    expect(agent.manifest.tools?.[0]?.inputSchema).toMatchObject({
       type: "object",
     });
   });
@@ -93,7 +92,7 @@ describe("build", () => {
 
   it("applies constructor instructions on the reserved agent slot", async () => {
     const seen: string[] = [];
-    const contributors: Array<{ readonly middlewareId: string; readonly slot: string }> = [];
+    const contributors: Array<{ readonly partId: string; readonly slot: string }> = [];
     const agent = testAgent({ instructions: "Be concise." })
       .with(
         model(async (_call, { request }) => {
@@ -111,11 +110,9 @@ describe("build", () => {
     await session.input("go").completed;
     expect(seen).toEqual(["Be concise."]);
     expect(contributors).toContainEqual(
-      expect.objectContaining({ middlewareId: "agent", slot: "agent" }),
+      expect.objectContaining({ partId: "agent", slot: "agent" }),
     );
-    expect(agent.manifest.capabilities).toEqual([
-      { id: "agent", type: "agent", instructions: ["Be concise."] },
-    ]);
+    expect(agent.manifest.instructions).toEqual(["Be concise."]);
     await session.stop();
   });
 
@@ -131,12 +128,12 @@ describe("build", () => {
     });
   });
 
-  it("rejects a capability that reuses the reserved agent id", () => {
+  it("rejects a part that reuses the reserved agent id", () => {
     const error = expectBuildError(() =>
       testAgent({ instructions: "Stay reserved." })
         .part({ id: "agent", instructions: ["overlap"] })
         .build(),
     );
-    expect(error.diagnostics.some((item) => item.code === "capability.duplicate-id")).toBe(true);
+    expect(error.diagnostics.some((item) => item.code === "part.duplicate-id")).toBe(true);
   });
 });

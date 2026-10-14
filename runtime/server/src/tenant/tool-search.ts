@@ -9,11 +9,9 @@ import {
   TOOL_SEARCH_DEFAULT_LIMIT,
   TOOL_SEARCH_MAX_LIMIT,
   TOOL_SEARCH_TOOL,
-  TOOLS_CAPABILITY_ID,
-  type AgentManifest,
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
-import { isEnabledIn, type McpToolRecord } from "../mcp/snapshot.js";
+import { isEnabledIn, type McpSnapshot, type McpToolRecord } from "../mcp/snapshot.js";
 import { sessionOf, type TenantContext } from "./context.js";
 import { turnManifestOf } from "./session.js";
 
@@ -21,13 +19,16 @@ import { turnManifestOf } from "./session.js";
 const K1 = 1.2;
 const B = 0.75;
 
-/** True when `request` calls `tool_search` of the `nylorun.tools` capability `manifest` has. */
-export function isToolSearchCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
+/**
+ * True when `request` calls `tool_search`, the session tool an agent gets when the session's
+ * pinned snapshot holds deferred tools of its own. The name is reserved: no tool of the agent's
+ * own takes it.
+ */
+export function isToolSearchCall(snapshot: McpSnapshot | undefined, request: HostEffect): boolean {
   return (
     request.kind === "tool" &&
-    request.capabilityId === TOOLS_CAPABILITY_ID &&
     request.toolName === TOOL_SEARCH_TOOL &&
-    manifest?.capabilities.some((capability) => capability.id === TOOLS_CAPABILITY_ID) === true
+    snapshot?.mcpTools.some((tool) => tool.deferred === true && tool.agentId === request.agent?.id) === true
   );
 }
 

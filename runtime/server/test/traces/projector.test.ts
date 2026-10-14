@@ -40,7 +40,6 @@ const tool = (turnId: string, n: number) =>
     callId: `c${n}`,
     invocationId: `i${n}`,
     effectId: `${turnId}:0:tool:i${n}`,
-    capabilityId: "x",
     toolName: "t",
     status: "completed",
     kind: "sandbox",

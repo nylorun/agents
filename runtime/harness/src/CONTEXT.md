@@ -1,14 +1,15 @@
 # Agent execution
 
-Agent definitions describe capabilities. The engine advances execution; a host
+Agent definitions describe what an agent has. The engine advances execution; a host
 persists progress and connects it to external systems.
 
 ## Language
 
-**Manifest**: The serializable description of an agent's declared capabilities.
-Its canonical hash identifies the definition used by an execution.
+**Manifest**: The serializable description of an agent: its instructions, tools, skills and MCP
+servers, and in a session's pin the Runtime's `runtime` block. Its canonical hash identifies the
+definition used by an execution.
 
-**Binding**: The local pairing of a manifest with ordered declarations, executable
+**Binding**: The local pairing of a manifest with its ordered parts, executable
 tool snapshots and live schema validators. Functions in a binding stay local.
 
 **Turn loop**: The progression from model calls through tool outcomes to a final
@@ -32,10 +33,10 @@ hosted tool. The engine never asks for approval of an HTTP or MCP call: the host
 does, as it journals the effect (a `pending` intent while a person decides).
 
 **Deferred session tool**: A session tool marked `deferred` (R2b C10): out of the model's tool
-list, and run by `tool_call` (in the `nylorun.tools` capability), which checks the arguments
+list, and run by `tool_call` (a session tool of the `runtime` part), which checks the arguments
 against the tool's `inputSchema` and makes the call as the tool's own effect, which the host's
-tool policy decides as it would a direct call. A session tool may carry `instructions`, which the model reads with its
-capability's while it is advertised (`tool_search`'s note of the servers).
+tool policy decides as it would a direct call. A session tool may carry `instructions`, which the model reads with the
+Runtime's while it is advertised (`tool_search`'s note of the servers).
 
 **SDK client**: The shared application interface for communicating with a host.
 Authoring accompanies it in the agents SDK.

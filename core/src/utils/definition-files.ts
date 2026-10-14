@@ -61,21 +61,17 @@ export function definitionFilesOf(document: unknown, into = new Set<string>()): 
   const value = document as {
     kind?: string;
     agents?: Record<string, unknown>;
-    capabilities?: {
-      skills?: Record<string, { files?: Record<string, unknown> }>;
-      tools?: { agent?: unknown }[];
-    }[];
+    skills?: Record<string, { files?: Record<string, unknown> }>;
+    tools?: { agent?: unknown }[];
   };
   if (value.kind === "workflow") {
     for (const agent of Object.values(value.agents ?? {})) definitionFilesOf(agent, into);
     return into;
   }
-  for (const capability of value.capabilities ?? []) {
-    for (const skill of Object.values(capability.skills ?? {}))
-      for (const hash of Object.values(skill?.files ?? {}))
-        if (isDefinitionFileHash(hash)) into.add(hash);
-    for (const tool of capability.tools ?? []) definitionFilesOf(tool.agent, into);
-  }
+  for (const skill of Object.values(value.skills ?? {}))
+    for (const hash of Object.values(skill?.files ?? {}))
+      if (isDefinitionFileHash(hash)) into.add(hash);
+  for (const tool of value.tools ?? []) definitionFilesOf(tool.agent, into);
   return into;
 }
 

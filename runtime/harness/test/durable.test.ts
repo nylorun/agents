@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, hashManifest } from "@nylorun/core/define";
+import { Agent, hashManifest, runtimeManifestFor, type AgentManifest } from "@nylorun/core/define";
 import {
   createDurableCheckpoint,
   runDurable,
@@ -85,6 +85,7 @@ describe("durable reconstruction", () => {
       input: "go",
     });
     const names: string[][] = [];
+    const toolEffects: HostEffect[] = [];
     const host: DurableHost = {
       async resolveEffect(effect) {
         if (effect.kind === "model") {
@@ -112,12 +113,7 @@ describe("durable reconstruction", () => {
             },
           };
         }
-        expect(effect).toMatchObject({
-          kind: "tool",
-          capabilityId: "agent",
-          toolName: "github__get_issue",
-          input: { number: 7 },
-        });
+        toolEffects.push(effect);
         return {
           status: "completed",
           outcome: { value: { kind: "completed", output: { title: "bug" } } },
@@ -130,7 +126,6 @@ describe("durable reconstruction", () => {
       host,
       sessionTools: [
         {
-          capabilityId: "agent",
           name: "github__get_issue",
           description: "Read an issue.",
           inputSchema: {
@@ -143,8 +138,66 @@ describe("durable reconstruction", () => {
     });
     expect(result.status).toBe("completed");
     expect(names[0]).toEqual(["job", "github__get_issue"]);
+    // A session tool's effect is named by the tool alone (protocol 13).
+    expect(toolEffects).toHaveLength(1);
+    expect(toolEffects[0]).toMatchObject({
+      kind: "tool",
+      toolName: "github__get_issue",
+      input: { number: 7 },
+    });
+    expect(toolEffects[0]).not.toHaveProperty("capabilityId");
     expect(JSON.stringify(manifest)).not.toContain("github__get_issue");
     expect(checkpoint.manifestHash).toBe(hashManifest(manifest));
+  });
+});
+
+describe("a pinned manifest's runtime block", () => {
+  it("hosts the agent's tools and the Runtime's by name, after the agent's, with its instructions", async () => {
+    const definition = Agent({ id: "coder" })
+      .instructions("Fix the tests.")
+      .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
+      .build().manifest;
+    const manifest: AgentManifest = {
+      ...definition,
+      runtime: runtimeManifestFor(definition, { sandbox: {} }),
+    };
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "s",
+      turnId: "t",
+      input: "go",
+    });
+    const offered: string[][] = [];
+    const prompts: string[] = [];
+    const tools: HostEffect[] = [];
+    const host: DurableHost = {
+      async resolveEffect(effect) {
+        if (effect.kind === "model") {
+          const call = effect.input as { tools: { name: string }[]; prompt: { kind?: string }[] };
+          offered.push(call.tools.map((tool) => tool.name));
+          prompts.push(JSON.stringify(call.prompt));
+          const output =
+            call.prompt.at(-1)?.kind === "tool-result"
+              ? [{ type: "text", text: "done" }]
+              : [
+                  { type: "tool-call", id: "b", name: "bash", args: { command: "ls" } },
+                  { type: "tool-call", id: "j", name: "job", args: {} },
+                ];
+          return { status: "completed", outcome: { value: { output } } };
+        }
+        tools.push(effect);
+        return { status: "completed", outcome: { value: { kind: "completed", output: "ok" } } };
+      },
+    };
+    const result = await runDurable({ manifest, checkpoint, host });
+    expect(result.status).toBe("completed");
+    expect(offered[0]).toEqual(["job", ...manifest.runtime!.tools!.map((tool) => tool.name)]);
+    // The agent's instructions come first, then the Runtime's.
+    const sandboxText = JSON.stringify(manifest.runtime!.instructions![0]).slice(1, 40);
+    expect(prompts[0]!.indexOf("Fix the tests.")).toBeGreaterThanOrEqual(0);
+    expect(prompts[0]!.indexOf(sandboxText)).toBeGreaterThan(prompts[0]!.indexOf("Fix the tests."));
+    expect(tools.map((effect) => effect.toolName).sort()).toEqual(["bash", "job"]);
+    for (const effect of tools) expect(effect).not.toHaveProperty("capabilityId");
   });
 });
 

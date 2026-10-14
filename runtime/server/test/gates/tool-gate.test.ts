@@ -34,7 +34,6 @@ const agent = Agent({ id: "bot", name: "Bot" })
     docs: { type: "sse", url: "https://docs.example.invalid/sse" },
   })
   .build();
-const capabilityId = agent.manifest.capabilities.find((c) => c.mcpServers)!.id;
 
 function fakeConnection(): LiveConnection & { calls: string[] } {
   const calls: string[] = [];
@@ -79,8 +78,8 @@ describe("the loop's MCP pool with a Tool Gate", () => {
       "github__echo",
     ]);
     expect(opened).toEqual([
-      { sessionId: "s1", capabilityId, serverName: "github" },
-      { sessionId: "s1", capabilityId, serverName: "docs" },
+      { sessionId: "s1", serverName: "github" },
+      { sessionId: "s1", serverName: "docs" },
     ]);
     expect(inProcess).toEqual([]);
     expect(authorize).not.toHaveBeenCalled();
@@ -101,9 +100,9 @@ describe("the gate's MCP handler", () => {
   it("refuses an undeclared server and an unknown session", async () => {
     const open = vi.fn(async () => fakeConnection());
     const handler = createMcpHandler({ vaults: vaults(agent.manifest), logger: quiet, open });
-    const missing = await handler.connect(undefined, { sessionId: "s1", capabilityId, serverName: "nope" });
+    const missing = await handler.connect(undefined, { sessionId: "s1", serverName: "nope" });
     expect(missing).toMatchObject({ ok: false, error: { message: expect.stringContaining("not declared") } });
-    const session = await handler.connect(undefined, { sessionId: "s2", capabilityId, serverName: "github" });
+    const session = await handler.connect(undefined, { sessionId: "s2", serverName: "github" });
     expect(session).toMatchObject({ ok: false, error: { message: expect.stringContaining("not found") } });
     expect(open).not.toHaveBeenCalled();
   });
@@ -127,7 +126,7 @@ describe("the gate's MCP handler", () => {
       logger: quiet,
       open: open as never,
     });
-    const server = { sessionId: "s1", capabilityId, serverName: "github" };
+    const server = { sessionId: "s1", serverName: "github" };
     expect(await handler.connect(undefined, server)).toEqual({ ok: true, result: null });
     const called = await handler.call(
       undefined,
@@ -211,13 +210,12 @@ describe("a session's MCP requests under its run token (F5)", () => {
     const key = "turn-1:0:tool:a";
     await runs.journal("mcp-a", {
       effectId: key,
-      capabilityId,
       toolName: "github__echo",
       input: {},
       mcp: { serverName: "github", serverToolName: "echo" },
     });
     const tools = httpToolGate({ url: server.url, token, runTokens: runs.grants });
-    const connection = await tools.openMcp!({ sessionId: "mcp-a", capabilityId, serverName: "github" });
+    const connection = await tools.openMcp!({ sessionId: "mcp-a", serverName: "github" });
     expect(await connection.client.callTool({ name: "echo", arguments: {} }, { key })).toBeDefined();
     expect(authorizeMcp).toHaveBeenCalledWith("mcp-a", expect.anything());
     expect(mine.claims.sessionId).toBe("mcp-a");
@@ -227,7 +225,7 @@ describe("a session's MCP requests under its run token (F5)", () => {
     const { server, authorizeMcp } = await gate();
     const mine = await runs.run("mcp-b", { manifest: agent.manifest });
     await runs.run("mcp-c", { manifest: agent.manifest });
-    const theirs = { sessionId: "mcp-c", capabilityId, serverName: "github" };
+    const theirs = { sessionId: "mcp-c", serverName: "github" };
     const forbidden = await send(server.url, MCP_CONNECT_PATH, mine.token, { server: theirs });
     expect(forbidden.status).toBe(403);
     expect(await forbidden.json()).toMatchObject({ error: { code: "gate_forbidden" } });
@@ -246,7 +244,7 @@ describe("a session's MCP requests under its run token (F5)", () => {
   it("serves core's credential outside a run, with the session in the body", async () => {
     const { server, authorizeMcp } = await gate();
     await runs.run("mcp-d", { manifest: agent.manifest });
-    const ref = { capabilityId, serverName: "github" };
+    const ref = { serverName: "github" };
     const unnamed = await send(server.url, MCP_CONNECT_PATH, token, { server: ref });
     expect(unnamed.status).toBe(400);
     const named = await send(server.url, MCP_CONNECT_PATH, token, { server: { ...ref, sessionId: "mcp-d" } });
@@ -254,7 +252,7 @@ describe("a session's MCP requests under its run token (F5)", () => {
     expect(authorizeMcp).toHaveBeenCalledWith("mcp-d", expect.anything());
     // Without a grant the client falls back to core's credential.
     const tools = httpToolGate({ url: server.url, token, runTokens: createRunGrants() });
-    await expect(tools.openMcp!({ sessionId: "mcp-d", capabilityId, serverName: "github" })).resolves.toBeDefined();
+    await expect(tools.openMcp!({ sessionId: "mcp-d", serverName: "github" })).resolves.toBeDefined();
   });
 
   it("refuses a keyed cancel of another session's call", async () => {
@@ -264,12 +262,11 @@ describe("a session's MCP requests under its run token (F5)", () => {
     const key = "turn-1:0:tool:e";
     await runs.journal("mcp-e", {
       effectId: key,
-      capabilityId,
       toolName: "github__echo",
       input: {},
       mcp: { serverName: "github", serverToolName: "echo" },
     });
-    const call = { server: { capabilityId, serverName: "github" }, effectId: key, name: "echo", arguments: {} };
+    const call = { server: { serverName: "github" }, effectId: key, name: "echo", arguments: {} };
     const running = send(held.server.url, TOOL_CALLS_PATH, mine.token, call, key);
     await vi.waitFor(() => expect(held.calls()).toBe(1));
     // Another session's re-send under the same key is not its journaled call: it never joins.
@@ -339,8 +336,6 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
     Agent({ id: "bot", name: "Bot" })
       .tools(http({ name: "refund", input: z.object({ id: z.string() }), url, credential: "billing" }))
       .build();
-  const capabilityOf = (agent: ReturnType<typeof billing>) =>
-    agent.manifest.capabilities.find((c) => c.tools?.some((tool) => tool.name === "refund"))!.id;
 
   it("calls the tool the token's session declares, with its vault credential and the token's turn", async () => {
     const target = await service();
@@ -349,14 +344,13 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
     const grant = await runs.run("http-a", { manifest: agent.manifest });
     await runs.journal("http-a", {
       effectId: "turn-x:0:tool:1",
-      capabilityId: capabilityOf(agent),
       toolName: "refund",
       input: { id: "A-1" },
     });
     const tools = httpToolGate({ url: server.url, token, runTokens: runs.grants });
     const outcome = await tools.callHttp!(
       {
-        tool: { sessionId: "http-a", capabilityId: capabilityOf(agent), toolName: "refund" },
+        tool: { sessionId: "http-a", toolName: "refund" },
         effectId: "turn-x:0:tool:1",
         turnId: "ignored-under-a-run-token",
         input: { id: "A-1" },
@@ -386,7 +380,7 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
     const mine = await runs.run("http-b", { manifest: agent.manifest });
     await runs.run("http-c", { manifest: agent.manifest });
     const body = (sessionId: string | undefined, toolName = "refund") => ({
-      tool: { ...(sessionId ? { sessionId } : {}), capabilityId: capabilityOf(agent), toolName },
+      tool: { ...(sessionId ? { sessionId } : {}), toolName },
       effectId: "e",
       turnId: "t",
       input: {},
@@ -443,7 +437,7 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
     );
     await runs.run("http-d", { manifest: agent.manifest });
     const call = {
-      tool: { sessionId: "http-d", capabilityId: capabilityOf(agent), toolName: "refund" },
+      tool: { sessionId: "http-d", toolName: "refund" },
       effectId: "turn-d:0:tool:1",
       turnId: "t",
       input: { id: "D-1" },

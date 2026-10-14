@@ -167,26 +167,28 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 11 and 12 clients; they require environments, and 12 model inputs", () => {
-    expect(PROTOCOL_VERSION).toBe(12);
+  it("serves protocol 13 clients only; they require the flat manifest", () => {
+    expect(PROTOCOL_VERSION).toBe(13);
     // Protocol 8 clients require the Management API (key roles); protocol 9 clients the OAuth
     // resource server's 401 challenges; protocol 11 clients Environments; protocol 12 clients
-    // model inputs.
+    // model inputs; protocol 13 clients the flat manifest (v7).
     expect(PROTOCOL_FEATURES).toContain("management-api");
     expect(PROTOCOL_FEATURES).toContain("resource-server");
     expect(PROTOCOL_FEATURES).toContain("environments");
     expect(PROTOCOL_FEATURES).toContain("artifacts");
     expect(PROTOCOL_FEATURES).toContain("model-inputs");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 11, max: 12 });
-    // Protocol 12 only adds to 11: a protocol 11 client is still served.
-    expect(checkCompatibility({ version: 11, required: [] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
+    expect(PROTOCOL_FEATURES).toContain("flat-manifest");
+    expect(HOST_PROTOCOL).toMatchObject({ min: 13, max: 13 });
+    expect(HOST_PROTOCOL.features).toContain("flat-manifest");
+    expect(checkCompatibility({ version: 13, required: ["flat-manifest"] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
     expect(ERROR_CODES).toContain("attachment_unsupported");
     // Protocol 11 removed sandbox resources (R2d): no `sandboxes` Host feature.
     expect(HOST_PROTOCOL.features).not.toContain("sandboxes");
     // The compatibility window for protocol 4 to 10 clients is closed (R2d Q3).
     for (const removed of ["runtime-tenants", "admin-status", "subject-tokens", "browser-access", "derived-principals"])
       expect(HOST_PROTOCOL.features).not.toContain(removed);
-    for (const version of [4, 8, 10])
+    // Protocol 13 changed the manifest a client registers: 11 and 12 clients are refused too.
+    for (const version of [4, 8, 10, 11, 12])
       expect(checkCompatibility({ version, required: [] }, HOST_PROTOCOL)).toMatchObject({
         ok: false,
         reason: "version",

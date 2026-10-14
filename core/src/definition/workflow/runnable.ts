@@ -81,7 +81,7 @@ export function bindToolNode(tool: ToolDefinition): BoundToolDefinition {
     execute: execute.bind(normalized) as BoundToolDefinition["execute"],
     ...(normalized.approval === undefined ? {} : { approval: normalized.approval }),
     ...(normalized.effects === undefined ? {} : { effects: normalized.effects }),
-    owner: Object.freeze({ middlewareId: "workflow", slot: "tool-node" }),
+    owner: Object.freeze({ partId: "workflow", slot: "tool-node" }),
   });
 }
 
