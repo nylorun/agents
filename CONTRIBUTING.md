@@ -180,11 +180,13 @@ short change description with `npm run changeset`; select the affected packages
 and version impact. Repository-only changes do not require package releases.
 Run `npm run check`; run `npm run check:stack` for packaging or cross-package changes.
 
-CI runs in two tiers (`.github/workflows/ci.yml`). The fast tier, `check`, runs
-on every PR and merge-queue entry, and the merge queue merges on it. The full
-tier (the Docker smokes, acceptance, integration, sandboxes on kind, macOS and the
-newest Node) runs after the merge on `main`, and for release PRs, whose `ci`
-waits for the full suite on the PR and again in the queue. Queue a PR as soon as
+CI runs in two tiers (`.github/workflows/ci.yml`). The fast tier, `check` and
+the Runtime's unit tests in two shards (`runtime-unit`), runs on every PR and
+merge-queue entry, and the merge queue merges on it. The full tier (the Docker
+smokes, acceptance, integration, sandboxes on kind, macOS and the newest Node)
+runs after the merge on `main`, and for release PRs, whose `ci` waits for the
+full suite on the PR and again in the queue; a merged release does not run it a
+third time on `main`. Queue a PR as soon as
 you open it with `gh pr merge --auto --squash`: its required `ci` passes at once
 and the merge queue runs the checks; `ci (pull_request)` on the PR is feedback.
 To run the full tier on a branch before merging, use

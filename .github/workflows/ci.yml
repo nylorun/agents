@@ -1,9 +1,11 @@
 name: CI
-# Two tiers. The fast tier (`check`) runs on every PR and merge-queue entry, and
-# the merge queue merges on it. The full tier (every other job) runs after the
-# merge on main, on manual runs, and for release PRs (a change to
-# .release/plan.json) on the PR and in the merge queue, so a release commit has
-# passed the full suite before publish.yml publishes it.
+# Two tiers. The fast tier (`check` and `runtime-unit`) runs on every PR and
+# merge-queue entry, and the merge queue merges on it. The full tier (every other
+# job) runs after the merge on main, on manual runs, and for release PRs (a
+# change to .release/plan.json) on the PR and in the merge queue, so a release
+# commit has passed the full suite before publish.yml publishes it. The merge
+# queue lands the commit it checked, so a release commit's push on main runs the
+# fast tier only: its full suite already passed there as `ci`.
 #
 # `ci` is the required check. A PR that is not a release reports `ci` at once
 # (`pr-ready`), so auto-merge queues it without waiting and the merge queue runs
@@ -22,10 +24,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # Which tier this run is: full on main, on manual runs, and when the run
-  # changes the release plan (a release PR, or a merge group holding one).
+  # changes the release plan (a release PR, or a merge group holding one). On
+  # main, a push that changes the release plan runs the fast tier when the merge
+  # queue's `ci` (its full tier) already passed on that commit.
   scope:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read
     outputs:
       full: ${{ steps.scope.outputs.full }}
     steps:
@@ -33,12 +40,24 @@ jobs:
       - id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           full=true
           if [[ -n "$BASE_SHA" ]]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
             git diff --quiet "$BASE_SHA" HEAD -- .release/plan.json && full=false
+          elif [[ -n "$BEFORE" && ! "$BEFORE" =~ ^0+$ ]]; then
+            git fetch --no-tags --depth=1 origin "$BEFORE"
+            if ! git diff --quiet "$BEFORE" HEAD -- .release/plan.json; then
+              queue=$(gh api --method GET \
+                "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
+                -f check_name=ci -f filter=latest \
+                --jq '[.check_runs[] | select(.app.slug == "github-actions") | .conclusion] | first')
+              echo "The merge queue's ci on $GITHUB_SHA: $queue"
+              [[ "$queue" == success ]] && full=false
+            fi
           fi
           echo "full=$full" | tee -a "$GITHUB_OUTPUT"
   # The required check on a PR that is not a release: it passes at once, so
@@ -54,8 +73,9 @@ jobs:
       - run: echo "The merge queue runs the checks for this PR; ci (pull_request) is feedback."
   # Fast tier: formatting, types, every package's unit tests and the package
   # checks on the pinned toolchain. Includes test:tooling, i.e. the Linux leg of
-  # the supervisor and release tooling tests (see `macos`). The runtime and
-  # examples tests keep every Tenant in the test stack's Postgres
+  # the supervisor and release tooling tests (see `macos`). The Runtime's unit
+  # tests, the longest part, run beside it in `runtime-unit`. The examples tests
+  # keep every Tenant in the test stack's Postgres
   # (runtime/server/test/stack/compose.yaml).
   check:
     runs-on: ubuntu-latest
@@ -73,8 +93,37 @@ jobs:
       - run: npm run setup
       - name: Start the test stack
         run: npm run test:stack:up --workspace @nylorun/runtime
-      - run: npm run check -- --built
+      - run: npm run check -- --built --no-runtime-tests
       - run: npm run check:stack -- --built
+      - name: Stop the test stack
+        if: always()
+        run: npm run test:stack:down --workspace @nylorun/runtime
+  # Fast tier: the Runtime's unit tests in two shards, each with its own test
+  # stack, every Tenant in its Postgres.
+  runtime-unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/package-lock.json
+      - run: npm install --global npm@11.15.0
+      - run: npm ci
+      # Workspaces run in flag order: keep dependency order.
+      - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/harness --workspace @nylorun/runtime
+      - name: Start the test stack
+        run: npm run test:stack:up --workspace @nylorun/runtime
+      - name: Runtime unit tests, shard ${{ matrix.shard }}
+        run: npm test --workspace @nylorun/runtime -- --shard=${{ matrix.shard }}
       - name: Stop the test stack
         if: always()
         run: npm run test:stack:down --workspace @nylorun/runtime
@@ -340,27 +389,42 @@ jobs:
       - name: Stop the test stack
         if: always()
         run: npm run test:stack:down --workspace @nylorun/runtime
-  # F7.2 8a: the sandboxes service (sandboxes/, Go) and `nylorun sandbox enable` on kind.
-  # go vet and go test; then a kind cluster whose API server listens on docker0's gateway
-  # (scripts/sandbox/kind.yaml), checked from a Compose-style container (S0); then the
-  # service suite with busybox pods (scripts/sandbox/service-suite.mjs): enable installs
-  # agent-sandbox v1.0.5 and probes NetworkPolicy, then create, suspend and resume with the
-  # service restarted mid-operation, delete, and no docker.sock anywhere.
+  # The sandboxes service (sandboxes/, Go) and sandbox pods on kind, in two legs of
+  # about the same length, each on a kind cluster of its own whose API server listens
+  # on docker0's gateway (scripts/sandbox/kind.yaml). Every suite runs `nylorun sandbox
+  # enable` itself, which installs agent-sandbox v1.0.5.
+  #
+  # service: go vet and go test; S0, the API server checked from a Compose-style
+  # container; F7.2 8a, the service suite with busybox pods
+  # (scripts/sandbox/service-suite.mjs): enable probes NetworkPolicy, then create,
+  # suspend and resume with the service restarted mid-operation, delete, and no
+  # docker.sock anywhere; F7.2 8c, the network invariant and the red-team from inside
+  # the sandbox namespace (scripts/sandbox/pod-stack.mjs), each on a Tenant of its own
+  # with a joined pod sandbox.
+  #
+  # pods: F7.2 8b, pod sandboxes end to end (scripts/sandbox/suite.mjs); R4, a custom
+  # harness as a pod's image (scripts/sandbox/harness-pod.mjs).
   sandboxes:
     needs: scope
     if: needs.scope.outputs.full == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [service, pods]
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 50
     env:
       NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
       NYLORUN_SANDBOXES_IMAGE: nylorun-sandboxes:ci
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v7
+        if: matrix.leg == 'service'
         with:
           go-version-file: sandboxes/go.mod
           cache-dependency-path: sandboxes/go.sum
       - name: go vet and go test
+        if: matrix.leg == 'service'
         working-directory: sandboxes
         run: |
           test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
@@ -387,10 +451,22 @@ jobs:
           cluster_name: nylorun
           config: scripts/sandbox/kind.yaml
           node_image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+      # The images sandbox pods use: the engine is copied from the runtime image into a
+      # python:3.13-slim pod; busybox is the probe of the service suite and pod-stack.mjs.
+      - name: Load the pod images into kind
+        run: |
+          docker pull python:3.13-slim
+          images=("$NYLORUN_RUNTIME_IMAGE" python:3.13-slim)
+          if [[ "${{ matrix.leg }}" == service ]]; then
+            docker pull busybox:1.37.0
+            images+=(busybox:1.37.0)
+          fi
+          kind load docker-image --name nylorun "${images[@]}"
       # S0: a container on a Compose network verifies the API server's certificate at
       # docker0's gateway, as the sandboxes service does. (The enable probe checks the
       # pod → host route and kindnet's ipBlock /32 + port enforcement.)
       - name: S0 API route from a Compose network
+        if: matrix.leg == 'service'
         run: |
           server=$(kubectl config view --minify --context kind-nylorun -o jsonpath='{.clusters[0].cluster.server}')
           echo "API server: $server"
@@ -401,26 +477,24 @@ jobs:
             -v "$RUNNER_TEMP/kind-ca.crt:/ca.crt:ro" curlimages/curl:8.16.0 \
             -sS --max-time 10 --cacert /ca.crt "$server/version"
           docker network rm nylorun-s0
-      - name: Load the probe image into kind
-        run: |
-          docker pull busybox:1.37.0
-          kind load docker-image --name nylorun busybox:1.37.0
       - name: Sandboxes service suite
+        if: matrix.leg == 'service'
         timeout-minutes: 25
         run: npm run test:sandboxes:service -- --context kind-nylorun --host-address 172.17.0.1
-      # F7.2 8b: pod sandboxes end to end (scripts/sandbox/suite.mjs): the engine copied from the
-      # runtime image into a python:3.13-slim pod joins the Harness API; turns, stop, idle, TTL,
-      # reset, kill -9 runtime and force-deleted pod mid-turn, PVC loss, no cluster.
-      - name: Load the pod images into kind
-        run: |
-          docker pull python:3.13-slim
-          kind load docker-image --name nylorun "$NYLORUN_RUNTIME_IMAGE" python:3.13-slim
+      - name: Sandbox network invariant
+        if: matrix.leg == 'service'
+        timeout-minutes: 15
+        run: npm run test:sandboxes:network -- --context kind-nylorun --host-address 172.17.0.1
+      - name: Sandbox red-team
+        if: matrix.leg == 'service'
+        timeout-minutes: 15
+        run: npm run test:sandboxes:redteam -- --context kind-nylorun --host-address 172.17.0.1
       - name: Pod sandboxes suite
+        if: matrix.leg == 'pods'
         timeout-minutes: 35
         run: npm run test:sandboxes -- --context kind-nylorun --host-address 172.17.0.1
-      # R4: a custom harness as a pod's image (scripts/sandbox/harness-pod.mjs): the example
-      # harness runs as a pod Environment's own entrypoint and takes a bash turn, beside our harness.
       - name: Custom harness pod
+        if: matrix.leg == 'pods'
         timeout-minutes: 25
         env:
           NYLORUN_EXAMPLE_HARNESS_IMAGE: nylorun-example-harness:ci
@@ -428,14 +502,6 @@ jobs:
           docker build --file examples/harness-minimal/Dockerfile --tag "$NYLORUN_EXAMPLE_HARNESS_IMAGE" .
           kind load docker-image --name nylorun "$NYLORUN_EXAMPLE_HARNESS_IMAGE"
           npm run test:sandboxes:harness -- --context kind-nylorun --host-address 172.17.0.1
-      # F7.2 8c: the network invariant and the red-team from inside the sandbox namespace
-      # (scripts/sandbox/pod-stack.mjs), each on a Tenant of its own with a joined pod sandbox.
-      - name: Sandbox network invariant
-        timeout-minutes: 15
-        run: npm run test:sandboxes:network -- --context kind-nylorun --host-address 172.17.0.1
-      - name: Sandbox red-team
-        timeout-minutes: 15
-        run: npm run test:sandboxes:redteam -- --context kind-nylorun --host-address 172.17.0.1
       - name: Cluster diagnostics
         if: failure()
         run: |
@@ -448,7 +514,7 @@ jobs:
   # queue's `ci` on a release commit rather than main's `ci (push)`.
   ci:
     if: always()
-    needs: [scope, check, smoke-starter, smoke-dev, acceptance, macos, consumers, integration, stack, sandboxes]
+    needs: [scope, check, runtime-unit, smoke-starter, smoke-dev, acceptance, macos, consumers, integration, stack, sandboxes]
     name: ${{ (github.event_name == 'merge_group' || (github.event_name == 'pull_request' && needs.scope.outputs.full == 'true')) && 'ci' || format('ci ({0})', github.event_name) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -463,7 +529,7 @@ jobs:
           failed=$(jq -r --arg full "$FULL" '
             to_entries[]
             | select(.value.result != "success")
-            | select(($full != "true" and .value.result == "skipped" and (.key | IN("scope", "check") | not)) | not)
+            | select(($full != "true" and .value.result == "skipped" and (.key | IN("scope", "check", "runtime-unit") | not)) | not)
             | "\(.key): \(.value.result)"' <<<"$NEEDS")
           echo "${failed:-every job of the tier passed}"
           [[ -z "$failed" ]]

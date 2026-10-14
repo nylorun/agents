@@ -41,8 +41,9 @@ jobs:
       # check-run means no publication. A merged release PR changes the release
       # plan, so the merge queue ran the full suite as `ci` on the exact commit
       # it lands (ci.yml). A manual run may name a later main tip, which the
-      # queue checked with the fast tier only: require main's post-merge full
-      # run, `ci (push)`, instead.
+      # queue checked with the fast tier only: require main's post-merge run,
+      # `ci (push)`, instead. It passes only after the full suite passed on the
+      # commit: in that run, or for a release commit in the queue's `ci`.
       - name: Require the full CI suite on this commit
         shell: bash
         env:
@@ -71,8 +72,8 @@ jobs:
       - run: npm run build --prefix examples
       # release:check smokes the packed starter on the Docker stack. Build its
       # Runtime and Studio images once, for this runner only (amd64, loaded,
-      # never pushed), with a layer cache; the images job builds the published
-      # multi-arch images.
+      # never pushed), from the layer cache CI's images use (cache.yml writes it
+      # on main); the images job builds the published multi-arch images.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build the Runtime image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -81,8 +82,7 @@ jobs:
           file: runtime/Dockerfile
           tags: nylorun-runtime:release-check
           load: true
-          cache-from: type=gha,scope=release-check-runtime
-          cache-to: type=gha,mode=max,scope=release-check-runtime
+          cache-from: type=gha,scope=stack-runtime
       - name: Build the Studio image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -90,8 +90,7 @@ jobs:
           file: studio/Dockerfile
           tags: nylorun-studio:release-check
           load: true
-          cache-from: type=gha,scope=release-check-studio
-          cache-to: type=gha,mode=max,scope=release-check-studio
+          cache-from: type=gha,scope=stack-studio
       # Also checks nylorun's image pins against the plan.
       - run: npm run release:check -- --built
         env:
