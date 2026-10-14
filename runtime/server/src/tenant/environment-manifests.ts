@@ -184,6 +184,9 @@ export async function saveEnvironmentManifest(
       createdAt: new Date().toISOString(),
     };
     await t.insertEnvironmentManifest(row);
+    // Its files by hash (Q6), recorded as a definition's are, for the sweep that deletes unused ones.
+    const shas = [...new Set((manifest.files ?? []).flatMap((file) => ("files" in file ? Object.values(file.files) : [])))];
+    if (shas.length > 0) await t.insertDefinitionFileUses(`environment-manifest:${name}`, hash, shas);
     return { manifest: viewOf(row, counts), unchanged: false, warnings };
   });
 }

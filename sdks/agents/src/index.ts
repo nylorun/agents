@@ -125,6 +125,7 @@ export type {
   CreateSessionOptions,
   SessionSandbox,
   ForSessionOptions,
+  EnvironmentFileBytes,
   EnvironmentInput,
   EnvironmentManifestInput,
   EnvironmentSecretInput,
@@ -134,6 +135,7 @@ export {
   EnvironmentManifestsClient,
   EnvironmentsClient,
   EnvironmentSecretsClient,
+  environmentFiles,
   environmentManifest,
 } from "./client.js";
 export { AccessClient } from "./access.js";

@@ -139,6 +139,41 @@ describe("a pod Environment's setup and input files", { timeout: 90_000 }, () =>
     expect(state.retry).toBe(true);
   });
 
+  it("copies files by content hash: refused until the Tenant holds them, then served as a folder (Q6)", async () => {
+    const { createHash } = await import("node:crypto");
+    const bytes = "#!/bin/sh\necho kit\n";
+    const sha256 = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    const files = [{ path: "/workspace/kit", files: { "bin/run.sh": sha256, "README.md": sha256 } }];
+    const missing = await call("PUT", path("setup/hashed"), { kind: "pod", files });
+    expect(missing.status).toBe(400);
+    expect(missing.body.message).toContain(`names ${sha256}, which the Tenant does not hold`);
+    const escape = await call("PUT", path("setup/hashed"), { kind: "pod", files: [{ path: "/workspace/kit", files: { "../x": sha256 } }] });
+    expect(escape.status).toBe(400);
+    const uploaded = await fetch(`${runtime.url}/v1/files/${sha256}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${APP}`, "content-type": "application/octet-stream" },
+      body: bytes,
+    });
+    expect(uploaded.status).toBe(201);
+
+    const { name, view } = await createPod("setup/hashed", { files });
+    expect(view.manifest.files).toEqual(files);
+    const joined = await hosts.join({ sandboxId: "setup/hashed", podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });
+    expect(joined.setup?.files).toEqual([{ index: 0, path: "/workspace/kit" }]);
+    const base = listener.url.replace(/^ws/, "http");
+    const get = (suffix: string) => fetch(`${base}/host/${suffix}`, { headers: { authorization: `Bearer ${joined.hostToken}` } });
+    const listing = await get("files/0");
+    expect(listing.headers.get("x-nylorun-artifact-kind")).toBe("folder");
+    expect(((await listing.json()) as { entries: unknown[] }).entries).toEqual([
+      { path: "bin/run.sh", size: bytes.length },
+      { path: "README.md", size: bytes.length },
+    ]);
+    expect(await (await get(`files/0/${encodeURIComponent("bin/run.sh")}`)).text()).toBe(bytes);
+    // As the engine asks for it: each segment encoded.
+    expect(await (await get("files/0/bin/run.sh")).text()).toBe(bytes);
+    expect((await get("files/0/other.txt")).status).toBe(404);
+  });
+
   it("a failed setup fails the pod and stays failed while the pod is ready, until a turn start", async () => {
     const { name } = await createPod("setup/fails", { setup: [{ command: "exit 3" }] });
     const joined = await hosts.join({ sandboxId: "setup/fails", podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });

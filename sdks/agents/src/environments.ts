@@ -51,6 +51,7 @@ import {
   type PutEnvironmentRequest,
   type PutEnvironmentSecretRequest,
 } from "@nylorun/core/contracts";
+import { definitionFileHash, FilesClient } from "./files.js";
 import { id, segment, type Transport } from "./http.js";
 import type { CreateSessionOptions, SessionClient } from "./session-client.js";
 
@@ -181,6 +182,29 @@ export class EnvironmentSecretsClient {
  * manifest's next version, or answers the latest unchanged, and changes no Environment: an
  * Environment keeps the version it was made from.
  */
+/** The bytes of files by hash, by `sha256:<hex>` (`environmentFiles(...).bytes`). */
+export type EnvironmentFileBytes = Readonly<Record<string, Uint8Array>>;
+
+/**
+ * A manifest `files` entry by content hash (Q6): `contents` (each file's path under `path` and
+ * its bytes or text) hashed, as `entry` for the manifest and `bytes` for `manifests.save`'s
+ * `files`, which uploads them. Each file holds at most 10 MiB.
+ */
+export async function environmentFiles(
+  path: string,
+  contents: Readonly<Record<string, Uint8Array | string>>,
+): Promise<{ entry: { path: string; files: Record<string, string> }; bytes: Record<string, Uint8Array> }> {
+  const files: Record<string, string> = {};
+  const bytes: Record<string, Uint8Array> = {};
+  for (const [name, content] of Object.entries(contents).sort(([a], [b]) => a.localeCompare(b))) {
+    const data = typeof content === "string" ? new TextEncoder().encode(content) : content;
+    const sha256 = await definitionFileHash(data);
+    files[name] = sha256;
+    bytes[sha256] = data;
+  }
+  return { entry: { path, files }, bytes };
+}
+
 export class EnvironmentManifestsClient {
   constructor(private readonly transport: Transport) {}
 
@@ -190,29 +214,41 @@ export class EnvironmentManifestsClient {
     return `/v1/environment-manifests/${segment(name)}`;
   }
 
-  private send<T>(manifest: EnvironmentManifestInput, query: string, ifMatch: number | undefined, signal?: AbortSignal) {
+  private async send<T>(
+    manifest: EnvironmentManifestInput,
+    query: string,
+    options: { ifMatch?: number; files?: EnvironmentFileBytes; signal?: AbortSignal },
+  ) {
+    const { ifMatch, signal } = options;
     const body = environmentManifest(manifest);
+    // Its files by hash (Q6): uploaded first, each only when the Runtime does not hold it.
+    if (options.files)
+      await new FilesClient(this.transport).ensure(
+        new Map(Object.entries(options.files).map(([sha256, bytes]) => [sha256, { size: bytes.byteLength, read: async () => bytes }])),
+        signal ? { signal } : {},
+      );
     const transport = ifMatch === undefined ? this.transport : this.transport.withHeaders({ "If-Match": String(ifMatch) });
     return transport.json<T>(`${this.path(body.name)}${query}`, "PUT", { requestId: id(), ...body }, signal);
   }
 
   /**
    * Saves `manifest` (`PUT /v1/environment-manifests/{name}`). `ifMatch`: the version you read
-   * (`0` for none yet); a save over a newer one is `412 manifest_changed`.
+   * (`0` for none yet); a save over a newer one is `412 manifest_changed`. `files`: the bytes of
+   * its files by hash (`environmentFiles(...).bytes`), uploaded first when the Runtime lacks them.
    */
   async save(
     manifest: EnvironmentManifestInput,
-    options: { ifMatch?: number; signal?: AbortSignal } = {},
+    options: { ifMatch?: number; files?: EnvironmentFileBytes; signal?: AbortSignal } = {},
   ): Promise<SaveEnvironmentManifestResponse> {
-    return this.send(manifest, "", options.ifMatch, options.signal);
+    return this.send(manifest, "", options);
   }
 
   /** What saving `manifest` would do (`?dryRun=true`): changes, errors, warnings, and the Environments behind. */
   async plan(
     manifest: EnvironmentManifestInput,
-    options: { ifMatch?: number; signal?: AbortSignal } = {},
+    options: { ifMatch?: number; files?: EnvironmentFileBytes; signal?: AbortSignal } = {},
   ): Promise<EnvironmentManifestPlan> {
-    return this.send(manifest, "?dryRun=true", options.ifMatch, options.signal);
+    return this.send(manifest, "?dryRun=true", options);
   }
 
   /** The latest version of manifest `name`, or version `version`. */

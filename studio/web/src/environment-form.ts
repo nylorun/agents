@@ -277,7 +277,8 @@ export function environmentForm(view: EnvironmentView): EnvironmentForm {
       cwd: command.cwd ?? "",
       timeout: command.timeout ?? "",
     })),
-    files: (recipe.files ?? []).map((file) => ({
+    // Files by content hash (Q6) come from a manifest; the form edits artifact versions only.
+    files: (recipe.files ?? []).flatMap((file) => ("files" in file ? [] : [file])).map((file) => ({
       artifactId: file.artifactId,
       version: String(file.version),
       path: file.path,

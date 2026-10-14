@@ -225,6 +225,12 @@ which connects first (`afterSeed` in the join answer), has run that setup on the
 turns wait for both.
 _Avoid_: "upgrade" or "update" for a fork (the source does not change).
 
+**Image digest**: The workload image a pod Environment runs, by digest (Q14,
+`SandboxPodState.imageDigest`, `sandbox/pods/lifecycle.ts`): recorded from the sandboxes service's
+`imageID` the first time a pod is ready, and sent instead of the recipe's `image` on every later
+apply (`podSpecOf`), so a stop, relaunch or reset runs the same bits. An image id without a
+repository pins nothing (`imageDigestOf`).
+
 **Disk setup**: A pod Environment's `files` and `setup` (R2d step 2, `sandbox/setup.ts`,
 `harness/setup.ts`), run once per new disk: the join answer carries the plan (`setupPlanOf`), the
 engine copies the input files through `GET host/files/{index}` and runs the commands before it

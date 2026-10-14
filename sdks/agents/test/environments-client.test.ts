@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
-import { AgentsClient } from "../src/client.js";
+import { AgentsClient, environmentFiles } from "../src/client.js";
 
 const KEY = "a".repeat(64);
 const RUNTIME = "http://127.0.0.1:8787";
@@ -103,6 +103,31 @@ describe("client.environments", () => {
     expect(sent[0]!.body).toMatchObject({ id: "users/alice/web-2", manifest: "web@2" });
     expect(sent[0]!.body.requestId).toEqual(expect.any(String));
     expect(sent[1]!.body).toEqual({ id: "users/alice/web-2", disk: "empty", dryRun: true });
+  });
+
+  it("hashes files for a manifest, and uploads those the Runtime lacks before the save (Q6)", async () => {
+    const kit = await environmentFiles("/workspace/kit", { "run.sh": "echo kit\n", "data.bin": new Uint8Array([1, 2]) });
+    expect(Object.keys(kit.entry.files)).toEqual(["data.bin", "run.sh"]);
+    const [data, run] = [kit.entry.files["data.bin"]!, kit.entry.files["run.sh"]!];
+    expect(run).toMatch(/^sha256:[0-9a-f]{64}$/);
+    const { client, sent } = fake((method, path) =>
+      method === "HEAD"
+        ? new Response(null, { status: path.endsWith(data) ? 200 : 404 })
+        : method === "PUT" && path.startsWith("/v1/files/")
+          ? Response.json({ sha256: run }, { status: 201 })
+          : Response.json({ manifest: { name: "box", version: 1 }, unchanged: false, warnings: [] }),
+    );
+    await client.environments.manifests.save(
+      { manifestSchemaVersion: 1, name: "box", kind: "pod", files: [kit.entry] },
+      { files: kit.bytes },
+    );
+    expect(sent.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      `HEAD /v1/files/${data}`,
+      `HEAD /v1/files/${run}`,
+      `PUT /v1/files/${run}`,
+      "PUT /v1/environment-manifests/box",
+    ]);
+    expect(sent.at(-1)!.body.files).toEqual([kit.entry]);
   });
 
   it("refuses an id the Runtime would refuse, before sending anything", async () => {
