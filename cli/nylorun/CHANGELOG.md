@@ -1,5 +1,53 @@
 # nylorun
 
+## 0.14.0-beta
+
+### Minor Changes
+
+- 35e29b7: **Environments replace sandboxes and vaults (protocol 11). This is a fresh start: upgrading deletes your sandboxes, their disks and every vault except the model's, and closes every open session (its history stays readable).** List what you have before upgrading; see "Environments replace sandboxes and vaults" in MIGRATION.md.
+
+  An Environment is where sessions run: one sandbox (kind `virtual`, `pod` or `none`) with a recipe that can change, and one vault of secrets for its shell, MCP servers and HTTP tools. The app decides who uses which Environment; the Runtime keeps it by id and holds its lifecycle.
+
+  - `@nylorun/core`: protocol 11 (the Host accepts 11 only; older clients get `426`), required feature `environments`. `PutEnvironmentRequestSchema`, `EnvironmentViewSchema` (`recipe`, `version`, `appliedVersion`, `ownerUserId`, `lastUsedAt`), `PutEnvironmentSecretRequestSchema`, `EnvironmentSecretViewSchema`, `ENVIRONMENT_EVENT_TYPES`, `TenantEnvironmentsConfigSchema`, `environmentGranted`. `PutSessionRequest.environment` replaces `sandbox`, `vaultIds` and `credentialSelections`; `SessionView.environment` replaces the session's sandbox and vault fields. Error codes `environment_busy`, `environment_unavailable`, `environment_lost`, `environment_not_granted`, `environment_owner_mismatch` and `session_closed` (the `sandbox_*` codes and `sandbox_expired` are gone); session events `environment.state`, `environment.exec` and `environment.attached`; scope `environments:write`. Credential coverage takes `environmentId` and answers `covered` or `missing`; the MCP preview takes `environmentId`. The vault Management schemas are removed.
+  - `@nylorun/runtime`: `/v1/environments/{id}` replaces `/v1/sandboxes/{id}`: `PUT` creates, finds or changes one (`kind` and `storage` fixed; a recipe change bumps `version`; a pod gets a new image or resources at its next start from stopped, a new allowlist within seconds), with list by label, events (`nylorun.environment-event/1`), stop, reset and delete. Each Environment owns one vault: `PUT|GET|DELETE /v1/environments/{id}/secrets/{name}` on the Runtime API, write-only, with a second credential for a host or URL refused at the write (`409 credential_conflict`). An optional owner guard (`ownerUserId`) is checked when a session opens and at every turn start. `lifecycle.deleteAfter` deletes an Environment unused that long; TTL and `onExpiry` are gone. Kind `none` holds secrets for MCP-only agents. `/v1/tenant/vaults`, user and installation vaults, the Tenant's default sandbox, inline sandboxes and `{ session }` sharing are removed. The Tenant setting is `environments.config` (`limits.environments`). Identity files grant `environments:` (an old `sandboxes:` key, or `sandboxes:write`, stops the Runtime with a message naming the new key). Migration `0020_environments`.
+  - `@nylorun/harness`: the Harness API claims `environment.state` and `environment.exec`, and its workspace fields name `environmentId`.
+  - `@nylorun/agents`: `client.environments` (`put`, `get`, `list`, `page`, `stop`, `reset`, `delete`, `events`, `secrets.put|list|get|delete`, `forSession`) replaces `client.sandboxes`; `createSession({ environment })`; `sessions.page({ environmentId })` filters by Environment. The AG-UI handler's session options take `environment`.
+  - `@nylorun/admin`: `admin.coverage({ agentId, environmentId })` replaces `admin.vaults`; `admin.mcp.preview({ url, environmentId })`.
+  - `@nylorun/studio`: Environments replace Sandboxes, with a create form, stop, reset, delete and their secrets; the Credentials forms write an Environment's secrets; New session picks an Environment and shows its coverage.
+  - `nylorun`: `nylorun sandbox ls|rm` list and delete Environments; `nylorun mcp inspect --environment <id>` replaces `--vault`; `nylo reset --environments` replaces `--sandboxes`; `nylo doctor sandbox` reports the Environment limits.
+
+- 7800358: **Each turn is one OpenTelemetry trace, projected from the session log (R7).** An operator could not see what a turn did or where its time went without grepping container logs. Now every turn is a trace with a span for each model call, tool call and egress tunnel, exported over OTLP to any collector, readable per turn from the Runtime, and joined to the trace of the app that started it. No protocol change.
+
+  - **Traces from the log.** A turn's end is its root span, `invoke_agent <agent>`; each model call is a `chat <model>` span, each tool call and flow HTTP stage an `execute_tool <tool>` span, each egress-gate tunnel a `CONNECT <host>` span, and each pause and answer a marker. A model or gate tool span is the gate's own start and end; usage and cost are the gate's (`nylorun.usage.mismatch` when the harness reported other numbers). Attribute names follow the OTel GenAI conventions at one pinned commit, recorded as `nylorun.semconv.genai` on the resource. Ids are derived from the log under a key the Tenant keeps (setting `trace.key`), so every export and read of a turn gives the same ids.
+  - **OTLP export, off until you set an endpoint.** With `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) the Runtime posts OTLP/HTTP JSON from a replication slot of its own, `nylorun_trace_export`, in batches of up to 512 spans or every 2 s; `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` work as usual. No turn waits for it. A collector that is down costs only its spans: after three retries a batch is dropped and logged as `trace_export_dropped`, and the slot moves on, so Postgres keeps no WAL for it. `nylorun start` passes these variables to the runtime container.
+  - **References by default.** Spans point at log events (`nylorun.event.cursor`) and carry no content unless you opt in per kind with `NYLORUN_TRACE_CONTENT` (`user`, `outputs`, `tool-results`, `errors`), or all of them with `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`, each cut at 8 KiB. A span never carries a credential value, a prompt, a person's id, an identity header or an idempotency key.
+  - **`GET /v1/sessions/{id}/turns/{turnId}/trace`** answers a turn's spans as OTLP JSON, the same spans the exporter posts: look at a turn without a collector, or post it to one to backfill. Application keys, as the `/calls` reads. Host feature `traces`; `@nylorun/agents` adds `session.trace(turnId)`, and `@nylorun/core/contracts` `TurnTraceSchema`.
+  - **Trace context in and out.** A `traceparent` (and `tracestate`) on `POST /v1/sessions/{id}/commands`, an AG-UI run or an A2A message puts the turn in the caller's trace; `command.message` records it as `trace`. The turn hands its context on: to the harness in `TurnStart.trace`, to HTTP tools as `traceparent` beside `Idempotency-Key`, to MCP servers as `traceparent` on the call's requests, and to sandbox commands as `TRACEPARENT`.
+  - **Harness API** (additive): the `effect.intent` answer `execute` may carry the tool call's `traceparent`. `@nylorun/harness`: `HarnessExecutors.tool` takes it as a fourth argument (`ToolCallContext`).
+
+### Patch Changes
+
+- a0cbca1: **Clearer wording when a definition runs your code.** The refusal for a code tool or a flow's tool stage, the `hooks were removed` error and `nylo endpoints` now say that the Runtime runs agents from their manifests alone, instead of that it runs no code of yours during a session. Only the message text changed; anything matching the old wording (for example `runs no code of yours during a session`) needs the new text.
+- Pin core to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [17a97e9]
+- Updated dependencies [b6214d9]
+- Updated dependencies [e917bd6]
+- Updated dependencies [5165451]
+- Updated dependencies [35e29b7]
+- Updated dependencies [e917bd6]
+- Updated dependencies [a0cbca1]
+- Updated dependencies [3013501]
+- Updated dependencies [6061a3a]
+- Updated dependencies [7d496e4]
+- Updated dependencies [81c783e]
+- Updated dependencies [7800358]
+- Updated dependencies
+  - @nylorun/core@0.20.0-beta
+  - @nylorun/admin@0.16.0-beta
+
 ## 0.13.0-beta
 
 ### Minor Changes

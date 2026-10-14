@@ -1,5 +1,102 @@
 # Changelog
 
+## 0.26.0-beta
+
+### Minor Changes
+
+- e917bd6: **Bring your own harness: harness ids, harness-owned state, and who wrote each event (R4.1, R4.2, R4.4, R4.9).**
+
+  - **Harness ids and routing.** An Environment's `harness` takes any harness id (`^[a-z][a-z0-9-]{1,62}$`). It is no longer only `nylorun`.
+    - **The pin.** A session pins its harness when it opens: its Environment's harness, else `nylorun`. A flow always runs `nylorun`. `GET /v1/sessions/{id}` returns the pin as `harness`.
+    - **Routing.** Only a connection whose `hello.name` is that id takes the session's runs.
+    - **Our harness's name.** It now says `nylorun` in `hello`. A harness that says `@nylorun/harness` is refused with a message naming the new id, so an older harness image needs this Runtime's.
+    - **Placement.** It is keyed by the real harness id, and `"*": {hosts: []}` refuses any harness the map does not name.
+    - **Drift.** A turn on an Environment that now runs another harness is `409 harness_mismatch`; open a new session. For a pod Environment, a changed `harness` applies at the pod's next wake, like its image.
+  - **Per-harness tokens.** `nylorun-operate harness token put <id>` makes a custom harness container's own Harness API credential, bound to its id; `list` and `rm` manage them. `NYLORUN_HARNESS_TOKEN` stays ours, bound to `nylorun`.
+  - **A custom harness as a pod's image.** A pod Environment whose harness is not ours runs its `image` as the harness: the image's own entrypoint (`entrypoint: "image"` to the sandboxes service), with nothing copied in. It needs `image`.
+  - **Harness-owned state.** Core stores a harness's turn state as sent and never reads it. Our engine now aligns its state with the turn's manifest itself.
+    - **Limits for a custom harness.** Its state is at most 256 KiB, or its turn fails. It cannot pause for approvals in Harness API 2.
+    - **Native tools.** It may declare the tools it runs itself in `hello` (`capabilities.tools`). Their calls (capability `harness`) are journaled like built-ins, and the log records a real `tool.completed` instead of `tool.unavailable`.
+  - **Who wrote each event.** The writer sets an event's `source` and `evidence`; the event's type no longer decides them. Events written before this release still say `loop` or `api`.
+    - **`client`**: a command, with a new `principal` taken from its credential.
+    - **`harness`**: what a harness reported, with its harness id and `runId`. Evidence `claimed`.
+    - **`core`**: core's own logic. Evidence `observed`.
+  - **`effectId` on model calls.** `GET /v1/sessions/{id}/calls/model` returns each call's `effectId`, so a metered call joins the effect journal.
+  - **The published contract grows.** It adds `HarnessCheckpointSchema` (the checkpoint fields a harness reads), `NativeToolSchema`, the harness id helpers, `HARNESS_TOOLS_CAPABILITY`, `MAX_HARNESS_STATE_BYTES`, and the gate error codes `key_required` and `effect_not_journaled`. It also documents the effect context keys, the model request hash rule and how a turn's status maps to its output method.
+
+- 35e29b7: **Environments replace sandboxes and vaults (protocol 11). This is a fresh start: upgrading deletes your sandboxes, their disks and every vault except the model's, and closes every open session (its history stays readable).** List what you have before upgrading; see "Environments replace sandboxes and vaults" in MIGRATION.md.
+
+  An Environment is where sessions run: one sandbox (kind `virtual`, `pod` or `none`) with a recipe that can change, and one vault of secrets for its shell, MCP servers and HTTP tools. The app decides who uses which Environment; the Runtime keeps it by id and holds its lifecycle.
+
+  - `@nylorun/core`: protocol 11 (the Host accepts 11 only; older clients get `426`), required feature `environments`. `PutEnvironmentRequestSchema`, `EnvironmentViewSchema` (`recipe`, `version`, `appliedVersion`, `ownerUserId`, `lastUsedAt`), `PutEnvironmentSecretRequestSchema`, `EnvironmentSecretViewSchema`, `ENVIRONMENT_EVENT_TYPES`, `TenantEnvironmentsConfigSchema`, `environmentGranted`. `PutSessionRequest.environment` replaces `sandbox`, `vaultIds` and `credentialSelections`; `SessionView.environment` replaces the session's sandbox and vault fields. Error codes `environment_busy`, `environment_unavailable`, `environment_lost`, `environment_not_granted`, `environment_owner_mismatch` and `session_closed` (the `sandbox_*` codes and `sandbox_expired` are gone); session events `environment.state`, `environment.exec` and `environment.attached`; scope `environments:write`. Credential coverage takes `environmentId` and answers `covered` or `missing`; the MCP preview takes `environmentId`. The vault Management schemas are removed.
+  - `@nylorun/runtime`: `/v1/environments/{id}` replaces `/v1/sandboxes/{id}`: `PUT` creates, finds or changes one (`kind` and `storage` fixed; a recipe change bumps `version`; a pod gets a new image or resources at its next start from stopped, a new allowlist within seconds), with list by label, events (`nylorun.environment-event/1`), stop, reset and delete. Each Environment owns one vault: `PUT|GET|DELETE /v1/environments/{id}/secrets/{name}` on the Runtime API, write-only, with a second credential for a host or URL refused at the write (`409 credential_conflict`). An optional owner guard (`ownerUserId`) is checked when a session opens and at every turn start. `lifecycle.deleteAfter` deletes an Environment unused that long; TTL and `onExpiry` are gone. Kind `none` holds secrets for MCP-only agents. `/v1/tenant/vaults`, user and installation vaults, the Tenant's default sandbox, inline sandboxes and `{ session }` sharing are removed. The Tenant setting is `environments.config` (`limits.environments`). Identity files grant `environments:` (an old `sandboxes:` key, or `sandboxes:write`, stops the Runtime with a message naming the new key). Migration `0020_environments`.
+  - `@nylorun/harness`: the Harness API claims `environment.state` and `environment.exec`, and its workspace fields name `environmentId`.
+  - `@nylorun/agents`: `client.environments` (`put`, `get`, `list`, `page`, `stop`, `reset`, `delete`, `events`, `secrets.put|list|get|delete`, `forSession`) replaces `client.sandboxes`; `createSession({ environment })`; `sessions.page({ environmentId })` filters by Environment. The AG-UI handler's session options take `environment`.
+  - `@nylorun/admin`: `admin.coverage({ agentId, environmentId })` replaces `admin.vaults`; `admin.mcp.preview({ url, environmentId })`.
+  - `@nylorun/studio`: Environments replace Sandboxes, with a create form, stop, reset, delete and their secrets; the Credentials forms write an Environment's secrets; New session picks an Environment and shows its coverage.
+  - `nylorun`: `nylorun sandbox ls|rm` list and delete Environments; `nylorun mcp inspect --environment <id>` replaces `--vault`; `nylo reset --environments` replaces `--sandboxes`; `nylo doctor sandbox` reports the Environment limits.
+
+- 3013501: **Tool calls are delivered at least once, and every one is on the record (R5 step 1).** A gateway restart used to park the sessions it interrupted as `uncertain` until someone cancelled them, a harness could call tools with no record, and nothing listed a session's tool calls. Now every tool call ends in the log with its outcome, a crash sends it again with the same key, and the gateway runs only calls the effect journal recorded.
+
+  - **Every outcome in the log.** Each tool call ends in one `tool.completed` with `status` (`completed`: the tool answered; `failed`: the Runtime ended it, `tool.disabled`, `tool.unavailable` or `tool.interrupted`; `cancelled`), `kind` (`mcp`, `http`, `sandbox`, `platform`), `server`, `attempts` and `durationMs`. Refused and cancelled calls are in the log for the first time.
+  - **`GET /v1/sessions/{id}/calls/tool`** pages a session's tool calls from the effect journal, in the order they were first sent: tool, input, status, sends, error and timing. Same credentials and paging as `/calls/model`; `@nylorun/agents` adds `session.toolCalls()`. Host feature `tool-calls`.
+  - **At least once, with the same key.** An MCP or HTTP tool call that a crash, a shutdown or a lost gateway hop interrupted is sent again with its effect id as the key, up to 3 sends; then it fails to the model as `tool.interrupted` ("may have run") and the session continues. A gateway that restarts mid call runs the call again under its key instead of answering `uncertain`. HTTP tools get the key as `Idempotency-Key`, as before; MCP servers now get it in `_meta["nylorun/idempotency-key"]` on `tools/call`. A tool that honors the key acts once; `attempts` above 1 marks where one may have acted twice.
+  - **Sandbox commands are never run twice.** A sandbox or core-served call a crash interrupted has no key to dedupe on, so it fails to the model as `tool.interrupted` at once, and the model decides whether to run it again.
+  - **No tool call parks a session.** The `uncertain` state for tool calls, its cancel-only exit and R2b's read-only/idempotent `mcp.lost` exception are gone: a lost MCP answer is `mcp.lost` to the model for every tool. Model calls keep their own rules.
+  - **The gateway runs only journaled calls.** Under a run token, `/nylorun/v1/tool-calls` and `/nylorun/v1/http-calls` need the call's effect id as `Idempotency-Key` (`400 key_required`), and the effect journal must hold it running, for the run's turn, the same tool and the same input (`409 effect_not_journaled`). A harness that skips the journal gets nothing run.
+  - `@nylorun/harness`: `HarnessExecutors.resends(effect, error, run)` says a gate hop lost a call's answer; the harness then asks core again with the same intent and sends the call again.
+  - **Approval** stays in the manifest and our harness still asks for it. Only the Runtime's own harness asks: one built from the Harness API can skip it until tool policy moves to the gateway (R5 step 2).
+
+- 6061a3a: **Tool approvals are the Tenant's tool policy (R5 step 2).** An agent's manifest used to say which tool calls wait for a person, and only the Runtime's own harness asked; a harness built from the Harness API could skip it. Now the operator sets one tool policy for every agent and every harness, and the Runtime enforces it before anything is sent.
+
+  - **`GET`/`PUT /v1/tenant/tool-policy`** (the Management API; `admin.toolPolicy.get()`/`.put({ rules })`): rules `{ effect: "allow" | "ask" | "deny", tool?, server?, kind?, agent?, when?, reason? }`. A rule matches a call when every selector it sets matches (`tool` and `server` take `*` globs; `when` tests input fields by dotted path with `equals`, `in`, `gt`, `gte`, `lt`, `lte` or `matches`). The strictest matching rule decides; a call no rule matches runs.
+  - **Enforced for every harness.** Core decides an MCP or HTTP tool call as it journals it. `deny` fails it to the model as `tool.denied`, unsent. `ask` holds the call (`held` at `/calls/tool`) and pauses the turn with one `approval` interaction per held call (`turn.paused`, with the tool, its input and the reason). `approve` sends that exact call, or fails it as `tool.denied`. The Tool Gate runs only calls the journal holds running, so a held or refused call cannot run. Nothing holds a process while it waits: an approval survives a restart. A flow's HTTP stages are decided the same way.
+  - **`approval` leaves the manifest.** `PUT /v1/agents/:id` and `saveAgent()` refuse a definition that sets `approval` on an HTTP tool, an MCP server or an MCP tool's settings; `http({ approval })` and `.mcp({ … approval })` throw; a turn manifest can no longer add one. The engine never asks for an HTTP or MCP tool's approval itself. A session pinned to a manifest saved with `approval: "always"` keeps it, as an ask.
+  - `@nylorun/studio`: a paused session shows an approval card for each held call, with its tool, why it is held and its input, and **Approve** / **Deny**.
+  - Migration: move each `approval: "always"` to an `ask` rule (see MIGRATION.md).
+
+- 7800358: **Each turn is one OpenTelemetry trace, projected from the session log (R7).** An operator could not see what a turn did or where its time went without grepping container logs. Now every turn is a trace with a span for each model call, tool call and egress tunnel, exported over OTLP to any collector, readable per turn from the Runtime, and joined to the trace of the app that started it. No protocol change.
+
+  - **Traces from the log.** A turn's end is its root span, `invoke_agent <agent>`; each model call is a `chat <model>` span, each tool call and flow HTTP stage an `execute_tool <tool>` span, each egress-gate tunnel a `CONNECT <host>` span, and each pause and answer a marker. A model or gate tool span is the gate's own start and end; usage and cost are the gate's (`nylorun.usage.mismatch` when the harness reported other numbers). Attribute names follow the OTel GenAI conventions at one pinned commit, recorded as `nylorun.semconv.genai` on the resource. Ids are derived from the log under a key the Tenant keeps (setting `trace.key`), so every export and read of a turn gives the same ids.
+  - **OTLP export, off until you set an endpoint.** With `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) the Runtime posts OTLP/HTTP JSON from a replication slot of its own, `nylorun_trace_export`, in batches of up to 512 spans or every 2 s; `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` work as usual. No turn waits for it. A collector that is down costs only its spans: after three retries a batch is dropped and logged as `trace_export_dropped`, and the slot moves on, so Postgres keeps no WAL for it. `nylorun start` passes these variables to the runtime container.
+  - **References by default.** Spans point at log events (`nylorun.event.cursor`) and carry no content unless you opt in per kind with `NYLORUN_TRACE_CONTENT` (`user`, `outputs`, `tool-results`, `errors`), or all of them with `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`, each cut at 8 KiB. A span never carries a credential value, a prompt, a person's id, an identity header or an idempotency key.
+  - **`GET /v1/sessions/{id}/turns/{turnId}/trace`** answers a turn's spans as OTLP JSON, the same spans the exporter posts: look at a turn without a collector, or post it to one to backfill. Application keys, as the `/calls` reads. Host feature `traces`; `@nylorun/agents` adds `session.trace(turnId)`, and `@nylorun/core/contracts` `TurnTraceSchema`.
+  - **Trace context in and out.** A `traceparent` (and `tracestate`) on `POST /v1/sessions/{id}/commands`, an AG-UI run or an A2A message puts the turn in the caller's trace; `command.message` records it as `trace`. The turn hands its context on: to the harness in `TurnStart.trace`, to HTTP tools as `traceparent` beside `Idempotency-Key`, to MCP servers as `traceparent` on the call's requests, and to sandbox commands as `TRACEPARENT`.
+  - **Harness API** (additive): the `effect.intent` answer `execute` may carry the tool call's `traceparent`. `@nylorun/harness`: `HarnessExecutors.tool` takes it as a fourth argument (`ToolCallContext`).
+
+### Patch Changes
+
+- e917bd6: **The Harness API is a published contract (R4.5).** Everything a harness sends or reads now has a schema in `@nylorun/core/harness-api`, and the Runtime validates with those same schemas:
+  - the transport and the pod join (`HARNESS_API_PATH`, `HARNESS_API_HEADER`, `HOST_JOIN_PATH`, `HostJoinRequestSchema`, `HostJoinAnswerSchema`);
+  - the Model and Tool Gate bodies (`ModelCallBodySchema`, `ToolCallBodySchema`, `HttpCallBodySchema`, the MCP bodies, `GATE_ERROR_CODES`);
+  - the MCP snapshot (`McpSnapshotSchema`);
+  - transcript entries (`TranscriptEntrySchema`);
+  - the effect id rule (`effectIdOf`, `isEffectIdOf`).
+
+  The build also writes them as one JSON Schema document, `@nylorun/core/harness-api/schema.json`, for harnesses written in other languages.
+
+  Other changes:
+  - `TurnStart` gains an optional `trace` (W3C `traceparent`) for the turn's trace context. Nothing fills it yet.
+  - Core refuses a `hello` whose `api` is not `2`.
+  - **The fixture model answers at the Model Gate (R4.3).** With a Tenant's `fixtureModel` seeded, the gate answers model calls itself and meters each one, like any model: a `model_usage` row with provider `fixture` and cost 0, readable at `GET /v1/sessions/{id}/calls/model`. Our harness no longer answers it locally.
+  - The fixture model also answers scripted markers: `fixture:text`, `fixture:tool <name> <json>`, `fixture:budget` and `fixture:slow <seconds>`.
+  - **The sandboxes service can run a harness image (R4.4, Go).** `PUT /v1/pods/{name}` accepts `entrypoint: "image"`: the workload image's own `ENTRYPOINT` and `CMD` run, with no engine copied in and no `harnessImage`. The default, `entrypoint: "engine"`, is unchanged. The Runtime starts sending it with the harness pin in a later change.
+
+- Pin core to the tested release.
+- Updated dependencies [17a97e9]
+- Updated dependencies [b6214d9]
+- Updated dependencies [e917bd6]
+- Updated dependencies [5165451]
+- Updated dependencies [35e29b7]
+- Updated dependencies [e917bd6]
+- Updated dependencies [a0cbca1]
+- Updated dependencies [3013501]
+- Updated dependencies [6061a3a]
+- Updated dependencies [7d496e4]
+- Updated dependencies [81c783e]
+- Updated dependencies [7800358]
+  - @nylorun/core@0.20.0-beta
+
 ## 0.25.1-beta
 
 ### Patch Changes

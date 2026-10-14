@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.24.0-beta
+
+### Minor Changes
+
+- 35e29b7: **Environments replace sandboxes and vaults (protocol 11). This is a fresh start: upgrading deletes your sandboxes, their disks and every vault except the model's, and closes every open session (its history stays readable).** List what you have before upgrading; see "Environments replace sandboxes and vaults" in MIGRATION.md.
+
+  An Environment is where sessions run: one sandbox (kind `virtual`, `pod` or `none`) with a recipe that can change, and one vault of secrets for its shell, MCP servers and HTTP tools. The app decides who uses which Environment; the Runtime keeps it by id and holds its lifecycle.
+
+  - `@nylorun/core`: protocol 11 (the Host accepts 11 only; older clients get `426`), required feature `environments`. `PutEnvironmentRequestSchema`, `EnvironmentViewSchema` (`recipe`, `version`, `appliedVersion`, `ownerUserId`, `lastUsedAt`), `PutEnvironmentSecretRequestSchema`, `EnvironmentSecretViewSchema`, `ENVIRONMENT_EVENT_TYPES`, `TenantEnvironmentsConfigSchema`, `environmentGranted`. `PutSessionRequest.environment` replaces `sandbox`, `vaultIds` and `credentialSelections`; `SessionView.environment` replaces the session's sandbox and vault fields. Error codes `environment_busy`, `environment_unavailable`, `environment_lost`, `environment_not_granted`, `environment_owner_mismatch` and `session_closed` (the `sandbox_*` codes and `sandbox_expired` are gone); session events `environment.state`, `environment.exec` and `environment.attached`; scope `environments:write`. Credential coverage takes `environmentId` and answers `covered` or `missing`; the MCP preview takes `environmentId`. The vault Management schemas are removed.
+  - `@nylorun/runtime`: `/v1/environments/{id}` replaces `/v1/sandboxes/{id}`: `PUT` creates, finds or changes one (`kind` and `storage` fixed; a recipe change bumps `version`; a pod gets a new image or resources at its next start from stopped, a new allowlist within seconds), with list by label, events (`nylorun.environment-event/1`), stop, reset and delete. Each Environment owns one vault: `PUT|GET|DELETE /v1/environments/{id}/secrets/{name}` on the Runtime API, write-only, with a second credential for a host or URL refused at the write (`409 credential_conflict`). An optional owner guard (`ownerUserId`) is checked when a session opens and at every turn start. `lifecycle.deleteAfter` deletes an Environment unused that long; TTL and `onExpiry` are gone. Kind `none` holds secrets for MCP-only agents. `/v1/tenant/vaults`, user and installation vaults, the Tenant's default sandbox, inline sandboxes and `{ session }` sharing are removed. The Tenant setting is `environments.config` (`limits.environments`). Identity files grant `environments:` (an old `sandboxes:` key, or `sandboxes:write`, stops the Runtime with a message naming the new key). Migration `0020_environments`.
+  - `@nylorun/harness`: the Harness API claims `environment.state` and `environment.exec`, and its workspace fields name `environmentId`.
+  - `@nylorun/agents`: `client.environments` (`put`, `get`, `list`, `page`, `stop`, `reset`, `delete`, `events`, `secrets.put|list|get|delete`, `forSession`) replaces `client.sandboxes`; `createSession({ environment })`; `sessions.page({ environmentId })` filters by Environment. The AG-UI handler's session options take `environment`.
+  - `@nylorun/admin`: `admin.coverage({ agentId, environmentId })` replaces `admin.vaults`; `admin.mcp.preview({ url, environmentId })`.
+  - `@nylorun/studio`: Environments replace Sandboxes, with a create form, stop, reset, delete and their secrets; the Credentials forms write an Environment's secrets; New session picks an Environment and shows its coverage.
+  - `nylorun`: `nylorun sandbox ls|rm` list and delete Environments; `nylorun mcp inspect --environment <id>` replaces `--vault`; `nylo reset --environments` replaces `--sandboxes`; `nylo doctor sandbox` reports the Environment limits.
+
+- 6061a3a: **Tool approvals are the Tenant's tool policy (R5 step 2).** An agent's manifest used to say which tool calls wait for a person, and only the Runtime's own harness asked; a harness built from the Harness API could skip it. Now the operator sets one tool policy for every agent and every harness, and the Runtime enforces it before anything is sent.
+
+  - **`GET`/`PUT /v1/tenant/tool-policy`** (the Management API; `admin.toolPolicy.get()`/`.put({ rules })`): rules `{ effect: "allow" | "ask" | "deny", tool?, server?, kind?, agent?, when?, reason? }`. A rule matches a call when every selector it sets matches (`tool` and `server` take `*` globs; `when` tests input fields by dotted path with `equals`, `in`, `gt`, `gte`, `lt`, `lte` or `matches`). The strictest matching rule decides; a call no rule matches runs.
+  - **Enforced for every harness.** Core decides an MCP or HTTP tool call as it journals it. `deny` fails it to the model as `tool.denied`, unsent. `ask` holds the call (`held` at `/calls/tool`) and pauses the turn with one `approval` interaction per held call (`turn.paused`, with the tool, its input and the reason). `approve` sends that exact call, or fails it as `tool.denied`. The Tool Gate runs only calls the journal holds running, so a held or refused call cannot run. Nothing holds a process while it waits: an approval survives a restart. A flow's HTTP stages are decided the same way.
+  - **`approval` leaves the manifest.** `PUT /v1/agents/:id` and `saveAgent()` refuse a definition that sets `approval` on an HTTP tool, an MCP server or an MCP tool's settings; `http({ approval })` and `.mcp({ … approval })` throw; a turn manifest can no longer add one. The engine never asks for an HTTP or MCP tool's approval itself. A session pinned to a manifest saved with `approval: "always"` keeps it, as an ask.
+  - `@nylorun/studio`: a paused session shows an approval card for each held call, with its tool, why it is held and its input, and **Approve** / **Deny**.
+  - Migration: move each `approval: "always"` to an `ask` rule (see MIGRATION.md).
+
+- 17a97e9: **Studio lists the Tenant's artifacts.** **Artifacts** is back in the sidebar: one table of every artifact, newest first, 50 at a time (`artifact-reads` pages), filtered by kind, session and labels. Each row names its owner: a session, an Environment's disk (linked to its Disk tab) or the Tenant itself, such as an input file for a pod's recipe. The artifact inspector shows the owner too. A Host without `artifact-reads` gets the session lookup as before, and opening an artifact by id still works.
+- 1e2ff11: **Studio is built around Environments.** An Environment holds a session's sandbox, its vault's secrets and its disk versions, so Studio shows them together instead of as separate pages.
+
+  - **Sidebar:** Sessions and Environments; Settings has Models only. **Artifacts** and **Credentials** are gone from the sidebar.
+  - **Each Environment has its own page** at `/environments/<id>`, with tabs (`?tab=`):
+    - **Overview:** its sandbox, recipe and use, as fields.
+    - **Secrets:** the full Credentials editor, moved here.
+    - **Disk:** keep a version of the disk, restore one, start a new Environment from one, delete one, and browse a version's files and changes.
+    - **Setup & files:** a pod's setup commands and input files.
+    - **Sessions** and **Events**.
+  - **The recipe form** gains the harness, and for pods the setup commands and input files. Stop, Reset, Restore and Delete confirmations say how many other sessions name the Environment.
+  - **Sessions:** a session's **Environment** tab shows the Environment it runs in, the recipe version it opened on, what the agent's MCP servers and HTTP tools get from its secrets, its disk, and the other sessions that share it, or that it names none. The tab only reads; changes are made on the Environment's page. The Artifacts tab is now **Outputs**.
+  - **Old links redirect:** `/environments?selected=<id>`, `/settings/credentials?environment=<id>`, `/vault` and `/sandboxes` open the Environment's page, and `/artifacts?selected=<id>` still opens an artifact.
+  - **The Studio proxy** also forwards `GET /v1/environments/{id}/versions`, `POST …/snapshot`, `POST …/restore` and `DELETE …/versions/{n}`.
+
+### Patch Changes
+
+- 8d8f8a7: **Studio: one session list, and Tenant settings in the sidebar.** **Sessions** replaces the sidebar's agents and their nested sessions: one table of every session in the Tenant (session, agent, owner, status), filtered to an agent with the table's Agent filter or the agents listed under Sessions in the sidebar, each with its session count. A flow's embedded agent that has sessions is a filter too. **New session** starts a session of the filtered agent, or of the agent picked from its menu, through the Environment picker. Sessions show in the list before any agent registers; the Tenant overview shows only while there are neither. Sandboxes and Artifacts sit under Sessions. The filtered list is `/sessions?agent=<agentId>`; `/agents/<agentId>` redirects there, and session URLs are unchanged. Models and Credentials are their own sidebar entries, pinned to its bottom, instead of tabs under one **Tenant settings** entry, and selecting the Tenant in the sidebar's header opens its Overview, beside the Runtime's status (Running, Connecting or Offline); the sidebar's footer of agent count and status is gone. Settings URLs are unchanged. A Tenant path Studio has no page for shows "Page not found" instead of the agent list.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies [b6214d9]
+- Updated dependencies [5165451]
+- Updated dependencies [35e29b7]
+- Updated dependencies [a0cbca1]
+- Updated dependencies [3013501]
+- Updated dependencies [6061a3a]
+- Updated dependencies [7800358]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.20.0-beta
+  - @nylorun/admin@0.16.0-beta
+
 ## 0.23.3-beta
 
 ### Patch Changes
