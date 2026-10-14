@@ -164,7 +164,7 @@ describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
       ownerUserId: "alice",
       version: 1,
       appliedVersion: 1,
-      recipe: { network: { allowedHosts: ["github.com", "registry.npmjs.org"] }, harness: "nylorun" },
+      manifest: { network: { allowedHosts: ["github.com", "registry.npmjs.org"] }, harness: "nylorun" },
     });
     await client.environments.secrets.put("users/alice/web", "GH_TOKEN", {
       type: "environment_secret",

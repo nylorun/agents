@@ -238,6 +238,18 @@ const runtimeManifestSchema = z
     instructions: z.array(z.string()).optional(),
   })
   .strict();
+/**
+ * What an agent needs of the Environment its session opens on (protocol 14, D65), checked when a
+ * session opens (`409 environment_unsuitable`). `sandbox`: `any` needs kind `virtual` or `pod`,
+ * `pod` needs kind `pod`, `none` needs nothing. `secrets`: names its skills' scripts read, which
+ * the Environment's vault must hold. The agent names no Environment: the app still maps.
+ */
+const agentRequirementsSchema = z
+  .object({
+    sandbox: z.enum(["none", "any", "pod"]).optional(),
+    secrets: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/, "A secret name in requires is an environment variable name")).max(64).optional(),
+  })
+  .strict();
 const agentManifestSchema = z
   .strictObject(
     {
@@ -253,6 +265,7 @@ const agentManifestSchema = z
       tools: z.array(toolManifestSchema).optional(),
       skills: z.record(z.string(), skillManifestSchema).optional(),
       mcpServers: z.record(z.string(), mcpServerSchema).optional(),
+      requires: agentRequirementsSchema.optional(),
       runtime: runtimeManifestSchema.optional(),
       // Reserved for Functions, which are deferred: developer code the Runtime will run from
       // uploaded definition files (a `functions/` folder). Any value is refused below.
@@ -729,16 +742,56 @@ export const EnvironmentFileSchema = z
 export type EnvironmentFile = z.infer<typeof EnvironmentFileSchema>;
 
 /**
+ * An environment manifest's name (protocol 14, D63): 1–64 letters, digits, `.`, `_` and `-`,
+ * starting with a letter or digit, such as `analyst-box`.
+ */
+const ENVIRONMENT_MANIFEST_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export function isEnvironmentManifestName(value: unknown): value is string {
+  return typeof value === "string" && ENVIRONMENT_MANIFEST_NAME_PATTERN.test(value);
+}
+export const EnvironmentManifestNameSchema = z
+  .string()
+  .refine(isEnvironmentManifestName, {
+    message: "An environment manifest's name is 1-64 letters, digits, '.', '_' and '-', starting with a letter or digit",
+  })
+  .meta({ description: "An environment manifest's name, such as `analyst-box`" });
+/**
+ * Which manifest an Environment is made from: `name` (its latest version when the Environment is
+ * created) or `name@n` (version `n`). Either way the Environment keeps that version for life.
+ */
+export function parseEnvironmentManifestRef(ref: string): { name: string; version?: number } | undefined {
+  const at = ref.lastIndexOf("@");
+  const name = at < 0 ? ref : ref.slice(0, at);
+  if (!isEnvironmentManifestName(name)) return undefined;
+  if (at < 0) return { name };
+  const version = ref.slice(at + 1);
+  return /^[1-9][0-9]{0,8}$/.test(version) ? { name, version: Number(version) } : undefined;
+}
+export const EnvironmentManifestRefSchema = z
+  .string()
+  .refine((value) => parseEnvironmentManifestRef(value) !== undefined, {
+    message: "manifest is an environment manifest's name, or name@version such as analyst-box@3",
+  })
+  .meta({ description: "`name` (the latest version when the Environment is created) or `name@n`" });
+
+/**
  * `PUT /v1/environments/{environmentId}`: creates the Environment and its vault, or finds the
- * one with this id, so "get or create" is one call. On an existing one the fields sent are
- * compared: `kind` and `storage` are fixed (a difference is `409`), `labels` replace its labels,
- * and any other difference changes its recipe and bumps its `version`. Image and resources
- * reach a pod when it next starts from stopped; `network.allowedHosts` applies within seconds.
- * A `PUT` that changes nothing answers the view unchanged.
+ * one with this id, so "get or create" is one call. An Environment is made from one version of an
+ * environment manifest (`manifest`) or from the inline manifest these fields make, and never
+ * changes what it runs after that (protocol 14, D63): on an existing one, `labels` replace its
+ * labels and `ownerUserId` sets or clears its owner guard, a field that matches what it runs is
+ * accepted, and anything else is `409 environment_immutable`, naming the fork that makes a new
+ * Environment instead.
  */
 export const PutEnvironmentRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
+    /**
+     * The environment manifest to make the Environment from (Host feature
+     * `environment-manifests`): `name` or `name@n`. With it, none of the inline fields below is
+     * sent; `labels`, `ownerUserId` and `from` still are.
+     */
+    manifest: EnvironmentManifestRefSchema.optional(),
     /** Default `virtual`. `pod` needs sandbox pods (`nylorun local sandbox enable`). Fixed. */
     kind: z.enum(ENVIRONMENT_KINDS).optional(),
     labels: EnvironmentLabelsSchema.optional(),
@@ -779,6 +832,12 @@ export const PutEnvironmentRequestSchema = z
     /** Pods only: artifact versions copied in when the disk is made or reset, before `setup`. */
     files: z.array(EnvironmentFileSchema).max(ENVIRONMENT_SETUP_MAX).optional(),
     /**
+     * The secrets an Environment of this kind needs, by name (D64): each slot's type, binding,
+     * whether it is required and a description, never a value. With slots declared, a secret
+     * write sends only the value and a name not declared is `409 secret_not_in_manifest`.
+     */
+    secrets: z.lazy(() => EnvironmentSecretSlotsSchema).optional(),
+    /**
      * Only when the `PUT` creates the Environment (Host feature `environment-disk-versions`): its
      * disk starts from this version of another Environment's disk. Its vault starts empty.
      */
@@ -793,7 +852,10 @@ export const PutEnvironmentRequestSchema = z
   .strict();
 export type PutEnvironmentRequest = z.infer<typeof PutEnvironmentRequestSchema>;
 
-/** An Environment's recipe, resolved against the Tenant's limits. */
+/**
+ * What an Environment runs (its inline manifest, called the recipe before protocol 14), resolved
+ * against the Tenant's limits when it was made. It never changes after that.
+ */
 export const EnvironmentRecipeSchema = z
   .object({
     image: z.string().optional(),
@@ -804,6 +866,7 @@ export const EnvironmentRecipeSchema = z
     lifecycle: EnvironmentLifecycleSchema,
     setup: z.array(EnvironmentSetupCommandSchema).optional(),
     files: z.array(EnvironmentFileSchema).optional(),
+    secrets: z.lazy(() => EnvironmentSecretSlotsSchema).optional(),
   })
   .strict();
 export type EnvironmentRecipe = z.infer<typeof EnvironmentRecipeSchema>;
@@ -852,11 +915,32 @@ export const EnvironmentViewSchema = z
     id: z.string(),
     kind: z.enum(ENVIRONMENT_KINDS),
     labels: z.record(z.string(), z.string()),
-    /** What the app asked for, resolved against the Tenant's limits. */
-    recipe: EnvironmentRecipeSchema,
-    /** Bumped by every recipe change. */
+    /**
+     * What it runs, fixed when it was made (protocol 14): its manifest's fields, or the inline
+     * ones, resolved against the Tenant's limits.
+     */
+    manifest: EnvironmentRecipeSchema,
+    /** The environment manifest it was made from and its version, when it was made from one. */
+    manifestName: z.string().optional(),
+    manifestVersion: z.number().int().positive().optional(),
+    /** The hash of what it runs (`manifest`). */
+    manifestHash: z.string().optional(),
+    /** Each secret slot its manifest declares, and whether its vault holds a value for it. */
+    slots: z
+      .array(
+        z
+          .object({
+            name: z.string(),
+            type: z.string(),
+            required: z.boolean(),
+            set: z.boolean(),
+          })
+          .strict(),
+      )
+      .optional(),
+    /** Always 1 since protocol 14: an Environment never changes what it runs. */
     version: z.number().int().positive(),
-    /** The recipe version the current pod (or virtual workspace) runs. */
+    /** Always `version`. */
     appliedVersion: z.number().int().positive(),
     /** The owner guard, or `null`. */
     ownerUserId: z.string().nullable(),
@@ -1017,7 +1101,12 @@ export type EnvironmentEventType = (typeof ENVIRONMENT_EVENT_TYPES)[number];
 /** The payload of each Environment lifecycle event. */
 export const ENVIRONMENT_EVENT_PAYLOADS = {
   "environment.created": z
-    .object({ kind: z.enum(ENVIRONMENT_KINDS), labels: z.record(z.string(), z.string()) })
+    .object({
+      kind: z.enum(ENVIRONMENT_KINDS),
+      labels: z.record(z.string(), z.string()),
+      /** The environment manifest and version it was made from (protocol 14, D63). */
+      manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict().optional(),
+    })
     .passthrough(),
   "environment.attached": z.object({ sessionId: z.string() }).passthrough(),
   "environment.detached": z
@@ -1334,6 +1423,21 @@ export const PutEnvironmentSecretRequestSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 export type PutEnvironmentSecretRequest = z.infer<typeof PutEnvironmentSecretRequestSchema>;
+/**
+ * A secret write on an Environment whose manifest declares the secret's slot (D64): only the
+ * value, `value` (or `headers` for a `headers` slot). Its type and binding come from the slot.
+ */
+export const PutEnvironmentSecretValueRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    value: z.string().min(1).max(8192).optional(),
+    headers: CredentialHeadersSchema.optional(),
+  })
+  .strict()
+  .refine((body) => (body.value === undefined) !== (body.headers === undefined), {
+    message: "Send value, or headers for a headers secret",
+  });
+export type PutEnvironmentSecretValueRequest = z.infer<typeof PutEnvironmentSecretValueRequestSchema>;
 /** Whether `name` may name a secret of `type` (`PUT .../secrets/{name}`); a message when not. */
 export function environmentSecretNameError(
   type: PutEnvironmentSecretRequest["type"],
@@ -1349,6 +1453,165 @@ export function environmentSecretNameError(
     ? undefined
     : "A credential name is 1-64 letters, digits, '.', '_' and '-'";
 }
+
+// --- Environment manifests (protocol 14, D63 to D65) -----------------------------------------
+
+const slotBase = {
+  /** Whether a session whose agent needs it may open without it. Default false. */
+  required: z.boolean().optional(),
+  description: z.string().max(500).optional(),
+};
+/**
+ * One secret an Environment of a kind needs (D64): its type and binding, never its value. The
+ * value is written into each Environment's vault (`PUT /v1/environments/{id}/secrets/{name}`
+ * with `{ value }`, or `{ headers }` for `headers`), and the binding comes from here.
+ */
+export const EnvironmentSecretSlotSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("environment_secret"),
+      allowedHosts: AllowedHostsSchema,
+      inject: EnvironmentSecretInjectSchema.optional(),
+      ...slotBase,
+    })
+    .strict(),
+  z.object({ type: z.literal("environment_variable"), ...slotBase }).strict(),
+  z.object({ type: z.literal("bearer"), url: z.string().min(1), ...credentialRouting, ...slotBase }).strict(),
+  z.object({ type: z.literal("headers"), url: z.string().min(1), ...credentialRouting, ...slotBase }).strict(),
+]);
+export type EnvironmentSecretSlot = z.infer<typeof EnvironmentSecretSlotSchema>;
+/** The most secret slots one manifest declares. */
+export const ENVIRONMENT_SECRET_SLOTS_MAX = 64;
+export const EnvironmentSecretSlotsSchema = z
+  .record(z.string(), EnvironmentSecretSlotSchema)
+  .superRefine((slots, ctx) => {
+    const names = Object.keys(slots);
+    if (names.length > ENVIRONMENT_SECRET_SLOTS_MAX)
+      ctx.addIssue({ code: "custom", message: `At most ${ENVIRONMENT_SECRET_SLOTS_MAX} secrets` });
+    for (const name of names) {
+      const error = environmentSecretNameError(slots[name]!.type, name);
+      if (error) ctx.addIssue({ code: "custom", path: [name], message: error });
+    }
+  });
+export type EnvironmentSecretSlots = z.infer<typeof EnvironmentSecretSlotsSchema>;
+
+/** The schema version of an environment manifest; the Runtime refuses one it does not know. */
+export const ENVIRONMENT_MANIFEST_SCHEMA_VERSION = 1;
+const environmentFields = PutEnvironmentRequestSchema.shape;
+/**
+ * An environment manifest (protocol 14, D63): a named, versioned definition of a kind of
+ * Environment, saved like an agent (`PUT /v1/environment-manifests/{name}`). It holds what every
+ * Environment made from it shares; an Environment's id, labels, owner guard, disk and secret
+ * values are its own. Written as a JSON file with `$schema`, which clients drop before saving.
+ */
+export const EnvironmentManifestSchema = z
+  .object({
+    manifestSchemaVersion: z.literal(ENVIRONMENT_MANIFEST_SCHEMA_VERSION, {
+      error: (issue) =>
+        `manifestSchemaVersion ${JSON.stringify(issue.input)} is not one this Runtime reads: use ${ENVIRONMENT_MANIFEST_SCHEMA_VERSION}`,
+    }),
+    name: EnvironmentManifestNameSchema,
+    description: z.string().max(1024).optional(),
+    kind: environmentFields.kind,
+    image: environmentFields.image,
+    resources: environmentFields.resources,
+    storage: environmentFields.storage,
+    network: environmentFields.network,
+    harness: environmentFields.harness,
+    lifecycle: environmentFields.lifecycle,
+    setup: environmentFields.setup,
+    files: environmentFields.files,
+    secrets: EnvironmentSecretSlotsSchema.optional(),
+  })
+  .strict();
+export type EnvironmentManifest = z.infer<typeof EnvironmentManifestSchema>;
+/** `PUT /v1/environment-manifests/{name}`: the manifest, whose `name` is the path's. */
+export const PutEnvironmentManifestRequestSchema = EnvironmentManifestSchema.extend({
+  requestId: RequestIdSchema.optional(),
+}).strict();
+export type PutEnvironmentManifestRequest = z.infer<typeof PutEnvironmentManifestRequestSchema>;
+/** Who saved a version: the subject a request acted for, else `application`. */
+export const EnvironmentManifestSavedBySchema = z.object({ actor: z.string() }).strict();
+/** One version of an environment manifest. */
+export const EnvironmentManifestViewSchema = z
+  .object({
+    name: z.string(),
+    version: z.number().int().positive(),
+    /** The hash of `manifest`: equal manifests have equal hashes. */
+    hash: z.string(),
+    manifest: EnvironmentManifestSchema,
+    savedBy: EnvironmentManifestSavedBySchema,
+    createdAt: z.string(),
+    /** How many Environments were made from this version. */
+    environments: z.number().int().nonnegative(),
+  })
+  .strict();
+export type EnvironmentManifestView = z.infer<typeof EnvironmentManifestViewSchema>;
+/** `GET /v1/environment-manifests`: each manifest's latest version, by name. */
+export const ListEnvironmentManifestsResponseSchema = z
+  .object({ manifests: z.array(EnvironmentManifestViewSchema) })
+  .strict();
+export type ListEnvironmentManifestsResponse = z.infer<typeof ListEnvironmentManifestsResponseSchema>;
+/** `GET /v1/environment-manifests/{name}/versions`: every version, newest first. */
+export const EnvironmentManifestVersionsSchema = z
+  .object({
+    name: z.string(),
+    latest: z.number().int().positive(),
+    versions: z.array(
+      z
+        .object({
+          version: z.number().int().positive(),
+          hash: z.string(),
+          savedBy: EnvironmentManifestSavedBySchema,
+          createdAt: z.string(),
+          environments: z.number().int().nonnegative(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type EnvironmentManifestVersions = z.infer<typeof EnvironmentManifestVersionsSchema>;
+/** Something a save would do that the saver should know: never a refusal. */
+export const EnvironmentManifestWarningSchema = z
+  .object({ code: z.string(), message: z.string() })
+  .strict();
+export type EnvironmentManifestWarning = z.infer<typeof EnvironmentManifestWarningSchema>;
+/**
+ * `PUT /v1/environment-manifests/{name}?dryRun=true`: what saving it would do, with nothing
+ * saved. `errors` lists every reason the Runtime would refuse it (the Tenant's limits, for one);
+ * a save with errors is `400`. `behind` counts the Environments made from an older version than
+ * the one it would save. No Environment changes when a version is saved (D63).
+ */
+export const EnvironmentManifestPlanSchema = z
+  .object({
+    name: z.string(),
+    /** The latest version now, or `null` for a new manifest. */
+    from: z.number().int().positive().nullable(),
+    /** The version a save would answer: `from` when nothing changed. */
+    to: z.number().int().positive(),
+    unchanged: z.boolean(),
+    changes: z.array(
+      z.object({ path: z.string(), from: z.unknown().optional(), to: z.unknown().optional() }).strict(),
+    ),
+    warnings: z.array(EnvironmentManifestWarningSchema),
+    errors: z.array(z.string()),
+    behind: z.number().int().nonnegative(),
+  })
+  .strict();
+export type EnvironmentManifestPlan = z.infer<typeof EnvironmentManifestPlanSchema>;
+/** `PUT /v1/environment-manifests/{name}`: the version saved (or the latest, unchanged). */
+export const SaveEnvironmentManifestResponseSchema = z
+  .object({
+    manifest: EnvironmentManifestViewSchema,
+    unchanged: z.boolean(),
+    warnings: z.array(EnvironmentManifestWarningSchema),
+  })
+  .strict();
+export type SaveEnvironmentManifestResponse = z.infer<typeof SaveEnvironmentManifestResponseSchema>;
+export const DeleteEnvironmentManifestResponseSchema = z
+  .object({ name: z.string(), deleted: z.boolean() })
+  .strict();
+export type DeleteEnvironmentManifestResponse = z.infer<typeof DeleteEnvironmentManifestResponseSchema>;
 /**
  * What a model may read (protocol 12): `text` always; `image`, `pdf`, `office` (Word, Excel,
  * PowerPoint), `audio` and `video` when its catalog entry or the operator says so. In this order.
@@ -3127,6 +3390,8 @@ export const PutAgentResponseSchema = z
     agentId: z.string(),
     manifestHash: z.string(),
     implementationVersion: z.string(),
+    /** True for `?dryRun=true` (protocol 14): every check ran, and nothing was saved. */
+    dryRun: z.boolean().optional(),
   })
   .strict();
 export type PutAgentResponse = z.infer<typeof PutAgentResponseSchema>;

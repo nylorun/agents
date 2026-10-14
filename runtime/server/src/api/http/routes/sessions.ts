@@ -168,8 +168,16 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/agents/{agentId}",
       tags: ["Agents"],
       summary: "Put an agent's definition",
-      request: { params: z.object({ agentId: z.string() }), body: body(PutAgentRequest) },
-      responses: { 200: json(PutAgentResponse, "The definition, stored") },
+      description:
+        "Saves the agent's definition. With `?dryRun=true` (protocol 14) every check runs and nothing is saved: the answer says what a save would record.",
+      request: {
+        params: z.object({ agentId: z.string() }),
+        query: z.object({
+          dryRun: z.enum(["true", "false"]).optional().meta({ description: "`true`: check and save nothing" }),
+        }),
+        body: body(PutAgentRequest),
+      },
+      responses: { 200: json(PutAgentResponse, "The definition, stored (or checked, with dryRun)") },
     },
     async (c) => {
       return jsonResponse(
@@ -178,6 +186,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
           c.env.tenant,
           c.req.param("agentId")!,
           PutAgentRequestSchema.parse(await readJson(c.req.raw)),
+          { dryRun: c.req.query("dryRun") === "true" },
         ),
       );
     },

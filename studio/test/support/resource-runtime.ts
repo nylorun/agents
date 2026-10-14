@@ -51,7 +51,7 @@ const environment = (id: string, fields: Record<string, unknown> = {}) => ({
   id,
   kind: "virtual",
   labels: { project: "build" },
-  recipe: {
+  manifest: {
     resources: { cpus: 1, memory: "1024MiB" },
     network: { allowedHosts: ["pypi.org"] },
     harness: "nylorun",
@@ -89,7 +89,7 @@ const input = {
 const pod = (id: string) =>
   environment(id, {
     kind: "pod",
-    recipe: {
+    manifest: {
       image: "python:3.13-slim",
       resources: { cpus: 1, memory: "1024MiB" },
       storage: "5GiB",

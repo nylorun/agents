@@ -8,7 +8,7 @@ import type {
   SchemaOutput,
 } from "../types/tool.js";
 import type { AgentTool, BuiltAgent } from "../types/agent.js";
-import type { AgentManifest, McpServerManifest } from "../types/manifest.js";
+import type { AgentManifest, AgentRequirements, McpServerManifest } from "../types/manifest.js";
 import type { WorkflowBinding, WorkflowManifest } from "../types/workflow.js";
 import type { Implementations } from "./implementations.js";
 import { assembleAgent } from "./assemble.js";
@@ -67,6 +67,8 @@ interface BuilderSnapshot {
   readonly metadata?: JsonObject;
   readonly outputSchema?: ToolSchemaSource;
   readonly inputSchema?: ToolSchemaSource;
+  /** What the agent needs of its session's Environment (D65). */
+  readonly requires?: AgentRequirements;
   readonly entries: readonly DefinitionPart[];
   /** Builder-level problems, reported with the assembly diagnostics. */
   readonly diagnostics?: readonly BuildDiagnostic[];
@@ -284,6 +286,21 @@ export class AgentBuilder<
     return this.spawn({ ...snapshot, outputSchema: schema }) as unknown as AgentBuilder<Info, S, Id>;
   }
 
+  /**
+   * What the agent needs of the Environment its session opens on (protocol 14, D65): a sandbox
+   * (`any` or `pod`) and secret names its skills' scripts read. A session whose Environment lacks
+   * them is refused when it opens. The agent still names no Environment. Set once.
+   */
+  requires(requirements: AgentRequirements): AgentBuilder<Info, Schema, Id> {
+    const snapshot = this.#snapshot;
+    if (snapshot.requires !== undefined)
+      return this.spawn({
+        ...snapshot,
+        diagnostics: addDiagnostics(snapshot.diagnostics, [singleValue(snapshot.id, "requires")]),
+      }) as unknown as AgentBuilder<Info, Schema, Id>;
+    return this.spawn({ ...snapshot, requires: requirements }) as unknown as AgentBuilder<Info, Schema, Id>;
+  }
+
   // ── Flow: the manifest decides ─────────────────────────────────────────────
 
   /** The flow agent's input. Set once. */
@@ -392,6 +409,7 @@ export class AgentBuilder<
       description: snapshot.description,
       metadata: snapshot.metadata,
       outputSchema: snapshot.outputSchema,
+      requires: snapshot.requires,
     });
     if (!result.ok) {
       this.#error = new AgentBuildError(result.diagnostics);

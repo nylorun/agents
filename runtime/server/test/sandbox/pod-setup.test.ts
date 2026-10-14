@@ -111,8 +111,8 @@ describe("a pod Environment's setup and input files", { timeout: 90_000 }, () =>
       setup: [{ command: "npm ci", cwd: "/workspace/app", timeout: "15m" }, { command: "echo ready" }],
       files: [{ artifactId, version: 1, path: "/workspace/seed.txt" }],
     });
-    expect(view.recipe.setup).toHaveLength(2);
-    expect(view.recipe.files).toEqual([{ artifactId, version: 1, path: "/workspace/seed.txt" }]);
+    expect(view.manifest.setup).toHaveLength(2);
+    expect(view.manifest.files).toEqual([{ artifactId, version: 1, path: "/workspace/seed.txt" }]);
     await call("PUT", `${path("setup/one")}/secrets/REGION`, { type: "environment_variable", value: "eu-west-1" });
     const joined = await hosts.join({ sandboxId: "setup/one", podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });
     expect(joined.setup).toEqual({

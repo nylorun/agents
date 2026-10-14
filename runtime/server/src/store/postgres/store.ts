@@ -53,6 +53,7 @@ import { randomUUID } from "node:crypto";
 import {
   and,
   count,
+  desc,
   eq,
   getTableColumns,
   gte,
@@ -87,6 +88,7 @@ import type {
   ArtifactRow,
   ArtifactVersionRow,
   DefinitionFileRow,
+  EnvironmentManifestRow,
   CommitListener,
   ControlSignal,
   FollowSignalsOptions,
@@ -153,6 +155,7 @@ import {
   sandboxes,
   environmentEvents,
   environments,
+  environmentManifests,
   sessionEvents,
   sessionLogHeads,
   sessions,
@@ -397,6 +400,9 @@ function environmentOf(row: typeof environments.$inferSelect): Environment {
     updatedAt: row.updatedAt,
     ...(row.diskOp ? { diskOp: row.diskOp as Environment["diskOp"] } : {}),
     ...(row.diskSeed ? { diskSeed: row.diskSeed as Environment["diskSeed"] } : {}),
+    ...(row.manifestName !== null ? { manifestName: row.manifestName } : {}),
+    ...(row.manifestVersion !== null ? { manifestVersion: row.manifestVersion } : {}),
+    ...(row.manifestHash !== null ? { manifestHash: row.manifestHash } : {}),
     ...(row.k8sName !== null && row.desired !== null && row.observed !== null
       ? {
           pod: {
@@ -416,6 +422,17 @@ function environmentOf(row: typeof environments.$inferSelect): Environment {
           },
         }
       : {}),
+  };
+}
+
+function environmentManifestOf(row: typeof environmentManifests.$inferSelect): EnvironmentManifestRow {
+  return {
+    name: row.name,
+    version: row.version,
+    body: row.body as EnvironmentManifestRow["body"],
+    hash: row.hash,
+    savedBy: row.savedBy as EnvironmentManifestRow["savedBy"],
+    createdAt: row.createdAt,
   };
 }
 
@@ -874,12 +891,15 @@ class PostgresTx implements Tx {
     if (found) return "exists";
     const [counted] = await this.db.select({ n: count() }).from(environments);
     if ((counted?.n ?? 0) >= limit) return "limit";
-    const { pod, ownerUserId, diskOp, diskSeed, ...environment } = row;
+    const { pod, ownerUserId, diskOp, diskSeed, manifestName, manifestVersion, manifestHash, ...environment } = row;
     await this.db.insert(environments).values({
       ...environment,
       ownerUserId: ownerUserId ?? null,
       diskOp: diskOp ?? null,
       diskSeed: diskSeed ?? null,
+      manifestName: manifestName ?? null,
+      manifestVersion: manifestVersion ?? null,
+      manifestHash: manifestHash ?? null,
       ...(pod ? podColumns(pod) : {}),
     });
     return "created";
@@ -939,6 +959,71 @@ class PostgresTx implements Tx {
       )
       .orderBy(environments.id);
     return rows.map(environmentOf);
+  }
+
+  // --- Environment manifests (D63) -----------------------------------------------
+
+  async lockEnvironmentManifest(name: string): Promise<void> {
+    this.check();
+    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`nylorun.environment_manifests:${name}`}))`);
+  }
+
+  async environmentManifest(name: string, version?: number): Promise<EnvironmentManifestRow | undefined> {
+    this.check();
+    const [row] = await this.db
+      .select()
+      .from(environmentManifests)
+      .where(
+        version === undefined
+          ? eq(environmentManifests.name, name)
+          : and(eq(environmentManifests.name, name), eq(environmentManifests.version, version)),
+      )
+      .orderBy(desc(environmentManifests.version))
+      .limit(1);
+    return row && environmentManifestOf(row);
+  }
+
+  async insertEnvironmentManifest(row: EnvironmentManifestRow): Promise<void> {
+    this.check();
+    await this.db.insert(environmentManifests).values(row);
+  }
+
+  async listEnvironmentManifests(): Promise<EnvironmentManifestRow[]> {
+    this.check();
+    const rows = await this.db
+      .selectDistinctOn([environmentManifests.name])
+      .from(environmentManifests)
+      .orderBy(environmentManifests.name, desc(environmentManifests.version));
+    return rows.map(environmentManifestOf);
+  }
+
+  async environmentManifestVersions(name: string): Promise<EnvironmentManifestRow[]> {
+    this.check();
+    const rows = await this.db
+      .select()
+      .from(environmentManifests)
+      .where(eq(environmentManifests.name, name))
+      .orderBy(desc(environmentManifests.version));
+    return rows.map(environmentManifestOf);
+  }
+
+  async deleteEnvironmentManifest(name: string): Promise<number> {
+    this.check();
+    const deleted = await this.db
+      .delete(environmentManifests)
+      .where(eq(environmentManifests.name, name))
+      .returning({ version: environmentManifests.version });
+    return deleted.length;
+  }
+
+  async environmentsOfManifest(name: string): Promise<Map<number, number>> {
+    this.check();
+    const rows = await this.db
+      .select({ version: environments.manifestVersion, n: count() })
+      .from(environments)
+      .where(eq(environments.manifestName, name))
+      .groupBy(environments.manifestVersion);
+    return new Map(rows.filter((row) => row.version !== null).map((row) => [row.version!, row.n]));
   }
 
   async sessionsOnEnvironment<T extends SessionDoc = SessionDoc>(

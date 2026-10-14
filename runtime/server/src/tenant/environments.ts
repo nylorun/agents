@@ -11,12 +11,16 @@
  *   keyed by the Environment id and created on the first tool call), `pod` (an agent-sandbox pod
  *   on the Tenant's cluster, Host feature `sandbox-pods`, created at once) or `none` (no compute).
  *   Each has one vault (`vault/service.ts`), created and deleted with it in one transaction.
- * - **A recipe that changes.** `PUT` on an existing id compares the fields sent: `kind` and
- *   `storage` are fixed (`409`), labels replace, and any other change writes the recipe and bumps
- *   `version`. A pod runs `applied`: image and resources reach it when it is next asked to run
- *   from stopped (`wantRunning`), so nothing swaps them mid-turn; so does `harness`, which picks
- *   what the pod runs (R4.4). Network and lifecycle apply at once. A virtual or `none`
- *   Environment applies every change at once.
+ * - **Made once, never changed** (protocol 14, D63). An Environment is made from one version of
+ *   an environment manifest (`manifest: "name"` or `"name@n"`, `environment-manifests.ts`) or
+ *   from an inline manifest (the fields of the `PUT`, its `recipe`), and keeps what it runs for
+ *   life: a `PUT` on an existing id may change its labels and owner guard, a field that matches
+ *   what it runs is accepted (so get-or-create stays one call), and anything else is
+ *   `409 environment_immutable`, naming the fork that makes a new Environment instead.
+ *   `version` and `appliedVersion` stay 1 for an Environment made since then.
+ * - **Secret slots** (D64): when what it runs declares `secrets`, a secret write sends only the
+ *   value, the binding comes from the slot, and a name it does not declare is
+ *   `409 secret_not_in_manifest` (`secretRequestFor`).
  * - **Access.** An application key reaches every Environment, and so does an application key
  *   acting for a subject (`Nylorun-Subject`), which needs `environments:write` to change one. A
  *   token caller reaches only the ids its grants match, and changes them only with
@@ -36,11 +40,17 @@
  */
 import {
   environmentGranted,
+  parseEnvironmentManifestRef,
+  PutEnvironmentSecretRequestSchema,
+  PutEnvironmentSecretValueRequestSchema,
   type EnvironmentKind,
   type EnvironmentRecipe,
+  type EnvironmentSecretSlot,
   type EnvironmentView,
   type PutEnvironmentRequest,
+  type PutEnvironmentSecretRequest,
 } from "@nylorun/core/contracts";
+import { hashManifest } from "@nylorun/core/compatibility";
 import { isWorkflowManifest, parseSandboxDuration } from "@nylorun/core/define";
 import { canonical } from "../store/canonical.js";
 import type { Environment, SandboxPodState, Tx } from "../store/types.js";
@@ -53,6 +63,7 @@ import { SETUP_FAILED } from "../sandbox/pods/lifecycle.js";
 import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
 import { deleteDiskArtifact, forkSeedOf, runPendingSeed } from "../artifacts/disk.js";
+import { manifestRecipeRequest } from "./environment-manifests.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 
@@ -119,11 +130,16 @@ async function viewOf(
         )
       : undefined;
   const pod = environment.pod;
+  const slots = await slotsOf(t, environment);
   return {
     id: environment.id,
     kind: environment.kind,
     labels: environment.labels,
-    recipe: environment.recipe,
+    manifest: environment.recipe,
+    ...(environment.manifestName === undefined ? {} : { manifestName: environment.manifestName }),
+    ...(environment.manifestVersion === undefined ? {} : { manifestVersion: environment.manifestVersion }),
+    ...(environment.manifestHash === undefined ? {} : { manifestHash: environment.manifestHash }),
+    ...(slots === undefined ? {} : { slots }),
     version: environment.version,
     appliedVersion: environment.appliedVersion,
     ownerUserId: environment.ownerUserId ?? null,
@@ -164,6 +180,36 @@ async function viewOf(
   };
 }
 
+/** Each secret slot `environment` declares, and whether its vault holds a value for it. */
+async function slotsOf(t: Tx, environment: Environment): Promise<EnvironmentView["slots"]> {
+  const declared = environment.recipe.secrets;
+  if (declared === undefined) return undefined;
+  const vault = await t.vaultOfEnvironment(environment.id);
+  const held = new Set(vault ? (await t.credentialsForVault(vault.id)).map((row) => row.name) : []);
+  return Object.entries(declared)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, slot]) => ({ name, type: slot.type, required: slot.required ?? false, set: held.has(name) }));
+}
+
+/** The inline fields of a `PUT`: what it would run, besides labels, owner and `from`. */
+const INLINE_FIELDS = [
+  "kind",
+  "image",
+  "resources",
+  "storage",
+  "network",
+  "harness",
+  "lifecycle",
+  "setup",
+  "files",
+  "secrets",
+] as const satisfies readonly (keyof PutEnvironmentRequest)[];
+
+/** The hash of what an Environment runs, recorded when it is made. */
+function recipeHash(recipe: EnvironmentRecipe): string {
+  return hashManifest(recipe as never);
+}
+
 /** What a `PUT` asks of the recipe: its fields over `existing`'s (fixed `storage` kept). */
 function recipeRequest(body: PutEnvironmentRequest, existing?: Environment): RecipeRequest {
   const recipe = existing?.recipe;
@@ -182,21 +228,30 @@ function recipeRequest(body: PutEnvironmentRequest, existing?: Environment): Rec
     ...pick("lifecycle", body.lifecycle),
     ...pick("setup", body.setup),
     ...pick("files", body.files),
+    ...pick("secrets", body.secrets),
   };
 }
 
 /**
- * Refuses input files that are not a version of a Tenant-wide artifact (a session's artifacts
- * go with the session); pins nothing else: the version is the one named.
+ * Why input files cannot be used: each that is not a version of a Tenant-wide artifact (a
+ * session's artifacts go with the session). Pins nothing else: the version is the one named.
  */
-async function checkFiles(t: Tx, files: EnvironmentRecipe["files"]): Promise<void> {
+export async function fileErrors(t: Tx, files: EnvironmentRecipe["files"]): Promise<string[]> {
+  const errors: string[] = [];
   for (const file of files ?? []) {
     const artifact = await t.artifact(file.artifactId);
     if (!artifact || artifact.sessionId !== null)
-      fail(400, `files: ${file.artifactId} is not an artifact of the Tenant (an artifact of a session cannot be one).`);
-    if (!(await t.artifactVersion(file.artifactId, file.version)))
-      fail(400, `files: ${file.artifactId} has no version ${file.version}.`);
+      errors.push(`files: ${file.artifactId} is not an artifact of the Tenant (an artifact of a session cannot be one).`);
+    else if (!(await t.artifactVersion(file.artifactId, file.version)))
+      errors.push(`files: ${file.artifactId} has no version ${file.version}.`);
   }
+  return errors;
+}
+
+/** Refuses input files that cannot be used (`fileErrors`). */
+async function checkFiles(t: Tx, files: EnvironmentRecipe["files"]): Promise<void> {
+  const errors = await fileErrors(t, files);
+  if (errors.length > 0) fail(400, errors.join(" "));
 }
 
 /** Refuses an owner guard a caller acting for a person may not set. */
@@ -264,9 +319,10 @@ async function wantRunning(t: Tx, environment: PodEnvironment, now: string): Pro
 
 /**
  * `PUT /v1/environments/{id}`: creates the Environment and its vault (within the Tenant's limit
- * on their number), or finds the one with this id, so "get or create" is one call. On an
- * existing one, `kind` and `storage` must match, labels replace, the owner guard is set or
- * cleared, and a recipe change bumps `version`. Every `PUT` counts as the Environment's use.
+ * on their number) from an environment manifest's version or from the inline fields, or finds
+ * the one with this id, so "get or create" is one call. An existing one never changes what it
+ * runs (D63): its labels and owner guard may change, fields that match are accepted, and any
+ * other difference is `409 environment_immutable`. Every `PUT` counts as the Environment's use.
  */
 export async function putEnvironment(
   ctx: TenantContext,
@@ -275,11 +331,30 @@ export async function putEnvironment(
   scope: AuthScope,
 ): Promise<EnvironmentView> {
   reachable(environmentGrantsOf(scope), id);
+  const ref = body.manifest === undefined ? undefined : parseEnvironmentManifestRef(body.manifest);
+  if (body.manifest !== undefined) {
+    if (ref === undefined) fail(400, "manifest is an environment manifest's name, or name@version such as analyst-box@3.");
+    const inline = INLINE_FIELDS.filter((field) => body[field] !== undefined);
+    if (inline.length > 0)
+      fail(
+        400,
+        `An Environment made from manifest ${body.manifest} runs what the manifest says: send no ${inline.join(", ")} with it.`,
+      );
+  }
   if (body.kind === "pod") await requirePods(ctx.pods, "A pod Environment");
-  const conflict = (field: string): never =>
+  const immutable = (fields: readonly string[], existing: Environment): never =>
     fail(
       409,
-      `Environment ${id} exists with another ${field}, which is fixed: delete it to create it again.`,
+      `Environment ${id} exists and never changes what it runs (${fields.join(", ")} differ${fields.length === 1 ? "s" : ""}): fork it into a new Environment with POST /v1/environments/${encodeURIComponent(id)}/fork, or use another id.`,
+      {
+        code: "environment_immutable",
+        details: {
+          fields: [...fields],
+          ...(existing.manifestName === undefined
+            ? {}
+            : { manifest: `${existing.manifestName}@${existing.manifestVersion}` }),
+        },
+      },
     );
   const view = await ctx.store.tx(async (t) => {
     const now = new Date().toISOString();
@@ -298,60 +373,46 @@ export async function putEnvironment(
     const found = async (existing: Environment): Promise<EnvironmentView> => {
       if (body.from !== undefined)
         fail(409, `Environment ${id} exists: from applies only when a PUT creates one.`);
-      if (body.kind !== undefined && body.kind !== existing.kind) conflict("kind");
-      if (body.storage !== undefined && body.storage !== existing.recipe.storage) conflict("storage");
+      if (ref !== undefined) {
+        // A bare name matches the manifest it was made from, whatever its latest version is now.
+        if (ref.name !== existing.manifestName) immutable(["manifest"], existing);
+        if (ref.version !== undefined && ref.version !== existing.manifestVersion) immutable(["manifest"], existing);
+      } else if (INLINE_FIELDS.some((field) => body[field] !== undefined)) {
+        if (body.kind !== undefined && body.kind !== existing.kind) immutable(["kind"], existing);
+        if (body.storage !== undefined && body.storage !== existing.recipe.storage) immutable(["storage"], existing);
+        const recipe = resolve(existing.kind, recipeRequest(body, existing));
+        const differing = (Object.keys({ ...recipe, ...existing.recipe }) as (keyof EnvironmentRecipe)[])
+          .filter((field) => canonical(recipe[field]) !== canonical(existing.recipe[field]))
+          .sort();
+        if (differing.length > 0) immutable(differing, existing);
+      }
       checkGuard(scope, body.ownerUserId, existing.ownerUserId);
-      const recipe = resolve(existing.kind, recipeRequest(body, existing));
-      if (body.files !== undefined) await checkFiles(t, recipe.files);
       const patch: Parameters<Tx["updateEnvironment"]>[1] = { lastUsedAt: now };
       if (body.labels !== undefined && canonical(body.labels) !== canonical(existing.labels))
         patch.labels = body.labels;
       if (body.ownerUserId !== undefined && (body.ownerUserId ?? undefined) !== existing.ownerUserId)
         patch.ownerUserId = body.ownerUserId;
-      if (canonical(recipe) !== canonical(existing.recipe)) {
-        const version = existing.version + 1;
-        patch.recipe = recipe;
-        patch.version = version;
-        // What waits for the pod to start from stopped; setup and files run only on a new disk.
-        // The harness is what a pod runs (R4.4): it changes with the pod, like its image.
-        const compute = (r: typeof recipe) =>
-          canonical({
-            image: r.image ?? null,
-            resources: r.resources ?? null,
-            setup: r.setup ?? null,
-            files: r.files ?? null,
-            harness: r.harness,
-          });
-        if (existing.kind !== "pod" || compute(recipe) === compute(existing.applied)) {
-          // Nothing waits for a wake: apply all of it.
-          patch.applied = recipe;
-          patch.appliedVersion = version;
-        } else
-          // Network and lifecycle apply at once; image, resources and harness at the next wake.
-          patch.applied = {
-            ...existing.applied,
-            ...(recipe.network === undefined ? {} : { network: recipe.network }),
-            lifecycle: recipe.lifecycle,
-          };
-      }
       await t.updateEnvironment(id, patch, now);
-      if (patch.recipe !== undefined && existing.pod?.desired === "running")
-        // A new `lifecycle.idle` applies to the running pod's idle timer.
-        await t.signalSandbox(id, {
-          kind: "arm",
-          timer: "idle",
-          at:
-            Date.parse(existing.pod.lastActiveAt ?? existing.createdAt) +
-            podLifecycleConfig(await readSandboxConfig(t), patch.recipe).idleMs,
-        });
       return viewOf(ctx, t, (await t.environment(id)) ?? existing, subjectOf(scope));
     };
     const existing = await t.environment(id, { lock: true });
     deleting(existing);
     if (existing) return found(existing);
     checkGuard(scope, body.ownerUserId);
-    const kind = body.kind ?? "virtual";
-    const recipe = resolve(kind, recipeRequest(body));
+    const manifest =
+      ref === undefined
+        ? undefined
+        : ((await t.environmentManifest(ref.name, ref.version)) ??
+          fail(
+            404,
+            ref.version === undefined
+              ? `No environment manifest is named ${ref.name}: save it first (PUT /v1/environment-manifests/${ref.name}).`
+              : `Environment manifest ${ref.name} has no version ${ref.version}.`,
+            { code: "manifest_not_found" },
+          ));
+    const kind = manifest ? (manifest.body.kind ?? "virtual") : (body.kind ?? "virtual");
+    if (manifest && kind === "pod") await requirePods(ctx.pods, `Environment manifest ${manifest.name} is of kind pod, and a pod Environment`);
+    const recipe = resolve(kind, manifest ? manifestRecipeRequest(manifest.body) : recipeRequest(body));
     await checkFiles(t, recipe.files);
     const seed = body.from === undefined ? undefined : await forkSource(t, scope, kind, body.from);
     const row: Environment = {
@@ -366,6 +427,8 @@ export async function putEnvironment(
       lastUsedAt: now,
       createdAt: now,
       updatedAt: now,
+      ...(manifest ? { manifestName: manifest.name, manifestVersion: manifest.version } : {}),
+      manifestHash: recipeHash(recipe),
       ...(seed
         ? {
             diskSeed: seed,
@@ -408,6 +471,7 @@ export async function putEnvironment(
     await t.environmentEvent(id, "environment.created", {
       kind,
       labels: row.labels,
+      ...(manifest ? { manifest: { name: manifest.name, version: manifest.version } } : {}),
       ...(seed ? { from: { environment: body.from!.environment, version: seed.version } } : {}),
     });
     if (row.pod) {
@@ -424,6 +488,57 @@ export async function putEnvironment(
     return getEnvironment(ctx, id, scope);
   }
   return view;
+}
+
+/**
+ * The secret write `raw` asks of Environment `id` (D64). When what it runs declares secret
+ * slots, the name must be one (`409 secret_not_in_manifest`), and the body is `{ value }` (or
+ * `{ headers }` for a `headers` slot) with the binding from the slot; a full typed body is
+ * accepted only when its binding is the slot's. Without slots, today's typed body.
+ */
+export async function secretRequestFor(
+  ctx: TenantContext,
+  id: string,
+  name: string,
+  raw: unknown,
+): Promise<PutEnvironmentSecretRequest> {
+  const environment = await ctx.store.tx((t) => liveEnvironment(t, id));
+  const slots = environment?.recipe.secrets;
+  if (!environment || slots === undefined) return PutEnvironmentSecretRequestSchema.parse(raw);
+  const slot =
+    slots[name] ??
+    fail(
+      409,
+      `What Environment ${id} runs declares no secret ${name}${environment.manifestName ? ` (manifest ${environment.manifestName}@${environment.manifestVersion})` : ""}: add the slot to the manifest, then make or fork an Environment from the new version.`,
+      { code: "secret_not_in_manifest", details: { declared: Object.keys(slots).sort() } },
+    );
+  const full = slotRequest(slot);
+  if (raw !== null && typeof raw === "object" && "type" in raw) {
+    const body = PutEnvironmentSecretRequestSchema.parse(raw);
+    const { requestId: _, value: _v, headers: _h, ...binding } = body as PutEnvironmentSecretRequest & {
+      value?: string;
+      headers?: unknown;
+    };
+    if (canonical(binding) !== canonical(full))
+      fail(409, `Secret ${name}'s type and binding come from what Environment ${id} runs: send only its value ({ "value": "…" }).`, {
+        code: "secret_not_in_manifest",
+      });
+    return body;
+  }
+  const { requestId, value, headers } = PutEnvironmentSecretValueRequestSchema.parse(raw);
+  const withId = requestId === undefined ? {} : { requestId };
+  if (slot.type === "headers") {
+    if (headers === undefined) fail(400, `Secret ${name} is a headers credential: send { "headers": { … } }.`);
+    return PutEnvironmentSecretRequestSchema.parse({ ...withId, ...full, headers });
+  }
+  if (value === undefined) fail(400, `Secret ${name} takes a value: send { "value": "…" }.`);
+  return PutEnvironmentSecretRequestSchema.parse({ ...withId, ...full, value });
+}
+
+/** A slot's type and binding, as a secret write's fields (without the value). */
+function slotRequest(slot: EnvironmentSecretSlot): Record<string, unknown> {
+  const { required: _r, description: _d, ...binding } = slot;
+  return binding;
 }
 
 /**

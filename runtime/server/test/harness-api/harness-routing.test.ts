@@ -104,13 +104,19 @@ it("keys placement by the harness id: '*' with no hosts refuses a harness the ma
   expect(refused.body).toMatchObject({ code: "placement_refused", details: { harness: "acme-mini", allowed: [] } });
 });
 
-it("refuses a turn of a session whose Environment now runs another harness", async () => {
+it("refuses a turn of a session whose Environment was made again with another harness", async () => {
   const runtime = await boot({ harness: "remote" });
   cleanups.push(() => runtime.close());
   expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "none", harness: "acme-mini" })).status).toBe(200);
   await openSession(runtime, "s-other", true);
   expect((await openOn(runtime, "s-acme", "env-acme")).status).toBe(200);
-  expect((await call(runtime, "PUT", "/v1/environments/env-acme", { harness: "acme-next" })).status).toBe(200);
+  // An Environment never changes what it runs (protocol 14)...
+  const changed = await call(runtime, "PUT", "/v1/environments/env-acme", { harness: "acme-next" });
+  expect(changed.status).toBe(409);
+  expect(changed.body).toMatchObject({ code: "environment_immutable", details: { fields: ["harness"] } });
+  // ...but the id can name a new one, made with another harness.
+  expect((await call(runtime, "DELETE", "/v1/environments/env-acme")).status).toBe(200);
+  expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "none", harness: "acme-next" })).status).toBe(200);
   const turn = await call(runtime, "POST", "/v1/sessions/s-acme/commands", {
     type: "message",
     requestId: "m1",

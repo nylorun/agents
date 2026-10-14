@@ -9,6 +9,7 @@ import type {
   EnvironmentKind,
   EnvironmentLifecycle,
   EnvironmentRecipe,
+  EnvironmentSecretSlots,
   EnvironmentSetupCommand,
 } from "@nylorun/core/contracts";
 import { DEFAULT_HARNESS } from "@nylorun/core/contracts";
@@ -26,6 +27,8 @@ export interface RecipeRequest {
   readonly lifecycle?: EnvironmentLifecycle;
   readonly setup?: readonly EnvironmentSetupCommand[];
   readonly files?: readonly EnvironmentFile[];
+  /** The secret slots (D64): passed through for every kind. */
+  readonly secrets?: EnvironmentSecretSlots;
 }
 
 export type RecipeResolution =
@@ -54,7 +57,7 @@ export function resolveRecipe(
       if (request[field] !== undefined)
         errors.push(`${field} is for an Environment with a sandbox: kind none has none.`);
     if (errors.length > 0) return { kind: "error", errors };
-    return { kind: "recipe", recipe: { harness, lifecycle: { ...lifecycle } } };
+    return { kind: "recipe", recipe: { harness, lifecycle: { ...lifecycle }, ...slotsOf(request) } };
   }
   if (request.image !== undefined && !pod)
     errors.push("image is for kind pod: a virtual Environment runs no images.");
@@ -95,8 +98,16 @@ export function resolveRecipe(
       lifecycle: { ...lifecycle },
       ...(pod && request.setup?.length ? { setup: request.setup.map((command) => ({ ...command })) } : {}),
       ...(pod && request.files?.length ? { files: request.files.map((file) => ({ ...file })) } : {}),
+      ...slotsOf(request),
     },
   };
+}
+
+/** The request's secret slots, when it declares any. */
+function slotsOf(request: RecipeRequest): Pick<EnvironmentRecipe, "secrets"> {
+  return request.secrets !== undefined && Object.keys(request.secrets).length > 0
+    ? { secrets: structuredClone(request.secrets) }
+    : {};
 }
 
 /**

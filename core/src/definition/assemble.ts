@@ -1,6 +1,6 @@
 import type { DefinitionPart } from "./bound.js";
 import type { BuiltAgent } from "../types/agent.js";
-import type { AgentManifest, RuntimeManifest } from "../types/manifest.js";
+import type { AgentManifest, AgentRequirements, RuntimeManifest } from "../types/manifest.js";
 import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import type { ToolSchemaSource } from "../types/tool.js";
 import { bindAgent } from "./bind-agent.js";
@@ -30,6 +30,7 @@ export function assembleAgent(
     description?: string;
     metadata?: JsonObject;
     outputSchema?: ToolSchemaSource;
+    requires?: AgentRequirements;
     /** A pinned manifest's `runtime` block, kept as it was (`agentFrom`). */
     runtime?: RuntimeManifest;
   }>
@@ -107,6 +108,7 @@ export function assembleAgent(
     description: identity.description,
     metadata: identity.metadata,
     outputSchema: identity.outputSchema,
+    requires: identity.requires,
     runtime: identity.runtime,
     parts: frozenParts,
   });

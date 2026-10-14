@@ -211,7 +211,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Environments",
     group: "Environments",
     description:
-      "Where sessions run: one sandbox (a virtual workspace, a pod with its own volume, or none) with a recipe that can change, and one vault of secrets for its shell, MCP servers and HTTP tools. Create, find or change one, watch its lifecycle, stop, reset or delete it, and write its secrets. In `@nylorun/agents`.",
+      "Where sessions run: one sandbox (a virtual workspace, a pod with its own volume, or none) made from an environment manifest or inline fields and never changed after that, and one vault of secrets for its shell, MCP servers and HTTP tools. Create or find one, watch its lifecycle, stop, reset or delete it, and write its secrets. In `@nylorun/agents`.",
     operations: [
       "PUT /v1/environments/{environmentId}",
       "GET /v1/environments",
@@ -228,6 +228,20 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "POST /v1/environments/{environmentId}/restore",
       "GET /v1/environments/{environmentId}/versions",
       "DELETE /v1/environments/{environmentId}/versions/{version}",
+    ],
+  },
+  {
+    name: "Environment manifests",
+    group: "Environments",
+    description:
+      "Named, versioned definitions of a kind of Environment, saved like agents (protocol 14). Save one with a plan first (`?dryRun=true`) and `If-Match`; an Environment is made from one version and keeps it, so a save changes no Environment. In `@nylorun/agents`.",
+    operations: [
+      "PUT /v1/environment-manifests/{name}",
+      "GET /v1/environment-manifests",
+      "GET /v1/environment-manifests/{name}",
+      "GET /v1/environment-manifests/{name}/versions",
+      "GET /v1/environment-manifests/{name}/versions/{version}",
+      "DELETE /v1/environment-manifests/{name}",
     ],
   },
   {

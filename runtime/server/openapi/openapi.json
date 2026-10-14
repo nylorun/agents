@@ -4,8 +4,8 @@
     "title": "Nylorun Runtime API",
     "version": "0.0.0",
     "x-nylorun-protocol": {
-      "min": 13,
-      "max": 13,
+      "min": 14,
+      "max": 14,
       "features": [
         "studio-principal",
         "artifacts",
@@ -14,6 +14,7 @@
         "environments",
         "model-inputs",
         "flat-manifest",
+        "environment-manifests",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -6349,6 +6350,12 @@
               "mcp_preview_failed",
               "credential_conflict",
               "attachment_unsupported",
+              "environment_immutable",
+              "secret_not_in_manifest",
+              "environment_unsuitable",
+              "manifest_not_found",
+              "manifest_in_use",
+              "manifest_changed",
               "internal_error"
             ]
           },
@@ -6679,6 +6686,28 @@
                         }
                       ]
                     }
+                  },
+                  "requires": {
+                    "type": "object",
+                    "properties": {
+                      "sandbox": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "any",
+                          "pod"
+                        ]
+                      },
+                      "secrets": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                        },
+                        "maxItems": 64
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "runtime": {
                     "type": "object",
@@ -7098,6 +7127,28 @@
                       ]
                     }
                   },
+                  "requires": {
+                    "type": "object",
+                    "properties": {
+                      "sandbox": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "any",
+                          "pod"
+                        ]
+                      },
+                      "secrets": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                        },
+                        "maxItems": 64
+                      }
+                    },
+                    "additionalProperties": false
+                  },
                   "runtime": {
                     "type": "object",
                     "properties": {
@@ -7514,6 +7565,28 @@
                         }
                       ]
                     }
+                  },
+                  "requires": {
+                    "type": "object",
+                    "properties": {
+                      "sandbox": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "any",
+                          "pod"
+                        ]
+                      },
+                      "secrets": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                        },
+                        "maxItems": 64
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "runtime": {
                     "type": "object",
@@ -8067,6 +8140,28 @@
                   ]
                 }
               },
+              "requires": {
+                "type": "object",
+                "properties": {
+                  "sandbox": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "any",
+                      "pod"
+                    ]
+                  },
+                  "secrets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                    },
+                    "maxItems": 64
+                  }
+                },
+                "additionalProperties": false
+              },
               "runtime": {
                 "type": "object",
                 "properties": {
@@ -8550,6 +8645,28 @@
                           }
                         ]
                       }
+                    },
+                    "requires": {
+                      "type": "object",
+                      "properties": {
+                        "sandbox": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "any",
+                            "pod"
+                          ]
+                        },
+                        "secrets": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                          },
+                          "maxItems": 64
+                        }
+                      },
+                      "additionalProperties": false
                     },
                     "runtime": {
                       "type": "object",
@@ -9127,6 +9244,9 @@
           },
           "implementationVersion": {
             "type": "string"
+          },
+          "dryRun": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -9389,6 +9509,28 @@
                         }
                       ]
                     }
+                  },
+                  "requires": {
+                    "type": "object",
+                    "properties": {
+                      "sandbox": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "any",
+                          "pod"
+                        ]
+                      },
+                      "secrets": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                        },
+                        "maxItems": 64
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "runtime": {
                     "type": "object",
@@ -17066,7 +17208,7 @@
                     "type": "string"
                   }
                 },
-                "recipe": {
+                "manifest": {
                   "type": "object",
                   "properties": {
                     "image": {
@@ -17171,6 +17313,170 @@
                         ],
                         "additionalProperties": false
                       }
+                    },
+                    "secrets": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "environment_secret"
+                                ]
+                              },
+                              "allowedHosts": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "minItems": 1,
+                                "maxItems": 32
+                              },
+                              "inject": {
+                                "type": "object",
+                                "properties": {
+                                  "header": {
+                                    "type": "string",
+                                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                  },
+                                  "format": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "header",
+                                  "format"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "description": {
+                                "type": "string",
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "allowedHosts"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "environment_variable"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "description": {
+                                "type": "string",
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "type"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "bearer"
+                                ]
+                              },
+                              "url": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "via": {
+                                "type": "string"
+                              },
+                              "identity": {
+                                "type": "object",
+                                "properties": {
+                                  "header": {
+                                    "type": "string",
+                                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                  }
+                                },
+                                "required": [
+                                  "header"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "description": {
+                                "type": "string",
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "headers"
+                                ]
+                              },
+                              "url": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "via": {
+                                "type": "string"
+                              },
+                              "identity": {
+                                "type": "object",
+                                "properties": {
+                                  "header": {
+                                    "type": "string",
+                                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                  }
+                                },
+                                "required": [
+                                  "header"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "description": {
+                                "type": "string",
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -17178,6 +17484,43 @@
                     "lifecycle"
                   ],
                   "additionalProperties": false
+                },
+                "manifestName": {
+                  "type": "string"
+                },
+                "manifestVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "manifestHash": {
+                  "type": "string"
+                },
+                "slots": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "set": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "type",
+                      "required",
+                      "set"
+                    ],
+                    "additionalProperties": false
+                  }
                 },
                 "version": {
                   "type": "integer",
@@ -17316,7 +17659,7 @@
                 "id",
                 "kind",
                 "labels",
-                "recipe",
+                "manifest",
                 "version",
                 "appliedVersion",
                 "ownerUserId",
@@ -17377,7 +17720,7 @@
               "type": "string"
             }
           },
-          "recipe": {
+          "manifest": {
             "type": "object",
             "properties": {
               "image": {
@@ -17482,6 +17825,170 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "secrets": {
+                "type": "object",
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "environment_secret"
+                          ]
+                        },
+                        "allowedHosts": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "maxItems": 32
+                        },
+                        "inject": {
+                          "type": "object",
+                          "properties": {
+                            "header": {
+                              "type": "string",
+                              "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                            },
+                            "format": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "header",
+                            "format"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "allowedHosts"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "environment_variable"
+                          ]
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "bearer"
+                          ]
+                        },
+                        "url": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "via": {
+                          "type": "string"
+                        },
+                        "identity": {
+                          "type": "object",
+                          "properties": {
+                            "header": {
+                              "type": "string",
+                              "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                            }
+                          },
+                          "required": [
+                            "header"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "headers"
+                          ]
+                        },
+                        "url": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "via": {
+                          "type": "string"
+                        },
+                        "identity": {
+                          "type": "object",
+                          "properties": {
+                            "header": {
+                              "type": "string",
+                              "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                            }
+                          },
+                          "required": [
+                            "header"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
               }
             },
             "required": [
@@ -17489,6 +17996,43 @@
               "lifecycle"
             ],
             "additionalProperties": false
+          },
+          "manifestName": {
+            "type": "string"
+          },
+          "manifestVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "manifestHash": {
+            "type": "string"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "set": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "type",
+                "required",
+                "set"
+              ],
+              "additionalProperties": false
+            }
           },
           "version": {
             "type": "integer",
@@ -17627,7 +18171,7 @@
           "id",
           "kind",
           "labels",
-          "recipe",
+          "manifest",
           "version",
           "appliedVersion",
           "ownerUserId",
@@ -17645,6 +18189,10 @@
           "requestId": {
             "type": "string",
             "minLength": 1
+          },
+          "manifest": {
+            "type": "string",
+            "description": "`name` (the latest version when the Environment is created) or `name@n`"
           },
           "kind": {
             "type": "string",
@@ -17769,6 +18317,170 @@
               "additionalProperties": false
             },
             "maxItems": 16
+          },
+          "secrets": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "environment_secret"
+                      ]
+                    },
+                    "allowedHosts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 32
+                    },
+                    "inject": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                        },
+                        "format": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "header",
+                        "format"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "allowedHosts"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "environment_variable"
+                      ]
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "bearer"
+                      ]
+                    },
+                    "url": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "via": {
+                      "type": "string"
+                    },
+                    "identity": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                        }
+                      },
+                      "required": [
+                        "header"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "headers"
+                      ]
+                    },
+                    "url": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "via": {
+                      "type": "string"
+                    },
+                    "identity": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                        }
+                      },
+                      "required": [
+                        "header"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
           },
           "from": {
             "type": "object",
@@ -18231,179 +18943,27 @@
         ],
         "additionalProperties": false
       },
-      "PutEnvironmentSecretRequest": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "requestId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "environment_secret"
-                ]
-              },
-              "value": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 8192
-              },
-              "allowedHosts": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 1,
-                "maxItems": 32
-              },
-              "inject": {
-                "type": "object",
-                "properties": {
-                  "header": {
-                    "type": "string",
-                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                  },
-                  "format": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "header",
-                  "format"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "type",
-              "value",
-              "allowedHosts"
-            ],
-            "additionalProperties": false
+      "PutEnvironmentSecretValueRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
           },
-          {
-            "type": "object",
-            "properties": {
-              "requestId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "environment_variable"
-                ]
-              },
-              "value": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 8192
-              }
-            },
-            "required": [
-              "type",
-              "value"
-            ],
-            "additionalProperties": false
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
           },
-          {
+          "headers": {
             "type": "object",
-            "properties": {
-              "requestId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "bearer"
-                ]
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1
-              },
-              "value": {
-                "type": "string",
-                "minLength": 1
-              },
-              "via": {
-                "type": "string"
-              },
-              "identity": {
-                "type": "object",
-                "properties": {
-                  "header": {
-                    "type": "string",
-                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                  }
-                },
-                "required": [
-                  "header"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "type",
-              "url",
-              "value"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "requestId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "headers"
-                ]
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1
-              },
-              "headers": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "via": {
-                "type": "string"
-              },
-              "identity": {
-                "type": "object",
-                "properties": {
-                  "header": {
-                    "type": "string",
-                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-                  }
-                },
-                "required": [
-                  "header"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "type",
-              "url",
-              "headers"
-            ],
-            "additionalProperties": false
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            }
           }
-        ]
+        },
+        "additionalProperties": false
       },
       "DeletedResponse": {
         "type": "object",
@@ -18414,6 +18974,1534 @@
         },
         "required": [
           "id"
+        ],
+        "additionalProperties": false
+      },
+      "ListEnvironmentManifestsResponse": {
+        "type": "object",
+        "properties": {
+          "manifests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "hash": {
+                  "type": "string"
+                },
+                "manifest": {
+                  "type": "object",
+                  "properties": {
+                    "manifestSchemaVersion": {
+                      "type": "number",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "An environment manifest's name, such as `analyst-box`"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 1024
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "virtual",
+                        "pod",
+                        "none"
+                      ]
+                    },
+                    "image": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "resources": {
+                      "type": "object",
+                      "properties": {
+                        "cpus": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 64
+                        },
+                        "memory": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "storage": {
+                      "type": "string"
+                    },
+                    "network": {
+                      "type": "object",
+                      "properties": {
+                        "allowedHosts": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "harness": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{1,62}$"
+                    },
+                    "lifecycle": {
+                      "type": "object",
+                      "properties": {
+                        "idle": {
+                          "type": "string"
+                        },
+                        "deleteAfter": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "setup": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "command": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096
+                          },
+                          "cwd": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1024
+                          },
+                          "timeout": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "command"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 16
+                    },
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "artifactId": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1024
+                          }
+                        },
+                        "required": [
+                          "artifactId",
+                          "version",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 16
+                    },
+                    "secrets": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "environment_secret"
+                                ]
+                              },
+                              "allowedHosts": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "minItems": 1,
+                                "maxItems": 32
+                              },
+                              "inject": {
+                                "type": "object",
+                                "properties": {
+                                  "header": {
+                                    "type": "string",
+                                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                  },
+                                  "format": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "header",
+                                  "format"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "description": {
+                                "type": "string",
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "allowedHosts"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "environment_variable"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "description": {
+                                "type": "string",
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "type"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "bearer"
+                                ]
+                              },
+                              "url": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "via": {
+                                "type": "string"
+                              },
+                              "identity": {
+                                "type": "object",
+                                "properties": {
+                                  "header": {
+                                    "type": "string",
+                                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                  }
+                                },
+                                "required": [
+                                  "header"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "description": {
+                                "type": "string",
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "headers"
+                                ]
+                              },
+                              "url": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "via": {
+                                "type": "string"
+                              },
+                              "identity": {
+                                "type": "object",
+                                "properties": {
+                                  "header": {
+                                    "type": "string",
+                                    "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                  }
+                                },
+                                "required": [
+                                  "header"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "description": {
+                                "type": "string",
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "url"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "manifestSchemaVersion",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "savedBy": {
+                  "type": "object",
+                  "properties": {
+                    "actor": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "actor"
+                  ],
+                  "additionalProperties": false
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "environments": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "name",
+                "version",
+                "hash",
+                "manifest",
+                "savedBy",
+                "createdAt",
+                "environments"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "manifests"
+        ],
+        "additionalProperties": false
+      },
+      "SaveEnvironmentManifestResponse": {
+        "type": "object",
+        "properties": {
+          "manifest": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "hash": {
+                "type": "string"
+              },
+              "manifest": {
+                "type": "object",
+                "properties": {
+                  "manifestSchemaVersion": {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "An environment manifest's name, such as `analyst-box`"
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 1024
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "virtual",
+                      "pod",
+                      "none"
+                    ]
+                  },
+                  "image": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "resources": {
+                    "type": "object",
+                    "properties": {
+                      "cpus": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 64
+                      },
+                      "memory": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "storage": {
+                    "type": "string"
+                  },
+                  "network": {
+                    "type": "object",
+                    "properties": {
+                      "allowedHosts": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "harness": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{1,62}$"
+                  },
+                  "lifecycle": {
+                    "type": "object",
+                    "properties": {
+                      "idle": {
+                        "type": "string"
+                      },
+                      "deleteAfter": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "setup": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096
+                        },
+                        "cwd": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024
+                        },
+                        "timeout": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 16
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "artifactId": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024
+                        }
+                      },
+                      "required": [
+                        "artifactId",
+                        "version",
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 16
+                  },
+                  "secrets": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "environment_secret"
+                              ]
+                            },
+                            "allowedHosts": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1,
+                              "maxItems": 32
+                            },
+                            "inject": {
+                              "type": "object",
+                              "properties": {
+                                "header": {
+                                  "type": "string",
+                                  "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                },
+                                "format": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "required": [
+                                "header",
+                                "format"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "required": {
+                              "type": "boolean"
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "allowedHosts"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "environment_variable"
+                              ]
+                            },
+                            "required": {
+                              "type": "boolean"
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "bearer"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "via": {
+                              "type": "string"
+                            },
+                            "identity": {
+                              "type": "object",
+                              "properties": {
+                                "header": {
+                                  "type": "string",
+                                  "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                }
+                              },
+                              "required": [
+                                "header"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "required": {
+                              "type": "boolean"
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "headers"
+                              ]
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "via": {
+                              "type": "string"
+                            },
+                            "identity": {
+                              "type": "object",
+                              "properties": {
+                                "header": {
+                                  "type": "string",
+                                  "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                                }
+                              },
+                              "required": [
+                                "header"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "required": {
+                              "type": "boolean"
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "url"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "manifestSchemaVersion",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "savedBy": {
+                "type": "object",
+                "properties": {
+                  "actor": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "actor"
+                ],
+                "additionalProperties": false
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "environments": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "name",
+              "version",
+              "hash",
+              "manifest",
+              "savedBy",
+              "createdAt",
+              "environments"
+            ],
+            "additionalProperties": false
+          },
+          "unchanged": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "manifest",
+          "unchanged",
+          "warnings"
+        ],
+        "additionalProperties": false
+      },
+      "EnvironmentManifestPlan": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "from": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "to": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "unchanged": {
+            "type": "boolean"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "from": {},
+                "to": {}
+              },
+              "required": [
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "behind": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "from",
+          "to",
+          "unchanged",
+          "changes",
+          "warnings",
+          "errors",
+          "behind"
+        ],
+        "additionalProperties": false
+      },
+      "PutEnvironmentManifestRequest": {
+        "type": "object",
+        "properties": {
+          "manifestSchemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "An environment manifest's name, such as `analyst-box`"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "virtual",
+              "pod",
+              "none"
+            ]
+          },
+          "image": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resources": {
+            "type": "object",
+            "properties": {
+              "cpus": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "storage": {
+            "type": "string"
+          },
+          "network": {
+            "type": "object",
+            "properties": {
+              "allowedHosts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "harness": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,62}$"
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "idle": {
+                "type": "string"
+              },
+              "deleteAfter": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "setup": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "timeout": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 16
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "artifactId": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                }
+              },
+              "required": [
+                "artifactId",
+                "version",
+                "path"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 16
+          },
+          "secrets": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "environment_secret"
+                      ]
+                    },
+                    "allowedHosts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 32
+                    },
+                    "inject": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                        },
+                        "format": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "header",
+                        "format"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "allowedHosts"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "environment_variable"
+                      ]
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "bearer"
+                      ]
+                    },
+                    "url": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "via": {
+                      "type": "string"
+                    },
+                    "identity": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                        }
+                      },
+                      "required": [
+                        "header"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "headers"
+                      ]
+                    },
+                    "url": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "via": {
+                      "type": "string"
+                    },
+                    "identity": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                        }
+                      },
+                      "required": [
+                        "header"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "manifestSchemaVersion",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "EnvironmentManifestView": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "hash": {
+            "type": "string"
+          },
+          "manifest": {
+            "type": "object",
+            "properties": {
+              "manifestSchemaVersion": {
+                "type": "number",
+                "enum": [
+                  1
+                ]
+              },
+              "name": {
+                "type": "string",
+                "description": "An environment manifest's name, such as `analyst-box`"
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "virtual",
+                  "pod",
+                  "none"
+                ]
+              },
+              "image": {
+                "type": "string",
+                "minLength": 1
+              },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "cpus": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 64
+                  },
+                  "memory": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "storage": {
+                "type": "string"
+              },
+              "network": {
+                "type": "object",
+                "properties": {
+                  "allowedHosts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "harness": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{1,62}$"
+              },
+              "lifecycle": {
+                "type": "object",
+                "properties": {
+                  "idle": {
+                    "type": "string"
+                  },
+                  "deleteAfter": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "setup": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "cwd": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    "timeout": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 16
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "artifactId": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    }
+                  },
+                  "required": [
+                    "artifactId",
+                    "version",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 16
+              },
+              "secrets": {
+                "type": "object",
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "environment_secret"
+                          ]
+                        },
+                        "allowedHosts": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "maxItems": 32
+                        },
+                        "inject": {
+                          "type": "object",
+                          "properties": {
+                            "header": {
+                              "type": "string",
+                              "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                            },
+                            "format": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "header",
+                            "format"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "allowedHosts"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "environment_variable"
+                          ]
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "bearer"
+                          ]
+                        },
+                        "url": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "via": {
+                          "type": "string"
+                        },
+                        "identity": {
+                          "type": "object",
+                          "properties": {
+                            "header": {
+                              "type": "string",
+                              "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                            }
+                          },
+                          "required": [
+                            "header"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "headers"
+                          ]
+                        },
+                        "url": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "via": {
+                          "type": "string"
+                        },
+                        "identity": {
+                          "type": "object",
+                          "properties": {
+                            "header": {
+                              "type": "string",
+                              "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                            }
+                          },
+                          "required": [
+                            "header"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "manifestSchemaVersion",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "savedBy": {
+            "type": "object",
+            "properties": {
+              "actor": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "actor"
+            ],
+            "additionalProperties": false
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "environments": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "hash",
+          "manifest",
+          "savedBy",
+          "createdAt",
+          "environments"
+        ],
+        "additionalProperties": false
+      },
+      "EnvironmentManifestVersions": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "latest": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "hash": {
+                  "type": "string"
+                },
+                "savedBy": {
+                  "type": "object",
+                  "properties": {
+                    "actor": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "actor"
+                  ],
+                  "additionalProperties": false
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "environments": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "version",
+                "hash",
+                "savedBy",
+                "createdAt",
+                "environments"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "name",
+          "latest",
+          "versions"
+        ],
+        "additionalProperties": false
+      },
+      "DeleteEnvironmentManifestResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "deleted"
         ],
         "additionalProperties": false
       },
@@ -20022,6 +22110,7 @@
           "Agents"
         ],
         "summary": "Put an agent's definition",
+        "description": "Saves the agent's definition. With `?dryRun=true` (protocol 14) every check runs and nothing is saved: the answer says what a save would record.",
         "security": [
           {
             "applicationKey": []
@@ -20046,10 +22135,24 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "`true`: check and save nothing"
+            },
+            "required": false,
+            "description": "`true`: check and save nothing",
+            "name": "dryRun",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20086,7 +22189,7 @@
         },
         "responses": {
           "200": {
-            "description": "The definition, stored",
+            "description": "The definition, stored (or checked, with dryRun)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20186,10 +22289,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20325,10 +22428,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -20460,10 +22563,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -20570,10 +22673,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20717,10 +22820,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20907,10 +23010,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21051,10 +23154,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21234,10 +23337,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21494,10 +23597,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21634,10 +23737,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21771,10 +23874,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21907,10 +24010,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22043,10 +24146,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22161,10 +24264,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22287,10 +24390,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22419,10 +24522,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22611,10 +24714,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22757,10 +24860,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22903,10 +25006,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23037,10 +25140,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23187,10 +25290,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23325,7 +25428,7 @@
           "Environments"
         ],
         "summary": "Create, find or change an Environment",
-        "description": "Creates the Environment and its vault within the Tenant's limits, or answers the one with this id, so get-or-create is one call. On an existing one the fields sent are compared: `kind` and `storage` are fixed (`409`), labels replace, `ownerUserId` sets or (with `null`) clears the owner guard, and any other change writes the recipe and bumps `version`. A pod's image and resources apply when it is next started from stopped (`appliedVersion`); `network.allowedHosts`, `harness` and `lifecycle` apply at once. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
+        "description": "Creates the Environment and its vault within the Tenant's limits, or answers the one with this id, so get-or-create is one call. It is made from one version of an environment manifest (`manifest: \"name\"` takes the latest, `\"name@n\"` version n) or from the inline fields, and never changes what it runs after that (protocol 14, D63): on an existing one, labels replace, `ownerUserId` sets or (with `null`) clears the owner guard, fields that match what it runs are accepted, and anything else is `409 environment_immutable`, which names the fork that makes a new Environment instead. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
         "security": [
           {
             "applicationKey": []
@@ -23356,10 +25459,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23446,7 +25549,7 @@
             }
           },
           "409": {
-            "description": "An Environment with this id has another kind or storage, the Tenant holds as many Environments as it allows (`limit_exceeded`), kind pod without sandbox pods (`environment_unavailable`), or it is being deleted (`environment_busy`)"
+            "description": "An Environment with this id runs something else (`environment_immutable`), the Tenant holds as many Environments as it allows (`limit_exceeded`), kind pod without sandbox pods (`environment_unavailable`), or it is being deleted (`environment_busy`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -23507,10 +25610,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23644,10 +25747,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23815,10 +25918,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23972,10 +26075,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24111,10 +26214,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24246,10 +26349,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24382,10 +26485,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24532,10 +26635,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24638,7 +26741,7 @@
           "Environments"
         ],
         "summary": "Write an Environment's secret",
-        "description": "Creates or replaces one credential of the Environment's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun-managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`.",
+        "description": "Creates or replaces one credential of the Environment's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun-managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When what the Environment runs declares secret slots (protocol 14, D64), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`.",
         "security": [
           {
             "applicationKey": []
@@ -24679,10 +26782,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24712,7 +26815,181 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PutEnvironmentSecretRequest"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "environment_secret"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 8192
+                      },
+                      "allowedHosts": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "maxItems": 32
+                      },
+                      "inject": {
+                        "type": "object",
+                        "properties": {
+                          "header": {
+                            "type": "string",
+                            "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                          },
+                          "format": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "header",
+                          "format"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "value",
+                      "allowedHosts"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "environment_variable"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 8192
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "bearer"
+                        ]
+                      },
+                      "url": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "via": {
+                        "type": "string"
+                      },
+                      "identity": {
+                        "type": "object",
+                        "properties": {
+                          "header": {
+                            "type": "string",
+                            "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                          }
+                        },
+                        "required": [
+                          "header"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "url",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "headers"
+                        ]
+                      },
+                      "url": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "headers": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "via": {
+                        "type": "string"
+                      },
+                      "identity": {
+                        "type": "object",
+                        "properties": {
+                          "header": {
+                            "type": "string",
+                            "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                          }
+                        },
+                        "required": [
+                          "header"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "url",
+                      "headers"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "$ref": "#/components/schemas/PutEnvironmentSecretValueRequest"
+                  }
+                ]
               }
             }
           }
@@ -24839,10 +27116,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24978,10 +27255,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25116,10 +27393,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25262,10 +27539,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25409,10 +27686,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25530,6 +27807,869 @@
         }
       }
     },
+    "/v1/environment-manifests/{name}": {
+      "put": {
+        "tags": [
+          "Environment manifests"
+        ],
+        "summary": "Save an environment manifest",
+        "description": "Saves the manifest as its next version, or answers the latest unchanged when nothing differs. No Environment changes: an Environment keeps the version it was made from, and a fork moves it to another (D63). `If-Match: <version>` refuses the save with `412 manifest_changed` when the latest version is no longer the one you read (`0` for a manifest that does not exist yet). With `?dryRun=true` the answer is the plan: the changes, every reason a save would be refused (`errors`), warnings, and how many Environments stay on older versions; nothing is saved. Clients drop a file's `$schema` before they send it.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The environment manifest's name, such as `analyst-box`"
+            },
+            "required": true,
+            "description": "The environment manifest's name, such as `analyst-box`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "`true`: answer the plan and save nothing"
+            },
+            "required": false,
+            "description": "`true`: answer the plan and save nothing",
+            "name": "dryRun",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
+            },
+            "required": true,
+            "description": "The protocol version, `14`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutEnvironmentManifestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The version saved, or the plan with dryRun",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SaveEnvironmentManifestResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/EnvironmentManifestPlan"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The manifest breaks the Tenant's limits or names files the Runtime cannot use"
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match named a version that is no longer the latest (`manifest_changed`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Environment manifests"
+        ],
+        "summary": "Get an environment manifest",
+        "description": "Its latest version.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The environment manifest's name, such as `analyst-box`"
+            },
+            "required": true,
+            "description": "The environment manifest's name, such as `analyst-box`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
+            },
+            "required": true,
+            "description": "The protocol version, `14`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The latest version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentManifestView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Environment manifests"
+        ],
+        "summary": "Delete an environment manifest",
+        "description": "Deletes every version. Refused while any Environment was made from one (`409 manifest_in_use`).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The environment manifest's name, such as `analyst-box`"
+            },
+            "required": true,
+            "description": "The environment manifest's name, such as `analyst-box`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
+            },
+            "required": true,
+            "description": "The protocol version, `14`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted, or there was none",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteEnvironmentManifestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An Environment was made from one of its versions (`manifest_in_use`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/environment-manifests": {
+      "get": {
+        "tags": [
+          "Environment manifests"
+        ],
+        "summary": "List environment manifests",
+        "description": "Each manifest's latest version, by name, with how many Environments were made from it.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
+            },
+            "required": true,
+            "description": "The protocol version, `14`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The manifests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEnvironmentManifestsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/environment-manifests/{name}/versions": {
+      "get": {
+        "tags": [
+          "Environment manifests"
+        ],
+        "summary": "List an environment manifest's versions",
+        "description": "Every version, newest first, with who saved it and how many Environments were made from it.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The environment manifest's name, such as `analyst-box`"
+            },
+            "required": true,
+            "description": "The environment manifest's name, such as `analyst-box`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
+            },
+            "required": true,
+            "description": "The protocol version, `14`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The versions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentManifestVersions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/environment-manifests/{name}/versions/{version}": {
+      "get": {
+        "tags": [
+          "Environment manifests"
+        ],
+        "summary": "Get one version of an environment manifest",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "environments:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The environment manifest's name, such as `analyst-box`"
+            },
+            "required": true,
+            "description": "The environment manifest's name, such as `analyst-box`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The version number"
+            },
+            "required": true,
+            "description": "The version number",
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
+            },
+            "required": true,
+            "description": "The protocol version, `14`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentManifestView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/artifacts": {
       "post": {
         "tags": [
@@ -25597,10 +28737,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25799,10 +28939,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25943,10 +29083,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26078,10 +29218,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26218,10 +29358,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26380,10 +29520,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26594,10 +29734,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26751,10 +29891,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26975,10 +30115,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27122,10 +30262,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27260,10 +30400,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27406,10 +30546,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": false,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27649,10 +30789,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27805,10 +30945,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `13`"
+              "description": "The protocol version, `14`"
             },
             "required": true,
-            "description": "The protocol version, `13`",
+            "description": "The protocol version, `14`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27946,7 +31086,11 @@
     },
     {
       "name": "Environments",
-      "description": "Where sessions run: one sandbox (a virtual workspace, a pod with its own volume, or none) with a recipe that can change, and one vault of secrets for its shell, MCP servers and HTTP tools. Create, find or change one, watch its lifecycle, stop, reset or delete it, and write its secrets. In `@nylorun/agents`."
+      "description": "Where sessions run: one sandbox (a virtual workspace, a pod with its own volume, or none) made from an environment manifest or inline fields and never changed after that, and one vault of secrets for its shell, MCP servers and HTTP tools. Create or find one, watch its lifecycle, stop, reset or delete it, and write its secrets. In `@nylorun/agents`."
+    },
+    {
+      "name": "Environment manifests",
+      "description": "Named, versioned definitions of a kind of Environment, saved like agents (protocol 14). Save one with a plan first (`?dryRun=true`) and `If-Match`; an Environment is made from one version and keeps it, so a save changes no Environment. In `@nylorun/agents`."
     },
     {
       "name": "Artifacts",
@@ -27976,7 +31120,8 @@
     {
       "name": "Environments",
       "tags": [
-        "Environments"
+        "Environments",
+        "Environment manifests"
       ]
     },
     {

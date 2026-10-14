@@ -263,8 +263,39 @@ export const environments = nylorun.table(
     diskOp: jsonText(),
     /** The disk version the next volume starts from: `{ artifactId, version }` (R2d step 3). */
     diskSeed: jsonText(),
+    /**
+     * The environment manifest it was made from and its version (D63): null for an Environment
+     * made from an inline manifest. Never changed after creation.
+     */
+    manifestName: textC(),
+    manifestVersion: integer(),
+    /** The hash of what it runs (`recipe`), from creation on. */
+    manifestHash: textC(),
   },
-  (t) => [check("environments_kind_check", sql`${t.kind} IN ('virtual', 'pod', 'none')`)],
+  (t) => [
+    check("environments_kind_check", sql`${t.kind} IN ('virtual', 'pod', 'none')`),
+    index("environments_manifest").on(t.manifestName, t.manifestVersion),
+  ],
+);
+
+/**
+ * An environment manifest's versions (D63): a named, versioned definition of a kind of
+ * Environment, saved like an agent. A version is written once and never changed; a save whose
+ * body hashes the same as the latest writes nothing.
+ */
+export const environmentManifests = nylorun.table(
+  "environment_manifests",
+  {
+    name: textC().notNull(),
+    version: integer().notNull(),
+    /** The manifest (`EnvironmentManifest`) as saved. */
+    body: jsonText().notNull(),
+    hash: textC().notNull(),
+    /** `{ actor }`: the subject the save acted for, else `application`. */
+    savedBy: jsonText().notNull(),
+    createdAt: textC().notNull(),
+  },
+  (t) => [primaryKey({ name: "environment_manifests_pkey", columns: [t.name, t.version] })],
 );
 
 /**

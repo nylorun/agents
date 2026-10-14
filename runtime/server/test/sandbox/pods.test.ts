@@ -2,7 +2,7 @@
  * Pod Environments in the Runtime (F7.2, S3–S8, protocol 11) against an in-memory sandboxes
  * service (`fake-sandboxes.ts`): create at once, join → host token, a turn whose harness runs in
  * the pod (its own engine, the `local` backend, over the Harness API listener with a host token),
- * relaunch, stop, idle, a recipe change applied at the next wake, PVC loss →
+ * relaunch, stop, idle, a pod that never changes what it runs, PVC loss →
  * `environment.lost`, reset, delete.
  */
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -153,7 +153,7 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     const { name, view: created } = await createPod("join/one", { image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } });
     expect(created).toMatchObject({
       kind: "pod",
-      recipe: { image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } },
+      manifest: { image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } },
       version: 1,
       appliedVersion: 1,
       pod: { desired: "running", volumeGeneration: 0 },
@@ -252,39 +252,40 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     await until("pod gone", async () => fake.podUid(other), (uid) => uid === undefined);
   });
 
-  it("applies image and resources at the next wake, the rest at once; kind and storage are fixed", async () => {
+  it("never changes what a pod runs: a stop and the next start keep it", async () => {
     const { name } = await createPod("recipe/one", { storage: "5GiB" });
     await joinAs("recipe/one", name);
-    // Fixed: kind and storage.
     expect((await call("PUT", path("recipe/one"), { kind: "virtual" })).status).toBe(409);
     const storage = await call("PUT", path("recipe/one"), { storage: "10GiB" });
     expect(storage.status).toBe(409);
-    expect(storage.body.message).toContain("storage");
+    expect(storage.body).toMatchObject({ code: "environment_immutable", details: { fields: ["storage"] } });
     expect((await call("PUT", path("recipe/one"), { storage: "5GiB" })).body.version).toBe(1);
     // The Tenant's limits.idle (2s) is the most an Environment may ask for.
     expect((await call("PUT", path("recipe/one"), { lifecycle: { idle: "1h" } })).status).toBe(400);
-    // Network applies at once: the version and the applied version move together.
-    const network = await call("PUT", path("recipe/one"), { network: { allowedHosts: ["pypi.org"] } });
-    expect(network.status, JSON.stringify(network.body)).toBe(200);
-    expect(network.body).toMatchObject({ version: 2, appliedVersion: 2 });
-    // Image waits for the pod's next start from stopped, so nothing swaps it mid-turn.
-    const image = await call("PUT", path("recipe/one"), { image: "node:24-slim" });
-    expect(image.body).toMatchObject({ version: 3, appliedVersion: 2, recipe: { image: "node:24-slim" } });
+    // Network and image are what it runs: refused, naming the fork.
+    for (const [field, change] of [
+      ["network", { network: { allowedHosts: ["pypi.org"] } }],
+      ["image", { image: "node:24-slim" }],
+    ] as const) {
+      const refused = await call("PUT", path("recipe/one"), change);
+      expect(refused.status, field).toBe(409);
+      expect(refused.body).toMatchObject({ code: "environment_immutable", details: { fields: [field] } });
+    }
     const before = fake.calls.filter((item) => item.method === "PUT" && item.name === name).length;
-    expect(fake.calls.filter((item) => item.method === "PUT" && item.name === name).at(-1)?.spec?.image).not.toBe(
-      "node:24-slim",
-    );
+    const image = fake.calls.filter((item) => item.method === "PUT" && item.name === name).at(-1)?.spec?.image;
     expect((await call("POST", `${path("recipe/one")}/stop`)).status).toBe(200);
     await until("suspended", () => view("recipe/one"), (body) => body.pod.observed === "suspended");
-    // The next turn start applies it.
+    // The next turn start runs it again, as it was.
     expect((await open("recipe-s1", "recipe/one")).status).toBe(200);
     expect((await message("recipe-s1")).status).toBe(200);
-    await until("applied", () => view("recipe/one"), (body) => body.appliedVersion === 3);
     await until(
-      "the pod runs the new image",
+      "the pod runs again",
       async () => fake.calls.filter((item) => item.method === "PUT" && item.name === name).slice(before),
-      (calls) => calls.some((item) => item.spec?.mode === "Running" && item.spec.image === "node:24-slim"),
+      (calls) => calls.some((item) => item.spec?.mode === "Running"),
     );
+    const running = fake.calls.filter((item) => item.method === "PUT" && item.name === name).slice(before);
+    expect(running.filter((item) => item.spec?.mode === "Running").every((item) => item.spec?.image === image)).toBe(true);
+    expect((await view("recipe/one")).version).toBe(1);
     await call("POST", "/v1/sessions/recipe-s1/commands", { type: "cancel", requestId: "c-recipe", idempotencyKey: "c-recipe" });
     await settled("recipe-s1");
   });

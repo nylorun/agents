@@ -219,11 +219,12 @@ export class AgentsClient {
    * it names that the Runtime does not hold. A definition with a tool that runs your code
    * (`tool({ run })`, a flow's tool stage) is refused before anything is sent: the Runtime runs
    * agents from their manifests alone. `implementationVersion` defaults to
-   * `NYLORUN_IMPLEMENTATION_VERSION`, else `dev`.
+   * `NYLORUN_IMPLEMENTATION_VERSION`, else `dev`. `dryRun` (protocol 14) runs every check and
+   * saves nothing; the skill files are still uploaded, since they are stored by content.
    */
   async saveAgent(
     agent: AgentSource | BuiltWorkflow,
-    options: { implementationVersion?: string; requestId?: string } = {}
+    options: { implementationVersion?: string; requestId?: string; dryRun?: boolean } = {}
   ) {
     const files = new Map<string, SkillFileSource>();
     if (isBuiltWorkflow(agent)) {
@@ -240,7 +241,7 @@ export class AgentsClient {
       approvalRefusal(agent.manifest as AgentManifest | WorkflowManifest);
     if (refusal) throw new Error(refusal);
     await this.files.ensure(files);
-    return this.transport.json(`/v1/agents/${segment(agent.id)}`, "PUT", {
+    return this.transport.json(`/v1/agents/${segment(agent.id)}${options.dryRun ? "?dryRun=true" : ""}`, "PUT", {
       requestId: options.requestId ?? id(),
       manifest: agent.manifest,
       implementationVersion:
@@ -567,9 +568,15 @@ export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
 export type { Destination, IncompatibleReason } from "./http.js";
 export type { LiveEvent } from "@nylorun/core/contracts";
 export { AccessClient } from "./access.js";
-export { EnvironmentSecretsClient, EnvironmentsClient } from "./environments.js";
+export {
+  EnvironmentManifestsClient,
+  EnvironmentSecretsClient,
+  EnvironmentsClient,
+  environmentManifest,
+} from "./environments.js";
 export type {
-  EnvironmentRecipeInput,
+  EnvironmentInput,
+  EnvironmentManifestInput,
   EnvironmentSecretInput,
   ForSessionOptions,
   SessionEnvironmentHandle,

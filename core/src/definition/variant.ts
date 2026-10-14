@@ -87,6 +87,8 @@ export function isVariantOf(
   if (candidate.manifestSchemaVersion !== pinned.manifestSchemaVersion) return false;
   if (candidate.runtime !== undefined) return false;
   if (!same(candidate.outputSchema, pinned.outputSchema)) return false;
+  // What the agent needs of its Environment was checked when the session opened (D65).
+  if (!same(candidate.requires, pinned.requires)) return false;
   if (!removeOnlyTools(pinned.tools, candidate.tools)) return false;
   if (!same(candidate.skills, pinned.skills)) return false;
   return tightensServers(pinned.mcpServers, candidate.mcpServers);

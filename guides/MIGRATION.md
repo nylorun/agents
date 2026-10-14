@@ -1,3 +1,35 @@
+# Environment manifests, and Environments that never change (protocol 14)
+
+The Runtime speaks protocol 14 only: upgrade the Runtime, the SDKs, Studio and the CLI
+together. Sessions, Environments and their vaults carry over.
+
+- **An Environment never changes what it runs.** `PUT /v1/environments/{id}` on an existing one
+  may change only `labels` and `ownerUserId`. A field that matches what it runs is accepted, so a
+  get-or-create call with the same body works as before; any other difference is
+  `409 environment_immutable`, with `details.fields`. Code that changed an Environment's image,
+  network, harness, lifecycle, setup or files in place makes a new Environment instead (a new id,
+  optionally with `from: { environment, version }` to start from its disk), and points new
+  sessions at it.
+- **The view's `recipe` is `manifest`.** `EnvironmentView.recipe` is renamed `manifest`; it also
+  carries `manifestName`, `manifestVersion` and `manifestHash`, and `slots` when it declares
+  secrets. `version` and `appliedVersion` no longer move. In `@nylorun/agents`,
+  `EnvironmentRecipeInput` is `EnvironmentInput`.
+- **Environment manifests** are new: save a named, versioned definition with
+  `PUT /v1/environment-manifests/{name}` (`client.environments.manifests.save()`), check it first
+  with `?dryRun=true` (`manifests.plan()`), and make Environments from it with
+  `{ manifest: "name" }` or `"name@n"`. See
+  [DEPLOYMENT.md](./DEPLOYMENT.md#environment-manifests).
+- **Secret slots.** When what an Environment runs declares `secrets`, write each value with
+  `{ value }` (or `{ headers }`); a name it does not declare is `409 secret_not_in_manifest`.
+  Environments without slots take typed secret writes as before.
+- **`requires`.** An agent manifest v7 may state what it needs of its Environment
+  (`.requires({ sandbox, secrets })`); a session opened without it is
+  `409 environment_unsuitable`. Agents that do not set it are unaffected.
+- **Dry runs.** `PUT /v1/agents/{id}?dryRun=true` (`saveAgent(agent, { dryRun: true })`) checks a
+  definition and saves nothing.
+- **Studio** edits only an Environment's labels and owner guard; its setup and files are
+  read-only.
+
 # One command: `nylo` is part of `nylorun`
 
 `nylorun` is the one command. `nylo` keeps its name for one release, and each of its commands

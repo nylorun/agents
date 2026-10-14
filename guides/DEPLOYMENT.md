@@ -302,8 +302,12 @@ A session runs in an **Environment** (protocol 11): one sandbox and one vault,
 under an id the app chooses (`users/alice/web`, `projects/acme`), created with
 `PUT /v1/environments/{id}` (`client.environments.put` in `@nylorun/agents`) and
 named when a session opens (`environment: "<id>"`). A session that names none
-has no sandbox and no credentials. Upgrading from protocol 10, which had sandbox
-resources and vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start).
+has no sandbox and no credentials. An Environment is made from one version of an
+[environment manifest](#environment-manifests) (`manifest: "analyst-box"`) or
+from the same fields sent inline, and **never changes what it runs** after that
+(protocol 14): a new version reaches an agent through a new Environment.
+Upgrading from protocol 10, which had sandbox resources and vaults:
+[MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start).
 
 - **Kind**, fixed when it is created: `virtual` (the default), an emulated bash
   with a virtual filesystem in the harness container (in the `runtime` container
@@ -313,13 +317,16 @@ resources and vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandbox
   enabled (`nylorun local sandbox enable`), where its sessions' turns run; or `none`,
   a vault and no compute, for agents that use only remote MCP servers and HTTP
   tools.
-- **Recipe**: `image`, `resources` and `storage` (pods only; `storage` is fixed),
-  `network.allowedHosts`, `harness` and `lifecycle`. A `PUT` with a different
-  recipe bumps its `version`. Network changes apply within seconds; a pod gets a
-  new image or resources when it next starts from stopped (`appliedVersion` says
-  what runs), and a virtual Environment's change reaches the sessions opened
-  after it. Egress is limited to the hosts the Environment allows, within the
-  Tenant's `limits.network`; private networks, loopback, the host and cloud
+- **What it runs** (`manifest` in its view, the fields 0.24 called its recipe):
+  `image`, `resources` and `storage` (pods only), `network.allowedHosts`,
+  `harness`, `lifecycle`, `setup`, `files` and `secrets` (slots), resolved
+  against the Tenant's limits when it is made, with `manifestName`,
+  `manifestVersion` and `manifestHash` saying where it came from. A `PUT` on an
+  existing one may change only its labels and owner guard; fields that match
+  what it runs are accepted, so get-or-create stays one call, and anything else
+  is `409 environment_immutable` naming the fields. A restart, a reset or a
+  lost pod rebuilds the same thing. Egress is limited to the hosts the
+  Environment allows, within the Tenant's `limits.network`; private networks, loopback, the host and cloud
   metadata endpoints are always blocked. Each connection a pod opens, allowed or
   refused, is one `egress.connection` event in the log of the session whose turn
   held the Environment (host, port, outcome, bytes, duration; never headers,
@@ -348,8 +355,7 @@ resources and vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandbox
   `/workspace`; `timeout` default 10m, at most 30m; at most 16 of each), with the
   Environment's variables and secrets (as the sentinel) and its egress. They run
   once per disk: when the pod's volume is new (created or reset), before its
-  first turn; a resume keeps what they made, and a recipe change reaches the
-  next new disk. A failed command fails the pod (`observed: failed`, reason
+  first turn; a resume keeps what they made. A failed command fails the pod (`observed: failed`, reason
   `setup: command N …`, with its exit code and the end of its output in the
   `environment.failed` event) and the turn waiting for it; the next turn start
   runs the setup again.
@@ -380,6 +386,65 @@ use. Each Environment's lifecycle events (`environment.created`, `.attached`,
 `.deleted`, a pod's `.running`, `.suspended`, `.lost`, …) are at
 `GET /v1/environments/{id}/events`; a session's own log records
 `environment.attached`, `environment.state` and `environment.exec`.
+
+### Environment manifests
+
+An **environment manifest** (protocol 14, Host feature `environment-manifests`)
+is a named, versioned definition of a kind of Environment, saved like an agent
+and written as a JSON file whose `$schema` is
+`https://docs.nylorun.com/schemas/environment-manifest/v1.json`
+(`@nylorun/core/schemas/environment-manifest.json`; clients drop `$schema`
+before they save):
+
+```json
+{
+  "$schema": "https://docs.nylorun.com/schemas/environment-manifest/v1.json",
+  "manifestSchemaVersion": 1,
+  "name": "analyst-box",
+  "kind": "pod",
+  "image": "python:3.13-slim",
+  "network": { "allowedHosts": ["pypi.org", "files.pythonhosted.org", "api.github.com"] },
+  "setup": [{ "command": "pip install pandas", "timeout": "10m" }],
+  "secrets": {
+    "GH_TOKEN": { "type": "environment_secret", "allowedHosts": ["api.github.com"], "required": true }
+  }
+}
+```
+
+- **Saving.** `PUT /v1/environment-manifests/{name}`
+  (`client.environments.manifests.save()`) writes its next version, or answers
+  the latest `unchanged` when nothing differs. `If-Match: <version>` refuses the
+  save (`412 manifest_changed`) when someone saved since you read it (`0` for a
+  manifest that does not exist yet), and every version records who saved it
+  (`savedBy`), from Studio, the CLI or the SDK alike. `?dryRun=true`
+  (`manifests.plan()`) saves nothing and answers the plan: the changes, every
+  reason the save would be refused (the Tenant's limits, files it cannot use),
+  warnings (an image tag rather than a digest, kind `pod` with no sandbox pods)
+  and how many Environments stay on older versions.
+- **Making Environments.** `PUT /v1/environments/{id}` with
+  `{ "manifest": "analyst-box" }` makes one from the latest version and pins
+  it; `"analyst-box@3"` names a version. `labels`, `ownerUserId` and `from` may
+  come with it, and no other field. **A save changes no Environment.**
+- **Secret slots.** `secrets` declares what an Environment of the kind needs:
+  each name, its type, its binding (`allowedHosts` and `inject`, or `url`,
+  `via` and `identity`), whether it is required, and a description; never a
+  value. The Environment's view lists each slot as set or missing. Write a value
+  with `PUT /v1/environments/{id}/secrets/{name}` and `{ "value": "…" }` (or
+  `{ "headers": { … } }`): the binding comes from the slot, so app code cannot
+  widen where a key goes, and a name the manifest does not declare is
+  `409 secret_not_in_manifest`. Inline fields may declare slots too.
+- **What an agent needs.** An agent manifest's `requires`
+  (`.requires({ sandbox: "pod", secrets: ["GH_TOKEN"] })`) is checked when a
+  session opens: an Environment of the wrong kind, none at all, or a vault
+  without one of the secrets is `409 environment_unsuitable` with
+  `details.missing`. The agent still names no Environment.
+- **Versions and deleting.** `GET /v1/environment-manifests` lists each
+  manifest's latest, `GET .../{name}/versions` every version with the
+  Environments made from it, and `DELETE` removes all of them, refused while an
+  Environment was made from one (`409 manifest_in_use`).
+
+`PUT /v1/agents/{id}?dryRun=true` (`saveAgent(agent, { dryRun: true })`) checks
+an agent's definition the same way and saves nothing.
 
 ## Postgres for session events
 

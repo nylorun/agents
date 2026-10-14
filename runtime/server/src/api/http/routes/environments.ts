@@ -11,7 +11,6 @@ import { z } from "zod";
 import {
   isEnvironmentId,
   PutEnvironmentRequestSchema,
-  PutEnvironmentSecretRequestSchema,
   RestoreEnvironmentRequestSchema,
 } from "@nylorun/core/contracts";
 import {
@@ -35,6 +34,7 @@ import {
   ListEnvironmentsResponse,
   PutEnvironmentRequest,
   PutEnvironmentSecretRequest,
+  PutEnvironmentSecretValueRequest,
 } from "../../components.js";
 import { fail } from "../../../tenant/http.js";
 import {
@@ -46,6 +46,7 @@ import {
   listEnvironments,
   putEnvironment,
   resetEnvironment,
+  secretRequestFor,
   stopEnvironment,
 } from "../../../tenant/environments.js";
 import type { TenantEnv } from "../app.js";
@@ -142,7 +143,7 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Environments"],
       summary: "Create, find or change an Environment",
       description:
-        "Creates the Environment and its vault within the Tenant's limits, or answers the one with this id, so get-or-create is one call. On an existing one the fields sent are compared: `kind` and `storage` are fixed (`409`), labels replace, `ownerUserId` sets or (with `null`) clears the owner guard, and any other change writes the recipe and bumps `version`. A pod's image and resources apply when it is next started from stopped (`appliedVersion`); `network.allowedHosts`, `harness` and `lifecycle` apply at once. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
+        "Creates the Environment and its vault within the Tenant's limits, or answers the one with this id, so get-or-create is one call. It is made from one version of an environment manifest (`manifest: \"name\"` takes the latest, `\"name@n\"` version n) or from the inline fields, and never changes what it runs after that (protocol 14, D63): on an existing one, labels replace, `ownerUserId` sets or (with `null`) clears the owner guard, fields that match what it runs are accepted, and anything else is `409 environment_immutable`, which names the fork that makes a new Environment instead. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
       request: {
         params: environmentId,
         body: { required: true, content: { "application/json": { schema: PutEnvironmentRequest } } },
@@ -151,7 +152,7 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
         200: json(EnvironmentView, "The Environment"),
         409: {
           description:
-            "An Environment with this id has another kind or storage, the Tenant holds as many Environments as it allows (`limit_exceeded`), kind pod without sandbox pods (`environment_unavailable`), or it is being deleted (`environment_busy`)",
+            "An Environment with this id runs something else (`environment_immutable`), the Tenant holds as many Environments as it allows (`limit_exceeded`), kind pod without sandbox pods (`environment_unavailable`), or it is being deleted (`environment_busy`)",
         },
       },
     },
@@ -414,10 +415,13 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Environments"],
       summary: "Write an Environment's secret",
       description:
-        "Creates or replaces one credential of the Environment's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun-managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`.",
+        "Creates or replaces one credential of the Environment's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun-managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When what the Environment runs declares secret slots (protocol 14, D64), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`.",
       request: {
         params: secretPath,
-        body: { required: true, content: { "application/json": { schema: PutEnvironmentSecretRequest } } },
+        body: {
+          required: true,
+          content: { "application/json": { schema: z.union([PutEnvironmentSecretRequest, PutEnvironmentSecretValueRequest]) } },
+        },
       },
       responses: {
         200: json(EnvironmentSecretView, "The secret, without its value"),
@@ -428,11 +432,9 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       const id = idOf(c.req.param("environmentId"));
       const scope = c.get("scope");
       assertReaches(scope, id);
-      const body = PutEnvironmentSecretRequestSchema.parse(await readJson(c.req.raw));
-      return jsonResponse(
-        200,
-        await c.env.tenant.keys.putEnvironmentSecret(id, c.req.param("name") ?? "", body, actorOf(scope)),
-      );
+      const name = c.req.param("name") ?? "";
+      const body = await secretRequestFor(c.env.tenant, id, name, await readJson(c.req.raw));
+      return jsonResponse(200, await c.env.tenant.keys.putEnvironmentSecret(id, name, body, actorOf(scope)));
     },
   );
 

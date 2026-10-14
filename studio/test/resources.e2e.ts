@@ -158,7 +158,7 @@ test("a session's Environment tab shows where it runs: the version it opened on,
   });
 });
 
-test("an Environment is created from the recipe form, its recipe edited, and it is deleted", async () => {
+test("an Environment is created from the form, its labels and owner edited, and it is deleted", async () => {
   await withStudio(
     async (page, base, requests) => {
       await page.goto(base + "/environments");
@@ -190,24 +190,20 @@ test("an Environment is created from the recipe form, its recipe edited, and it 
       });
 
       await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}`);
-      await page.getByRole("button", { name: "Edit recipe" }).click();
+      await page.getByRole("button", { name: "Edit labels and owner" }).click();
       const edit = page.getByRole("dialog", { name: `Edit ${ENVIRONMENT}` });
-      await edit.getByRole("textbox", { name: "Idle" }).fill("30m");
-      await edit.getByRole("button", { name: "Save recipe" }).click();
+      // What it runs is read-only: only labels and the owner guard change.
+      assert.equal(await edit.getByRole("textbox", { name: "Idle" }).isDisabled(), true);
+      await edit.getByRole("textbox", { name: "Labels" }).fill("project=build\nteam=a");
+      await edit.getByRole("button", { name: "Save labels and owner" }).click();
       await edit.waitFor({ state: "hidden" });
       const edited = requests.find(
         (r) => r.method === "PUT" && r.path === "/v1/environments/team%2Fbuild",
       );
       assert.ok(edited);
       const { requestId: _edit, ...change } = edited.body as Record<string, unknown>;
-      // Kind and storage are fixed: an edit sends neither.
-      assert.deepEqual(change, {
-        labels: { project: "build" },
-        resources: { cpus: 1, memory: "1024MiB" },
-        network: { allowedHosts: ["pypi.org"] },
-        ownerUserId: null,
-        lifecycle: { idle: "30m" },
-      });
+      // An Environment never changes what it runs: an edit sends labels and the owner guard.
+      assert.deepEqual(change, { labels: { project: "build", team: "a" }, ownerUserId: null });
 
       let confirmation = "";
       page.once("dialog", (dialog) => {
@@ -339,36 +335,14 @@ test("an Environment's Disk tab keeps, browses, restores, forks and deletes disk
   );
 });
 
-test("a pod's Setup & files tab shows its setup commands and input files, and edits them in the recipe", async () => {
+test("a pod's Setup & files tab shows its setup commands and input files, which never change", async () => {
   await withStudio(
-    async (page, base, requests) => {
+    async (page, base) => {
       await page.goto(base + `/environments/${encodeURIComponent(POD)}?tab=setup`);
       await page.getByText("pip install -r requirements.txt", { exact: true }).waitFor();
       await page.getByText("1. in /workspace/app · timeout 10m", { exact: true }).waitFor();
       await page.getByRole("link", { name: `${INPUT_ARTIFACT} · v1` }).waitFor();
-      await page.getByRole("button", { name: "Edit setup & files" }).click();
-      const edit = page.getByRole("dialog", { name: `Edit ${POD}` });
-      await edit.getByRole("button", { name: "Add setup command" }).click();
-      await edit.getByRole("textbox", { name: "Setup command 2", exact: true }).fill("make build");
-      await edit.getByRole("textbox", { name: "Setup command 2 timeout" }).fill("20m");
-      await edit.getByRole("button", { name: "Remove input file 1" }).click();
-      await edit.getByRole("button", { name: "Save recipe" }).click();
-      await edit.waitFor({ state: "hidden" });
-      const edited = requests.find((r) => r.method === "PUT" && r.path === "/v1/environments/team%2Fpod");
-      const { requestId: _id, ...change } = edited!.body as Record<string, unknown>;
-      assert.deepEqual(change, {
-        labels: { project: "build" },
-        image: "python:3.13-slim",
-        resources: { cpus: 1, memory: "1024MiB" },
-        network: { allowedHosts: ["pypi.org"] },
-        ownerUserId: null,
-        lifecycle: { idle: "15m" },
-        setup: [
-          { command: "pip install -r requirements.txt", cwd: "/workspace/app" },
-          { command: "make build", timeout: "20m" },
-        ],
-        files: [],
-      });
+      assert.equal(await page.getByRole("button", { name: "Edit setup & files" }).count(), 0);
       // A virtual Environment has neither.
       await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}?tab=setup`);
       await page.getByText("A virtual Environment has none.", { exact: false }).waitFor();

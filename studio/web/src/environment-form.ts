@@ -8,12 +8,12 @@
  * the request. No React here, so `node --test` covers it.
  */
 import type {
-  EnvironmentRecipeInput,
+  EnvironmentInput,
   EnvironmentView,
 } from "@nylorun/agents";
 
-type EnvironmentSetupCommand = NonNullable<EnvironmentRecipeInput["setup"]>[number];
-type EnvironmentFile = NonNullable<EnvironmentRecipeInput["files"]>[number];
+type EnvironmentSetupCommand = NonNullable<EnvironmentInput["setup"]>[number];
+type EnvironmentFile = NonNullable<EnvironmentInput["files"]>[number];
 
 export const ENVIRONMENT_FORM_KINDS = ["virtual", "pod", "none"] as const;
 export type EnvironmentFormKind = (typeof ENVIRONMENT_FORM_KINDS)[number];
@@ -200,14 +200,14 @@ export function filesRequest(rows: readonly FileRow[]): EnvironmentFile[] {
 
 /**
  * The body of `PUT /v1/environments/{id}`. Creating sends what the form names (empty fields
- * take the Tenant's defaults); editing (`existing`) sends the recipe as the form holds it, so a
- * cleared field clears it, but never `kind` or `storage`.
+ * take the Tenant's defaults); editing (`existing`) sends only the labels and the owner guard,
+ * since an Environment never changes what it runs (protocol 14).
  */
 export function environmentRequest(
   form: EnvironmentForm,
-  existing?: Pick<EnvironmentView, "kind" | "recipe">,
+  existing?: Pick<EnvironmentView, "kind" | "manifest">,
   from?: EnvironmentFrom,
-): EnvironmentRecipeInput {
+): EnvironmentInput {
   const kind = existing?.kind ?? form.kind;
   const compute = kind !== "none";
   const pod = kind === "pod";
@@ -239,22 +239,7 @@ export function environmentRequest(
       ? { ...(cpus !== undefined ? { cpus } : {}), ...(memory ? { memory } : {}) }
       : undefined;
   const lifecycle = { ...(idle ? { idle } : {}), ...(deleteAfter ? { deleteAfter } : {}) };
-  if (existing) {
-    // An empty list where the recipe has none is no change: sending `[]` would bump its version.
-    const had = existing.recipe;
-    return {
-      labels: parseLabels(form.labels),
-      ...(pod && form.image.trim() ? { image: form.image.trim() } : {}),
-      ...(resources ? { resources } : {}),
-      ...(compute ? { network: { allowedHosts: hosts } } : {}),
-      // A cleared harness goes back to ours.
-      ...(harness ? { harness } : had.harness !== "nylorun" ? { harness: "nylorun" } : {}),
-      ownerUserId: owner || null,
-      lifecycle,
-      ...(pod && (setup.length || had.setup !== undefined) ? { setup } : {}),
-      ...(pod && (files.length || had.files !== undefined) ? { files } : {}),
-    };
-  }
+  if (existing) return { labels: parseLabels(form.labels), ownerUserId: owner || null };
   return {
     kind,
     ...(form.labels.trim() ? { labels: parseLabels(form.labels) } : {}),
@@ -271,9 +256,9 @@ export function environmentRequest(
   };
 }
 
-/** The form an existing Environment fills, to change its recipe. */
+/** The form an existing Environment fills: what it runs, read-only, and its labels and owner. */
 export function environmentForm(view: EnvironmentView): EnvironmentForm {
-  const recipe = view.recipe;
+  const recipe = view.manifest;
   return {
     id: view.id,
     kind: view.kind,

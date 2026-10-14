@@ -1,7 +1,7 @@
 /**
  * `nylorun environments`: the Tenant's Environments (protocol 11: each holds one sandbox and one
- * vault), through the Runtime API of the installation `target.ts` picks: create or change one by
- * id, stop, reset or delete it, keep and restore versions of its disk, and write its secrets. A
+ * vault), through the Runtime API of the installation `target.ts` picks: create or find one by
+ * id (protocol 14: what it runs never changes), stop, reset or delete it, keep and restore versions of its disk, and write its secrets. A
  * secret's value comes from a file or standard input, never from the command line, and no
  * command reads one back. None of them starts a local Tenant.
  */
@@ -31,7 +31,8 @@ application key (or NYLORUN_TOKEN).
                                       id, kind, state, sessions and labels
   get <id>                            the Environment, as JSON
   put <id> [<recipe.json|->] [--kind <virtual|pod|none>] [--label <key=value>]...
-                                      create it, or change its recipe and labels
+                                      create it, or find it and change its labels (what
+                                      it runs never changes: fork it for that)
   stop <id> | reset <id>              stop its sandbox; reset its disk
   delete <id>                         delete it: its sandbox, files and vault (refused while a
                                       turn runs in it)

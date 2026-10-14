@@ -31,7 +31,7 @@ const psUp = {
 };
 
 const view = {
-  recipe: { harness: "nylorun", lifecycle: {} },
+  manifest: { harness: "nylorun", lifecycle: {} },
   version: 1,
   appliedVersion: 1,
   ownerUserId: null,

@@ -1,6 +1,7 @@
 import type { DefinitionPart } from "./bound.js";
 import type {
   AgentManifest,
+  AgentRequirements,
   McpServerManifest,
   RuntimeManifest,
   SkillManifest,
@@ -29,6 +30,7 @@ export function createManifest(input: {
   description?: string;
   metadata?: JsonObject;
   outputSchema?: ToolSchemaSource;
+  requires?: AgentRequirements;
   runtime?: RuntimeManifest;
   parts: readonly DefinitionPart[];
 }): AgentManifest {
@@ -61,8 +63,17 @@ export function createManifest(input: {
     ...(tools.length === 0 ? {} : { tools }),
     ...(Object.keys(skills).length === 0 ? {} : { skills }),
     ...(Object.keys(mcpServers).length === 0 ? {} : { mcpServers }),
+    ...(input.requires === undefined ? {} : { requires: copyRequirements(input.requires) }),
     ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
   });
+}
+
+/** `requires` as plain data, its secret names sorted and each once. */
+function copyRequirements(requires: AgentRequirements): AgentRequirements {
+  return {
+    ...(requires.sandbox === undefined ? {} : { sandbox: requires.sandbox }),
+    ...(requires.secrets === undefined ? {} : { secrets: [...new Set(requires.secrets)].sort() }),
+  };
 }
 
 function projectTool(

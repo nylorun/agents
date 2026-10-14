@@ -161,7 +161,7 @@ export function EnvironmentPage({
                 disabled={acting}
                 onClick={() => setEditing(true)}
               >
-                Edit recipe
+                Edit labels and owner
               </Button>
               {s.kind === "pod" ? (
                 <>
@@ -230,10 +230,7 @@ export function EnvironmentPage({
               </TabsContent>
             )}
             <TabsContent value="setup">
-              <EnvironmentSetup
-                environment={s}
-                onEdit={() => setEditing(true)}
-              />
+              <EnvironmentSetup environment={s} />
             </TabsContent>
             <TabsContent value="sessions">
               <EnvironmentSessions
@@ -265,7 +262,7 @@ export function EnvironmentPage({
 
 /** Its sandbox, its recipe and who uses it, as fields rather than JSON. */
 function EnvironmentOverview({ environment: s }: { environment: EnvironmentView }) {
-  const recipe = s.recipe;
+  const recipe = s.manifest;
   const hosts = recipe.network?.allowedHosts ?? [];
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -306,16 +303,16 @@ function EnvironmentOverview({ environment: s }: { environment: EnvironmentView 
           </p>
         ) : null}
       </Section>
-      <Section title="Recipe">
+      <Section title="What it runs">
         <Metadata
           entries={[
-            ["Version", s.version],
             [
-              "Applied version",
-              s.appliedVersion === s.version
-                ? s.appliedVersion
-                : `${s.appliedVersion} — image and resources apply when the pod next starts from stopped`,
+              "Made from",
+              s.manifestName === undefined
+                ? "Its own fields (an inline manifest)"
+                : `Environment manifest ${s.manifestName} v${s.manifestVersion}`,
             ],
+            ["Changes", "Never: a new version reaches an agent through a new Environment"],
             ["Harness", recipe.harness],
             ["Idle", recipe.lifecycle.idle ?? "The Tenant's"],
             ["Delete after", recipe.lifecycle.deleteAfter ?? "Never"],
@@ -360,7 +357,7 @@ function EnvironmentOverview({ environment: s }: { environment: EnvironmentView 
           <p className="text-sm text-muted-foreground">No labels.</p>
         )}
         <details className="text-sm">
-          <summary className="cursor-pointer text-muted-foreground">Recipe as JSON</summary>
+          <summary className="cursor-pointer text-muted-foreground">What it runs, as JSON</summary>
           <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
             {JSON.stringify(recipe, null, 2)}
           </pre>
@@ -371,13 +368,7 @@ function EnvironmentOverview({ environment: s }: { environment: EnvironmentView 
 }
 
 /** A pod's setup commands and input files (R2d step 2), as the recipe holds them. */
-function EnvironmentSetup({
-  environment: s,
-  onEdit,
-}: {
-  environment: EnvironmentView;
-  onEdit: () => void;
-}) {
+function EnvironmentSetup({ environment: s }: { environment: EnvironmentView }) {
   if (s.kind !== "pod")
     return (
       <p className="rounded-lg border p-4 text-sm text-muted-foreground">
@@ -386,19 +377,16 @@ function EnvironmentSetup({
         none.
       </p>
     );
-  const setup = s.recipe.setup ?? [];
-  const files = s.recipe.files ?? [];
+  const setup = s.manifest.setup ?? [];
+  const files = s.manifest.files ?? [];
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="max-w-2xl text-sm text-muted-foreground">
           On a new disk (when the pod is first made, and at every reset) the input
           files are copied in, then the setup commands run in order, before any turn.
-          A change applies at the next reset.
+          They never change: an Environment keeps what it was made with.
         </p>
-        <Button variant="outline" onClick={onEdit}>
-          Edit setup &amp; files
-        </Button>
       </div>
       {s.pod?.reason ? (
         <p role="alert" className="text-sm text-red-600">

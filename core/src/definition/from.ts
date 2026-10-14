@@ -86,6 +86,7 @@ export function agentFrom<Info = unknown>(
     description: manifest.description,
     metadata: manifest.metadata,
     outputSchema,
+    ...(manifest.requires === undefined ? {} : { requires: manifest.requires }),
     runtime: manifest.runtime,
   });
   if (!result.ok)

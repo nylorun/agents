@@ -76,7 +76,7 @@ const environmentView = (id: string, ownerUserId: string | null) => ({
   id,
   kind: "virtual",
   labels: {},
-  recipe: { resources: { cpus: 1, memory: "1024MiB" }, network: { allowedHosts: [] }, harness: "nylorun", lifecycle: {} },
+  manifest: { resources: { cpus: 1, memory: "1024MiB" }, network: { allowedHosts: [] }, harness: "nylorun", lifecycle: {} },
   version: 1,
   appliedVersion: 1,
   ownerUserId,

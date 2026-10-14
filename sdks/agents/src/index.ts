@@ -125,11 +125,17 @@ export type {
   CreateSessionOptions,
   SessionSandbox,
   ForSessionOptions,
-  EnvironmentRecipeInput,
+  EnvironmentInput,
+  EnvironmentManifestInput,
   EnvironmentSecretInput,
   SessionEnvironmentHandle,
 } from "./client.js";
-export { EnvironmentsClient, EnvironmentSecretsClient } from "./client.js";
+export {
+  EnvironmentManifestsClient,
+  EnvironmentsClient,
+  EnvironmentSecretsClient,
+  environmentManifest,
+} from "./client.js";
 export { AccessClient } from "./access.js";
 export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";
