@@ -74,8 +74,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -84,6 +84,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -149,8 +150,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -159,6 +160,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -224,8 +226,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -234,6 +236,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -299,8 +302,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -309,6 +312,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -374,8 +378,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -384,6 +388,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -449,8 +454,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -459,6 +464,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -524,8 +530,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -534,6 +540,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -599,8 +606,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -609,6 +616,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -674,8 +682,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -684,6 +692,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -749,8 +758,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -759,6 +768,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -824,8 +834,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -834,6 +844,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -899,8 +910,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -909,6 +920,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1007,8 +1019,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1017,6 +1029,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1082,8 +1095,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1092,6 +1105,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1157,8 +1171,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1167,6 +1181,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1232,8 +1247,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1242,6 +1257,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1307,8 +1323,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1317,6 +1333,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1382,8 +1399,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1392,6 +1409,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1457,8 +1475,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 13,
-        "max": 13,
+        "min": 14,
+        "max": 14,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1467,6 +1485,7 @@
           "environments",
           "model-inputs",
           "flat-manifest",
+          "environment-manifests",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",

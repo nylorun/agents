@@ -181,7 +181,7 @@ await session.input("Look up item 123", { idempotencyKey: requestId });
 const history = await session.history();
 ```
 
-Every request sets `Nylorun-Protocol` (11) and no `Nylorun-Tenant`: the Runtime
+Every request sets `Nylorun-Protocol` (14) and no `Nylorun-Tenant`: the Runtime
 serves one Tenant. Before the first authenticated
 request, `Transport` fetches `/health` once, checks protocol compatibility, and
 throws `IncompatibleRuntimeError` / `incompatible_host` when the Host range or

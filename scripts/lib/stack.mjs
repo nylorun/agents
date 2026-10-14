@@ -413,8 +413,8 @@ export async function hostTenant(stack) {
   return { id: tenant.id, key: await key };
 }
 
-/** The protocol the checks speak: the Host accepts 13 only (protocol 13, the flat manifest). */
-export const PROTOCOL = "13";
+/** The protocol the checks speak: the Host accepts 14 only (protocol 14, environment manifests). */
+export const PROTOCOL = "14";
 
 /**
  * Headers for the Tenant's APIs (an application key for the Runtime API, a management key for

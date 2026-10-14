@@ -993,7 +993,7 @@ Environment vault as MCP credentials; for both, the secret's name is the variabl
 
 ```bash
 curl -X PUT "$RUNTIME/v1/environments/users%2Falice%2Fweb/secrets/GH_TOKEN" \
-  -H "Authorization: Bearer $NYLORUN_SERVER_KEY" -H "Nylorun-Protocol: 12" \
+  -H "Authorization: Bearer $NYLORUN_SERVER_KEY" -H "Nylorun-Protocol: 14" \
   -H "Content-Type: application/json" \
   -d '{"type":"environment_secret","value":"ghp_…","allowedHosts":["api.github.com","github.com"]}'
 ```
