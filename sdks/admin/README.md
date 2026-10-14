@@ -129,7 +129,7 @@ or `all`.
 `@nylorun/admin/client` exports `createManagementClient({ url, key?, fetch?,
 headers? })` and `ManagementClient`, with the same groups and no Node module.
 It is for a browser app behind its own server that adds the management key, as
-Studio's Credentials page is: omit `key`, and point `url` at that server. Never
+Studio is: omit `key`, and point `url` at that server. Never
 send a management key from a browser: the Runtime refuses any key sent with an
 `Origin` (`403 origin_rejected`).
 

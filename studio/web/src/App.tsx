@@ -11,6 +11,8 @@ import {
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { Environments } from "@/components/environments";
+import { EnvironmentPage } from "@/components/environment-page";
+import { SessionEnvironmentPanel } from "@/components/session-environment";
 import { Artifacts, SessionArtifacts } from "@/components/artifacts";
 import { artifactReferences } from "@/resources/artifacts";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -75,8 +77,14 @@ import {
   definitionForSession,
   isNewSessionState,
   newSessionEnvironment,
-  sessionEnvironmentId,
+  sessionEnvironment,
+  type SessionEnvironment,
 } from "@/session-open";
+import {
+  environmentPath,
+  environmentRoute,
+  legacyEnvironmentRedirect,
+} from "@/environment-path";
 import { NewSessionProvider } from "@/components/new-session";
 import { ApprovalCard } from "@/components/approval-card";
 import { pendingApprovals } from "@/approvals";
@@ -137,13 +145,22 @@ const pretty = (value: unknown) =>
 const code =
   "rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground";
 
+/** The tabs beside a session's chat; `artifacts` is the Outputs tab. */
+type InspectorTab =
+  | "events"
+  | "manifest"
+  | "tree"
+  | "iterations"
+  | "artifacts"
+  | "environment";
+
 const tabTrigger =
   "border-b-2 border-transparent px-0 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground";
 
 /**
  * Studio serves its installation's one Tenant. `/tenants/<id>/…` is its
  * dashboard, with the router based at `/tenants/<id>` so its routes
- * (`/agents/…`, `/vault`, `/settings`) stay Tenant-relative. The server
+ * (`/agents/…`, `/environments/…`, `/settings`) stay Tenant-relative. The server
  * redirects `/` there.
  */
 export default function App() {
@@ -444,14 +461,17 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
     return () => window.clearInterval(timer);
   }, [waiting, refresh]);
   const agent = connection.agents.find((a) => a.id === agentId);
+  // Old Environment, Credentials, vault and sandbox links open the Environment's page.
+  const legacyRedirect = legacyEnvironmentRedirect(location.pathname, location.search);
+  const environment = environmentRoute(location.pathname);
   const resourceActive =
-    location.pathname === "/environments"
+    environment !== undefined
       ? "environments"
       : location.pathname === "/artifacts"
         ? "artifacts"
         : undefined;
   const settingsActive = location.pathname === "/settings" ||
-    location.pathname.startsWith("/settings/") || location.pathname === "/vault";
+    location.pathname.startsWith("/settings/");
   const settingsSection = settingsSectionOf(location.pathname);
   const sessionList = /^\/(?:sessions\/?)?$/u.test(location.pathname);
   const agentFilter =
@@ -471,7 +491,9 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
           <SidebarTrigger />
           <strong>
             {resourceActive === "environments"
-              ? "Environments"
+              ? environment?.kind === "environment"
+                ? "Environment"
+                : "Environments"
               : resourceActive === "artifacts"
                 ? "Artifacts"
                 : settingsSection
@@ -509,14 +531,15 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             <RouteNotFound {...notFound} />
           ) : redirectSessionId !== undefined ? (
             <SessionRedirect tenantId={tenant.id} sessionId={redirectSessionId} />
+          ) : legacyRedirect !== undefined ? (
+            <Navigate to={`${legacyRedirect}${location.hash}`} replace />
           ) : location.pathname === "/settings" ? (
             <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
-          ) : location.pathname === "/vault" ? (
-            <Navigate to={`/settings/credentials${location.search}${location.hash}`} replace />
-          ) : location.pathname === "/sandboxes" ? (
-            // Protocol 11 replaced sandbox resources with Environments.
-            <Navigate to={`/environments${location.search}${location.hash}`} replace />
-          ) : resourceActive === "environments" ? (
+          ) : environment?.kind === "invalid" ? (
+            <RouteNotFound what="environment" segment={environment.segment} />
+          ) : environment?.kind === "environment" ? (
+            <EnvironmentPage key={environment.id} tenantId={tenant.id} id={environment.id} />
+          ) : environment?.kind === "list" ? (
             <Environments tenantId={tenant.id} />
           ) : resourceActive === "artifacts" ? (
             <Artifacts tenantId={tenant.id} />
@@ -557,7 +580,10 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   );
 }
 
-type RouteNotFoundProps = { what: "agent" | "session" | "page"; segment: string };
+type RouteNotFoundProps = {
+  what: "agent" | "session" | "environment" | "page";
+  segment: string;
+};
 
 /** A route segment that names nothing (it does not decode). */
 function RouteNotFound({ what, segment }: RouteNotFoundProps) {
@@ -568,7 +594,9 @@ function RouteNotFound({ what, segment }: RouteNotFoundProps) {
           ? "Agent not found"
           : what === "session"
             ? "Session not found"
-            : "Page not found"}
+            : what === "environment"
+              ? "Environment not found"
+              : "Page not found"}
       </h1>
       <p className="mt-2 text-muted-foreground">
         This Tenant has no {what} <code className={code}>{segment}</code>.
@@ -746,9 +774,7 @@ function SessionView({
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
-  const [activeTab, setActiveTab] = useState<
-    "events" | "manifest" | "tree" | "iterations" | "artifacts"
-  >(isWorkflow ? "tree" : "events");
+  const [activeTab, setActiveTab] = useState<InspectorTab>(isWorkflow ? "tree" : "events");
   const [selectedEvent, setSelectedEvent] = useState<StudioEvent | undefined>();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedNode, setSelectedNode] = useState<WorkflowTreeNode | undefined>();
@@ -757,12 +783,14 @@ function SessionView({
   >();
   const workflowLink = lookupWorkflowLink(sessionId);
   const [sessionQuery, setSessionQuery] = useSearchParams();
-  const [environmentId, setEnvironmentId] = useState<string | undefined>();
+  // `null`: the session names no Environment; undefined until the session view loads.
+  const [environment, setEnvironment] = useState<SessionEnvironment | null>();
   useEffect(() => {
     const tab = sessionQuery.get("inspector");
     setActiveTab(
       tab === "artifacts" ||
         tab === "events" ||
+        tab === "environment" ||
         tab === "manifest" ||
         (isWorkflow && (tab === "tree" || tab === "iterations"))
         ? tab
@@ -804,7 +832,7 @@ function SessionView({
       }
       const inspect = await current.inspect(abort.signal);
       setStatus(inspect.status);
-      setEnvironmentId(sessionEnvironmentId(inspect));
+      setEnvironment(sessionEnvironment(inspect) ?? null);
       await refresh();
       for await (const event of current.observe({
         cursor: history.cursor ?? undefined,
@@ -837,7 +865,7 @@ function SessionView({
     setDetailsOpen(false);
     setSelectedNode(undefined);
     setSelectedIteration(undefined);
-    setEnvironmentId(undefined);
+    setEnvironment(undefined);
   }, [sessionId, isWorkflow]);
 
   const busy =
@@ -880,8 +908,7 @@ function SessionView({
     setDetailsOpen(true);
   };
   const changeTab = (value: string): void => {
-    const nextTab = value as
-      "events" | "manifest" | "tree" | "iterations" | "artifacts";
+    const nextTab = value as InspectorTab;
     setActiveTab(nextTab);
     const query = new URLSearchParams(sessionQuery);
     query.set("inspector", nextTab);
@@ -924,19 +951,19 @@ function SessionView({
             <span className="truncate font-mono text-xs text-muted-foreground">
               {sessionId}
             </span>
-            {environmentId ? (
+            {environment ? (
               <Link
                 className="ml-auto truncate text-xs underline"
-                to={`/environments?${new URLSearchParams({ selected: environmentId })}`}
-                title={environmentId}
+                to={environmentPath(environment.id)}
+                title={environment.id}
               >
-                Environment: {environmentId}
+                Environment: {environment.id}
               </Link>
-            ) : (
+            ) : environment === null ? (
               <span className="ml-auto text-xs text-muted-foreground">
                 Environment: None
               </span>
-            )}
+            ) : null}
             {busy && status !== "loading" && (
               <Button
                 className="ml-auto"
@@ -1157,7 +1184,10 @@ function SessionView({
                 Events
               </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger value="artifacts" className={tabTrigger}>
-                Artifacts
+                Outputs
+              </TabsPrimitive.Trigger>
+              <TabsPrimitive.Trigger value="environment" className={tabTrigger}>
+                Environment
               </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger
                 value="manifest"
@@ -1221,6 +1251,17 @@ function SessionView({
               tenantId={tenantId}
               sessionId={sessionId}
               revision={events.filter(e => e.type.startsWith("artifact.")).map(e => e.eventId).join("|")}
+            />
+          </TabsPrimitive.Content>
+          <TabsPrimitive.Content
+            value="environment"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
+          >
+            <SessionEnvironmentPanel
+              tenantId={tenantId}
+              sessionId={sessionId}
+              agentId={agent.id}
+              environment={environment}
             />
           </TabsPrimitive.Content>
           <TabsPrimitive.Content

@@ -2,24 +2,30 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type FormEvent,
   type ReactNode,
 } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import type { EnvironmentEvent, EnvironmentView } from "@nylorun/agents";
-import { Plus } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import type { EnvironmentView } from "@nylorun/agents";
+import { Plus, Trash2 } from "lucide-react";
 import { createTenantClient } from "@/proxy-client";
-import { messageOf, usePages, useRead } from "@/resources/reads";
+import { messageOf, usePages } from "@/resources/reads";
 import {
   EMPTY_ENVIRONMENT_FORM,
+  EMPTY_FILE_ROW,
+  EMPTY_SETUP_ROW,
   ENVIRONMENT_FORM_KINDS,
+  SETUP_MAX,
   environmentForm,
   environmentRequest,
+  forkForm,
   isEnvironmentIdText,
   type EnvironmentForm,
+  type FileRow,
+  type SetupRow,
 } from "@/environment-form";
+import { environmentPath } from "@/environment-path";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -31,7 +37,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -40,41 +45,41 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Metadata,
-  ReadState,
-  ResourceHeader,
-  ResourceLayout,
-} from "@/components/resource-layout";
+import { ReadState } from "@/components/resource-layout";
 
-const date = (value?: string) =>
+export const date = (value?: string) =>
   value ? new Date(value).toLocaleString() : "—";
 
-const SECRET_TYPES: Record<string, string> = {
-  bearer: "Bearer",
-  headers: "Headers",
-  environment_secret: "Secret",
-  environment_variable: "Variable",
-};
-
-/** The state a row shows: a pod's observed state, else the Environment's. */
-const stateOf = (environment: EnvironmentView) =>
+/** The state an Environment shows: a pod's observed state, else the Environment's. */
+export const stateOf = (environment: EnvironmentView) =>
   environment.pod?.observed ?? environment.state;
 
 /** `3` or `3 (runs 2)` when a pod still runs an older recipe. */
-const versionOf = (environment: EnvironmentView) =>
+export const versionOf = (environment: EnvironmentView) =>
   environment.appliedVersion === environment.version
     ? String(environment.version)
     : `${environment.version} (runs ${environment.appliedVersion})`;
 
+/** "2 other sessions name it." for a confirmation, or nothing. */
+export function otherSessionsNote(
+  environment: Pick<EnvironmentView, "sessions">,
+  except?: string,
+): string {
+  const others = environment.sessions.filter((s) => s.id !== except).length;
+  return others === 0
+    ? ""
+    : ` ${others} ${except ? "other " : ""}${others === 1 ? "session names" : "sessions name"} it.`;
+}
+
 /**
  * Environments (protocol 11, D55): each is one sandbox (kind `virtual`, `pod` or `none`) with a
- * recipe that can change, and one vault of secrets. Sessions name one by id.
+ * recipe that can change, one vault of secrets, and versions of its disk. Sessions name one by
+ * id. Each opens on its own page (`environment-page`).
  */
 export function Environments({ tenantId }: { tenantId: string }) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
+  const navigate = useNavigate();
   const [query, setQuery] = useSearchParams();
-  const selected = query.get("selected") ?? "";
   const labelValues = query.getAll("label");
   const labelKey = JSON.stringify(labelValues);
   const [labelInput, setLabelInput] = useState(labelValues.join("\n"));
@@ -92,12 +97,14 @@ export function Environments({ tenantId }: { tenantId: string }) {
         if (at <= 0) throw new Error("Labels must use key=value.");
         labels[value.slice(0, at)] = value.slice(at + 1);
       }
-      const page = await sdk.environments.page({
-        labels,
-        limit: 50,
-        cursor,
-        signal,
-      });
+      const page = await sdk.environments
+        .page({ labels, limit: 50, cursor, signal })
+        .catch((cause: unknown) => {
+          // A body without the list (`{}`) fails the page's schema: say what is missing.
+          if (cause instanceof Error && cause.name === "ZodError")
+            throw new Error("The Runtime did not return the Tenant's Environments.");
+          throw cause;
+        });
       return { items: page.environments, nextCursor: page.nextCursor };
     },
     [sdk, labelKey],
@@ -117,33 +124,8 @@ export function Environments({ tenantId }: { tenantId: string }) {
     for (const label of labels) next.append("label", label);
     setQuery(next);
   }
-  function select(id?: string) {
-    const next = new URLSearchParams(query);
-    if (id) next.set("selected", id);
-    else next.delete("selected");
-    next.delete("tab");
-    setQuery(next);
-  }
   return (
-    <ResourceLayout
-      title="Environment details"
-      onClose={() => select()}
-      inspector={
-        selected ? (
-          <EnvironmentInspector
-            key={selected}
-            tenantId={tenantId}
-            id={selected}
-            onClose={() => select()}
-            onChanged={page.reload}
-            onDeleted={() => {
-              select();
-              page.reload();
-            }}
-          />
-        ) : undefined
-      }
-    >
+    <section className="min-h-0 flex-1 overflow-auto">
       <div className="space-y-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-xl font-semibold">Environments</h1>
@@ -161,9 +143,11 @@ export function Environments({ tenantId }: { tenantId: string }) {
             </Button>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground">
-          An Environment is one sandbox and one vault of secrets. A session that names it
-          runs in its sandbox and sends its credentials; a session without one has neither.
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          An Environment is where sessions run: one sandbox, one vault of secrets, and
+          versions of its disk. A session that names it runs in its sandbox and sends its
+          credentials; a session without one has neither. Who shares an Environment is
+          the app's choice: one per session, per person or per project.
         </p>
         <form className="flex flex-wrap items-end gap-2" onSubmit={filter}>
           <label className="flex flex-1 flex-col gap-1 text-sm">
@@ -201,19 +185,17 @@ export function Environments({ tenantId }: { tenantId: string }) {
             {page.items.map((s) => (
               <TableRow
                 key={s.id}
-                data-state={selected === s.id ? "selected" : undefined}
-                onClick={() => select(s.id)}
+                className="cursor-pointer"
+                onClick={() => navigate(environmentPath(s.id))}
               >
                 <TableCell className="whitespace-normal break-all">
-                  <button
-                    className="text-left underline-offset-4 hover:underline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      select(s.id);
-                    }}
+                  <Link
+                    className="font-medium underline-offset-4 hover:underline"
+                    to={environmentPath(s.id)}
+                    onClick={(e) => e.stopPropagation()}
                   >
                     {s.id}
-                  </button>
+                  </Link>
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">{s.kind}</Badge>
@@ -263,12 +245,11 @@ export function Environments({ tenantId }: { tenantId: string }) {
           onClose={() => setCreating(false)}
           onSaved={(environment) => {
             setCreating(false);
-            page.reload();
-            select(environment.id);
+            navigate(environmentPath(environment.id));
           }}
         />
       ) : null}
-    </ResourceLayout>
+    </section>
   );
 }
 
@@ -298,22 +279,29 @@ function Field({
 /**
  * Creates an Environment, or changes the recipe of `existing` (`PUT /v1/environments/{id}`). On
  * an existing one the kind and storage are fixed; image and resources reach a pod when it next
- * starts from stopped.
+ * starts from stopped, and setup and files at its next reset. With `fork`, the new Environment's
+ * disk starts from that version of the source's disk (its vault starts empty).
  */
-function EnvironmentSheet({
+export function EnvironmentSheet({
   tenantId,
   existing,
+  fork,
   onClose,
   onSaved,
 }: {
   tenantId: string;
   existing?: EnvironmentView;
+  fork?: { source: EnvironmentView; version: number };
   onClose: () => void;
   onSaved: (environment: EnvironmentView) => void;
 }) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
   const [form, setForm] = useState<EnvironmentForm>(() =>
-    existing ? environmentForm(existing) : EMPTY_ENVIRONMENT_FORM,
+    existing
+      ? environmentForm(existing)
+      : fork
+        ? forkForm(fork.source, `${fork.source.id}-v${fork.version}`)
+        : EMPTY_ENVIRONMENT_FORM,
   );
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -333,7 +321,14 @@ function EnvironmentSheet({
           "An Environment id is up to 200 characters: /-separated segments of letters, digits, '.', '_' and '-', such as team/build.",
         );
       onSaved(
-        await sdk.environments.put(id, environmentRequest(form, existing)),
+        await sdk.environments.put(
+          id,
+          environmentRequest(
+            form,
+            existing,
+            fork ? { environment: fork.source.id, version: fork.version } : undefined,
+          ),
+        ),
       );
     } catch (cause) {
       setError(messageOf(cause));
@@ -346,12 +341,18 @@ function EnvironmentSheet({
       <SheetContent side="right" className="w-full sm:max-w-md">
         <SheetHeader>
           <SheetTitle>
-            {existing ? `Edit ${existing.id}` : "New Environment"}
+            {existing
+              ? `Edit ${existing.id}`
+              : fork
+                ? `New Environment from ${fork.source.id} v${fork.version}`
+                : "New Environment"}
           </SheetTitle>
           <SheetDescription>
             {existing
-              ? "Changing the recipe bumps its version. Kind and storage are fixed; a pod takes a new image or resources when it next starts."
-              : "Empty fields take this Tenant's defaults. Write its secrets on the Credentials page once it exists."}
+              ? "Changing the recipe bumps its version. Kind and storage are fixed; a pod takes a new image or resources when it next starts, and new setup and files at its next reset."
+              : fork
+                ? `Its disk starts as version ${fork.version} of ${fork.source.id}'s disk, with the same recipe. Its vault starts empty: write its secrets once it exists.`
+                : "Empty fields take this Tenant's defaults. Write its secrets on its Secrets tab once it exists."}
           </SheetDescription>
         </SheetHeader>
         <form
@@ -462,6 +463,23 @@ function EnvironmentSheet({
               />
             </Field>
           ) : null}
+          <Field label="Harness" hint="The harness that runs its sessions. Default: nylorun, ours.">
+            <Input
+              value={form.harness}
+              onChange={(event) => set({ harness: event.target.value })}
+              placeholder="nylorun"
+              className="font-mono"
+            />
+          </Field>
+          {pod ? (
+            <>
+              <SetupRows
+                rows={form.setup}
+                onChange={(setup) => set({ setup })}
+              />
+              <FileRows rows={form.files} onChange={(files) => set({ files })} />
+            </>
+          ) : null}
           <Field label="Labels" hint="One key=value per line.">
             <textarea
               aria-label="Labels"
@@ -513,7 +531,9 @@ function EnvironmentSheet({
                 ? "Saving"
                 : existing
                   ? "Save recipe"
-                  : "Create Environment"}
+                  : fork
+                    ? "Create from version"
+                    : "Create Environment"}
             </Button>
           </SheetFooter>
         </form>
@@ -522,394 +542,151 @@ function EnvironmentSheet({
   );
 }
 
-function EnvironmentInspector({
-  tenantId,
-  id,
-  onClose,
-  onChanged,
-  onDeleted,
+/** A list of rows the recipe form edits: add, change and remove, in order. */
+function Rows<Row>({
+  legend,
+  hint,
+  rows,
+  empty,
+  add,
+  onChange,
+  render,
 }: {
-  tenantId: string;
-  id: string;
-  onClose: () => void;
-  onChanged: () => void;
-  onDeleted: () => void;
+  legend: string;
+  hint: string;
+  rows: readonly Row[];
+  empty: Row;
+  add: string;
+  onChange: (rows: Row[]) => void;
+  render: (row: Row, n: number, set: (patch: Partial<Row>) => void) => ReactNode;
 }) {
-  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
-  const [query, setQuery] = useSearchParams();
-  const tab = ["details", "secrets", "sessions", "events"].includes(
-    query.get("tab") ?? "",
-  )
-    ? query.get("tab")!
-    : "details";
-  const load = useCallback(
-    (signal: AbortSignal) => sdk.environments.get(id, { signal }),
-    [sdk, id],
-  );
-  const read = useRead(load);
-  const [editing, setEditing] = useState(false);
-  const [acting, setActing] = useState(false);
-  const [actionError, setActionError] = useState("");
-  const [notice, setNotice] = useState("");
-  const s = read.data;
-  async function act(
-    what: "stop" | "reset" | "delete",
-  ): Promise<void> {
-    if (
-      what === "reset" &&
-      !window.confirm(
-        `Reset ${id}? Its pod starts again on a new, empty volume; the old volume is deleted.`,
-      )
-    )
-      return;
-    if (
-      what === "delete" &&
-      !window.confirm(
-        `Delete ${id}, its vault and its files? Sessions that name it can take no new turn. This cannot be undone.`,
-      )
-    )
-      return;
-    setActing(true);
-    setActionError("");
-    setNotice("");
-    try {
-      if (what === "delete") {
-        await sdk.environments.delete(id);
-        onDeleted();
-        return;
-      }
-      await (what === "stop"
-        ? sdk.environments.stop(id)
-        : sdk.environments.reset(id));
-      setNotice(what === "stop" ? `Stopped ${id}.` : `Reset ${id}.`);
-      read.reload();
-      onChanged();
-    } catch (cause) {
-      setActionError(messageOf(cause));
-    } finally {
-      setActing(false);
-    }
-  }
+  const set = (index: number, patch: Partial<Row>) =>
+    onChange(rows.map((row, at) => (at === index ? { ...row, ...patch } : row)));
   return (
-    <section className="flex h-full min-h-0 flex-col">
-      <ResourceHeader title={id} onClose={onClose}>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={read.reload}
-          disabled={read.pending}
-        >
-          Refresh details
-        </Button>
-      </ResourceHeader>
-      {s ? (
-        <div className="flex shrink-0 flex-wrap gap-2 border-b px-4 py-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={acting}
-            onClick={() => setEditing(true)}
-          >
-            Edit recipe
-          </Button>
-          {s.kind === "pod" ? (
-            <>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={acting}
-                onClick={() => void act("stop")}
-              >
-                Stop
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={acting}
-                onClick={() => void act("reset")}
-              >
-                Reset
-              </Button>
-            </>
-          ) : null}
-          <Button
-            size="sm"
-            variant="destructive"
-            disabled={acting}
-            onClick={() => void act("delete")}
-          >
-            Delete
-          </Button>
-        </div>
-      ) : null}
-      {actionError ? (
-        <p role="alert" className="break-words px-4 pt-3 text-sm text-red-600">
-          {actionError}
-        </p>
-      ) : null}
-      {notice ? (
-        <p role="status" className="px-4 pt-3 text-sm text-muted-foreground">
-          {notice}
-        </p>
-      ) : null}
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          const next = new URLSearchParams(query);
-          next.set("tab", value);
-          setQuery(next);
-        }}
-        className="min-h-0 flex-1 overflow-auto p-4"
-      >
-        <TabsList aria-label="Environment tabs">
-          <TabsTrigger value="details">Details</TabsTrigger>
-          <TabsTrigger value="secrets">Secrets</TabsTrigger>
-          <TabsTrigger value="sessions">Sessions</TabsTrigger>
-          <TabsTrigger value="events">Events</TabsTrigger>
-        </TabsList>
-        <ReadState {...read} onRetry={read.reload} />
-        {s ? (
-          <>
-            <TabsContent value="details" className="space-y-4">
-              <Metadata
-                entries={[
-                  ["ID", s.id],
-                  ["Kind", s.kind],
-                  ["State", s.state],
-                  ["Version", s.version],
-                  ["Applied version", s.appliedVersion],
-                  ["Owner guard", s.ownerUserId ?? "None"],
-                  ["Last used", date(s.lastUsedAt)],
-                  ["Created", date(s.createdAt)],
-                  ["Updated", date(s.updatedAt)],
-                ]}
-              />
-              {s.pod ? (
-                <Metadata
-                  entries={[
-                    ["Desired", s.pod.desired],
-                    ["Observed", s.pod.observed],
-                    ["Volume generation", s.pod.volumeGeneration],
-                    ["Host epoch", s.pod.hostEpoch],
-                    ["Reason", s.pod.reason],
-                  ]}
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {s.kind === "none"
-                    ? "No sandbox: sessions on it get only its credentials."
-                    : "Virtual workspace; there is no pod to stop or reset."}
-                </p>
-              )}
-              <h3 className="text-sm font-medium">Labels</h3>
-              <pre className="whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
-                {JSON.stringify(s.labels, null, 2)}
-              </pre>
-              <h3 className="text-sm font-medium">Recipe</h3>
-              <pre className="whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
-                {JSON.stringify(s.recipe, null, 2)}
-              </pre>
-            </TabsContent>
-            <TabsContent value="secrets">
-              <EnvironmentSecrets tenantId={tenantId} id={id} />
-            </TabsContent>
-            <TabsContent value="sessions">
-              <EnvironmentSessions
-                tenantId={tenantId}
-                id={id}
-                active={s.sessions}
-              />
-            </TabsContent>
-            <TabsContent value="events">
-              <EnvironmentEvents tenantId={tenantId} id={id} />
-            </TabsContent>
-          </>
-        ) : null}
-      </Tabs>
-      {editing && s ? (
-        <EnvironmentSheet
-          tenantId={tenantId}
-          existing={s}
-          onClose={() => setEditing(false)}
-          onSaved={() => {
-            setEditing(false);
-            read.reload();
-            onChanged();
-          }}
-        />
-      ) : null}
-    </section>
-  );
-}
-
-/** The Environment's secrets: names, types and bindings, never a value. */
-function EnvironmentSecrets({ tenantId, id }: { tenantId: string; id: string }) {
-  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
-  const load = useCallback(
-    (signal: AbortSignal) => sdk.environments.secrets.list(id, { signal }),
-    [sdk, id],
-  );
-  const read = useRead(load);
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={read.pending} onClick={read.reload}>
-          Refresh secrets
-        </Button>
-        <Button variant="outline" asChild>
-          <Link
-            to={`/settings/credentials?${new URLSearchParams({ environment: id })}`}
-          >
-            Manage credentials
-          </Link>
-        </Button>
-      </div>
-      <ReadState
-        {...read}
-        onRetry={read.reload}
-        empty={read.data?.length ? undefined : "No secrets."}
-      />
-      {read.data?.map((secret) => (
-        <div key={secret.name} className="space-y-1 border-b py-3 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="break-all font-medium">{secret.name}</span>
-            <Badge variant="outline">
-              {SECRET_TYPES[secret.type] ?? secret.type}
-            </Badge>
-            {secret.via ? <Badge variant="outline">Gateway</Badge> : null}
+    <fieldset className="grid gap-2 text-sm">
+      <legend className="mb-1">{legend}</legend>
+      <span className="-mt-1 text-xs text-muted-foreground">{hint}</span>
+      {rows.map((row, index) => (
+        <div key={index} className="flex items-start gap-2 rounded-md border p-2">
+          <div className="grid min-w-0 flex-1 gap-2">
+            {render(row, index + 1, (patch) => set(index, patch))}
           </div>
-          <p className="break-all font-mono text-xs text-muted-foreground">
-            {secret.binding.url ??
-              (secret.binding.allowedHosts
-                ? `→ ${secret.binding.allowedHosts.join(", ")}${secret.binding.inject ? ` · ${secret.binding.inject.header}` : ""}`
-                : `$${secret.name}`)}
-          </p>
-          {secret.headerNames?.length ? (
-            <p className="break-all text-xs text-muted-foreground">
-              Headers: {secret.headerNames.join(", ")}
-            </p>
-          ) : null}
-          <p className="text-xs text-muted-foreground">
-            Created {date(secret.createdAt)}
-            {secret.rotatedAt ? ` · Rotated ${date(secret.rotatedAt)}` : ""}
-          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Remove ${legend.toLowerCase().replace(/s$/u, "")} ${index + 1}`}
+            onClick={() => onChange(rows.filter((_, at) => at !== index))}
+          >
+            <Trash2 />
+          </Button>
         </div>
       ))}
-    </div>
-  );
-}
-
-function EnvironmentSessions({
-  tenantId,
-  id,
-  active,
-}: {
-  tenantId: string;
-  id: string;
-  active: { id: string; activeTurnId: string | null }[];
-}) {
-  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
-  const load = useCallback(
-    async (signal: AbortSignal, cursor?: string) => {
-      const page = await sdk.sessions.page({
-        environmentId: id,
-        limit: 50,
-        cursor,
-        signal,
-      });
-      return { items: page.sessions, nextCursor: page.nextCursor };
-    },
-    [sdk, id],
-  );
-  const page = usePages(load);
-  return (
-    <div className="space-y-3">
-      <ReadState
-        {...page}
-        onRetry={page.reload}
-        empty={page.items.length ? undefined : "No sessions name it."}
-      />
-      {page.items.map((s) => (
-        <div key={s.id} className="space-y-2 border-b py-3 text-sm">
-          <Link
-            className="break-all underline"
-            to={`/sessions/${encodeURIComponent(s.id)}`}
-          >
-            {s.id}
-          </Link>
-          <p className="break-all text-muted-foreground">
-            {s.agentId} · {s.status}
-          </p>
-          {active.find((a) => a.id === s.id)?.activeTurnId ? (
-            <p className="break-all text-xs">
-              Active turn: {active.find((a) => a.id === s.id)!.activeTurnId}
-            </p>
-          ) : null}
-          <Link
-            className="inline-block underline"
-            to={`/artifacts?${new URLSearchParams({ sessionId: s.id })}`}
-          >
-            View artifacts
-          </Link>
-        </div>
-      ))}
-      {page.more ? (
-        <Button
-          variant="outline"
-          disabled={page.pending}
-          onClick={page.loadMore}
-        >
-          Load more sessions
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
-function EnvironmentEvents({ tenantId, id }: { tenantId: string; id: string }) {
-  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
-  const accumulated = useRef<EnvironmentEvent[]>([]);
-  const load = useCallback(
-    async (signal: AbortSignal) => {
-      const from = accumulated.current.reduce(
-        (n, e) => Math.max(n, e.seq + 1),
-        0,
-      );
-      const next = await sdk.environments.events(id, { from, signal });
-      signal.throwIfAborted();
-      accumulated.current = Array.from(
-        new Map(
-          [...accumulated.current, ...next].map((e) => [e.seq, e]),
-        ).values(),
-      ).sort((a, b) => a.seq - b.seq);
-      return accumulated.current;
-    },
-    [sdk, id],
-  );
-  const read = useRead(load);
-  return (
-    <div className="space-y-3">
-      <Button variant="outline" disabled={read.pending} onClick={read.reload}>
-        Refresh events
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="justify-self-start"
+        disabled={rows.length >= SETUP_MAX}
+        onClick={() => onChange([...rows, empty])}
+      >
+        <Plus />
+        {add}
       </Button>
-      <ReadState
-        {...read}
-        onRetry={read.reload}
-        empty={read.data?.length ? undefined : "No lifecycle events."}
-      />
-      {read.data?.map((e) => (
-        <details key={e.eventId} className="border-b py-2 text-sm">
-          <summary className="break-all">
-            {e.seq} · {e.type}
-            <span className="block text-xs text-muted-foreground">
-              {date(e.time)}
-            </span>
-          </summary>
-          <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-muted p-2 text-xs">
-            {JSON.stringify(e.payload, null, 2)}
-          </pre>
-        </details>
-      ))}
-    </div>
+    </fieldset>
+  );
+}
+
+/** A pod's setup commands: run in order when its disk is made or reset, before any turn. */
+function SetupRows({
+  rows,
+  onChange,
+}: {
+  rows: readonly SetupRow[];
+  onChange: (rows: SetupRow[]) => void;
+}) {
+  return (
+    <Rows
+      legend="Setup commands"
+      hint="Run in order on a new disk (created or reset), after the input files, before any turn."
+      rows={rows}
+      empty={EMPTY_SETUP_ROW}
+      add="Add setup command"
+      onChange={onChange}
+      render={(row, n, set) => (
+        <>
+          <Input
+            aria-label={`Setup command ${n}`}
+            value={row.command}
+            onChange={(event) => set({ command: event.target.value })}
+            placeholder="pip install -r requirements.txt"
+            className="font-mono"
+          />
+          <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-2">
+            <Input
+              aria-label={`Setup command ${n} directory`}
+              value={row.cwd}
+              onChange={(event) => set({ cwd: event.target.value })}
+              placeholder="/workspace"
+              className="font-mono"
+            />
+            <Input
+              aria-label={`Setup command ${n} timeout`}
+              value={row.timeout}
+              onChange={(event) => set({ timeout: event.target.value })}
+              placeholder="10m"
+              className="font-mono"
+            />
+          </div>
+        </>
+      )}
+    />
+  );
+}
+
+/** A pod's input files: versions of Tenant-wide artifacts, copied in on a new disk. */
+function FileRows({
+  rows,
+  onChange,
+}: {
+  rows: readonly FileRow[];
+  onChange: (rows: FileRow[]) => void;
+}) {
+  return (
+    <Rows
+      legend="Input files"
+      hint="A version of a Tenant-wide artifact, copied in on a new disk: a file at the path, a folder unpacked under it."
+      rows={rows}
+      empty={EMPTY_FILE_ROW}
+      add="Add input file"
+      onChange={onChange}
+      render={(row, n, set) => (
+        <>
+          <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)] gap-2">
+            <Input
+              aria-label={`Input file ${n} artifact`}
+              value={row.artifactId}
+              onChange={(event) => set({ artifactId: event.target.value })}
+              placeholder="af_01k…"
+              className="font-mono"
+            />
+            <Input
+              aria-label={`Input file ${n} version`}
+              value={row.version}
+              onChange={(event) => set({ version: event.target.value })}
+              placeholder="1"
+              inputMode="numeric"
+            />
+          </div>
+          <Input
+            aria-label={`Input file ${n} path`}
+            value={row.path}
+            onChange={(event) => set({ path: event.target.value })}
+            placeholder="/workspace/data"
+            className="font-mono"
+          />
+        </>
+      )}
+    />
   );
 }

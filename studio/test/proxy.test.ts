@@ -183,12 +183,16 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
         assert.equal((await send("PUT", "/v1/environments/team%2Fbuild/secrets/github", secret)).status, 200);
         assert.equal((await send("POST", "/v1/environments/team%2Fbuild/stop", {})).status, 200);
         assert.equal((await send("POST", "/v1/environments/team%2Fbuild/reset", {})).status, 200);
+        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/snapshot", {})).status, 200);
+        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/restore", { requestId: "r", version: 2 })).status, 200);
+        assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild/versions/2")).status, 200);
         assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild/secrets/github")).status, 200);
         assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild")).status, 200);
         for (const path of [
           "/v1/environments?limit=50&label=project%3Dbuild",
           "/v1/environments/team%2Fbuild",
           "/v1/environments/team%2Fbuild/events?from=2",
+          "/v1/environments/team%2Fbuild/versions",
           "/v1/environments/team%2Fbuild/secrets",
           "/v1/environments/team%2Fbuild/secrets/github",
         ])
@@ -200,11 +204,15 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
             "PUT /v1/environments/team%2Fbuild/secrets/github",
             "POST /v1/environments/team%2Fbuild/stop",
             "POST /v1/environments/team%2Fbuild/reset",
+            "POST /v1/environments/team%2Fbuild/snapshot",
+            "POST /v1/environments/team%2Fbuild/restore",
+            "DELETE /v1/environments/team%2Fbuild/versions/2",
             "DELETE /v1/environments/team%2Fbuild/secrets/github",
             "DELETE /v1/environments/team%2Fbuild",
             "GET /v1/environments?limit=50&label=project%3Dbuild",
             "GET /v1/environments/team%2Fbuild",
             "GET /v1/environments/team%2Fbuild/events?from=2",
+            "GET /v1/environments/team%2Fbuild/versions",
             "GET /v1/environments/team%2Fbuild/secrets",
             "GET /v1/environments/team%2Fbuild/secrets/github",
           ],
@@ -221,12 +229,17 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
         // Another origin may not change an Environment.
         assert.equal((await send("PUT", "/v1/environments/a", { kind: "virtual" }, "https://evil.example")).status, 403);
         assert.equal((await send("DELETE", "/v1/environments/a", undefined, "https://evil.example")).status, 403);
+        assert.equal((await send("POST", "/v1/environments/a/restore", { version: 1 }, "https://evil.example")).status, 403);
         // Nothing else under an Environment, and no protocol-10 sandbox or vault route.
         for (const [method, path] of [
           ["POST", "/v1/environments/a"],
           ["POST", "/v1/environments/a/secrets/x"],
           ["POST", "/v1/environments/a/files"],
           ["GET", "/v1/environments/a/files"],
+          ["GET", "/v1/environments/a/versions/1"],
+          ["DELETE", "/v1/environments/a/versions"],
+          ["DELETE", "/v1/environments/a/versions/latest"],
+          ["POST", "/v1/environments/a/versions"],
           ["GET", "/v1/sandboxes"],
           ["GET", "/v1/sandboxes/a"],
           ["GET", "/v1/tenant/vaults"],

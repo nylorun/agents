@@ -7,6 +7,9 @@ import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/agents";
 export const TENANT = "tn_00000000000000000000000001";
 export const SESSION = "s-resource";
 export const ENVIRONMENT = "team/build";
+/** A pod Environment with setup commands and an input file. */
+export const POD = "team/pod";
+export const INPUT_ARTIFACT = "af_01k7aaaaaaaaaaaaaaaaaaaaaa";
 const time = "2026-10-10T00:00:00.000Z";
 const html =
   "<h1>Report version 1</h1><script>window.previewExecuted=true</script>";
@@ -64,6 +67,31 @@ const environment = (id: string, fields: Record<string, unknown> = {}) => ({
   updatedAt: time,
   ...fields,
 });
+/** The folder artifact that holds `team/build`'s disk versions. */
+const disk = {
+  ...folder,
+  artifactId: "a-disk",
+  name: "disk",
+  sessionId: undefined,
+};
+const pod = (id: string) =>
+  environment(id, {
+    kind: "pod",
+    recipe: {
+      image: "python:3.13-slim",
+      resources: { cpus: 1, memory: "1024MiB" },
+      storage: "5GiB",
+      network: { allowedHosts: ["pypi.org"] },
+      harness: "nylorun",
+      lifecycle: { idle: "15m" },
+      setup: [{ command: "pip install -r requirements.txt", cwd: "/workspace/app" }],
+      files: [{ artifactId: INPUT_ARTIFACT, version: 1, path: "/workspace/data" }],
+    },
+    state: "running",
+    pod: { desired: "running", observed: "running", volumeGeneration: 1, hostEpoch: 1 },
+    disk: { latestVersion: null },
+    sessions: [],
+  });
 const secret = {
   name: "github",
   type: "bearer",
@@ -127,7 +155,12 @@ export async function resourceRuntime() {
         protocol: {
           min: PROTOCOL_VERSION,
           max: PROTOCOL_VERSION,
-          features: [...PROTOCOL_FEATURES, "session-reads"],
+          features: [
+            ...PROTOCOL_FEATURES,
+            "session-reads",
+            "environment-setup",
+            "environment-disk-versions",
+          ],
         },
       });
     if (path === "/v1/tenant")
@@ -148,7 +181,52 @@ export async function resourceRuntime() {
           : {}),
       });
     if (path === "/v1/environments/team%2Fbuild" && req.method === "GET")
-      return send(200, environment(ENVIRONMENT));
+      return send(
+        200,
+        environment(ENVIRONMENT, {
+          disk: { latestVersion: 2 },
+          sessions: [
+            { id: SESSION, activeTurnId: null },
+            { id: "s-other", activeTurnId: "t9" },
+          ],
+        }),
+      );
+    if (path === "/v1/environments/team%2Fpod" && req.method === "GET")
+      return send(200, pod(POD));
+    if (path === "/v1/environments/team%2Fbuild/versions")
+      return send(200, {
+        environmentId: ENVIRONMENT,
+        artifactId: disk.artifactId,
+        latest: 2,
+        versions: [
+          { version: 2, bytes: 4096, createdAt: time },
+          { version: 1, bytes: 2048, createdAt: time },
+        ],
+      });
+    if (path === "/v1/environments/team%2Fbuild/snapshot" && req.method === "POST")
+      return send(200, {
+        environmentId: ENVIRONMENT,
+        artifactId: disk.artifactId,
+        version: 3,
+        format: "nylorun.folder.v2",
+        files: 12,
+        bytes: 4096,
+        storedBytes: 1024,
+        durationMs: 40,
+        unchanged: false,
+      });
+    if (path === "/v1/environments/team%2Fbuild/restore" && req.method === "POST")
+      return send(200, {
+        environmentId: ENVIRONMENT,
+        restored: JSON.parse(raw).version,
+        status: "done",
+      });
+    if (/^\/v1\/environments\/team%2Fbuild\/versions\/\d+$/.test(path) && req.method === "DELETE")
+      return send(200, {
+        environmentId: ENVIRONMENT,
+        version: Number(path.split("/")[5]),
+        deleted: true,
+      });
     if (/^\/v1\/environments\/[^/]+$/.test(path) && req.method === "PUT") {
       const body = JSON.parse(raw);
       const id = decodeURIComponent(path.split("/")[3]!);
@@ -164,6 +242,9 @@ export async function resourceRuntime() {
         }),
       );
     }
+    // Any other Environment Studio created reads back as a fresh virtual one.
+    if (/^\/v1\/environments\/[^/]+$/.test(path) && req.method === "GET" && !path.endsWith("/missing"))
+      return send(200, environment(decodeURIComponent(path.split("/")[3]!), { sessions: [] }));
     if (/^\/v1\/environments\/[^/]+$/.test(path) && req.method === "DELETE")
       return send(200, { id: decodeURIComponent(path.split("/")[3]!), deleted: true });
     if (path === "/v1/environments/team%2Fbuild/secrets")
@@ -248,6 +329,7 @@ export async function resourceRuntime() {
         artifacts: [file, folder].map(({ versions: _, ...a }) => a),
       });
     if (path === "/v1/artifacts/a-report") return send(200, file);
+    if (path === "/v1/artifacts/a-disk") return send(200, disk);
     if (path === "/v1/artifacts/a-folder") return send(200, folder);
     if (path === "/v1/artifacts/a-slow") {
       setTimeout(() => {
@@ -297,6 +379,28 @@ export async function resourceRuntime() {
     if (path === "/v1/tenant/providers" || path === "/v1/tenant/models")
       return send(200, { providers: [] });
     if (path === "/v1/tenant/model") return send(200, { configured: false });
+    if (path === "/v1/tenant/credential-coverage" && req.method === "POST") {
+      const { agentId, environmentId } = JSON.parse(raw);
+      return send(200, {
+        agentId,
+        environmentId: environmentId ?? null,
+        complete: environmentId !== undefined,
+        entries: [
+          {
+            kind: "mcp",
+            name: "github",
+            serverName: "github",
+            url: "https://api.githubcopilot.com/mcp/",
+            required: false,
+            status: environmentId ? "covered" : "missing",
+            ...(environmentId ? { credential: { environmentId, name: "github" } } : {}),
+            message: environmentId
+              ? "Sends the Environment's github credential."
+              : "Called without a credential.",
+          },
+        ],
+      });
+    }
     return send(404, { code: "not_found", message: "Unknown fixture API" });
   });
   server.listen(0, "127.0.0.1");

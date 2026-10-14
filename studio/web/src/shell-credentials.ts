@@ -1,5 +1,5 @@
 /**
- * The Credentials page's shell credentials (R2c, D56): what a skill's CLI in an Environment's
+ * An Environment's Secrets tab's shell credentials (R2c, D56): what a skill's CLI in an Environment's
  * sandbox uses. An `environment_secret` is a sealed value the sandbox only sees as
  * `nylorun-managed`; egress-gate sets it as a header on requests to its allowed hosts. An
  * `environment_variable` is a plain value the sandbox sees. Either is written with `PUT

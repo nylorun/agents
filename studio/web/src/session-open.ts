@@ -48,12 +48,25 @@ export function newSessionEnvironment(state: unknown): NewSessionEnvironment {
   return typeof environment === "string" && environment !== "" ? { environment } : {};
 }
 
-/** The id of the Environment a session view names (`environment: { id, version } | null`). */
-export function sessionEnvironmentId(view: Readonly<Record<string, unknown>>): string | undefined {
+/** The Environment a session names, and its recipe version when the session opened. */
+export type SessionEnvironment = { readonly id: string; readonly version?: number };
+
+/** The Environment a session view names (`environment: { id, version } | null`), or none. */
+export function sessionEnvironment(
+  view: Readonly<Record<string, unknown>>,
+): SessionEnvironment | undefined {
   const environment = view.environment;
   if (typeof environment !== "object" || environment === null) return undefined;
-  const id = (environment as { id?: unknown }).id;
-  return typeof id === "string" && id !== "" ? id : undefined;
+  const { id, version } = environment as { id?: unknown; version?: unknown };
+  if (typeof id !== "string" || id === "") return undefined;
+  return Number.isSafeInteger(version) && (version as number) > 0
+    ? { id, version: version as number }
+    : { id };
+}
+
+/** The id of the Environment a session view names (`environment: { id, version } | null`). */
+export function sessionEnvironmentId(view: Readonly<Record<string, unknown>>): string | undefined {
+  return sessionEnvironment(view)?.id;
 }
 
 /** A session's page that resolves its agent: what links to a child session use. */

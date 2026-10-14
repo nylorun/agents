@@ -4,6 +4,8 @@ import {
   NEW_SESSION,
   definitionForSession,
   isNewSessionState,
+  sessionEnvironment,
+  sessionEnvironmentId,
   sessionHref,
 } from "../web/src/session-open.ts";
 
@@ -65,4 +67,17 @@ test("an unknown agent still opens, named by its id", () => {
     name: "ghost",
     manifest: { capabilities: [] },
   });
+});
+
+test("a session view names its Environment and the recipe version it opened on, or none", () => {
+  assert.deepEqual(sessionEnvironment({ environment: { id: "team/build", version: 2 } }), {
+    id: "team/build",
+    version: 2,
+  });
+  assert.deepEqual(sessionEnvironment({ environment: { id: "team/build" } }), { id: "team/build" });
+  assert.deepEqual(sessionEnvironment({ environment: { id: "a", version: 0 } }), { id: "a" });
+  assert.equal(sessionEnvironment({ environment: null }), undefined);
+  assert.equal(sessionEnvironment({}), undefined);
+  assert.equal(sessionEnvironment({ environment: { id: "" } }), undefined);
+  assert.equal(sessionEnvironmentId({ environment: { id: "team/build", version: 2 } }), "team/build");
 });
