@@ -538,9 +538,11 @@ the runtime container never holds an MCP credential or calls a tool's server:
   reaches services on this machine at `host.docker.internal`.
 - A remote MCP call outlives the runtime that sent it, like a model call: a
   restarted runtime picks up its answer. The gateway records each call in the
-  `tool_crossings` table before it reaches the server, so after a gateway
-  restart a call that was in flight is `uncertain`: it may have run, and it is
-  never run again.
+  `tool_crossings` table before it reaches the server. A call a gateway restart
+  interrupted is sent again with the same key, its effect id
+  (`_meta["nylorun/idempotency-key"]`, or `Idempotency-Key` for an HTTP tool), up
+  to three sends; then it fails to the model as `tool.interrupted`. Honor the key
+  to make a side effect safe to repeat.
 
 The gateway also runs `keys`, the only process that reads the vault key: it
 runs every vault write that touches a secret (writing an Environment's
@@ -855,7 +857,7 @@ an MCP call, `retryable`), and `tool.completed`'s `error` records the same:
 | `mcp.forbidden` | `403` | No |
 | `mcp.error` | A JSON-RPC error, with its code in the message | No |
 | `mcp.status` | Another HTTP error status | For `408`, `429`, `502`, `503` and `504` |
-| `mcp.lost` | Sent, and the answer lost, for a tool the server marks `readOnlyHint` or `idempotentHint`. Any other tool's call stays `uncertain`, for an operator | Yes |
+| `mcp.lost` | Sent, and the answer lost: the tool may have run, and the model decides whether to call it again | Yes |
 | `mcp.too-large` | An answer past 8 MiB | No |
 
 A tool's own error result (`isError`) is `mcp.tool`. `tool_call` answers `tool.unknown` for a
@@ -963,13 +965,19 @@ The runtime container runs no turn, no MCP server and no workspace command.
   connected`; `nylorun logs harness` shows its log).
 - If the harness container is killed mid model call, the gateway keeps the call
   and the restarted harness picks up its answer. A workspace command in flight is
-  lost with the container, so its effect becomes `uncertain`
-  and the session waits for a decision; nothing runs it twice. If the runtime
-  restarts, the harness connects again and the turn finishes.
+  lost with the container: it fails to the model as `tool.interrupted`, and
+  nothing runs it twice. If the runtime restarts, the harness connects again and
+  the turn finishes.
 - **Rollback.** Set `NYLORUN_HARNESS=in-process` in `docker/.env` and run
   `nylorun start`: the runtime container runs turns, MCP servers and workspaces
   itself again, and the harness container is removed. `NYLORUN_HARNESS=remote`
   (the default) brings it back; the setting is kept across starts.
+- **Your own harness.** An Environment's `harness` names the harness that runs its
+  sessions' turns (`nylorun` when unset). A harness of your own runs beside the
+  Runtime with its own token (`nylorun-operate harness token put <id>` in the
+  runtime container) or as a pod Environment's `image`. A session pins its
+  harness when it opens; a turn on an Environment that now names another one is
+  `409 harness_mismatch`. See [HARNESS_API.md](./HARNESS_API.md).
 
 ## Networks and Restate's UI
 

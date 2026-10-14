@@ -279,8 +279,8 @@ definition/session APIs.
 Postgres transactions persist session checkpoints, command receipts, individual
 effects, waits and the record of session events — in the Tenant's database; history is
 read from Durable Streams (S2). An advance owns its session through a lease with
-an epoch; a Worker that takes over after a crash marks in-flight effects
-`uncertain`. Vault ciphertext needs that Tenant's own KEK.
+an epoch; a Worker that takes over after a crash marks in-flight model effects
+`uncertain`, and sends an interrupted MCP or HTTP tool call again with the same key (R5). Vault ciphertext needs that Tenant's own KEK.
 
 A session that names an Environment of kind `virtual` or `pod` gets Runtime-executed
 sandbox tools; the agent declares nothing. The Tenant owns each Environment; backend

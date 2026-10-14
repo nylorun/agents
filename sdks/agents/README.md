@@ -183,7 +183,7 @@ eval "$(npx -p nylorun nylo env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
-Every request sets `Nylorun-Protocol` (8) and no `Nylorun-Tenant`: the Runtime
+Every request sets `Nylorun-Protocol` (11) and no `Nylorun-Tenant`: the Runtime
 serves one Tenant. Before the first authenticated
 request, `Transport` fetches `/health` once, checks protocol compatibility, and
 throws `IncompatibleRuntimeError` / `incompatible_host` when the Host range or
