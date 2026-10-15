@@ -5,7 +5,7 @@ import type {
   EnvironmentManifestView,
   EnvironmentView,
 } from "@nylorun/agents";
-import { FileJson } from "lucide-react";
+import { Check, Copy, FileJson } from "lucide-react";
 import { createTenantClient } from "@/proxy-client";
 import { messageOf } from "@/resources/reads";
 import { isEnvironmentIdText } from "@/environment-form";
@@ -219,8 +219,8 @@ export function NewFromManifest({
 }
 
 /**
- * The manifest the Environments list is filtered on: its latest version, who saved it, its
- * JSON on demand, and saving its next version.
+ * The manifest the Environments list is filtered on, in one line: its latest version and who
+ * saved it, its JSON in a side panel (a manifest can be long), and saving its next version.
  */
 export function ManifestBar({
   manifest,
@@ -231,34 +231,83 @@ export function ManifestBar({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="shrink-0 border-b bg-muted/30">
-      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
-        <FileJson className="size-4 shrink-0 text-muted-foreground" />
-        <span className="font-medium">{manifest.name}</span>
-        <span className="tabular-nums text-muted-foreground">v{manifest.version}</span>
-        <Badge variant="outline">{manifest.manifest.kind ?? "virtual"}</Badge>
-        <span className="text-xs text-muted-foreground">
-          Saved {date(manifest.createdAt)} by {manifest.savedBy.actor}
-        </span>
-        <div className="ml-auto flex gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {open ? "Hide JSON" : "Show JSON"}
-          </Button>
-          <Button size="sm" variant="outline" onClick={onNewVersion}>
-            New version
-          </Button>
-        </div>
+    <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b bg-muted/30 px-4 py-2 text-sm">
+      <FileJson className="size-4 shrink-0 text-muted-foreground" />
+      <span className="font-medium">{manifest.name}</span>
+      <span className="tabular-nums text-muted-foreground">v{manifest.version}</span>
+      <Badge variant="outline">{manifest.manifest.kind ?? "virtual"}</Badge>
+      <span className="text-xs text-muted-foreground">
+        Saved {date(manifest.createdAt)} by {manifest.savedBy.actor}
+      </span>
+      <div className="ml-auto flex gap-2">
+        <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+          View manifest
+        </Button>
+        <Button size="sm" variant="outline" onClick={onNewVersion}>
+          New version
+        </Button>
       </div>
       {open ? (
-        <pre className="mx-4 mb-3 max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-md border bg-background p-3 text-xs">
-          {JSON.stringify(manifest.manifest, null, 2)}
-        </pre>
+        <ManifestPanel
+          manifest={manifest}
+          onClose={() => setOpen(false)}
+          onNewVersion={() => {
+            setOpen(false);
+            onNewVersion();
+          }}
+        />
       ) : null}
     </div>
+  );
+}
+
+/** A manifest version's JSON in a side panel, read only, to copy or to save a next version from. */
+function ManifestPanel({
+  manifest,
+  onClose,
+  onNewVersion,
+}: {
+  manifest: EnvironmentManifestView;
+  onClose: () => void;
+  onNewVersion: () => void;
+}) {
+  const json = JSON.stringify(manifest.manifest, null, 2);
+  const [copied, setCopied] = useState(false);
+  return (
+    <Sheet open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <SheetContent className="w-full sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle>
+            {manifest.name} v{manifest.version}
+          </SheetTitle>
+          <SheetDescription>
+            {manifest.manifest.kind ?? "virtual"} · {manifest.environments}{" "}
+            {manifest.environments === 1 ? "Environment" : "Environments"} made from it · saved{" "}
+            {date(manifest.createdAt)} by {manifest.savedBy.actor}
+          </SheetDescription>
+        </SheetHeader>
+        <pre
+          aria-label={`${manifest.name} manifest JSON`}
+          className="mx-4 min-h-0 flex-1 overflow-auto whitespace-pre rounded-md border bg-muted/40 p-3 font-mono text-xs"
+        >
+          {json}
+        </pre>
+        <SheetFooter className="flex-row justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() =>
+              void navigator.clipboard?.writeText(json).then(
+                () => setCopied(true),
+                () => setCopied(false),
+              )
+            }
+          >
+            {copied ? <Check /> : <Copy />}
+            {copied ? "Copied" : "Copy JSON"}
+          </Button>
+          <Button onClick={onNewVersion}>New version</Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

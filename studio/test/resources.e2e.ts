@@ -87,9 +87,12 @@ test("Environments work before agent registration: grouped by manifest, label na
     await page.waitForURL(/\/environments\?manifest=analyst-box$/);
     await page.getByText("1 total", { exact: true }).waitFor();
     await page.getByRole("link", { name: ENVIRONMENT, exact: true }).waitFor({ state: "detached" });
-    // The manifest's latest version, and its JSON on demand.
-    await page.getByRole("button", { name: "Show JSON" }).click();
-    await page.getByText('"kind": "virtual"', { exact: false }).waitFor();
+    // The manifest's latest version, and its JSON in a side panel.
+    await page.getByRole("button", { name: "View manifest" }).click();
+    const panel = page.getByRole("dialog", { name: "analyst-box v3" });
+    await panel.getByText('"kind": "virtual"', { exact: false }).waitFor();
+    await page.keyboard.press("Escape");
+    await panel.waitFor({ state: "hidden" });
     // The menu filters to inline fields, then back to every manifest.
     await page.getByRole("button", { name: "Filter by manifest" }).click();
     await page.getByRole("menuitemcheckbox", { name: "Inline fields 1" }).click();

@@ -149,8 +149,8 @@ the table, from the **All manifests** menu or from the manifests listed under
 Environments in the sidebar, each with its number of Environments;
 `/environments?manifest=<name>` is the filtered list and `?manifest=-` those made
 from inline fields. A label in the table filters on it too (`?label=key=value`,
-repeatable). Filtered to a manifest, a bar shows its latest version, who saved
-it and its JSON, with **New version** (`PUT /v1/environment-manifests/{name}`,
+repeatable). Filtered to a manifest, a bar shows its latest version and who saved
+it, with **View manifest** (its JSON in a side panel, to copy) and **New version** (`PUT /v1/environment-manifests/{name}`,
 checked first with `?dryRun=true`); **New manifest** is in the menu.
 **New Environment** makes one from the filtered manifest's latest version
 (`PUT /v1/environments/{id} { manifest: "name@n" }`), or asks which manifest,
