@@ -208,7 +208,7 @@ export const RunRoutingSchema = z
         spec: z.unknown().optional(),
         /**
          * Variables every sandbox command gets (R2c, D50): each `environment_secret` name set to
-         * the sentinel `nylorun-managed`, and each `environment_variable`'s value. Never a secret.
+         * the sentinel `nylorun_managed`, and each `environment_variable`'s value. Never a secret.
          */
         environment: z.record(z.string(), z.string()).optional(),
       })

@@ -178,11 +178,11 @@ describe("egress-gate credentials (R2c)", () => {
     const secure = await tlsThrough(socket, "api.bound.test");
     expect(secure.authorized).toBe(true);
     expect(secure.alpnProtocol).toBe("http/1.1");
-    const first = await get(secure, "api.bound.test", { authorization: "Bearer nylorun-managed", "x-tool": "gh" });
+    const first = await get(secure, "api.bound.test", { authorization: "Bearer nylorun_managed", "x-tool": "gh" });
     expect(first).toEqual({ status: 200, body: "hello GET" });
     // Rotated between two requests on one connection: the next request carries the new value.
     vault.set("api.bound.test", { status: "released", header: "Authorization", value: "Bearer real-2", credentialId: "cred_1" });
-    expect(await get(secure, "api.bound.test", { Authorization: "token nylorun-managed" }, "payload")).toEqual({
+    expect(await get(secure, "api.bound.test", { Authorization: "token nylorun_managed" }, "payload")).toEqual({
       status: 200,
       body: "hello POST",
     });
@@ -198,7 +198,7 @@ describe("egress-gate credentials (R2c)", () => {
     vault.set("api.bound.test", { status: "released", header: "PRIVATE-TOKEN", value: "glpat-secret", credentialId: "cred_2" });
     const proxy = await gate();
     const secure = await tlsThrough((await connectThrough(proxy, "api.bound.test:443")).socket, "api.bound.test");
-    await get(secure, "api.bound.test", { "private-token": "nylorun-managed", authorization: "Basic keep" });
+    await get(secure, "api.bound.test", { "private-token": "nylorun_managed", authorization: "Basic keep" });
     expect(received[0]!.headers).toMatchObject({ "private-token": "glpat-secret", authorization: "Basic keep" });
   });
 
@@ -254,7 +254,7 @@ describe("egress-gate credentials (R2c)", () => {
     });
     const { socket } = await connectThrough(proxy, "api.bound.test:443");
     const secure = await tlsThrough(socket, "api.bound.test");
-    await get(secure, "api.bound.test", { authorization: "Bearer nylorun-managed", "x-tool": "gh" });
+    await get(secure, "api.bound.test", { authorization: "Bearer nylorun_managed", "x-tool": "gh" });
     vault.set("api.bound.test", { status: "released", header: "Authorization", value: "Bearer real-2", credentialId: "cred_2" });
     await get(secure, "api.bound.test", {}, "payload");
     await get(secure, "api.bound.test", {});
@@ -276,7 +276,7 @@ describe("egress-gate credentials (R2c)", () => {
     expect(written[0]!.bytesUp).toBeGreaterThan(0);
     expect(written[0]!.bytesDown).toBeGreaterThan(0);
     const json = JSON.stringify(written);
-    for (const secret of ["real-1", "real-2", "nylorun-managed", "/user", "payload", "x-tool", "hello"])
+    for (const secret of ["real-1", "real-2", "nylorun_managed", "/user", "payload", "x-tool", "hello"])
       expect(json).not.toContain(secret);
     // The connection's log line stays.
     expect(logs).toContainEqual({ message: "egress_terminated", fields: { sandboxId: "sbx_1", host: "api.bound.test" } });
