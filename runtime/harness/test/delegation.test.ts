@@ -154,6 +154,87 @@ describe("agents used as tools, in process", () => {
     );
   });
 
+  it("gives a child the parent's model and files, so it reads its tools' files the same way (protocol 15)", async () => {
+    const report = tool({
+      name: "search_orders",
+      description: "Search orders.",
+      input: z.object({ query: z.string() }),
+      run: async () => ({
+        kind: "completed" as const,
+        output: "see the file",
+        files: [
+          {
+            mediaType: "text/csv",
+            reference: { artifactId: "af_r", version: 1, name: "r.csv", size: 3 },
+          },
+          {
+            mediaType: "image/png",
+            reference: { artifactId: "af_i", version: 1, name: "i.png", size: 3 },
+          },
+        ],
+      }),
+    });
+    const parent = agents({ childTools: [report] });
+    const childCalls: ModelCall[] = [];
+    const adapter: ModelAdapter = async (call) => {
+      if (isChild(call)) {
+        childCalls.push(call);
+        return results(call).length
+          ? "done"
+          : {
+              output: [
+                { type: "tool-call", id: "s1", name: "search_orders", args: { query: "q" } },
+              ],
+            };
+      }
+      return results(call).length
+        ? "ok"
+        : { output: [{ type: "tool-call", id: "d1", name: "researcher", args: { task: "A" } }] };
+    };
+    const result = await run({
+      binding: bindingFromAgent(parent),
+      input: "x",
+      onModelCall: adapter,
+      model: {
+        provider: "groq",
+        id: "llama",
+        inputs: ["text"],
+        contextWindow: 8_192,
+        maxOutputTokens: 1_024,
+      },
+      files: {
+        model: {
+          provider: "groq",
+          id: "llama",
+          inputs: ["text"],
+          contextWindow: 8_192,
+          maxOutputTokens: 1_024,
+        },
+        limits: { modelFileBytes: 1_000, modelCallBytes: 10_000, chunkBytes: 100 },
+        async read(reference) {
+          return {
+            artifact: {
+              artifactId: reference.artifactId,
+              kind: "file",
+              name: "r.csv",
+              version: 1,
+              contentType: "text/csv",
+              size: 3,
+              sha256: "0".repeat(64),
+              tenantWide: false,
+            },
+            bytes: new TextEncoder().encode("a,b"),
+            eof: true,
+          };
+        },
+      },
+    });
+    expect(result.status).toBe("completed");
+    const seen = JSON.stringify(childCalls.at(-1)!.prompt.at(-1));
+    expect(seen).toContain('<file name=\\"r.csv\\" type=\\"text/csv\\">\\na,b\\n</file>');
+    expect(seen).toContain("this model does not read images");
+  });
+
   it("turns a child's request for input into a tool failure the child sees", async () => {
     const asking = tool({
       name: "search_orders",

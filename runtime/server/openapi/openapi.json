@@ -6350,7 +6350,6 @@
               "credential_rejected",
               "mcp_preview_failed",
               "credential_conflict",
-              "attachment_unsupported",
               "environment_immutable",
               "secret_not_in_manifest",
               "environment_unsuitable",
@@ -24487,9 +24486,6 @@
           "409": {
             "description": "A turn is running, or the session does not wait on this"
           },
-          "422": {
-            "description": "A message names a file the Tenant's model does not read (`attachment_unsupported`; `details.parts` lists each with its reason). No turn starts."
-          },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
             "content": {
@@ -25712,7 +25708,7 @@
           "AG-UI"
         ],
         "summary": "Run an agent",
-        "description": "For a person, named by a trusted issuer's token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); its media parts are files: bytes sent inline (`data`, at most 20 MiB each) are stored as artifacts of the session, a `file` source with provider `nylorun` names an artifact, and a URL is refused. `resume` answers interrupts. A busy session, or a file the model does not read, is a `RUN_ERROR` in the stream.",
+        "description": "For a person, named by a trusted issuer's token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); its media parts are files: bytes sent inline (`data`, at most 20 MiB each) are stored as artifacts of the session, a `file` source with provider `nylorun` names an artifact, and a URL is refused. `resume` answers interrupts. A busy session is a `RUN_ERROR` in the stream; any file type is accepted, and the agent's harness decides how its model sees it.",
         "security": [
           {
             "applicationKey": []

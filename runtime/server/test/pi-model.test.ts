@@ -216,14 +216,27 @@ describe("an image a tool returned (R2b C11, Q23)", () => {
     expect(body).toContain(`data:image/png;base64,${Buffer.from(PNG).toString("base64")}`);
   });
 
-  it("gives a model that reads no images a note, and reads no bytes", async () => {
-    const { result, body, read } = await send({ provider: "groq", model: "llama-3.1-8b-instant" });
-    expect(result.output).toEqual([{ type: "text", text: "seen" }]);
-    expect(read).toEqual([]);
-    expect(body).not.toContain(Buffer.from(PNG).toString("base64"));
-    expect(body).toContain(
-      '(File \\"files__screenshot-result-2.png\\", image/png, is not shown: this model does not read images.)',
+  it("refuses it for a model that reads no images, sending nothing and reading no bytes (protocol 15)", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const read: unknown[] = [];
+    const files = async (value: unknown) => {
+      read.push(value);
+      return { name: reference.name, mediaType: "image/png", bytes: PNG };
+    };
+    const result = await piModel({ ...host({ provider: "groq", model: "llama-3.1-8b-instant" }), files })(
+      screenshot,
+      { signal: signal() },
     );
+    expect(result).toEqual({
+      kind: "failed",
+      code: "unsupported_input",
+      retryable: false,
+      message:
+        'This model (groq/llama-3.1-8b-instant) does not read images: File "files__screenshot-result-2.png" (image/png).',
+    });
+    expect(read).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("shows it to a catalog model the operator says reads images (protocol 12)", async () => {
@@ -236,61 +249,90 @@ describe("an image a tool returned (R2b C11, Q23)", () => {
     expect(body).toContain(`data:image/png;base64,${Buffer.from(PNG).toString("base64")}`);
   });
 });
-describe("files a message names (protocol 12)", () => {
+describe("files a message names (protocol 12, 15)", () => {
   const file = (name: string, mediaType: string) => ({
     type: "media" as const,
     mediaType,
     reference: { artifactId: `af_${name}`, version: 1, name },
   });
-  async function send(
-    parts: ReturnType<typeof file>[],
-    files: ((value: unknown) => Promise<{ name: string; mediaType: string; bytes: Uint8Array }>) | undefined,
-    model: Parameters<typeof host>[0] = {},
-  ) {
-    let body = "";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url, options) => {
-        body = String(options.body);
-        return response({ role: "assistant", content: "ok" });
-      }),
-    );
-    const result = await piModel({ ...host(model), ...(files ? { files } : {}) })(
-      { ...call, prompt: [{ kind: "message", role: "user", content: [{ type: "text", text: "look" }, ...parts] }] },
+  it("refuses a text file sent as a media part: the harness inlines text (protocol 15)", async () => {
+    const read: unknown[] = [];
+    const files = async (value: unknown) => {
+      read.push(value);
+      return { name: "data.csv", mediaType: "text/csv", bytes: new Uint8Array() };
+    };
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const result = await piModel({ ...host(), files })(
+      { ...call, prompt: [{ kind: "message", role: "user", content: [file("data.csv", "text/csv")] }] },
       { signal: signal() },
     );
-    return { result, body: JSON.parse(body) as { messages: { content: unknown }[] } };
-  }
-
-  it("sends a text file as a file block, and never fails the call over a file", async () => {
-    const bytes = new TextEncoder().encode("a,b\n1,2");
-    const resolve = async (value: unknown) => {
-      const { name } = value as { name: string };
-      if (name === "gone.csv") {
-        const { FileUnavailableError } = await import("../src/artifacts/files.js");
-        throw new FileUnavailableError("Artifact af_gone version 1 is not available.");
-      }
-      return { name, mediaType: name.endsWith(".pdf") ? "application/pdf" : "text/csv", bytes };
-    };
-    const { result, body } = await send(
-      [file("data.csv", "text/csv"), file("gone.csv", "text/csv"), file("spec.pdf", "application/pdf"), file("x.zip", "application/zip")],
-      resolve,
-      { settings: { inputs: ["pdf"] } },
-    );
-    expect(result).toMatchObject({ output: [{ type: "text", text: "ok" }] });
-    const text = JSON.stringify(body.messages);
-    expect(text).toContain('<file name=\\"data.csv\\" type=\\"text/csv\\">\\na,b\\n1,2\\n</file>');
-    expect(text).toContain('(File \\"gone.csv\\", text/csv, is not shown: Artifact af_gone version 1 is not available.)');
-    // A PDF the model reads goes in its native block; a type no model reads is a note.
-    expect(text).toContain(`"file_data":"data:application/pdf;base64,${Buffer.from(bytes).toString("base64")}"`);
-    expect(text).toContain('(File \\"x.zip\\", application/zip, is not shown: no model reads application/zip files.)');
+    expect(result).toEqual({
+      kind: "failed",
+      code: "unsupported_input",
+      retryable: false,
+      message: 'File "data.csv" (text/csv) is text: send its contents as a text part.',
+    });
+    expect(read).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("gives a note for a file the model does not read, or with no resolver", async () => {
-    const { body } = await send([file("spec.pdf", "application/pdf")], undefined);
-    expect(JSON.stringify(body.messages)).toContain("is not shown: this model does not read PDFs.");
-    const unresolved = await send([file("a.txt", "text/plain")], undefined);
-    expect(JSON.stringify(unresolved.body.messages)).toContain("is not shown: files are unavailable.");
+  it("refuses a kind no model reads, or the model does not, before fetching", async () => {
+    for (const [part, message] of [
+      [file("x.zip", "application/zip"), 'does not read files of this type: File "x.zip" (application/zip).'],
+      [file("spec.pdf", "application/pdf"), 'does not read PDFs: File "spec.pdf" (application/pdf).'],
+      [file("a.bmp", "image/bmp"), 'does not read this image format: File "a.bmp" (image/bmp).'],
+    ] as const) {
+      const fetch = vi.fn();
+      vi.stubGlobal("fetch", fetch);
+      const resolve = vi.fn();
+      const result = await piModel({ ...host({ settings: { inputs: ["image"] } }), files: resolve })(
+        { ...call, prompt: [{ kind: "message", role: "user", content: [part] }] },
+        { signal: signal() },
+      );
+      expect(result).toMatchObject({ kind: "failed", code: "unsupported_input", retryable: false });
+      expect((result as { message: string }).message).toBe(`This model (custom/test-model) ${message}`);
+      expect(resolve).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    }
+  });
+
+  it("fails a reference it cannot fetch with invalid_request: not the session's, missing, too large", async () => {
+    const { FileUnavailableError } = await import("../src/artifacts/files.js");
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const image = file("big.png", "image/png");
+    const send = (files?: (value: unknown) => Promise<never>) =>
+      piModel({ ...host({ settings: { inputs: ["image"] } }), ...(files ? { files } : {}) })(
+        { ...call, prompt: [{ kind: "message", role: "user", content: [image] }] },
+        { signal: signal() },
+      );
+    expect(
+      await send(async () => {
+        throw new FileUnavailableError(
+          "big.png is 9000000 bytes; a model reads files of at most 8388608 bytes (the Runtime limit modelFileBytes).",
+        );
+      }),
+    ).toEqual({
+      kind: "failed",
+      code: "invalid_request",
+      retryable: false,
+      message: "big.png is 9000000 bytes; a model reads files of at most 8388608 bytes (the Runtime limit modelFileBytes).",
+    });
+    expect(await send()).toMatchObject({ kind: "failed", code: "invalid_request", retryable: false });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("checks the stored type too, after fetching", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const result = await piModel({
+      ...host({ settings: { inputs: ["image"] } }),
+      files: async () => ({ name: "a.png", mediaType: "application/zip", bytes: new Uint8Array([1]) }),
+    })(
+      { ...call, prompt: [{ kind: "message", role: "user", content: [file("a.png", "image/png")] }] },
+      { signal: signal() },
+    );
+    expect(result).toMatchObject({ code: "unsupported_input", message: expect.stringContaining('File "a.png" (application/zip)') });
   });
 });
 describe("native blocks: PDFs, Office documents, audio and video (multimodal messages M4)", () => {
@@ -394,12 +436,17 @@ describe("native blocks: PDFs, Office documents, audio and video (multimodal mes
     });
   });
 
-  it("gives a note for a kind the model's API cannot carry, and sends no bytes", async () => {
-    const { body } = await send({ settings: { inputs: ["pdf"] } }, [
+  it("refuses a kind the model's API cannot carry, sending nothing (unsupported_input)", async () => {
+    const { result, fetch } = await send({ settings: { inputs: ["pdf"] } }, [
       media("deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
     ]);
-    expect(body).toContain("is not shown: this model does not read Office documents.");
-    expect(body).not.toContain(pdf);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      kind: "failed",
+      code: "unsupported_input",
+      retryable: false,
+      message: expect.stringContaining("does not read Office documents"),
+    });
   });
 });
 it("returns provider tool calls using the portable model contract", async () => {
@@ -659,32 +706,14 @@ it("streams one code path and maps every usage counter", async () => {
   expect(extras.firstTokenMs).toBeGreaterThanOrEqual(0);
 });
 
-it("repairs a structured final answer instead of failing the call", async () => {
+it("passes a JSON answer through as text: the harness parses it (protocol 15)", async () => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () =>
-      response({ role: "assistant", content: '```json\n{"answer": "line one\nline two"}\n```' }),
-    ),
+    vi.fn(async () => response({ role: "assistant", content: '```json\n{"answer": 1}\n```' })),
   );
-  expect(
-    await piModel(host())(
-      { ...call, outputSchema: { type: "object" } },
-      { signal: signal() },
-    ),
-  ).toMatchObject({ output: [{ type: "json", value: { answer: "line one\nline two" } }] });
-});
-
-it("returns invalid_output when the structured answer cannot be repaired", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => response({ role: "assistant", content: "not json at all" })),
-  );
-  expect(
-    await piModel(host())(
-      { ...call, outputSchema: { type: "object" } },
-      { signal: signal() },
-    ),
-  ).toMatchObject({ kind: "failed", code: "invalid_output", retryable: false });
+  expect(await piModel(host())(call, { signal: signal() })).toMatchObject({
+    output: [{ type: "text", text: '```json\n{"answer": 1}\n```' }],
+  });
 });
 
 it("marks OpenAI-compatible reasoning as replayed within its turn only", async () => {

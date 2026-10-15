@@ -15,12 +15,10 @@ import type {
   TranscriptCompactionEntry,
   TranscriptEntry,
 } from "@nylorun/core/define";
-import {
-  HarnessError,
-  isModelFailureOutcome,
-  mediaReferenceLine,
-  mediaReferenceOf,
-} from "@nylorun/core/define";
+import { HarnessError, isModelFailureOutcome, mediaReferenceOf } from "@nylorun/core/define";
+import { isText, modelInputOf } from "@nylorun/core/contracts";
+import type { ModelDescriptor } from "@nylorun/core/harness-api";
+import { fileView, mediaReferenceLine, type FileViewContext } from "../model/files.js";
 
 /** Characters per token for the heuristic estimate; the reserve absorbs its error. */
 const CHARS_PER_TOKEN = 4;
@@ -42,9 +40,13 @@ export interface ContextBudget {
 
 /**
  * The window and output limit the adapter reported on the latest candidate
- * (`evidence.extras.contextWindow`, `maxOutputTokens`). Undefined until a model has answered.
+ * (`evidence.extras.contextWindow`, `maxOutputTokens`). Before any answer reports them, the
+ * turn's model descriptor's (`turn.start.model`); undefined without either.
  */
-export function contextBudget(transcript: readonly TranscriptEntry[]): ContextBudget | undefined {
+export function contextBudget(
+  transcript: readonly TranscriptEntry[],
+  model?: Pick<ModelDescriptor, "contextWindow" | "maxOutputTokens">,
+): ContextBudget | undefined {
   for (let index = transcript.length - 1; index >= 0; index--) {
     const entry = transcript[index]!;
     if (entry.kind !== "candidate") continue;
@@ -59,18 +61,26 @@ export function contextBudget(transcript: readonly TranscriptEntry[]): ContextBu
     );
     return { contextWindow: window, reserve };
   }
-  return undefined;
+  if (!model) return undefined;
+  return {
+    contextWindow: model.contextWindow,
+    reserve: Math.min(model.maxOutputTokens, MAX_RESERVE, Math.floor(model.contextWindow / 4)),
+  };
 }
 
 /**
  * Tokens the next prompt needs: the last reported usage, which already counts the
  * instructions, tools and everything before it, plus an estimate of what came after.
- * Without usage, everything is estimated. The files of turn `turnId` go to the model as media
- * (protocol 12) and count by their size; those of an earlier turn the reported call carried are
- * reference lines now, and come off it.
+ * Without usage, everything is estimated. The files of turn `turnId` go to the model as `files`
+ * shows them (`fileView`, protocol 15) and count by how; those of an earlier turn the reported
+ * call carried are reference lines now, and come off it.
  */
-export function estimateTokens(transcript: readonly TranscriptEntry[], turnId?: string): number {
-  const live = (item: TranscriptEntry) => (item.turnId === turnId ? fileTokens(item) : 0);
+export function estimateTokens(
+  transcript: readonly TranscriptEntry[],
+  turnId?: string,
+  files?: FileViewContext,
+): number {
+  const live = (item: TranscriptEntry) => (item.turnId === turnId ? fileTokens(item, files) : 0);
   for (let index = transcript.length - 1; index >= 0; index--) {
     const entry = transcript[index]!;
     if (entry.kind !== "candidate" || !entry.candidate.usage) continue;
@@ -87,7 +97,10 @@ export function estimateTokens(transcript: readonly TranscriptEntry[], turnId?: 
         ? 0
         : transcript
             .slice(0, index)
-            .reduce((sum, item) => sum + (item.turnId === entry.turnId ? fileTokens(item) : 0), 0);
+            .reduce(
+              (sum, item) => sum + (item.turnId === entry.turnId ? fileTokens(item, files) : 0),
+              0,
+            );
     return Math.max(
       0,
       reported -
@@ -102,30 +115,19 @@ export function estimateTokens(transcript: readonly TranscriptEntry[], turnId?: 
 const IMAGE_TOKENS = 1_600;
 const FILE_TOKENS_MAX = 100_000;
 
-/** A rough token count of the files an entry names, as media: by type and size. */
-function fileTokens(entry: TranscriptEntry): number {
+/**
+ * A rough token count of the files an entry names, as the model gets them: a note counts
+ * nothing (its line is text), inlined text by its size, an image a fixed count, another file by
+ * its size up to a cap. Without `files`, each counts by its type.
+ */
+function fileTokens(entry: TranscriptEntry, files: FileViewContext | undefined): number {
   return filesOf(entry).reduce((sum, { part }) => {
     const size = mediaReferenceOf(part.reference)?.size ?? 0;
-    const type = part.mediaType.split(";")[0]!.trim().toLowerCase();
-    if (type.startsWith("image/")) return sum + IMAGE_TOKENS;
-    if (isTextType(type)) return sum + Math.ceil(size / CHARS_PER_TOKEN);
+    if (files && fileView(part, files.model, files.limits).kind === "note") return sum;
+    if (isText(part.mediaType)) return sum + Math.ceil(size / CHARS_PER_TOKEN);
+    if (modelInputOf(part.mediaType) === "image") return sum + IMAGE_TOKENS;
     return sum + Math.min(Math.ceil(size / 8), FILE_TOKENS_MAX);
   }, 0);
-}
-
-function isTextType(type: string): boolean {
-  return (
-    type.startsWith("text/") ||
-    type.endsWith("+json") ||
-    type.endsWith("+xml") ||
-    [
-      "application/json",
-      "application/xml",
-      "application/yaml",
-      "application/x-yaml",
-      "application/javascript",
-    ].includes(type)
-  );
 }
 
 /** The files an entry names (protocol 12): a message's media parts, and a tool result's files. */
@@ -188,6 +190,8 @@ export interface CompactionInput {
   readonly stepId: string;
   readonly trigger: "threshold" | "overflow";
   readonly budget: ContextBudget | undefined;
+  /** How the turn's files reach the model, for the estimate (`fileView`). */
+  readonly files?: FileViewContext;
   readonly invoke: ModelAdapter;
   readonly signal: AbortSignal;
 }
@@ -201,7 +205,7 @@ export async function compact(
   input: CompactionInput,
 ): Promise<readonly TranscriptEntry[] | undefined> {
   const { transcript } = input;
-  const tokensBefore = estimateTokens(transcript, input.turnId);
+  const tokensBefore = estimateTokens(transcript, input.turnId, input.files);
   const window = input.budget?.contextWindow ?? tokensBefore;
   const keepTokens = Math.max(1, Math.min(KEEP_TOKENS, Math.floor(window * KEEP_SHARE)));
   const cut = findCut(transcript, keepTokens);

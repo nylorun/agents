@@ -1,4 +1,4 @@
-# The harness boundary: artifacts reach the harness (protocol 15, Harness API 4)
+# The harness boundary: artifacts and inputs reach the harness (protocol 15, Harness API 4)
 
 A fresh start for agent sessions: the Runtime speaks protocol 15 only, and harnesses Harness API 4
 only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness together.
@@ -18,9 +18,34 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
 - **The names are no longer reserved.** An agent's own tool may be named `read_artifact` or
   `save_artifact`, but our harness then refuses each turn of it (its own tools take those
   names), so rename such a tool if the agent runs on our harness.
-- **A file of a type the model does not read**, read with `read_artifact`, now reaches the model
-  as a file of the result, and the Model Gate writes the note; it used to fail
-  `artifact.unsupported`.
+- **Any file may be sent.** A message naming a file the model does not read is accepted: no more
+  `422 attachment_unsupported` (the error code is gone; A2A clients get no
+  `CONTENT_TYPE_NOT_SUPPORTED` for one, and AG-UI no `RUN_ERROR`). Files are still held to the
+  artifact size limits at upload. Our harness decides how the model sees each one: an image or
+  document it reads as itself, a text file inlined, anything else a note telling the model why it
+  is not shown. A workflow's agent steps now run with such files too. Studio's file picker offers
+  every file, and its refusal chips are gone.
+- **`turn.start.model`** describes the model the turn's calls use: `{provider, id, inputs,
+  contextWindow, maxOutputTokens, reasoning?}`, absent for flows and without a model (see
+  [HARNESS_API.md §3](./HARNESS_API.md#3-input-turnstart)). A custom harness must be built
+  against this release's `@nylorun/core`: an older one refuses a `turn.start` with the field.
+- **The Model Gate only fetches and translates.** It no longer writes notes for files: a text
+  file sent as a media part, or a kind the model or its API does not read, fails the call with
+  the new model failure code `unsupported_input`, and a file it cannot fetch (not the session's,
+  missing, past `modelFileBytes`) with `invalid_request`, before anything is sent. A custom
+  harness that sent every media part as it was now fails such a step: map each part through
+  `turn.start.model.inputs` (`modelInputOf`, `isModelImage` in `@nylorun/core/contracts`), inline
+  text yourself, and write your own line for the rest (`examples/harness-minimal` does). Our
+  engine's choices are exported from `@nylorun/harness`: `fileView`, `representFiles`,
+  `fileBlock`, `fileNote`, `mediaReferenceLine`.
+- **`ModelCall.outputSchema` is removed.** The gate adds no JSON instruction and repairs no JSON:
+  a harness with an output schema writes its own instruction and parses the model's text. Ours
+  does, as before, so a structured turn behaves the same; its `message.assistant` now carries the
+  answer's JSON text (it was `""`, derived from the gate's `json` block). An answer that is not
+  JSON still fails the step `model.invalid_output`.
+- **A file of a type the model does not read**, read with `read_artifact`, fails
+  `artifact.unsupported` with the reason, as before protocol 15; a file the model reads reaches it
+  as a file of the result.
 - **A custom harness** says `hello {api: 4}`. It reads and writes its run's session's artifacts
   with `artifact.read` and `artifact.write` (`readArtifact`, `openArtifactWrite` and
   `writeArtifactBytes` in `@nylorun/core/harness-api`), in chunks of at most
@@ -28,9 +53,10 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   that relied on core to answer `read_artifact` or `save_artifact` from `runtime.tools` offers
   its own now. The new Harness API error code is `not_found`.
 - **Moved to `@nylorun/core/contracts`:** the media type helpers (`contentTypeFor`, `essence`,
-  `normalizeContentType`, `isText`, `isModelImage`, `modelInputOf`, `inputLabel`,
-  `extensionFor`, `unreadableReason`, `MODEL_IMAGE_TYPES` and `DEFAULT_CONTENT_TYPE`), so the
-  Runtime and a harness type a file alike. `READ_ARTIFACT_TOOL`, `SAVE_ARTIFACT_TOOL` and
+  `normalizeContentType`, `isText`, `isModelImage`, `isOffice`, `modelInputOf`, `inputLabel`,
+  `extensionFor`, `MODEL_IMAGE_TYPES` and `DEFAULT_CONTENT_TYPE`), so the Runtime and a harness
+  type a file alike. `unreadableReason` is removed (use `fileView`), and `mediaReferenceLine`
+  moved from `@nylorun/core/define` to `@nylorun/harness`: it names our tool. `READ_ARTIFACT_TOOL`, `SAVE_ARTIFACT_TOOL` and
   `READ_ARTIFACT_MAX_BYTES` stay in `@nylorun/core/define`, but leave `RUNTIME_TOOL_NAMES`, and
   `runtimeManifestFor` takes no `save` or `read` option. `@nylorun/harness`'s `createHarness` takes
   `artifactPageBytes` (the most one `read_artifact` page holds, 32 KiB by default), `runDurable`

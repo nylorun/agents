@@ -129,6 +129,9 @@ export async function runDelegation(
             input: task,
             onModelCall: child.onModelCall,
             signal,
+            // A child calls the same model, and reads its files as the parent does.
+            ...(options.model === undefined ? {} : { model: options.model }),
+            ...(options.files === undefined ? {} : { files: options.files }),
             ...(options.info === undefined ? {} : { info: options.info }),
             state: initializeExecutionState(child.definition, {
               executionId: `${invocation.state.executionId}/${call.invocationId}`,

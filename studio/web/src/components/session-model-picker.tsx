@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils";
 import type { ManagementModels } from "@nylorun/admin/client";
 import { createTenantManagementClient } from "@/proxy-client";
 import { listFrom } from "@/runtime-body.ts";
-import { DEFAULT_MODEL_INPUTS } from "@/attachments";
 
 type HostModelProviderInfo = Awaited<
   ReturnType<ManagementModels["providers"]>
@@ -39,13 +38,10 @@ export function SessionModelPicker({
   tenantId,
   disabled = false,
   className,
-  onInputs,
 }: Readonly<{
   tenantId: string;
   disabled?: boolean;
   className?: string;
-  /** The active model's inputs, whenever they are read; text and images by default. */
-  onInputs?: (inputs: readonly string[]) => void;
 }>) {
   const api = useMemo(() => createTenantManagementClient(tenantId).models, [tenantId]);
   const [open, setOpen] = useState(false);
@@ -114,10 +110,6 @@ export function SessionModelPicker({
   }, [catalog, providers]);
 
   const active = options.find((item) => item.active) ?? options[0];
-  const activeInputs = (active?.inputs ?? DEFAULT_MODEL_INPUTS).join(",");
-  useEffect(() => {
-    onInputs?.(activeInputs.split(","));
-  }, [activeInputs, onInputs]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return options;

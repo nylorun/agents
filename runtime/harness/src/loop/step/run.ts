@@ -10,7 +10,9 @@ import { HarnessError, isHarnessError, isModelFailureOutcome } from "@nylorun/co
 import { copyJson } from "@nylorun/core/define";
 import type { ObserveEmit } from "../observe.js";
 import { StepContext } from "./step-context.js";
-import { projectModelCall } from "../model/project.js";
+import { liveFilesOf, projectModelCall } from "../model/project.js";
+import { representFiles } from "../model/files.js";
+import { structuredAnswer } from "../model/json-answer.js";
 import { resolveModelRequest } from "./resolve.js";
 import { sealStep, type SealedStepOutput } from "./seal.js";
 import { ModelConfigurationDraft } from "./model-configuration.js";
@@ -86,7 +88,10 @@ export async function runStep(input: {
       output: input.output,
     });
     requestedModelId = request.model?.id;
-    const call = projectModelCall(request);
+    // How each file of the turn reaches the model is ours to decide (protocol 15): text is read
+    // and inlined here, the rest goes as its reference or a note.
+    const files = await representFiles(liveFilesOf(request), input.agent.files, input.signal);
+    const call = projectModelCall(request, files);
     const invocationId = createId("invocation");
     modelInvocationId = invocationId;
     input.observe(() => ({
@@ -139,7 +144,17 @@ export async function runStep(input: {
             ...(outcome.retryAfterMs === undefined ? {} : { retryAfterMs: outcome.retryAfterMs }),
           },
         });
-      context.mintFromModel(normalizeCandidate(outcome));
+      // With an output schema, the final answer's text is read as JSON here (protocol 15). An
+      // answer that is not JSON stays in the transcript, as evidence, and fails the step.
+      const candidate = normalizeCandidate(outcome);
+      let answer: ModelCandidate;
+      try {
+        answer = structuredAnswer(candidate, request.outputSchema);
+      } catch (error) {
+        context.mintFromModel(candidate);
+        throw error;
+      }
+      context.mintFromModel(answer);
       if (!context.currentCandidate)
         throw new HarnessError("model.candidate-missing", "Model candidate missing after mint");
     } catch (error) {

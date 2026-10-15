@@ -6,8 +6,13 @@ export { hashManifest } from "./utils/hash.js";
  * artifact seam (`artifact.read`, `artifact.write`; Harness API 4), so a session's pinned
  * `runtime` block no longer carries them, and those names are no longer reserved: an author tool
  * may take one, though our harness then refuses the turn. A `tool.completed` of either says kind
- * `harness`. Sessions pinned before protocol 15 must be recreated. The Host serves protocol 15
- * only.
+ * `harness`. Files reach the model by the harness's decision: a message may name any file
+ * within the artifact size limits (no more `422 attachment_unsupported`), `turn.start.model`
+ * describes the model the turn uses (what it reads, its window), and the Model Gate only fetches
+ * the artifacts a call names and translates the call, refusing a part the provider cannot take
+ * (`unsupported_input`). A `ModelCall` has no `outputSchema`: a harness writes its own JSON
+ * instruction and parses the answer. Sessions pinned before protocol 15 must be recreated. The
+ * Host serves protocol 15 only.
  * Protocol 14: environment manifests (D63 to D65). `/v1/environment-manifests/{name}` holds
  * named, versioned definitions of a kind of Environment, saved like agents (with `If-Match` and
  * `?dryRun=true`), and `PUT /v1/environments/{id}` takes `manifest: "name"` or `"name@n"`. An
@@ -87,11 +92,7 @@ export const PROTOCOL_FEATURES = [
    * subject create, change and delete the Environments it is granted.
    */
   "environments",
-  /**
-   * Protocol 12: the model catalog and provider list say which inputs each model reads, and a
-   * message naming a file the Tenant's model does not read is refused with
-   * `422 attachment_unsupported`.
-   */
+  /** Protocol 12: the model catalog and provider list say which inputs each model reads. */
   "model-inputs",
   /**
    * Protocol 13: agent manifest v7 has no capabilities (its instructions, tools, skills and
@@ -288,12 +289,6 @@ export const ERROR_CODES = [
    * credentials to one URL.
    */
   "credential_conflict",
-  /**
-   * A message names a file the Tenant's model does not read (protocol 12): `422` at accept, and
-   * no turn starts. `details.parts` lists each refused file's `artifactId`, `name`, `mediaType`
-   * and `reason`.
-   */
-  "attachment_unsupported",
   /**
    * A `PUT /v1/environments/{id}` asked an existing Environment to run something else
    * (protocol 14, D63): only its labels and owner guard may change. Fork it into a new

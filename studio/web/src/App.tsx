@@ -34,12 +34,7 @@ import { IterationTimeline } from "@/components/iteration-timeline";
 import { SessionComposer } from "@/components/session-composer";
 import { AttachmentPreview } from "@/components/attachment-preview";
 import { ToolTraceBadges } from "@/components/tool-trace";
-import {
-  DEFAULT_MODEL_INPUTS,
-  acceptFor,
-  attachmentRefusal,
-  type ComposerAttachment,
-} from "@/attachments";
+import type { ComposerAttachment } from "@/attachments";
 import { HeaderSlot, HeaderSlotContext } from "@/components/header-slot";
 import { SessionIdCopy, SessionStatus } from "@/components/session-meta";
 import { Separator } from "@/components/ui/separator";
@@ -823,7 +818,6 @@ function SessionView({
   const [events, setEvents] = useState<readonly StudioEvent[]>([]);
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<readonly ComposerAttachment[]>([]);
-  const [modelInputs, setModelInputs] = useState<readonly string[]>(DEFAULT_MODEL_INPUTS);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -992,17 +986,8 @@ function SessionView({
       setContent("");
       setAttachments([]);
     } catch (e) {
-      const refusal = attachmentRefusal(e);
-      if (refusal) {
-        // The draft stays; the refused files say why, to remove them or pick another model.
-        setError(refusal.message);
-        setAttachments((previous) =>
-          previous.map((item) => {
-            const reason = item.uploaded && refusal.reasons.get(item.uploaded.artifactId);
-            return reason ? { ...item, error: reason } : item;
-          }),
-        );
-      } else setError(String(e));
+      // The draft stays, with its uploaded files, to send again.
+      setError(String(e));
       try {
         setStatus((await session.inspect()).status);
       } catch {
@@ -1284,8 +1269,6 @@ function SessionView({
             attachments={attachments}
             onAttach={attach}
             onRemove={removeAttachment}
-            accept={acceptFor(modelInputs)}
-            onModelInputs={setModelInputs}
           />
         </section>
       </ResizablePanel>

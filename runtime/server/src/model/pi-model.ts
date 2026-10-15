@@ -1,5 +1,4 @@
 import {
-  parseJsonWithRepair,
   retryAssistantCall,
   type AssistantMessage,
   type AuthContext,
@@ -29,18 +28,11 @@ import {
   type FileResolver,
   type ResolvedFile,
 } from "../artifacts/files.js";
-import {
-  essence,
-  inputLabel,
-  isModelImage,
-  isText,
-  modelInputOf,
-  unreadableReason,
-} from "@nylorun/core/contracts";
+import { essence, inputLabel, isModelImage, modelInputOf } from "@nylorun/core/contracts";
 import { scrub } from "../redact.js";
 import type { HostModelSecret } from "../vault/service.js";
-import { capabilitiesOf } from "./capabilities.js";
 import { classifyAssistantError, failure } from "./classify.js";
+import { addedInputsOf, describeModel, selectionOf } from "./descriptor.js";
 import { modelsFor } from "./models.js";
 import { NativeBlocks, nativeKindsOf, type NativeFileKind } from "./native-blocks.js";
 import { projectSecrets } from "./settings.js";
@@ -133,16 +125,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       ...outcome,
       message: String(scrub(outcome.message, secrets)),
     });
-    const requested = call.model?.id;
-    const selection = {
-      provider: stored.provider,
-      model: requested?.startsWith(`${stored.provider}/`)
-        ? requested.slice(stored.provider.length + 1)
-        : (requested ?? stored.model),
-      ...(stored.baseUrl
-        ? { custom: { baseUrl: stored.baseUrl, ...(stored.settings ?? {}) } }
-        : {}),
-    };
+    const selection = selectionOf(stored, call.model?.id);
     const registry = modelsFor(
       selection,
       hostCredentialStore(stored, options.writeHostCredential),
@@ -155,13 +138,12 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         "Unknown model. Run nylorun tenant models set.",
         false,
       );
-    // What the model reads (protocol 12): its catalog's inputs and the operator's additions.
-    // pi-ai drops an image the model's `input` lacks, so the call's model carries an added one.
-    const { inputs } = capabilitiesOf(
+    // What the model reads (protocol 12), as `turn.start.model` says: its catalog's inputs and
+    // the operator's additions. pi-ai drops an image the model's `input` lacks, so the call's
+    // model carries an added one.
+    const { inputs } = describeModel(
       found,
-      selection.custom
-        ? stored.settings?.inputs
-        : stored.addedInputs?.[`${selection.provider}/${selection.model}`],
+      addedInputsOf(selection, stored, stored.addedInputs ?? {}),
     );
     const selected: Model<Api> = {
       ...found,
@@ -170,7 +152,9 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
     // PDFs, Office documents, audio and video go in the API's own blocks: pi-ai builds the
     // request with a marker in each one's place and `onPayload` swaps it for the bytes.
     const natives = new NativeBlocks();
+    // A part the provider cannot take fails the call before anything is sent: never retried.
     const request = await buildContext(call, selected, inputs, options, natives);
+    if ("failed" in request) return redacted(request.failed);
     // Publish only portable references, never the materialized provider image bytes.
     context.reportPreparedCall?.({
       adapter: "runtime.pi-ai",
@@ -305,28 +289,6 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
           ...metadataFor(selected, part.thoughtSignature),
         });
     }
-    if (
-      call.outputSchema &&
-      !output.some((part) => part.type === "tool-call")
-    ) {
-      const text = output
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("");
-      let value: JsonValue;
-      try {
-        value = parseJsonWithRepair<JsonValue>(withoutCodeFence(text));
-      } catch (error) {
-        return failure(
-          "invalid_output",
-          `The model's final answer is not valid JSON: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          false,
-        );
-      }
-      output.splice(0, output.length, { type: "json", value });
-    }
     return {
       output,
       finishReason:
@@ -358,7 +320,38 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
   };
 }
 
+/** A part the call cannot carry: the call fails with it, before anything is sent. */
+class Unsendable extends Error {
+  constructor(readonly outcome: ModelFailureOutcome) {
+    super(outcome.message);
+  }
+}
+
+/**
+ * The provider context for `call`. The gate decides nothing about files (protocol 15): a media
+ * part names an artifact version the session may read, which it fetches (`options.files`) and
+ * translates, an image to an image block and a PDF, Office document, audio or video to a marker
+ * for its native block (`natives`). A part the model or its API cannot take is refused
+ * (`unsupported_input`): a text file (the harness inlines text), a kind the model does not read.
+ * A file it cannot fetch is `invalid_request`. Bytes go only into the provider request built
+ * here, never into the transcript or the journal.
+ */
 async function buildContext(
+  call: Parameters<RuntimeModelAdapter>[0],
+  selected: Model<Api>,
+  inputs: readonly ModelInput[],
+  options: PiModelOptions,
+  natives: NativeBlocks,
+): Promise<Context | { failed: ModelFailureOutcome }> {
+  try {
+    return await translate(call, selected, inputs, options, natives);
+  } catch (error) {
+    if (error instanceof Unsendable) return { failed: error.outcome };
+    throw error;
+  }
+}
+
+async function translate(
   call: Parameters<RuntimeModelAdapter>[0],
   selected: Model<Api>,
   inputs: readonly ModelInput[],
@@ -367,59 +360,54 @@ async function buildContext(
 ): Promise<Context> {
   const messages: Message[] = [];
   const instructions: string[] = [];
-  /**
-   * A file a media part names (protocol 6, 12), as the model gets it: a text file as a `<file>`
-   * block, an image the model reads as an image, a PDF, Office document, audio or video the model
-   * reads as a marker for its native block (`natives`), and anything else, or a file that cannot
-   * be read, as a note. Its bytes go only into the provider request built here, never into the
-   * transcript or the journal, and no file fails the call here.
-   */
-  const materialize = async (
+  const unsupported = (message: string) =>
+    new Unsendable(failure("unsupported_input", message, false));
+  /** Why the model cannot take a file of `type`, or undefined when it can. */
+  const refusal = (name: string, type: string): Unsendable | undefined => {
+    const kind = modelInputOf(type);
+    const file = `File ${JSON.stringify(name)} (${essence(type)})`;
+    if (kind === "text")
+      return unsupported(`${file} is text: send its contents as a text part.`);
+    if (
+      kind === undefined ||
+      !inputs.includes(kind) ||
+      (kind === "image" && !isModelImage(type)) ||
+      (kind !== "image" && !(isNativeKind(kind) && nativeKindsOf(selected.api).includes(kind)))
+    )
+      return unsupported(
+        `This model (${selected.provider}/${selected.id}) does not read ${
+          kind === "image" && inputs.includes("image") ? "this image format" : inputLabel(kind)
+        }: ${file}.`,
+      );
+    return undefined;
+  };
+  const toProvider = async (
     part: Extract<PromptContentPart, { type: "media" }>,
   ): Promise<TextContent | ImageContent> => {
-    let name = mediaReferenceOf(part.reference)?.name ?? "file";
-    let type = essence(part.mediaType);
-    const note = (why: string): TextContent => ({
-      type: "text",
-      text: `(File ${JSON.stringify(name)}, ${type}, is not shown: ${why}.)`,
-    });
-    const refused = unreadableReason(part.mediaType, inputs);
-    if (refused) return note(refused);
-    if (!options.files) return note("files are unavailable");
+    const declared = refusal(mediaReferenceOf(part.reference)?.name ?? "file", part.mediaType);
+    if (declared) throw declared;
+    if (!options.files)
+      throw new Unsendable(
+        failure("invalid_request", "This gate cannot fetch files: no artifact store.", false),
+      );
     let file: ResolvedFile;
     try {
       file = await options.files(part.reference);
     } catch (error) {
       if (!(error instanceof FileUnavailableError)) throw error;
-      return note(error.message.replace(/\.$/u, ""));
+      throw new Unsendable(failure("invalid_request", error.message, false));
     }
-    name = file.name;
-    type = essence(file.mediaType);
-    const stored = unreadableReason(file.mediaType, inputs);
-    if (stored) return note(stored);
-    if (isModelImage(file.mediaType))
-      return { type: "image", data: Buffer.from(file.bytes).toString("base64"), mimeType: type };
-    if (isText(file.mediaType)) {
-      let text: string;
-      try {
-        text = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
-      } catch {
-        return note("it is not UTF-8 text");
-      }
-      return {
-        type: "text",
-        text: `<file name=${JSON.stringify(file.name)} type=${JSON.stringify(type)}>\n${text}\n</file>`,
-      };
-    }
-    const kind = modelInputOf(file.mediaType);
-    if (isNativeKind(kind) && nativeKindsOf(selected.api).includes(kind))
-      return natives.add({
-        kind,
-        mediaType: type,
-        name: file.name,
-        data: Buffer.from(file.bytes).toString("base64"),
-      });
-    return note(`the Runtime does not send ${inputLabel(kind)} to this model's API (${selected.api})`);
+    const stored = refusal(file.name, file.mediaType);
+    if (stored) throw stored;
+    const type = essence(file.mediaType);
+    const data = Buffer.from(file.bytes).toString("base64");
+    if (isModelImage(file.mediaType)) return { type: "image", data, mimeType: type };
+    return natives.add({
+      kind: modelInputOf(file.mediaType) as NativeFileKind,
+      mediaType: type,
+      name: file.name,
+      data,
+    });
   };
   const content = async (
     parts: readonly PromptContentPart[],
@@ -427,7 +415,7 @@ async function buildContext(
     const result: (TextContent | ImageContent)[] = [];
     for (const part of parts) {
       if (part.type === "text") result.push({ type: "text", text: part.text });
-      else if (part.type === "media") result.push(await materialize(part));
+      else if (part.type === "media") result.push(await toProvider(part));
     }
     return result;
   };
@@ -461,18 +449,7 @@ async function buildContext(
     description: tool.description ?? "",
     parameters: { ...tool.inputSchema },
   }));
-  return {
-    systemPrompt: [
-      ...instructions,
-      ...(call.outputSchema
-        ? [
-            `Return the final answer as JSON matching this schema: ${JSON.stringify(call.outputSchema)}. Use tools when needed before returning the final JSON.`,
-          ]
-        : []),
-    ].join("\n"),
-    messages,
-    tools,
-  };
+  return { systemPrompt: instructions.join("\n"), messages, tools };
 }
 
 const isNativeKind = (input: ModelInput | undefined): input is NativeFileKind =>
@@ -581,12 +558,6 @@ function metadataFor(
       ...(OPENAI_COMPATIBLE_REASONING.test(signature) ? { replay: "turn" } : {}),
     },
   };
-}
-
-/** Open-weight models often wrap a JSON answer in a Markdown code fence. */
-function withoutCodeFence(text: string): string {
-  const fenced = /^\s*```[a-zA-Z]*\s*\n([\s\S]*?)\n?```\s*$/.exec(text);
-  return fenced ? fenced[1]! : text;
 }
 
 function usageOf(usage: Usage): NonNullable<RuntimeModelCandidate["usage"]> {

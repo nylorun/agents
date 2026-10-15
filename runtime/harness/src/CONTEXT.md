@@ -55,7 +55,9 @@ configuration, 32 KiB by default; whole UTF-8 characters, held to its size escap
 with `path`, streams the whole artifact into the sandbox (`executors.files.write`);
 `save_artifact` writes text, or a sandbox file it reads within the upload's room
 (`executors.files.read`), keyed by its effect id so a repeat stores nothing twice. A refusal
-(`not_found`, `limit_exceeded`, `invalid`) is a failed outcome the model sees.
+(`not_found`, `limit_exceeded`, `invalid`) is a failed outcome the model sees. A non-text file
+`read_artifact` loads goes to the model as a file of the result when its **file view** is media,
+and is `artifact.unsupported` (with the view's reason) when it is a note.
 
 **SDK client**: The shared application interface for communicating with a host.
 Authoring accompanies it in the agents SDK.
@@ -66,12 +68,50 @@ completed outcome, never `uncertain`.
 
 **Compaction**: Replacing the older part of the transcript with a summary the model wrote,
 so the next prompt fits the model's window. Recorded as a `compaction` entry, always first,
-with the reference lines of the files it summarized away (`files`).
+with the reference lines of the files it summarized away (`files`). The window and reply reserve
+are the latest candidate's (`evidence.extras`), or, before any answer, the **model descriptor**'s
+(`contextBudget(transcript, model)`). The estimate counts the turn's files as the model gets
+them (`fileView`): a note nothing, inlined text a quarter of its bytes, an image 1 600 tokens,
+another file an eighth of its bytes up to a cap.
+
+**Model descriptor**: The model a turn's calls use when they name none (`turn.start.model`,
+protocol 15): provider, id, what it reads (`inputs`), its context window and output limit.
+`runDurable({ model, files })` hands it to the root agent and every agent used as a tool. Absent
+for a flow and when the Tenant has no model; our engine then takes the model to read text and
+images.
+
+**Reference line**: How a file stands in a prompt (protocol 12, `mediaReferenceLine` in
+`loop/model/files.ts`, exported from `@nylorun/harness`): `[Uploaded artifact "name" ·
+<artifactId> v<n> · read_artifact to view]`, or `[Tool <name> returned artifact …]` for a tool
+result's file. It names `read_artifact`, our tool, so it is ours, not core's.
+
+**File view**: How one file of the turn reaches the model (protocol 15, `fileView(part, model,
+limits)` in `loop/model/files.ts`): `media` (the part goes as its artifact reference, which the
+Model Gate fetches: an image the model reads as PNG, JPEG, GIF or WebP, a PDF, Office document,
+audio or video it reads), `text` (we read it over the **artifact seam** and inline it as a
+`<file name=… type=…>` block, `fileBlock`) or `note` (`(File "name", type, is not shown: why.)`,
+`fileNote`): a file past `limits.modelFileBytes`, a kind the model does not read, a type no model
+reads. `representFiles` reads the text in chunks of `limits.chunkBytes`, strictly as UTF-8 (else
+a note), turns an `artifact.read` refusal into a note, and stops inlining once the turn's inlined
+text would pass `limits.modelCallBytes`. Without a file context (a local `run()`), every file
+goes as its media part and the adapter decides. A BYO harness may reuse these, or decide
+otherwise: the gate refuses only what the provider cannot take (`unsupported_input`).
+_Avoid_: sending a text file, or a kind the model does not read, as a media part.
 
 **Turn files**: The files of the turn in progress (protocol 12): a message's media parts, a tool
-result's `files`. The model call names every file by its reference line (`mediaReferenceLine`),
-and sends the turn's own once more, as media, in one user message after the conversation and
-the context (`loop/model/project.ts`). A file of an earlier turn is its line only.
+result's `files` (`liveFilesOf`). The model call names every file by its **reference line**, and
+sends the turn's own once more, each its line then its **file view**, in one user message after
+the conversation and the context (`loop/model/project.ts`). A file of an earlier turn is its line
+only. Inlined text is inside the hashed model call: a replay reads it again, and an artifact
+deleted between attempts changes the call (`effect_drift`).
+
+**Structured answer**: A turn with an output schema (protocol 15): our engine appends `Return the
+final answer as JSON matching this schema: … Use tools when needed before returning the final
+JSON.` to the system text, and reads a final answer that calls no tool and has no `json` block as
+JSON (`structuredAnswer` in `loop/model/json-answer.ts`): the text blocks joined, one Markdown
+fence stripped, raw control characters and bad escapes repaired (`parseJsonWithRepair`, ported
+from pi-ai). The candidate becomes one `json` block after its reasoning; text that is not JSON
+stays in the transcript and fails the step `model.invalid_output`. `ModelCall` carries no schema.
 
 **Segment rollover**: A long turn ending its durable segment at a step boundary (`yielded`)
 and continuing in the next segment of the same turn.

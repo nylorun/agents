@@ -65,7 +65,8 @@ export async function execute(
         turnId,
         stepId,
         trigger,
-        budget: contextBudget(invocation.state.transcript),
+        budget: contextBudget(invocation.state.transcript, options.model),
+        ...(options.files === undefined ? {} : { files: options.files }),
         invoke: options.onModelCall,
         signal,
       });
@@ -126,10 +127,11 @@ export async function execute(
       stepsRun++;
       const stepId = createId("step");
       // Keep the next prompt inside the model's window, before it is sent.
-      const budget = contextBudget(invocation.state.transcript);
+      const budget = contextBudget(invocation.state.transcript, options.model);
       if (
         budget &&
-        estimateTokens(invocation.state.transcript, turnId) > budget.contextWindow - budget.reserve
+        estimateTokens(invocation.state.transcript, turnId, options.files) >
+          budget.contextWindow - budget.reserve
       )
         await compactHistory("threshold", stepId);
       const snapshot: ExecutionSnapshot = {
@@ -144,6 +146,7 @@ export async function execute(
           parts: agent.parts,
           invoke: options.onModelCall,
           registry: agent.registry,
+          ...(options.files === undefined ? {} : { files: options.files }),
           sessionState: invocation.sessionBag,
         },
         state: snapshot,

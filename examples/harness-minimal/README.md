@@ -1,6 +1,6 @@
 # A minimal harness
 
-A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun Runtime. It is written only against the published contract (Harness API 4), [`@nylorun/core/harness-api`](../../core/src/harness-api/index.ts), and the `ws` package; it does not use our engine (`@nylorun/harness`). Read it as a worked example of the Harness API, or copy it as the start of your own harness.
+A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun Runtime. It is written only against the published contract (Harness API 4), [`@nylorun/core/harness-api`](../../core/src/harness-api/index.ts) with core's media types, and the `ws` package; it does not use our engine (`@nylorun/harness`). Read it as a worked example of the Harness API, or copy it as the start of your own harness.
 
 - [`src/harness.ts`](./src/harness.ts): the connection and the loop.
 - [`src/pod.ts`](./src/pod.ts): the join and token renewal of a sandbox pod.
@@ -12,7 +12,7 @@ The harness says `hello` with its harness id, `minimal` (or `HARNESS_ID`), and n
 
 1. `lease` hands it a run: the run token (`RunGrant.token`) and the turn (`TurnStart`). It renews the lease every `renewEveryMs` from the `hello` answer, and takes a new run token when a renewal brings one.
 2. `transcript.read`, once: the session's transcript so far.
-3. It builds the prompt from the manifest's instructions (the agent's `instructions`, then the Runtime's `runtime.instructions`), the transcript and the turn's message, and calls the Model Gate (`POST $NYLORUN_GATES_URL/nylorun/v1/model-calls`) with `Authorization: Bearer <run token>` and `Idempotency-Key: <effect id>`. The model is offered one tool: `bash`, from `runtime.tools` when the pinned manifest has a sandbox (`runtime.sandbox`).
+3. It builds the prompt from the manifest's instructions (the agent's `instructions`, then the Runtime's `runtime.instructions`), the transcript and the turn's message, and calls the Model Gate (`POST $NYLORUN_GATES_URL/nylorun/v1/model-calls`) with `Authorization: Bearer <run token>` and `Idempotency-Key: <effect id>`. The model is offered one tool: `bash`, from `runtime.tools` when the pinned manifest has a sandbox (`runtime.sandbox`). How a message's files reach the model is the harness's to decide: it sends each file the turn's model reads natively (`turn.start.model.inputs`; text and images without a descriptor) as its media part, which the gate fetches, and a line `[File "name" (type) not shown]` for the rest, text files included, since it reads none in. The gate refuses a part the model cannot take (`unsupported_input`).
 4. When the model calls `bash`, the harness runs the command itself with `bash -c`, in `/workspace` when it exists.
 5. It repeats until the model answers with text, then settles with `turn.completed`: the text as `output`, the transcript entries it added (`input`, `candidate`, `tool-results`, `final`) as edits, and `state: {steps}`, which core keeps and hands back with the next turn without reading it.
 

@@ -128,17 +128,21 @@ let offered: string[] = [];
 /** Every tool result in the model's last prompt. */
 let results: Seen[] = [];
 let calls = 0;
-/**
- * The turn's files (protocol 12): the media of the user message the call ends with, after the
- * conversation, each labelled with the reference line its tool result holds.
- */
-const turnFiles = (prompt: ModelCall["prompt"]): Seen["media"] => {
+/** The user message of the turn's files the call ends with, after the conversation (protocol 12). */
+const filesMessage = (prompt: ModelCall["prompt"]) => {
   const last = prompt.at(-1);
   const first = last?.content[0];
   return last?.kind === "message" && first?.type === "text" && first.text === "Files for this turn:"
-    ? (last.content.filter((part) => part.type === "media") as Seen["media"])
-    : [];
+    ? last
+    : undefined;
 };
+/**
+ * The turn's files: the media of that message, each labelled with the reference line its tool
+ * result holds. A text file is inlined there, and a file the model does not read is a note
+ * (protocol 15): neither is media.
+ */
+const turnFiles = (prompt: ModelCall["prompt"]): Seen["media"] =>
+  (filesMessage(prompt)?.content.filter((part) => part.type === "media") ?? []) as Seen["media"];
 const seenOf = (
   item: Extract<ModelCall["prompt"][number], { kind: "tool-result" }>,
   files: Seen["media"],
@@ -152,11 +156,14 @@ const seenOf = (
     ),
   };
 };
+/** The last call's prompt. */
+let lastPrompt: ModelCall["prompt"] | undefined;
 const model: ModelProvider = async (effect: { input: unknown }) => {
   const input = effect.input as ModelCall;
+  lastPrompt = input.prompt;
   offered = input.tools.map((tool) => tool.name);
   const files = turnFiles(input.prompt);
-  const conversation = files.length > 0 ? input.prompt.slice(0, -1) : input.prompt;
+  const conversation = filesMessage(input.prompt) ? input.prompt.slice(0, -1) : input.prompt;
   results = conversation.flatMap((item) => (item.kind === "tool-result" ? [seenOf(item, files)] : []));
   const last = conversation.at(-1);
   const next = brain(last?.kind === "tool-result" ? seenOf(last, files) : undefined);
@@ -523,17 +530,25 @@ describe("read_artifact and the files of messages (protocol 12)", () => {
     });
   });
 
-  it("hands a file of another type to the model as a file of the result (protocol 15)", async () => {
+  it("refuses a file of a type the turn's model does not read (protocol 15)", async () => {
     await client.createSession({ id: "named-3", agentId: "plain", ownerUserId: "u:ada" });
     const pdf = await upload("/v1/artifacts?name=own.pdf&sessionId=named-3", "%PDF-1.4", "application/pdf");
-    // Our engine reads it over the artifact seam; the Model Gate shows it or writes a note.
+    // Our engine decides by the model descriptor: none here, so text and images only.
     expect((await turn("named-3", [], { artifactId: pdf })).payload).toEqual({
-      artifactId: pdf,
-      version: 1,
-      name: "own.pdf",
-      contentType: "application/pdf",
-      size: 8,
+      kind: "failed",
+      code: "artifact.unsupported",
+      message: "own.pdf is application/pdf: this model does not read PDFs.",
     });
+  });
+
+  it("inlines a text file a message names into the turn's call (protocol 15)", async () => {
+    const notes = await upload("/v1/artifacts?name=brief.md", "# Brief", "text/markdown");
+    await client.createSession({ id: "named-4", agentId: "plain", ownerUserId: "u:ada" });
+    // The model reads it once more with read_artifact; the turn's calls carry it inlined.
+    expect((await turn("named-4", [notes], { artifactId: notes })).payload).toMatchObject({ content: "# Brief" });
+    expect(JSON.stringify(filesMessage(lastPrompt!))).toContain(
+      JSON.stringify('<file name="brief.md" type="text/markdown">\n# Brief\n</file>').slice(1, -1),
+    );
   });
 });
 

@@ -212,7 +212,7 @@ describe("stateless execution", () => {
     const result = await runAgent(agent, {
       input: "go",
       onModelCall: async (call) => {
-        expect(call.outputSchema).toBeDefined();
+        expect(JSON.stringify(call.prompt[0])).toContain("Return the final answer as JSON");
         return { output: [{ type: "json", value: { count: 3 } }] };
       },
     });

@@ -13,6 +13,7 @@ import {
   toBase64,
   type ArtifactMeta,
   type HarnessChannel,
+  type ModelDescriptor,
   type ParamsOf,
 } from "@nylorun/core/harness-api";
 import { runArtifactTool } from "../src/tools/artifacts.js";
@@ -177,10 +178,13 @@ function sandboxFiles(files: Record<string, Uint8Array> = {}) {
   return { port, written, reads };
 }
 
-const run = (options: { sandbox?: boolean; chunkBytes?: number } = {}): HarnessRun => ({
+const run = (
+  options: { sandbox?: boolean; chunkBytes?: number; model?: ModelDescriptor } = {},
+): HarnessRun => ({
   runId: "r1",
   grant: { runId: "r1", sessionId: "s1", turnId: "t1", epoch: 1 },
   start: {
+    ...(options.model ? { model: options.model } : {}),
     limits: {
       ...RUNTIME_LIMIT_DEFAULTS,
       chunkBytes: options.chunkBytes ?? RUNTIME_LIMIT_DEFAULTS.chunkBytes,
@@ -211,12 +215,14 @@ const tool = (
     sandbox?: boolean;
     pageBytes?: number;
     chunkBytes?: number;
+    model?: ModelDescriptor;
   } = {},
 ) => ({
   channel,
   run: run({
     sandbox: options.sandbox ?? options.files !== undefined,
     ...(options.chunkBytes ? { chunkBytes: options.chunkBytes } : {}),
+    ...(options.model ? { model: options.model } : {}),
   }),
   ...(options.files ? { files: options.files } : {}),
   pageBytes: options.pageBytes ?? 32 * 1024,
@@ -307,6 +313,45 @@ describe("read_artifact", () => {
           reference: { artifactId: "af_p", version: 1, name: "chart.png", size: 3 },
         },
       ],
+    });
+  });
+
+  it("refuses a file the turn's model does not read, by its descriptor (protocol 15)", async () => {
+    const core = fakeCore([
+      file("af_p", "chart.png", "image/png", new Uint8Array([1, 2, 3])),
+      file("af_d", "spec.pdf", "application/pdf", new Uint8Array([1])),
+      file("af_z", "a.zip", "application/zip", new Uint8Array([1])),
+    ]);
+    const textOnly: ModelDescriptor = {
+      provider: "groq",
+      id: "llama",
+      inputs: ["text"],
+      contextWindow: 8_192,
+      maxOutputTokens: 1_024,
+    };
+    const read = (artifactId: string, model?: ModelDescriptor) =>
+      runArtifactTool(
+        call("read_artifact", { artifactId }),
+        tool(core.channel, model ? { model } : {}),
+      );
+    expect(await read("af_p", textOnly)).toEqual({
+      kind: "failed",
+      code: "artifact.unsupported",
+      message: "chart.png is image/png: this model does not read images.",
+    });
+    expect(await read("af_d", { ...textOnly, inputs: ["text", "image", "pdf"] })).toMatchObject({
+      kind: "completed",
+      files: [{ mediaType: "application/pdf" }],
+    });
+    // Without a descriptor the model is taken to read text and images.
+    expect(await read("af_d")).toMatchObject({
+      kind: "failed",
+      code: "artifact.unsupported",
+      message: "spec.pdf is application/pdf: this model does not read PDFs.",
+    });
+    expect(await read("af_z")).toMatchObject({
+      code: "artifact.unsupported",
+      message: "a.zip is application/zip: no model reads application/zip files.",
     });
   });
 

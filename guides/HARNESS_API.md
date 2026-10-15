@@ -107,12 +107,21 @@ Which token:
     transcript update (§6), a claimed event. Default 960 KiB, its ceiling (S2's 1 MiB record
     less room for the event's envelope).
   - `modelCallBytes`: a Model Gate call's body (default 32 MiB; past it, `400`).
-  - `modelFileBytes`: one file the Model Gate sends a model (default 8 MiB).
+  - `modelFileBytes`: one file the Model Gate sends a model, and the largest a harness should
+    show it (default 8 MiB).
   - `toolAnswerBytes`: an MCP or HTTP tool's answer the Tool Gate keeps (default 8 MiB; past it,
     `mcp.too-large` or `http.too-large`), and the tool bodies it reads.
   - `harnessStateBytes`: your state (§7), as JSON (default 256 KiB).
   - `chunkBytes`: one `definition.file` range, `artifact.read` answer or `artifact.write` chunk
     (§4b): ask for and send at most this many bytes (default 16 MiB).
+- `model` (`ModelDescriptorSchema`, optional): the model the Model Gate uses for a call that
+  names no `model.id`, as the segment started: `{provider, id, inputs, contextWindow,
+  maxOutputTokens, reasoning?}`. `inputs` is what it reads (`text` always, and `image`, `pdf`,
+  `office`, `audio`, `video` as its catalog and the operator say), and the window and output
+  limit are in tokens. The fixture model is `provider: "fixture"` and reads every input. It is
+  absent for a flow and when the Tenant has no model. Decide from it how each file of the turn
+  reaches the model (§5): the Runtime accepts any file a message names, within the artifact size
+  limits.
 
 ## §4 Record: intent, outcome, hash, effect ids
 
@@ -249,7 +258,17 @@ The calls:
 
 - **Model.** `POST /nylorun/v1/model-calls` with `ModelCallBodySchema`:
   `{effectId, invocationId, call: ModelCall}`. A `ModelCall` carries
-  `{prompt, tools, outputSchema?, executionId}`, where `executionId` is the session id.
+  `{prompt, tools, model?, executionId}`, where `executionId` is the session id.
+  - A media part's `reference` names an artifact version (`{artifactId, version}`); the gate
+    fetches it under the session's read rule (§4b) and sends it in the provider's own format: an
+    image as image input, a PDF, Office document, audio or video as the API's native block.
+  - The gate decides nothing about files and writes no text of its own. It refuses, before
+    anything is sent and never retried: a text file as a media part, or a kind the model or its
+    API does not read (`unsupported_input`; inline text yourself, and tell the model about a file
+    it cannot read); a reference it cannot fetch (not the session's, missing, a folder, past
+    `limits.modelFileBytes`: `invalid_request`).
+  - It adds no output-schema instruction and repairs no JSON: for a structured answer, write the
+    instruction yourself and parse the model's text.
   - It answers `200 {outcome}`: a `ModelCandidate` (`output` blocks, `finishReason`, `usage`) or
     a failure `{kind: "failed", code, message, retryable}`.
   - The gate meters every call: one `model_usage` row per effect id, readable with its
@@ -379,7 +398,10 @@ What v4 changed (protocol 15, the harness boundary):
 - the artifact seam: `artifact.read` and `artifact.write` (§4b), and the error code `not_found`;
 - the pinned `runtime` block no longer holds `read_artifact` and `save_artifact`, and core no
   longer runs them: a harness that offered them from `runtime.tools` and relied on core to answer
-  them offers its own over the seam, as ours does.
+  them offers its own over the seam, as ours does;
+- `turn.start.model` (§3), and files are the harness's to show: the Model Gate only fetches and
+  translates, refusing what the provider cannot take (`unsupported_input`), and `ModelCall` has no
+  `outputSchema` (§5).
 
 v3 renamed `hello.capabilities` to `features`, removed `capabilityId` from effects, gate calls and
 MCP records, and gave the harness flat manifests (protocol 13); `definition.file`'s

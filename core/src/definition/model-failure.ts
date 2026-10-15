@@ -10,6 +10,7 @@ export const MODEL_FAILURE_CODES: readonly ModelFailureCode[] = Object.freeze([
   "auth",
   "invalid_request",
   "invalid_output",
+  "unsupported_input",
   "budget_exhausted",
 ]);
 

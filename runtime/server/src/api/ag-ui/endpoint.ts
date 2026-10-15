@@ -68,7 +68,7 @@ export function agUiRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: TAGS,
       summary: "Run an agent",
       description:
-        "For a person, named by a trusted issuer's token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); its media parts are files: bytes sent inline (`data`, at most 20 MiB each) are stored as artifacts of the session, a `file` source with provider `nylorun` names an artifact, and a URL is refused. `resume` answers interrupts. A busy session, or a file the model does not read, is a `RUN_ERROR` in the stream.",
+        "For a person, named by a trusted issuer's token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); its media parts are files: bytes sent inline (`data`, at most 20 MiB each) are stored as artifacts of the session, a `file` source with provider `nylorun` names an artifact, and a URL is refused. `resume` answers interrupts. A busy session is a `RUN_ERROR` in the stream; any file type is accepted, and the agent's harness decides how its model sees it.",
       request: {
         params: agentId,
         body: {

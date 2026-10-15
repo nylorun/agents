@@ -40,6 +40,7 @@ export {
   FrameSchema,
   HarnessCheckpointSchema,
   IntentAnswerSchema,
+  ModelDescriptorSchema,
   NativeToolSchema,
   OutcomeAnswerSchema,
   RecordedOutcomeSchema,

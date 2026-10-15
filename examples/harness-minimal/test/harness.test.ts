@@ -19,7 +19,7 @@ import {
   type TurnOutput,
   type TurnStart,
 } from "@nylorun/core/harness-api";
-import { serve } from "../src/harness.js";
+import { promptOf, serve } from "../src/harness.js";
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -287,4 +287,47 @@ it("ends a cancelled turn as cancelled and stops its call at the gate", async ()
   expect(output).toEqual({ runId: "r1", status: "cancelled" });
   expect(core.order).toEqual(["intent t1:0:model:0", "outcome t1:0:model:0"]);
   expect(gate.calls.at(-1)!.path).toBe("/nylorun/v1/model-calls/t1%3A0%3Amodel%3A0/cancel");
+});
+
+it("sends a message's files the turn's model reads, and a line for the rest (protocol 15)", () => {
+  const media = (mediaType: string, name: string) => ({
+    type: "media" as const,
+    mediaType,
+    reference: { artifactId: `af_${name}`, version: 1, name, size: 3 },
+  });
+  const transcript = [
+    {
+      kind: "input" as const,
+      turnId: "t1",
+      event: {
+        kind: "user-message" as const,
+        content: [
+          { type: "text" as const, text: "look" },
+          media("image/png", "a.png"),
+          media("application/pdf", "b.pdf"),
+          media("text/csv", "c.csv"),
+          media("image/bmp", "d.bmp"),
+        ],
+      },
+    },
+  ];
+  const content = (model?: TurnStart["model"]) =>
+    (promptOf([], transcript, model)[0] as { content: unknown[] }).content;
+  const line = (name: string, type: string) => ({ type: "text", text: `[File "${name}" (${type}) not shown]` });
+  // Without a descriptor: text and images.
+  expect(content()).toEqual([
+    { type: "text", text: "look" },
+    media("image/png", "a.png"),
+    line("b.pdf", "application/pdf"),
+    line("c.csv", "text/csv"),
+    line("d.bmp", "image/bmp"),
+  ]);
+  const model = { provider: "p", id: "m", inputs: ["text", "pdf"] as const, contextWindow: 1_000, maxOutputTokens: 100 };
+  expect(content({ ...model, inputs: [...model.inputs] })).toEqual([
+    { type: "text", text: "look" },
+    line("a.png", "image/png"),
+    media("application/pdf", "b.pdf"),
+    line("c.csv", "text/csv"),
+    line("d.bmp", "image/bmp"),
+  ]);
 });

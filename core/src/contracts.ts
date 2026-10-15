@@ -62,10 +62,10 @@ export {
   extensionFor,
   inputLabel,
   isModelImage,
+  isOffice,
   isText,
   modelInputOf,
   normalizeContentType,
-  unreadableReason,
 } from "./utils/media-types.js";
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES, isArtifactId } from "./compatibility.js";

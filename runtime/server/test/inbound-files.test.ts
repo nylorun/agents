@@ -1,10 +1,12 @@
 /**
- * Inbound files against the accept check (multimodal messages, M2 and M7): with a model in the
- * vault that reads images and not PDFs, a PDF sent inline over AG-UI or A2A is refused like any
- * other message's file, and the artifact stored for it is deleted. The A2A card names the files
- * that model reads.
+ * Inbound files (multimodal messages, M2 and M7; protocol 15): with a model in the vault that
+ * reads images and not PDFs, a PDF sent inline over AG-UI or A2A is accepted like any other
+ * message's file, and the turn runs: the harness tells the model why it does not see it. A
+ * message the Runtime refuses still takes the files stored for it. The A2A card names the files
+ * that model reads natively.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { ModelCall } from "@nylorun/core/define";
 import { contextSessionId } from "../src/api/a2a/tasks.js";
 import { sessionIdFor } from "../src/api/ag-ui/session-id.js";
 import { APP, startSubjectTenant, type SubjectTenant } from "./security/subjects.js";
@@ -12,11 +14,18 @@ import { APP, startSubjectTenant, type SubjectTenant } from "./security/subjects
 let tenant: SubjectTenant;
 
 const PDF = Buffer.from("%PDF-1.4 a brief").toString("base64");
+const NOTE = '(File "brief.pdf", application/pdf, is not shown: this model does not read PDFs.)';
 const asSubject = (subject: string) => ({
   authorization: `Bearer ${APP}`,
   "nylorun-subject": subject,
   "nylorun-scopes": "sessions:own",
 });
+
+/** The model's calls; one whose last message says "hold" waits for `release`. */
+const calls: ModelCall[] = [];
+let release: () => void = () => {};
+const held = new Promise<void>((resolve) => (release = resolve));
+const textOf = (call: ModelCall) => JSON.stringify(call.prompt);
 
 /** The artifacts of a session, as the application sees them. */
 async function artifactsOf(sessionId: string): Promise<unknown[]> {
@@ -26,8 +35,15 @@ async function artifactsOf(sessionId: string): Promise<unknown[]> {
 }
 
 beforeAll(async () => {
-  tenant = await startSubjectTenant();
-  // A model that reads images, not PDFs: the accept check runs against it.
+  tenant = await startSubjectTenant({
+    modelProvider: async (effect) => {
+      const call = effect.input as ModelCall;
+      calls.push(call);
+      if (textOf(call).includes('"hold"')) await held;
+      return { output: [{ type: "text", text: "ok" }] };
+    },
+  });
+  // A model that reads images, not PDFs: the harness decides by its descriptor.
   const configured = await fetch(`${tenant.runtime.url}/v1/tenant/model`, {
     method: "PUT",
     headers: { ...tenant.runtime.managementHeaders(), "content-type": "application/json" },
@@ -44,11 +60,27 @@ beforeAll(async () => {
   expect(configured.status, await configured.clone().text()).toBe(200);
 });
 afterAll(async () => {
+  release();
   await tenant?.close();
 });
 
+const a2a = async (subject: string, message: Record<string, unknown>, configuration?: Record<string, unknown>) => {
+  const response = await fetch(`${tenant.runtime.url}/v1/a2a/agents/bot`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "A2A-Version": "1.0", ...asSubject(subject) },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "SendMessage",
+      params: { message, ...(configuration ? { configuration } : {}) },
+    }),
+  });
+  expect(response.status).toBe(200);
+  return (await response.json()) as any;
+};
+
 describe("a file the model does not read", () => {
-  it("is a RUN_ERROR attachment_unsupported over AG-UI, and its artifact is deleted", async () => {
+  it("is accepted over AG-UI, and the model is told why it does not see it", async () => {
     const response = await fetch(`${tenant.runtime.url}/v1/ag-ui/agents/bot`, {
       method: "POST",
       headers: { "content-type": "application/json", ...asSubject("app:pia") },
@@ -79,44 +111,49 @@ describe("a file the model does not read", () => {
       .map((frame) => frame.split("\n").find((line) => line.startsWith("data: ")))
       .filter((line): line is string => line !== undefined)
       .map((line) => JSON.parse(line.slice(6)));
-    expect(events.at(-1)).toMatchObject({
-      type: "RUN_ERROR",
-      code: "attachment_unsupported",
-      message: expect.any(String),
-    });
-    expect(events.map((event) => event.type)).not.toContain("RUN_FINISHED");
-    expect(await artifactsOf(sessionIdFor("app:pia", "bot", "p1"))).toEqual([]);
+    expect(events.at(-1)).toMatchObject({ type: "RUN_FINISHED" });
+    expect(await artifactsOf(sessionIdFor("app:pia", "bot", "p1"))).toHaveLength(1);
+    expect(textOf(calls.at(-1)!)).toContain(JSON.stringify(NOTE).slice(1, -1));
   });
 
-  it("is ContentTypeNotSupportedError over A2A, with its reason, and its artifact is deleted", async () => {
-    const rpc = async (message: Record<string, unknown>) => {
-      const response = await fetch(`${tenant.runtime.url}/v1/a2a/agents/bot`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "A2A-Version": "1.0", ...asSubject("app:quin") },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "SendMessage", params: { message } }),
-      });
-      expect(response.status).toBe(200);
-      return (await response.json()) as any;
-    };
-    const opened = await rpc({ messageId: "q1", role: "ROLE_USER", parts: [{ text: "Hello" }] });
+  it("is accepted over A2A, and the task completes", async () => {
+    const opened = await a2a("app:quin", { messageId: "q1", role: "ROLE_USER", parts: [{ text: "Hello" }] });
     const { contextId } = opened.result.task;
-    const refused = await rpc({
+    const sent = await a2a("app:quin", {
       messageId: "q2",
       role: "ROLE_USER",
       contextId,
       parts: [{ text: "Summarize this" }, { raw: PDF, mediaType: "application/pdf", filename: "brief.pdf" }],
     });
-    expect(refused.error).toMatchObject({
-      code: -32005,
-      message: expect.stringContaining("PDF"),
-      data: [expect.objectContaining({ reason: "CONTENT_TYPE_NOT_SUPPORTED", metadata: { reason: "attachment_unsupported" } })],
+    expect(sent.error).toBeUndefined();
+    expect(sent.result.task.status.state).toBe("TASK_STATE_COMPLETED");
+    expect(await artifactsOf(contextSessionId("app:quin", "bot", contextId))).toHaveLength(1);
+    expect(textOf(calls.at(-1)!)).toContain(JSON.stringify(NOTE).slice(1, -1));
+  });
+});
+
+describe("a message the Runtime refuses", () => {
+  it("leaves no files behind: a busy context over A2A", async () => {
+    const opened = await a2a(
+      "app:rae",
+      { messageId: "r1", role: "ROLE_USER", parts: [{ text: "hold" }] },
+      { returnImmediately: true },
+    );
+    const { contextId } = opened.result.task;
+    const refused = await a2a("app:rae", {
+      messageId: "r2",
+      role: "ROLE_USER",
+      contextId,
+      parts: [{ text: "Summarize this" }, { raw: PDF, mediaType: "application/pdf", filename: "brief.pdf" }],
     });
-    expect(await artifactsOf(contextSessionId("app:quin", "bot", contextId))).toEqual([]);
+    expect(refused.error).toMatchObject({ code: -32004 });
+    expect(await artifactsOf(contextSessionId("app:rae", "bot", contextId))).toEqual([]);
+    release();
   });
 });
 
 describe("the A2A card", () => {
-  it("advertises the media types the Tenant's model reads", async () => {
+  it("advertises the media types the Tenant's model reads natively", async () => {
     const response = await fetch(`${tenant.runtime.url}/v1/a2a/agents/bot/card`, {
       headers: { authorization: `Bearer ${APP}` },
     });
