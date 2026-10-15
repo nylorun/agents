@@ -858,9 +858,11 @@ export const PutEnvironmentRequestSchema = z
     /**
      * The harness that runs the Environment's sessions (track R4): `nylorun` (ours, the default)
      * or the id of a custom harness. A pod Environment whose harness is not ours runs its
-     * `image` as the harness: the image's own entrypoint, with nothing copied in. Each session
-     * pins the harness when it opens; a session whose Environment's harness changed later fails
-     * its next turn with `harness_mismatch`.
+     * `image` as the harness: the image's own entrypoint, with nothing copied in. It is fixed
+     * for the Environment's life (protocol 14): to run another harness, fork onto a manifest
+     * version that names it. Each session pins the harness when it opens; a session whose
+     * Environment id was deleted and made again with another harness fails its next turn with
+     * `harness_mismatch`.
      */
     harness: HarnessIdSchema.optional(),
     /**

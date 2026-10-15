@@ -237,8 +237,9 @@ export const ERROR_CODES = [
    */
   "environment_owner_mismatch",
   /**
-   * The session's Environment now runs another harness than the one the session pinned when it
-   * opened (track R4): open a new session to run on it.
+   * The session's Environment runs another harness than the one the session pinned when it
+   * opened (track R4): its id was deleted and made again with another harness, or an
+   * Environment changed in place before protocol 14 applied that change. Open a new session.
    */
   "harness_mismatch",
   /**
@@ -302,7 +303,7 @@ export const ERROR_CODES = [
   "manifest_in_use",
   /**
    * `If-Match` named a version that is no longer the latest (D63): `412`. Read the manifest
-   * again, or save with `--force` (no `If-Match`).
+   * again, or save without `If-Match` (the CLI's `--if-match`, the SDK's `ifMatch`).
    */
   "manifest_changed",
   "internal_error",

@@ -382,9 +382,9 @@ Upgrading from protocol 10, which had sandbox resources and vaults:
 
 `GET /v1/environments?label=k=v` lists them, `POST .../stop` and `.../reset`
 stop a pod or give it a new, empty volume, and `DELETE` removes the Environment
-with its vault and files. `npx nylorun local sandbox ls | rm` does the same on a local
-Tenant, and `npx nylorun doctor sandbox` reports the sandbox backend in
-use. Each Environment's lifecycle events (`environment.created`, `.attached`,
+with its vault and files. `npx nylorun environments list | delete` does the same
+from the command line (Runtime API, an application key), and
+`npx nylorun doctor sandbox` reports the sandbox backend in use. Each Environment's lifecycle events (`environment.created`, `.attached`,
 `.deleted`, a pod's `.running`, `.suspended`, `.lost`, …) are at
 `GET /v1/environments/{id}/events`; a session's own log records
 `environment.attached`, `environment.state` and `environment.exec`.
@@ -1074,9 +1074,14 @@ The runtime container runs no turn, no MCP server and no workspace command.
 - **Your own harness.** An Environment's `harness` names the harness that runs its
   sessions' turns (`nylorun` when unset). A harness of your own runs beside the
   Runtime with its own token (`nylorun-operate harness token put <id>` in the
-  runtime container) or as a pod Environment's `image`. A session pins its
-  harness when it opens; a turn on an Environment that now names another one is
-  `409 harness_mismatch`. See [HARNESS_API.md](./HARNESS_API.md).
+  runtime container) or as a pod Environment's `image`. An Environment's
+  harness is fixed for its life: to run another harness, save a manifest
+  version that names it, fork the Environment onto that version, and open new
+  sessions on the fork. A session pins its harness when it opens. If its
+  Environment's id is deleted and made again with another harness, or an
+  Environment changed in place before protocol 14 applies that change, the
+  session's next turn is `409 harness_mismatch`: open a new session. See
+  [HARNESS_API.md](./HARNESS_API.md).
 
 ## Networks and Restate's UI
 

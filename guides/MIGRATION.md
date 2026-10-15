@@ -124,7 +124,9 @@ Runtime, the SDKs, Studio and the CLI together, then save your agents again (`sa
 - **Reserved names.** An agent's tool may not take a Runtime tool's name (`RUNTIME_TOOL_NAMES`:
   `bash`, `read`, `write`, `edit`, `grep`, `glob`, `save_artifact`, `read_artifact`,
   `load_skill`, `read_skill_resource`, `tool_search`, `tool_call`), nor contain `__`, which MCP
-  tool names use. Names are unique across tools, skills and servers.
+  tool names use. Tool names are unique, and so are skill names and MCP server names, each
+  within its kind: a tool, a skill and a server may share a name, since a server's tools are
+  called `<server>__<tool>` and a skill is loaded by name through `load_skill`.
 - **Turn variants.** A variant may remove tools, tighten MCP servers' tool settings, and change
   instructions, name, description and metadata. Its skills are fixed (equal to the pin's), and it
   may not set `runtime`, change `outputSchema` or add a part.
@@ -179,7 +181,7 @@ protocol change.
 
 | Removed | Instead |
 | --- | --- |
-| `.use(fn)`, `.use(id, fn)`, `middleware()`, `StepMiddleware` | A tool's approval, the Tenant's tool policy, an output schema, or your own harness (Harness API) |
+| `.use(fn)`, `.use(id, fn)`, `middleware()`, `StepMiddleware` | The Tenant's tool policy (an `ask` or `deny` rule), an output schema, or your own harness (Harness API) |
 | `.use({ … })`, `.capability(…)`, `capability()`, `CapabilityBuilder` | `.instructions()`, `.tools()`, `.subagents()`, `.mcp()`, `.skills()`, `.plugin()`. To reuse a set, write a function that adds it: `const billing = (agent) => agent.tools(refund).instructions(BILLING)` |
 | `skills(dir)`, `plugin(dir)`, `mcp(servers)` | `.skills(dir)`, `.plugin(dir)`, `.mcp(servers)` |
 | `.skills(dir, { id })` | `.skills(dir)`; the part takes the folder's name |

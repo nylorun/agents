@@ -154,6 +154,22 @@ it("keeps tool names unique across tools and runtime.tools, and runtime.tools to
   expect(issues(manifest({ runtime: { extra: true } }))).toBeDefined();
 });
 
+it("keeps names unique within each kind: a tool, a skill and a server may share one", () => {
+  const triage = {
+    tools: [plain("triage")],
+    skills: { triage: { name: "triage", description: "Triage an issue.", files: { "SKILL.md": SKILL_MD } } },
+    mcpServers: { triage: { ...github, name: "triage" } },
+  };
+  expect(issues(manifest(triage))).toBeUndefined();
+  const named = tool({ name: "triage", inputSchema: z.object({}), execute: async () => "ok" });
+  const built = addPart(Agent({ id: "bot" }).tools(named).mcp({ triage: { ...github, name: "triage" } }), {
+    id: "skills",
+    skills: triage.skills,
+  }).build();
+  expect(Object.keys(built.manifest.skills ?? {})).toEqual(["triage"]);
+  expect(Object.keys(built.manifest.mcpServers ?? {})).toEqual(["triage"]);
+});
+
 it("refuses hooks with what replaces them", () => {
   const noop = () => ({});
   expect(() =>
