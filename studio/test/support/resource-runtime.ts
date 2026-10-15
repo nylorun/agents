@@ -67,6 +67,23 @@ const environment = (id: string, fields: Record<string, unknown> = {}) => ({
   updatedAt: time,
   ...fields,
 });
+/** A saved environment manifest, and an Environment made from its version 3. */
+const analystBox = {
+  name: "analyst-box",
+  version: 3,
+  manifest: { manifestSchemaVersion: 1, name: "analyst-box", kind: "virtual" },
+  manifestHash: "m",
+  environments: 1,
+  createdAt: time,
+  savedBy: { actor: "studio" },
+};
+const fromManifest = (id: string) =>
+  environment(id, {
+    labels: { team: "data" },
+    manifestName: "analyst-box",
+    manifestVersion: 3,
+    sessions: [],
+  });
 /** The folder artifact that holds `team/build`'s disk versions. */
 const disk = {
   ...folder,
@@ -181,12 +198,12 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     if (path === "/v1/tenant")
       return send(200, { tenant: { id: TENANT, name: "Resource fixture" } });
     if (path === "/v1/agents") return send(200, { agents: [] });
-    if (path === "/v1/environment-manifests") return send(200, { manifests: [] });
+    if (path === "/v1/environment-manifests") return send(200, { manifests: [analystBox] });
     if (path === "/v1/environments")
       return send(200, {
         environments: url.searchParams.has("limit")
           ? [environment(url.searchParams.has("cursor") ? "z-last" : ENVIRONMENT)]
-          : [environment(ENVIRONMENT)],
+          : [environment(ENVIRONMENT), fromManifest("z-last")],
         ...(url.searchParams.has("limit")
           ? {
               nextCursor:

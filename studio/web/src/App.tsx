@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -12,6 +12,8 @@ import {
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { ArrowDown, RefreshCw } from "lucide-react";
 import { Environments } from "@/components/environments";
+import { useEnvironmentCatalog } from "@/resources/environments";
+import { environmentFilter, manifestOf } from "@/environment-list";
 import { EnvironmentPage } from "@/components/environment-page";
 import { SessionEnvironmentPanel } from "@/components/session-environment";
 import { Artifacts, SessionArtifacts } from "@/components/artifacts";
@@ -494,6 +496,23 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const settingsActive = location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/");
   const settingsSection = settingsSectionOf(location.pathname);
+  const environments = useEnvironmentCatalog(tenant.id);
+  const { reload: reloadEnvironments } = environments;
+  // Each move to the Environments list or to an Environment's page reads them again, so the
+  // list and the sidebar's counts follow what was made, forked or deleted.
+  const environmentLocation = environment === undefined ? undefined : location.pathname;
+  const lastEnvironmentLocation = useRef(environmentLocation);
+  useEffect(() => {
+    const previous = lastEnvironmentLocation.current;
+    lastEnvironmentLocation.current = environmentLocation;
+    if (environmentLocation !== undefined && environmentLocation !== previous)
+      reloadEnvironments();
+  }, [environmentLocation, reloadEnvironments]);
+  const filter = environmentFilter(location.search);
+  const openEnvironment =
+    environment?.kind === "environment"
+      ? environments.environments.find((e) => e.id === environment.id)
+      : undefined;
   const sessionList = /^\/(?:sessions\/?)?$/u.test(location.pathname);
   const agentFilter =
     new URLSearchParams(location.search).get(AGENT_FILTER) || undefined;
@@ -506,6 +525,12 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         activeAgentId={sessionList ? agentFilter : agentId}
         settingsSection={settingsSection}
         environmentsActive={resourceActive === "environments"}
+        environments={environments}
+        activeManifest={
+          environment?.kind === "list"
+            ? filter.manifest
+            : openEnvironment && manifestOf(openEnvironment)
+        }
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
         <HeaderSlotContext.Provider value={headerSlots}>
@@ -537,7 +562,10 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             size="icon-sm"
             aria-label="Refresh"
             title="Refresh"
-            onClick={() => void refresh()}
+            onClick={() => {
+              void refresh();
+              reloadEnvironments();
+            }}
           >
             <RefreshCw />
           </Button>
@@ -562,7 +590,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
           ) : environment?.kind === "environment" ? (
             <EnvironmentPage key={environment.id} tenantId={tenant.id} id={environment.id} />
           ) : environment?.kind === "list" ? (
-            <Environments tenantId={tenant.id} />
+            <Environments tenantId={tenant.id} catalog={environments} filter={filter} />
           ) : resourceActive === "artifacts" ? (
             <Artifacts tenantId={tenant.id} />
           ) : settingsSection ? (

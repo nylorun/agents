@@ -4,6 +4,7 @@ import {
   Box,
   Building2,
   Cpu,
+  FileJson,
   GitBranch,
   LoaderCircle,
   MessagesSquare,
@@ -12,6 +13,13 @@ import type { Connection } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import { embedded } from "@/embed/index.ts";
 import { sessionAgents, sessionsPath, type SessionAgent } from "@/session-list";
+import {
+  INLINE_MANIFEST,
+  environmentGroups,
+  environmentsPath,
+  type EnvironmentGroup,
+} from "@/environment-list";
+import type { EnvironmentCatalog } from "@/resources/environments";
 import {
   Sidebar,
   SidebarContent,
@@ -42,6 +50,26 @@ function AgentFilterItem({
           <span className="min-w-0 flex-1 truncate">{agent.name}</span>
           <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/70">
             {agent.count}
+          </span>
+        </Link>
+      </SidebarMenuSubButton>
+    </SidebarMenuSubItem>
+  );
+}
+/** One manifest under Environments: it filters the Environments list to that manifest. */
+function ManifestFilterItem({
+  group,
+  active,
+}: Readonly<{ group: EnvironmentGroup; active: boolean }>) {
+  const Icon = group.id === INLINE_MANIFEST ? Box : FileJson;
+  return (
+    <SidebarMenuSubItem>
+      <SidebarMenuSubButton asChild isActive={active} size="sm">
+        <Link to={environmentsPath({ manifest: group.id })} title={group.name}>
+          <Icon />
+          <span className="min-w-0 flex-1 truncate">{group.name}</span>
+          <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/70">
+            {group.count}
           </span>
         </Link>
       </SidebarMenuSubButton>
@@ -116,6 +144,8 @@ export function AppSidebar({
   activeAgentId,
   settingsSection,
   environmentsActive,
+  environments,
+  activeManifest,
 }: Readonly<{
   connection: Connection;
   tenant?: StudioTenantInfo;
@@ -126,8 +156,12 @@ export function AppSidebar({
   settingsSection?: SettingsSection;
   /** The list of Environments or one Environment's page is open. */
   environmentsActive?: boolean;
+  environments: EnvironmentCatalog;
+  /** The manifest the Environments list is filtered on, or the open Environment's. */
+  activeManifest?: string;
 }>) {
   const agents = sessionAgents(connection);
+  const groups = environmentGroups(environments.manifests, environments.environments);
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -217,14 +251,50 @@ export function AppSidebar({
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={environmentsActive}
+                  isActive={environmentsActive && activeManifest === undefined}
                   tooltip="Environments"
                 >
-                  <Link to="/environments">
+                  <Link to={environmentsPath()}>
                     <Box />
                     <span>Environments</span>
+                    {environments.status === "Ready" ? (
+                      <span className="tabular-nums text-sidebar-foreground/70">
+                        ({environments.environments.length})
+                      </span>
+                    ) : null}
                   </Link>
                 </SidebarMenuButton>
+                <SidebarMenuSub>
+                  {groups.map((group) => (
+                    <ManifestFilterItem
+                      key={group.id}
+                      group={group}
+                      active={environmentsActive === true && group.id === activeManifest}
+                    />
+                  ))}
+                  {environments.status === "Ready" && groups.length === 0 ? (
+                    <SidebarMenuSubItem>
+                      <span className="block px-2 py-1 text-xs text-muted-foreground">
+                        No manifests yet
+                      </span>
+                    </SidebarMenuSubItem>
+                  ) : null}
+                  {environments.status === "Failed" ? (
+                    <SidebarMenuSubItem>
+                      <span className="block px-2 py-1 text-xs text-muted-foreground">
+                        Environments unavailable
+                      </span>
+                    </SidebarMenuSubItem>
+                  ) : null}
+                  {environments.status === "Loading" ? (
+                    <SidebarMenuSubItem>
+                      <span className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+                        <LoaderCircle className="size-3.5 animate-spin" />
+                        Loading manifests
+                      </span>
+                    </SidebarMenuSubItem>
+                  ) : null}
+                </SidebarMenuSub>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>

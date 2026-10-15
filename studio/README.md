@@ -141,10 +141,20 @@ An Environment is where sessions run: one sandbox (kind `virtual`, `pod` or
 `none`), one vault of secrets and versions of its disk. Studio shows them on one
 page per Environment instead of separate Sandboxes and Credentials pages. The sidebar includes Environments even before agents register.
 
-The Environments table (`/environments`) lists each one's kind and state, recipe
-version (and the version a pod still runs), owner guard, labels, sessions and
-last use, with server paging and label filters. **New Environment** opens a form
-built from the recipe (`PUT /v1/environments/{id}`): id, kind, image and storage
+The Environments table (`/environments`) is laid out like **Sessions**: one
+table of every Environment (`GET /v1/environments`), with the environment
+manifest and version each was made from (or **Inline fields**), kind, state,
+owner guard, labels, sessions and last use. It is filtered to one manifest from
+the table, from the **All manifests** menu or from the manifests listed under
+Environments in the sidebar, each with its number of Environments;
+`/environments?manifest=<name>` is the filtered list and `?manifest=-` those made
+from inline fields. A label in the table filters on it too (`?label=key=value`,
+repeatable). Filtered to a manifest, a bar shows its latest version, who saved
+it and its JSON, with **New version** (`PUT /v1/environment-manifests/{name}`,
+checked first with `?dryRun=true`); **New manifest** is in the menu.
+**New Environment** makes one from the filtered manifest's latest version
+(`PUT /v1/environments/{id} { manifest: "name@n" }`), or asks which manifest,
+or opens a form for inline fields: id, kind, image and storage
 for a pod, CPUs and memory, allowed hosts, harness, a pod's setup commands
 (command, directory, timeout) and input files (a Tenant-wide artifact's version
 and the path it is copied to), labels, owner guard, and `lifecycle.idle` and

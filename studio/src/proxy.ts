@@ -7,31 +7,38 @@ const LOCAL_OWNER = "local-developer";
 const COVERAGE = "/v1/tenant/credential-coverage";
 /** One Environment (protocol 11): its id is one percent-encoded path segment. */
 const ENVIRONMENT = String.raw`/v1/environments/[^/]+`;
+/** The environment manifests (protocol 14, D63), and one by its name. */
+const MANIFESTS = "/v1/environment-manifests";
+const MANIFEST = String.raw`/v1/environment-manifests/[^/]+`;
 const matches = (pattern: string, path: string) =>
   new RegExp(`^${pattern}$`).test(path);
 
 /**
  * Environment reads on the Runtime API: the list (with label filters and pages), one
  * Environment, its lifecycle events, its disk versions, and its secrets' names, types and
- * bindings (never a value).
+ * bindings (never a value); and the environment manifests, one manifest and its versions.
  */
 function isEnvironmentRead(method: string, path: string): boolean {
   return (
     method === "GET" &&
     (path === "/v1/environments" ||
-      matches(`${ENVIRONMENT}(?:/events|/versions|/secrets(?:/[^/]+)?)?`, path))
+      matches(`${ENVIRONMENT}(?:/events|/versions|/secrets(?:/[^/]+)?)?`, path) ||
+      path === MANIFESTS ||
+      matches(`${MANIFEST}(?:/versions(?:/[1-9]\\d*)?)?`, path))
   );
 }
 
 /**
- * Environment writes on the Runtime API: create or change one (`PUT`), stop or reset it, keep
- * or restore a version of its disk, delete it or one of its disk versions, and write or delete
- * one of its secrets.
+ * Environment writes on the Runtime API: create or change one (`PUT`), stop or reset it, fork
+ * it, keep or restore a version of its disk, delete it or one of its disk versions, and write
+ * or delete one of its secrets; and save an environment manifest's next version (`PUT`, or its
+ * plan with `?dryRun=true`).
  */
 function isEnvironmentWrite(method: string, path: string): boolean {
   return (
     (method === "PUT" && matches(`${ENVIRONMENT}(?:/secrets/[^/]+)?`, path)) ||
-    (method === "POST" && matches(`${ENVIRONMENT}/(?:stop|reset|snapshot|restore)`, path)) ||
+    (method === "PUT" && matches(MANIFEST, path)) ||
+    (method === "POST" && matches(`${ENVIRONMENT}/(?:stop|reset|fork|snapshot|restore)`, path)) ||
     (method === "DELETE" &&
       matches(`${ENVIRONMENT}(?:/secrets/[^/]+|/versions/[1-9]\\d*)?`, path))
   );
@@ -286,6 +293,10 @@ export async function proxyRuntime(
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
         ...(typeof body === "string" ? { "content-type": "application/json" } : {}),
         ...uploadHeaders,
+        // A manifest save names the version it was made over (`412 manifest_changed`).
+        ...(environmentWrite && request.headers["if-match"]
+          ? { "if-match": String(request.headers["if-match"]) }
+          : {}),
         ...(request.headers["last-event-id"]
           ? { "last-event-id": String(request.headers["last-event-id"]) }
           : {}),
