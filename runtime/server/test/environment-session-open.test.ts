@@ -102,8 +102,8 @@ it("gives no sandbox when the request names no Environment", async () => {
       definitionHash?: string;
     };
     expect(view.environment).toBeNull();
-    // The session pins its definition with read_artifact added (protocol 12).
-    expect(view.manifestHash).not.toBe(hashManifest(plain("bot").manifest));
+    // With no sandbox and no skills, the session pins its definition as it is (protocol 15).
+    expect(view.manifestHash).toBe(hashManifest(plain("bot").manifest));
     expect(view.definitionHash).toBe(hashManifest(plain("bot").manifest));
     expect(await pinnedSandbox(runtime, "s1")).toBeUndefined();
     expect((await tool(runtime, "s1", "bash", { command: "echo hi" })).status).toBe(404);

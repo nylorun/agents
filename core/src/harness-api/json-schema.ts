@@ -12,6 +12,7 @@ import * as entries from "./entries.js";
 import * as transport from "./transport.js";
 import { HARNESS_API_VERSION } from "./messages.js";
 import {
+  ArtifactMetaSchema,
   EffectIntentSchema,
   FrameSchema,
   HarnessCheckpointSchema,
@@ -31,6 +32,7 @@ import {
 } from "./schema.js";
 
 const named: Record<string, unknown> = {
+  ArtifactMetaSchema,
   EffectIntentSchema,
   FrameSchema,
   HarnessCheckpointSchema,

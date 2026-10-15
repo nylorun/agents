@@ -6,7 +6,7 @@
  * again, here to a second harness, which finishes it.
  */
 import { afterEach, expect, it } from "vitest";
-import { memoryChannels, type HarnessChannel } from "@nylorun/core/harness-api";
+import { HARNESS_API_VERSION, memoryChannels, type HarnessChannel } from "@nylorun/core/harness-api";
 import { createHarness, type HarnessExecutors } from "@nylorun/harness/api";
 import {
   boot,
@@ -34,7 +34,7 @@ function attach(runtime: Started): HarnessChannel {
   return channels.harness;
 }
 
-const hello = { api: 3, name: "nylorun", version: "0", features: {} };
+const hello = { api: HARNESS_API_VERSION, name: "nylorun", version: "0", features: {} };
 
 it("binds a run to its connection, and offers it again when that connection is lost", async () => {
   const runtime = await boot({ harness: "remote", ownerLeaseMs: 300 });

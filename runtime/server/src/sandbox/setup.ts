@@ -19,7 +19,7 @@
 import type { EnvironmentRecipe, FolderManifest } from "@nylorun/core/contracts";
 import { parseSandboxDuration } from "@nylorun/core/define";
 import { contentKey, readManifest } from "../artifacts/folders.js";
-import { contentTypeFor } from "../artifacts/media-types.js";
+import { contentTypeFor } from "@nylorun/core/contracts";
 import { definitionFileKey } from "../tenant/definition-files.js";
 import type { Environment, Tx } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";

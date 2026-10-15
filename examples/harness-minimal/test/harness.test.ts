@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
+  HARNESS_API_VERSION,
   RUNTIME_LIMIT_DEFAULTS,
   applyUpdates,
   memoryChannels,
@@ -125,8 +126,8 @@ function fakeCore(
     switch (method) {
       case "hello":
         // Harness API 3: what the harness offers is `features` (it was `capabilities`).
-        expect(p).toMatchObject({ api: 3, name: "minimal", features: {} });
-        return { api: 3, tenantId: "tenant", sandbox: { backend: null }, renewEveryMs: 60_000 };
+        expect(p).toMatchObject({ api: HARNESS_API_VERSION, name: "minimal", features: {} });
+        return { api: HARNESS_API_VERSION, tenantId: "tenant", sandbox: { backend: null }, renewEveryMs: 60_000 };
       case "lease":
         if (leased) return new Promise(() => undefined);
         leased = true;

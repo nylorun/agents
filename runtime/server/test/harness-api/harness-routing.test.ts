@@ -5,7 +5,7 @@
  * keyed by the real id; an Environment whose harness changed refuses the old sessions' turns.
  */
 import { afterEach, expect, it } from "vitest";
-import { memoryChannels, type HarnessChannel } from "@nylorun/core/harness-api";
+import { HARNESS_API_VERSION, memoryChannels, type HarnessChannel } from "@nylorun/core/harness-api";
 import { boot, openSession, sendMessage, server, type Started } from "../host/execution-support.js";
 import { resolveRecipe } from "../../src/sandbox/resolve.js";
 import { effectiveSandboxConfig } from "../../src/sandbox/tenant-config.js";
@@ -26,7 +26,7 @@ function attach(runtime: Started, peer: { name: string; harness?: string } = { n
   return channels.harness;
 }
 
-const hello = (name: string) => ({ api: 3, name, version: "0", features: {} });
+const hello = (name: string) => ({ api: HARNESS_API_VERSION, name, version: "0", features: {} });
 
 async function call(runtime: Started, method: string, path: string, body?: unknown, headers = server) {
   const response = await fetch(`${runtime.url}${path}`, {

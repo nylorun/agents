@@ -14,6 +14,8 @@ import {
   type RunGrant,
   type TurnStart,
 } from "@nylorun/core/harness-api";
+import { READ_ARTIFACT_MAX_BYTES } from "@nylorun/core/define";
+import { artifactToolDeclarations } from "../tools/artifacts.js";
 import { ABORT_MESSAGES, RunAbort } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { runTurn } from "./run.js";
@@ -31,6 +33,12 @@ export interface HarnessOptions {
   readonly maxRuns?: number;
   /** Byte budget of the transcript cache. Default 256 MiB. */
   readonly transcriptCacheMb?: number;
+  /**
+   * The most bytes one `read_artifact` page holds, escaped as JSON: what one call shows the model
+   * of a text artifact. Default `READ_ARTIFACT_MAX_BYTES` (32 KiB). A page is also held to the
+   * run's `turn.start.limits.chunkBytes`.
+   */
+  readonly artifactPageBytes?: number;
   readonly name?: string;
   readonly version?: string;
   /** What `hello` declares: `workspace` when this harness serves the Tenant's workspaces. */
@@ -68,6 +76,7 @@ export function createHarness(options: HarnessOptions): Harness {
   const { channel, executors } = options;
   const maxRuns = options.maxRuns ?? Infinity;
   const cache = new TranscriptCache((options.transcriptCacheMb ?? 256) * 1024 * 1024);
+  const engine = { artifactPageBytes: options.artifactPageBytes ?? READ_ARTIFACT_MAX_BYTES };
   const live = new Map<string, Live>();
   const finished = new Set<Promise<void>>();
   const leasing = new AbortController();
@@ -136,7 +145,7 @@ export function createHarness(options: HarnessOptions): Harness {
     options.onGrant?.(grant);
     options.onStart?.(grant, start);
     const stopRenewing = renew(run);
-    const done = runTurn({ channel, executors, cache }, run)
+    const done = runTurn({ channel, executors, cache, engine }, run)
       .catch((error: unknown) =>
         options.logger?.warn("harness run failed", {
           runId: run.runId,
@@ -181,10 +190,13 @@ export function createHarness(options: HarnessOptions): Harness {
         api: HARNESS_API_VERSION,
         name: options.name ?? DEFAULT_HARNESS,
         version: options.version ?? "0",
-        features:
-          options.features?.workspace === undefined
+        features: {
+          ...(options.features?.workspace === undefined
             ? {}
-            : { workspace: options.features.workspace },
+            : { workspace: options.features.workspace }),
+          // Our engine's own tools run here (protocol 15): core journals their calls as ours.
+          tools: artifactToolDeclarations({ pageBytes: engine.artifactPageBytes }),
+        },
       });
       renewEveryMs = hello.renewEveryMs;
       options.onHello?.(hello);

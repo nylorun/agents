@@ -19,6 +19,7 @@
  * version (`/skills/<name>@<hash>/`, D66), before the first call that needs them (`skills.ts`);
  * their bytes come through the `definitionFile` port.
  */
+import { posix } from "node:path";
 import type { EventPayload } from "@nylorun/core/contracts";
 import {
   SANDBOX_WORKSPACE,
@@ -52,6 +53,8 @@ import {
 import { mountSkill, sandboxSkillsOf } from "./skills.js";
 import { runDiskOp, type DiskAnswer, type DiskOp } from "./disk-fs.js";
 import {
+  HELPER_COMMAND_TIMEOUT_MS,
+  quote,
   resolveSandboxPath,
   runSandboxTool,
   type SandboxToolOutcome,
@@ -323,8 +326,8 @@ export class SandboxManager {
   }
 
   /**
-   * The bytes of one file in the session's sandbox, for `save_artifact` (F8.1), in the same queue
-   * as its tool calls: `missing` when there is no such file, a failed outcome when the sandbox
+   * The bytes of one file in the session's sandbox, for our engine's `save_artifact` and the
+   * turn-end export, in the same queue as its tool calls: `missing` when there is no such file, a failed outcome when the sandbox
    * cannot open or the file is larger than `maxBytes`. Relative paths resolve in the workspace.
    */
   async readBytes(
@@ -360,6 +363,46 @@ export class SandboxManager {
           };
         throw error;
       }
+    });
+  }
+
+  /**
+   * Writes `body` to one file of the session's sandbox, as it comes, for our engine's
+   * `read_artifact` with `path` (protocol 15), in the same queue as its tool calls: its folders
+   * are made first, and a file there is replaced. Relative paths resolve in the workspace.
+   */
+  async writeBytes(
+    session: SandboxSessionRef,
+    sandbox: SandboxManifest | undefined,
+    path: string,
+    body: SandboxFileBytes,
+    signal: AbortSignal
+  ): Promise<{ kind: "written"; path: string; size: number } | Extract<SandboxToolOutcome, { kind: "failed" }>> {
+    return this.withHandle(session, sandbox, signal, async (handle) => {
+      const resolved = resolveSandboxPath(path, handle.workspace ?? SANDBOX_WORKSPACE);
+      const parent = posix.dirname(resolved);
+      const made = await handle.exec(
+        { command: `mkdir -p ${quote(parent)}`, cwd: "/", timeoutMs: HELPER_COMMAND_TIMEOUT_MS },
+        signal
+      );
+      if (made.exitCode !== 0)
+        return {
+          kind: "failed" as const,
+          code: "sandbox.write_failed",
+          message: made.stderr.trim() || `Could not create ${parent}`,
+        };
+      let size = 0;
+      const counted =
+        body instanceof Uint8Array
+          ? ((size = body.byteLength), body)
+          : (async function* () {
+              for await (const chunk of body) {
+                size += chunk.byteLength;
+                yield chunk;
+              }
+            })();
+      await handle.writeFile(resolved, counted);
+      return { kind: "written" as const, path: resolved, size };
     });
   }
 

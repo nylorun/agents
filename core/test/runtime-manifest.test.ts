@@ -40,57 +40,28 @@ function pinned(definition: Record<string, unknown>, runtime: unknown): AgentMan
   } as AgentManifest;
 }
 
-it("adds nothing when the session has no sandbox, no artifacts and the agent no skills", () => {
+it("adds nothing when the session has no sandbox and the agent no skills", () => {
   expect(runtimeManifestFor({})).toBeUndefined();
-  expect(runtimeManifestFor({}, { save: false, read: false })).toBeUndefined();
 });
 
-it("pins the sandbox, its tools and instructions, then save_artifact", () => {
+it("pins the sandbox, its tools and instructions, and no artifact tools (protocol 15)", () => {
   const runtime = runtimeManifestFor({}, { sandbox: spec })!;
   expect(runtime.sandbox).toEqual(spec);
-  expect(runtime.tools?.map((tool) => tool.name)).toEqual([...SANDBOX_TOOL_NAMES, SAVE_ARTIFACT_TOOL]);
-  expect(runtime.instructions?.[0]).toBe(SANDBOX_INSTRUCTIONS);
-  expect(runtime.instructions?.[1]).toContain("save_artifact");
-  expect(runtime.instructions).toHaveLength(2);
+  expect(runtime.tools?.map((tool) => tool.name)).toEqual([...SANDBOX_TOOL_NAMES]);
+  expect(runtime.instructions).toEqual([SANDBOX_INSTRUCTIONS]);
   expect(runtime.tools?.every((tool) => tool.description && tool.inputSchema)).toBe(true);
-  const save = runtimeToolOf(pinned({}, runtime), SAVE_ARTIFACT_TOOL)!;
-  expect(Object.keys(save.inputSchema.properties as object)).toEqual([
-    "path",
-    "content",
-    "name",
-    "contentType",
-    "artifactId",
-  ]);
+  // The artifact tools are our engine's: the Runtime pins neither.
+  expect(runtimeToolOf(pinned({}, runtime), SAVE_ARTIFACT_TOOL)).toBeUndefined();
+  expect(runtimeToolOf(pinned({}, runtime), READ_ARTIFACT_TOOL)).toBeUndefined();
   expect(AgentManifestSchema.safeParse(pinned({}, runtime)).success).toBe(true);
   // The workspace path the backend uses is named in the tools' text.
   const elsewhere = runtimeManifestFor({}, { sandbox: {}, workspace: "/home/agent" })!;
   expect(elsewhere.instructions?.[0]).toContain("/home/agent");
   expect(elsewhere.instructions?.[0]).not.toContain("/workspace");
-  // save_artifact may be left out.
-  expect(runtimeManifestFor({}, { sandbox: {}, save: false })!.tools?.map((tool) => tool.name)).toEqual([
-    ...SANDBOX_TOOL_NAMES,
-  ]);
-});
-
-it("pins read_artifact, with or without save_artifact (R2b C11)", () => {
-  const read = runtimeManifestFor({}, { read: true })!;
-  expect(read.sandbox).toBeUndefined();
-  expect(read.tools?.map((tool) => tool.name)).toEqual([READ_ARTIFACT_TOOL]);
-  expect(read.tools![0]!.inputSchema).toMatchObject({
-    required: ["artifactId"],
-    properties: {
-      version: { minimum: 1 },
-      offset: { minimum: 0 },
-      length: { maximum: READ_ARTIFACT_MAX_BYTES },
-    },
-  });
-  expect(read.instructions?.join(" ")).toContain("read_artifact");
-  // A file of an earlier turn is a reference line the model reads again (protocol 12).
-  expect(read.instructions?.join(" ")).toContain("[Uploaded artifact");
-  expect(read.instructions?.join(" ")).not.toContain("save_artifact");
-  const both = runtimeManifestFor({}, { save: true, read: true })!;
-  expect(both.tools?.map((tool) => tool.name)).toEqual([SAVE_ARTIFACT_TOOL, READ_ARTIFACT_TOOL]);
-  expect(AgentManifestSchema.safeParse(pinned({}, read)).success).toBe(true);
+  // Pinned runtime.tools holding an artifact tool is refused: it is not the Runtime's.
+  const save = { name: SAVE_ARTIFACT_TOOL, inputSchema: { type: "object" } };
+  expect(AgentManifestSchema.safeParse(pinned({}, { tools: [save] })).success).toBe(false);
+  expect(READ_ARTIFACT_MAX_BYTES).toBe(32 * 1024);
 });
 
 it("pins the skill tools and the catalog when the agent has skills", () => {
@@ -118,12 +89,10 @@ it("pins the skill tools and the catalog when the agent has skills", () => {
   expect(isSkillTool(pinned({ skills }, undefined), "load_skill")).toBe(false);
 });
 
-it("orders tools sandbox, artifacts, skills; and text skills, sandbox with mounts, artifacts", () => {
-  const runtime = runtimeManifestFor({ skills }, { sandbox: spec, read: true })!;
+it("orders tools sandbox, skills; and text skills, sandbox with mounts", () => {
+  const runtime = runtimeManifestFor({ skills }, { sandbox: spec })!;
   expect(runtime.tools?.map((tool) => tool.name)).toEqual([
     ...SANDBOX_TOOL_NAMES,
-    SAVE_ARTIFACT_TOOL,
-    READ_ARTIFACT_TOOL,
     "load_skill",
     "read_skill_resource",
   ]);
@@ -135,9 +104,7 @@ it("orders tools sandbox, artifacts, skills; and text skills, sandbox with mount
   expect(text[3]).toContain(`triage: ${skillFolderOf(skills.triage)}/`);
   expect(text[3]).toContain(`release: ${skillFolderOf(skills.release)}/`);
   expect(skillFolderOf(skills.triage)).toMatch(/^\/skills\/triage@[0-9a-f]{12}$/);
-  expect(text[4]).toContain("save_artifact");
-  expect(text[5]).toContain("read_artifact");
-  expect(text).toHaveLength(6);
+  expect(text).toHaveLength(4);
   // Without skills, the sandbox names no mounts.
   expect(runtimeManifestFor({}, { sandbox: spec })!.instructions?.join(" ")).not.toContain("/skills/");
   const manifest = pinned({ skills }, runtime);
@@ -149,18 +116,13 @@ it("orders tools sandbox, artifacts, skills; and text skills, sandbox with mount
 });
 
 it("names every Runtime tool, and runtimeToolOf finds one only in runtime", () => {
-  for (const name of [
-    ...SANDBOX_TOOL_NAMES,
-    SAVE_ARTIFACT_TOOL,
-    READ_ARTIFACT_TOOL,
-    "load_skill",
-    "read_skill_resource",
-    "tool_search",
-    "tool_call",
-  ])
+  for (const name of [...SANDBOX_TOOL_NAMES, "load_skill", "read_skill_resource", "tool_search", "tool_call"])
     expect(isRuntimeToolName(name), name).toBe(true);
-  expect(RUNTIME_TOOL_NAMES.size).toBe(SANDBOX_TOOL_NAMES.length + 6);
+  expect(RUNTIME_TOOL_NAMES.size).toBe(SANDBOX_TOOL_NAMES.length + 4);
   expect(isRuntimeToolName("search")).toBe(false);
+  // Our engine's artifact tools are not the Runtime's (protocol 15).
+  expect(isRuntimeToolName(SAVE_ARTIFACT_TOOL)).toBe(false);
+  expect(isRuntimeToolName(READ_ARTIFACT_TOOL)).toBe(false);
   const manifest = pinned({}, runtimeManifestFor({}, { sandbox: {} }));
   expect(runtimeToolOf(manifest, "bash")?.name).toBe("bash");
   expect(runtimeToolOf(manifest, "search")).toBeUndefined();

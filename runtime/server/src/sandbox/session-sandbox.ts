@@ -3,17 +3,16 @@
  * An agent session's pinned manifest is its definition with a `runtime` block
  * (`runtimeManifestFor`) on each agent of the tree:
  *
- * - with a sandbox, the six sandbox tools, their instructions and the resolved spec, and
- *   `save_artifact`, so files the agent makes reach the user (F8.1). The agents it uses as tools
- *   get the same spec, so the tree shares one sandbox. The sandbox's instructions name the
- *   agent's skills' folders (`/skills/<name>@<hash>/`);
- * - with or without a sandbox, `read_artifact` (R2b C11, protocol 12): the Runtime stores a result
- *   of an MCP or HTTP tool too large to show as an artifact, and the model reads it in pages; a
- *   file of an earlier turn is a reference line the model reads again with it;
+ * - with a sandbox, the six sandbox tools, their instructions and the resolved spec. The agents
+ *   it uses as tools get the same spec, so the tree shares one sandbox. The sandbox's
+ *   instructions name the agent's skills' folders (`/skills/<name>@<hash>/`);
  * - with skills, `load_skill`, `read_skill_resource` and the skill catalog.
  *
- * `tool_search` and `tool_call` are not pinned: they are session tools, given per run when the
- * session defers some MCP tools (R2b C10). An author tool may not take any of these names (the
+ * A session with neither pins its definition unchanged, so its manifest hash is the definition's.
+ * The artifact tools (`read_artifact`, `save_artifact`) are not pinned: since protocol 15 they are
+ * our engine's, which our harness offers each agent and runs itself. `tool_search` and
+ * `tool_call` are not pinned either: they are session tools, given per run when the session
+ * defers some MCP tools (R2b C10). An author tool may not take a name the Runtime serves (the
  * manifest schema refuses it), so a tool's name alone says whose it is. The definition in the
  * registry never changes.
  */
@@ -51,11 +50,7 @@ function pinRuntime(manifest: AgentManifest, spec: SandboxManifest | undefined):
     changed = true;
     return { ...tool, agent };
   });
-  const runtime = runtimeManifestFor(manifest, {
-    ...(spec === undefined ? {} : { sandbox: spec }),
-    save: spec !== undefined,
-    read: true,
-  });
+  const runtime = runtimeManifestFor(manifest, spec === undefined ? {} : { sandbox: spec });
   if (runtime === undefined && !changed) return manifest;
   return {
     ...manifest,
@@ -83,8 +78,8 @@ export function withSandbox(manifest: AgentManifest, spec: SandboxManifest): San
 }
 
 /**
- * The pinned manifest of an agent session without a sandbox: `read_artifact` for each agent of
- * the tree (R2b C11, protocol 12), and the skill tools for each with skills.
+ * The pinned manifest of an agent session without a sandbox: the skill tools for each agent of
+ * the tree with skills, and the definition as it is when none has any.
  */
 export function withRuntimeTools(manifest: AgentManifest): SandboxedManifest {
   return checked(manifest, pinRuntime(manifest, undefined));

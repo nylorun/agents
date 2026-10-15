@@ -1,6 +1,6 @@
 /**
  * The skill tools (track R2 M4): `load_skill` and `read_skill_resource`, which the Runtime pins
- * in the `runtime` block of an agent with skills. The Runtime runs them itself, like `save_artifact`, from the
+ * in the `runtime` block of an agent with skills. The Runtime runs them itself, from the
  * definition files uploaded with the agent: no developer process is involved.
  *
  * - `load_skill`: the skill's instructions (its `SKILL.md` after the frontmatter), the paths of

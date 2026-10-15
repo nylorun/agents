@@ -6,7 +6,7 @@
  * never takes another sandbox's or a non-pod session's work, nor claims its events.
  */
 import { X509Certificate } from "node:crypto";
-import { createChannel, type HarnessChannel } from "@nylorun/core/harness-api";
+import { HARNESS_API_VERSION, createChannel, type HarnessChannel } from "@nylorun/core/harness-api";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { Agent } from "@nylorun/core/define";
@@ -77,7 +77,7 @@ function connect(bearer: string): Promise<{ status: number; channel?: HarnessCha
 }
 
 const hello = (channel: HarnessChannel) =>
-  channel.request("hello", { api: 3, name: "nylorun", version: "0", features: { workspace: { backends: ["local"] } } });
+  channel.request("hello", { api: HARNESS_API_VERSION, name: "nylorun", version: "0", features: { workspace: { backends: ["local"] } } });
 
 beforeAll(async () => {
   fake = fakeSandboxes();

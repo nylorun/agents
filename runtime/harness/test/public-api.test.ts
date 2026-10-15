@@ -39,8 +39,12 @@ describe("public API", () => {
       "RunAbort",
       "TranscriptCache",
       "apiHost",
+      "artifactToolDeclarations",
+      "artifactToolsFor",
       "createHarness",
+      "isArtifactTool",
       "runAbortKind",
+      "runArtifactTool",
       "runTurn",
     ]);
   });

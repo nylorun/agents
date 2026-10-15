@@ -16,6 +16,9 @@
  * workspace request it is serving acts for; a `sandbox.state` claim's record becomes the
  * workspace's row in the `sandboxes` table.
  *
+ * Protocol 15: a harness reads and writes its run's session's artifacts over the artifact seam
+ * (`artifact.read`, `artifact.write`, `./artifacts.ts`); a run's open uploads end with it.
+ *
  * F7.2: a pod sandbox's engine connects as that sandbox's *host* (`HarnessPeer.host`, from its
  * host token): it leases only runs whose session is attached to its sandbox (`RunOffer.pod`),
  * serves only that sandbox's workspace (`workspace(..., { pod })`), and claims events only for
@@ -68,6 +71,7 @@ import { abortKind } from "../tenant/worker.js";
 import { BlobRangeError } from "../blob/index.js";
 import { openDefinitionFile, readDefinitionFile } from "../tenant/definition-files.js";
 import { recordIntent, recordOutcome } from "./record.js";
+import { createArtifactSeam, type ArtifactScope } from "./artifacts.js";
 import { RecordEntryTooLargeError } from "../record/index.js";
 import { redactTokens } from "./redact.js";
 import { beat, renewEveryMs, tokenOf } from "./renew.js";
@@ -240,6 +244,7 @@ export function createHarnessApiServer(
   const waiting: Waiting[] = [];
   const queued: Run[] = [];
   const runs = new Map<string, Run>();
+  const artifacts = createArtifactSeam(ctx);
   let closed = false;
 
   /**
@@ -261,7 +266,7 @@ export function createHarnessApiServer(
       queued.splice(i, 1);
       const clash = nativeToolClashes(waiting[at]!.connection.tools, run.offer.start);
       if (clash.length > 0) {
-        // The harness keeps waiting for a run its tools fit; this turn fails (Harness API 3).
+        // The harness keeps waiting for a run its tools fit; this turn fails (R4.2).
         run.end({
           kind: "refused",
           message: `Harness '${waiting[at]!.connection.harness}' runs tools named like tools of this turn's agents: ${clash.join(", ")}. A tool the harness runs itself needs a name no other tool of the session has.`,
@@ -290,6 +295,15 @@ export function createHarnessApiServer(
     source: { kind: "harness", id: connection.harness ?? connection.peer.name },
     evidence: "claimed",
     ...(runId === undefined ? {} : { runId }),
+  });
+
+  /** What the artifact seam serves a run: its session and turn, its limits, its signal. */
+  const artifactScope = (run: Run): ArtifactScope => ({
+    runId: run.grant.runId,
+    sessionId: run.grant.sessionId,
+    turnId: run.grant.turnId,
+    limits: run.offer.start.limits,
+    runSignal: run.offer.controller.signal,
   });
 
   const scope = (run: Run) => ({
@@ -368,6 +382,10 @@ export function createHarnessApiServer(
           return recordMcp(run, p as ParamsOf<"session.mcp">);
         case "definition.file":
           return definitionFile(run, p as ParamsOf<"definition.file">, signal);
+        case "artifact.read":
+          return artifacts.read(artifactScope(run), p as ParamsOf<"artifact.read">, signal);
+        case "artifact.write":
+          return artifacts.write(artifactScope(run), p as ParamsOf<"artifact.write">, signal);
         default:
           throw new HarnessApiError("invalid", `Unknown request ${method}`);
       }
@@ -691,6 +709,8 @@ export function createHarnessApiServer(
             if (run.ended) return;
             run.ended = true;
             clearTimeout(timer);
+            // An upload the run left open commits nothing.
+            artifacts.endRun(run.grant.runId);
             controller.signal.removeEventListener("abort", onAbort);
             // An output's run stays held until core answers it, so a repeat gets the same answer.
             if (end.kind === "output") {
@@ -748,8 +768,9 @@ function isSnapshot(value: unknown): value is McpSnapshot {
  * The tools a harness runs itself (`features.tools`) whose names the turn already uses: a tool of
  * the turn's agents (their own and the Runtime's `runtime` tools), a session tool, `tool_search` or
  * `tool_call` (session tools a later step may get). Tools are known by name alone, so a native
- * tool must not take one (Harness API 3); `hello` already refuses a name with `__`, which names an
- * MCP server's tools. A flow turn runs no native tools.
+ * tool must not take one (R4.2), our harness's own `read_artifact` and `save_artifact` too: an
+ * author tool of either name fails every turn our harness runs. `hello` already refuses a name
+ * with `__`, which names an MCP server's tools. A flow turn runs no native tools.
  */
 export function nativeToolClashes(tools: ReadonlySet<string> | undefined, start: TurnStart): string[] {
   if (!tools?.size || start.engine !== "agent") return [];

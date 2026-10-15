@@ -40,13 +40,13 @@ describe("code tools", () => {
     expect(codeToolRefusal(billing.build().manifest)).toBeUndefined();
   });
 
-  it("leaves the Runtime's built-ins: sandbox tools, save_artifact, read_artifact and the skill tools", () => {
+  it("leaves the Runtime's built-ins: sandbox tools and the skill tools", () => {
     const skills = { review: { name: "review", description: "Review.", files: { "SKILL.md": "sha256:00" } } };
     const manifest: AgentManifest = {
       manifestSchemaVersion: 7,
       id: "worker",
       skills,
-      runtime: runtimeManifestFor({ skills }, { sandbox: { image: "node:24" }, read: true }),
+      runtime: runtimeManifestFor({ skills }, { sandbox: { image: "node:24" } }),
     };
     expect(manifest.runtime?.tools?.map((item) => item.name)).toContain("load_skill");
     expect(codeToolsOf(manifest)).toEqual([]);

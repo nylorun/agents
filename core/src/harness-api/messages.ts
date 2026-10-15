@@ -1,13 +1,15 @@
 /**
- * Harness API v2 (blueprint D37–D42; v2 is track R2: no Actions, so no held runs): the messages
- * between core and a harness. A run is a lease on one session's segment; core records, the
- * harness runs the engine. Who executes what: the harness runs model, MCP, HTTP and sandbox
- * calls; core runs flow work, linked sessions, delegation journaling, `save_artifact`, the
- * skill tools, settle and takeover. Each message's type is inferred from its schema
- * (`schema.ts`), which a socket validates it with.
+ * Harness API v4 (blueprint D37–D42; the harness boundary, protocol 15): the messages between
+ * core and a harness. A run is a lease on one session's segment; core records, the harness runs
+ * the engine. Who executes what: the harness runs model, MCP, HTTP and sandbox calls and its own
+ * tools (our engine's `read_artifact` and `save_artifact` among them, over the artifact seam:
+ * `artifact.read`, `artifact.write`); core runs flow work, linked sessions, delegation
+ * journaling, the skill tools, `tool_search`, settle and takeover. Each message's type is
+ * inferred from its schema (`schema.ts`), which a socket validates it with.
  */
 import type { z } from "zod";
 import type {
+  ArtifactMetaSchema,
   EffectIntentSchema,
   IntentAnswerSchema,
   OutcomeAnswerSchema,
@@ -30,7 +32,7 @@ import type {
   harnessRequests,
 } from "./schema.js";
 
-export const HARNESS_API_VERSION = 3;
+export const HARNESS_API_VERSION = 4;
 
 /** Why core stopped a run. Matches the advance's abort kinds. */
 export const ABORT_REASONS = ["cancel", "shutdown", "deadline", "ownership.lost"] as const;
@@ -55,6 +57,11 @@ export const HARNESS_ERROR_CODES = [
   "unavailable",
   "internal",
   /**
+   * What the request names is not there for this run: an artifact that is missing, another
+   * session's, or Tenant-wide and never named by the session's messages, all alike.
+   */
+  "not_found",
+  /**
    * What the harness sent passes a Runtime limit (`turn.start.limits`): the message names the
    * limit and its value.
    */
@@ -64,6 +71,18 @@ export type HarnessErrorCode = (typeof HARNESS_ERROR_CODES)[number];
 
 /** One effect the engine asks for: a `HostEffect`, by structure. Model intents carry no `input`. */
 export type EffectIntent = z.infer<typeof EffectIntentSchema>;
+
+/** An artifact as the artifact seam shows it to a harness (`artifact.read`, `artifact.write`). */
+export type ArtifactMeta = z.infer<typeof ArtifactMetaSchema>;
+
+/** One `artifact.read` answer: the artifact, and up to one chunk of its bytes from `offset`. */
+export type ArtifactReadResult = ResultOf<"artifact.read">;
+
+/** One `artifact.write` request: `begin`, `chunk`, `commit` or `abort`. */
+export type ArtifactWriteParams = ParamsOf<"artifact.write">;
+
+/** One `artifact.write` answer: the upload `open`, the artifact `written`, or `aborted`. */
+export type ArtifactWriteResult = ResultOf<"artifact.write">;
 
 /** A completed outcome of the segment, with the hash of the request it answered. */
 export type RecordedOutcome = z.infer<typeof RecordedOutcomeSchema>;
@@ -107,7 +126,7 @@ export type WorkspaceRecord = z.infer<typeof WorkspaceRecordSchema>;
 /** A sandbox tool call core sends to the harness that serves workspaces. */
 export type WorkspaceCall = z.infer<typeof WorkspaceCallSchema>;
 
-/** A file of a workspace read as bytes (`save_artifact`, F8.1), at most `maxBytes`. */
+/** A file of a workspace read as bytes (the turn-end export, F8.2), at most `maxBytes`. */
 export type WorkspaceBytesCall = z.infer<typeof WorkspaceBytesCallSchema>;
 
 /** The regular files under a directory of a workspace (the turn-end export, F8.2). */

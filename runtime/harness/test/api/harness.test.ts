@@ -133,7 +133,7 @@ async function harnessFor(core: ReturnType<typeof fakeCore>, run: HarnessExecuto
 }
 
 describe("a harness", () => {
-  it("says hello with Harness API 3 and its features, not capabilities", async () => {
+  it("says hello with Harness API 4, its features and its own tools, not capabilities", async () => {
     const plain = fakeCore({});
     await harnessFor(
       plain,
@@ -141,8 +141,17 @@ describe("a harness", () => {
     );
     const [method, hello] = plain.calls[0]!;
     expect(method).toBe("hello");
-    expect(hello).toMatchObject({ api: 3, features: {} });
+    expect(hello).toMatchObject({ api: HARNESS_API_VERSION });
+    expect(HARNESS_API_VERSION).toBe(4);
     expect(hello).not.toHaveProperty("capabilities");
+    // Our engine runs its artifact tools itself (protocol 15): core journals them as ours.
+    const declared = hello.features.tools as {
+      name: string;
+      inputSchema: { properties: object };
+    }[];
+    expect(declared.map((tool) => tool.name)).toEqual(["save_artifact", "read_artifact"]);
+    expect(Object.keys(declared[1]!.inputSchema.properties)).toContain("path");
+    expect(hello.features).not.toHaveProperty("workspace");
 
     const serving = fakeCore({});
     const harness = createHarness({
@@ -152,7 +161,7 @@ describe("a harness", () => {
     });
     harnesses.push(harness);
     await harness.start();
-    expect(serving.calls[0]![1].features).toEqual({ workspace: { backends: ["docker"] } });
+    expect(serving.calls[0]![1].features).toMatchObject({ workspace: { backends: ["docker"] } });
   });
 
   it("runs a leased turn: the prompt stays here, and the output carries edits and a lean state", async () => {

@@ -124,6 +124,12 @@ export async function runDurable(options: {
   host: DurableHost;
   signal?: AbortSignal;
   sessionTools?: readonly DurableSessionTool[];
+  /**
+   * The tools our engine adds to each agent of the tree (root and agents used as tools), such as
+   * `read_artifact`: offered before the session's tools, with their instructions first among
+   * theirs, and run as host effects like them. Not hashed.
+   */
+  engineTools?: (agent: AgentManifest) => readonly DurableSessionTool[];
   /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
   yieldAfter?: { readonly steps?: number; readonly ms?: number };
 }): Promise<DurableResult> {
@@ -245,7 +251,10 @@ export async function runDurable(options: {
   /** Rebuild one agent from its manifest with every tool routed through host effects. */
   const hostedDefinition = (agent: AgentManifest, ref?: AgentRef): AgentDefinition => {
     const hostedTool = hostedTools(ref);
-    const mine = sessionTools.filter((tool) => (tool.agentId ?? manifest.id) === agent.id);
+    const mine = [
+      ...(options.engineTools?.(agent) ?? []),
+      ...sessionTools.filter((tool) => (tool.agentId ?? manifest.id) === agent.id),
+    ];
     // Deferred tools stay out of the model's list; `tool_call` runs them (R2b C10).
     const owned = mine.filter((tool) => !tool.deferred);
     const deferred = new Map(mine.filter((tool) => tool.deferred).map((tool) => [tool.name, tool]));
@@ -260,7 +269,8 @@ export async function runDurable(options: {
           ...(tool.approval === undefined ? {} : { approval: tool.approval }),
         });
       else if (!tool.agent) tools[tool.name] = hostedTool(tool);
-    // The tools the Runtime added (its `runtime` block) run as host effects too.
+    // The tools the Runtime added (its `runtime` block) run as host effects too, as do our
+    // engine's own and the session's.
     for (const tool of agent.runtime?.tools ?? []) tools[tool.name] = hostedTool(tool);
     for (const tool of owned)
       tools[tool.name] =

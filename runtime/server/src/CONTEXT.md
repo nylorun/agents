@@ -463,12 +463,11 @@ _Avoid_: "presigned URL" (the Object store's own URLs never leave the Runtime).
 the caller may read, of the session or Tenant-wide, at a version or its latest. The commands
 service pins each file to a version and gives the engine an opaque media part whose reference is
 `{ artifactId, version, name, size }`; model-gate reads the bytes (`artifacts/files.ts`) only for the call's
-session, the run token's on the gate's route, and only what `read_artifact` reads (the session's
-own artifacts and the Tenant-wide ones its messages named), and reads none for a call without one, so the
+session, the run token's on the gate's route, and only by the **read rule**, and reads none for a call without one, so the
 transcript and the record hold only the reference. An agent session's message naming a file its
 model does not read is refused at accept (`422 attachment_unsupported`, the type only, never the
 size; skipped with no model in the vault), and the files a session's messages named are kept on
-it (`Session.fileArtifacts`) for `read_artifact`. At the gate (`buildContext` in
+it (`Session.fileArtifacts`) for the read rule. At the gate (`buildContext` in
 `model/pi-model.ts`) an image the model reads becomes image input, a text file a `<file>` block,
 a PDF, Office document, audio or video the model reads a **native block**, and anything else, or
 a file it cannot read, a note: no file fails the call there.
@@ -492,9 +491,10 @@ APIs, Office documents on the OpenAI Responses APIs, audio and video on Google's
 OpenAI-compatible completions. Added inputs are the Tenant setting `model.inputs` (`PUT
 /v1/tenant/models/inputs`, `tenant/model-setting.ts`) for catalog models, and a custom
 endpoint's `settings.inputs` (text only by default). One function serves the catalog, the accept
-check (`currentModelInputs` in `model/catalog.ts`), the Model Gate (which gives pi-ai a model
-with an added image, so it is not dropped) and `read_artifact`. A file's input is
-`modelInputOf(mediaType)` (`artifacts/media-types.ts`).
+check (`currentModelInputs` in `model/catalog.ts`) and the Model Gate (which gives pi-ai a model
+with an added image, so it is not dropped). A file's input is `modelInputOf(mediaType)`
+(`core/src/utils/media-types.ts`, in `@nylorun/core/contracts` since protocol 15, so the Runtime
+and a harness type a file alike).
 
 **Reference line**: How a file stands in a prompt once its turn is over (protocol 12,
 `mediaReferenceLine` in `@nylorun/core/define`): `[Uploaded artifact "name" · <artifactId> v<n> ·
@@ -504,10 +504,34 @@ progress once more, in one trailing user message after the conversation and the 
 message projects the same in every later call and bytes reach a model only in their own turn
 (`loop/model/project.ts`). Compaction keeps the summarized part's lines on its entry (`files`).
 
-**`save_artifact`**: Our engine's built-in tool, which the Runtime pins in the `runtime` block of
-a session with a sandbox, beside the sandbox tools: it saves a sandbox file (`path`) or text
-(`content`) as a file artifact of its session, with its turn and tool call on the event
-(`tenant/artifact-tool.ts`).
+**Read rule**: What a session may read of the Tenant's artifacts (`sessionMayRead`,
+`artifacts/files.ts`): its own, and the Tenant-wide ones its messages named
+(`Session.fileArtifacts`); never another session's, nor an Environment's disk versions. The Model
+Gate and the **artifact seam** read by it, so a model call and a harness reach the same files.
+Agents used as tools share their session's reach; a linked session (a flow's agent step, a flow
+agent used as a tool) has its own.
+
+**Artifact seam**: The Harness API's `artifact.read` and `artifact.write` (protocol 15, Harness
+API 4; `harness-api/artifacts.ts`): a harness reads and writes the artifacts of the run it holds,
+its session's by the read rule, never one a parameter names. A read answers the version's
+metadata and its bytes from an `offset`, at most the run's Runtime limit `chunkBytes` (clamped);
+a folder answers its metadata only. A write (`begin`, `chunk`, `commit`, `abort`) makes a file
+artifact of the session or a new version of one of its own, streamed into `uploadArtifact` with
+backpressure (a chunk is answered once the store took it; a chunk past `chunkBytes` is
+`limit_exceeded`), and commits as any upload does, within the Tenant's and the Environment's
+artifact limits. Its `key` makes it idempotent within the session (`artifact_versions.write_key`,
+the SHA-256 of session and key, migration 0028): a key written before answers that version,
+`created: false`. Its `effectId` names a tool call of the run's turn, whose call id core reads
+from the journal for `artifact.created`. An upload the run leaves open ends with it, and commits
+nothing. Refusals are `not_found` (one message for missing and not the session's), `limit_exceeded`
+(with `limitBytes`) and `invalid`.
+
+**`save_artifact`**: Our engine's tool (protocol 15: our harness's, no longer the Runtime's) that
+saves a sandbox file (`path`) or text (`content`) as a file artifact of its session over the
+artifact seam, keyed by its effect id, with its turn and tool call on the event; our harness
+offers it to an agent with a sandbox. Its call is a `tool` effect of kind `harness` (the harness
+declares it in `hello`), so a crash between the commit and the outcome fails it as
+`tool.interrupted` and the key keeps a repeat from storing it twice.
 
 **Stored tool result**: What core makes of an agent's remote MCP or HTTP tool result before it
 records the outcome (R2b C11, `tenant/tool-results.ts`), so no journal row, event or prompt holds
@@ -528,15 +552,16 @@ result past 1 KiB reserves its share on its effect row (`resultBytes`) and is ca
 step's other results left (`resultLimit`), down to a 512-byte stub naming its artifact.
 _Avoid_: "offloaded result" or "spill file".
 
-**`read_artifact`**: Our engine's built-in tool that reads a text artifact in pages of at most
-32 KiB from a byte `offset`, returning `nextOffset` while more remains, at a `version` or the
-latest, and shows another file the Tenant's model reads as a file of the result; one it does not
-read fails `artifact.unsupported` (R2b C11, Q24, protocol 12; `tenant/artifact-tool.ts`). The
-Runtime pins it in the `runtime` block of every agent of a session's tree, with or without a
-sandbox (`sandbox/session-sandbox.ts`), so every agent session pins its definition with a
-`runtime` block, and its `manifestHash` differs from the definition's; the session view's `definitionHash` names the definition it was opened from. It
-reads the session's artifacts and the Tenant-wide ones its messages named, never another
-session's.
+**`read_artifact`**: Our engine's tool (protocol 15: our harness's, no longer the Runtime's) that
+reads a text artifact in pages (32 KiB by default, the harness's `artifactPageBytes`) from a byte
+`offset`, returning `nextOffset` while more remains, at a `version` or the latest, over the
+artifact seam, and hands any other file to the model as a file of the result (the Model Gate
+shows it or writes a note). With a sandbox, `path` copies the whole artifact into it instead.
+Our harness offers it to every agent of a session's tree; the Runtime pins nothing for it, so a
+session without a sandbox or skills pins its definition unchanged (its `manifestHash` is the
+definition's; the session view's `definitionHash` names the definition either way). It reads by
+the read rule. An agent session opened before protocol 15 pinned it, and is closed
+(`protocol_15`, migration 0029).
 
 **Definition file**: A file a definition names by the SHA-256 of its bytes (`sha256:<hex>`), today
 each file of a skill's folder (`SkillManifest.files`, track R2 M4; `tenant/definition-files.ts`).
@@ -556,7 +581,7 @@ manifest hash, file). Nothing deletes them yet: a later sweep removes the unused
 _Avoid_: calling it an artifact; artifacts are a session's or an application's files.
 
 **Skill tools**: `load_skill` and `read_skill_resource`, which the Runtime pins, with the skill
-catalog, in the `runtime` block of an agent with skills. Core runs them like `save_artifact` (`tenant/skill-tool.ts`), reading the
+catalog, in the `runtime` block of an agent with skills. Core runs them itself (`tenant/skill-tool.ts`), reading the
 skill's definition files: nothing reaches the developer's process. A session with a sandbox
 also has each skill's files read-only in a folder per version, `/skills/<name>@<hash>/`
 (`skillFolderOf`, D66), never replaced, so sessions whose agents carry different versions share an
@@ -568,13 +593,19 @@ workspace run in order and different sessions' at once; opening, stopping and re
 alone (`sandbox/manager.ts`).
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 14`; the Host serves protocol 14 only and answers
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 15`; the Host serves protocol 15 only and answers
 older clients `426`; required features `studio-principal`, `artifacts`, `management-api`,
-`resource-server`, `environments`, `model-inputs`, `flat-manifest` and `environment-manifests`;
+`resource-server`, `environments`, `model-inputs`, `flat-manifest`, `environment-manifests` and
+`harness-boundary`;
 optional Host features `tenant-fixture-model`, `transcript-events`, `subject-headers`,
 `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`, `trusted-issuers`, `session-reads`,
 `calls-export`, `credential-coverage`, `tool-calls`, `environment-setup`,
 `environment-disk-versions`, `tool-policy`, `traces` and `artifact-reads`).
+Protocol 15 began the harness boundary (`harness-boundary`, Harness API 4): model-facing work
+belongs to the harness. `read_artifact` and `save_artifact` are our harness's tools, run over the
+**artifact seam**, so the pinned `runtime` block no longer holds them and their names are no
+longer reserved (our harness refuses a turn whose agent has a tool of either name). A fresh
+start for agent sessions: each that pinned them is closed (`protocol_15`, migration 0029).
 Protocol 14 added environment manifests (D63 to D65, `environment-manifests`): named, versioned
 definitions under `/v1/environment-manifests/{name}`, saved like agents (`If-Match`,
 `?dryRun=true`); an Environment is made from one version (or inline fields) and never changes
@@ -711,7 +742,7 @@ One line each; the module named is where the term lives in code.
 - **Gateway**: A local Tenant's container for the gates and keys services, and egress when sandboxes are enabled (`--service gates,keys,egress`). _Avoid_: confusing it with `gatewayModel`, an embedder's model provider, or with an MCP gateway.
 - **MCP gateway**: A service outside Nylorun that holds people's sign-ins to their tools and refreshes them (Arcade, ToolHive, Obot, Nylorun Cloud), reached through a vault credential's `via` with the gateway's key and an identity header (R2b C2, D49). Gateways that mint something per person through an API (Composio, Klavis, Smithery, Pipedream) need the operator's own proxy in front. Nothing in OSS is specific to one. _Avoid_: "connector", "broker".
 - **Keys service**: The `keys` service (F4.2), run in the gateway's process (`--service gates,keys`): the only process that reads the vault key (`<Host root>/keys/vault-kek`). It runs the vault writes that touch a secret, signs every token and runs MCP tool previews (R2b C12, they send a credential), behind the `Keys` seam (`keys/keys.ts`): in process, or over HTTP (`keys/client.ts`, `POST /nylorun/v1/keys/{operation}`, `NYLORUN_KEYS_URL`). With it, a Tenant runtime never reads, creates or holds the key.
-- **Tool call delivery** (R5): Every tool call is a row of `nylorun.effects` and ends in one `tool.completed` with its `status` (`completed`: the tool answered; `failed`: the Runtime ended it, `tool.disabled`, `tool.unavailable` or `tool.interrupted`; `cancelled`), `kind` (`mcp`, `http`, `sandbox`, `platform`, or `harness` for a tool the turn's harness declared), `server`, the `skill` it ran and the `plugin` that brought its skill or server (protocol 13, `toolKindOf`, with core's `skillOfToolCall`: the skill tools name it, a sandbox tool whose input names `/skills/<name>@<hash>/` ran it), `attempts` and `durationMs` (`harness-api/tool-journal.ts`), and, since R7.1, its `effectId`, the gate's `gate` times and the tool `policy` (see **Span-ready row**); a flow's HTTP stage ends in `node.completed`. `GET /v1/sessions/{id}/calls/tool` pages the rows (Host feature `tool-calls`). A call is sent at least once, its effect id the key on every send: an MCP or HTTP call a crash, a shutdown or a lost gate hop interrupted is sent again, up to 3 sends, then fails to the model as `tool.interrupted`; a sandbox or core-served call has no key to dedupe on, so it fails to the model at once and is not run again. A cancel ends a running call `cancelled`. No tool call parks its session `uncertain`; model calls keep their own rules.
+- **Tool call delivery** (R5): Every tool call is a row of `nylorun.effects` and ends in one `tool.completed` with its `status` (`completed`: the tool answered; `failed`: the Runtime ended it, `tool.disabled`, `tool.unavailable` or `tool.interrupted`; `cancelled`), `kind` (`mcp`, `http`, `sandbox`, `platform` for the skill tools and `tool_search`, or `harness` for a tool the turn's harness declared, our harness's `read_artifact` and `save_artifact` among them), `server`, the `skill` it ran and the `plugin` that brought its skill or server (protocol 13, `toolKindOf`, with core's `skillOfToolCall`: the skill tools name it, a sandbox tool whose input names `/skills/<name>@<hash>/` ran it), `attempts` and `durationMs` (`harness-api/tool-journal.ts`), and, since R7.1, its `effectId`, the gate's `gate` times and the tool `policy` (see **Span-ready row**); a flow's HTTP stage ends in `node.completed`. `GET /v1/sessions/{id}/calls/tool` pages the rows (Host feature `tool-calls`). A call is sent at least once, its effect id the key on every send: an MCP or HTTP call a crash, a shutdown or a lost gate hop interrupted is sent again, up to 3 sends, then fails to the model as `tool.interrupted`; a sandbox, harness or core-served call has no key to dedupe on, so it fails to the model at once and is not run again. A cancel ends a running call `cancelled`. No tool call parks its session `uncertain`; model calls keep their own rules.
 - **Tool Gate**: The gates service's routes for remote MCP servers (`/nylorun/v1/mcp/*`, `/nylorun/v1/tool-calls`), and HTTP tools (`/nylorun/v1/http-calls`), and the `ToolGate` seam the Tenant calls (`gates/tool-gate.ts`): in process, or over HTTP (`gates/tool-client.ts`). Only it holds a remote MCP connection and its credential (`gates/mcp-handler.ts`), and it reaches the server under the Host's address policy (`guardedFetch`, `tenant/outbound.ts`: `localhost` is the Docker host in the local stack). A keyed MCP or HTTP tool call outlives its client (`gates/tool-calls.ts`, the `tool_crossings` table): a re-send joins it or gets its answer, and one lost with an earlier gateway runs again under the same key (R5.3). Under a run token it sends only a call the effect journal holds, running, as sent (R5.6, `gates/journal.ts`): `400 key_required` without the key, `409 effect_not_journaled` otherwise. Before it records or returns an answer, it replaces the credential values it sent that the answer echoes with `[redacted]` (R2b C8, `scrubValues` in `redact.ts`; `tool.completed.redacted` counts them). The sandbox tools never cross it.
 - **MCP tool name**: What the model calls a remote MCP server's tool (R2b C6, `normalizeToolName` in `mcp/snapshot.ts`): `server__tool` with characters outside `[A-Za-z0-9_-]` replaced by `_`, shortened to 64 with a hash suffix, which a renamed name that collides also gets. The snapshot keeps the server's own name (`serverToolName`) for the call, and `mcp.discovered` lists the renamed ones. Server and declared tool names are checked at save against the same rule (`DELEGATE_NAME_PATTERN`).
 - **MCP tool error**: A failed remote MCP tool call the model sees as a failed tool result with a code (R2b C7, `McpCallFailed` in `mcp/connect.ts`): `mcp.unreachable` (never sent, `retryable`), `credential_rejected` (`401`), `mcp.forbidden` (`403`), `mcp.error` (a JSON-RPC error), `mcp.status` (another HTTP status), `mcp.too-large` (an answer past 8 MiB, R2b C11), and `mcp.lost` (sent, answer lost: the tool may have run; the model decides, R5). The gate answers it as `error.failure`. `isError` results stay `mcp.tool`. A connection found stale before the tool saw the call (`McpConnectionStale`: a `404` to its `Mcp-Session-Id`, or a credential whose `via` moved) is dropped from the pool or the gate, opened again, and the call sent once more; a second failure is `mcp.unreachable`.
@@ -743,7 +774,7 @@ One line each; the module named is where the term lives in code.
 - **Event writer** (R4.9): Who wrote an event, set by the code that writes it (`Tx.event`'s `EventWriter`), not by its type: `client` for a command (with its `principal`, from the credential), `harness` with the harness id and `runId` for what a harness reported (evidence `claimed`), `core` for core's own logic (evidence `observed`; with the run's id during a run). `egress-gate` is a kind no session event uses since D67: its **Egress event** is on the Environment's stream. The Model Gate's usage row is the measured record of a model call a harness reported.
 - **Harness**: One long-running client of the Harness API that runs the engine for the runs it leases, with injected executors for model, MCP and sandbox calls (`@nylorun/harness/api`, `harness/executors.ts`). Each Tenant runs one in process (`harness-api/in-process.ts`, the default outside Compose), or none with `NYLORUN_HARNESS=remote` (the Compose stack's default): harness services (`--service harness`, `harness/main.ts`, `harness/service.ts`), the **Harness container** and the engines in pod Environments, attach over WebSocket with their own MCP pool and SandboxManager. It reaches no store (`scripts/check-boundaries.mjs`).
 - **Harness container**: A local Tenant's `harness` container: the Runtime image with `--service harness`, connected to core's Harness API with `NYLORUN_HARNESS_TOKEN` and mounting only the Tenant's `sandboxes/` (`cli/nylorun/src/stack/compose-file.ts`). It runs the turns and the virtual sandboxes of every session not on a pod Environment. `NYLORUN_HARNESS=in-process` in `.env` drops it and runs them in the `runtime` container.
-- **Workspace feature**: What core does with sandbox workspaces outside a run (`ctx.sandbox`, a `WorkspacePort`, `harness-api/workspace.ts`): the sandbox tool routes, `save_artifact`'s reads, Tenant status, the sweep, an Environment's deletion and an Environments reset. In process it is the Tenant's SandboxManager; with remote harnesses it is the `workspace.*` requests to the harness that declared `workspace` in its `hello` (`503 request_rejected` when none is connected). The SandboxManager keeps its compute records through a `SandboxRecords` port (`sandbox/records.ts`: the `sandboxes` table, or `<root>/sandboxes/records.json` in a harness, mirrored into the table from its `environment.state` claims and sweep answers).
+- **Workspace feature**: What core does with sandbox workspaces outside a run (`ctx.sandbox`, a `WorkspacePort`, `harness-api/workspace.ts`): the sandbox tool routes, the turn-end export's reads, Tenant status, the sweep, an Environment's deletion and an Environments reset. In process it is the Tenant's SandboxManager; with remote harnesses it is the `workspace.*` requests to the harness that declared `workspace` in its `hello` (`503 request_rejected` when none is connected). The SandboxManager keeps its compute records through a `SandboxRecords` port (`sandbox/records.ts`: the `sandboxes` table, or `<root>/sandboxes/records.json` in a harness, mirrored into the table from its `environment.state` claims and sweep answers).
 - **Run**: A lease on one session's segment, offered by an advance to the first waiting harness (`harness-api/server.ts`): a `runId` bound to the connection that leased it (any other gets `run_not_held`), the turn, the epoch and, from F5, a run token. Its `turn.start` carries the segment's checkpoint without the transcript, its completed outcomes and the transcript's cursor.
 - **Transcript cursor**: The record `seq` of the last event that changed a session's transcript fold (`transcript.updated`, `turn.cancelled`, `turn.failed`). A harness that holds the transcript at the run's cursor resumes from its cache; otherwise it reads it once (`transcript.read`).
 - **Wake**: A request, delivered at least once, that a session advance (`WakeReason` in `execution/types.ts`). A transaction asks for one with `Tx.wake`, which writes it to the outbox.

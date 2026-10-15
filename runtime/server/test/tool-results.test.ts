@@ -523,14 +523,16 @@ describe("read_artifact and the files of messages (protocol 12)", () => {
     });
   });
 
-  it("refuses a type the model does not read", async () => {
+  it("hands a file of another type to the model as a file of the result (protocol 15)", async () => {
     await client.createSession({ id: "named-3", agentId: "plain", ownerUserId: "u:ada" });
     const pdf = await upload("/v1/artifacts?name=own.pdf&sessionId=named-3", "%PDF-1.4", "application/pdf");
-    // Without a model in the vault, read_artifact shows text and images only.
-    expect((await turn("named-3", [], { artifactId: pdf })).payload).toMatchObject({
-      kind: "failed",
-      code: "artifact.unsupported",
-      message: "own.pdf is application/pdf: this model does not read PDFs.",
+    // Our engine reads it over the artifact seam; the Model Gate shows it or writes a note.
+    expect((await turn("named-3", [], { artifactId: pdf })).payload).toEqual({
+      artifactId: pdf,
+      version: 1,
+      name: "own.pdf",
+      contentType: "application/pdf",
+      size: 8,
     });
   });
 });
@@ -604,9 +606,9 @@ describe("the session view", () => {
     const view = (await session.inspect()) as { manifestHash: string; definitionHash?: string };
     const definitions = await client.listAgents();
     const registered = definitions.agents.find((agent) => agent.agentId === "reader")!;
-    // read_artifact is pinned beside the definition, so the hashes differ.
+    // Without a sandbox or skills, nothing is pinned beside the definition (protocol 15).
     expect(view.definitionHash).toBe(registered.manifestHash);
-    expect(view.manifestHash).not.toBe(registered.manifestHash);
+    expect(view.manifestHash).toBe(registered.manifestHash);
   });
 });
 
@@ -614,29 +616,28 @@ describe("the pinned manifest", () => {
   const files = { files: { type: "streamable-http" as const, url: "https://files.example.invalid/mcp" } };
   const names = (manifest: AgentManifest) => (manifest.runtime?.tools ?? []).map((tool) => tool.name);
 
-  it("adds read_artifact to an agent with MCP or HTTP tools, and to an agent it uses as a tool", () => {
+  it("pins no artifact tools: they are our engine's (protocol 15)", () => {
     const lookup = Agent({ id: "lookup", description: "Looks things up." })
       .tools(http({ name: "find", input: z.object({}), url: "https://lookup.example.invalid/find" }))
       .build();
     const lead = Agent({ id: "lead" }).mcp(files).subagents(lookup).build();
     const pinned = withRuntimeTools(lead.manifest);
-    expect(pinned.ok).toBe(true);
-    const manifest = (pinned as { manifest: AgentManifest }).manifest;
-    expect(names(manifest)).toContain("read_artifact");
-    expect(names(delegateManifest(manifest, "lookup")!)).toContain("read_artifact");
-    // A session with a sandbox gets both artifact tools.
+    expect(pinned.ok && pinned.manifest).toEqual(lead.manifest);
+    // A session with a sandbox gets the sandbox tools, and no artifact tools.
     const sandboxed = withSandbox(lead.manifest, { network: { preset: "none" } });
-    expect(sandboxed.ok && names(sandboxed.manifest)).toEqual(expect.arrayContaining(["save_artifact", "read_artifact"]));
+    expect(sandboxed.ok).toBe(true);
+    const manifest = (sandboxed as { manifest: AgentManifest }).manifest;
+    expect(names(manifest)).not.toContain("save_artifact");
+    expect(names(manifest)).not.toContain("read_artifact");
+    expect(names(delegateManifest(manifest, "lookup")!)).toContain("bash");
   });
 
-  it("adds read_artifact to every agent (protocol 12), and never tool_search or tool_call", () => {
-    const plain = withRuntimeTools(Agent({ id: "plain" }).instructions("Answer.").build().manifest);
-    expect(plain.ok && names(plain.manifest)).toEqual(["read_artifact"]);
+  it("never pins tool_search or tool_call, and lets an author tool take an artifact tool's name", () => {
     // tool_search and tool_call are session tools, given per run when tools are deferred (R2b C10).
     const pinned = withRuntimeTools(Agent({ id: "mcp" }).mcp(files).build().manifest);
-    expect(pinned.ok && names(pinned.manifest)).toEqual(["read_artifact"]);
-    // An author tool may not take a Runtime tool's name: the manifest schema refuses it.
+    expect(pinned.ok && names(pinned.manifest)).toEqual([]);
+    // The manifest schema takes it; our harness refuses its turns (harness-state.test.ts).
     const readArtifact = http({ name: "read_artifact", input: z.object({}), url: "https://own.example.invalid/read" });
-    expect(() => Agent({ id: "own" }).tools(readArtifact).build()).toThrow(/read_artifact/);
+    expect(Agent({ id: "own" }).tools(readArtifact).build().manifest.tools?.[0]?.name).toBe("read_artifact");
   });
 });

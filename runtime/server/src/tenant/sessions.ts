@@ -326,8 +326,8 @@ async function checkSkillLimit(t: Tx, manifest: unknown, environment: Environmen
 }
 
 /**
- * The manifest a session without a sandbox pins: each agent's `runtime` block, with
- * `read_artifact` (R2b C11) and its skill tools; nothing for a workflow.
+ * The manifest a session without a sandbox pins: each agent with skills gets a `runtime` block
+ * with its skill tools; an agent without skills is pinned as defined. Nothing for a workflow.
  */
 function runtimeTools(definition: Definition): { manifest?: AgentManifest; manifestHash?: string } {
   if (isWorkflowManifest(definition.manifest)) return {};

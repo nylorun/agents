@@ -43,7 +43,7 @@ import {
   FolderCommitRefused,
   sha256Hex,
 } from "./folders.js";
-import { contentTypeFor } from "./media-types.js";
+import { contentTypeFor } from "@nylorun/core/contracts";
 import type { WorkspaceSession } from "./workspace.js";
 
 /** The directory every sandbox's outputs are exported from. */

@@ -1,9 +1,8 @@
 /**
  * What a model reads (protocol 12): its catalog's inputs and those the operator added where its
- * API carries them, and which input a file is.
+ * API carries them. Which input a file is: `core/test/media-types.test.ts`.
  */
 import { expect, it } from "vitest";
-import { modelInputOf, unreadableReason } from "../src/artifacts/media-types.js";
 import { addableInputs, capabilitiesOf, inputsError } from "../src/model/capabilities.js";
 import { hostModelCatalog, inputsOfHostModel } from "../src/model/catalog.js";
 
@@ -37,25 +36,4 @@ it("says what each catalog model reads, and a configured model", () => {
   expect(inputsOfHostModel({ ...custom, settings: { inputs: ["image", "pdf"] } })).toEqual(["text", "image", "pdf"]);
   expect(inputsOfHostModel({ configured: false })).toBeUndefined();
   expect(inputsOfHostModel({ configured: true, provider: "groq", model: "no-such-model" })).toBeUndefined();
-});
-
-it("tells which input a file is, and why a model cannot read one", () => {
-  expect(modelInputOf("text/csv; charset=utf-8")).toBe("text");
-  expect(modelInputOf("application/json")).toBe("text");
-  // SVG is XML: the model reads it as text.
-  expect(modelInputOf("image/svg+xml")).toBe("text");
-  expect(modelInputOf("image/bmp")).toBe("image");
-  expect(modelInputOf("application/pdf")).toBe("pdf");
-  expect(modelInputOf("application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toBe("office");
-  expect(modelInputOf("audio/mpeg")).toBe("audio");
-  expect(modelInputOf("video/mp4")).toBe("video");
-  expect(modelInputOf("application/zip")).toBeUndefined();
-
-  const inputs = ["text", "image"] as const;
-  expect(unreadableReason("text/plain", ["text"])).toBeUndefined();
-  expect(unreadableReason("image/png", inputs)).toBeUndefined();
-  expect(unreadableReason("image/png", ["text"])).toBe("this model does not read images");
-  expect(unreadableReason("image/bmp", inputs)).toBe("the model reads PNG, JPEG, GIF and WebP images only");
-  expect(unreadableReason("application/pdf", inputs)).toBe("this model does not read PDFs");
-  expect(unreadableReason("application/zip", inputs)).toBe("no model reads application/zip files");
 });

@@ -10,7 +10,7 @@
  */
 import { posix } from "node:path";
 import { skillFolderOf, type AgentManifest } from "@nylorun/core/define";
-import { quote } from "./tools.js";
+import { HELPER_COMMAND_TIMEOUT_MS, quote } from "./tools.js";
 import type { SandboxFileBytes, SandboxHandle } from "./types.js";
 
 /** A skill's files, by path in its folder, as `sha256:<hex>`. */
@@ -46,7 +46,7 @@ export async function mountSkill(
   signal: AbortSignal
 ): Promise<void> {
   const exec = async (command: string) => {
-    const result = await handle.exec({ command, cwd: "/", timeoutMs: 60_000 }, signal);
+    const result = await handle.exec({ command, cwd: "/", timeoutMs: HELPER_COMMAND_TIMEOUT_MS }, signal);
     if (result.exitCode !== 0)
       throw new Error(`${command.slice(0, 120)} failed: ${result.stderr.trim() || `exit ${result.exitCode}`}`);
   };

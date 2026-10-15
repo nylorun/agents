@@ -238,7 +238,7 @@ export async function resolveNewFlowEffect(
     const definition = leafDefinition(workflow, body, request);
     // The tree's Environment reaches every agent in it: its sandbox, with its tools, and its vault.
     const inherited = inheritedSandbox(workflow, definition);
-    // Without one, the agent still gets its runtime block: read_artifact (R2b C11) and its skill tools.
+    // Without one, the agent still gets its skill tools in its runtime block, if it has skills.
     const pinned = inherited?.manifest ? inherited : runtimeTools(definition.manifest);
     const created: Session = {
       id: agentSessionId,

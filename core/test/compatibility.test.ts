@@ -167,12 +167,12 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 14 clients only; they require environment manifests", () => {
-    expect(PROTOCOL_VERSION).toBe(14);
+  it("serves protocol 15 clients only; they require the harness boundary", () => {
+    expect(PROTOCOL_VERSION).toBe(15);
     // Protocol 8 clients require the Management API (key roles); protocol 9 clients the OAuth
     // resource server's 401 challenges; protocol 11 clients Environments; protocol 12 clients
     // model inputs; protocol 13 clients the flat manifest (v7); protocol 14 clients environment
-    // manifests and Environments that never change.
+    // manifests and Environments that never change; protocol 15 clients the harness boundary.
     expect(PROTOCOL_FEATURES).toContain("management-api");
     expect(PROTOCOL_FEATURES).toContain("resource-server");
     expect(PROTOCOL_FEATURES).toContain("environments");
@@ -180,9 +180,10 @@ describe("checkCompatibility", () => {
     expect(PROTOCOL_FEATURES).toContain("model-inputs");
     expect(PROTOCOL_FEATURES).toContain("flat-manifest");
     expect(PROTOCOL_FEATURES).toContain("environment-manifests");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 14, max: 14 });
+    expect(PROTOCOL_FEATURES).toContain("harness-boundary");
+    expect(HOST_PROTOCOL).toMatchObject({ min: 15, max: 15 });
     expect(HOST_PROTOCOL.features).toContain("flat-manifest");
-    expect(checkCompatibility({ version: 14, required: ["environment-manifests"] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
+    expect(checkCompatibility({ version: 15, required: ["environment-manifests", "harness-boundary"] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
     expect(ERROR_CODES).toContain("attachment_unsupported");
     for (const code of ["environment_immutable", "secret_not_in_manifest", "environment_unsuitable", "manifest_changed"])
       expect(ERROR_CODES).toContain(code);
@@ -191,8 +192,9 @@ describe("checkCompatibility", () => {
     // The compatibility window for protocol 4 to 10 clients is closed (R2d Q3).
     for (const removed of ["runtime-tenants", "admin-status", "subject-tokens", "browser-access", "derived-principals"])
       expect(HOST_PROTOCOL.features).not.toContain(removed);
-    // Protocol 14 changed what a PUT does to an existing Environment: 13 clients are refused too.
-    for (const version of [4, 8, 10, 11, 12, 13])
+    // Protocol 15 changed what a session pins and which tool names are reserved: 14 clients are
+    // refused too.
+    for (const version of [4, 8, 10, 11, 12, 13, 14])
       expect(checkCompatibility({ version, required: [] }, HOST_PROTOCOL)).toMatchObject({
         ok: false,
         reason: "version",

@@ -11,7 +11,7 @@
 import type { MessagePart } from "@nylorun/core/contracts";
 import { MAX_MESSAGE_PARTS } from "@nylorun/core/contracts";
 import { commandKey } from "../core/flow-host.js";
-import { extensionFor, normalizeContentType } from "../artifacts/media-types.js";
+import { extensionFor, normalizeContentType } from "@nylorun/core/contracts";
 import { deleteArtifact, uploadArtifact, type ArtifactAccess } from "../artifacts/service.js";
 import type { TenantContext } from "../tenant/context.js";
 import { fail } from "../tenant/http.js";

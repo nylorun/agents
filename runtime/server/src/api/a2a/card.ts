@@ -11,7 +11,7 @@ export interface CardDefinition {
 }
 
 import type { ModelInput } from "@nylorun/core/contracts";
-import { MODEL_IMAGE_TYPES } from "../../artifacts/media-types.js";
+import { MODEL_IMAGE_TYPES } from "@nylorun/core/contracts";
 
 const MODES = ["text/plain", "application/json"];
 

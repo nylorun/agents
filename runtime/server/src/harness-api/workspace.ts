@@ -51,7 +51,7 @@ export interface WorkspacePort {
     maxEntries: number,
     signal: AbortSignal
   ): ReturnType<SandboxManager["listFiles"]>;
-  /** Reads a file of the workspace of `session` as bytes, at most `maxBytes` (`save_artifact`). */
+  /** Reads a file of the workspace of `session` as bytes, at most `maxBytes` (the turn-end export). */
   readBytes(
     session: SandboxSessionRef,
     sandbox: SandboxManifest | undefined,

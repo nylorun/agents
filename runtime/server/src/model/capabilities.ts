@@ -1,7 +1,7 @@
 /**
  * What a model reads (protocol 12): its pi-ai catalog's `input` (text, image) and what the
  * operator added. One function, `capabilitiesOf`, serves the catalog, the accept check, the Model
- * Gate and `read_artifact`.
+ * Gate.
  *
  * The operator may add only an input our provider path sends natively for the model's API
  * (`NATIVE_INPUTS`): an image on every API; a PDF on the APIs below; Office documents on the

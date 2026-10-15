@@ -293,7 +293,7 @@ report("Harness API checks the Host", (await upgrade("/nylorun/harness/v1", { ..
 
 // 7. Runs this connection does not hold.
 const api = await harnessConnection();
-const hello = await api.request("hello", { api: 3, name: "nylorun", version: "0", features: {} });
+const hello = await api.request("hello", { api: 4, name: "nylorun", version: "0", features: {} });
 const tenantId = hello.tenantId;
 const unheld = randomUUID();
 const intent = (runId, sessionId) => ({
@@ -315,6 +315,8 @@ const notHeld = {
   "effect.outcome": { runId: unheld, effectId: "e", value: 1 },
   "session.mcp": { runId: unheld, diagnostics: [] },
   "lease.release": { runId: unheld, reason: "shutdown" },
+  "artifact.read": { runId: unheld, artifactId: "af_00000000000000000000000000" },
+  "artifact.write": { runId: unheld, op: "begin", key: "k", name: "x.txt", base64: "" },
 };
 for (const [method, params] of Object.entries(notHeld))
   report(`${method} for an unheld run: run_not_held`, (await refusal(api.request(method, params))) === "run_not_held");

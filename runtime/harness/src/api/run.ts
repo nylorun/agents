@@ -23,13 +23,16 @@ import type { FlowCheckpoint } from "../flow/checkpoint.js";
 import type { FlowOperatorLimits } from "../flow/limits.js";
 import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
-import { apiHost } from "./host.js";
+import { apiHost, type EngineToolConfig } from "./host.js";
+import { artifactToolsFor } from "../tools/artifacts.js";
 import type { TranscriptCache } from "./transcript-cache.js";
 
 export interface RunContext {
   readonly channel: HarnessChannel;
   readonly executors: HarnessExecutors;
   readonly cache: TranscriptCache;
+  /** The harness's configuration of our engine's own tools. */
+  readonly engine: EngineToolConfig;
 }
 
 type EngineResult =
@@ -87,7 +90,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
       transcript = ctx.cache.get(sessionId, cursor) ?? (await read(ctx, run));
       checkpoint = { ...checkpoint, state: withTranscript(checkpoint.state, transcript) };
     }
-    const host = apiHost(ctx.channel, ctx.executors, run);
+    const host = apiHost(ctx.channel, ctx.executors, run, ctx.engine);
     const result: EngineResult =
       start.engine === "flow"
         ? await runFlowDurable({
@@ -103,6 +106,9 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             signal,
             host,
             sessionTools: start.sessionTools as readonly DurableSessionTool[] | undefined,
+            // Our engine's own tools, run here over the artifact seam (protocol 15).
+            engineTools: (agent) =>
+              artifactToolsFor(agent, { pageBytes: ctx.engine.artifactPageBytes }),
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
           });
     ({ output, after } = outputOf(runId, result, transcript));

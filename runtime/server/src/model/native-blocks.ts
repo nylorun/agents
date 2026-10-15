@@ -14,7 +14,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { TextContent } from "@earendil-works/pi-ai";
-import { essence } from "../artifacts/media-types.js";
+import { essence } from "@nylorun/core/contracts";
 import { NATIVE_INPUTS } from "./capabilities.js";
 
 /** The kinds of file a native block carries; images are pi-ai's own. */

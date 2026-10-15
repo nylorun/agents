@@ -82,7 +82,7 @@ describe("turn-manifest", () => {
   });
 
   it("runs a variant with the pin's runtime block, and refuses one that sets its own", () => {
-    const runtime = runtimeManifestFor({}, { read: true })!;
+    const runtime = runtimeManifestFor({}, { sandbox: {} })!;
     const pinned = manifest({ runtime });
     const store = memoryStore();
     const variant = manifest({ instructions: ["Be careful."] });
@@ -99,7 +99,7 @@ describe("turn-manifest", () => {
   it("gives a variant's agents used as tools the runtime block the pin gave them", () => {
     const child: AgentManifest = { manifestSchemaVersion: 7, id: "helper", description: "Helps.", instructions: ["Help."] };
     const tool = { name: "helper", description: "Helps.", inputSchema: DELEGATE_INPUT_SCHEMA as Record<string, unknown> };
-    const runtime = runtimeManifestFor({}, { read: true })!;
+    const runtime = runtimeManifestFor({}, { sandbox: {} })!;
     const pinned = manifest({ runtime, tools: [{ ...tool, agent: { ...child, runtime } }] });
     const variant = manifest({ instructions: ["Delegate."], tools: [{ ...tool, agent: child }] });
     const turn = pinTurnManifest({ candidate: variant, pinned, store: memoryStore() });

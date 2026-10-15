@@ -94,7 +94,7 @@ export function inputsOfHostModel(
 }
 
 /**
- * What the Tenant's model reads now, for the accept check and `read_artifact`: undefined when no
+ * What the Tenant's model reads now, for the accept check: undefined when no
  * model is in the vault (a test's fake provider, say), and the check is skipped.
  */
 export async function currentModelInputs(ctx: {

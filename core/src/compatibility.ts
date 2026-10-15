@@ -1,6 +1,13 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 15: the harness boundary, a fresh start. Model-facing work belongs to the harness. Our
+ * engine's `read_artifact` and `save_artifact` run in our harness, over the Harness API's new
+ * artifact seam (`artifact.read`, `artifact.write`; Harness API 4), so a session's pinned
+ * `runtime` block no longer carries them, and those names are no longer reserved: an author tool
+ * may take one, though our harness then refuses the turn. A `tool.completed` of either says kind
+ * `harness`. Sessions pinned before protocol 15 must be recreated. The Host serves protocol 15
+ * only.
  * Protocol 14: environment manifests (D63 to D65). `/v1/environment-manifests/{name}` holds
  * named, versioned definitions of a kind of Environment, saved like agents (with `If-Match` and
  * `?dryRun=true`), and `PUT /v1/environments/{id}` takes `manifest: "name"` or `"name@n"`. An
@@ -56,7 +63,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -98,6 +105,12 @@ export const PROTOCOL_FEATURES = [
    * `requires`, checked when a session opens.
    */
   "environment-manifests",
+  /**
+   * Protocol 15: the harness boundary. `read_artifact` and `save_artifact` are our harness's
+   * tools, not the Runtime's: a session's pinned `runtime` block no longer carries them, and an
+   * author tool may take their names.
+   */
+  "harness-boundary",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -164,13 +177,13 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 /**
- * What this Host serves: protocol 14. Protocol 14 changed what `PUT /v1/environments/{id}`
- * does to an existing Environment and the shape of its view, so an older client is answered
- * `426` naming the protocol it needs rather than a `409` it cannot read.
+ * What this Host serves: protocol 15. Protocol 15 changed what a session's pinned manifest
+ * carries and which tool names are reserved, so an older client is answered `426` naming the
+ * protocol it needs rather than a turn it cannot read.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
-  min: 14,
-  max: 14,
+  min: 15,
+  max: 15,
   features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;

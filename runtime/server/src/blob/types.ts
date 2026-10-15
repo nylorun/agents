@@ -117,7 +117,6 @@ export class BlobRangeError extends Error {
   }
 }
 
-export const DEFAULT_CONTENT_TYPE = "application/octet-stream";
 export const MAX_KEY_BYTES = 1024;
 
 const SEGMENT = /^[A-Za-z0-9._-]+$/;

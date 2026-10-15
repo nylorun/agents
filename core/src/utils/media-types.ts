@@ -1,10 +1,14 @@
 /**
  * Media types of file artifacts: what an upload may declare, what a name's extension implies,
  * and which model input a file is (`modelInputOf`, protocol 12): text, an image, a PDF, an Office
- * document, audio or video. A model reads a file only when its inputs include that one.
+ * document, audio or video. A model reads a file only when its inputs include that one. The
+ * Runtime types what it stores with these, and a harness what it reads and writes over the
+ * Harness API's artifact seam (protocol 15), so both agree.
  */
-import type { ModelInput } from "@nylorun/core/contracts";
-import { DEFAULT_CONTENT_TYPE } from "../blob/index.js";
+import type { ModelInput } from "../contracts.js";
+
+/** The media type of bytes nothing says more about. */
+export const DEFAULT_CONTENT_TYPE = "application/octet-stream";
 
 const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
 
