@@ -21,7 +21,7 @@ import type {
   RuntimeModelAdapter,
   RuntimeModelCandidate,
 } from "../contracts.js";
-import type { ModelInput } from "@nylorun/core/contracts";
+import { RUNTIME_LIMIT_DEFAULTS, type ModelInput, type RuntimeLimits } from "@nylorun/core/contracts";
 import { mediaReferenceOf, type ModelFailureOutcome } from "@nylorun/core/define";
 import {
   FileUnavailableError,
@@ -42,16 +42,36 @@ export interface ModelPreview {
   readonly text: string;
 }
 
-/** Retry, timeout and cache settings for one model call (Model Calls §5, §6). */
+/**
+ * Retry and timeout settings for one model call (Model Calls §5, §6): the Tenant's Runtime limits
+ * `model*` (`modelCallSettingsOf`), which the gates read for each call. Each left out is that
+ * limit's default.
+ */
 export interface ModelCallSettings {
-  /** Attempts per call, including the first. Default 3. */
+  /** Attempts per call, including the first (`modelAttempts`). */
   readonly attempts?: number;
-  /** Base delay between attempts; doubles each time, with jitter. Default 2 s. */
+  /** Base delay between attempts; doubles each time, with jitter (`modelRetryDelayMs`). */
   readonly retryBaseDelayMs?: number;
-  /** A stream with no event for this long is aborted and retried. Default 300 s. */
+  /** A stream with no event for this long is aborted and retried (`modelIdleMs`). */
   readonly idleTimeoutMs?: number;
-  /** Whole-request timeout passed to the provider SDK. Default 600 s. */
+  /** Whole-request timeout passed to the provider SDK (`modelRequestMs`). */
   readonly requestTimeoutMs?: number;
+  /** Retries the provider SDK makes within one attempt (`modelProviderRetries`). */
+  readonly providerRetries?: number;
+  /** The longest delay the provider SDK waits before one of them (`modelRetryDelayMaxMs`). */
+  readonly maxRetryDelayMs?: number;
+}
+
+/** The model call settings the Runtime limits `limits` set. */
+export function modelCallSettingsOf(limits: RuntimeLimits): Required<ModelCallSettings> {
+  return {
+    attempts: limits.modelAttempts,
+    retryBaseDelayMs: limits.modelRetryDelayMs,
+    idleTimeoutMs: limits.modelIdleMs,
+    requestTimeoutMs: limits.modelRequestMs,
+    providerRetries: limits.modelProviderRetries,
+    maxRetryDelayMs: limits.modelRetryDelayMaxMs,
+  };
 }
 
 export interface PiModelOptions {
@@ -98,12 +118,7 @@ const noAmbientAuth: AuthContext = {
  * A provider failure is returned as a failure outcome; only an abort is thrown.
  */
 export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
-  const settings = {
-    attempts: Math.max(1, options.settings?.attempts ?? 3),
-    retryBaseDelayMs: options.settings?.retryBaseDelayMs ?? 2_000,
-    idleTimeoutMs: options.settings?.idleTimeoutMs ?? 300_000,
-    requestTimeoutMs: options.settings?.requestTimeoutMs ?? 600_000,
-  };
+  const settings = { ...modelCallSettingsOf(RUNTIME_LIMIT_DEFAULTS), ...options.settings };
   return async (call, context) => {
     context.signal.throwIfAborted();
     // The first stream event's time, from here (R7.1): the meter keeps it on the usage row.
@@ -170,8 +185,8 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       sessionId: call.executionId,
       cacheRetention: "short" as const,
       timeoutMs: settings.requestTimeoutMs,
-      maxRetries: 2,
-      maxRetryDelayMs: 60_000,
+      maxRetries: settings.providerRetries,
+      maxRetryDelayMs: settings.maxRetryDelayMs,
       ...(natives.size > 0
         ? {
             // A file that cannot be carried stops the request before it is sent.

@@ -18,7 +18,6 @@ import { DELEGATE_INPUT_SCHEMA, DELEGATE_NAME_PATTERN } from "./definition/deleg
 import { stdioMcpRefusal } from "./definition/mcp.js";
 import {
   APPROVAL_MODES,
-  HTTP_TOOL_MAX_TIMEOUT_MS,
   HTTP_TOOL_METHODS,
   httpInputIssue,
   httpUrlIssue,
@@ -26,6 +25,8 @@ import {
   httpVerifierIssue,
 } from "./definition/http-tool.js";
 import { canonical } from "./utils/canonical.js";
+import { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
+export { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId };
 import { isDefinitionFileHash, skillFilesIssue } from "./utils/definition-files.js";
@@ -39,19 +40,26 @@ export {
   skillsOf,
 } from "./utils/definition-files.js";
 export {
+  HARNESS_LIMIT_DEFAULTS,
+  HarnessLimitsSchema,
   JS_STRING_MAX_LENGTH,
   RECORD_ENVELOPE_RESERVE_BYTES,
   RUNTIME_LIMIT_CEILINGS,
   RUNTIME_LIMIT_DEFAULTS,
   RuntimeLimitsSchema,
   S2_RECORD_MAX_BYTES,
+  TIMER_MAX_MS,
+  harnessLimitsOf,
+  inlineBodyBytes,
   limitExceededMessage,
   runtimeLimitIssues,
   runtimeLimitsOf,
+  type HarnessLimit,
+  type HarnessLimits,
   type RuntimeLimit,
   type RuntimeLimits,
 } from "./utils/runtime-limits.js";
-import { RuntimeLimitsSchema } from "./utils/runtime-limits.js";
+import { RuntimeLimitsSchema, TIMER_MAX_MS } from "./utils/runtime-limits.js";
 export {
   DEFAULT_CONTENT_TYPE,
   MODEL_IMAGE_TYPES,
@@ -209,7 +217,7 @@ const httpToolTargetSchema = z
     }),
     method: z.enum(HTTP_TOOL_METHODS).optional(),
     credential: z.string().min(1).optional(),
-    timeoutMs: z.number().int().positive().max(HTTP_TOOL_MAX_TIMEOUT_MS).optional(),
+    timeoutMs: z.number().int().positive().max(TIMER_MAX_MS).optional(),
   })
   .strict();
 /** A name kept for a later kind of `what` (tool, verifier), refused for now. */
@@ -654,20 +662,18 @@ export type SandboxKind = Exclude<EnvironmentKind, "none">;
 
 const LABEL_KEY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,61}[A-Za-z0-9])?$/;
 const LABEL_VALUE_PATTERN = /^[\x20-\x7e]{0,256}$/;
-export const ENVIRONMENT_LABELS_MAX = 32;
-/** The developer's own key-value pairs; the Runtime stores and filters them, never reads them. */
-export const EnvironmentLabelsSchema = z
-  .record(
-    z.string().regex(LABEL_KEY_PATTERN, {
-      message: "Label keys are 1-63 letters, digits, '.', '_', '/' and '-'",
-    }),
-    z.string().regex(LABEL_VALUE_PATTERN, {
-      message: "Label values are up to 256 printable ASCII characters",
-    }),
-  )
-  .refine((labels) => Object.keys(labels).length <= ENVIRONMENT_LABELS_MAX, {
-    message: `At most ${ENVIRONMENT_LABELS_MAX} labels`,
-  });
+/**
+ * The developer's own key-value pairs; the Runtime stores and filters them, never reads them. At
+ * most the Tenant's Runtime limit `environmentLabels` of them, checked when they are set.
+ */
+export const EnvironmentLabelsSchema = z.record(
+  z.string().regex(LABEL_KEY_PATTERN, {
+    message: "Label keys are 1-63 letters, digits, '.', '_', '/' and '-'",
+  }),
+  z.string().regex(LABEL_VALUE_PATTERN, {
+    message: "Label values are up to 256 printable ASCII characters",
+  }),
+);
 export type EnvironmentLabels = z.infer<typeof EnvironmentLabelsSchema>;
 
 /** A harness id (track R4): what a harness names itself in `hello`. */
@@ -689,15 +695,16 @@ export const EnvironmentLifecycleSchema = z
   .strict();
 export type EnvironmentLifecycle = z.infer<typeof EnvironmentLifecycleSchema>;
 
-/** The most setup commands and input files an Environment's recipe holds (step 2). */
-export const ENVIRONMENT_SETUP_MAX = 16;
-/** A setup command's longest timeout (default 10m). */
-export const ENVIRONMENT_SETUP_TIMEOUT_MAX_MS = 30 * 60_000;
+/**
+ * The default of a setup command's `timeout` setting. The longest one may ask for is the Tenant's
+ * Runtime limit `setupCommandMs`.
+ */
+export const ENVIRONMENT_SETUP_TIMEOUT_DEFAULT = "10m";
 const absoluteWorkspacePath = (name: string) =>
   z
     .string()
     .min(1)
-    .max(1024)
+    .max(FILE_PATH_MAX)
     .refine(
       (value) =>
         (value === "/workspace" || value.startsWith("/workspace/")) &&
@@ -714,12 +721,8 @@ export const EnvironmentSetupCommandSchema = z
     command: z.string().min(1).max(4096),
     /** Where it runs. Default `/workspace`. */
     cwd: absoluteWorkspacePath("cwd").optional(),
-    /** Default 10m, at most 30m. */
-    timeout: durationSchema("timeout")
-      .refine((value) => (parseSandboxDuration(value) ?? 0) <= ENVIRONMENT_SETUP_TIMEOUT_MAX_MS, {
-        message: "timeout is at most 30m",
-      })
-      .optional(),
+    /** Default 10m (`ENVIRONMENT_SETUP_TIMEOUT_DEFAULT`), at most the Tenant's `setupCommandMs`. */
+    timeout: durationSchema("timeout").optional(),
   })
   .strict();
 export type EnvironmentSetupCommand = z.infer<typeof EnvironmentSetupCommandSchema>;
@@ -728,13 +731,11 @@ export type EnvironmentSetupCommand = z.infer<typeof EnvironmentSetupCommandSche
  * is made or reset, before the setup commands. A file artifact is written at `path`; a folder
  * artifact is unpacked under it.
  */
-/** The most files one `files` entry by hash names (Q6). */
-export const ENVIRONMENT_FILES_MAX = 1000;
 /** A file's path inside a `files` entry by hash: relative, `/`-separated, without `.` or `..`. */
 const relativeFilePath = z
   .string()
   .min(1)
-  .max(1024)
+  .max(FILE_PATH_MAX)
   .refine(
     (value) =>
       !value.startsWith("/") && !value.includes("\0") && value.split("/").every((segment) => segment !== "" && segment !== "." && segment !== ".."),
@@ -762,9 +763,8 @@ export const EnvironmentFileSchema = z.union([
           relativeFilePath,
           z.string().refine(isDefinitionFileHash, { message: "each file is sha256:<64 lowercase hex>" }),
         )
-        .refine((files) => Object.keys(files).length >= 1 && Object.keys(files).length <= ENVIRONMENT_FILES_MAX, {
-          message: `files names 1 to ${ENVIRONMENT_FILES_MAX} files`,
-        }),
+        // At most the Tenant's Runtime limit `environmentFilesPerEntry`, checked when made (Q6).
+        .refine((files) => Object.keys(files).length >= 1, { message: "files names at least one file" }),
     })
     .strict(),
 ]);
@@ -804,9 +804,10 @@ export const EnvironmentManifestRefSchema = z
   .meta({ description: "`name` (the latest version when the Environment is created) or `name@n`" });
 
 /**
- * What an Environment's artifacts and its sessions' skills may hold, in bytes: part of its
- * manifest, fixed for its life. Each limit left out is the Tenant's (`/v1/tenant/artifacts`,
- * `/v1/tenant/skills`) as it is when the limit is checked, and none may be above the Tenant's.
+ * What an Environment's artifacts, its sessions' skills and its disk versions may hold: part of
+ * its manifest, fixed for its life. Each limit left out is the Tenant's (`/v1/tenant/artifacts`,
+ * `/v1/tenant/skills`, `/v1/tenant/limits`) as it is when the limit is checked, and none may be
+ * above the Tenant's.
  */
 export const EnvironmentLimitsSchema = z
   .object({
@@ -823,6 +824,16 @@ export const EnvironmentLimitsSchema = z
       .object({
         /** The most bytes one skill's files may hold together, for a session to open in it. */
         totalBytes: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    /** Its disk versions, within the Tenant's Runtime limits `diskVersion*` (`/v1/tenant/limits`). */
+    disk: z
+      .object({
+        /** The most bytes of files one version of its disk holds. */
+        versionBytes: z.number().int().positive().optional(),
+        /** The most entries (files, links, empty directories) one version holds. */
+        versionEntries: z.number().int().positive().optional(),
       })
       .strict()
       .optional(),
@@ -886,9 +897,9 @@ export const PutEnvironmentRequestSchema = z
      * Pods only (Host feature `environment-setup`): commands run when the disk is made or reset,
      * before any turn. A change applies at the next reset.
      */
-    setup: z.array(EnvironmentSetupCommandSchema).max(ENVIRONMENT_SETUP_MAX).optional(),
+    setup: z.array(EnvironmentSetupCommandSchema).optional(),
     /** Pods only: artifact versions copied in when the disk is made or reset, before `setup`. */
-    files: z.array(EnvironmentFileSchema).max(ENVIRONMENT_SETUP_MAX).optional(),
+    files: z.array(EnvironmentFileSchema).optional(),
     /**
      * What its artifacts and its sessions' skills may hold, at most the Tenant's limits; a limit
      * left out is the Tenant's. Fixed.
@@ -1000,6 +1011,7 @@ export const EnvironmentViewSchema = z
       .object({
         artifacts: z.object({ fileBytes: z.number().int(), totalBytes: z.number().int() }).strict(),
         skills: z.object({ totalBytes: z.number().int() }).strict(),
+        disk: z.object({ versionBytes: z.number().int(), versionEntries: z.number().int() }).strict(),
       })
       .strict(),
     /**
@@ -1297,19 +1309,15 @@ export const TenantEnvironmentsConfigSchema = z
         /** Stop compute after this long without use; an Environment's `lifecycle.idle` is at most this. */
         idle: durationSchema("limits.idle").optional(),
         /** The most Environments the Tenant may hold. Default 100. */
-        environments: z.number().int().min(0).max(100_000).optional(),
+        environments: z.number().int().min(0).optional(),
       })
       .strict()
       .optional(),
     /** Pods: how long a pod has to stop. Read at every timer. */
     lifecycle: z
       .object({
-        /** The pod's grace period to stop, at most 30s. Default 10s. */
-        stopGrace: durationSchema("lifecycle.stopGrace")
-          .refine((value) => (parseSandboxDuration(value) ?? 0) <= 30_000, {
-            message: "lifecycle.stopGrace is at most 30s",
-          })
-          .optional(),
+        /** The pod's grace period to stop (its `terminationGracePeriodSeconds`). Default 10s. */
+        stopGrace: durationSchema("lifecycle.stopGrace").optional(),
       })
       .strict()
       .optional(),
@@ -1593,15 +1601,11 @@ export const EnvironmentSecretSlotSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("headers"), url: z.string().min(1), ...credentialRouting, ...slotBase }).strict(),
 ]);
 export type EnvironmentSecretSlot = z.infer<typeof EnvironmentSecretSlotSchema>;
-/** The most secret slots one manifest declares. */
-export const ENVIRONMENT_SECRET_SLOTS_MAX = 64;
+/** A manifest's secret slots: at most the Tenant's Runtime limit `environmentSecretSlots`. */
 export const EnvironmentSecretSlotsSchema = z
   .record(z.string(), EnvironmentSecretSlotSchema)
   .superRefine((slots, ctx) => {
-    const names = Object.keys(slots);
-    if (names.length > ENVIRONMENT_SECRET_SLOTS_MAX)
-      ctx.addIssue({ code: "custom", message: `At most ${ENVIRONMENT_SECRET_SLOTS_MAX} secrets` });
-    for (const name of names) {
+    for (const name of Object.keys(slots)) {
       const error = environmentSecretNameError(slots[name]!.type, name);
       if (error) ctx.addIssue({ code: "custom", path: [name], message: error });
     }
@@ -1795,10 +1799,16 @@ export const MODEL_INPUTS = ["text", "image", "pdf", "office", "audio", "video"]
 export const ModelInputSchema = z.enum(MODEL_INPUTS);
 export type ModelInput = z.infer<typeof ModelInputSchema>;
 /**
+ * The defaults of a custom endpoint's `contextWindow` and `maxTokens` settings (and the window
+ * assumed for a model the Runtime knows nothing of): small, since an early compaction beats a
+ * failed call.
+ */
+export const CUSTOM_MODEL_SETTING_DEFAULTS = Object.freeze({ contextWindow: 32_768, maxTokens: 8_192 });
+/**
  * What the Runtime cannot learn from a custom OpenAI-compatible endpoint (Model Calls §7):
- * its context window and output limit, whether it reasons, what it reads (`inputs`; default text
- * only) and pi-ai `compat` settings (`thinkingFormat`, `thinkingTokenBudgetField`,
- * `chatTemplateKwargs`, …).
+ * its context window and output limit (default `CUSTOM_MODEL_SETTING_DEFAULTS`), whether it
+ * reasons, what it reads (`inputs`; default text only) and pi-ai `compat` settings
+ * (`thinkingFormat`, `thinkingTokenBudgetField`, `chatTemplateKwargs`, …).
  */
 export const CustomModelSettingsSchema = z
   .object({
@@ -3398,8 +3408,6 @@ export const TOKEN_SCOPES = [
   "sessions:own",
   "environments:write",
 ] as const;
-/** The most Environment grants one token caller carries. */
-export const TOKEN_ENVIRONMENT_GRANTS_MAX = 16;
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
 /**
  * The longest a token the Runtime signs itself lives, in seconds (capability links): rotating
@@ -4125,10 +4133,17 @@ export const ARTIFACT_LINK_DEFAULT_TTL_SECONDS = 300;
 /** A Tenant's limits when it sets none: 100 MiB per file, 10 GiB in all. */
 export const ARTIFACT_FILE_BYTES_DEFAULT = 100 * 1024 * 1024;
 export const ARTIFACT_TOTAL_BYTES_DEFAULT = 10 * 1024 * 1024 * 1024;
-/** The longest artifact name, in characters. */
-export const ARTIFACT_NAME_MAX = 255;
-/** The longest path of a file in a folder artifact, in characters. */
-export const ARTIFACT_PATH_MAX = 1024;
+/**
+ * The longest artifact name, in characters: the longest file name a workspace's file system takes
+ * (`NAME_MAX`), since a name becomes one when the artifact is copied into a sandbox or downloaded.
+ * A standard's constant, not a limit (B15).
+ */
+export const ARTIFACT_NAME_MAX = FILE_NAME_MAX;
+/**
+ * The longest path of a file in a folder artifact, in characters: the longest path a workspace's
+ * file system takes (`PATH_MAX`), since the folder is unpacked there. A standard's constant.
+ */
+export const ARTIFACT_PATH_MAX = FILE_PATH_MAX;
 
 /** Labels: up to 32, keys 1–63 characters, values up to 256. */
 export const ArtifactLabelsSchema = z

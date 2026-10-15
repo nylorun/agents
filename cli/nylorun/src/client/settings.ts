@@ -29,8 +29,8 @@ export const settingsUsage = `  budgets [get | put <file|->] [--tenant <name>]
   settings skills [get | put <file|->] [--tenant <name>]
                                       the most bytes one skill may hold
   settings limits [get | put <file|->] [--tenant <name>]
-                                      the Runtime limits: record entry, model call, model file,
-                                      tool answer, harness state and chunk bytes
+                                      the Runtime limits: sizes, counts and deadlines (record
+                                      entries, request bodies, Environments, model calls, tools)
   coverage --agent <id> [--environment <id>] [--tenant <name>] [--json]
                                       which secret of the Environment each of the agent's MCP
                                       servers and HTTP tools would get`;

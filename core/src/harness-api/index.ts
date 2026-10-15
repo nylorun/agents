@@ -14,7 +14,6 @@ export * from "./messages.js";
 export { HarnessApiError } from "./errors.js";
 export { effectRequestHash, requestIdentity } from "./hash.js";
 export {
-  CHUNK_BYTES,
   TranscriptFoldError,
   applyUpdate,
   applyUpdates,
@@ -95,9 +94,14 @@ export {
 } from "./artifacts.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "../utils/harness-id.js";
 export {
+  HARNESS_LIMIT_DEFAULTS,
+  HarnessLimitsSchema,
   RUNTIME_LIMIT_CEILINGS,
   RUNTIME_LIMIT_DEFAULTS,
   RuntimeLimitsSchema,
+  harnessLimitsOf,
+  type HarnessLimit,
+  type HarnessLimits,
   type RuntimeLimit,
   type RuntimeLimits,
 } from "../utils/runtime-limits.js";

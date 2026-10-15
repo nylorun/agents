@@ -3,6 +3,8 @@ import { httpModelGate } from "../../src/gates/http-client.js";
 import { startGates } from "../../src/host/gates.js";
 import { modelGateContract } from "./model-gate.contract.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
+import { modelCallLimits } from "../support/limits.js";
+import { writeLimitsConfig } from "../../src/tenant/runtime-limits.js";
 
 const quiet = { info() {}, warn() {}, error() {} };
 
@@ -23,6 +25,8 @@ modelGateContract("http", async (host) => {
     return fixture;
   });
   const fixture = await runs;
+  // The gates service reads the Tenant's Runtime limits `model*` for each call.
+  await fixture.store.tx((t) => writeLimitsConfig(t, { limits: modelCallLimits(host.settings) }));
   const token = "ab".repeat(32);
   const server = await startGates({
     gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
@@ -37,7 +41,6 @@ modelGateContract("http", async (host) => {
           writeHostCredential: async () => {},
         }) as never,
     },
-    settings: host.settings,
     drainMs: 0,
   });
   return {

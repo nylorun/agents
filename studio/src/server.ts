@@ -43,6 +43,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import { readFileSync } from "node:fs";
 import {
   createServer,
+  maxHeaderSize,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
@@ -83,8 +84,8 @@ const SUBJECT_SESSION_VERSION = "v3";
 const SUBJECT_SESSION_AUDIENCE = "studio-cookie";
 /** The scope a forwarded token must carry, as `GET /v1/me` reports it. */
 export const STUDIO_SCOPE = "studio";
-/** Issuer tokens are at most 16 KiB (the Runtime's cap). */
-const MAX_FORWARDED_TOKEN = 16 * 1024;
+/** A forwarded token is read from a header, which Node refuses past `http.maxHeaderSize`, as the Runtime does. */
+const MAX_FORWARDED_TOKEN = maxHeaderSize;
 const FORWARDED_TOKEN_HEADER = "x-forwarded-access-token";
 const RUNTIME_TIMEOUT_MS = 10_000;
 

@@ -218,17 +218,13 @@ export class OutboundFailed extends Error {
   }
 }
 
-/** The largest answer `guardedFetch` reads. */
-export const MAX_FETCH_RESPONSE_BYTES = 1024 * 1024;
-/** How long a `guardedFetch` request may take without a signal of its own. */
-export const FETCH_TIMEOUT_MS = 30_000;
-
 /**
  * A `fetch` under the Host's address policy (F9 C2): the literal-IP and DNS checks of `post`
  * on the address actually connected to, `localhost` rewritten for the local stack, no
- * redirects (`redirect: "error"`; a 3xx answer rejects), a bounded answer and a 30 s timeout
- * unless the caller passes a signal. A refused URL or address rejects with `OutboundRefused`,
- * any other failure with `OutboundFailed`.
+ * redirects (`redirect: "error"`; a 3xx answer rejects), an answer of at most `maxResponseBytes`
+ * and a `timeoutMs` timeout unless the caller passes a signal, both the caller's (a Tenant's
+ * Runtime limits). A refused URL or address rejects with `OutboundRefused`, any other failure
+ * with `OutboundFailed`.
  *
  * `stream`: the Response resolves once the headers arrive and its body streams, unbounded and
  * with no timeout but the caller's signal: remote MCP servers, whose answers and event streams
@@ -236,11 +232,11 @@ export const FETCH_TIMEOUT_MS = 30_000;
  */
 export function guardedFetch(
   policy: OutboundPolicy,
-  options: { maxResponseBytes?: number; timeoutMs?: number; stream?: boolean } = {},
+  options: { maxResponseBytes: number; timeoutMs: number } | { stream: true },
 ): typeof fetch {
-  const limit = options.maxResponseBytes ?? MAX_FETCH_RESPONSE_BYTES;
-  const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
-  const stream = options.stream === true;
+  const stream = "stream" in options;
+  const limit = "stream" in options ? Infinity : options.maxResponseBytes;
+  const timeoutMs = "stream" in options ? undefined : options.timeoutMs;
   const lookup = guardedLookup(policy);
   const guarded = async (input: string | URL | Request, init: RequestInit = {}): Promise<Response> => {
     const request = input instanceof Request ? input : undefined;
@@ -265,7 +261,7 @@ export function guardedFetch(
     }
     const originalHost = url.host;
     dockerHost(url, policy);
-    const signal = init.signal ?? request?.signal ?? (stream ? undefined : AbortSignal.timeout(timeoutMs));
+    const signal = init.signal ?? request?.signal ?? (timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs));
     const outgoing: Record<string, string> = { host: originalHost };
     for (const [name, value] of headers) outgoing[name] = value;
     if (body) outgoing["content-length"] = String(body.byteLength);

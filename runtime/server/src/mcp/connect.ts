@@ -17,8 +17,6 @@ import { credentialSecrets } from "../vault/headers.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import type { McpDiagnostic, McpToolRecord } from "./snapshot.js";
 
-/** How much of a failed answer's body the model sees. */
-export const MCP_ERROR_BODY_CHARS = 2_000;
 
 /** Options of one MCP request. */
 export interface McpRequestOptions {
@@ -38,6 +36,11 @@ export interface McpCallOptions extends McpRequestOptions {
    * it from the call's journal row.
    */
   readonly traceparent?: string;
+  /**
+   * How much of a failed call's answer its error quotes: the Tenant's Runtime limit
+   * `errorExcerptChars`, read for the call. Default the connection's (`openMcpServer`).
+   */
+  readonly errorExcerptChars?: number;
   /**
    * The largest answer kept, in bytes: the Tenant's Runtime limit `toolAnswerBytes` (R2b C11).
    * A larger one is `mcp.too-large`. Required where this process holds the connection; a client
@@ -230,10 +233,15 @@ export class McpConnectionStale extends McpCallFailed {
   }
 }
 
-/** A tool call that never reached its server: its connection could not be opened. */
-export function unreachable(server: string, error: unknown): McpCallFailed {
+/**
+ * A tool call that never reached its server: its connection could not be opened. Where the
+ * opening reached the server, `chars` is how much of what it said the error quotes (the Tenant's
+ * `errorExcerptChars`); without it, the message is this process's own and stays whole.
+ */
+export function unreachable(server: string, error: unknown, chars?: number): McpCallFailed {
   if (error instanceof McpCallFailed) return error;
-  return unreachableFailure(server, error instanceof Error ? error.message : String(error));
+  const detail = error instanceof Error ? error.message : String(error);
+  return unreachableFailure(server, detail, chars ?? detail.length);
 }
 
 /**
@@ -254,6 +262,8 @@ interface Tracker {
   readonly calling?: AbortController;
   /** A tool call's span context (R7.4), sent as `traceparent` on its requests. */
   readonly traceparent?: string;
+  /** How much of a failed answer an error quotes (`errorExcerptChars`). */
+  readonly errorChars: number;
   settled: boolean;
 }
 
@@ -263,13 +273,18 @@ const tracking = new AsyncLocalStorage<Tracker>();
 function tracked<T>(
   call: boolean,
   run: (tracker: Tracker) => Promise<T>,
-  options: { readonly traceparent?: string | undefined; readonly maxResultBytes?: number | undefined } = {},
+  options: {
+    readonly errorChars: number;
+    readonly traceparent?: string | undefined;
+    readonly maxResultBytes?: number | undefined;
+  },
 ): Promise<T> {
-  const { traceparent, maxResultBytes } = options;
+  const { traceparent, maxResultBytes, errorChars } = options;
   const tracker: Tracker = {
     secrets: new Set(),
     sent: false,
     settled: false,
+    errorChars,
     ...(call ? { calling: new AbortController() } : {}),
     ...(traceparent ? { traceparent } : {}),
     ...(maxResultBytes === undefined ? {} : { maxResultBytes }),
@@ -289,7 +304,7 @@ export const IDEMPOTENCY_META_KEY = "nylorun/idempotency-key";
  * with them (R2b C8), and a failed call is an `McpCallFailed` (C7). A keyed call sends its key in
  * `_meta` (R5.5).
  */
-export function sdkClient(client: Client, serverName: string): McpClient {
+export function sdkClient(client: Client, serverName: string, errorChars: number): McpClient {
   return {
     listTools: (params, options) =>
       tracked(false, async (tracker) => {
@@ -299,7 +314,7 @@ export function sdkClient(client: Client, serverName: string): McpClient {
         } catch (error) {
           throw scrubError(error, tracker);
         }
-      }),
+      }, { errorChars }),
     callTool: (params, options) => {
       const maxResultBytes = options?.maxResultBytes;
       if (maxResultBytes === undefined)
@@ -326,7 +341,7 @@ export function sdkClient(client: Client, serverName: string): McpClient {
         } finally {
           tracker.settled = true;
         }
-      }, { traceparent: options?.traceparent, maxResultBytes });
+      }, { traceparent: options?.traceparent, maxResultBytes, errorChars: options?.errorExcerptChars ?? errorChars });
     },
   };
 }
@@ -342,7 +357,13 @@ export async function openMcpServer(input: {
   policy?: OutboundPolicy;
   /** Ends `initialize` (a tool preview's timeout, R2b C12). */
   signal?: AbortSignal;
+  /**
+   * How much of a failed answer an error quotes: the Tenant's Runtime limit `errorExcerptChars`
+   * when the connection opens; a call may pass the one in force then.
+   */
+  errorExcerptChars: number;
 }): Promise<LiveConnection> {
+  const errorChars = input.errorExcerptChars;
   const authorize = input.authorize;
   const initial = await authorize(input.server.url);
   if (initial.status === "refused") {
@@ -354,7 +375,7 @@ export async function openMcpServer(input: {
   // A credential with `via` sends the server's requests there (R2b C2); the manifest's URL still
   // names the server for its credential, its tools and its diagnostics.
   const url = new URL(endpointOf(input.server, initial));
-  const fetchImpl = authorizedFetch(input.server, url, authorize, input.policy ?? {});
+  const fetchImpl = authorizedFetch(input.server, url, authorize, input.policy ?? {}, errorChars);
   const transport =
     input.server.type === "sse"
       ? new SSEClientTransport(url, { fetch: fetchImpl })
@@ -373,9 +394,9 @@ export async function openMcpServer(input: {
       instructions: serverInstructions(client.getInstructions(), [...tracker.secrets]),
       serverInfo: info ? (scrubbed({ ...info }, tracker) as Record<string, unknown>) : undefined,
     };
-  });
+  }, { errorChars });
   return {
-    client: sdkClient(client, input.server.name),
+    client: sdkClient(client, input.server.name, errorChars),
     ...(instructions === undefined ? {} : { instructions }),
     ...(serverInfo === undefined ? {} : { serverInfo }),
     close: () => client.close(),
@@ -585,6 +606,7 @@ function authorizedFetch(
   endpoint: URL,
   authorize: (url: string) => Promise<AuthorizeResult>,
   policy: OutboundPolicy,
+  errorChars: number,
 ): (url: string | URL, init?: RequestInit) => Promise<Response> {
   const send = guardedFetch(policy, { stream: true });
   return async (url, init) => {
@@ -637,7 +659,10 @@ function authorizedFetch(
       throw new McpConnectionStale(server.name, "ended the connection's session (HTTP 404)");
     }
     // A GET's error status (405: no event stream) is the SDK's to read.
-    if (post && !response.ok) throw statusFailure(server.name, response.status, await bodyText(response));
+    if (post && !response.ok) {
+      const chars = tracker?.errorChars ?? errorChars;
+      throw statusFailure(server.name, response.status, await bodyText(response, chars), chars);
+    }
     return tracker?.calling && post && response.body ? watched(response, tracker) : response;
   };
 }
@@ -646,10 +671,10 @@ function authorizedFetch(
 const RETRYABLE_STATUSES = new Set([408, 429, 502, 503, 504]);
 
 /** A POST the server answered with an error status: its JSON-RPC error, or the status. */
-function statusFailure(server: string, status: number, body: string): McpCallFailed {
+function statusFailure(server: string, status: number, body: string, chars: number): McpCallFailed {
   const rpc = rpcErrorOf(body);
-  if (status !== 403 && rpc) return rpcFailure(server, `MCP error ${rpc.code}: ${rpc.message}`);
-  const text = body.length > MCP_ERROR_BODY_CHARS ? `${body.slice(0, MCP_ERROR_BODY_CHARS)}…` : body;
+  if (status !== 403 && rpc) return rpcFailure(server, `MCP error ${rpc.code}: ${rpc.message}`, chars);
+  const text = body.length > chars ? `${body.slice(0, chars)}…` : body;
   return new McpCallFailed({
     code: status === 403 ? "mcp.forbidden" : "mcp.status",
     message: `The MCP server '${server}' answered HTTP ${status}${text ? `: ${text}` : ""}`,
@@ -658,28 +683,28 @@ function statusFailure(server: string, status: number, body: string): McpCallFai
   });
 }
 
-function rpcFailure(server: string, message: string): McpCallFailed {
+function rpcFailure(server: string, message: string, chars: number): McpCallFailed {
   return new McpCallFailed({
     code: "mcp.error",
-    message: `The MCP server '${server}' answered an error: ${message.slice(0, MCP_ERROR_BODY_CHARS)}`,
+    message: `The MCP server '${server}' answered an error: ${message.slice(0, chars)}`,
     sent: true,
     retryable: false,
   });
 }
 
-function unreachableFailure(server: string, detail: string): McpCallFailed {
+function unreachableFailure(server: string, detail: string, chars: number): McpCallFailed {
   return new McpCallFailed({
     code: "mcp.unreachable",
-    message: `The MCP server '${server}' could not be reached, and the call was not sent: ${detail.slice(0, MCP_ERROR_BODY_CHARS)}`,
+    message: `The MCP server '${server}' could not be reached, and the call was not sent: ${detail.slice(0, chars)}`,
     sent: false,
     retryable: true,
   });
 }
 
-function lostFailure(server: string, detail: string): McpCallFailed {
+function lostFailure(server: string, detail: string, chars: number): McpCallFailed {
   return new McpCallFailed({
     code: "mcp.lost",
-    message: `The connection to the MCP server '${server}' was lost after the call was sent, so it may have run: ${detail.slice(0, MCP_ERROR_BODY_CHARS)}`,
+    message: `The connection to the MCP server '${server}' was lost after the call was sent, so it may have run: ${detail.slice(0, chars)}`,
     sent: true,
     retryable: true,
   });
@@ -699,19 +724,20 @@ function failureOf(server: string, error: unknown, tracker: Tracker): McpCallFai
   if (error instanceof McpCallFailed) return error;
   if (tracker.tooLarge) return tooLargeFailure(server, tracker.maxResultBytes ?? 0);
   const detail = error instanceof Error ? error.message : String(error);
-  if (tracker.lost !== undefined) return lostFailure(server, tracker.lost);
-  if (error instanceof OutboundRefused) return unreachableFailure(server, detail);
+  const chars = tracker.errorChars;
+  if (tracker.lost !== undefined) return lostFailure(server, tracker.lost, chars);
+  if (error instanceof OutboundRefused) return unreachableFailure(server, detail, chars);
   if (error instanceof OutboundFailed)
-    return error.sent ? lostFailure(server, detail) : unreachableFailure(server, detail);
+    return error.sent ? lostFailure(server, detail, chars) : unreachableFailure(server, detail, chars);
   if (error instanceof McpError) {
     // Sent, and no answer came in time.
-    if (error.code === ErrorCode.RequestTimeout) return lostFailure(server, detail);
+    if (error.code === ErrorCode.RequestTimeout) return lostFailure(server, detail, chars);
     if (error.code === ErrorCode.ConnectionClosed)
-      return tracker.sent ? lostFailure(server, detail) : unreachableFailure(server, detail);
-    return rpcFailure(server, detail);
+      return tracker.sent ? lostFailure(server, detail, chars) : unreachableFailure(server, detail, chars);
+    return rpcFailure(server, detail, chars);
   }
   // An answer that could not be read leaves the call's fate unknown, as a lost one does.
-  return tracker.sent ? lostFailure(server, detail) : unreachableFailure(server, detail);
+  return tracker.sent ? lostFailure(server, detail, chars) : unreachableFailure(server, detail, chars);
 }
 
 /** `value` with the operation's credential values replaced (R2b C8). */
@@ -778,13 +804,14 @@ function watched(response: Response, tracker: Tracker): Response {
 }
 
 /** The start of an error answer's body. */
-async function bodyText(response: Response): Promise<string> {
+async function bodyText(response: Response, chars: number): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
-    while (size < 4 * MCP_ERROR_BODY_CHARS) {
+    // A character takes at most 4 bytes of UTF-8: enough bytes for `chars` of them.
+    while (size < 4 * chars) {
       const next = await reader.read();
       if (next.done) break;
       chunks.push(next.value);

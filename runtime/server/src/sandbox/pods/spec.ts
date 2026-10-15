@@ -6,7 +6,7 @@
 import { parseSandboxDuration, parseSandboxSize, type SandboxManifest } from "@nylorun/core/define";
 import { DEFAULT_HARNESS, type EnvironmentRecipe } from "@nylorun/core/contracts";
 import type { TenantSandboxConfig } from "../tenant-config.js";
-import { memoryMiBOf } from "../policy.js";
+import { idleMsOf, memoryMiBOf } from "../policy.js";
 import type { SandboxPodState } from "../../store/types.js";
 import type { PodSpec } from "./client.js";
 import { opIdOf, type PodLifecycleConfig } from "./lifecycle.js";
@@ -32,14 +32,13 @@ export function podLifecycleConfig(
   readonly stopGraceSeconds: number;
 } {
   const stopGrace = config.lifecycle?.stopGrace;
-  const tenantIdle = parseSandboxDuration(config.limits?.idle ?? "15m") ?? 15 * 60_000;
+  const tenantIdle = idleMsOf({ ...(config.limits?.idle === undefined ? {} : { idle: config.limits.idle }) });
   const own = recipe?.lifecycle.idle === undefined ? undefined : parseSandboxDuration(recipe.lifecycle.idle);
+  const graceMs = stopGrace === undefined ? undefined : parseSandboxDuration(stopGrace);
   return {
     idleMs: own === undefined ? tenantIdle : Math.min(own, tenantIdle),
-    stopGraceSeconds:
-      stopGrace === undefined
-        ? DEFAULT_STOP_GRACE_SECONDS
-        : Math.max(1, Math.min(30, Math.round((parseSandboxDuration(stopGrace) ?? 10_000) / 1000))),
+    // Kubernetes counts the grace in whole seconds, at least one.
+    stopGraceSeconds: graceMs === undefined ? DEFAULT_STOP_GRACE_SECONDS : Math.max(1, Math.round(graceMs / 1000)),
   };
 }
 

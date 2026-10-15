@@ -106,7 +106,7 @@ export function environmentManifestRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const name = nameOf(c.req.param("name"));
-      const body = PutEnvironmentManifestRequestSchema.parse(await readJson(c.req.raw));
+      const body = PutEnvironmentManifestRequestSchema.parse(await readJson(c));
       const ifMatch = ifMatchOf(c.req.header("if-match"));
       const options = ifMatch === undefined ? {} : { ifMatch };
       return jsonResponse(

@@ -5,7 +5,7 @@
  * turns that into the run's `turn.start`: the checkpoint goes without its transcript, which the
  * harness holds at the fold's cursor or reads once.
  */
-import type { LiveEvent } from "@nylorun/core/contracts";
+import { harnessLimitsOf, type LiveEvent } from "@nylorun/core/contracts";
 import type {
   ModelDescriptor,
   RecordedOutcome,
@@ -105,14 +105,14 @@ export async function startSegment(
     async (t, current) => {
       // A transcript left on our engine's state by an older Runtime is recorded once; another
       // harness's state is its own (R4.2).
+      const limits = await readRuntimeLimits(t);
       if (!isWorkflowManifest(current.manifest) && current.checkpoint && harnessOf(current) === HARNESS_ID) {
-        await adoptStoredTranscript(t, current);
+        await adoptStoredTranscript(t, current, limits.recordEntryBytes);
         const cp = current.checkpoint as DurableCheckpoint;
         current.checkpoint = { ...cp, state: current.state };
         await t.put("sessions", id, current);
       }
       const fixtureModel = await usesFixtureModel(t);
-      const limits = await readRuntimeLimits(t);
       if (!options.harness) return { current, fixtureModel, limits, outcomes: [], sandbox: { ownerId: id } };
       const workspace = sandboxWorkspaceOf(current);
       const resource = workspace.environmentId === undefined ? undefined : await t.environment(workspace.environmentId);
@@ -187,7 +187,7 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
       sandbox: segment.sandbox,
     },
     ...(segment.trace ? { trace: segment.trace } : {}),
-    limits: segment.limits,
+    limits: harnessLimitsOf(segment.limits),
     ...(segment.model && !flow ? { model: segment.model } : {}),
     ...(segment.environment && !flow ? { environment: segment.environment } : {}),
   };
@@ -238,7 +238,7 @@ export function yieldAfterOf(ctx: TenantContext): { steps: number; ms: number } 
  * A session written before transcripts were recorded keeps its transcript on its row: record
  * it once (the turn's starting transcript, then the turn so far), and store the row lean.
  */
-async function adoptStoredTranscript(t: Tx, s: Session): Promise<void> {
+async function adoptStoredTranscript(t: Tx, s: Session, recordEntryBytes: number): Promise<void> {
   if (s.history) return;
   const now = transcriptOf(s.state);
   const start = s.activeTurnId ? transcriptOf(s.turnStartState) : now;
@@ -250,8 +250,8 @@ async function adoptStoredTranscript(t: Tx, s: Session): Promise<void> {
       first ??= event.seq;
     }
   };
-  await write(null, transcriptUpdates([], start));
-  if (s.activeTurnId) await write(s.activeTurnId, transcriptUpdates(start, now));
+  await write(null, transcriptUpdates([], start, recordEntryBytes));
+  if (s.activeTurnId) await write(s.activeTurnId, transcriptUpdates(start, now, recordEntryBytes));
   s.history = { from: first ?? 0, snapshot: first ?? 0 };
   s.state = leanState(s.state);
   s.turnStartState = leanState(s.turnStartState);

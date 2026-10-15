@@ -4,7 +4,8 @@
  * embedding, tests), and by the gates service itself to serve each call.
  */
 import type { Credential } from "@earendil-works/pi-ai";
-import { piModel, type ModelCallSettings } from "../model/pi-model.js";
+import { modelCallSettingsOf, piModel, type ModelCallSettings } from "../model/pi-model.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import type { SessionStore } from "../store/types.js";
 import type { Logger } from "../tenant/types.js";
 import { HostModelVault } from "../vault/host-model.js";
@@ -49,22 +50,30 @@ export function tenantModelGate(options: {
   readonly kek: () => Buffer;
   readonly root: string;
   readonly logger: Logger;
-  readonly settings?: ModelCallSettings;
   /** The Tenant's Object store, for the files a prompt names. */
   readonly blobs?: BlobStore;
 }): ModelGate {
   const vault = new HostModelVault({ store: options.store, kek: options.kek });
-  const gate = inProcessModelGate({
-    root: options.root,
-    readHostModel: () => vault.readHostModel(),
-    writeHostCredential: (credential) => vault.updateHostCredential(credential),
-    ...(options.settings ? { settings: options.settings } : {}),
-    ...(options.blobs ? { files: callFiles(options.store, options.blobs) } : {}),
-  });
   const meter = createMeter({ logger: options.logger });
   return {
-    call: (request, signal) => meter.call(options.store, request, () => serve(options.store, gate, request, signal)),
+    call: (request, signal) =>
+      meter.call(options.store, request, async () => {
+        // The Tenant's Runtime limits `model*`, read for this call.
+        const gate = inProcessModelGate({
+          root: options.root,
+          readHostModel: () => vault.readHostModel(),
+          writeHostCredential: (credential) => vault.updateHostCredential(credential),
+          settings: await modelCallSettings(options.store),
+          ...(options.blobs ? { files: callFiles(options.store, options.blobs) } : {}),
+        });
+        return serve(options.store, gate, request, signal);
+      }),
   };
+}
+
+/** The Tenant's model call settings: its Runtime limits `model*`, read now. */
+export async function modelCallSettings(store: SessionStore): Promise<Required<ModelCallSettings>> {
+  return modelCallSettingsOf(await store.tx((t) => readRuntimeLimits(t)));
 }
 
 /**

@@ -7,7 +7,10 @@ import { createServer, request, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { getRequestListener } from "@hono/node-server";
 import { afterEach, expect, it } from "vitest";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { readText } from "../../src/api/http/body.js";
+
+const MAX = RUNTIME_LIMIT_DEFAULTS.requestBodyBytes;
 import { HttpError } from "../../src/tenant/http.js";
 
 const servers: ReturnType<typeof createServer>[] = [];
@@ -43,7 +46,7 @@ function post(port: number, chunks: Buffer[]) {
 it("readText keeps a character whose bytes arrive in different chunks", async () => {
   let text: string | undefined;
   const port = await serve(async (request) => {
-    text = await readText(request);
+    text = await readText(request, MAX);
     return new Response(null, { status: 204 });
   });
   const bytes = Buffer.from("héllo ✓", "utf8");
@@ -53,13 +56,13 @@ it("readText keeps a character whose bytes arrive in different chunks", async ()
   expect(text).toBe("héllo ✓");
 });
 
-it("readText refuses a body over 1 MiB", async () => {
+it("readText refuses a body over its limit", async () => {
   let error: unknown;
   const port = await serve(async (request) => {
-    await readText(request).catch((caught) => void (error = caught));
+    await readText(request, MAX).catch((caught) => void (error = caught));
     return new Response(null, { status: 204 });
   });
-  const req = post(port, [Buffer.alloc(1024 * 1024 + 1, 0x61)]);
+  const req = post(port, [Buffer.alloc(MAX + 1, 0x61)]);
   await new Promise((resolve) => req.on("response", resolve));
   expect(error).toBeInstanceOf(HttpError);
   expect((error as HttpError).status).toBe(413);
@@ -69,7 +72,7 @@ it("the request's signal aborts when the caller leaves after its body was read",
   let signal: AbortSignal | undefined;
   const read = Promise.withResolvers<void>();
   const port = await serve(async (request) => {
-    await readText(request);
+    await readText(request, MAX);
     signal = request.signal;
     read.resolve();
     await new Promise((resolve) => signal!.addEventListener("abort", resolve));
@@ -86,7 +89,7 @@ it("the request's signal aborts when the caller leaves after its body was read",
 it("the request's signal does not abort for a finished answer", async () => {
   let signal: AbortSignal | undefined;
   const port = await serve(async (request) => {
-    await readText(request);
+    await readText(request, MAX);
     signal = request.signal;
     return new Response("done");
   });

@@ -4,11 +4,12 @@
  * A token is one of theirs when its unverified `iss` names a configured issuer; it is then
  * verified like this, and nothing else is tried:
  *
- * - at most 16 KiB (identity providers' tokens often pass Nylorun's 4 KiB), RS256, ES256 or
- *   EdDSA, and no header that could name another key (`jku`, `jwk`, `x5u`, `x5c`, `crit`);
+ * - no longer than a request's headers may be (`http.maxHeaderSize`), RS256, ES256 or EdDSA, and
+ *   no header that could name another key (`jku`, `jwk`, `x5u`, `x5c`, `crit`);
  * - signed by a key of the issuer: its static `keys`, or its JWKS, fetched only from the
  *   configured URL (`redirect: "error"`), cached by `kid`, refetched at most once a minute for
- *   a `kid` it has not seen, and refreshed in the background once the cache is 10 minutes old.
+ *   a `kid` it has not seen, and refreshed in the background once the cache is 10 minutes old
+ *   (the entry's `jwksFetch` settings, these by default).
  *   When the JWKS cannot be fetched, cached keys keep working and a new `kid` is
  *   `401 issuer_unavailable`;
  * - `iss` and `aud` as configured, and `exp` present, with the 30 s clock tolerance of every
@@ -21,6 +22,7 @@
  * (`resource-server.ts`), its reason logged.
  */
 import { createHash, createPublicKey } from "node:crypto";
+import { maxHeaderSize } from "node:http";
 import { decodeJwt, decodeProtectedHeader, errors, jwtVerify, type JWTPayload } from "jose";
 import { isSubject, type IssuerScope } from "@nylorun/core/contracts";
 import type { AuthScope, TenantContext } from "./context.js";
@@ -30,32 +32,29 @@ import { bearerChallenge, failCredential } from "./resource-server.js";
 import {
   ISSUER_ALGORITHMS,
   issuerKey,
+  JWKS_FETCH_DEFAULTS,
   renderTemplate,
+  type JwksFetchSettings,
   type IssuerAlgorithm,
   type IssuerKey,
   type TrustedIssuerConfig,
 } from "./identity-file.js";
 
-/** The byte cap of an issuer's token; Nylorun's own token families keep 4 KiB. */
-export const MAX_ISSUER_TOKEN_BYTES = 16 * 1024;
+/**
+ * The longest issuer token read: a bearer arrives in a request's headers, which Node refuses past
+ * `http.maxHeaderSize` (16 KiB unless `--max-http-header-size` says otherwise). A dependency's
+ * constant, not a limit (B15).
+ */
+export const MAX_ISSUER_TOKEN_BYTES = maxHeaderSize;
 /** Subjects the Runtime keeps for itself: never an issuer token's. */
 const RESERVED = new Set(["host", "installation"]);
 const FORBIDDEN_HEADERS = ["jku", "jwk", "x5u", "x5c", "crit"];
-const JWKS_TIMEOUT_MS = 5000;
-const JWKS_MAX_BYTES = 256 * 1024;
-const JWKS_MAX_KEYS = 64;
-const DEFAULT_REFETCH_MS = 60_000;
-const DEFAULT_MAX_AGE_MS = 10 * 60_000;
 /** A grant's claim value: one Environment id segment, so a claim never widens the template. */
 const GRANT_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export interface TrustedIssuersOptions {
   /** Fetches JWKS URLs. Default: the global fetch. */
   fetch?: typeof fetch;
-  /** The least time between two JWKS fetches of one issuer for an unknown `kid`. Default 60 s. */
-  refetchMs?: number;
-  /** How old cached JWKS keys get before a background refresh. Default 10 minutes. */
-  maxAgeMs?: number;
   /** Milliseconds since the epoch. Default `Date.now`. */
   now?: () => number;
 }
@@ -87,12 +86,14 @@ class IssuerKeys {
   private okAt = Number.NEGATIVE_INFINITY;
   private lastOk: boolean | undefined;
   private inflight: Promise<void> | undefined;
+  private readonly settings: JwksFetchSettings;
 
   constructor(
     private readonly config: TrustedIssuerConfig,
     private readonly options: Required<TrustedIssuersOptions>,
   ) {
     for (const key of config.keys ?? []) this.unnamed.push(key);
+    this.settings = { ...JWKS_FETCH_DEFAULTS, ...config.jwksFetch };
   }
 
   /** The keys that may have signed a token with `kid` and `alg`, or `unavailable`. */
@@ -112,10 +113,10 @@ class IssuerKeys {
     let found = pick();
     if (found.length === 0) {
       if (this.inflight) await this.inflight;
-      else if (now - this.fetchedAt >= this.options.refetchMs) await this.refresh();
+      else if (now - this.fetchedAt >= this.settings.refetchMs) await this.refresh();
       found = pick();
       if (found.length === 0 && this.lastOk === false) return "unavailable";
-    } else if (now - this.okAt >= this.options.maxAgeMs && now - this.fetchedAt >= this.options.refetchMs) {
+    } else if (now - this.okAt >= this.settings.maxAgeMs && now - this.fetchedAt >= this.settings.refetchMs) {
       // Old keys keep working while the refresh runs, and when it fails.
       void this.refresh();
     }
@@ -137,16 +138,16 @@ class IssuerKeys {
       const response = await this.options.fetch(this.config.jwks!, {
         redirect: "error",
         headers: { accept: "application/jwk-set+json, application/json" },
-        signal: AbortSignal.timeout(JWKS_TIMEOUT_MS),
+        signal: AbortSignal.timeout(this.settings.timeoutMs),
       });
       if (!response.ok) throw new Error(`JWKS answered ${response.status}`);
       const text = await response.text();
-      if (Buffer.byteLength(text) > JWKS_MAX_BYTES) throw new Error("JWKS is too large");
+      if (Buffer.byteLength(text) > this.settings.maxBytes) throw new Error("JWKS is too large");
       const body = JSON.parse(text) as { keys?: unknown };
       if (!Array.isArray(body.keys)) throw new Error("JWKS has no keys array");
       const byKid = new Map<string, IssuerKey>();
       const unnamed: IssuerKey[] = [];
-      for (const jwk of body.keys.slice(0, JWKS_MAX_KEYS)) {
+      for (const jwk of body.keys.slice(0, this.settings.maxKeys)) {
         const key = jwkKey(jwk);
         if (!key) continue;
         if (key.kid !== undefined) byKid.set(key.kid, key);
@@ -170,7 +171,8 @@ function jwkKey(jwk: unknown): IssuerKey | undefined {
   if (entry.d !== undefined) return undefined; // a private key: never trusted as published
   if (entry.alg !== undefined && !(ISSUER_ALGORITHMS as readonly unknown[]).includes(entry.alg))
     return undefined;
-  const kid = typeof entry.kid === "string" && entry.kid.length <= 256 ? entry.kid : undefined;
+  // A `kid` longer than a token may be names no token's key.
+  const kid = typeof entry.kid === "string" && entry.kid.length <= MAX_ISSUER_TOKEN_BYTES ? entry.kid : undefined;
   try {
     const key = issuerKey(createPublicKey({ key: jwk as never, format: "jwk" }), kid);
     return entry.alg === undefined || entry.alg === key.alg ? key : undefined;
@@ -239,8 +241,6 @@ export function createTrustedIssuers(
 ): TrustedIssuers {
   const resolved: Required<TrustedIssuersOptions> = {
     fetch: options.fetch ?? ((input, init) => globalThis.fetch(input, init)),
-    refetchMs: options.refetchMs ?? DEFAULT_REFETCH_MS,
-    maxAgeMs: options.maxAgeMs ?? DEFAULT_MAX_AGE_MS,
     now: options.now ?? Date.now,
   };
   const issuers = configs.map((config) => trustedIssuer(config, resolved));

@@ -14,7 +14,6 @@ import {
   type RunGrant,
   type TurnStart,
 } from "@nylorun/core/harness-api";
-import { READ_ARTIFACT_MAX_BYTES } from "@nylorun/core/define";
 import { sandboxToolLimitsOf, type SandboxToolLimits } from "../tools/sandbox.js";
 import { DEFAULT_SKILL_READ_BYTES } from "../tools/skills.js";
 import { mcpToolConfigOf, type McpToolConfig } from "../tools/mcp.js";
@@ -39,7 +38,7 @@ export interface HarnessOptions {
   readonly transcriptCacheMb?: number;
   /**
    * The most bytes one `read_artifact` page holds, escaped as JSON: what one call shows the model
-   * of a text artifact. Default `READ_ARTIFACT_MAX_BYTES` (32 KiB). A page is also held to the
+   * of a text artifact. Default `DEFAULT_ARTIFACT_PAGE_BYTES` (32 KiB). A page is also held to the
    * run's `turn.start.limits.chunkBytes`.
    */
   readonly artifactPageBytes?: number;
@@ -103,6 +102,9 @@ export interface Harness {
   readonly runs: number;
 }
 
+/** The default of the harness's `artifactPageBytes` setting: one `read_artifact` page. */
+export const DEFAULT_ARTIFACT_PAGE_BYTES = 32 * 1024;
+
 interface Live extends HarnessRun {
   grant: RunGrant;
   readonly controller: AbortController;
@@ -113,7 +115,7 @@ export function createHarness(options: HarnessOptions): Harness {
   const maxRuns = options.maxRuns ?? Infinity;
   const cache = new TranscriptCache((options.transcriptCacheMb ?? 256) * 1024 * 1024);
   const engine = {
-    artifactPageBytes: options.artifactPageBytes ?? READ_ARTIFACT_MAX_BYTES,
+    artifactPageBytes: options.artifactPageBytes ?? DEFAULT_ARTIFACT_PAGE_BYTES,
     sandboxTools: sandboxToolLimitsOf(options.sandboxTools),
     skillReadBytes: options.skillReadBytes ?? DEFAULT_SKILL_READ_BYTES,
     mcpTools: mcpToolConfigOf(options.mcpTools),

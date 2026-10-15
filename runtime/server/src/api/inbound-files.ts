@@ -15,15 +15,7 @@ import { extensionFor, normalizeContentType } from "@nylorun/core/contracts";
 import { deleteArtifact, uploadArtifact, type ArtifactAccess } from "../artifacts/service.js";
 import type { TenantContext } from "../tenant/context.js";
 import { fail } from "../tenant/http.js";
-
-/** The largest file a message may carry inline, decoded. */
-export const INLINE_FILE_MAX_BYTES = 20 * 1024 * 1024;
-
-/**
- * The request body of an endpoint that takes inline files: one file at the cap, base64-encoded
- * (a third larger), and the rest of the request.
- */
-export const INLINE_BODY_MAX_BYTES = 28 * 1024 * 1024;
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 
 /** A file sent inline: its name, declared media type and base64 bytes. */
 export interface InlineFile {
@@ -55,8 +47,9 @@ export function inlineFileName(mediaType: string, index: number): string {
 }
 
 /**
- * Stores `file` as a new artifact of `sessionId`, within the inline cap and the Tenant's
- * artifact limits: `400` for bad base64 or a bad media type, `413 limit_exceeded` past a limit.
+ * Stores `file` as a new artifact of `sessionId`, within the Tenant's Runtime limit
+ * `inlineFileBytes` (read for the file) and its artifact limits: `400` for bad base64 or a bad
+ * media type, `413 limit_exceeded` past a limit.
  */
 export async function storeInlineFile(
   ctx: TenantContext,
@@ -67,19 +60,17 @@ export async function storeInlineFile(
   const data = file.data.replace(/\s+/gu, "");
   if (!BASE64.test(data) || data.length % 4 === 1)
     fail(400, `File "${file.name}" is not valid base64`, { code: "invalid_request" });
-  // Three bytes per four characters, before decoding a byte.
-  if (Math.floor((data.length * 3) / 4) > INLINE_FILE_MAX_BYTES + 2)
-    fail(413, `A file sent inline may hold at most ${INLINE_FILE_MAX_BYTES} bytes`, {
+  const { inlineFileBytes } = await ctx.store.tx((t) => readRuntimeLimits(t));
+  const tooLarge = () =>
+    fail(413, `A file sent inline may hold at most ${inlineFileBytes} bytes (the Runtime limit inlineFileBytes)`, {
       code: "limit_exceeded",
-      details: { limitBytes: INLINE_FILE_MAX_BYTES },
+      details: { limitBytes: inlineFileBytes },
     });
+  // Three bytes per four characters, before decoding a byte; padding may take up to two.
+  if (Math.floor((data.length * 3) / 4) > inlineFileBytes + 2) tooLarge();
   // Node's base64 decoder reads both alphabets.
   const bytes = Buffer.from(data, "base64");
-  if (bytes.byteLength > INLINE_FILE_MAX_BYTES)
-    fail(413, `A file sent inline may hold at most ${INLINE_FILE_MAX_BYTES} bytes`, {
-      code: "limit_exceeded",
-      details: { limitBytes: INLINE_FILE_MAX_BYTES },
-    });
+  if (bytes.byteLength > inlineFileBytes) tooLarge();
   if (bytes.byteLength === 0) fail(400, `File "${file.name}" is empty`, { code: "invalid_request" });
   const contentType =
     normalizeContentType(file.mediaType) ??

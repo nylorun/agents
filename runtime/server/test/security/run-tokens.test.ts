@@ -4,6 +4,7 @@
  * or audience's, an expired one, one signed by a revoked key, an oversized one, and a header
  * that could name another key. The live check follows the session's lease.
  */
+import { MAX_TOKEN_BYTES } from "../../src/tenant/jwt.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { decodeProtectedHeader } from "jose";
 import { newTenantId } from "@nylorun/core/compatibility";
@@ -107,8 +108,8 @@ describe("run tokens", () => {
     });
   });
 
-  it("refuses a token over 4 KiB and a header that could name another key", async () => {
-    expect(await verify(await signed({ pad: "x".repeat(4096) }))).toEqual({
+  it("refuses a token longer than a request's headers may be, and a header that could name another key", async () => {
+    expect(await verify(await signed({ pad: "x".repeat(MAX_TOKEN_BYTES) }))).toEqual({
       ok: false,
       reason: "run_token_malformed",
     });

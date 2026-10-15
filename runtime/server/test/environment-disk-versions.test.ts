@@ -6,6 +6,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 
@@ -119,6 +120,24 @@ describe("disk versions of a virtual Environment", { timeout: 60_000 }, () => {
       details: { limit: "environment_total", max: 10 },
     });
     expect((await call("GET", path("disk/tight"))).body.disk).toEqual({ latestVersion: null });
+  });
+
+  it("holds a version to the Environment's limits.disk, within the Tenant's diskVersion limits", async () => {
+    // A manifest may not ask for more than the Tenant allows.
+    const over = await call("PUT", path("disk/over"), { limits: { disk: { versionEntries: 1_000_000 } } });
+    expect(over.status).toBe(400);
+    expect(JSON.stringify(over.body)).toContain("limits.disk.versionEntries asks for 1000000 entries");
+    expect((await call("PUT", path("disk/few"), { limits: { disk: { versionBytes: 5 } } })).status).toBe(200);
+    const s = await session("disk/few");
+    expect((await write(s, "notes.txt", "twenty bytes of text")).status).toBe(200);
+    const refused = await call("POST", `${path("disk/few")}/snapshot`);
+    expect(refused.status).toBe(413);
+    expect(refused.body).toMatchObject({ code: "limit_exceeded", details: { limit: "bytes", max: 5 } });
+    expect(refused.body.message).toContain("diskVersionBytes");
+    expect((await call("GET", path("disk/few"))).body.limits.disk).toEqual({
+      versionBytes: 5,
+      versionEntries: RUNTIME_LIMIT_DEFAULTS.diskVersionEntries,
+    });
   });
 
   it("creates an Environment from another's version, which then diverges", async () => {

@@ -18,6 +18,7 @@ import {
   type McpPreview,
   type McpPreviewRequest,
   type McpPreviewTool,
+  type RuntimeLimits,
 } from "@nylorun/core/contracts";
 import { schemaFromJSON, type McpServerManifest } from "@nylorun/core/define";
 import { mcpToolNames } from "@nylorun/harness";
@@ -37,10 +38,6 @@ import {
   type McpToolPage,
 } from "./connect.js";
 
-/** How long a preview may take, `initialize` and every `tools/list` page together. */
-export const MCP_PREVIEW_TIMEOUT_MS = 15_000;
-/** The largest protected-resource metadata document read. */
-const RESOURCE_METADATA_MAX_BYTES = 64 * 1024;
 /** Host labels that name a service's role rather than the service. */
 const GENERIC_LABELS = new Set(["mcp", "www", "api"]);
 
@@ -48,8 +45,13 @@ export interface McpPreviewOptions {
   readonly vault: Pick<VaultService, "authorize" | "listEnvironmentSecrets">;
   /** The Host's address policy for developer URLs (`TenantConfig.delivery`). */
   readonly policy: OutboundPolicy;
-  /** Default `MCP_PREVIEW_TIMEOUT_MS`. */
-  readonly timeoutMs?: number;
+  /**
+   * The Tenant's Runtime limits a preview keeps to: `mcpPreviewMs` (how long it may take,
+   * `initialize` and every `tools/list` page together), `mcpMetadataBytes` (the largest
+   * protected-resource metadata document read) and `errorExcerptChars` (how much of a failure
+   * its message quotes).
+   */
+  readonly limits: Pick<RuntimeLimits, "mcpPreviewMs" | "mcpMetadataBytes" | "errorExcerptChars">;
   /** Tests replace how the server is opened. */
   readonly open?: typeof openMcpServer;
 }
@@ -87,7 +89,8 @@ export async function previewMcpServer(
     authorized.status === "authorized" ? credentialSecrets(authorized.headers) : [];
   const credentialSent = authorized.status === "authorized";
   const base = { name, url: request.url, type, credentialSent } as const;
-  const signal = AbortSignal.timeout(options.timeoutMs ?? MCP_PREVIEW_TIMEOUT_MS);
+  const { limits } = options;
+  const signal = AbortSignal.timeout(limits.mcpPreviewMs);
   const open = options.open ?? openMcpServer;
 
   let connection: LiveConnection | undefined;
@@ -97,6 +100,7 @@ export async function previewMcpServer(
       // Read once: one audit row, and the same credential for every request.
       authorize: async () => authorized,
       policy: options.policy,
+      errorExcerptChars: limits.errorExcerptChars,
       signal,
     });
     const pages: McpToolPage[] = [];
@@ -146,13 +150,13 @@ export async function previewMcpServer(
     return scrubValues(preview, secrets).value;
   } catch (error) {
     if (error instanceof CredentialRejected) {
-      const authRequired = await protectedResource(request.url, error.challenge, options.policy, signal);
+      const authRequired = await protectedResource(request.url, error.challenge, options.policy, signal, limits);
       return scrubValues(
         { ...base, tools: [], renamed: [], authRequired } satisfies McpPreview,
         secrets,
       ).value;
     }
-    throw failed(name, error, signal, secrets, options.timeoutMs ?? MCP_PREVIEW_TIMEOUT_MS);
+    throw failed(name, error, signal, secrets, limits);
   } finally {
     await connection?.close().catch(() => undefined);
   }
@@ -185,8 +189,9 @@ function failed(
   error: unknown,
   signal: AbortSignal,
   secrets: readonly string[],
-  timeoutMs: number,
+  limits: McpPreviewOptions["limits"],
 ): Error {
+  const timeoutMs = limits.mcpPreviewMs;
   if (error instanceof HttpError || error instanceof VaultError) return error;
   const failure = signal.aborted
     ? { code: "mcp.unreachable", message: `The MCP server '${server}' did not answer within ${timeoutMs / 1000} s` }
@@ -199,7 +204,7 @@ function failed(
               ? `The MCP server '${server}' was not called: ${refusedBy(error)!.message}`
               : `The MCP server '${server}' could not be listed: ${error instanceof Error ? error.message : String(error)}`,
         };
-  const message = scrubValues(failure.message.slice(0, 2_000), secrets).value;
+  const message = scrubValues(failure.message.slice(0, limits.errorExcerptChars), secrets).value;
   return new HttpError(502, message, { code: "mcp_preview_failed", details: { failure: failure.code } });
 }
 
@@ -219,6 +224,7 @@ async function protectedResource(
   challenge: string | undefined,
   policy: OutboundPolicy,
   signal: AbortSignal,
+  limits: McpPreviewOptions["limits"],
 ): Promise<NonNullable<McpPreview["authRequired"]>> {
   const named = challenge === undefined ? undefined : resourceMetadataParam(challenge);
   const target = new URL(url);
@@ -227,7 +233,10 @@ async function protectedResource(
   const candidates = named
     ? [named]
     : [...(path ? [`${target.origin}${wellKnown}${path}`] : []), `${target.origin}${wellKnown}`];
-  const fetchMetadata = guardedFetch(policy, { maxResponseBytes: RESOURCE_METADATA_MAX_BYTES });
+  const fetchMetadata = guardedFetch(policy, {
+    maxResponseBytes: limits.mcpMetadataBytes,
+    timeoutMs: limits.mcpPreviewMs,
+  });
   for (const candidate of candidates) {
     let resolved: string;
     try {

@@ -25,7 +25,8 @@
  * never carries a person's id (`ownerUserId`, a subject, who approved), an identity header, an
  * idempotency key or a credential value (the log holds none). Content (what a person said, the
  * model's output, tool results and error messages) is left out unless the installation opts in
- * per kind (`TraceContent`), each value cut at 8 KiB. Prompts are not in the log, so never here.
+ * per kind (`TraceContent`), each value cut at the Tenant's Runtime limit `traceContentBytes`
+ * (`SpanSettings.contentBytes`). Prompts are not in the log, so never here.
  */
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { effectSpanOf, eventSpanOf, parseTraceparent, traceIdOf, turnSpanOf, type TraceKey } from "./ids.js";
@@ -41,9 +42,6 @@ export const GENAI_SEMCONV = "open-telemetry/semantic-conventions-genai@6fd0d763
 export const TRACE_CONTENT_KINDS = ["user", "outputs", "tool-results", "errors"] as const;
 export type TraceContentKind = (typeof TRACE_CONTENT_KINDS)[number];
 export type TraceContent = ReadonlySet<TraceContentKind>;
-
-/** The most bytes of one content attribute or status message. */
-export const CONTENT_MAX_BYTES = 8 * 1024;
 
 /** OTLP span kinds and status codes (opentelemetry-proto `trace.proto`). */
 export const SPAN_KIND = { internal: 1, client: 3 } as const;
@@ -88,10 +86,14 @@ export interface TurnTrace {
   readonly input?: string;
 }
 
-/** How spans are made: the trace key and the content the installation exports. */
+/**
+ * How spans are made: the trace key, the content the installation exports, and the most UTF-8
+ * bytes of one content attribute (the Tenant's Runtime limit `traceContentBytes`).
+ */
 export interface SpanSettings {
   readonly key: TraceKey;
   readonly content: TraceContent;
+  readonly contentBytes: number;
 }
 
 /**
@@ -111,7 +113,7 @@ export function turnTraceOf(
   };
   const inbound =
     typeof payload.trace?.traceparent === "string" ? parseTraceparent(payload.trace.traceparent) : undefined;
-  const input = settings.content.has("user") && message ? userMessages(payload) : undefined;
+  const input = settings.content.has("user") && message ? userMessages(payload, settings.contentBytes) : undefined;
   return {
     traceId: inbound?.traceId ?? traceIdOf(settings.key, ids.tenantId, ids.sessionId, ids.turnId),
     spanId: turnSpanOf(settings.key, ids.turnId),
@@ -146,7 +148,7 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
       ? effectSpanOf(settings.key, effectId)
       : eventSpanOf(settings.key, row.sessionId, row.seq);
   const content = (kind: TraceContentKind, value: unknown) =>
-    settings.content.has(kind) && value !== undefined ? truncate(typeof value === "string" ? value : JSON.stringify(value)) : undefined;
+    settings.content.has(kind) && value !== undefined ? truncate(typeof value === "string" ? value : JSON.stringify(value), settings.contentBytes) : undefined;
   switch (row.type) {
     case "turn.completed":
     case "turn.failed":
@@ -373,7 +375,10 @@ function textPart(value: unknown): { type: "text"; content: string } {
 }
 
 /** What a person sent (`command.message`), as `gen_ai.input.messages`. */
-function userMessages(payload: { content?: unknown; parts?: unknown; data?: unknown }): string | undefined {
+function userMessages(
+  payload: { content?: unknown; parts?: unknown; data?: unknown },
+  maxBytes: number,
+): string | undefined {
   const parts =
     typeof payload.content === "string"
       ? [{ type: "text", content: payload.content }]
@@ -386,14 +391,14 @@ function userMessages(payload: { content?: unknown; parts?: unknown; data?: unkn
         : payload.data !== undefined
           ? [textPart(payload.data)]
           : undefined;
-  return parts ? truncate(JSON.stringify([{ role: "user", parts }])) : undefined;
+  return parts ? truncate(JSON.stringify([{ role: "user", parts }]), maxBytes) : undefined;
 }
 
-/** `value` cut to `CONTENT_MAX_BYTES` of UTF-8, never in the middle of a character. */
-export function truncate(value: string): string {
+/** `value` cut to `maxBytes` of UTF-8, never in the middle of a character. */
+export function truncate(value: string, maxBytes: number): string {
   const bytes = Buffer.from(value, "utf8");
-  if (bytes.length <= CONTENT_MAX_BYTES) return value;
-  let end = CONTENT_MAX_BYTES;
+  if (bytes.length <= maxBytes) return value;
+  let end = maxBytes;
   // Back up over continuation bytes (10xxxxxx) to the start of the cut character.
   while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end -= 1;
   return bytes.subarray(0, end).toString("utf8");

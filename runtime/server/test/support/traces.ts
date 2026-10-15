@@ -98,6 +98,7 @@ export async function startTestProjector(input: {
   const store: SessionStore = await openTestSessionStore({ root: input.root, tenantId: input.tenantId });
   const log = input.log ?? (() => {});
   const projector = createTraceProjector({
+    contentBytes: async () => 8 * 1024,
     source: createPgoutputSource({
       connectionString: testTenantUrl(input.tenantId),
       tenantId: input.tenantId,

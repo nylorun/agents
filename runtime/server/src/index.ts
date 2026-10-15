@@ -26,12 +26,6 @@ export type {
 } from "./tenant/types.js";
 export { scriptedModel, gatewayModel, type ModelProvider } from "./core/provider.js";
 export type { RuntimeAgent } from "./contracts.js";
-export {
-  IMAGE_MEDIA_TYPES,
-  MAX_IMAGE_BYTES,
-  decodeImageBase64,
-  validateImageBytes,
-} from "./media.js";
 export type { RuntimeModelAdapter } from "./contracts.js";
 export {
   baselineEnvironment,

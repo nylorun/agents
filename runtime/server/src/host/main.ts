@@ -44,6 +44,7 @@ import { createPostgresSessionStore } from "../store/postgres/store.js";
 import { createTraceProjector, TRACE_SLOT, type TraceProjector } from "../traces/projector.js";
 import { createOtlpPoster } from "../traces/otlp.js";
 import { traceKey } from "../traces/key.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
 import { configForFactory } from "./config-for.js";
 import { createHost, type CreateHostOptions } from "./create-host.js";
@@ -372,6 +373,7 @@ export async function main(): Promise<void> {
         log: (message, fields) => logger.warn(message, fields),
       }),
       key: () => traceKey(store),
+      contentBytes: async () => (await store.tx((t) => readRuntimeLimits(t))).traceContentBytes,
       turnMessage: createPostgresTurnMessages(database),
       content: new Set(stack.traces!.content),
       log,

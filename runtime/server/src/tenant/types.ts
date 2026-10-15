@@ -54,8 +54,6 @@ export interface TenantConfig {
    * deadline. Default 50 steps or 20 minutes.
    */
   rollover?: { steps?: number; ms?: number };
-  /** Retries and timeouts for model calls (Model Calls §5, §6). Defaults in `piModel`. */
-  modelCall?: import("../gates/model-gate.js").ModelCallSettings;
   /**
    * How the Runtime may call MCP servers and HTTP tools (Host settings). Default: http and
    * private addresses allowed.

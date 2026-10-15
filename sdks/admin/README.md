@@ -125,13 +125,24 @@ if (preview.authRequired) console.log("needs a sign-in:", preview.authRequired.r
 or `all`.
 
 `admin.settings.limits` reads and replaces the Tenant's Runtime limits (Tenant
-setting `limits.config`), in bytes: `recordEntryBytes` (one event or effect
-outcome in the record), `modelCallBytes`, `modelFileBytes`, `toolAnswerBytes`,
-`harnessStateBytes` (a custom harness's state) and `chunkBytes` (one chunked
-Harness API answer), and `folderEntries` (the files of one folder a harness
-writes, a count). A limit left out takes its default; one above its ceiling,
-which a dependency such as S2's 1 MiB record sets, is refused with `400`.
-Harnesses get the limits in force in `turn.start.limits`.
+setting `limits.config`): the sizes, counts and deadlines the Runtime holds what
+crosses it to. A harness's (`turn.start.limits`): `recordEntryBytes` (one event
+or effect outcome in the record), `modelCallBytes`, `modelFileBytes`,
+`toolAnswerBytes`, `harnessStateBytes` (a custom harness's state), `chunkBytes`
+(one chunked Harness API answer) and `folderEntries` (the files of one folder a
+harness writes, a count). The Runtime's own: request bodies and inline files
+(`requestBodyBytes`, `inlineFileBytes`), `a2aWaitMs`, `errorExcerptChars`,
+`traceContentBytes`, an Environment's labels, setup and input files
+(`environmentLabels`, `environmentSetupCommands`, `environmentFiles`,
+`environmentFilesPerEntry`, `environmentSecretSlots`, `setupCommandMs`,
+`setupOutputChars`), disk versions (`diskVersionEntries`, `diskVersionBytes`,
+`diskLeaseMs`, `diskPodWaitMs`), model calls (`modelRequestMs`, `modelIdleMs`,
+`modelAttempts`, `modelRetryDelayMs`, `modelProviderRetries`,
+`modelRetryDelayMaxMs`) and tools (`toolAttempts`, `httpToolTimeoutMs`,
+`mcpSnapshotBytes`, `mcpPreviewMs`, `mcpMetadataBytes`). A limit left out takes
+its default; one above its ceiling, which a dependency such as S2's 1 MiB record
+or a JavaScript timer sets, is refused with `400`. See DEPLOYMENT.md's Runtime
+limits for each one's default and ceiling.
 
 ## In a browser
 

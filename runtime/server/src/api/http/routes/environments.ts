@@ -163,7 +163,7 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const id = idOf(c.req.param("environmentId"));
-      const body = PutEnvironmentRequestSchema.parse(await readJson(c.req.raw));
+      const body = PutEnvironmentRequestSchema.parse(await readJson(c));
       return jsonResponse(200, await putEnvironment(c.env.tenant, id, body, c.get("scope")));
     },
   );
@@ -338,7 +338,7 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      const body = RestoreEnvironmentRequestSchema.parse(await readJson(c.req.raw));
+      const body = RestoreEnvironmentRequestSchema.parse(await readJson(c));
       return jsonResponse(
         200,
         await restoreEnvironment(c.env.tenant, idOf(c.req.param("environmentId")), c.get("scope"), body.version),
@@ -369,7 +369,7 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      const body = ForkEnvironmentRequestSchema.parse(await readJson(c.req.raw));
+      const body = ForkEnvironmentRequestSchema.parse(await readJson(c));
       const answer = await forkEnvironment(c.env.tenant, idOf(c.req.param("environmentId")), body, c.get("scope"));
       return jsonResponse("dryRun" in answer ? 200 : 201, answer);
     },
@@ -482,7 +482,7 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       const scope = c.get("scope");
       assertReaches(scope, id);
       const name = c.req.param("name") ?? "";
-      const body = await secretRequestFor(c.env.tenant, id, name, await readJson(c.req.raw));
+      const body = await secretRequestFor(c.env.tenant, id, name, await readJson(c));
       return jsonResponse(200, await c.env.tenant.keys.putEnvironmentSecret(id, name, body, actorOf(scope)));
     },
   );

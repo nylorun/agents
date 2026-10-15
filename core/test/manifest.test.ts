@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { Agent, tool } from "../src/define.js";
+import { Agent, SKILL_FILE_PATH_MAX, tool } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
 import { HarnessError } from "../src/errors.js";
 import { addPart } from "./support/parts.js";
@@ -96,7 +96,7 @@ it("validates a skill's file paths and hashes, and takes any number of files", (
   expect(issue({ "SKILL.md": SKILL_MD, "scripts/run.py": LABELS, "assets/logo.png": LABELS })).toBeUndefined();
   expect(issue({ "notes.md": LABELS })).toContain("files must include SKILL.md");
   expect(issue(undefined)).toBeDefined();
-  for (const path of ["../escape.md", "/etc/passwd", "a\\b.md", "a//b.md", "./a.md", "a/../b.md", "x".repeat(513)])
+  for (const path of ["../escape.md", "/etc/passwd", "a\\b.md", "a//b.md", "./a.md", "a/../b.md", "x".repeat(SKILL_FILE_PATH_MAX + 1)])
     expect(issue({ "SKILL.md": SKILL_MD, [path]: LABELS }), path).toContain("file path");
   expect(issue({ "SKILL.md": "sha256:ABC" })).toContain("sha256:<64 lowercase hex>");
   expect(issue({ "SKILL.md": "a".repeat(64) })).toContain("sha256:<64 lowercase hex>");

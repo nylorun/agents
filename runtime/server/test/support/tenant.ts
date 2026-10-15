@@ -40,8 +40,12 @@ import type { SessionStore } from "../../src/store/types.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { DurableStreams } from "../../src/streams/types.js";
 import { dropTestTenant, openTestTenant, withTestSessionStore, testTenantPool } from "./store.js";
+import { modelCallLimits, setLimits } from "./limits.js";
+import type { ModelCallSettings } from "../../src/gates/model-gate.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
+  /** The Tenant's model call settings: its Runtime limits `model*`, set when it opens. */
+  modelCall?: ModelCallSettings;
   modelProvider?: ModelProvider;
   vaultKek?: Buffer | string | null;
   /**
@@ -196,6 +200,7 @@ export async function startTestTenant(
     envelope: result.envelope,
     reads: createPostgresReadStore(testTenantPool(tenantId), tenantId),
   };
+  if (options.modelCall) await setLimits(result.store, modelCallLimits(options.modelCall));
 
   const mode = options.mode ?? "test";
   let model = options.model ?? { kind: "scripted" as const, output: "ok" };
@@ -221,7 +226,6 @@ export async function startTestTenant(
     ...(options.flow === undefined ? {} : { flow: options.flow }),
     ...(options.flowEnv === undefined ? {} : { flowEnv: options.flowEnv }),
     ...(options.issuers === undefined ? {} : { issuers: options.issuers }),
-    ...(options.modelCall === undefined ? {} : { modelCall: options.modelCall }),
     ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
     ...(options.delivery === undefined ? {} : { delivery: options.delivery }),
     logger,
@@ -290,7 +294,6 @@ export async function startTestTenant(
       kek,
       root: paths.home,
       logger,
-      ...(options.modelCall ? { settings: options.modelCall } : {}),
       ...(options.delivery ? { delivery: options.delivery } : {}),
       // The gateway reads the Tenant's blobs as core writes them (the `fs` store here).
       blobs: createFsBlobStore({ root: paths.blobs }),
@@ -420,7 +423,6 @@ export async function startTestGate(options: {
   kek?: () => Buffer;
   root: string;
   logger: TenantConfig["logger"];
-  settings?: TenantConfig["modelCall"];
   delivery?: TenantConfig["delivery"];
   /** The Tenant's Object store, for the files a prompt names. */
   blobs?: BlobStore;
@@ -466,7 +468,6 @@ export async function startTestGate(options: {
         },
       }),
     },
-    ...(options.settings ? { settings: options.settings } : {}),
     ...(options.delivery ? { delivery: options.delivery } : {}),
     ...(options.blobs ? { blobs: options.blobs } : {}),
     keys: true,

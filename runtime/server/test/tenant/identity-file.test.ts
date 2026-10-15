@@ -5,7 +5,7 @@
  */
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { IdentityFileError, parseIdentityFile } from "../../src/tenant/identity-file.js";
+import { IdentityFileError, JWKS_FETCH_DEFAULTS, parseIdentityFile } from "../../src/tenant/identity-file.js";
 import { createTrustedIssuers, MAX_ISSUER_TOKEN_BYTES } from "../../src/tenant/issuers.js";
 
 const BASE = {
@@ -66,6 +66,26 @@ describe("parseIdentityFile", () => {
       agents: ["support"],
       environments: ["{org_id}/*"],
     });
+  });
+
+  it("reads how an issuer's JWKS is fetched, each setting left out its default, and any number of grants", () => {
+    const [issuer] = parseIdentityFile(
+      file({
+        jwksFetch: "{ timeoutMs: 1000, maxKeys: 2 }",
+        // The file's author writes every grant: no count of them is a limit (B15).
+        environments: `[${Array.from({ length: 40 }, (_, i) => `"s${i}"`).join(", ")}]`,
+      }),
+    );
+    expect(issuer!.jwksFetch).toEqual({ timeoutMs: 1000, maxKeys: 2 });
+    expect(issuer!.environments).toHaveLength(40);
+    expect(JWKS_FETCH_DEFAULTS).toEqual({
+      timeoutMs: 5_000,
+      maxBytes: 256 * 1024,
+      maxKeys: 64,
+      refetchMs: 60_000,
+      maxAgeMs: 10 * 60_000,
+    });
+    expect(parseIdentityFile(file())[0]!.jwksFetch).toBeUndefined();
   });
 
   it("defaults the subject, the scope claim and the allowed scopes", () => {
@@ -154,7 +174,8 @@ describe("parseIdentityFile", () => {
       [{ keys: keysBlock([pem("ec", { namedCurve: "P-384" })]), jwks: undefined }, "keys[0]"],
       [{ subject: '"u:{sub"' }, "subject"],
       [{ environments: '["{org}/../x"]' }, "environments"],
-      [{ environments: `[${Array.from({ length: 17 }, (_, i) => `"s${i}"`).join(", ")}]` }, "environments"],
+      [{ jwksFetch: "{ timeoutMs: 0 }" }, "jwksFetch"],
+      [{ jwksFetch: "{ maxKeys: 2, every: 1 }" }, "jwksFetch"],
       [{ issuer: "urn:nylorun:tenant:tn_x" }, "issuer"],
       [{ audience: undefined }, "audience"],
     ];
@@ -192,7 +213,7 @@ describe("createTrustedIssuers", () => {
     expect(issuers.claimed("0123456789abcdef".repeat(4))).toBeUndefined();
   });
 
-  it("claims nothing over 16 KiB", () => {
+  it("claims nothing longer than a request's headers may be", () => {
     const big = shaped({ iss: BASE.issuer, pad: "x".repeat(MAX_ISSUER_TOKEN_BYTES) });
     expect(issuers.claimed(big)).toBeUndefined();
   });

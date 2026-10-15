@@ -203,7 +203,7 @@ issuers:
 
 Tokens are checked like this:
 
-- RS256, ES256 or EdDSA only, at most 16 KiB, with `exp`, and a 30 s clock tolerance. An
+- RS256, ES256 or EdDSA only, no longer than a request's headers may be (Node's `http.maxHeaderSize`, 16 KiB), with `exp`, and a 30 s clock tolerance. An
   `iat` in the future is refused. How long a token lives is your provider's setting. A
   header naming its own key (`jku`, `jwk`, `x5u`, `x5c`) or `crit` is refused.
 - Refusals follow OAuth 2.1 (§5.3), each with a `WWW-Authenticate: Bearer` challenge:

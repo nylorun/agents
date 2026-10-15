@@ -51,6 +51,7 @@ function setup(options: { post?: (spans: readonly OtlpSpan[]) => Promise<"posted
   const batches: OtlpSpan[][] = [];
   const turnMessage = vi.fn(async (_sessionId: string, turnId: string) => ({ ...message(), turnId }) as LiveEvent);
   const projector = createTraceProjector({
+    contentBytes: async () => 8 * 1024,
     source: memory.source,
     post: async (spans) => {
       batches.push([...spans]);

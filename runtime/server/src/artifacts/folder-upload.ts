@@ -26,7 +26,7 @@ import {
   limitExceededMessage,
   normalizeContentType,
   type FolderEntry,
-  type RuntimeLimits,
+  type HarnessLimits,
 } from "@nylorun/core/contracts";
 import { HarnessApiError, type ParamsOf } from "@nylorun/core/harness-api";
 import type { ArtifactRow, ArtifactVersionRow } from "../store/types.js";
@@ -53,7 +53,7 @@ export interface FolderTarget {
   /** The content epoch read at `begin`, before any `head` of this upload. */
   readonly epoch: number;
   readonly writeKey: string;
-  readonly limits: RuntimeLimits;
+  readonly limits: HarnessLimits;
 }
 
 /** How a folder upload's `commit` ended. */
@@ -326,7 +326,7 @@ export class FolderUpload {
 }
 
 /** One chunk's bytes, at most the run's `chunkBytes`. */
-function chunkOf(base64: string, limits: RuntimeLimits): Uint8Array {
+function chunkOf(base64: string, limits: HarnessLimits): Uint8Array {
   const bytes = Buffer.from(base64, "base64");
   if (bytes.byteLength > limits.chunkBytes)
     throw new HarnessApiError(

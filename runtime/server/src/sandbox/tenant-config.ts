@@ -11,9 +11,12 @@ import {
 import { parseSandboxSize } from "@nylorun/core/define";
 import {
   DEFAULT_SANDBOX_CPUS,
+  DEFAULT_SANDBOX_IDLE,
   DEFAULT_SANDBOX_MEMORY_MIB,
   DEV_PRESET_HOSTS,
 } from "./policy.js";
+
+export { DEFAULT_SANDBOX_IDLE };
 
 export const ENVIRONMENTS_CONFIG_SETTING = "environments.config";
 
@@ -23,7 +26,6 @@ export type TenantSandboxConfig = TenantEnvironmentsConfig;
 /** The most an Environment may ask for when the Tenant sets no maximum. */
 export const DEFAULT_MAX_CPUS = 4;
 export const DEFAULT_MAX_MEMORY_MIB = 8192;
-export const DEFAULT_SANDBOX_IDLE = "15m";
 /** The most Environments a Tenant holds when it sets no limit. */
 export const DEFAULT_MAX_ENVIRONMENTS = 100;
 

@@ -47,20 +47,39 @@ import {
 } from "../tenant/environments.js";
 import { fail } from "../tenant/http.js";
 import { artifactQuota, totalSubject } from "./quota.js";
+import { limitsInForce, readTenantLimits } from "../tenant/limits.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { collectContent, contentEpoch, contentKey, encodeManifest, readManifest, sha256Hex } from "./folders.js";
 import { contentTypeFor } from "@nylorun/core/contracts";
 
-/** The most entries one version holds (R6 Q11). */
-export const DISK_MAX_ENTRIES = 200_000;
-/** The most bytes one version's files hold. */
-export const DISK_MAX_BYTES = 10 * 1024 ** 3;
-/** One range of a file moved at a time, well inside a Harness API frame after base64. */
-const RANGE_BYTES = 8 * 1024 * 1024;
-/** A lease lasts this long unless renewed; a copy renews it every `HEARTBEAT_MS`. */
-const LEASE_MS = 2 * 60_000;
-const HEARTBEAT_MS = 30_000;
-/** How long a snapshot waits for a pod's engine to connect. */
-const ENGINE_WAIT_MS = 60_000;
+/**
+ * The Tenant's Runtime limits a copy reads when it starts (B15): `diskVersionEntries` and
+ * `diskVersionBytes` (within the Environment's own `limits.disk`), `chunkBytes` (one range of a
+ * file moved at a time, which crosses in one Harness API frame), `diskLeaseMs` (a lease lasts
+ * this long unless renewed; a copy renews it every quarter of it) and `diskPodWaitMs` (how long a
+ * copy waits for a pod's engine to connect).
+ */
+interface CopyLimits {
+  readonly versionEntries: number;
+  readonly versionBytes: number;
+  readonly chunkBytes: number;
+  readonly leaseMs: number;
+  readonly podWaitMs: number;
+}
+
+async function copyLimits(ctx: TenantContext, environment?: Environment): Promise<CopyLimits> {
+  return ctx.store.tx(async (t) => {
+    const runtime = await readRuntimeLimits(t);
+    const disk = limitsInForce(await readTenantLimits(t), environment?.applied.limits).disk;
+    return {
+      versionEntries: disk.versionEntries,
+      versionBytes: disk.versionBytes,
+      chunkBytes: runtime.chunkBytes,
+      leaseMs: runtime.diskLeaseMs,
+      podWaitMs: runtime.diskPodWaitMs,
+    };
+  });
+}
 /** The name of an Environment's disk artifact. */
 export const DISK_ARTIFACT_NAME = "disk";
 
@@ -99,7 +118,13 @@ async function diskOp(
  * Takes the disk lease of Environment `id` for `kind`: refused (`409 environment_busy`) while a
  * turn runs or another copy holds it; `400` for kind `none`, which has no disk.
  */
-async function lease(ctx: TenantContext, id: string, kind: "snapshot" | "restore" | "seed", version?: number): Promise<Environment> {
+async function lease(
+  ctx: TenantContext,
+  id: string,
+  kind: "snapshot" | "restore" | "seed",
+  leaseMs: number,
+  version?: number,
+): Promise<Environment> {
   return ctx.store.tx(async (t) => {
     const environment = (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Environment not found");
     if (environment.kind === "none") fail(400, `Environment ${id} is of kind none: it has no disk.`);
@@ -114,15 +139,18 @@ async function lease(ctx: TenantContext, id: string, kind: "snapshot" | "restore
       kind,
       ...(version === undefined ? {} : { version }),
       startedAt: now.toISOString(),
-      until: new Date(now.getTime() + LEASE_MS).toISOString(),
+      until: new Date(now.getTime() + leaseMs).toISOString(),
     };
     await t.updateEnvironment(id, { diskOp: operation }, now.toISOString());
     return { ...environment, diskOp: operation };
   });
 }
 
-/** Renews the lease every `HEARTBEAT_MS` until `stop()`, which ends it (and, with `seed`, the seed). */
-function heartbeat(ctx: TenantContext, id: string, ms = LEASE_MS) {
+/**
+ * Renews the lease for `ms` more every quarter of `limits.leaseMs` until `stop()`, which ends it
+ * (and, with `seed`, the seed).
+ */
+function heartbeat(ctx: TenantContext, id: string, limits: CopyLimits, ms = limits.leaseMs) {
   const timer = setInterval(() => {
     void ctx.store
       .tx(async (t) => {
@@ -136,7 +164,7 @@ function heartbeat(ctx: TenantContext, id: string, ms = LEASE_MS) {
         );
       })
       .catch(() => undefined);
-  }, HEARTBEAT_MS);
+  }, limits.leaseMs / 4);
   timer.unref();
   return {
     async stop(options: { seed?: DiskSeed } = {}) {
@@ -158,12 +186,12 @@ function heartbeat(ctx: TenantContext, id: string, ms = LEASE_MS) {
 }
 
 /** Waits until the engine of pod Environment `id` is connected, starting the pod when it is stopped. */
-async function awaitEngine(ctx: TenantContext, id: string): Promise<void> {
+async function awaitEngine(ctx: TenantContext, id: string, waitMs: number): Promise<void> {
   await wakePod(ctx, id);
-  const deadline = Date.now() + ENGINE_WAIT_MS;
+  const deadline = Date.now() + waitMs;
   while (!ctx.harness.hosting(id)) {
     if (Date.now() > deadline)
-      fail(409, `Environment ${id}'s pod did not start within ${ENGINE_WAIT_MS / 1000} s.`, {
+      fail(409, `Environment ${id}'s pod did not start within ${waitMs / 1000} s (the Runtime limit diskPodWaitMs).`, {
         code: "environment_unavailable",
         details: { retryAfterSeconds: 5 },
       }, { "retry-after": "5" });
@@ -176,12 +204,13 @@ async function readFile(
   ctx: TenantContext,
   target: { ref: SandboxSessionRef; spec: SandboxManifest },
   path: string,
+  rangeBytes: number,
 ): Promise<{ bytes: Uint8Array; sha256: string } | undefined> {
   const hash = createHash("sha256");
   const chunks: Uint8Array[] = [];
   let offset = 0;
   for (;;) {
-    const answer = await diskOp(ctx, target, { read: { path, offset, length: RANGE_BYTES } });
+    const answer = await diskOp(ctx, target, { read: { path, offset, length: rangeBytes } });
     if (answer.kind === "missing") return undefined;
     if (answer.kind !== "read") throw new Error(`Unexpected answer reading ${path}`);
     hash.update(answer.bytes);
@@ -199,23 +228,24 @@ async function readFile(
 export async function snapshotEnvironment(ctx: TenantContext, id: string, scope: Parameters<typeof assertReaches>[0]): Promise<EnvironmentSnapshot> {
   assertReaches(scope, id);
   const started = Date.now();
-  const environment = await lease(ctx, id, "snapshot");
-  const beat = heartbeat(ctx, id);
+  const limits = await copyLimits(ctx, await ctx.store.tx((t) => liveEnvironment(t, id)));
+  const environment = await lease(ctx, id, "snapshot", limits.leaseMs);
+  const beat = heartbeat(ctx, id, limits);
   try {
-    if (environment.kind === "pod") await awaitEngine(ctx, id);
+    if (environment.kind === "pod") await awaitEngine(ctx, id, limits.podWaitMs);
     const target = await diskTarget(ctx, environment);
-    const listed = await diskOp(ctx, target, { list: { maxEntries: DISK_MAX_ENTRIES } });
+    const listed = await diskOp(ctx, target, { list: { maxEntries: limits.versionEntries } });
     if (listed.kind !== "listed") throw new Error("The disk was not listed");
     if (listed.truncated)
-      fail(413, `The disk holds more than ${DISK_MAX_ENTRIES} entries.`, {
+      fail(413, `The disk holds more than ${limits.versionEntries} entries (the limit diskVersionEntries).`, {
         code: "limit_exceeded",
-        details: { limit: "files", max: DISK_MAX_ENTRIES },
+        details: { limit: "files", max: limits.versionEntries },
       });
     const bytes = listed.entries.reduce((sum, entry) => sum + (entry.type === "file" ? entry.size : 0), 0);
-    if (bytes > DISK_MAX_BYTES)
-      fail(413, `The disk holds ${bytes} bytes; a version holds at most ${DISK_MAX_BYTES}.`, {
+    if (bytes > limits.versionBytes)
+      fail(413, `The disk holds ${bytes} bytes; a version holds at most ${limits.versionBytes} (the limit diskVersionBytes).`, {
         code: "limit_exceeded",
-        details: { limit: "bytes", max: DISK_MAX_BYTES },
+        details: { limit: "bytes", max: limits.versionBytes },
       });
     const epoch = await ctx.store.tx((t) => contentEpoch(t));
     const entries: FolderEntry[] = [];
@@ -232,7 +262,7 @@ export async function snapshotEnvironment(ctx: TenantContext, id: string, scope:
         continue;
       }
       const base = { path: entry.path, mode: entry.mode, mtimeMs: entry.mtimeMs };
-      const read = await readFile(ctx, target, entry.path);
+      const read = await readFile(ctx, target, entry.path, limits.chunkBytes);
       if (!read) continue; // removed while it was copied (a background process)
       const key = contentKey(read.sha256);
       if (!(await ctx.blobs.head(key))) {
@@ -369,6 +399,7 @@ async function writeVersion(
   ctx: TenantContext,
   environment: Environment,
   seed: { artifactId: string; version: number },
+  rangeBytes: number,
 ): Promise<{ files: number; bytes: number }> {
   const version = await ctx.store.tx((t) => t.artifactVersion(seed.artifactId, seed.version));
   if (!version) throw new Error(`Disk version ${seed.version} of ${seed.artifactId} is gone`);
@@ -400,21 +431,21 @@ async function writeVersion(
       ...(entry.mode === undefined ? {} : { mode: entry.mode }),
       ...(entry.mtimeMs === undefined ? {} : { mtimeMs: entry.mtimeMs }),
     };
-    if (content.length <= RANGE_BYTES) {
-      if (batchBytes + content.length > RANGE_BYTES) await flush();
+    if (content.length <= rangeBytes) {
+      if (batchBytes + content.length > rangeBytes) await flush();
       batch.push({ path: entry.path, type: "file", bytes: content, ...meta });
       batchBytes += content.length;
       continue;
     }
     await flush();
-    for (let offset = 0; offset < content.length; offset += RANGE_BYTES) {
-      const last = offset + RANGE_BYTES >= content.length;
+    for (let offset = 0; offset < content.length; offset += rangeBytes) {
+      const last = offset + rangeBytes >= content.length;
       await diskOp(ctx, target, {
         put: [
           {
             path: entry.path,
             type: "file",
-            bytes: content.subarray(offset, offset + RANGE_BYTES),
+            bytes: content.subarray(offset, offset + rangeBytes),
             ...(offset > 0 ? { append: true } : {}),
             ...(last ? meta : {}),
           },
@@ -467,10 +498,11 @@ export async function restoreEnvironment(
     });
     return { environmentId: id, restored: seed.version, status: "pending", volumeGeneration };
   }
-  const environment = await lease(ctx, id, "restore", seed.version);
-  const beat = heartbeat(ctx, id);
+  const limits = await copyLimits(ctx, found);
+  const environment = await lease(ctx, id, "restore", limits.leaseMs, seed.version);
+  const beat = heartbeat(ctx, id, limits);
   try {
-    await writeVersion(ctx, environment, seed);
+    await writeVersion(ctx, environment, seed, limits.chunkBytes);
   } finally {
     await beat.stop();
   }
@@ -494,19 +526,20 @@ export async function runPendingSeed(ctx: TenantContext, id: string): Promise<vo
     const environment = await ctx.store.tx((t) => liveEnvironment(t, id));
     const seed = environment?.diskSeed;
     if (!environment || !seed || seed.written) return;
+    const limits = await copyLimits(ctx, environment);
     if (environment.kind === "pod") {
-      const deadline = Date.now() + ENGINE_WAIT_MS;
+      const deadline = Date.now() + limits.podWaitMs;
       // The engine on the new volume: the old one's connection may still be open.
       while (!ctx.harness.hosting(id, environment.pod?.hostEpoch)) {
         if (Date.now() > deadline) return;
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
-    const beat = heartbeat(ctx, id, SEED_LEASE_MS);
+    const beat = heartbeat(ctx, id, limits, SEED_LEASE_MS);
     let done = false;
     try {
       const started = Date.now();
-      const written = await writeVersion(ctx, environment, seed);
+      const written = await writeVersion(ctx, environment, seed, limits.chunkBytes);
       done = true;
       ctx.config.logger.info("disk_seed", { environmentId: id, version: seed.version, ...written, durationMs: Date.now() - started });
     } finally {

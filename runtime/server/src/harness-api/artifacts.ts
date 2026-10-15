@@ -23,7 +23,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { HarnessApiError, type ArtifactMeta, type ParamsOf, type ResultOf } from "@nylorun/core/harness-api";
-import { limitExceededMessage, normalizeContentType, type RuntimeLimits } from "@nylorun/core/contracts";
+import { limitExceededMessage, normalizeContentType, type HarnessLimits } from "@nylorun/core/contracts";
 import { isArtifactId } from "@nylorun/core/compatibility";
 import type { HostEffect } from "@nylorun/harness/run";
 import { BlobRangeError } from "../blob/index.js";
@@ -51,7 +51,7 @@ export interface ArtifactScope {
   readonly sessionId: string;
   readonly turnId: string;
   /** The Runtime limits of the run's `turn.start`. */
-  readonly limits: RuntimeLimits;
+  readonly limits: HarnessLimits;
   /** Core's abort of the advance: it stops the run's uploads. */
   readonly runSignal: AbortSignal;
 }
@@ -484,7 +484,7 @@ function written(saved: Uploaded): ResultOf<"artifact.write"> {
 }
 
 /** One chunk's bytes, at most the run's `chunkBytes`. */
-function chunkOf(base64: string, limits: RuntimeLimits): Uint8Array {
+function chunkOf(base64: string, limits: HarnessLimits): Uint8Array {
   const bytes = Buffer.from(base64, "base64");
   if (bytes.byteLength > limits.chunkBytes)
     throw new HarnessApiError(

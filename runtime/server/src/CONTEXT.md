@@ -36,24 +36,44 @@ alone or acting for a subject, is `403 key_role_mismatch`. Client package: `@nyl
 Reference: `/openapi/management.json`.
 _Avoid_: "Admin API" (removed), "Tenant settings API".
 
-**Runtime limits**: The sizes the Runtime holds what crosses it to, one Tenant setting
-(`limits.config`, `GET`/`PUT /v1/tenant/limits`, `admin.settings.limits`, `nylorun tenant
-settings limits`; `RuntimeLimitsSchema` in `@nylorun/core`, `tenant/runtime-limits.ts`), in
-bytes but for `folderEntries`: `recordEntryBytes` (one event's payload or one effect outcome; default and ceiling 960
-KiB: S2's 1 MiB record less 64 KiB for the event's envelope), `modelCallBytes` (a Model Gate
-call's body, 32 MiB), `modelFileBytes` (one file the Model Gate sends a model, 8 MiB),
-`toolAnswerBytes` (an MCP or HTTP tool's answer the Tool Gate keeps, and the tool bodies it reads,
-8 MiB), `harnessStateBytes` (a custom harness's state, 256 KiB), `chunkBytes` (one
-`definition.file` range or artifact chunk, 16 MiB) and `folderEntries` (the files of one folder
-version a harness writes, 10,000; its ceiling is how many entries a manifest, read as one string,
-can hold). A limit left out is its default (`RUNTIME_LIMIT_DEFAULTS`); one
-above its **ceiling** (`RUNTIME_LIMIT_CEILINGS`, from a dependency: S2's record, the Harness API's
-64 MiB frame, the longest JavaScript string) is `400` naming the ceiling. Nothing keeps them: each
-is read from Postgres where it is checked (the store's event write, the Record seam, the gates, a
-segment's start), and a harness gets them in `turn.start.limits`. Past one, a write is refused
-with `limit_exceeded` (`413` to an API client, `RecordEntryTooLargeError` in `record/append.ts`;
-the Harness API error code to a harness), or a tool answer is `mcp.too-large`/`http.too-large`.
-Dependency ceilings and constants a standard fixes are not settings.
+**Runtime limits**: The sizes, counts and deadlines the Runtime holds what crosses it to, one
+Tenant setting (`limits.config`, `GET`/`PUT /v1/tenant/limits`, `admin.settings.limits`,
+`nylorun tenant settings limits`; `RuntimeLimitsSchema` in `@nylorun/core`,
+`tenant/runtime-limits.ts`). The **harness limits** (`HarnessLimitsSchema`, the part
+`turn.start.limits` carries, `harnessLimitsOf`): `recordEntryBytes` (one event's payload or one
+effect outcome; default and ceiling 960 KiB: S2's 1 MiB record less 64 KiB for the event's
+envelope; a transcript edit fills events up to it), `modelCallBytes` (a Model Gate call's body,
+32 MiB), `modelFileBytes` (one file the Model Gate sends a model, 8 MiB), `toolAnswerBytes` (an
+MCP or HTTP tool's answer the Tool Gate keeps, and the tool bodies it reads, 8 MiB),
+`harnessStateBytes` (a custom harness's state, 256 KiB), `chunkBytes` (one `definition.file`
+range, artifact chunk or disk copy range, 16 MiB) and `folderEntries` (the files of one folder
+version a harness writes, 10,000). The rest only the Runtime checks (B15), by area: requests
+(`requestBodyBytes`, read by `api/http/body.ts` for every Tenant route; `inlineFileBytes` and the
+inline body it derives, `inlineBodyBytes`; `a2aWaitMs`; `errorExcerptChars`, what an MCP or HTTP
+tool error and a preview failure quote; `traceContentBytes`), Environments (`environmentLabels`,
+checked whenever labels are set; `environmentSetupCommands`, `environmentFiles`,
+`environmentFilesPerEntry`, `environmentSecretSlots` and `setupCommandMs`, checked when an
+Environment is made or a manifest saved, `manifestShapeIssues` in `tenant/limits.ts`, and the
+timeout again when a setup plan is made; `setupOutputChars`), disk versions
+(`diskVersionEntries` and `diskVersionBytes`, which a manifest's `limits.disk` may lower;
+`diskLeaseMs`, `diskPodWaitMs`), model calls (`modelRequestMs`, `modelIdleMs`, `modelAttempts`,
+`modelRetryDelayMs`, `modelProviderRetries`, `modelRetryDelayMaxMs`: the gates read them for each
+call, `modelCallSettings`) and tools (`toolAttempts`; `httpToolTimeoutMs`, checked at deploy and
+held at each call; `mcpSnapshotBytes`, what a session pins of its MCP servers, past which a server
+is left out with a diagnostic, `fitSnapshot`; `mcpPreviewMs`, `mcpMetadataBytes`). A limit left
+out is its default (`RUNTIME_LIMIT_DEFAULTS`); one above its **ceiling**
+(`RUNTIME_LIMIT_CEILINGS`, `{value, unit, why}`, from a dependency: S2's record, the Harness
+API's 64 MiB frame, the longest JavaScript string and timer, a request read as one string, a
+JavaScript number) is `400` naming the ceiling. Nothing keeps them: each is read from Postgres
+where it is checked (a route's body, the store's event write, the Record seam, the gates, a
+segment's start), and a harness gets its own in `turn.start.limits`. Past one, a write is
+refused with `limit_exceeded` (`413` to an API client, `RecordEntryTooLargeError` in
+`record/append.ts`; the Harness API error code to a harness), a body with `413`, a manifest with
+`400`, or a tool answer is `mcp.too-large`/`http.too-large`. Dependency ceilings and constants a
+standard fixes are not settings: a token's size (`http.maxHeaderSize`, `tenant/jwt.ts`), an
+artifact name's and a folder path's length (`FILE_NAME_MAX`, `FILE_PATH_MAX` in
+`@nylorun/core`), W3C `tracestate`'s 512 characters. Host process timings (retries, pollers,
+leases of the host's own) are host configuration, not Runtime limits.
 _Avoid_: "quota" for them (quotas are the artifact and skill totals), "max sizes".
 
 **Client package**: `@nylorun/agents` (the Runtime API) or `@nylorun/admin` (the
@@ -320,7 +340,7 @@ malformed file stops the boot; a key it does not define is logged and ignored). 
 default `subject` to `{sub}`, `scopes` to `{ claim: scope }` and `allowedScopes` to the
 token scopes. A bearer is its token when the unverified `iss`
 names it (`tenant/issuers.ts`): RS256, ES256 or
-EdDSA, at most 16 KiB, `aud` matching, `exp` present (its lifetime is the issuer's), a key
+EdDSA, no longer than a request's headers may be (Node's `http.maxHeaderSize`, 16 KiB), `aud` matching, `exp` present (its lifetime is the issuer's), a key
 from its static `keys` or its JWKS (configured URL only, cached by `kid`, one
 refetch a minute for an unknown `kid`; unreachable → `401 issuer_unavailable`
 for new kids). It becomes the `token` AuthScope with `issuer: <name>`: the subject

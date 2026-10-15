@@ -220,27 +220,3 @@ export function headerValue(incoming: IncomingMessage, name: string): string | u
   if (Array.isArray(raw)) return raw[0];
   return raw;
 }
-
-/** A JSON request body, capped at `limit` bytes (413); `undefined` when there is none. */
-export async function readJsonBody(request: Request, limit = 1024 * 1024): Promise<unknown> {
-  if (request.body === null) return undefined;
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  const reader = request.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel();
-      throw Object.assign(new Error("Request too large"), { status: 413 });
-    }
-    chunks.push(value);
-  }
-  if (size === 0) return undefined;
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw Object.assign(new Error("Invalid JSON"), { status: 400 });
-  }
-}

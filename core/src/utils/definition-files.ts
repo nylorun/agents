@@ -6,6 +6,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { canonical } from "./canonical.js";
+import { FILE_NAME_MAX, FILE_PATH_MAX } from "./file-systems.js";
 
 /**
  * The most bytes one skill's files may hold together when the Tenant sets no limit of its own
@@ -13,12 +14,17 @@ import { canonical } from "./canonical.js";
  * and no count of files has a limit of its own.
  */
 export const SKILL_TOTAL_BYTES_DEFAULT = 2 * 1024 * 1024 * 1024;
-/** The longest path of a file in a skill's folder. */
-export const SKILL_FILE_PATH_MAX = 512;
 /** The file every skill has: its frontmatter and instructions. */
 export const SKILL_ENTRY = "SKILL.md";
 /** Where a session's sandbox holds each skill's files, read-only: `/skills/<name>@<hash>/`. */
 export const SKILLS_MOUNT = "/skills";
+/**
+ * The longest path of a file in a skill's folder: what the longest path a workspace's file
+ * system takes (`FILE_PATH_MAX`) leaves under the skill's mount folder, `/skills/<name>@<12 hex>/`
+ * with a name as long as a file name may be.
+ */
+export const SKILL_FILE_PATH_MAX =
+  FILE_PATH_MAX - `${SKILLS_MOUNT}/${"n".repeat(FILE_NAME_MAX)}@${"0".repeat(12)}/`.length;
 
 /**
  * The folder of a sandbox that holds one version of a skill, read-only (D66):
