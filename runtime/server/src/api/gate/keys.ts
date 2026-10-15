@@ -1,7 +1,8 @@
 /**
  * The `keys` service's route on the gateway's listener (F4.2, `contract.ts`): one operation of
  * `Keys` per request, run with the vault key of the gateway's Tenant. Errors keep their status,
- * code and details. Logs the operation and its outcome, never an argument or a result.
+ * code and details. Logs the operation, its outcome and an internal failure's cause, never an
+ * argument or a result.
  */
 import type { Env, Hono, MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -48,6 +49,13 @@ export function mountKeysRoutes<E extends Env>(
         answer = { result: (await run.apply(keys, args)) ?? null };
       } catch (error) {
         answer = { error: errorOf(error) };
+        // The caller sees only "The keys service failed": the cause is logged, never the args.
+        if (answer.error.status === 500)
+          options.logger.error("keys_request_failed", {
+            operation,
+            error: (error as Error | undefined)?.message ?? String(error),
+            stack: (error as Error | undefined)?.stack,
+          });
       }
       options.logger.info("keys_request", {
         operation,

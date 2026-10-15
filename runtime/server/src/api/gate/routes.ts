@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { z } from "zod";
 import { bodyLimit } from "hono/body-limit";
+import { HTTPException } from "hono/http-exception";
 import { isTenantId } from "@nylorun/core/compatibility";
 import type { RuntimeModelCall } from "../../contracts.js";
 import {
@@ -112,6 +113,18 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
   const app = new Hono<GateEnv>();
   const maxSize = options.maxBodyBytes ?? MAX_MODEL_CALL_BYTES;
   const logger = options.logger ?? { info() {}, warn() {}, error() {} };
+
+  // Hono's default, but logged through the logger: never the body, which may hold secrets.
+  app.onError((error, c) => {
+    if (error instanceof HTTPException) return error.getResponse();
+    logger.error("request_failed", {
+      method: c.req.method,
+      route: c.req.routePath,
+      error: error.message,
+      stack: error.stack,
+    });
+    return c.text("Internal Server Error", 500);
+  });
 
   app.get("/health", (c) => c.json({ status: "ok" }));
   app.get("/ready", async (c) =>
