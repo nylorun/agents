@@ -5,7 +5,7 @@
  * - the app creates `users/alice/web` with Alice as its owner and writes her GitHub token and
  *   the team's npm token into it;
  * - her coder writes into the workspace; her reviewer, in a new session, finds it, and the
- *   shell sees each secret only as the sentinel `nylorun-managed`;
+ *   shell sees each secret only as the sentinel `nylorun_managed`;
  * - Bob's session naming her Environment is refused by the owner guard (an application key's
  *   `403`, the opaque `404` acting for Bob), and setting the guard later stops his next turn;
  * - a second credential for `github.com` is refused at the write;
@@ -201,7 +201,7 @@ describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
     );
     expect(reviewer.status, JSON.stringify(reviewer.results)).toBe("completed");
     expect(reviewer.results[0]!.text).toContain("cloned by the coder");
-    expect(reviewer.results[1]!.text).toContain("token=nylorun-managed npm=nylorun-managed");
+    expect(reviewer.results[1]!.text).toContain("token=nylorun_managed npm=nylorun_managed");
     for (const result of reviewer.results) {
       expect(result.text).not.toContain(GH_TOKEN);
       expect(result.text).not.toContain(NPM_TOKEN);

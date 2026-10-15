@@ -111,11 +111,11 @@ describe("credentials for skills in a pod (R2c)", () => {
       { command: "echo $GH_TOKEN $REGION $HTTPS_PROXY" },
       new AbortController().signal,
       () => undefined,
-      { GH_TOKEN: "nylorun-managed", REGION: "eu-west-1", HTTPS_PROXY: "http://elsewhere" },
+      { GH_TOKEN: "nylorun_managed", REGION: "eu-west-1", HTTPS_PROXY: "http://elsewhere" },
     );
     expect(result).toMatchObject({
       kind: "completed",
-      output: { exitCode: 0, stdout: "nylorun-managed eu-west-1 http://nylorun:tok@egress:4200\n" },
+      output: { exitCode: 0, stdout: "nylorun_managed eu-west-1 http://nylorun:tok@egress:4200\n" },
     });
   });
 

@@ -1019,7 +1019,7 @@ Environment vault as MCP credentials; for both, the secret's name is the variabl
 (`PUT /v1/environments/{id}/secrets/GH_TOKEN`):
 
 - **`environment_secret`** `{ type, value, allowedHosts, inject? }`: every command sees
-  `$<name>` set to `nylorun-managed`, a fixed sentinel. When a command sends HTTPS to one of
+  `$<name>` set to `nylorun_managed`, a fixed sentinel. When a command sends HTTPS to one of
   `allowedHosts` (exact host names, port 443), egress-gate sets the credential's header on each
   request: `inject.header` (default `Authorization`) with `inject.format` (default
   `Bearer {value}`; `{base64:…}` encodes a part, so `Basic {base64:x-access-token:{value}}`

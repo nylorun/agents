@@ -1446,8 +1446,12 @@ const EnvironmentNameSchema = z
   .string()
   .regex(ENVIRONMENT_NAME_PATTERN, "An environment variable name is a letter or _ followed by letters, digits or _")
   .refine((name) => !isReservedEnvironmentName(name), "That environment variable name is reserved");
-/** The value a sandbox sees for every `environment_secret` (R2c, D50): never the secret. */
-export const ENVIRONMENT_SECRET_SENTINEL = "nylorun-managed";
+/**
+ * The value a sandbox sees for every `environment_secret` (R2c, D50): never the secret. Word
+ * characters only, so CLIs that check a token's format before sending it (the Vercel CLI
+ * refuses anything matching `\W`) still send the request egress-gate sets the header on.
+ */
+export const ENVIRONMENT_SECRET_SENTINEL = "nylorun_managed";
 /**
  * How egress-gate writes an `environment_secret` into a request (R2c, D50): one header, set on
  * every request to a bound host. `format` is text with `{value}` once, optionally inside a

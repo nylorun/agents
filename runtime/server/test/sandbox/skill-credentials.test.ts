@@ -2,7 +2,7 @@
  * Credentials for skills (R2c, D50) in an Environment's vault (D56, protocol 11), through the
  * Runtime against an in-memory sandboxes service: a second secret for a host is refused at write,
  * and the owner guard keeps another owner's sessions off an Environment that serves secrets; a pod
- * turn's commands see each `environment_secret` as `nylorun-managed` and each
+ * turn's commands see each `environment_secret` as `nylorun_managed` and each
  * `environment_variable` as its value; the vault releases the real header only for a bound host,
  * read afresh after a rotation. egress-gate's use of the release is `gates/egress-credentials`.
  */
@@ -199,7 +199,7 @@ describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
       const done = await until("settles", async () => (await call("GET", "/v1/sessions/creds-ada")).body, (body) =>
         ["completed", "failed", "cancelled"].includes(body.status), 60_000);
       expect(done.status).toBe("completed");
-      expect(await readFile(join(workspace, "env.txt"), "utf8")).toBe("nylorun-managed eu-west-1\n");
+      expect(await readFile(join(workspace, "env.txt"), "utf8")).toBe("nylorun_managed eu-west-1\n");
       const history = await call("GET", "/v1/sessions/creds-ada/history");
       expect(JSON.stringify(history.body)).not.toContain(SECRET);
     } finally {

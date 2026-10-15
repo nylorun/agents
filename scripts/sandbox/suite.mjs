@@ -23,7 +23,7 @@
 // - reset → a new, empty volume; PVC and pod deleted → `environment.lost`, turns refused
 //   (`environment_lost`) until a reset;
 // - credentials for skills (R2c): an `environment_secret` of the Environment is
-//   `nylorun-managed` in the pod, and a public header-echo host it is bound to receives the real
+//   `nylorun_managed` in the pod, and a public header-echo host it is bound to receives the real
 //   header through egress-gate;
 // - no pod mounts a host path; `nylorun sandbox disable` → kind pod is
 //   `environment_unavailable`.
@@ -119,7 +119,7 @@ const PROBE = String.raw`if [ -n "$PROBE_TOKEN" ]; then echo "PROBE_TOKEN=$PROBE
 import hashlib, json, urllib.request
 for url in ("https://postman-echo.com/headers", "https://httpbin.org/headers"):
     try:
-        request = urllib.request.Request(url, headers={"Authorization": "Bearer nylorun-managed", "User-Agent": "nylorun-suite"})
+        request = urllib.request.Request(url, headers={"Authorization": "Bearer nylorun_managed", "User-Agent": "nylorun-suite"})
         echoed = {k.lower(): v for k, v in json.load(urllib.request.urlopen(request, timeout=20))["headers"].items()}
         print("ECHO", hashlib.sha256(echoed["authorization"].encode()).hexdigest())
         break
@@ -309,7 +309,7 @@ try {
       await until("its engine joins", async () => (await events("pods/creds")).includes("environment.running"), 300_000);
       await open("creds", "pods/creds");
       const probed = await turn("creds");
-      assert.match(probed, /PROBE_TOKEN=nylorun-managed/, "the pod sees the sentinel");
+      assert.match(probed, /PROBE_TOKEN=nylorun_managed/, "the pod sees the sentinel");
       const expected = createHash("sha256").update(`Bearer ${secret}`).digest("hex");
       assert.ok(probed.includes(`ECHO ${expected}`), `the bound host received the real header: ${probed}`);
       assert.ok(!JSON.stringify(await items("creds")).includes(secret), "no value in the session's history");

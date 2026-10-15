@@ -112,6 +112,11 @@ describe("shell credentials (R2c)", () => {
     expect(renderInjectFormat("Basic {base64:x-access-token:{value}}", "ghp_x")).toBe(
       `Basic ${Buffer.from("x-access-token:ghp_x").toString("base64")}`,
     );
-    expect(ENVIRONMENT_SECRET_SENTINEL).toBe("nylorun-managed");
+    expect(ENVIRONMENT_SECRET_SENTINEL).toBe("nylorun_managed");
+  });
+
+  it("keeps the sentinel to word characters, which CLIs that check a token's format accept", () => {
+    // The Vercel CLI refuses a VERCEL_TOKEN that matches /\W/ before it sends a request.
+    expect(ENVIRONMENT_SECRET_SENTINEL).toMatch(/^\w+$/);
   });
 });

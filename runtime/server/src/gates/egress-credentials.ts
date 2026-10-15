@@ -6,7 +6,7 @@
  * (keys holds its key; the pod trusts its certificate, `harness/pod.ts`), and reads HTTP/1.1
  * requests. For each request it reads the vault (one Postgres query, no cache, so a rotation
  * applies to the next request), sets the credential's header (replacing any of that name, such
- * as the `nylorun-managed` sentinel the CLI sent), and forwards it over TLS to the address the
+ * as the `nylorun_managed` sentinel the CLI sent), and forwards it over TLS to the address the
  * gate already checked, verifying the host's certificate by name against the public roots.
  *
  * Nothing here knows a tool: the header name and its format are the credential's. A release the

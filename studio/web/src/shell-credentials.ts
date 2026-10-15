@@ -1,14 +1,14 @@
 /**
  * An Environment's Secrets tab's shell credentials (R2c, D56): what a skill's CLI in an Environment's
  * sandbox uses. An `environment_secret` is a sealed value the sandbox only sees as
- * `nylorun-managed`; egress-gate sets it as a header on requests to its allowed hosts. An
+ * `nylorun_managed`; egress-gate sets it as a header on requests to its allowed hosts. An
  * `environment_variable` is a plain value the sandbox sees. Either is written with `PUT
  * /v1/environments/{id}/secrets/{name}`, where the name is the variable's. The Runtime checks
  * every field again; these helpers shape the form's input.
  */
 
 /** What the CLI reads in the sandbox in place of a secret's value. */
-export const SHELL_SECRET_SENTINEL = "nylorun-managed";
+export const SHELL_SECRET_SENTINEL = "nylorun_managed";
 /** The header a secret sets unless the form names another. */
 export const DEFAULT_INJECT = { header: "Authorization", format: "Bearer {value}" } as const;
 
