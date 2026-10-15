@@ -1,5 +1,31 @@
 # nylorun
 
+## 0.15.1-beta
+
+### Patch Changes
+
+- 000ff75: **READMEs and help text match protocol 14.**
+
+  - `nylorun --help` lists `environments fork`, `manifests` and `delete-version`. The package description no longer offers `nylo` as the Runtime client, and the README says nylorun depends on `@nylorun/agents` too.
+  - The READMEs name the current commands: `nylorun tenant keys`, `nylorun tenant mcp inspect`, `nylorun local logs` and `nylorun local reset`. `@nylorun/admin` says it speaks protocol 14.
+  - `@nylorun/agents`: a lost MCP or HTTP tool call is sent again with its key, then fails to the model as `tool.interrupted` (it is not left `uncertain`). Every manifest is v7. A2A takes `raw` files. A delegated agent cannot pause.
+  - `@nylorun/runtime`: the README describes protocol 14, `PUT /v1/sessions/{id}` says it answers an identical session (vaults are no longer attached), and the database-layout error names `nylorun local reset`.
+  - `@nylorun/create-agent`: `nylorun start` writes the project's keys (no key is derived any more).
+
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [620072d]
+- Updated dependencies [a0cf8b2]
+- Updated dependencies [000ff75]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.22.0-beta
+  - @nylorun/agents@0.22.0-beta
+  - @nylorun/admin@0.17.1-beta
+
 ## 0.15.0-beta
 
 ### Minor Changes
