@@ -18,11 +18,3 @@ export function sandboxToolSpec(
   const sandbox = manifest?.runtime?.sandbox;
   return sandbox !== undefined && runtimeToolOf(manifest, toolName) !== undefined ? sandbox : undefined;
 }
-
-/** True when `toolName` is a tool the Runtime pinned on `manifest` (its `runtime.tools`). */
-export function isPinnedRuntimeTool(
-  manifest: AgentManifest | undefined,
-  toolName: string | undefined
-): boolean {
-  return runtimeToolOf(manifest, toolName) !== undefined;
-}

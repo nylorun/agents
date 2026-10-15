@@ -7,7 +7,7 @@ import { expect, it } from "vitest";
 import { runtimeManifestFor, skillFolderOf, type AgentManifest } from "@nylorun/core/define";
 import { SandboxManager, sandboxToolSpec, type SandboxSessionRef } from "../../src/sandbox/manager.js";
 import { storeSandboxRecords } from "../../src/sandbox/records.js";
-import type { SandboxBackend, SandboxHandle } from "../../src/sandbox/types.js";
+import { wholeBytes, type SandboxBackend, type SandboxHandle } from "../../src/sandbox/types.js";
 import { createTestSessionStore } from "../support/store.js";
 
 const SKILL_V1 = `sha256:${"1".repeat(64)}`;
@@ -50,7 +50,7 @@ function gatedBackend() {
     },
     writeFile: async (path, content) => {
       writes.push(path);
-      files.set(path, content);
+      files.set(path, typeof content === "string" ? content : await wholeBytes(content));
     },
     stop: async () => {
       stops += 1;
@@ -70,6 +70,7 @@ function gatedBackend() {
   } as unknown as SandboxBackend;
   return {
     backend,
+    files,
     writes,
     started,
     finished,
@@ -194,5 +195,27 @@ it("mounts each version of a skill in its own folder, once", async () => {
   // A third session with the first version finds it mounted.
   await bash(session("c", v1), "echo c");
   expect(writes.filter((path) => path.startsWith("/skills/"))).toHaveLength(2);
+  await manager.close();
+});
+
+it("writes a file's bytes as they come, in its session's lane, making its folder first", async () => {
+  const { manager, session, bash, files, started, release } = await setup();
+  const a = session("a");
+  const running = bash(a, "wait a");
+  await until(() => started.includes("wait a"));
+  async function* chunks() {
+    yield new Uint8Array([1, 2]);
+    yield new Uint8Array([3]);
+  }
+  const spec = sandboxToolSpec(a.manifest!, "bash");
+  const written = manager.writeBytes(a, spec, "in/data.bin", chunks(), new AbortController().signal);
+  await tick();
+  // After the session's call before it (protocol 15: our engine's read_artifact with path).
+  expect(started.some((command) => command.startsWith("mkdir -p"))).toBe(false);
+  release("a");
+  await running;
+  expect(await written).toEqual({ kind: "written", path: "/workspace/in/data.bin", size: 3 });
+  expect(started).toContain("mkdir -p '/workspace/in'");
+  expect([...(files.get("/workspace/in/data.bin") as Uint8Array)]).toEqual([1, 2, 3]);
   await manager.close();
 });

@@ -972,7 +972,7 @@ Agent({ id: "triage" }).mcp({
   called by its own name.
 - **Results.** A result past 32 KiB, and every image, audio or file part of one, becomes a file
   artifact of the session, and the model gets a preview and the artifact's id. It reads on with
-  the built-in `read_artifact`, 32 KiB a call. These artifacts count toward the Tenant's artifact
+  our harness's `read_artifact`, 32 KiB a call. These artifacts count toward the Tenant's artifact
   limits (`PUT /v1/tenant/artifacts`). An answer past the Runtime limit `toolAnswerBytes`
   (8 MiB by default, [Runtime limits](#runtime-limits)) is not kept.
 - **Secrets.** A credential value a server echoes back is replaced with `[redacted]` before the

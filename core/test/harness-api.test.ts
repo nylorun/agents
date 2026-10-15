@@ -120,11 +120,11 @@ describe("memory channel", () => {
   });
 });
 
-describe("Harness API 3", () => {
+describe("Harness API 4", () => {
   it("names features in hello, not capabilities", async () => {
     const { validateParams } = await import("../src/harness-api/index.js");
-    expect(HARNESS_API_VERSION).toBe(3);
-    const hello = { api: 3, name: "h", version: "0" };
+    expect(HARNESS_API_VERSION).toBe(4);
+    const hello = { api: 4, name: "h", version: "0" };
     expect(() =>
       validateParams("hello", {
         ...hello,
@@ -132,6 +132,50 @@ describe("Harness API 3", () => {
       })
     ).not.toThrow();
     expect(() => validateParams("hello", { ...hello, capabilities: {} })).toThrow(HarnessApiError);
+  });
+
+  it("reads and writes artifacts over the seam, and says not_found for what is not the run's", async () => {
+    const { HARNESS_ERROR_CODES, validateParams, validateResult } = await import("../src/harness-api/index.js");
+    expect(HARNESS_ERROR_CODES).toContain("not_found");
+    expect(HARNESS_ERROR_CODES).toContain("limit_exceeded");
+    const meta = {
+      artifactId: "af_1",
+      kind: "file",
+      name: "a.txt",
+      version: 1,
+      contentType: "text/plain",
+      size: 3,
+      sha256: "a".repeat(64),
+      tenantWide: false,
+    };
+    expect(() => validateParams("artifact.read", { runId: "r", artifactId: "af_1" })).not.toThrow();
+    expect(() => validateParams("artifact.read", { runId: "r", artifactId: "af_1", length: 0 })).not.toThrow();
+    // The session is the run's: a request never names one.
+    expect(() => validateParams("artifact.read", { runId: "r", artifactId: "af_1", sessionId: "s" })).toThrow(
+      HarnessApiError
+    );
+    expect(() => validateResult("artifact.read", { artifact: meta, offset: 0, base64: "YWJj", eof: true })).not.toThrow();
+    expect(() => validateResult("artifact.read", { artifact: { ...meta, sha256: "nope" }, offset: 0, base64: "", eof: true })).toThrow(
+      HarnessApiError
+    );
+    for (const params of [
+      { runId: "r", op: "begin", key: "k", name: "a.txt", effectId: "t1:0:tool:c1", base64: "YWJj" },
+      { runId: "r", op: "begin", key: "k", artifactId: "af_1", size: 3 },
+      { runId: "r", op: "chunk", uploadId: "u", offset: 0, base64: "YWJj" },
+      { runId: "r", op: "commit", uploadId: "u" },
+      { runId: "r", op: "abort", uploadId: "u" },
+    ])
+      expect(() => validateParams("artifact.write", params), JSON.stringify(params)).not.toThrow();
+    expect(() => validateParams("artifact.write", { runId: "r", op: "chunk", uploadId: "u", offset: 0, base64: "" })).toThrow(
+      HarnessApiError
+    );
+    expect(() => validateParams("artifact.write", { runId: "r", op: "begin", key: "" })).toThrow(HarnessApiError);
+    for (const result of [
+      { status: "open", uploadId: "u", maxBytes: 10, received: 0 },
+      { status: "written", artifact: meta, created: true },
+      { status: "aborted" },
+    ])
+      expect(() => validateResult("artifact.write", result)).not.toThrow();
   });
 
   it("names a tool effect by its tool alone", async () => {
@@ -226,6 +270,11 @@ describe("published contract (R4.5)", () => {
       "TranscriptEntry",
       "HostJoinRequest",
       "HostJoinAnswer",
+      "ArtifactMeta",
+      "artifact.read.params",
+      "artifact.read.result",
+      "artifact.write.params",
+      "artifact.write.result",
       "hello.params",
       "effect.intent.params",
       "cancel.params",

@@ -358,11 +358,11 @@ async function i3(url, stack) {
     },
   });
   assert.equal(rejected.status, 426, await rejected.text());
-  // The Host serves protocol 14 only: a protocol 13 request is a 426 too, and 14 is served.
-  const older = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "13" } });
-  assert.equal(older.status, 426, "a protocol 13 client");
-  const current = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "14" } });
-  assert.equal(current.status, 200, "a protocol 14 client");
+  // The Host serves protocol 15 only: a protocol 14 request is a 426 too, and 15 is served.
+  const older = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "14" } });
+  assert.equal(older.status, 426, "a protocol 14 client");
+  const current = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "15" } });
+  assert.equal(current.status, 200, "a protocol 15 client");
   assert.ok(
     !(await runtimeGet(url, key, "/v1/agents")).agents.some((agent) => agent.manifest.id === "too-new"),
     "no agent was written",

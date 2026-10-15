@@ -12,7 +12,7 @@ import {
   HARNESS_ERROR_CODES,
 } from "./messages.js";
 import { HarnessApiError } from "./errors.js";
-import { EffectOutcomeSchema } from "../contracts.js";
+import { ARTIFACT_NAME_MAX, EffectOutcomeSchema } from "../contracts.js";
 import { RUNTIME_LIMIT_CEILINGS, RuntimeLimitsSchema } from "../utils/runtime-limits.js";
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
 import { McpSnapshotSchema } from "./mcp.js";
@@ -77,6 +77,24 @@ export const RecordedOutcomeSchema = z
   .object({ effectId: id, requestHash: z.string(), outcome: EffectOutcomeSchema })
   .strict();
 
+/**
+ * An artifact as the artifact seam shows it to a harness: one version of a file (or a folder,
+ * whose bytes the seam does not serve). `tenantWide` marks a Tenant-wide artifact (no session),
+ * which the run reads only because the session's messages named it.
+ */
+export const ArtifactMetaSchema = z
+  .object({
+    artifactId: id,
+    kind: z.enum(["file", "folder"]),
+    name: z.string(),
+    version: z.number().int().min(1),
+    contentType: z.string(),
+    size: z.number().int().nonnegative(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    tenantWide: z.boolean(),
+  })
+  .strict();
+
 /** A workspace's compute record, as the harness keeps it. */
 export const WorkspaceRecordSchema = z
   .object({
@@ -113,7 +131,7 @@ export const WorkspaceCallSchema = z
   .strict();
 
 /**
- * A file of a workspace read as bytes (`save_artifact`, F8.1), at most `maxBytes`. The answer is
+ * A file of a workspace read as bytes (the turn-end export, F8.2), at most `maxBytes`. The answer is
  * `{kind: "read", path, base64}`, `{kind: "missing", path}` or a failed tool outcome.
  */
 export const WorkspaceBytesCallSchema = z
@@ -456,6 +474,85 @@ export const harnessRequests = {
       })
       .strict(),
     result: z.object({ base64: z.string() }).strict(),
+  },
+  /**
+   * An artifact the run's session may read (the artifact seam, protocol 15): one of the session's
+   * own, or a Tenant-wide one its messages named; anything else is `not_found`, alike. The answer
+   * carries the version's metadata (`version`, default the latest) and its bytes from `offset`
+   * (default 0), base64: at most `length`, which defaults to and is held to
+   * `turn.start.limits.chunkBytes`; `length: 0` asks for the metadata alone. `eof` says no bytes
+   * are left past this chunk. A folder answers its metadata, with no bytes.
+   */
+  "artifact.read": {
+    params: runId
+      .extend({
+        artifactId: id,
+        version: z.number().int().min(1).optional(),
+        offset: z.number().int().nonnegative().optional(),
+        length: z.number().int().nonnegative().optional(),
+      })
+      .strict(),
+    result: z
+      .object({
+        artifact: ArtifactMetaSchema,
+        offset: z.number().int().nonnegative(),
+        base64: z.string(),
+        eof: z.boolean(),
+      })
+      .strict(),
+  },
+  /**
+   * Writes a file artifact of the run's session, or a new version of one of its own (the artifact
+   * seam, protocol 15), streamed in chunks of at most `turn.start.limits.chunkBytes`:
+   *
+   * - `begin` opens an upload, answered `open` with its `uploadId` and the most bytes it may hold
+   *   now (`maxBytes`: the file limit, or the room left in a total). `key` makes the write
+   *   idempotent within the session: a key already written answers `written` with `created:
+   *   false` and the version it wrote. With `base64`, the whole body comes in the `begin`, which
+   *   then commits at once. `effectId` links the artifact to a tool call of the run's turn, whose
+   *   call id its `artifact.created` event carries.
+   * - `chunk` sends the bytes from `offset`, which must equal the bytes received so far; a repeat
+   *   of the last chunk is answered as before.
+   * - `commit` stores the version (`written`); `abort` drops the upload. An upload the run leaves
+   *   open ends with the run.
+   */
+  "artifact.write": {
+    params: z.union([
+      runId
+        .extend({
+          op: z.literal("begin"),
+          key: id,
+          artifactId: id.optional(),
+          name: z.string().min(1).max(ARTIFACT_NAME_MAX).optional(),
+          contentType: z.string().min(1).optional(),
+          size: z.number().int().nonnegative().optional(),
+          effectId: id.optional(),
+          base64: z.string().optional(),
+        })
+        .strict(),
+      runId
+        .extend({
+          op: z.literal("chunk"),
+          uploadId: id,
+          offset: z.number().int().nonnegative(),
+          base64: z.string().min(1),
+        })
+        .strict(),
+      runId.extend({ op: z.literal("commit"), uploadId: id }).strict(),
+      runId.extend({ op: z.literal("abort"), uploadId: id }).strict(),
+    ]),
+    result: z.union([
+      z
+        .object({
+          status: z.literal("open"),
+          uploadId: id,
+          maxBytes: z.number().int().nonnegative(),
+          received: z.number().int().nonnegative(),
+        })
+        .strict(),
+      z.object({ status: z.literal("written"), artifact: ArtifactMetaSchema, created: z.boolean() }).strict(),
+      z.object({ status: z.literal("aborted") }).strict(),
+    ]),
   },
   "turn.completed": { params: TurnOutputSchema, result: settled },
   "turn.paused": { params: TurnOutputSchema, result: settled },

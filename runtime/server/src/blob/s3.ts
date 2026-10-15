@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { AwsClient } from "aws4fetch";
+import { DEFAULT_CONTENT_TYPE } from "@nylorun/core/contracts";
 import {
   BlobRangeError,
   BlobStoreError,
   BlobTooLargeError,
-  DEFAULT_CONTENT_TYPE,
   assertBlobKey,
   assertBlobPrefix,
   assertMaxBytes,

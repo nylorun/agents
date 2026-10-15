@@ -1,6 +1,6 @@
 # A minimal harness
 
-A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun Runtime. It is written only against the published contract (Harness API 3), [`@nylorun/core/harness-api`](../../core/src/harness-api/index.ts), and the `ws` package; it does not use our engine (`@nylorun/harness`). Read it as a worked example of the Harness API, or copy it as the start of your own harness.
+A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun Runtime. It is written only against the published contract (Harness API 4), [`@nylorun/core/harness-api`](../../core/src/harness-api/index.ts), and the `ws` package; it does not use our engine (`@nylorun/harness`). Read it as a worked example of the Harness API, or copy it as the start of your own harness.
 
 - [`src/harness.ts`](./src/harness.ts): the connection and the loop.
 - [`src/pod.ts`](./src/pod.ts): the join and token renewal of a sandbox pod.
@@ -85,6 +85,25 @@ curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/config/seed" \
 
 Then send `fixture:text` to a session, or `fixture:tool bash {"command":"uname -a"}` to a session on the `virtual` Environment. Each model call is a row of `GET /v1/sessions/{id}/calls/model`, with provider `fixture`. The fixture model stays on once seeded, so use a Tenant for testing.
 
+## Artifacts
+
+This harness offers no artifact tools, but any harness may read and write its run's session's artifacts over the artifact seam ([HARNESS_API.md §4b](../../guides/HARNESS_API.md#4b-artifacts)). A tool of your own that hands the user a file, declared in `hello.features.tools` and journaled like `bash`, would save it like this, keyed by its effect id so a repeat stores nothing twice:
+
+```ts
+import { readArtifact, writeArtifactBytes } from "@nylorun/core/harness-api";
+
+const { chunkBytes } = run.start.limits;
+const saved = await writeArtifactBytes(
+  channel,
+  { runId: run.runId, key: effect.effectId, effectId: effect.effectId, name: "report.md", chunkBytes },
+  new TextEncoder().encode("# Report\n"),
+);
+// saved.artifact: { artifactId, version, name, contentType, size, sha256, ... }
+
+const opened = await readArtifact(channel, { runId: run.runId, artifactId: saved.artifact.artifactId, chunkBytes });
+for await (const chunk of opened.chunks()) process.stdout.write(chunk);
+```
+
 ## Tests
 
 ```sh
@@ -98,7 +117,8 @@ The unit tests run the loop against a fake core and a fake Model Gate: a text tu
 
 This harness stays small. In this first version:
 
-- No workspace: it declares no `features.workspace` and serves no `workspace.*` requests, so `save_artifact`, the turn-end export of outputs and the session sandbox routes find no workspace.
+- No workspace: it declares no `features.workspace` and serves no `workspace.*` requests, so the turn-end export of outputs and the session sandbox routes find no workspace.
+- No artifact tools: it offers no `read_artifact` or `save_artifact` (they are our harness's own since protocol 15). A harness reads and writes its run's artifacts over the artifact seam; see [Artifacts](#artifacts).
 - One tool: `bash` from the manifest's `runtime.tools`. It offers no `read`, `write`, `edit`, `grep` or `glob`, no remote MCP servers, no HTTP tools and no agents used as tools. A tool it does not run is answered `tool.unknown` to the model.
 - No approvals or pauses, no flows, and no segment rollover: a turn that starts from an approval, a flow or a `continue` fails with `harness.unsupported`. A turn is at most 16 model steps.
 - One run at a time. As a container, every session's commands share one working directory.

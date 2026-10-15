@@ -36,7 +36,7 @@ import {
   isText,
   modelInputOf,
   unreadableReason,
-} from "../artifacts/media-types.js";
+} from "@nylorun/core/contracts";
 import { scrub } from "../redact.js";
 import type { HostModelSecret } from "../vault/service.js";
 import { capabilitiesOf } from "./capabilities.js";

@@ -8,7 +8,7 @@
  */
 import type { JsonValue } from "@nylorun/core/define";
 import type { BlobStore } from "../blob/index.js";
-import type { SessionStore } from "../store/types.js";
+import type { ArtifactRow, SessionStore } from "../store/types.js";
 import type { Session } from "../tenant/context.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { fileReferenceOf } from "./parts.js";
@@ -33,12 +33,26 @@ export class FileUnavailableError extends Error {
 export type FileResolver = (reference: JsonValue) => Promise<ResolvedFile>;
 
 /**
+ * What a session may read of the Tenant's artifacts (the read rule): its own, and the Tenant-wide
+ * ones its messages named (`Session.fileArtifacts`); never another session's, and never an
+ * Environment's disk versions, which belong to no session. The Model Gate and the artifact seam
+ * (`artifact.read`) both read by it.
+ */
+export function sessionMayRead(
+  session: Pick<Session, "id" | "fileArtifacts"> | undefined,
+  artifact: Pick<ArtifactRow, "id" | "sessionId" | "environmentId">,
+): boolean {
+  if (!session) return false;
+  if (artifact.sessionId !== null) return artifact.sessionId === session.id;
+  return artifact.environmentId === null && session.fileArtifacts?.includes(artifact.id) === true;
+}
+
+/**
  * Files from the Tenant's artifacts: `store` for the version's row, `blobs` for its bytes, for
- * the call of session `sessionId`. It reads what `read_artifact` reads: an artifact of the
- * session, or a Tenant-wide one its messages named (`Session.fileArtifacts`). Another session's
- * artifact, or a Tenant-wide one the session never named, is refused, and without a session
- * every file is: the check is never skipped. A file larger than the Tenant's Runtime limit
- * `modelFileBytes`, read with the row, is refused too.
+ * the call of session `sessionId`. It reads by the read rule (`sessionMayRead`): another
+ * session's artifact, or a Tenant-wide one the session never named, is refused, and without a
+ * session every file is: the check is never skipped. A file larger than the Tenant's Runtime
+ * limit `modelFileBytes`, read with the row, is refused too.
  */
 export function artifactFiles(options: {
   readonly store: SessionStore;
@@ -55,10 +69,11 @@ export function artifactFiles(options: {
     const found = await options.store.tx(async (t) => {
       const artifact = await t.artifact(reference.artifactId);
       if (!artifact) return undefined;
-      if (artifact.sessionId === null) {
-        const session = await t.get<Pick<Session, "fileArtifacts">>("sessions", sessionId);
-        if (!session?.fileArtifacts?.includes(artifact.id)) return undefined;
-      } else if (artifact.sessionId !== sessionId) return undefined;
+      const session =
+        artifact.sessionId === null
+          ? await t.get<Pick<Session, "id" | "fileArtifacts">>("sessions", sessionId)
+          : { id: sessionId };
+      if (!sessionMayRead(session, artifact)) return undefined;
       const version = await t.artifactVersion(artifact.id, reference.version);
       return version ? { artifact, version, maxBytes: (await readRuntimeLimits(t)).modelFileBytes } : undefined;
     });

@@ -80,7 +80,7 @@ export interface SandboxHandle {
   readFile(path: string): Promise<string | undefined>;
   /**
    * The file's bytes, or undefined when it does not exist; refuses one larger than `maxBytes`
-   * (`SandboxFileTooLargeError`). For `save_artifact`, which keeps binary files intact.
+   * (`SandboxFileTooLargeError`). For `save_artifact` and the export, which keep binary files intact.
    */
   readBytes?(path: string, maxBytes: number): Promise<Uint8Array | undefined>;
   /**

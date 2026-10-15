@@ -125,8 +125,9 @@ export interface Session {
   sandbox?: SandboxManifest;
   /**
    * Why the session takes no new turn: `protocol_11` for a session opened before protocol 11
-   * (migration 0020), `protocol_13` for one opened before protocol 13 (migration 0024). Its
-   * history stays readable.
+   * (migration 0020), `protocol_13` for one opened before protocol 13 (migration 0024),
+   * `protocol_15` for an agent session that pinned the artifact tools before protocol 15
+   * (migration 0029). Its history stays readable.
    */
   closedReason?: string;
   /**

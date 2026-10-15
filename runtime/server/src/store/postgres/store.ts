@@ -1630,6 +1630,12 @@ class PostgresTx implements Tx {
     return row;
   }
 
+  async artifactVersionByWriteKey(writeKey: string): Promise<ArtifactVersionRow | undefined> {
+    this.check();
+    const [row] = await this.db.select().from(artifactVersions).where(eq(artifactVersions.writeKey, writeKey));
+    return row;
+  }
+
   async artifactVersions(artifactId: string): Promise<ArtifactVersionRow[]> {
     this.check();
     return this.db

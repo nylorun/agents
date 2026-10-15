@@ -2,10 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm, stat, unlink } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { Readable } from "node:stream";
+import { DEFAULT_CONTENT_TYPE } from "@nylorun/core/contracts";
 import {
   BlobRangeError,
   BlobTooLargeError,
-  DEFAULT_CONTENT_TYPE,
   assertBlobKey,
   assertBlobPrefix,
   assertMaxBytes,

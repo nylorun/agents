@@ -3,7 +3,7 @@
  *
  * - the transport: path `/nylorun/harness/v1` and header `Nylorun-Harness-Api: 1`, for the
  *   WebSocket and its frames (`FrameSchema`), one JSON text message per frame;
- * - the messages: `HARNESS_API_VERSION` (2), which a harness names in `hello.api` and core
+ * - the messages: `HARNESS_API_VERSION`, which a harness names in `hello.api` and core
  *   checks;
  * - the Runtime's protocol, which the Runtime and Management APIs carry, never this one.
  *

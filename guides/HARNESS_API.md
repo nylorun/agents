@@ -33,8 +33,9 @@ that file.
 - Core pings every 30 s and drops a harness it has not heard from for 90 s. Its runs then end
   as `connection.lost`, and the next advance offers them again.
 - Error codes (`HARNESS_ERROR_CODES`): `run_not_held`, `turn_cancelled`, `ownership_lost`,
-  `effect_drift`, `invalid`, `unavailable`, `internal`, `limit_exceeded` (what you sent passes
-  a Runtime limit of `turn.start.limits`; the message names the limit and its value).
+  `effect_drift`, `invalid`, `unavailable`, `internal`, `not_found` (an artifact that is not
+  there for your run, §4b) and `limit_exceeded` (what you sent passes a Runtime limit of
+  `turn.start.limits`, or an artifact limit; the message names the limit and its value).
 
 Which token:
 
@@ -45,11 +46,12 @@ Which token:
 
 ## §2 Work: hello, lease, renew, release
 
-- `hello {api: 3, name, version, features}` is the first request.
+- `hello {api: 4, name, version, features}` is the first request.
   - `name` is the harness id: `^[a-z][a-z0-9-]{1,62}$`, and the one the credential is for.
-  - `features.tools` declares tools the harness runs itself (§4).
+  - `features.tools` declares tools the harness runs itself (§4). Ours declares
+    `read_artifact` and `save_artifact`, which it runs over the artifact seam (§4b).
   - `features.workspace` declares that it serves workspaces (§10, optional).
-  - The answer is `{api: 3, tenantId, sandbox: {backend}, renewEveryMs}`.
+  - The answer is `{api: 4, tenantId, sandbox: {backend}, renewEveryMs}`.
   - Core refuses another `api` and a name that is not the credential's harness.
 - `lease {}` waits until core offers a run, then answers `{run: RunGrant, input: TurnStart}`.
   - Core offers a session's runs only to connections of the harness the session pinned when it
@@ -73,10 +75,11 @@ Which token:
   - the agent's own `instructions`, `tools`, `skills` and `mcpServers`. A skill or a server that
     came from an Agent Plugin carries `plugin: {name, version?}`;
   - `runtime`, which the Runtime wrote when the session pinned the agent: the session's
-    `sandbox` spec, the `tools` the Runtime serves (the sandbox tools, `save_artifact`,
-    `read_artifact`, `load_skill` and `read_skill_resource`) and the `instructions` that go
-    with them (the skill catalog, the sandbox's and the artifacts' notes). Offer the model the
-    agent's tools and `runtime.tools`, and put `instructions` before `runtime.instructions`.
+    `sandbox` spec, the `tools` the Runtime serves (the sandbox tools, `load_skill` and
+    `read_skill_resource`) and the `instructions` that go with them (the skill catalog, the
+    sandbox's notes). Offer the model the agent's tools and `runtime.tools`, and put
+    `instructions` before `runtime.instructions`. It holds no artifact tools: reading and
+    saving artifacts is yours to offer, over the artifact seam (§4b).
   - A variant never sets `runtime`: the turn runs with the pin's.
 - `checkpoint` (`HarnessCheckpointSchema`): `sessionId`, `turnId`, `segment`, `manifestHash`,
   `input` and `state`.
@@ -108,7 +111,8 @@ Which token:
   - `toolAnswerBytes`: an MCP or HTTP tool's answer the Tool Gate keeps (default 8 MiB; past it,
     `mcp.too-large` or `http.too-large`), and the tool bodies it reads.
   - `harnessStateBytes`: your state (§7), as JSON (default 256 KiB).
-  - `chunkBytes`: one `definition.file` range: ask for at most this `length` (default 16 MiB).
+  - `chunkBytes`: one `definition.file` range, `artifact.read` answer or `artifact.write` chunk
+    (§4b): ask for and send at most this many bytes (default 16 MiB).
 
 ## §4 Record: intent, outcome, hash, effect ids
 
@@ -132,8 +136,8 @@ Re-sends:
 - Tool calls are delivered at least once. When a gate hop is lost, ask the same intent again.
 - An intent for a row still `invoking` is a re-send. Core counts it, up to 3 attempts, and
   answers `execute`, or `completed` with a `tool.interrupted` failure.
-- A sandbox call, or a call core serves, that a crash interrupted gets `tool.interrupted` at
-  once.
+- A sandbox call, a call core serves, or a tool you run yourself that a crash interrupted gets
+  `tool.interrupted` at once.
 
 What an intent carries:
 
@@ -159,12 +163,74 @@ What an intent carries:
 - **What the log records of a tool call.** Each one ends in one `tool.completed`, and a row at
   `GET /v1/sessions/{id}/calls/tool`. Core fills in where it ran from the pinned manifest; a
   harness sends none of it:
-  - `kind`: `mcp`, `http`, `sandbox`, `platform` (a tool the Runtime serves: the artifact, skill
-    and deferred-tool tools) or `harness` (a tool you declared in `hello.features.tools`);
+  - `kind`: `mcp`, `http`, `sandbox`, `platform` (a tool the Runtime serves: the skill and
+    deferred-tool tools) or `harness` (a tool you declared in `hello.features.tools`, our
+    harness's `read_artifact` and `save_artifact` among them);
   - `server`: the MCP server, or the HTTP tool's URL host;
   - `skill`: the skill it ran. `load_skill` and `read_skill_resource` name it in their input, and
     a sandbox tool whose input names its folder, `/skills/<name>@<hash>/`, ran that skill's files;
   - `plugin`: `{name, version?}`, the Agent Plugin that brought its MCP server or skill.
+
+## §4b Artifacts
+
+A harness reads and writes the artifacts of the run it holds over two requests. The client
+helpers `readArtifact`, `openArtifactWrite` and `writeArtifactBytes` in
+`@nylorun/core/harness-api` do the chunking.
+
+**Scope.** Everything is the run's session's, never one you name. Agents used as tools share it.
+
+- You may read the session's own artifacts, and the Tenant-wide ones its messages named.
+  Another session's, a Tenant-wide one never named, an Environment's disk versions and a
+  missing one are all the same `not_found`, so nothing tells you which exist.
+- You may write a new file artifact of the session, or a new version of one of its own file
+  artifacts.
+
+**`artifact.read {runId, artifactId, version?, offset?, length?}`** (`ArtifactMetaSchema`):
+
+- It answers `{artifact, offset, base64, eof}`:
+  - `artifact` is `{artifactId, kind, name, version, contentType, size, sha256, tenantWide}`, for
+    `version` (default the latest);
+  - `base64` is the bytes from `offset` (default 0), at most `length`;
+  - `eof` says no bytes are left past this chunk.
+- `length` defaults to `turn.start.limits.chunkBytes`, and is held to it. `length: 0` asks for
+  the metadata alone.
+- An `offset` past the end is `invalid`; one at the end answers no bytes and `eof: true`.
+- A folder answers its metadata, with no bytes.
+- Ask for later chunks with the version the first answer named, since a new one may land.
+
+**`artifact.write`** is an upload in steps, each a request with `op`:
+
+| `op` | Params | Answer |
+| --- | --- | --- |
+| `begin` | `key`, then `name` (a new artifact) or `artifactId` (a new version); optional `contentType` (default: from the name), `size`, `effectId`, `base64` | `{status: "open", uploadId, maxBytes, received: 0}`, or `written` |
+| `chunk` | `uploadId`, `offset`, `base64` | `{status: "open", uploadId, maxBytes, received}` |
+| `commit` | `uploadId` | `{status: "written", artifact, created}` |
+| `abort` | `uploadId` | `{status: "aborted"}` |
+
+- **One chunk** carries at most `turn.start.limits.chunkBytes`; a larger one is
+  `limit_exceeded`. A `begin` with `base64` sends the whole body at once and commits it.
+- **Offsets.** Each chunk's `offset` must be `received`. A repeat of the last chunk, whose answer
+  you lost, is acknowledged and not taken twice; any other offset is `invalid`.
+- **Limits.** `maxBytes` is what the upload may hold when it opens: the file limit, or what is
+  left of the Tenant's or the Environment's total. A declared `size` past it, or bytes past it,
+  are `limit_exceeded`, with `limitBytes` in the message. The totals are checked again at commit.
+- **Idempotency.** `key` makes the write idempotent within the session: a `begin` with a key
+  already written answers `{status: "written", created: false}` with that version, and sends
+  nothing more. Our harness uses a tool call's effect id as its key.
+- **Provenance.** `effectId` names a tool effect of the run's turn, journaled first. The
+  artifact's `artifact.created` (or `artifact.version.created`) event then carries that call's
+  `callId`, which core reads from its journal. Any other effect is `invalid`.
+- **Ends.** An upload your run leaves open ends with the run, and nothing of it is stored.
+  `abort` ends one now, and answers `aborted` for one already gone.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `not_found` | The artifact is not there for the run, or `artifactId` is not one of the session's file artifacts |
+| `limit_exceeded` | A chunk past `chunkBytes`; a file or total artifact limit |
+| `invalid` | A bad name or media type, no name, an offset other than `received`, an unknown `uploadId`, an `effectId` not a tool call of the turn |
+| `run_not_held`, `turn_cancelled`, `ownership_lost` | As for every run request |
 
 ## §5 Gates
 
@@ -222,7 +288,7 @@ End each segment with one output request (`TurnOutputSchema`):
 | `waiting` | `turn.waiting` | An effect is `pending`: core waits for it. |
 | `uncertain` | `turn.waiting` | An effect is `uncertain`. |
 | `yielded` | `checkpoint` | The turn goes on in a new segment: same turn, next segment. |
-| `paused` | `turn.paused` | Our engine only, in v3. |
+| `paused` | `turn.paused` | Our engine only, in v4. |
 
 The output also carries:
 
@@ -294,25 +360,33 @@ A harness that declares `features.workspace` serves sandbox workspaces: core sen
 - A session's workspace off a pod is served by its own harness, if that harness declared the
   feature: our harness's workspaces are never a custom harness's files. Sweeps and removes go
   to ours.
-- Without the feature, core answers `save_artifact`, the turn-end export and the session
-  sandbox routes with "missing", and turns still run.
+- Without the feature, core answers the turn-end export and the session sandbox routes with
+  "missing", and turns still run.
 
 ## §11 Versioning
 
 There are three numbers:
 
 - the transport (path and header): 1;
-- the messages: `HARNESS_API_VERSION`, 3;
+- the messages: `HARNESS_API_VERSION`, 4;
 - the Runtime protocol, which only the Runtime and Management APIs carry.
 
-v3's schemas are strict. Core speaks one version: a harness that says `api: 2` is refused. Two
-fields came within v3 for a harness and core of the same release: `definition.file`'s
-`offset`/`length` and `turn.start.limits`. A harness built against an older
-`@nylorun/core` refuses a `turn.start` that carries `limits`: upgrade it with the Runtime. v3 renamed `hello.capabilities` to `features`,
-removed `capabilityId` from effects, gate calls and MCP records, and gives the harness flat
-manifests (protocol 13). The next version adds a window of supported versions (N and N−1).
+v4's schemas are strict, and v4 is frozen: a change to a message is a new version. Core speaks
+one version: a harness that says `api: 3` is refused.
 
-What a custom harness cannot do in v3:
+What v4 changed (protocol 15, the harness boundary):
+
+- the artifact seam: `artifact.read` and `artifact.write` (§4b), and the error code `not_found`;
+- the pinned `runtime` block no longer holds `read_artifact` and `save_artifact`, and core no
+  longer runs them: a harness that offered them from `runtime.tools` and relied on core to answer
+  them offers its own over the seam, as ours does.
+
+v3 renamed `hello.capabilities` to `features`, removed `capabilityId` from effects, gate calls and
+MCP records, and gave the harness flat manifests (protocol 13); `definition.file`'s
+`offset`/`length` and `turn.start.limits` came within it. The next version adds a window of
+supported versions (N and N−1).
+
+What a custom harness cannot do in v4:
 
 - pause the turn itself (the tool policy's approvals work without it, §7);
 - run flows;

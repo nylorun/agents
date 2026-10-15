@@ -44,7 +44,7 @@ import {
 import { contentKey, diffManifests, entryAt, readManifest } from "../../../artifacts/folders.js";
 import { mintArtifactLink, verifyArtifactLink } from "../../../artifacts/links.js";
 import { zipStream, zipTooLarge } from "../../../artifacts/zip.js";
-import { normalizeContentType } from "../../../artifacts/media-types.js";
+import { normalizeContentType } from "@nylorun/core/contracts";
 import {
   artifactContent,
   deleteArtifact,

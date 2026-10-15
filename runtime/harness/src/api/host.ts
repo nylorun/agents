@@ -19,13 +19,25 @@ import {
   type ResultOf,
 } from "@nylorun/core/harness-api";
 import type { DurableHost, EffectResolution, HostEffect } from "../run/durable.js";
+import { isArtifactTool, runArtifactTool } from "../tools/artifacts.js";
 import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 
+/** What our engine's own tools run with: the harness's configuration of them. */
+export interface EngineToolConfig {
+  /** The most bytes one `read_artifact` page holds, escaped as JSON. */
+  readonly artifactPageBytes: number;
+}
+
+/**
+ * The host of one run. Our engine's own tools (`read_artifact`, `save_artifact`) run here, over
+ * the artifact seam and `executors.files`; every other tool call goes to `executors.tool`.
+ */
 export function apiHost(
   channel: HarnessChannel,
   executors: HarnessExecutors,
   run: HarnessRun,
+  engine: EngineToolConfig,
 ): DurableHost {
   const recorded = new Map<string, RecordedOutcome>(
     run.start.outcomes.map((outcome) => [outcome.effectId, outcome]),
@@ -54,7 +66,15 @@ export function apiHost(
       try {
         const value = model
           ? await executors.model(effect, signal, run)
-          : await executors.tool(effect, signal, run, traceparent ? { traceparent } : {});
+          : isArtifactTool(effect.toolName)
+            ? await runArtifactTool(effect, {
+                channel,
+                run,
+                ...(executors.files ? { files: executors.files } : {}),
+                pageBytes: engine.artifactPageBytes,
+                signal,
+              })
+            : await executors.tool(effect, signal, run, traceparent ? { traceparent } : {});
         return await ask("effect.outcome", { runId, effectId: effect.effectId, value });
       } catch (error) {
         // Another owner decides what the effect became.

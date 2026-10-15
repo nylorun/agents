@@ -9,7 +9,7 @@ import type { MessagePart, ModelInput } from "@nylorun/core/contracts";
 import type { JsonObject, JsonValue } from "@nylorun/core/define";
 import type { Tx } from "../store/types.js";
 import { fail } from "../tenant/http.js";
-import { unreadableReason } from "./media-types.js";
+import { unreadableReason } from "@nylorun/core/contracts";
 import { readableArtifact, versionOf, type ArtifactAccess } from "./service.js";
 
 /** A user-message content part, as the engine's `MessageInput.content` takes it. */

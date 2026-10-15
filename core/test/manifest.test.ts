@@ -126,7 +126,7 @@ it("rejects a key that differs from the name, and empty maps", () => {
 });
 
 it("refuses an author tool named like a Runtime tool, or containing __", () => {
-  for (const name of ["bash", "save_artifact", "read_artifact", "load_skill", "read_skill_resource", "tool_search", "tool_call"])
+  for (const name of ["bash", "load_skill", "read_skill_resource", "tool_search", "tool_call"])
     expect(issues(manifest({ tools: [plain(name)] })), name).toContain(
       `Tool '${name}' takes the name of a tool the Runtime serves; rename it`,
     );

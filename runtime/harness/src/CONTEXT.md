@@ -38,6 +38,25 @@ against the tool's `inputSchema` and makes the call as the tool's own effect, wh
 tool policy decides as it would a direct call. A session tool may carry `instructions`, which the model reads with the
 Runtime's while it is advertised (`tool_search`'s note of the servers).
 
+**Engine tool**: A tool our engine adds to each agent of a session's tree and runs in the
+harness itself, not in the host (protocol 15): today `read_artifact` and `save_artifact`
+(`tools/artifacts.ts`). Its name, description, schema and instructions are ours; it is offered
+like a session tool (`runDurable({ engineTools })`: after the Runtime's tools, before the
+session's, with its instructions first among theirs, not hashed) and journaled as a `tool`
+effect our harness declares in `hello` (`features.tools`), which core records as kind `harness`.
+The API host runs it instead of `executors.tool` (`api/host.ts`). An author tool of the same name
+fails the turn.
+
+**Artifact seam**: How the harness reads and writes the artifacts of the run it holds
+(`artifact.read`, `artifact.write`; the client helpers `readArtifact`, `openArtifactWrite`,
+`writeArtifactBytes` in `@nylorun/core/harness-api`), in chunks of at most the run's
+`turn.start.limits.chunkBytes`. `read_artifact` reads a page (`artifactPageBytes`, harness
+configuration, 32 KiB by default; whole UTF-8 characters, held to its size escaped as JSON) or,
+with `path`, streams the whole artifact into the sandbox (`executors.files.write`);
+`save_artifact` writes text, or a sandbox file it reads within the upload's room
+(`executors.files.read`), keyed by its effect id so a repeat stores nothing twice. A refusal
+(`not_found`, `limit_exceeded`, `invalid`) is a failed outcome the model sees.
+
 **SDK client**: The shared application interface for communicating with a host.
 Authoring accompanies it in the agents SDK.
 

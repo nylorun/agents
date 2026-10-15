@@ -1,3 +1,41 @@
+# The harness boundary: artifacts reach the harness (protocol 15, Harness API 4)
+
+A fresh start for agent sessions: the Runtime speaks protocol 15 only, and harnesses Harness API 4
+only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness together.
+
+- **`read_artifact` and `save_artifact` are our harness's tools.** Our harness offers them to
+  each agent and runs them itself, over the Harness API's new artifact seam; the Runtime no
+  longer pins them in a session's `runtime` block and core no longer runs them. The model sees
+  the same tools, and `read_artifact` with a sandbox also takes `path`, which copies the whole
+  artifact into the sandbox. A `tool.completed` of either now says `kind: "harness"` (it said
+  `platform`), and `artifact.created` still carries the call's `callId`.
+- **Sessions pinned before protocol 15 are closed.** Every agent session pinned
+  `read_artifact` (protocol 12 on), so the upgrade's migration closes each one
+  (`closedReason: "protocol_15"`); a message to one is `409 session_closed`. Its history stays
+  readable: open a new session. Workflow sessions carry over.
+- **A session without a sandbox or skills pins its definition unchanged**, so its `manifestHash`
+  equals its `definitionHash`.
+- **The names are no longer reserved.** An agent's own tool may be named `read_artifact` or
+  `save_artifact`, but our harness then refuses each turn of it (its own tools take those
+  names), so rename such a tool if the agent runs on our harness.
+- **A file of a type the model does not read**, read with `read_artifact`, now reaches the model
+  as a file of the result, and the Model Gate writes the note; it used to fail
+  `artifact.unsupported`.
+- **A custom harness** says `hello {api: 4}`. It reads and writes its run's session's artifacts
+  with `artifact.read` and `artifact.write` (`readArtifact`, `openArtifactWrite` and
+  `writeArtifactBytes` in `@nylorun/core/harness-api`), in chunks of at most
+  `turn.start.limits.chunkBytes`: see [HARNESS_API.md §4b](./HARNESS_API.md#4b-artifacts). One
+  that relied on core to answer `read_artifact` or `save_artifact` from `runtime.tools` offers
+  its own now. The new Harness API error code is `not_found`.
+- **Moved to `@nylorun/core/contracts`:** the media type helpers (`contentTypeFor`, `essence`,
+  `normalizeContentType`, `isText`, `isModelImage`, `modelInputOf`, `inputLabel`,
+  `extensionFor`, `unreadableReason`, `MODEL_IMAGE_TYPES` and `DEFAULT_CONTENT_TYPE`), so the
+  Runtime and a harness type a file alike. `READ_ARTIFACT_TOOL`, `SAVE_ARTIFACT_TOOL` and
+  `READ_ARTIFACT_MAX_BYTES` stay in `@nylorun/core/define`, but leave `RUNTIME_TOOL_NAMES`, and
+  `runtimeManifestFor` takes no `save` or `read` option. `@nylorun/harness`'s `createHarness` takes
+  `artifactPageBytes` (the most one `read_artifact` page holds, 32 KiB by default), `runDurable`
+  takes `engineTools`, and `apiHost` takes the engine's configuration.
+
 # Runtime limits are a Tenant setting
 
 Still protocol 14 and Harness API 3.

@@ -22,7 +22,7 @@ import {
   type SessionCommand,
 } from "@nylorun/core/contracts";
 import { commandKey } from "../../core/flow-host.js";
-import { contentTypeFor } from "../../artifacts/media-types.js";
+import { contentTypeFor } from "@nylorun/core/contracts";
 import {
   discardFiles,
   inlineFileName,

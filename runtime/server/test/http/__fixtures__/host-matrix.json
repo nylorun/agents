@@ -74,8 +74,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -85,6 +85,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -150,8 +151,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -161,6 +162,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -226,8 +228,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -237,6 +239,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -302,8 +305,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -313,6 +316,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -378,8 +382,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -389,6 +393,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -454,8 +459,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -465,6 +470,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -530,8 +536,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -541,6 +547,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -606,8 +613,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -617,6 +624,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -682,8 +690,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -693,6 +701,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -758,8 +767,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -769,6 +778,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -834,8 +844,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -845,6 +855,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -910,8 +921,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -921,6 +932,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1019,8 +1031,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1030,6 +1042,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1095,8 +1108,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1106,6 +1119,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1171,8 +1185,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1182,6 +1196,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1247,8 +1262,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1258,6 +1273,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1323,8 +1339,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1334,6 +1350,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1399,8 +1416,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1410,6 +1427,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1475,8 +1493,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 14,
-        "max": 14,
+        "min": 15,
+        "max": 15,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1486,6 +1504,7 @@
           "model-inputs",
           "flat-manifest",
           "environment-manifests",
+          "harness-boundary",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",

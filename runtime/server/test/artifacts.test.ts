@@ -644,4 +644,33 @@ it("saves a sandbox file and inline text as artifacts from our engine", async ()
     "ok",
     "artifact.not_found",
   ]);
+  // Our harness ran them over the artifact seam (protocol 15): kind harness, the call linked.
+  expect(outcomes.map((item) => item.payload.kind)).toEqual(["harness", "harness", "harness"]);
+  expect(created.map((item) => item.payload.callId)).toEqual(outcomes.slice(0, 2).map((item) => item.payload.callId));
+});
+
+it("copies an artifact into the sandbox with read_artifact's path, for a command to use", async () => {
+  const seen: unknown[] = [];
+  const steps: { name: string; args: Record<string, unknown> }[] = [];
+  const runtime = await boot({ modelProvider: scripted(steps, seen) });
+  await openSession(runtime, "s1", "ada", { environment: "env-s1" });
+  const { artifact } = await uploaded(await upload(runtime, "name=data.csv&sessionId=s1", "a,b\n1,2\n", auth, "text/csv"));
+  steps.push(
+    { name: "read_artifact", args: { artifactId: artifact.artifactId, path: "in/data.csv" } },
+    { name: "bash", args: { command: "cat /workspace/in/data.csv" } },
+  );
+  const sent = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ type: "message", requestId: "m1", idempotencyKey: "m1", content: "Use the data" }),
+  });
+  expect(sent.status, await sent.clone().text()).toBe(200);
+  expect(await settle(runtime, "s1")).toBe("completed");
+  const completed = (await items(runtime, "s1")).filter((item) => item.type === "tool.completed");
+  expect(completed.map((item) => [item.payload.toolName, item.payload.kind])).toEqual([
+    ["read_artifact", "harness"],
+    ["bash", "sandbox"],
+  ]);
+  expect(completed[0]!.payload.output).toMatchObject({ artifactId: artifact.artifactId, path: "/workspace/in/data.csv", size: 8 });
+  expect(JSON.stringify(completed[1]!.payload.output)).toContain("1,2");
 });

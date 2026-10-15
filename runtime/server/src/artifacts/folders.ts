@@ -226,6 +226,7 @@ export async function commitFolderVersion(
         contentType: FOLDER_CONTENT_TYPE,
         source: "export",
         createdAt,
+        writeKey: null,
       };
       if (input.artifactId !== undefined) {
         const prior = await t.artifact(input.artifactId, { lock: true });

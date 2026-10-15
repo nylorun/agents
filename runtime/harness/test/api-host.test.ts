@@ -62,7 +62,12 @@ function harness(options: { answers: ("execute" | "interrupted")[]; failures: nu
     start: { outcomes: [] } as unknown as HarnessRun["start"],
     signal: new AbortController().signal,
   };
-  return { host: apiHost(channel, executors, run), intents, outcomes, sends: () => sends };
+  return {
+    host: apiHost(channel, executors, run, { artifactPageBytes: 32 * 1024 }),
+    intents,
+    outcomes,
+    sends: () => sends,
+  };
 }
 
 describe("a tool call whose gate hop lost the answer (R5.3)", { timeout: 20_000 }, () => {

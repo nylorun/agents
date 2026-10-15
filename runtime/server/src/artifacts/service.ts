@@ -17,7 +17,7 @@
  *
  * Lock order, the same in every write: the session, then the quota lock, then the artifact row.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   ArtifactSource,
   ArtifactVersionView,
@@ -46,7 +46,7 @@ import {
   type ArtifactUsage,
 } from "./quota.js";
 import { collectContent, readManifest } from "./folders.js";
-import { contentTypeFor } from "./media-types.js";
+import { contentTypeFor } from "@nylorun/core/contracts";
 
 /** What the caller may reach: undefined for the whole Tenant (an application principal). */
 export type ArtifactAccess = SessionAccess | undefined;
@@ -64,15 +64,27 @@ export interface UploadInput {
   /** The body's declared length (`Content-Length`): one past the limits is refused unread. */
   readonly declaredBytes?: number;
   readonly source: ArtifactSource;
-  /** The turn that saved it (`save_artifact`), for the event. */
+  /** The turn that saved it (a harness's `artifact.write`), for the event. */
   readonly turnId?: string | null;
   /** The tool call that saved it, for the event. */
   readonly callId?: string;
+  /**
+   * The idempotency key of a harness write (`writeKeyOf`): a version already stored with it is
+   * answered instead, and this upload's bytes are dropped. Needs `sessionId` or `artifactId`.
+   */
+  readonly writeKey?: string;
 }
 
 export interface Uploaded {
   readonly artifact: ArtifactView;
   readonly version: ArtifactVersionView;
+  /** False when `writeKey` named a version an earlier write stored. */
+  readonly created: boolean;
+}
+
+/** The key a harness write of session `sessionId` is stored by: its key, scoped to the session. */
+export function writeKeyOf(sessionId: string, key: string): string {
+  return createHash("sha256").update(`${sessionId}\n${key}`).digest("hex");
 }
 
 const notFound = (): never => fail(404, "Artifact not found");
@@ -81,15 +93,44 @@ function tooLarge(message: string, limit: number): never {
   return fail(413, message, { code: "limit_exceeded", details: { limitBytes: limit } });
 }
 
-/** A body past `maxBytes`: past the per-file cap, or past what is left of a total. */
-function tooLargeFor(maxBytes: number, quota: ArtifactQuota, usage: readonly ArtifactUsage[]): never {
-  if (maxBytes === quota.fileBytes)
-    return tooLarge(`A file may hold at most ${quota.fileBytes} bytes`, quota.fileBytes);
-  const { total } = tightest(usage);
-  return tooLarge(
-    `${totalSubject(total)} may hold at most ${total.limitBytes} bytes; this file does not fit`,
-    total.limitBytes,
-  );
+/** Why a write does not fit: the message, and the limit it passes. */
+export interface ArtifactRefusal {
+  readonly message: string;
+  readonly limitBytes: number;
+}
+
+/**
+ * What one file may hold now within `quota`: the per-file cap, or what is left of the fullest
+ * total (`maxBytes`), and why a file of `size` bytes is refused (`refusal`; with no size, whether
+ * any room is left at all).
+ */
+export function artifactRoom(
+  quota: ArtifactQuota,
+  usage: readonly ArtifactUsage[],
+): { readonly maxBytes: number; refusal(size?: number): ArtifactRefusal | undefined } {
+  const fullest = tightest(usage);
+  const maxBytes = Math.max(0, Math.min(quota.fileBytes, fullest.roomBytes));
+  return {
+    maxBytes,
+    refusal(size) {
+      if (fullest.roomBytes <= 0)
+        return {
+          message: `${totalSubject(fullest.total)} hold ${fullest.usedBytes} of ${fullest.total.limitBytes} bytes; delete some first`,
+          limitBytes: fullest.total.limitBytes,
+        };
+      if (size === undefined || size <= maxBytes) return undefined;
+      if (maxBytes === quota.fileBytes)
+        return { message: `A file may hold at most ${quota.fileBytes} bytes`, limitBytes: quota.fileBytes };
+      return {
+        message: `${totalSubject(fullest.total)} may hold at most ${fullest.total.limitBytes} bytes; this file does not fit`,
+        limitBytes: fullest.total.limitBytes,
+      };
+    },
+  };
+}
+
+function refused(refusal: ArtifactRefusal | undefined): void {
+  if (refusal) tooLarge(refusal.message, refusal.limitBytes);
 }
 
 export function versionView(row: ArtifactVersionRow): ArtifactVersionView {
@@ -205,15 +246,10 @@ export async function uploadArtifact(
     return { quota, usage: await artifactUsage(t, quota), sessionId, fileName };
   });
   const contentType = input.contentType ?? contentTypeFor(fileName!);
-  const fullest = tightest(usage);
-  if (fullest.roomBytes <= 0)
-    tooLarge(
-      `${totalSubject(fullest.total)} hold ${fullest.usedBytes} of ${fullest.total.limitBytes} bytes; delete some first`,
-      fullest.total.limitBytes,
-    );
-  const maxBytes = Math.min(quota.fileBytes, fullest.roomBytes);
-  if (input.declaredBytes !== undefined && input.declaredBytes > maxBytes)
-    tooLargeFor(maxBytes, quota, usage);
+  const room = artifactRoom(quota, usage);
+  refused(room.refusal());
+  const { maxBytes } = room;
+  if (input.declaredBytes !== undefined) refused(room.refusal(input.declaredBytes));
   const artifactId = input.artifactId ?? newArtifactId();
   const key = `artifacts/${artifactId}/${randomUUID()}`;
   let stored;
@@ -224,15 +260,23 @@ export async function uploadArtifact(
       ...(signal ? { signal } : {}),
     });
   } catch (error) {
-    if (error instanceof BlobTooLargeError) tooLargeFor(maxBytes, quota, usage);
+    if (error instanceof BlobTooLargeError) refused(room.refusal(maxBytes + 1));
     throw error;
   }
   const createdAt = new Date().toISOString();
+  let uploaded: Uploaded;
   try {
-    return await ctx.store.tx(async (t) => {
+    uploaded = await ctx.store.tx(async (t): Promise<Uploaded> => {
       // The session first, then the quota, then the artifact (the module's lock order).
       let session: Session | undefined;
       if (sessionId !== null) session = await lockedSession(t, sessionId, access);
+      // A harness's write repeated: the session's lock orders it after the first, whose version
+      // it answers.
+      const known = input.writeKey === undefined ? undefined : await t.artifactVersionByWriteKey(input.writeKey);
+      if (known) {
+        const row = await t.artifact(known.artifactId);
+        if (row) return { artifact: artifactView(row), version: versionView(known), created: false };
+      }
       await t.lockArtifactQuota();
       for (const { total, usedBytes } of await artifactUsage(t, quota))
         if (usedBytes + stored.size > total.limitBytes)
@@ -253,6 +297,7 @@ export async function uploadArtifact(
           contentType,
           source: input.source,
           createdAt,
+          writeKey: input.writeKey ?? null,
         };
         await t.insertArtifactVersion(version);
         row = {
@@ -286,6 +331,7 @@ export async function uploadArtifact(
           contentType,
           source: input.source,
           createdAt,
+          writeKey: input.writeKey ?? null,
         };
         await t.insertArtifact(row, version);
       }
@@ -306,13 +352,16 @@ export async function uploadArtifact(
             ...(input.callId === undefined ? {} : { callId: input.callId }),
           },
         );
-      return { artifact: artifactView(row), version: versionView(version) };
+      return { artifact: artifactView(row), version: versionView(version), created: true };
     });
   } catch (error) {
     // Nothing references the object: it was garbage from the start.
     await ctx.blobs.delete(key).catch(() => undefined);
     throw error;
   }
+  // A repeated write stored nothing of its own: its object is garbage too.
+  if (!uploaded.created) await ctx.blobs.delete(key).catch(() => undefined);
+  return uploaded;
 }
 
 /** The caller's artifacts: of one session, or of every session it reaches. */

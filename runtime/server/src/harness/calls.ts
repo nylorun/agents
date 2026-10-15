@@ -3,11 +3,7 @@
  * Tenant's provider), the Tool Gate, the MCP pool, the SandboxManager. No store, no record: the
  * session's routing comes with the run (`TurnStart.routing`).
  */
-import {
-  READ_ARTIFACT_TOOL,
-  SAVE_ARTIFACT_TOOL,
-  type AgentManifest,
-} from "@nylorun/core/define";
+import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { runAbortKind } from "@nylorun/harness/api";
 import type { AbortReason } from "@nylorun/core/harness-api";
@@ -19,7 +15,7 @@ import { httpToolRefOf } from "../gates/http-tool.js";
 import { classifyThrown } from "../model/classify.js";
 import { findServer, type McpPool } from "../mcp/pool.js";
 import { manifestFor, mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
-import { isPinnedRuntimeTool, sandboxToolSpec } from "../sandbox/runtime-tools.js";
+import { sandboxToolSpec } from "../sandbox/runtime-tools.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 
 /** Where a Tenant's model calls go. */
@@ -103,28 +99,6 @@ export function abortOn(signal: AbortSignal, kinds: readonly AbortReason[]): Abo
   if (signal.aborted) follow();
   else signal.addEventListener("abort", follow, { once: true });
   return controller.signal;
-}
-
-/** True when `request` calls `save_artifact`, which the Runtime pinned on `manifest`. */
-export function isSaveArtifactCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
-  return isArtifactsToolCall(manifest, request, SAVE_ARTIFACT_TOOL);
-}
-
-/** True when `request` calls `read_artifact` (R2b C11), which the Runtime pinned on `manifest`. */
-export function isReadArtifactCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
-  return isArtifactsToolCall(manifest, request, READ_ARTIFACT_TOOL);
-}
-
-function isArtifactsToolCall(
-  manifest: AgentManifest | undefined,
-  request: HostEffect,
-  toolName: string
-): boolean {
-  return (
-    request.kind === "tool" &&
-    request.toolName === toolName &&
-    isPinnedRuntimeTool(manifest, toolName)
-  );
 }
 
 /** True when `request` calls a tool of a declared MCP server (every one is remote). */

@@ -16,9 +16,48 @@ export interface HarnessRun {
   readonly signal: AbortSignal;
 }
 
+/** A failed tool outcome, as the model sees it. */
+export interface FailedFileOutcome {
+  readonly kind: "failed";
+  readonly code: string;
+  readonly message: string;
+  readonly retryable?: boolean;
+}
+
 /**
- * What runs the effects the harness executes: model calls, MCP, HTTP and sandbox tools. Core
- * runs everything else (flow work, linked sessions, its own built-in tools).
+ * The run's sandbox files as bytes, for our engine's artifact tools (`save_artifact` reads a
+ * file, `read_artifact` with `path` writes one), in the session's sandbox queue. Paths are the
+ * model's: relative ones resolve in the workspace. A session without a sandbox, or a sandbox that
+ * cannot start, answers a failed outcome.
+ */
+export interface HarnessFiles {
+  /** A file's bytes: `missing` when there is none, failed when it is larger than `maxBytes`. */
+  read(
+    run: HarnessRun,
+    path: string,
+    maxBytes: number,
+    signal: AbortSignal,
+  ): Promise<
+    | { readonly kind: "read"; readonly path: string; readonly bytes: Uint8Array }
+    | { readonly kind: "missing"; readonly path: string }
+    | FailedFileOutcome
+  >;
+  /** Writes `body` to a file as it comes, making its folders; replaces a file there. */
+  write(
+    run: HarnessRun,
+    path: string,
+    body: AsyncIterable<Uint8Array>,
+    signal: AbortSignal,
+  ): Promise<
+    { readonly kind: "written"; readonly path: string; readonly size: number } | FailedFileOutcome
+  >;
+}
+
+/**
+ * What runs the effects the harness executes: model calls, MCP, HTTP and sandbox tools, and the
+ * sandbox files our engine's artifact tools use. Our engine runs its own tools
+ * (`read_artifact`, `save_artifact`) over the artifact seam; core runs everything else (flow
+ * work, linked sessions, the skill tools, `tool_search`).
  */
 export interface HarnessExecutors {
   /** A model call. A provider failure is a failure outcome; only an abort throws. */
@@ -58,6 +97,8 @@ export interface HarnessExecutors {
    * tools, which the segment runs with. Undefined: nothing to change.
    */
   prepare?(run: HarnessRun, record: McpRecorder): Promise<PreparedRun | undefined>;
+  /** The run's sandbox files. Undefined: a `path` of an artifact tool fails `artifact.no_sandbox`. */
+  readonly files?: HarnessFiles;
 }
 
 /** What core's `execute` answer says of a tool call beside running it (R7.4). */

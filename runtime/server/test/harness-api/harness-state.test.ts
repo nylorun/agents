@@ -2,11 +2,12 @@
  * Harness-owned state (R4.2): a custom harness's turn state is stored as it sent it, capped, and
  * handed back only to it; it cannot pause for approvals; and the tools it declares in `hello`
  * (`features.tools`) are journaled like built-ins, by name, so the log records what really ran. A
- * declared tool whose name a tool of the turn's agents has fails the turn (Harness API 3).
+ * declared tool whose name a tool of the turn's agents has fails the turn (R4.2).
  */
 import { afterEach, expect, it } from "vitest";
 import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import {
+  HARNESS_API_VERSION,
   effectRequestHash,
   memoryChannels,
   type EffectIntent,
@@ -46,7 +47,7 @@ async function start(tools: readonly object[] = [patch]) {
   const runtime = await boot({ harness: "remote" });
   cleanups.push(() => runtime.close());
   const acme = attach(runtime);
-  await acme.request("hello", { api: 3, name: "acme-mini", version: "0", features: { tools } });
+  await acme.request("hello", { api: HARNESS_API_VERSION, name: "acme-mini", version: "0", features: { tools } });
   expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "none", harness: "acme-mini" })).status).toBe(200);
   await openSession(runtime, "seed");
   expect(
@@ -287,15 +288,52 @@ it("says who wrote each event: the client's command, the harness's claims, core'
   expect(by("environment.attached")).toMatchObject({ source: { kind: "core" }, evidence: "observed" });
 });
 
-it("fails the turn when a tool the harness declared takes the name of a tool of the agent's", async () => {
-  // Every agent session has read_artifact in its runtime block (protocol 12).
+it("lets a harness declare read_artifact now the Runtime pins no artifact tools (protocol 15)", async () => {
   const { runtime, acme } = await start([patch, { name: "read_artifact", inputSchema: { type: "object" } }]);
+  const leased = acme.request("lease", {});
+  await message(runtime, 1);
+  const { run, input } = (await leased) as { run: { runId: string }; input: TurnStart };
+  const manifest = input.manifest as { runtime?: { tools?: { name: string }[] } };
+  expect((manifest.runtime?.tools ?? []).map((tool) => tool.name)).not.toContain("read_artifact");
+  await acme.request("turn.completed", { runId: run.runId, status: "completed", state: {}, output: "done" });
+  await until(() => view(runtime), (v) => v.status === "completed", "turn");
+});
+
+it("fails the turn when a tool the harness declared takes the name of a tool of the agent's", async () => {
+  // An author tool named like our harness's own read_artifact: the manifest takes it, the turn does not.
+  const { runtime, acme } = await start([patch, { name: "read_artifact", inputSchema: { type: "object" } }]);
+  const author = {
+    manifestSchemaVersion: 7,
+    id: "clash",
+    tools: [{ name: "read_artifact", inputSchema: { type: "object" }, http: { url: "https://own.example.invalid/read" } }],
+  };
+  expect(
+    (await call(runtime, "PUT", "/v1/agents/clash", { requestId: "clash", manifest: author, implementationVersion: "dev" }))
+      .status
+  ).toBeLessThan(300);
+  expect(
+    (
+      await call(runtime, "PUT", "/v1/sessions/s2", {
+        requestId: "s2",
+        agentId: "clash",
+        ownerUserId: "u",
+        environment: "env-acme",
+      })
+    ).status
+  ).toBe(200);
   let leased = false;
   void acme.request("lease", {}).then(() => (leased = true), () => undefined);
-  await message(runtime, 1);
-  await until(() => view(runtime), (v) => v.status === "failed" || v.status === "idle", "refused turn");
+  const sent = await call(runtime, "POST", "/v1/sessions/s2/commands", {
+    type: "message",
+    requestId: "m1",
+    idempotencyKey: "m1",
+    content: "go",
+  });
+  expect(sent.status).toBeLessThan(300);
+  const s2 = async () => (await call(runtime, "GET", "/v1/sessions/s2")).body;
+  await until(s2, (v) => v.status === "failed" || v.status === "idle", "refused turn");
   expect(leased).toBe(false);
-  const items = (await call(runtime, "GET", "/v1/sessions/s1/items")).body.items as {
+  const items = (await call(runtime, "GET", "/v1/sessions/s2/items")).body.items as {
     type: string;
     payload: Record<string, unknown>;
   }[];

@@ -7,14 +7,14 @@
  * The in-process harness gets the Tenant's own pool and SandboxManager; a harness process
  * (`--service harness`, `main.ts`) its own, whose sandbox events it claims from core.
  */
-import { hashManifest, type AgentManifest } from "@nylorun/core/define";
+import { hashManifest, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
 import type { HarnessExecutors, HarnessRun, McpRecorder, PreparedRun } from "@nylorun/harness/api";
 import type { DurableSessionTool } from "@nylorun/harness/run";
 import type { ToolGate } from "../gates/tool-gate.js";
 import { GateCallLost } from "../gates/tool-client.js";
 import { serversOf, type McpPool } from "../mcp/pool.js";
 import { mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
-import type { SandboxManager } from "../sandbox/manager.js";
+import type { SandboxManager, SandboxSessionRef } from "../sandbox/manager.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
 import {
   abortOn,
@@ -23,7 +23,6 @@ import {
   callSandboxTool,
   invokeModel,
   isRemoteMcpCall,
-  isSaveArtifactCall,
   type ModelRoute,
   type ToolRouting,
 } from "./calls.js";
@@ -89,7 +88,37 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
       });
     },
     prepare: (run, record) => prepareMcp(options.mcp, run, record),
+    files: {
+      read: (run, path, maxBytes, signal) =>
+        withSandbox(run, (session, spec) => options.sandbox().readBytes(session, spec, path, maxBytes, signal)),
+      write: (run, path, body, signal) =>
+        withSandbox(run, (session, spec) => options.sandbox().writeBytes(session, spec, path, body, signal)),
+    },
   };
+}
+
+/**
+ * Runs `use` on the run's sandbox (the session's, which its agents used as tools share), or
+ * answers `artifact.no_sandbox` for a session without one.
+ */
+async function withSandbox<T>(
+  run: HarnessRun,
+  use: (session: SandboxSessionRef, spec: SandboxManifest) => Promise<T>
+): Promise<T | { kind: "failed"; code: string; message: string }> {
+  const routing = routingOf(run);
+  const spec = routing.rootManifest.runtime?.sandbox;
+  if (spec === undefined)
+    return { kind: "failed", code: "artifact.no_sandbox", message: "This session has no sandbox." };
+  return use(
+    {
+      id: routing.sandboxOwnerId,
+      activeTurnId: routing.activeTurnId,
+      manifest: routing.rootManifest,
+      ...(routing.environmentId === undefined ? {} : { environmentId: routing.environmentId }),
+      ...(routing.claim === undefined ? {} : { claim: routing.claim }),
+    },
+    spec
+  );
 }
 
 /**

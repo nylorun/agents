@@ -959,6 +959,8 @@ export interface Tx {
   /** One version, or every version oldest first. */
   artifactVersion(artifactId: string, version: number): Promise<ArtifactVersionRow | undefined>;
   artifactVersions(artifactId: string): Promise<ArtifactVersionRow[]>;
+  /** The version a harness write with this key stored (`artifact_versions.write_key`), if any. */
+  artifactVersionByWriteKey(writeKey: string): Promise<ArtifactVersionRow | undefined>;
   /** Deletes the artifact and its versions; returns the versions' blob keys (empty when none). */
   deleteArtifact(id: string): Promise<string[]>;
   /**

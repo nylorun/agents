@@ -23,8 +23,8 @@
  *   budget is spent, a result past `TOOL_RESULT_SMALL_BYTES` becomes a stub naming its artifact,
  *   its preview cut to fit `TOOL_RESULT_STUB_BYTES`.
  *
- * The model reads a stored result with `read_artifact` (`artifact-tool.ts`). Artifacts are the
- * session's, saved by our engine (`source: "engine"`), with the turn and the tool call on their
+ * The model reads a stored result with our engine's `read_artifact`, over the artifact seam.
+ * Artifacts are the session's, saved by our engine (`source: "engine"`), with the turn and the tool call on their
  * `artifact.created` event.
  */
 import { READ_ARTIFACT_MAX_BYTES, type ToolResultFile } from "@nylorun/core/define";
@@ -34,9 +34,9 @@ import {
   isModelImage,
   isText,
   normalizeContentType,
-} from "../artifacts/media-types.js";
+} from "@nylorun/core/contracts";
 import { uploadArtifact } from "../artifacts/service.js";
-import { DEFAULT_CONTENT_TYPE } from "../blob/index.js";
+import { DEFAULT_CONTENT_TYPE } from "@nylorun/core/contracts";
 import type { TenantContext } from "./context.js";
 import { HttpError } from "./http.js";
 import { toolIds } from "./transcript.js";

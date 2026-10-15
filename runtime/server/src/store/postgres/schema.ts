@@ -555,9 +555,16 @@ export const artifactVersions = nylorun.table(
     contentType: text().notNull(),
     source: text({ enum: ["upload", "engine", "export", "snapshot"] }).notNull(),
     createdAt: textC().notNull(),
+    /**
+     * The idempotency key of the harness write that stored the version (the artifact seam,
+     * protocol 15): the SHA-256 of its session and the harness's key, so a repeated write answers
+     * this version. Null for every other write.
+     */
+    writeKey: textC(),
   },
   (t) => [
     primaryKey({ name: "artifact_versions_pkey", columns: [t.artifactId, t.version] }),
+    uniqueIndex("artifact_versions_write_key").on(t.writeKey).where(sql`write_key IS NOT NULL`),
     foreignKey({
       name: "artifact_versions_artifact_id_fkey",
       columns: [t.artifactId],

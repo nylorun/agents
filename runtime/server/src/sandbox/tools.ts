@@ -24,6 +24,12 @@ const LINE_LIMIT = 2000;
 const DEFAULT_GREP_RESULTS = 200;
 const GLOB_LIMIT = 500;
 const GLOB_SCAN_LIMIT = 20_000;
+/**
+ * How long a command the Runtime runs for itself in a sandbox may take (making a file's folder,
+ * mounting a skill, a tool's own helper command). Becomes configuration with the other sandbox
+ * timeouts (harness boundary B15).
+ */
+export const HELPER_COMMAND_TIMEOUT_MS = 60_000;
 
 export function quote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
@@ -67,7 +73,7 @@ export async function runSandboxTool(
 ): Promise<SandboxToolOutcome> {
   const workspace = handle.workspace ?? SANDBOX_WORKSPACE;
   const resolvePath = (path: string) => resolveSandboxPath(path, workspace);
-  const exec = (command: string, timeoutMs = 60_000): Promise<ExecResult> =>
+  const exec = (command: string, timeoutMs = HELPER_COMMAND_TIMEOUT_MS): Promise<ExecResult> =>
     handle.exec({ command, cwd: workspace, timeoutMs, ...(environment ? { env: environment } : {}) }, signal);
   switch (name) {
     case "bash": {

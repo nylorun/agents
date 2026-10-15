@@ -9,7 +9,7 @@ import { z } from "zod";
 import { PutTenantSkillsRequestSchema } from "@nylorun/core/contracts";
 import { DefinitionFileView, PutTenantSkillsRequest, TenantSkillsView } from "../../components.js";
 import { readJson } from "../body.js";
-import { normalizeContentType } from "../../../artifacts/media-types.js";
+import { normalizeContentType } from "@nylorun/core/contracts";
 import { hasDefinitionFile, putDefinitionFile } from "../../../tenant/definition-files.js";
 import { effectiveSkillLimits, readSkillsConfig, writeSkillsConfig } from "../../../tenant/limits.js";
 import { fail } from "../../../tenant/http.js";

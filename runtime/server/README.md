@@ -172,7 +172,9 @@ are refused from browsers before they are looked up. The Runtime sends no CORS h
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
 unsupported protocol → `426` before authentication, unless the request sends neither
-`Nylorun-Protocol` nor `Authorization` (the Host serves protocol 14 only; protocol 14 adds
+`Nylorun-Protocol` nor `Authorization` (the Host serves protocol 15 only; protocol 15 moves
+`read_artifact` and `save_artifact` to our harness, which runs them over the Harness API's
+artifact seam, and closes every agent session that pinned them; protocol 14 adds
 environment manifests (`/v1/environment-manifests/{name}`): an Environment is made from one
 version and never changes what it runs (a new version reaches it through
 `POST /v1/environments/{id}/fork`), a manifest's `secrets` declare slots and an agent's
@@ -295,8 +297,8 @@ an epoch; a Worker that takes over after a crash marks in-flight model effects
 `uncertain`, and sends an interrupted MCP or HTTP tool call again with the same key (R5). Vault ciphertext needs that Tenant's own KEK.
 
 A session that names an Environment of kind `virtual` or `pod` gets Runtime-executed
-sandbox tools, pinned in its manifest's `runtime` block with `save_artifact`; the agent declares
-nothing, and none of its own tools may take a Runtime tool's name. The Tenant owns each Environment; backend
+sandbox tools, pinned in its manifest's `runtime` block; our harness adds `save_artifact` (protocol 15:
+its own tool, over the artifact seam). The agent declares nothing, and none of its own tools may take a Runtime tool's name. The Tenant owns each Environment; backend
 names are prefixed `nylorun-<tenant-id>-`.
 
 ## Local Project workflow

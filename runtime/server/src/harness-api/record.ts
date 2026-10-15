@@ -1,10 +1,11 @@
 /**
  * The Record seam of the Harness API: core's journal for the effects of a run. `recordIntent`
  * journals an effect before anything runs it, and either answers it from the journal, hands it
- * to core's own executors (flow work, delegation, `save_artifact`, `read_artifact`,
- * `tool_search` and the skill tools), tells the harness to `execute` it (model calls; MCP, HTTP
- * and sandbox tools, a deferred MCP tool's `tool_call` among them, whose effect names the tool;
- * a flow's HTTP stages and HTTP verifiers), or fails a tool the Runtime cannot run (one that
+ * to core's own executors (flow work, delegation, `tool_search` and the skill tools), tells the
+ * harness to `execute` it (model calls; MCP, HTTP and sandbox tools, a deferred MCP tool's
+ * `tool_call` among them, whose effect names the tool; the tools the harness runs itself, our
+ * harness's `read_artifact` and `save_artifact` among them; a flow's HTTP stages and HTTP
+ * verifiers), or fails a tool the Runtime cannot run (one that
  * would run the developer's code, R2 M6). `recordOutcome` records what the harness's call returned, an
  * agent's MCP or HTTP tool result first shaped to fit (R2b C11). Both run under the advance's
  * lease: every write is epoch-checked (`ownedSession`), and a lost epoch writes nothing.
@@ -38,8 +39,7 @@ import {
   type FlowEffect,
 } from "../core/flow-host.js";
 import { sandboxToolSpec } from "../sandbox/runtime-tools.js";
-import { abortOn, isReadArtifactCall, isSaveArtifactCall } from "../harness/calls.js";
-import { callReadArtifact, callSaveArtifact } from "../tenant/artifact-tool.js";
+import { abortOn } from "../harness/calls.js";
 import {
   mayNeedShaping,
   resultBytes,
@@ -138,7 +138,7 @@ export async function recordIntent(
   // Read before the transaction: the first read of the Tenant may create the key.
   const key = await traceKey(ctx.store);
   const answer = await ctx.store.tx(async (t): Promise<
-    IntentAnswer | "flow" | "save" | "read" | "search" | { skill: AgentManifest }
+    IntentAnswer | "flow" | "search" | { skill: AgentManifest }
   > => {
     const s = await ownedSession(t, lease, request.sessionId);
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId) throw TURN_CANCELLED();
@@ -231,14 +231,12 @@ export async function recordIntent(
           // HTTP tools (R2 M3) cross the Tool Gate.
           isHttpToolCall(s.manifest, request) ||
           sandboxToolSpec(agentManifest, request.toolName) !== undefined ||
-          // `save_artifact` (F8.1) runs beside the sandbox tools, as do `read_artifact` (R2b
-          // C11) and the skill tools (R2 M4).
-          isSaveArtifactCall(agentManifest, request) ||
-          isReadArtifactCall(agentManifest, request) ||
+          // The skill tools (R2 M4) read the agent's definition files: core serves them.
           isSkillToolCall(agentManifest, request) ||
           // `tool_search` (R2b C10) reads the session's pinned MCP snapshot: core serves it.
           isToolSearchCall(s.mcpSnapshot, request) ||
-          // A tool the run's harness declared and runs itself (R4.2, Q3), by its name: the turn
+          // A tool the run's harness declared and runs itself (R4.2, Q3), by its name, our
+          // harness's `read_artifact` and `save_artifact` among them (protocol 15): the turn
           // refuses a native tool whose name another tool of the agent's has (`harness-api/server.ts`).
           (request.toolName !== undefined && scope.nativeTools?.has(request.toolName) === true)));
     if (!executed) {
@@ -277,18 +275,11 @@ export async function recordIntent(
       if (decided) return decided;
     }
     await t.put("effects", request.effectId, row);
-    // `save_artifact` writes the Tenant's artifacts: core runs it, reading the file through the
-    // workspace feature, wherever the sandbox is.
-    if (request.kind === "tool" && isSaveArtifactCall(agentManifest, request)) return "save";
-    // `read_artifact` reads the session's artifacts: core serves it, with or without a sandbox.
-    if (isReadArtifactCall(agentManifest, request)) return "read";
     // The skill tools read the agent's definition files: core serves them.
     if (isSkillToolCall(agentManifest, request)) return { skill: agentManifest };
     if (isToolSearchCall(s.mcpSnapshot, request)) return "search";
     return { status: "execute", ...(row.traceparent ? { traceparent: row.traceparent } : {}) };
   });
-  if (answer === "save") return runInCore(scope, request, () => callSaveArtifact(scope.ctx, request, scope.signal));
-  if (answer === "read") return runInCore(scope, request, () => callReadArtifact(scope.ctx, request, scope.signal));
   if (answer === "search") return runInCore(scope, request, () => callToolSearch(scope.ctx, request));
   if (typeof answer === "object" && "skill" in answer)
     return runInCore(scope, request, () => callSkillTool(scope.ctx, answer.skill, request, scope.signal));
@@ -298,10 +289,9 @@ export async function recordIntent(
 }
 
 /**
- * Runs a tool core serves (`save_artifact`, F8.1; `read_artifact`, R2b C11; `tool_search`, R2b
- * C10; the skill tools, R2 M4) for the run and records its outcome, as a harness would record a
- * call it ran: the run gets
- * the outcome as the intent's answer.
+ * Runs a tool core serves (`tool_search`, R2b C10; the skill tools, R2 M4) for the run and
+ * records its outcome, as a harness would record a call it ran: the run gets the outcome as the
+ * intent's answer.
  */
 async function runInCore(
   scope: RecordScope,

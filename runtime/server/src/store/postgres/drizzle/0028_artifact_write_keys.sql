@@ -1,0 +1,2 @@
+ALTER TABLE "nylorun"."artifact_versions" ADD COLUMN "write_key" text COLLATE "C";--> statement-breakpoint
+CREATE UNIQUE INDEX "artifact_versions_write_key" ON "nylorun"."artifact_versions" USING btree ("write_key") WHERE write_key IS NOT NULL;

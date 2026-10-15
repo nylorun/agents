@@ -1,6 +1,6 @@
 # @nylorun/admin
 
-The Management API client (protocol 14): the Tenant's status, seed and reset, its
+The Management API client (protocol 15): the Tenant's status, seed and reset, its
 models, credential coverage, MCP server previews, signing keys, settings and application keys, through
 `/v1/tenant/*` with a **management key**. It also holds the two helpers over the
 admin key that Studio needs. Depends only on `@nylorun/core`.

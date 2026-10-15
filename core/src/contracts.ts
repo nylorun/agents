@@ -54,6 +54,19 @@ export {
   type RuntimeLimits,
 } from "./utils/runtime-limits.js";
 import { RuntimeLimitsSchema } from "./utils/runtime-limits.js";
+export {
+  DEFAULT_CONTENT_TYPE,
+  MODEL_IMAGE_TYPES,
+  contentTypeFor,
+  essence,
+  extensionFor,
+  inputLabel,
+  isModelImage,
+  isText,
+  modelInputOf,
+  normalizeContentType,
+  unreadableReason,
+} from "./utils/media-types.js";
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES, isArtifactId } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);

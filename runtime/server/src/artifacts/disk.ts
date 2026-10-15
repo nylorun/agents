@@ -48,7 +48,7 @@ import {
 import { fail } from "../tenant/http.js";
 import { artifactQuota, totalSubject } from "./quota.js";
 import { collectContent, contentEpoch, contentKey, encodeManifest, readManifest, sha256Hex } from "./folders.js";
-import { contentTypeFor } from "./media-types.js";
+import { contentTypeFor } from "@nylorun/core/contracts";
 
 /** The most entries one version holds (R6 Q11). */
 export const DISK_MAX_ENTRIES = 200_000;
@@ -332,6 +332,7 @@ async function commitDiskVersion(
       contentType: FOLDER_CONTENT_TYPE,
       source: "snapshot",
       createdAt,
+      writeKey: null,
     };
     let artifact: ArtifactRow;
     if (current) {
