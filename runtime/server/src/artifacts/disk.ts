@@ -46,7 +46,7 @@ import {
   wakePod,
 } from "../tenant/environments.js";
 import { fail } from "../tenant/http.js";
-import { readArtifactLimits } from "./config.js";
+import { artifactQuota, totalSubject } from "./quota.js";
 import { collectContent, contentEpoch, contentKey, encodeManifest, readManifest, sha256Hex } from "./folders.js";
 import { contentTypeFor } from "./media-types.js";
 
@@ -298,9 +298,9 @@ async function commitDiskVersion(
   const artifactId = prior?.id ?? newArtifactId();
   const key = `artifacts/${artifactId}/${randomUUID()}`;
   await ctx.blobs.put(key, manifest, { contentType: FOLDER_CONTENT_TYPE });
-  const totalBytes = (await ctx.store.tx((t) => readArtifactLimits(t))).totalBytes;
   return ctx.store.tx(async (t) => {
     (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Environment not found");
+    const quota = await artifactQuota(t, id);
     await t.lockArtifactQuota();
     const shas = [...files.keys()];
     const referenced = await t.referencedArtifactContent(shas);
@@ -309,13 +309,18 @@ async function commitDiskVersion(
       for (const sha of fresh)
         if (!(await ctx.blobs.head(contentKey(sha))))
           fail(409, "A file's bytes were removed while the snapshot ran; try again.", { code: "environment_busy" });
-    const added = fresh.reduce((sum, sha) => sum + files.get(sha)!, 0);
-    const total = await t.artifactBytes();
-    if (total + added > totalBytes)
-      fail(413, `The Tenant's artifacts may hold at most ${totalBytes} bytes; this version adds ${added} to ${total}.`, {
-        code: "limit_exceeded",
-        details: { limit: "tenant_total", max: totalBytes },
-      });
+    for (const total of quota.totals) {
+      // A file adds bytes to a total unless an artifact it counts already holds the file.
+      const scope = total.environmentId === undefined ? undefined : { environmentId: total.environmentId };
+      const held = scope === undefined ? referenced : await t.referencedArtifactContent(shas, scope);
+      const added = shas.filter((sha) => !held.has(sha)).reduce((sum, sha) => sum + files.get(sha)!, 0);
+      const used = await t.artifactBytes(scope);
+      if (used + added > total.limitBytes)
+        fail(413, `${totalSubject(total)} may hold at most ${total.limitBytes} bytes; this version adds ${added} to ${used}.`, {
+          code: "limit_exceeded",
+          details: { limit: scope === undefined ? "tenant_total" : "environment_total", max: total.limitBytes },
+        });
+    }
     const createdAt = new Date().toISOString();
     const current = await t.diskArtifact(id, { lock: true });
     const version: ArtifactVersionRow = {

@@ -59,6 +59,17 @@ export interface ExecResult {
   readonly timedOut: boolean;
 }
 
+/** A file's bytes: whole, or as chunks to write as they come. */
+export type SandboxFileBytes = Uint8Array | AsyncIterable<Uint8Array>;
+
+/** `content` whole, for a backend that writes a file at once. */
+export async function wholeBytes(content: SandboxFileBytes): Promise<Uint8Array> {
+  if (content instanceof Uint8Array) return content;
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of content) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
+
 export interface SandboxHandle {
   /** The directory tools run in and resolve relative paths against. Default: `/workspace`. */
   readonly workspace?: string;
@@ -78,8 +89,11 @@ export interface SandboxHandle {
    * directory. Stops after `maxEntries + 1` files (`truncated`). For the turn-end export (F8.2).
    */
   listFiles?(dir: string, maxEntries: number): Promise<SandboxListing | undefined>;
-  /** Text is written as UTF-8, bytes as they are. Parent directories must already exist. */
-  writeFile(path: string, content: string | Uint8Array): Promise<void>;
+  /**
+   * Text is written as UTF-8, bytes as they are, chunks as they come (a skill's file, which may
+   * be too large to hold at once). Parent directories must already exist.
+   */
+  writeFile(path: string, content: string | SandboxFileBytes): Promise<void>;
   /** Release compute; files persist. */
   stop(): Promise<void>;
   /**

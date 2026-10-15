@@ -973,9 +973,10 @@ export interface Tx {
   lockArtifactQuota(): Promise<void>;
   /**
    * The bytes the artifacts store: every file version, plus each distinct content-addressed file
-   * of the folders once (F8.2).
+   * of the folders once (F8.2). With `environmentId`, only that Environment's artifacts: its disk
+   * versions and its sessions' artifacts.
    */
-  artifactBytes(): Promise<number>;
+  artifactBytes(scope?: { environmentId: string }): Promise<number>;
   /**
    * The blob keys of every artifact version (a folder's: its manifests): of session artifacts
    * only, or of all of them.
@@ -987,8 +988,11 @@ export interface Tx {
     version: number,
     files: readonly { sha256: string; size: number }[],
   ): Promise<void>;
-  /** Those of `shas` some committed folder version references. */
-  referencedArtifactContent(shas: readonly string[]): Promise<Set<string>>;
+  /**
+   * Those of `shas` some committed folder version references; with `environmentId`, a version
+   * of one of that Environment's artifacts.
+   */
+  referencedArtifactContent(shas: readonly string[], scope?: { environmentId: string }): Promise<Set<string>>;
   /**
    * The distinct content-addressed files folder versions reference: of one artifact, of session
    * artifacts only, or of all of them.
@@ -1001,8 +1005,8 @@ export interface Tx {
   definitionFile(sha256: string): Promise<DefinitionFileRow | undefined>;
   /** Records a stored definition file; false when the Tenant held it already. */
   insertDefinitionFile(row: DefinitionFileRow): Promise<boolean>;
-  /** Those of `shas` the Tenant holds. */
-  heldDefinitionFiles(shas: readonly string[]): Promise<Set<string>>;
+  /** Those of `shas` the Tenant holds, with each one's size in bytes. */
+  heldDefinitionFiles(shas: readonly string[]): Promise<Map<string, number>>;
   /** Records that version `manifestHash` of definition `agentId` names each of `shas`. */
   insertDefinitionFileUses(agentId: string, manifestHash: string, shas: readonly string[]): Promise<void>;
 

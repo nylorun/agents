@@ -11,7 +11,7 @@
 import { posix } from "node:path";
 import { skillFolderOf, type AgentManifest } from "@nylorun/core/define";
 import { quote } from "./tools.js";
-import type { SandboxHandle } from "./types.js";
+import type { SandboxFileBytes, SandboxHandle } from "./types.js";
 
 /** A skill's files, by path in its folder, as `sha256:<hex>`. */
 export type SkillFiles = Readonly<Record<string, string>>;
@@ -36,13 +36,13 @@ export function sandboxSkillsOf(
 /**
  * Writes one skill version's files to its folder `root` (`/skills/<name>@<hash>`), replacing a
  * partial copy a failed mount left, and makes them read-only. `read` gives a file's bytes by
- * `sha256:<hex>`.
+ * `sha256:<hex>`, whole or as chunks, which are written as they come.
  */
 export async function mountSkill(
   handle: SandboxHandle,
   root: string,
   files: SkillFiles,
-  read: (sha256: string) => Promise<Uint8Array>,
+  read: (sha256: string) => Promise<SandboxFileBytes>,
   signal: AbortSignal
 ): Promise<void> {
   const exec = async (command: string) => {

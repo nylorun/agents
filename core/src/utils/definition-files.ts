@@ -7,10 +7,12 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { canonical } from "./canonical.js";
 
-/** The largest definition file the Runtime stores. */
-export const DEFINITION_FILE_MAX_BYTES = 10 * 1024 * 1024;
-/** The most files one skill may have. */
-export const SKILL_FILES_MAX = 500;
+/**
+ * The most bytes one skill's files may hold together when the Tenant sets no limit of its own
+ * (2 GiB, Tenant setting `skills.config`); an Environment's manifest may set a lower one. No file
+ * and no count of files has a limit of its own.
+ */
+export const SKILL_TOTAL_BYTES_DEFAULT = 2 * 1024 * 1024 * 1024;
 /** The longest path of a file in a skill's folder. */
 export const SKILL_FILE_PATH_MAX = 512;
 /** The file every skill has: its frontmatter and instructions. */
@@ -53,8 +55,6 @@ export function skillFilesIssue(files: unknown): string | undefined {
   if (!files || typeof files !== "object" || Array.isArray(files))
     return `files must map each path in the skill's folder to sha256:<hex>`;
   const entries = Object.entries(files);
-  if (entries.length > SKILL_FILES_MAX)
-    return `has ${entries.length} files; a skill may have at most ${SKILL_FILES_MAX}`;
   if (!(SKILL_ENTRY in files)) return `files must include ${SKILL_ENTRY}`;
   for (const [path, hash] of entries) {
     const issue = skillFilePathIssue(path);
@@ -70,22 +70,32 @@ export function skillFilesIssue(files: unknown): string | undefined {
  * agents it uses as tools, and those of a flow's agents, as `sha256:<hex>`.
  */
 export function definitionFilesOf(document: unknown, into = new Set<string>()): Set<string> {
-  if (!document || typeof document !== "object") return into;
+  for (const skill of skillsOf(document))
+    for (const hash of Object.values(skill.files ?? {}))
+      if (isDefinitionFileHash(hash)) into.add(hash);
+  return into;
+}
+
+/**
+ * Every skill a definition document carries, as written: its agents' skills, those of the agents
+ * it uses as tools, and those of a flow's agents. A skill two agents carry comes once for each.
+ */
+export function* skillsOf(
+  document: unknown,
+): Generator<{ readonly name?: unknown; readonly files?: Readonly<Record<string, unknown>> }> {
+  if (!document || typeof document !== "object") return;
   const value = document as {
     kind?: string;
     agents?: Record<string, unknown>;
-    skills?: Record<string, { files?: Record<string, unknown> }>;
+    skills?: Record<string, { name?: unknown; files?: Record<string, unknown> } | undefined>;
     tools?: { agent?: unknown }[];
   };
   if (value.kind === "workflow") {
-    for (const agent of Object.values(value.agents ?? {})) definitionFilesOf(agent, into);
-    return into;
+    for (const agent of Object.values(value.agents ?? {})) yield* skillsOf(agent);
+    return;
   }
-  for (const skill of Object.values(value.skills ?? {}))
-    for (const hash of Object.values(skill?.files ?? {}))
-      if (isDefinitionFileHash(hash)) into.add(hash);
-  for (const tool of value.tools ?? []) definitionFilesOf(tool.agent, into);
-  return into;
+  for (const skill of Object.values(value.skills ?? {})) if (skill) yield skill;
+  for (const tool of value.tools ?? []) yield* skillsOf(tool.agent);
 }
 
 /**

@@ -27,6 +27,7 @@
 import { randomUUID } from "node:crypto";
 import {
   DEFAULT_HARNESS,
+  DEFINITION_FILE_CHUNK_BYTES,
   HARNESS_API_VERSION,
   HARNESS_CLAIMS,
   MAX_HARNESS_STATE_BYTES,
@@ -66,7 +67,8 @@ import { turnManifestOf } from "../tenant/session.js";
 import { sandboxWorkspaceKey, workspacePrefix } from "../sandbox/records.js";
 import type { RunOf } from "../tenant/run-grants.js";
 import { abortKind } from "../tenant/worker.js";
-import { readDefinitionFile } from "../tenant/definition-files.js";
+import { BlobRangeError } from "../blob/index.js";
+import { openDefinitionFile, readDefinitionFile } from "../tenant/definition-files.js";
 import { recordIntent, recordOutcome } from "./record.js";
 import { redactTokens } from "./redact.js";
 import { beat, renewEveryMs, tokenOf } from "./renew.js";
@@ -366,7 +368,7 @@ export function createHarnessApiServer(
         case "session.mcp":
           return recordMcp(run, p as ParamsOf<"session.mcp">);
         case "definition.file":
-          return definitionFile(run, (p as ParamsOf<"definition.file">).sha256, signal);
+          return definitionFile(run, p as ParamsOf<"definition.file">, signal);
         default:
           throw new HarnessApiError("invalid", `Unknown request ${method}`);
       }
@@ -495,13 +497,34 @@ export function createHarnessApiServer(
     });
   };
 
-  /** A definition file the run's definition names (its skills', for its sandbox), base64. */
-  const definitionFile = async (run: Run, sha256: string, signal: AbortSignal) => {
+  /**
+   * A definition file the run's definition names (its skills', for its sandbox), base64: whole,
+   * or the range `offset` and `length` name (none past the end).
+   */
+  const definitionFile = async (
+    run: Run,
+    { sha256, offset, length }: ParamsOf<"definition.file">,
+    signal: AbortSignal
+  ) => {
     if (!definitionFilesOf(run.offer.start.routing.rootManifest).has(sha256))
       throw new HarnessApiError("invalid", `The run's definition names no file ${sha256}`);
-    const bytes = await readDefinitionFile(ctx.blobs, sha256, signal);
-    if (!bytes) throw new HarnessApiError("unavailable", `The Object store has no bytes for ${sha256}`);
-    return { base64: Buffer.from(bytes).toString("base64") };
+    const missing = () => new HarnessApiError("unavailable", `The Object store has no bytes for ${sha256}`);
+    if (offset === undefined && length === undefined) {
+      const bytes = await readDefinitionFile(ctx.blobs, sha256, signal);
+      if (!bytes) throw missing();
+      return { base64: Buffer.from(bytes).toString("base64") };
+    }
+    const start = offset ?? 0;
+    const end = start + (length ?? DEFINITION_FILE_CHUNK_BYTES) - 1;
+    let body: ReadableStream<Uint8Array> | undefined;
+    try {
+      body = await openDefinitionFile(ctx.blobs, sha256, { range: { start, end }, signal });
+    } catch (error) {
+      if (error instanceof BlobRangeError) return { base64: "" };
+      throw error;
+    }
+    if (!body) throw missing();
+    return { base64: Buffer.from(await new Response(body).arrayBuffer()).toString("base64") };
   };
 
   /**

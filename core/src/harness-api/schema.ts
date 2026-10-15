@@ -7,6 +7,7 @@
 import { z } from "zod";
 import {
   ABORT_REASONS,
+  DEFINITION_FILE_CHUNK_BYTES,
   HARNESS_API_VERSION,
   HARNESS_CLAIMS,
   HARNESS_ERROR_CODES,
@@ -434,10 +435,18 @@ export const harnessRequests = {
   },
   /**
    * A definition file's bytes, base64 (track R2 M4): one the run's definition names, for the
-   * skills its sandbox mounts.
+   * skills its sandbox mounts. With `offset` and `length` (at most `DEFINITION_FILE_CHUNK_BYTES`),
+   * only those bytes: fewer than `length`, none past the end, once the file ends. Without them
+   * the whole file, which must then fit one frame.
    */
   "definition.file": {
-    params: runId.extend({ sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict(),
+    params: runId
+      .extend({
+        sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+        offset: z.number().int().nonnegative().optional(),
+        length: z.number().int().positive().max(DEFINITION_FILE_CHUNK_BYTES).optional(),
+      })
+      .strict(),
     result: z.object({ base64: z.string() }).strict(),
   },
   "turn.completed": { params: TurnOutputSchema, result: settled },

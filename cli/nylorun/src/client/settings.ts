@@ -9,6 +9,7 @@ import {
   PutModelBudgetsRequestSchema,
   PutTenantArtifactsRequestSchema,
   PutTenantEnvironmentsRequestSchema,
+  PutTenantSkillsRequestSchema,
   PutToolPolicyRequestSchema,
 } from "@nylorun/core/contracts";
 import { CliError } from "../errors.js";
@@ -24,6 +25,8 @@ export const settingsUsage = `  budgets [get | put <file|->] [--tenant <name>]
                                       the Environment settings: limits, stop grace, placement
   settings artifacts [get | put <file|->] [--tenant <name>]
                                       the artifact store's limits
+  settings skills [get | put <file|->] [--tenant <name>]
+                                      the most bytes one skill may hold
   coverage --agent <id> [--environment <id>] [--tenant <name>] [--json]
                                       which secret of the Environment each of the agent's MCP
                                       servers and HTTP tools would get`;
@@ -69,6 +72,13 @@ const artifacts: Document<Parameters<ManagementClient["settings"]["artifacts"]["
   put: (admin, body) => admin.settings.artifacts.put(body),
 };
 
+const skillSettings: Document<Parameters<ManagementClient["settings"]["skills"]["put"]>[0]> = {
+  name: "settings skills",
+  schema: PutTenantSkillsRequestSchema,
+  get: (admin) => admin.settings.skills.get(),
+  put: (admin, body) => admin.settings.skills.put(body),
+};
+
 /** `<document> [get | put <file|->]`: `get` when no verb is given. */
 async function documentCommand<T>(
   deps: StackDeps,
@@ -91,11 +101,12 @@ export const budgetsCommand = (deps: StackDeps, args: readonly string[]) =>
 export const toolPolicyCommand = (deps: StackDeps, args: readonly string[]) =>
   documentCommand(deps, toolPolicy, args);
 
-/** `nylorun tenant settings sandbox | artifacts ...` */
+/** `nylorun tenant settings sandbox | artifacts | skills ...` */
 export async function settingsCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [which, ...rest] = args;
   if (which === "sandbox") return documentCommand(deps, sandbox, rest);
   if (which === "artifacts") return documentCommand(deps, artifacts, rest);
+  if (which === "skills") return documentCommand(deps, skillSettings, rest);
   throw usageError();
 }
 

@@ -1,14 +1,17 @@
 /**
  * Definition files (track R2 M4): `PUT /v1/files/sha256:{hex}` uploads one file a definition
  * names by its content hash (a skill's), `HEAD` says whether the Tenant holds it. Application
- * key only: definitions are the application's, not a person's.
+ * key only: definitions are the application's, not a person's. The Tenant's skill limit is
+ * `GET`/`PUT /v1/tenant/skills`, a Management API route.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
-import { DEFINITION_FILE_MAX_BYTES } from "@nylorun/core/contracts";
-import { DefinitionFileView } from "../../components.js";
+import { PutTenantSkillsRequestSchema } from "@nylorun/core/contracts";
+import { DefinitionFileView, PutTenantSkillsRequest, TenantSkillsView } from "../../components.js";
+import { readJson } from "../body.js";
 import { normalizeContentType } from "../../../artifacts/media-types.js";
 import { hasDefinitionFile, putDefinitionFile } from "../../../tenant/definition-files.js";
+import { effectiveSkillLimits, readSkillsConfig, writeSkillsConfig } from "../../../tenant/limits.js";
 import { fail } from "../../../tenant/http.js";
 import type { TenantEnv } from "../app.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
@@ -16,6 +19,8 @@ import { jsonResponse } from "../respond.js";
 
 const APPLICATION: RouteAccess = { credentials: ["application"], scopes: "never" };
 const UPLOAD: RouteAccess = { ...APPLICATION, bytes: true };
+/** The Tenant's skill limit: a Management API route (`/v1/tenant/skills`). */
+const SETTINGS: RouteAccess = { credentials: ["management"], scopes: "never" };
 
 const file = z.object({
   file: z.string().meta({ description: "`sha256:` and the SHA-256 of the file's bytes, 64 lowercase hex digits" }),
@@ -49,7 +54,7 @@ export function fileRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/files/{file}",
       tags: ["Definition files"],
       summary: "Upload a definition file",
-      description: `Stores the body, at most ${DEFINITION_FILE_MAX_BYTES} bytes, at the SHA-256 the path names; a body with another hash stores nothing (\`400\`). A file the Tenant holds already is kept as it is (\`200\`).`,
+      description: "Streams the body, at most the Tenant's skill limit (`/v1/tenant/skills`, default 2 GiB: one file may be as large as a whole skill), to the SHA-256 the path names; a body with another hash stores nothing (`400`). A file the Tenant holds already is kept as it is (`200`).",
       request: {
         params: file,
         body: {
@@ -61,7 +66,7 @@ export function fileRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: {
         200: view("The Tenant held the file already"),
         201: view("The file, stored"),
-        413: { description: `Larger than ${DEFINITION_FILE_MAX_BYTES} bytes (\`limit_exceeded\`)` },
+        413: { description: "Larger than the Tenant's skill limit (`limit_exceeded`)" },
       },
     },
     async (c) => {
@@ -98,6 +103,42 @@ export function fileRoutes(api: OpenAPIHono<TenantEnv>): void {
       if (!(await hasDefinitionFile(c.env.tenant, c.req.param("file")!)))
         return fail(404, "The Runtime does not hold this file");
       return new Response(null, { status: 200 });
+    },
+  );
+
+  tenantRoute(
+    api,
+    SETTINGS,
+    {
+      method: "get",
+      path: "/v1/tenant/skills",
+      tags: ["Tenant"],
+      summary: "Get the Tenant's skill limit",
+      responses: { 200: { description: "The limit in force", content: { "application/json": { schema: TenantSkillsView } } } },
+    },
+    async (c) =>
+      jsonResponse(200, { limits: effectiveSkillLimits(await c.env.tenant.store.tx((t) => readSkillsConfig(t))) }),
+  );
+
+  tenantRoute(
+    api,
+    SETTINGS,
+    {
+      method: "put",
+      path: "/v1/tenant/skills",
+      tags: ["Tenant"],
+      summary: "Set the Tenant's skill limit",
+      description:
+        "The most bytes one skill's files may hold together, for every agent the Tenant stores and every Environment, whose manifest may set a lower one (`limits.skills`). Unset, the limit takes the default (2 GiB). Agents already stored keep their skills; a session opens only while its agent's skills fit.",
+      request: {
+        body: { required: true, content: { "application/json": { schema: PutTenantSkillsRequest } } },
+      },
+      responses: { 200: { description: "The limit now in force", content: { "application/json": { schema: TenantSkillsView } } } },
+    },
+    async (c) => {
+      const { requestId: _requestId, ...config } = PutTenantSkillsRequestSchema.parse(await readJson(c.req.raw));
+      await c.env.tenant.store.tx((t) => writeSkillsConfig(t, config));
+      return jsonResponse(200, { limits: effectiveSkillLimits(config) });
     },
   );
 }

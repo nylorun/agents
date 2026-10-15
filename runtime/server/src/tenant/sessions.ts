@@ -27,7 +27,8 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
-import { missingDefinitionFiles } from "./definition-files.js";
+import { definitionFileIssues } from "./definition-files.js";
+import { limitsInForce, readSkillLimits, readTenantLimits } from "./limits.js";
 
 /** A session's creation identity: everything but the request id. */
 const sessionIdentity = (value: any): string => {
@@ -114,12 +115,19 @@ export async function putDefinition(
   };
   const files = [...definitionFilesOf(body.manifest)];
   await ctx.store.tx(async (t) => {
-    const missing = await missingDefinitionFiles(t, body.manifest);
+    const { totalBytes } = await readSkillLimits(t);
+    const { missing, oversized } = await definitionFileIssues(t, body.manifest, totalBytes);
     if (missing.length > 0)
       fail(
         400,
         `The definition names ${missing.length} file(s) the Runtime does not hold; upload each with PUT /v1/files/<sha256> first: ${missing.join(", ")}`,
         { code: "definition_files_missing", details: { missing } }
+      );
+    if (oversized.length > 0)
+      fail(
+        413,
+        `This Tenant allows a skill's files at most ${totalBytes} bytes together: ${oversized.map((skill) => `'${skill.name}' holds ${skill.bytes}`).join(", ")}`,
+        { code: "limit_exceeded", details: { limitBytes: totalBytes, skills: oversized } }
       );
     if (options.dryRun) return;
     await t.put("definitions", agentId, definition);
@@ -231,6 +239,7 @@ export async function putSession(
           });
     if (!isWorkflowManifest(definition.manifest))
       await checkRequirements(t, definition.manifest as AgentManifest, environment);
+    if (environment !== undefined) await checkSkillLimit(t, definition.manifest, environment);
     const config = await readSandboxConfig(t);
     // The harness the session runs for its life (R4.1): its Environment's, else ours. A flow
     // runs in core and our engine, whatever its Environment names.
@@ -297,6 +306,22 @@ async function checkRequirements(
     409,
     `Agent ${manifest.id} requires ${missing.map((gap) => (gap.startsWith("secret:") ? `the secret ${gap.slice(7)}` : gap === "pod" ? "a pod Environment" : "a sandbox")).join(", ")}, and ${where}.`,
     { code: "environment_unsuitable", details: { missing } },
+  );
+}
+
+/**
+ * Refuses a session whose agent carries a skill larger than its Environment allows: its
+ * manifest's `limits.skills.totalBytes`, else the Tenant's, never above the Tenant's.
+ * `409 environment_unsuitable`, with each skill and its size in `details.skills`.
+ */
+async function checkSkillLimit(t: Tx, manifest: unknown, environment: Environment): Promise<void> {
+  const limitBytes = limitsInForce(await readTenantLimits(t), environment.applied.limits).skills.totalBytes;
+  const { oversized } = await definitionFileIssues(t, manifest, limitBytes);
+  if (oversized.length === 0) return;
+  fail(
+    409,
+    `Environment ${environment.id} allows a skill's files at most ${limitBytes} bytes together, and agent ${(manifest as { id?: string }).id} carries ${oversized.map((skill) => `'${skill.name}' (${skill.bytes})`).join(", ")}.`,
+    { code: "environment_unsuitable", details: { limitBytes, skills: oversized } },
   );
 }
 

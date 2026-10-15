@@ -32,6 +32,12 @@ import type {
 
 export const HARNESS_API_VERSION = 3;
 
+/**
+ * The most bytes one `definition.file` answer carries when the harness names a range: base64 in
+ * one frame, well under `HARNESS_MAX_PAYLOAD`. A larger file comes a range at a time.
+ */
+export const DEFINITION_FILE_CHUNK_BYTES = 16 * 1024 * 1024;
+
 /** The most state a custom harness may keep per session (R4.2): its serialized JSON, in bytes. */
 export const MAX_HARNESS_STATE_BYTES = 256 * 1024;
 

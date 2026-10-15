@@ -956,7 +956,7 @@ reaches your process. The manifest's `skills.<name>` gains `files`, each path of
   `.plugin(folder)` and register with `saveAgent`: it uploads the files the Runtime lacks
   (`client.files`) before the definition.
 - **`PUT /v1/agents/{id}` by hand** must upload each file first with
-  `PUT /v1/files/sha256:<hex>` (application key, the raw bytes, at most 10 MiB; `HEAD` says
+  `PUT /v1/files/sha256:<hex>` (application key, the raw bytes, at most 2 GiB; `HEAD` says
   whether the Runtime holds it). A definition naming a file the Runtime lacks is
   `400 definition_files_missing`, with the hashes in `details.missing`.
 - **`skillRecords` is gone** from capability declarations (and `SkillRecord` from

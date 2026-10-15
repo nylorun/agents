@@ -107,6 +107,20 @@ describe("disk versions of a virtual Environment", { timeout: 60_000 }, () => {
     expect((await call("GET", path("disk/a"))).body.disk).toEqual({ latestVersion: 3 });
   });
 
+  it("refuses a snapshot past the Environment's own total, which its manifest sets", async () => {
+    expect((await call("PUT", path("disk/tight"), { limits: { artifacts: { totalBytes: 10 } } })).status).toBe(200);
+    const s = await session("disk/tight");
+    expect((await write(s, "notes.txt", "twenty bytes of text")).status).toBe(200);
+    const refused = await call("POST", `${path("disk/tight")}/snapshot`);
+    expect(refused.status).toBe(413);
+    expect(refused.body).toMatchObject({
+      code: "limit_exceeded",
+      message: "Environment disk/tight's artifacts may hold at most 10 bytes; this version adds 20 to 0.",
+      details: { limit: "environment_total", max: 10 },
+    });
+    expect((await call("GET", path("disk/tight"))).body.disk).toEqual({ latestVersion: null });
+  });
+
   it("creates an Environment from another's version, which then diverges", async () => {
     const forked = await call("PUT", path("disk/b"), { from: { environment: "disk/a", version: 2 } });
     expect(forked.status, JSON.stringify(forked.body)).toBe(200);

@@ -165,7 +165,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Definition files",
     group: "Agents",
     description:
-      "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`). `saveAgent` in `@nylorun/agents` does both.",
+      "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`) or a skill whose files hold more than the Tenant's skill limit together (`limit_exceeded`; `/v1/tenant/skills`, default 2 GiB). No file and no count of files has a limit of its own. `saveAgent` in `@nylorun/agents` does both.",
     operations: ["PUT /v1/files/{file}", "HEAD /v1/files/{file}"],
   },
   {
@@ -347,12 +347,14 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   },
   {
     name: "Settings",
-    description: "The Tenant's sandbox backend, Environment and artifact settings. `admin.settings`.",
+    description: "The Tenant's sandbox backend, Environment, artifact and skill settings. `admin.settings`.",
     operations: [
       "GET /v1/tenant/sandbox",
       "PUT /v1/tenant/sandbox",
       "GET /v1/tenant/artifacts",
       "PUT /v1/tenant/artifacts",
+      "GET /v1/tenant/skills",
+      "PUT /v1/tenant/skills",
     ],
   },
 ];

@@ -70,6 +70,7 @@ import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
 import { deleteDiskArtifact, forkSeedOf, runPendingSeed, snapshotEnvironment } from "../artifacts/disk.js";
 import { manifestChanges, manifestRecipeRequest } from "./environment-manifests.js";
+import { limitIssues, limitsInForce, readTenantLimits } from "./limits.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 import type { SealedSecretCopies } from "../vault/service.js";
@@ -146,6 +147,7 @@ async function viewOf(
     ...(environment.manifestName === undefined ? {} : { manifestName: environment.manifestName }),
     ...(environment.manifestVersion === undefined ? {} : { manifestVersion: environment.manifestVersion }),
     ...(environment.manifestHash === undefined ? {} : { manifestHash: environment.manifestHash }),
+    limits: limitsInForce(await readTenantLimits(t), environment.applied.limits),
     ...(environment.forkedFrom === undefined ? {} : { forkedFrom: environment.forkedFrom }),
     ...(slots === undefined ? {} : { slots }),
     version: environment.version,
@@ -211,6 +213,7 @@ const INLINE_FIELDS = [
   "lifecycle",
   "setup",
   "files",
+  "limits",
   "secrets",
 ] as const satisfies readonly (keyof PutEnvironmentRequest)[];
 
@@ -237,6 +240,7 @@ function recipeRequest(body: PutEnvironmentRequest, existing?: Environment): Rec
     ...pick("lifecycle", body.lifecycle),
     ...pick("setup", body.setup),
     ...pick("files", body.files),
+    ...pick("limits", body.limits),
     ...pick("secrets", body.secrets),
   };
 }
@@ -379,9 +383,16 @@ export async function putEnvironment(
   const view = await ctx.store.tx(async (t) => {
     const now = new Date().toISOString();
     const config = effectiveSandboxConfig(await readSandboxConfig(t));
-    const resolve = (kind: EnvironmentKind, request: RecipeRequest) => {
+    const tenantLimits = await readTenantLimits(t);
+    // `limits` are checked against the Tenant's only when an Environment is made: a get-or-create
+    // on one made before the Tenant lowered a limit still answers, and the lower limit applies.
+    const resolve = (kind: EnvironmentKind, request: RecipeRequest, creating: boolean) => {
       const resolved = resolveRecipe(kind, request, config);
-      return resolved.kind === "error" ? fail(400, resolved.errors.join(" ")) : resolved.recipe;
+      const errors = [
+        ...(resolved.kind === "error" ? resolved.errors : []),
+        ...(creating ? limitIssues(request.limits, tenantLimits) : []),
+      ];
+      return resolved.kind === "error" || errors.length > 0 ? fail(400, errors.join(" ")) : resolved.recipe;
     };
     const deleting = (row: Environment | undefined) => {
       if (row && !live(row))
@@ -401,7 +412,7 @@ export async function putEnvironment(
       } else if (INLINE_FIELDS.some((field) => body[field] !== undefined)) {
         if (body.kind !== undefined && body.kind !== existing.kind) immutable(["kind"], existing);
         if (body.storage !== undefined && body.storage !== existing.recipe.storage) immutable(["storage"], existing);
-        const recipe = resolve(existing.kind, recipeRequest(body, existing));
+        const recipe = resolve(existing.kind, recipeRequest(body, existing), false);
         const differing = (Object.keys({ ...recipe, ...existing.recipe }) as (keyof EnvironmentRecipe)[])
           .filter((field) => canonical(recipe[field]) !== canonical(existing.recipe[field]))
           .sort();
@@ -433,7 +444,7 @@ export async function putEnvironment(
           ));
     const kind = manifest ? (manifest.body.kind ?? "virtual") : (body.kind ?? "virtual");
     if (manifest && kind === "pod") await requirePods(ctx.pods, `Environment manifest ${manifest.name} is of kind pod, and a pod Environment`);
-    const recipe = resolve(kind, manifest ? manifestRecipeRequest(manifest.body) : recipeRequest(body));
+    const recipe = resolve(kind, manifest ? manifestRecipeRequest(manifest.body) : recipeRequest(body), true);
     await checkFiles(t, recipe.files);
     const from = body.from === undefined ? undefined : await forkSource(t, scope, kind, body.from);
     // A fork onto other setup runs it on the written disk (Q17).
@@ -649,7 +660,11 @@ export async function forkEnvironment(
       );
     const kind = manifest.body.kind ?? "virtual";
     const resolved = resolveRecipe(kind, manifestRecipeRequest(manifest.body), effectiveSandboxConfig(await readSandboxConfig(t)));
-    if (resolved.kind === "error") return fail(400, resolved.errors.join(" "));
+    const errors = [
+      ...(resolved.kind === "error" ? resolved.errors : []),
+      ...limitIssues(manifest.body.limits, await readTenantLimits(t)),
+    ];
+    if (resolved.kind === "error" || errors.length > 0) return fail(400, errors.join(" "));
     const recipe = resolved.recipe;
     const asked = body.disk ?? "latest";
     const disk =

@@ -25,7 +25,7 @@ import type { SandboxToolOutcome } from "@nylorun/core/contracts";
 import { READ_ARTIFACT_MAX_BYTES, type ToolResultFile } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { isArtifactId } from "@nylorun/core/compatibility";
-import { readArtifactLimits } from "../artifacts/config.js";
+import { artifactQuota } from "../artifacts/quota.js";
 import {
   contentTypeFor,
   essence,
@@ -80,7 +80,8 @@ export async function callSaveArtifact(
     return {
       s,
       workspace: sandboxWorkspaceOf(s),
-      limits: await readArtifactLimits(t),
+      // The session's Environment's file limit, within the Tenant's; the upload checks the totals.
+      limits: await artifactQuota(t, s.environmentId),
       ours,
     };
   });

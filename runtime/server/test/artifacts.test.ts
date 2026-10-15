@@ -281,6 +281,66 @@ it("refuses a body past the per-file cap mid-stream and stores nothing; then the
   expect(view.usedBytes).toBe(1000);
 });
 
+it("holds an Environment's artifacts to its manifest's limits, within the Tenant's", async () => {
+  const runtime = await boot();
+  const putEnvironment = (id: string, body: Record<string, unknown>) =>
+    fetch(`${runtime.url}/v1/environments/${id}`, {
+      method: "PUT",
+      headers: json,
+      body: JSON.stringify({ requestId: `env-${id}`, kind: "virtual", ...body }),
+    });
+  // Above the Tenant's own limit (100 MiB per file by default): refused when it is made.
+  const above = await putEnvironment("big", { limits: { artifacts: { fileBytes: 200 * 1024 * 1024 } } });
+  expect(above.status).toBe(400);
+  expect(await above.text()).toContain(
+    "limits.artifacts.fileBytes asks for 209715200 bytes; this Tenant allows at most 104857600.",
+  );
+  const small = await putEnvironment("small", { limits: { artifacts: { fileBytes: 600, totalBytes: 1000 } } });
+  expect(small.status, await small.clone().text()).toBe(200);
+  expect(((await small.json()) as { limits: unknown }).limits).toEqual({
+    artifacts: { fileBytes: 600, totalBytes: 1000 },
+    skills: { totalBytes: 2 * 1024 ** 3 },
+  });
+  await openSession(runtime, "s1", "ada", { environment: "small" });
+  await openSession(runtime, "s2", "ada", { environment: "plain" });
+  await openSession(runtime, "s3");
+
+  // Past the Environment's file limit, then its total: 600 and 400 fit, one more byte does not.
+  const big = await upload(runtime, "name=a.bin&sessionId=s1", new Uint8Array(601));
+  expect(big.status).toBe(413);
+  expect(await big.json()).toMatchObject({ code: "limit_exceeded", details: { limitBytes: 600 } });
+  await uploaded(await upload(runtime, "name=a.bin&sessionId=s1", new Uint8Array(600)));
+  await uploaded(await upload(runtime, "name=b.bin&sessionId=s1", streamOf(2, 200)));
+  const full = await upload(runtime, "name=c.bin&sessionId=s1", new Uint8Array(1));
+  expect(full.status).toBe(413);
+  expect(await full.json()).toMatchObject({
+    message: "Environment small's artifacts hold 1000 of 1000 bytes; delete some first",
+    details: { limitBytes: 1000 },
+  });
+
+  // Another Environment, a session without one and the Tenant's own artifacts: the Tenant's limits.
+  await uploaded(await upload(runtime, "name=d.bin&sessionId=s2", new Uint8Array(601)));
+  await uploaded(await upload(runtime, "name=e.bin&sessionId=s3", new Uint8Array(601)));
+  await uploaded(await upload(runtime, "name=f.bin", new Uint8Array(601)));
+
+  // A Tenant that lowers its limit lowers it for every Environment, whatever its manifest says.
+  await fetch(`${runtime.url}/v1/tenant/artifacts`, {
+    method: "PUT",
+    headers: runtime.managementHeaders(),
+    body: JSON.stringify({ limits: { fileBytes: 100 } }),
+  });
+  const viewed = (await (await fetch(`${runtime.url}/v1/environments/small`, { headers: auth })).json()) as {
+    limits: unknown;
+    manifest: { limits?: unknown };
+  };
+  expect(viewed.limits).toEqual({ artifacts: { fileBytes: 100, totalBytes: 1000 }, skills: { totalBytes: 2 * 1024 ** 3 } });
+  expect(viewed.manifest.limits).toEqual({ artifacts: { fileBytes: 600, totalBytes: 1000 } });
+  // Get-or-create still finds it, though its manifest now asks for more than the Tenant allows.
+  const again = await putEnvironment("small", { limits: { artifacts: { fileBytes: 600, totalBytes: 1000 } } });
+  expect(again.status, await again.clone().text()).toBe(200);
+  expect((await upload(runtime, "name=g.bin&sessionId=s2", new Uint8Array(101))).status).toBe(413);
+});
+
 it("lets a person reach only the artifacts of their own sessions", async () => {
   const runtime = await boot();
   await openSession(runtime, "ada-1", "ada");

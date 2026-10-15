@@ -29,6 +29,7 @@ import { isArtifactId } from "@nylorun/core/compatibility";
 import type { ReadAccess, ReadStore } from "../../reads/types.js";
 import { readCursor } from "../../reads/cursor.js";
 import { fail } from "../../tenant/http.js";
+import { limitsInForce, readTenantLimits } from "../../tenant/limits.js";
 import { artifactView } from "../../artifacts/service.js";
 import { sandboxWorkspaceKey } from "../../sandbox/records.js";
 import { database, driverError, type Transaction } from "./db.js";
@@ -42,6 +43,7 @@ import {
   sandboxes,
   sessions,
   sessionEvents,
+  tenantSettings,
   type ModelUsageRow,
 } from "./schema.js";
 
@@ -468,6 +470,11 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
           )
           .orderBy(asc(environments.id))
           .limit(page.limit + 1);
+        const tenantLimits = await readTenantLimits({
+          getSetting: async (setting) =>
+            (await tx.select({ value: tenantSettings.value }).from(tenantSettings).where(eq(tenantSettings.key, setting)))[0]
+              ?.value,
+        });
         const items: EnvironmentView[] = [];
         for (const row of rows.slice(0, page.limit)) {
           const [related] = await tx
@@ -492,6 +499,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
             ...(row.manifestName === null ? {} : { manifestName: row.manifestName }),
             ...(row.manifestVersion === null ? {} : { manifestVersion: row.manifestVersion }),
             ...(row.manifestHash === null ? {} : { manifestHash: row.manifestHash }),
+            limits: limitsInForce(tenantLimits, (row.recipe as EnvironmentView["manifest"]).limits),
             ...(row.forkedFrom ? { forkedFrom: row.forkedFrom as NonNullable<EnvironmentView["forkedFrom"]> } : {}),
             version: row.version,
             appliedVersion: row.appliedVersion,

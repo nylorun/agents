@@ -30,15 +30,15 @@ import {
 import { canonical } from "./utils/canonical.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId };
-import { DEFINITION_FILE_MAX_BYTES, isDefinitionFileHash, skillFilesIssue } from "./utils/definition-files.js";
+import { isDefinitionFileHash, skillFilesIssue } from "./utils/definition-files.js";
 export type { AgentManifest } from "./types/manifest.js";
 export type { WorkflowManifest } from "./types/workflow.js";
 export { PROTOCOL_VERSION, ERROR_CODES } from "./compatibility.js";
 export {
-  DEFINITION_FILE_MAX_BYTES,
-  SKILL_FILES_MAX,
+  SKILL_TOTAL_BYTES_DEFAULT,
   definitionFilesOf,
   isDefinitionFileHash,
+  skillsOf,
 } from "./utils/definition-files.js";
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES, isArtifactId } from "./compatibility.js";
@@ -759,7 +759,7 @@ const relativeFilePath = z
 /**
  * One input file entry (pods only): an artifact version copied to `path` (a file artifact, or a
  * folder's files under it), or (Q6) files by content hash, each `sha256:<hex>` of a definition
- * file the Tenant holds (`PUT /v1/files/sha256:<hex>`, at most 10 MiB each), copied under `path`
+ * file the Tenant holds (`PUT /v1/files/sha256:<hex>`, at most 2 GiB each), copied under `path`
  * at its relative path. A manifest by hash moves to another Tenant with its files.
  */
 export const EnvironmentFileSchema = z.union([
@@ -818,6 +818,33 @@ export const EnvironmentManifestRefSchema = z
     message: "manifest is an environment manifest's name, or name@version such as analyst-box@3",
   })
   .meta({ description: "`name` (the latest version when the Environment is created) or `name@n`" });
+
+/**
+ * What an Environment's artifacts and its sessions' skills may hold, in bytes: part of its
+ * manifest, fixed for its life. Each limit left out is the Tenant's (`/v1/tenant/artifacts`,
+ * `/v1/tenant/skills`) as it is when the limit is checked, and none may be above the Tenant's.
+ */
+export const EnvironmentLimitsSchema = z
+  .object({
+    artifacts: z
+      .object({
+        /** The largest file one artifact upload, save or export may store. */
+        fileBytes: z.number().int().positive().optional(),
+        /** The most bytes the artifacts of its sessions and its disk versions may hold together. */
+        totalBytes: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    skills: z
+      .object({
+        /** The most bytes one skill's files may hold together, for a session to open in it. */
+        totalBytes: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type EnvironmentLimits = z.infer<typeof EnvironmentLimitsSchema>;
 
 /**
  * `PUT /v1/environments/{environmentId}`: creates the Environment and its vault, or finds the
@@ -879,6 +906,11 @@ export const PutEnvironmentRequestSchema = z
     /** Pods only: artifact versions copied in when the disk is made or reset, before `setup`. */
     files: z.array(EnvironmentFileSchema).max(ENVIRONMENT_SETUP_MAX).optional(),
     /**
+     * What its artifacts and its sessions' skills may hold, at most the Tenant's limits; a limit
+     * left out is the Tenant's. Fixed.
+     */
+    limits: EnvironmentLimitsSchema.optional(),
+    /**
      * The secrets an Environment of this kind needs, by name (D64): each slot's type, binding,
      * whether it is required and a description, never a value. With slots declared, a secret
      * write sends only the value and a name not declared is `409 secret_not_in_manifest`.
@@ -913,6 +945,8 @@ export const EnvironmentRecipeSchema = z
     lifecycle: EnvironmentLifecycleSchema,
     setup: z.array(EnvironmentSetupCommandSchema).optional(),
     files: z.array(EnvironmentFileSchema).optional(),
+    /** As the manifest set them: a limit left out is the Tenant's when it is checked. */
+    limits: EnvironmentLimitsSchema.optional(),
     secrets: z.lazy(() => EnvironmentSecretSlotsSchema).optional(),
   })
   .strict();
@@ -977,6 +1011,13 @@ export const EnvironmentViewSchema = z
     manifestVersion: z.number().int().positive().optional(),
     /** The hash of what it runs (`manifest`). */
     manifestHash: z.string().optional(),
+    /** The limits in force now: its manifest's, else the Tenant's, never above the Tenant's. */
+    limits: z
+      .object({
+        artifacts: z.object({ fileBytes: z.number().int(), totalBytes: z.number().int() }).strict(),
+        skills: z.object({ totalBytes: z.number().int() }).strict(),
+      })
+      .strict(),
     /**
      * The Environment it was forked from (`POST .../fork`, Q15), and the disk version it started
      * from (`null` for an empty disk).
@@ -1605,6 +1646,7 @@ export const EnvironmentManifestSchema = z
     lifecycle: environmentFields.lifecycle,
     setup: environmentFields.setup,
     files: environmentFields.files,
+    limits: environmentFields.limits,
     secrets: EnvironmentSecretSlotsSchema.optional(),
   })
   .strict();
@@ -2720,6 +2762,8 @@ export const ArtifactExportSkipReasonSchema = z.enum([
   "file_too_large",
   "too_large",
   "tenant_total",
+  /** Past the session's Environment's own total (its manifest's `limits.artifacts.totalBytes`). */
+  "environment_total",
 ]);
 export type ArtifactExportSkipReason = z.infer<typeof ArtifactExportSkipReasonSchema>;
 /**
@@ -4163,7 +4207,7 @@ export type UploadArtifactResponse = z.infer<typeof UploadArtifactResponseSchema
 export const DefinitionFileViewSchema = z
   .object({
     sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-    size: z.number().int().nonnegative().max(DEFINITION_FILE_MAX_BYTES),
+    size: z.number().int().nonnegative(),
   })
   .strict();
 export type DefinitionFileView = z.infer<typeof DefinitionFileViewSchema>;
@@ -4319,6 +4363,32 @@ export const TenantArtifactsViewSchema = z
   })
   .strict();
 export type TenantArtifactsView = z.infer<typeof TenantArtifactsViewSchema>;
+
+/**
+ * A Tenant's skill limits, stored as Tenant setting `skills.config`: the most bytes one skill's
+ * files may hold together. Unset, it is `SKILL_TOTAL_BYTES_DEFAULT` (2 GiB).
+ */
+export const TenantSkillsConfigSchema = z
+  .object({
+    limits: z
+      .object({
+        /** The most bytes one skill's files may hold together. Default 2 GiB. */
+        totalBytes: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type TenantSkillsConfig = z.infer<typeof TenantSkillsConfigSchema>;
+/** `PUT /v1/tenant/skills`: replaces the Tenant's skill configuration. */
+export const PutTenantSkillsRequestSchema = TenantSkillsConfigSchema.extend({
+  requestId: RequestIdSchema.optional(),
+}).strict();
+export type PutTenantSkillsRequest = z.infer<typeof PutTenantSkillsRequestSchema>;
+export const TenantSkillsViewSchema = z
+  .object({ limits: z.object({ totalBytes: z.number().int() }).strict() })
+  .strict();
+export type TenantSkillsView = z.infer<typeof TenantSkillsViewSchema>;
 
 /** Opt-in session reads (Host feature `session-reads`). */
 export const SessionListItemSchema = SessionSummarySchema.extend({
