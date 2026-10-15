@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.25.0-beta
+
+### Minor Changes
+
+- 104f24f: **Environment manifests, and Environments that never change (protocol 14, D63 to D65).** An Environment's definition can now be saved like an agent: a named, versioned environment manifest, written as a JSON file with a published schema and checked with a plan before it is saved. An Environment is made from one version and keeps it for life; a save changes no Environment. The Runtime speaks protocol 14 only; sessions, Environments and vaults carry over. See MIGRATION.md.
+
+  - **Environment manifests.** `PUT /v1/environment-manifests/{name}` saves the next version, or answers the latest `unchanged`; `If-Match: <version>` refuses a save over a newer one (`412 manifest_changed`), and `?dryRun=true` answers the plan (changes, errors, warnings, the Environments behind) and saves nothing. Each version records `savedBy`. `GET` (latest), `GET /v1/environment-manifests`, `.../versions`, `.../versions/{n}` and `DELETE` (refused while an Environment names it, `409 manifest_in_use`). Migration 0025.
+  - **Pinned Environments.** `PUT /v1/environments/{id}` takes `manifest: "name"` (the latest at creation) or `"name@n"`. On an existing Environment only `labels` and `ownerUserId` may change; fields that match are accepted, and anything else is `409 environment_immutable` with `details.fields`. The view's `recipe` is now `manifest`, with `manifestName`, `manifestVersion`, `manifestHash` and `slots`; `version` and `appliedVersion` no longer move. `environment.created` names the manifest.
+  - **Secret slots.** A manifest's (or inline) `secrets` declares each secret's name, type, binding, `required` and `description`, never a value. On such an Environment a secret write sends only `{ value }` (or `{ headers }`), the binding comes from the slot, and an undeclared name is `409 secret_not_in_manifest`.
+  - **`requires`.** Agent manifest v7 takes `requires: { sandbox?: "none" | "any" | "pod", secrets? }` (`.requires()` in `@nylorun/core/define`), checked when a session opens (`409 environment_unsuitable`, `details.missing`). Turn variants keep it.
+  - **Dry runs.** `PUT /v1/agents/{id}?dryRun=true` checks a definition and saves nothing (`dryRun: true` in the answer).
+  - `@nylorun/core`: `PROTOCOL_VERSION` 14, `HOST_PROTOCOL` `{ min: 14, max: 14 }`, required feature `environment-manifests`; `EnvironmentManifestSchema`, `EnvironmentSecretSlotSchema`, `parseEnvironmentManifestRef` and the view, plan and save schemas; JSON Schemas at `@nylorun/core/schemas/environment-manifest.json` and `@nylorun/core/schemas/agent-manifest.json` (`$id` `https://docs.nylorun.com/schemas/environment-manifest/v1.json` and `.../agent-manifest/v7.json`).
+  - `@nylorun/agents`: `client.environments.manifests` (`save`, `plan`, `get`, `list`, `versions`, `delete`), `environmentManifest()`, `EnvironmentInput` (was `EnvironmentRecipeInput`), value-only `secrets.put`, and `saveAgent(agent, { dryRun })`.
+  - **Studio** edits only an Environment's labels and owner guard, shows the manifest it was made from, and its setup and files are read-only.
+  - `nylorun environments put` help says what it runs never changes.
+
+- c96b9a8: **An agent manifest is flat: manifest v7, a `runtime` block the Runtime writes, and tools known by name (protocol 13, Harness API 3).** A manifest listed capabilities, each with its own instructions, tools, skills and servers, and the Runtime added its own as more capabilities. Now the agent's parts sit at the top level, a plugin's skills and servers say which plugin brought them, and what the Runtime adds to a session's agent is one `runtime` block. A fresh start: the Runtime speaks protocol 13 only, so save your agents again; sessions from protocol 12 do not carry over. See MIGRATION.md.
+
+  - **Manifest v7.** `{ manifestSchemaVersion: 7, id, name?, description?, metadata?, outputSchema?, instructions?, tools?, skills?, mcpServers?, runtime? }`. Versions 3 to 6 and a `capabilities` field are refused with a message to rebuild. `SkillManifest.plugin` and `McpServerManifest.plugin` are `{ name, version? }`, set by `.plugin(dir)` from `plugin.json`.
+  - **The `runtime` block.** `{ sandbox?, tools?, instructions? }`, written only by the Runtime when a session pins the agent: the sandbox spec and tools, `save_artifact`, `read_artifact`, `load_skill` and `read_skill_resource`, the skill catalog and the notes that go with them. A definition or a turn variant that sets it is refused. `runtimeManifestFor` in `@nylorun/core/define` replaces `sandboxCapabilityManifest`, `artifactsCapabilityManifest` and `toolsCapabilityManifest`. `.skills()` and `.plugin()` no longer add the skill tools or the catalog.
+  - **Names.** An agent's tool may not take a Runtime tool's name (`RUNTIME_TOOL_NAMES`) or contain `__`, and names are unique across tools, skills and servers.
+  - **Turn variants** may remove tools, tighten MCP servers and change instructions, name, description and metadata. Skills are fixed, and a variant never sets `runtime` or changes `outputSchema`.
+  - **Tools by name.** `capabilityId` is gone from `tool.completed`, `mcp.discovered`, tool call rows, `EffectIntent`, gate requests, checkpoints and `SessionToolRef`. An HTTP tool's `server` is its URL's host. `Implementations` is `{ tools }`, keyed by tool name (`Agent.from(json, { tools })`), `AgentBinding.declarations` is `parts`, and observe events say `partId`.
+  - **Harness API 3.** `hello.capabilities` is `features`, and the `harness` pseudo-capability is gone: a native tool is known by its name, and one whose name is taken fails the turn at its start. `createHarness({ features })` in `@nylorun/harness`. `examples/harness-minimal` speaks it.
+  - **Studio.** The Agent tab shows instructions, tools (HTTP and agent badges), skills and MCP servers, each skill and server with its plugin's badge and a filter by plugin, and a session's Runtime section: its sandbox, tools and instructions.
+  - `@nylorun/core`: `PROTOCOL_VERSION` 13, `HOST_PROTOCOL` `{ min: 13, max: 13 }`, required feature `flat-manifest`, `HARNESS_API_VERSION` 3; `PluginLabel`, `RuntimeManifest`, `RUNTIME_TOOL_NAMES`, `isRuntimeToolName`, `runtimeToolOf`, `isSkillTool`, `SKILLS_USAGE` and `formatSkillCatalog` in `/define`.
+  - `@nylorun/agents`, `@nylorun/admin`, `@nylorun/studio` and `nylorun` send protocol 13.
+
+- 94bf329: **Each model says what it reads, a file it does not read is refused before a turn starts, and a file is an artifact the model reads again after its turn (protocol 12).** A message could name any file, and a model that could not read it failed the turn at its model call; every later turn sent the file's bytes again. Now the Runtime knows what the Tenant's model reads, checks a message's files when it is accepted, and sends a file's bytes only in the turn that brought it. Protocol 12 only adds to 11: the Runtime serves both.
+
+  - **Model inputs.** A model reads `text`, and `image`, `pdf`, `office`, `audio` or `video` when its catalog says so or the operator adds it where its API carries it natively (images everywhere; PDFs on the Anthropic, OpenAI, Azure and Google APIs; Office documents on the OpenAI Responses APIs; audio and video on Google's APIs and OpenAI-compatible completions). `GET /v1/tenant/models` gives each model `inputs` and `addableInputs`, `GET /v1/tenant/providers` each provider's `inputs`, and **`PUT /v1/tenant/models/inputs`** (the Management API; `admin.models.setInputs({ provider, model, inputs })`) sets the added ones, kept in the Tenant setting `model.inputs`. The Model Gate gives the provider adapter a model with an added image, so it is sent.
+  - **A custom endpoint reads text only by default.** It used to be sent images. Set `settings.inputs` on `PUT /v1/tenant/model` (`image`, `pdf`, `audio`, `video`) for what yours reads; `office` is refused there. See MIGRATION.md.
+  - **The accept check.** A message naming a file of a type the Tenant's model does not read is `422 attachment_unsupported`, with `details.parts` (`artifactId`, `name`, `mediaType`, `reason`), and no turn starts. Only the type is checked, never the size. Without a model in the vault nothing is refused.
+  - **Files as artifacts.** After its turn a file is a reference line, `[Uploaded artifact "name" · <artifactId> v<n> · read_artifact to view]` (a tool's: `[Tool <name> returned artifact …]`). Our harness sends the turn's own files once more, as media, in one user message after the conversation, so a message reads the same in every later call. At the gate, an image the model reads is an image, a text file a `<file>` block, and any other file, or one that cannot be read, a note: no file fails a call. PDFs, Office documents, audio and video are notes until the gate sends them natively.
+  - **`read_artifact` for every agent.** Every agent's session has it (an agent that declares its own keeps it), so every agent session pins its definition with it added. It takes a `version`, reads the Tenant-wide artifacts the session's messages named, and shows any file the Tenant's model reads; one it does not read fails `artifact.unsupported`.
+  - **Compaction** keeps the summarized part's reference lines (`files` on the compaction entry), and counts the turn's files by type and size in its token estimate.
+  - `@nylorun/core`: `PROTOCOL_VERSION` 12, required feature `model-inputs`, `HOST_PROTOCOL` `{ min: 11, max: 12 }`, error code `attachment_unsupported`; `MODEL_INPUTS`, `ModelInputSchema`, `PutModelInputsRequestSchema`, `ModelInputsViewSchema`, `CustomModelSettings.inputs`; `mediaReferenceLine` and `mediaReferenceOf` in `/define`; `TranscriptCompactionEntry.files`.
+  - `@nylorun/agents`, `@nylorun/studio` and `nylorun` send protocol 12.
+
+- 6014c0f: **Attach files to a message.** The message card has a paperclip, and a paste or a drop onto the card attaches files too. Each file shows as a chip, an image's thumbnail or a file icon with its name and size, until the message is sent. The picker offers what the active model reads, from its provider's `inputs` (text and images when the Runtime does not say). Files go as they are: Studio resizes and converts nothing. On **Send** each file is uploaded into the session, then the message goes as text and file parts. When the model does not read a file (`422 attachment_unsupported`), the draft and its chips stay, the refused chips say why, and a resend does not upload the other files again. In the chat, a message's files show their name, type and an image's thumbnail, and open the artifact. The Events table sums up such a message as its text and how many files it carries.
+
+  The proxy streams an attachment to `POST /v1/artifacts`, keeping only `name` and `sessionId`, into a session that exists; it needs a `Content-Length` and refuses a file over `maxUploadBytes` (a new Studio server option, 32 MiB by default). It also allows `PUT /v1/tenant/models/inputs` for Model settings.
+
+  **Model inputs in Model settings.** Each connected provider's model has an **Inputs** line: what its catalog reads is checked and fixed, and what the operator may add (`addableInputs`) toggles through `models.setInputs()`. The custom endpoint's form has Images, PDF, Audio and Video checkboxes, saved in `settings.inputs` and restored when the form opens. The provider form now scrolls when it is taller than the window.
+
+- 0b7cbbd: **Studio shows an Environment's connections (D67).** The Environment page's Events tab filters all events, its lifecycle, or the connections its sandbox opened, each with its host, outcome, bytes and the turns that were running. A session's Environment tab lists the connections a pod Environment opened while that session's turns ran, and names the other sessions whose turns ran too, since a connection is the Environment's. `@nylorun/agents` exports `ENVIRONMENT_EVENT_TYPES` and the types `EnvironmentEventType` and `EgressRunningTurn`.
+- 9b07bdd: **Studio and the starter for environment manifests (protocol 14).**
+
+  - **Studio, Environments page:** lists the environment manifests (each one's latest version, its kind, how many Environments were made from it, and who saved it). It saves a new version from JSON, with Check showing the plan first, under `If-Match`, so a save over someone else's is refused. It also makes an Environment from a version. Studio is one more client: any credential that may write Environments can do the same from the CLI or the SDK.
+  - **Studio, Environment page:** shows the manifest version it was made from and whether a newer one exists ("Fork to vN"), the Environment it was forked from, its secret slots set or missing, and its pod's image digest. **Fork** opens the fork with its plan (disk, secrets copied and left behind, slots still missing, changes) before it makes the new Environment.
+  - **The starter** ships `environments/scratch.json` (a virtual workspace with no network). `src/main.ts` saves each manifest in `environments/` beside the agents.
+  - `@nylorun/agents` exports the manifest and fork contract types (`EnvironmentManifestView`, `EnvironmentManifestPlan`, `EnvironmentForkPlan`, …).
+
+- c8e640b: **A tool call is traced from the log alone to its skill or MCP server and the plugin that brought it.** No protocol change beyond 13. See MIGRATION.md.
+
+  - **`tool.completed`** gains `skill` and `plugin` (`{ name, version? }`), and tool call rows (`GET /v1/sessions/{id}/calls/tool`, `session.toolCalls()`) gain `skill` and `plugin`, `null` when there is none. An MCP call gets its server's plugin. `load_skill` and `read_skill_resource` get the skill they name, and a sandbox tool whose input names `/skills/<name>/` gets that skill; both get the skill's plugin.
+  - **`kind: "harness"`** (`TOOL_CALL_KINDS`): a tool the turn's harness declared in `hello.features.tools`. Such a call said `platform` before.
+  - **`mcp.discovered`** names each server's `plugin`.
+  - `@nylorun/core`: `skillOfToolCall`, `pluginOf` and `ToolCallTrace` in `/define`.
+  - **Studio** shows each tool call's kind, server or skill, and a plugin badge, in the chat and the event details and summaries, and the plugin of each server `mcp.discovered` lists.
+
+### Patch Changes
+
+- 3a32a57: **Files by hash and images by digest (Q6, Q14).** An Environment's `files` entry may name files by content hash, and a pod Environment runs its image by digest once a pod ran it.
+
+  - **Files by hash.** `{ path, files: { "<relative path>": "sha256:<hex>" } }` copies each definition file the Tenant holds (`PUT /v1/files/sha256:<hex>`, at most 10 MiB each, at most 1000 per entry) under `path`, before `setup`. A file the Tenant does not hold is refused when the manifest is saved or the Environment made. The engine reads them as a folder through `host/files/{index}`. `@nylorun/agents`: `environmentFiles(path, contents)` hashes them, and `manifests.save(manifest, { files })` and `plan()` upload those the Runtime lacks.
+  - **Images by digest.** The sandboxes service reports the workload container's `imageID`; the first time a pod is ready the Runtime records it (`pod.imageDigest` in the view) and every later apply runs that digest, so a stop, relaunch or reset never pulls another image under the same tag. A fork pulls afresh. Migration 0027.
+  - **Studio** lists files by hash on the Environment page.
+
+- f5c8a64: **The sidebar holds Sessions and Environments only.** Artifacts is no longer a sidebar entry: an artifact opens from where it belongs, a session's Outputs tab or an Environment's Disk or Setup & files tab. `/artifacts` and `/artifacts?selected=<id>` still open, so existing and embedded links keep working.
+- 9d33ed9: **A better message box in a session's chat.** The text and one round button now sit in a single card, with the model picker under it. The box grows with its text, **Enter** sends and **Shift+Enter** adds a line. While a turn runs the button stops it, taking over from the **Cancel** button in the session header. The chat opens at the newest message, follows new ones while you are at the bottom, and offers a button back to the latest when you scroll up. The bar above the chat is gone: the session's short id (click to copy), its status and its Environment now sit in the page header next to the agent's name, the header drops the Tenant badge the sidebar already shows, and Refresh is an icon button. The inspector's tabs read Events, Agent (Workflow for a flow), Environment, Outputs.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies [3a32a57]
+- Updated dependencies [af90d1e]
+- Updated dependencies [104f24f]
+- Updated dependencies [c96b9a8]
+- Updated dependencies [94bf329]
+- Updated dependencies [b5ea2b5]
+- Updated dependencies [f44c018]
+- Updated dependencies [bc22487]
+- Updated dependencies [0b7cbbd]
+- Updated dependencies [9b07bdd]
+- Updated dependencies [c8e640b]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.21.0-beta
+  - @nylorun/admin@0.17.0-beta
+
 ## 0.24.0-beta
 
 ### Minor Changes

@@ -1,5 +1,110 @@
 # nylorun
 
+## 0.15.0-beta
+
+### Minor Changes
+
+- bf8ec79: **`nylorun environments` for manifests and forks (protocol 14).**
+
+  - `nylorun environments manifests list | get <name> [--version n] | versions <name> | save <file>... [--if-match n] [--dry-run] | rm <name>`. `save` reads each JSON file (dropping `$schema`). A `files` entry with `"from": "<folder>"`, relative to the file, becomes files by content hash; `save` uploads those the Runtime lacks. `--dry-run` prints the plan and exits 1 when the Runtime would refuse the save.
+  - `nylorun environments put <id> --manifest <name[@n]>` makes an Environment from a manifest version.
+  - `nylorun environments fork <id> <new-id> [--manifest name@n] [--disk latest|n|empty] [--secrets copy|none] [--label k=v]... [--dry-run]` forks an Environment onto a new manifest version, and names the required slots still to set.
+  - `nylorun environments list` shows each Environment's manifest and version. `--behind` keeps those made from an older version than their manifest's latest.
+  - `nylorun environments secrets put <id> <name>`, with no file, writes a slot's value piped in on standard input.
+  - `nylorun agents save --dry-run` checks a definition and saves nothing.
+
+- 104f24f: **Environment manifests, and Environments that never change (protocol 14, D63 to D65).** An Environment's definition can now be saved like an agent: a named, versioned environment manifest, written as a JSON file with a published schema and checked with a plan before it is saved. An Environment is made from one version and keeps it for life; a save changes no Environment. The Runtime speaks protocol 14 only; sessions, Environments and vaults carry over. See MIGRATION.md.
+
+  - **Environment manifests.** `PUT /v1/environment-manifests/{name}` saves the next version, or answers the latest `unchanged`; `If-Match: <version>` refuses a save over a newer one (`412 manifest_changed`), and `?dryRun=true` answers the plan (changes, errors, warnings, the Environments behind) and saves nothing. Each version records `savedBy`. `GET` (latest), `GET /v1/environment-manifests`, `.../versions`, `.../versions/{n}` and `DELETE` (refused while an Environment names it, `409 manifest_in_use`). Migration 0025.
+  - **Pinned Environments.** `PUT /v1/environments/{id}` takes `manifest: "name"` (the latest at creation) or `"name@n"`. On an existing Environment only `labels` and `ownerUserId` may change; fields that match are accepted, and anything else is `409 environment_immutable` with `details.fields`. The view's `recipe` is now `manifest`, with `manifestName`, `manifestVersion`, `manifestHash` and `slots`; `version` and `appliedVersion` no longer move. `environment.created` names the manifest.
+  - **Secret slots.** A manifest's (or inline) `secrets` declares each secret's name, type, binding, `required` and `description`, never a value. On such an Environment a secret write sends only `{ value }` (or `{ headers }`), the binding comes from the slot, and an undeclared name is `409 secret_not_in_manifest`.
+  - **`requires`.** Agent manifest v7 takes `requires: { sandbox?: "none" | "any" | "pod", secrets? }` (`.requires()` in `@nylorun/core/define`), checked when a session opens (`409 environment_unsuitable`, `details.missing`). Turn variants keep it.
+  - **Dry runs.** `PUT /v1/agents/{id}?dryRun=true` checks a definition and saves nothing (`dryRun: true` in the answer).
+  - `@nylorun/core`: `PROTOCOL_VERSION` 14, `HOST_PROTOCOL` `{ min: 14, max: 14 }`, required feature `environment-manifests`; `EnvironmentManifestSchema`, `EnvironmentSecretSlotSchema`, `parseEnvironmentManifestRef` and the view, plan and save schemas; JSON Schemas at `@nylorun/core/schemas/environment-manifest.json` and `@nylorun/core/schemas/agent-manifest.json` (`$id` `https://docs.nylorun.com/schemas/environment-manifest/v1.json` and `.../agent-manifest/v7.json`).
+  - `@nylorun/agents`: `client.environments.manifests` (`save`, `plan`, `get`, `list`, `versions`, `delete`), `environmentManifest()`, `EnvironmentInput` (was `EnvironmentRecipeInput`), value-only `secrets.put`, and `saveAgent(agent, { dryRun })`.
+  - **Studio** edits only an Environment's labels and owner guard, shows the manifest it was made from, and its setup and files are read-only.
+  - `nylorun environments put` help says what it runs never changes.
+
+- c96b9a8: **An agent manifest is flat: manifest v7, a `runtime` block the Runtime writes, and tools known by name (protocol 13, Harness API 3).** A manifest listed capabilities, each with its own instructions, tools, skills and servers, and the Runtime added its own as more capabilities. Now the agent's parts sit at the top level, a plugin's skills and servers say which plugin brought them, and what the Runtime adds to a session's agent is one `runtime` block. A fresh start: the Runtime speaks protocol 13 only, so save your agents again; sessions from protocol 12 do not carry over. See MIGRATION.md.
+
+  - **Manifest v7.** `{ manifestSchemaVersion: 7, id, name?, description?, metadata?, outputSchema?, instructions?, tools?, skills?, mcpServers?, runtime? }`. Versions 3 to 6 and a `capabilities` field are refused with a message to rebuild. `SkillManifest.plugin` and `McpServerManifest.plugin` are `{ name, version? }`, set by `.plugin(dir)` from `plugin.json`.
+  - **The `runtime` block.** `{ sandbox?, tools?, instructions? }`, written only by the Runtime when a session pins the agent: the sandbox spec and tools, `save_artifact`, `read_artifact`, `load_skill` and `read_skill_resource`, the skill catalog and the notes that go with them. A definition or a turn variant that sets it is refused. `runtimeManifestFor` in `@nylorun/core/define` replaces `sandboxCapabilityManifest`, `artifactsCapabilityManifest` and `toolsCapabilityManifest`. `.skills()` and `.plugin()` no longer add the skill tools or the catalog.
+  - **Names.** An agent's tool may not take a Runtime tool's name (`RUNTIME_TOOL_NAMES`) or contain `__`, and names are unique across tools, skills and servers.
+  - **Turn variants** may remove tools, tighten MCP servers and change instructions, name, description and metadata. Skills are fixed, and a variant never sets `runtime` or changes `outputSchema`.
+  - **Tools by name.** `capabilityId` is gone from `tool.completed`, `mcp.discovered`, tool call rows, `EffectIntent`, gate requests, checkpoints and `SessionToolRef`. An HTTP tool's `server` is its URL's host. `Implementations` is `{ tools }`, keyed by tool name (`Agent.from(json, { tools })`), `AgentBinding.declarations` is `parts`, and observe events say `partId`.
+  - **Harness API 3.** `hello.capabilities` is `features`, and the `harness` pseudo-capability is gone: a native tool is known by its name, and one whose name is taken fails the turn at its start. `createHarness({ features })` in `@nylorun/harness`. `examples/harness-minimal` speaks it.
+  - **Studio.** The Agent tab shows instructions, tools (HTTP and agent badges), skills and MCP servers, each skill and server with its plugin's badge and a filter by plugin, and a session's Runtime section: its sandbox, tools and instructions.
+  - `@nylorun/core`: `PROTOCOL_VERSION` 13, `HOST_PROTOCOL` `{ min: 13, max: 13 }`, required feature `flat-manifest`, `HARNESS_API_VERSION` 3; `PluginLabel`, `RuntimeManifest`, `RUNTIME_TOOL_NAMES`, `isRuntimeToolName`, `runtimeToolOf`, `isSkillTool`, `SKILLS_USAGE` and `formatSkillCatalog` in `/define`.
+  - `@nylorun/agents`, `@nylorun/admin`, `@nylorun/studio` and `nylorun` send protocol 13.
+
+- 94bf329: **Each model says what it reads, a file it does not read is refused before a turn starts, and a file is an artifact the model reads again after its turn (protocol 12).** A message could name any file, and a model that could not read it failed the turn at its model call; every later turn sent the file's bytes again. Now the Runtime knows what the Tenant's model reads, checks a message's files when it is accepted, and sends a file's bytes only in the turn that brought it. Protocol 12 only adds to 11: the Runtime serves both.
+
+  - **Model inputs.** A model reads `text`, and `image`, `pdf`, `office`, `audio` or `video` when its catalog says so or the operator adds it where its API carries it natively (images everywhere; PDFs on the Anthropic, OpenAI, Azure and Google APIs; Office documents on the OpenAI Responses APIs; audio and video on Google's APIs and OpenAI-compatible completions). `GET /v1/tenant/models` gives each model `inputs` and `addableInputs`, `GET /v1/tenant/providers` each provider's `inputs`, and **`PUT /v1/tenant/models/inputs`** (the Management API; `admin.models.setInputs({ provider, model, inputs })`) sets the added ones, kept in the Tenant setting `model.inputs`. The Model Gate gives the provider adapter a model with an added image, so it is sent.
+  - **A custom endpoint reads text only by default.** It used to be sent images. Set `settings.inputs` on `PUT /v1/tenant/model` (`image`, `pdf`, `audio`, `video`) for what yours reads; `office` is refused there. See MIGRATION.md.
+  - **The accept check.** A message naming a file of a type the Tenant's model does not read is `422 attachment_unsupported`, with `details.parts` (`artifactId`, `name`, `mediaType`, `reason`), and no turn starts. Only the type is checked, never the size. Without a model in the vault nothing is refused.
+  - **Files as artifacts.** After its turn a file is a reference line, `[Uploaded artifact "name" · <artifactId> v<n> · read_artifact to view]` (a tool's: `[Tool <name> returned artifact …]`). Our harness sends the turn's own files once more, as media, in one user message after the conversation, so a message reads the same in every later call. At the gate, an image the model reads is an image, a text file a `<file>` block, and any other file, or one that cannot be read, a note: no file fails a call. PDFs, Office documents, audio and video are notes until the gate sends them natively.
+  - **`read_artifact` for every agent.** Every agent's session has it (an agent that declares its own keeps it), so every agent session pins its definition with it added. It takes a `version`, reads the Tenant-wide artifacts the session's messages named, and shows any file the Tenant's model reads; one it does not read fails `artifact.unsupported`.
+  - **Compaction** keeps the summarized part's reference lines (`files` on the compaction entry), and counts the turn's files by type and size in its token estimate.
+  - `@nylorun/core`: `PROTOCOL_VERSION` 12, required feature `model-inputs`, `HOST_PROTOCOL` `{ min: 11, max: 12 }`, error code `attachment_unsupported`; `MODEL_INPUTS`, `ModelInputSchema`, `PutModelInputsRequestSchema`, `ModelInputsViewSchema`, `CustomModelSettings.inputs`; `mediaReferenceLine` and `mediaReferenceOf` in `/define`; `TranscriptCompactionEntry.files`.
+  - `@nylorun/agents`, `@nylorun/studio` and `nylorun` send protocol 12.
+
+- a4c431a: **One command, `nylorun`, grouped by the API each command uses.** `nylo` became part of `nylorun`, and the commands that are not the installation's lifecycle moved into groups: `environments` (the Runtime API, an application key), `tenant` (the Management API, a management key) and `local` (Docker and kubectl on this machine). See MIGRATION.md.
+
+  - **`nylorun`:** `up`, `down`, `start`, `stop`, `status`, `studio` and `doctor` stay at the top. `tenant reset|keys|signing-keys|models set|mcp inspect`; `environments list|delete`; `local ls|delete|logs|reset|sandbox|telemetry`; `doctor sandbox`. The old spellings (`nylorun logs`, `reset`, `key`, `mcp`, `sandbox`, `configure`, …) exit 2 naming their replacement.
+  - **Remote installations:** without `--tenant`, `NYLORUN_RUNTIME_URL` with `NYLORUN_MANAGEMENT_KEY` points `status`, `doctor sandbox` and `tenant` at a remote installation, and with `NYLORUN_SERVER_KEY` points `environments` there. `tenant keys` then manages application keys through the Management API; `tenant mcp inspect` and `environments` no longer need a local Tenant.
+  - **`nylo`:** for one release, each command exits 2 naming the `nylorun` command that replaced it. `nylo env` has no replacement: the SDKs read the Project link themselves.
+  - **`@nylorun/cli`:** its `nylo` still runs nylorun's, which now names the replacement.
+  - **`@nylorun/runtime`:** messages that named `nylo configure`, `nylorun sandbox enable|status` or `nylorun key put` name `nylorun tenant models set`, `nylorun local sandbox enable|status` and `nylorun tenant keys put`.
+
+- f44c018: **Sessions on one Environment run their turns at the same time, and egress is recorded on the Environment (protocol 14, D66, D67).** A second session's turn on an Environment was refused with `409 environment_busy` until the first ended. Now any session on it may start a turn while others run; one turn per session stays. Which sessions work on one disk, and when, is the app's call. See MIGRATION.md, "Parallel turns, and egress on the Environment".
+
+  - **Turns.** `checkEnvironmentTurn` no longer refuses a turn because another session's turn runs, and the flow-tree exception is gone. `environment_busy` still answers stop, reset, snapshot and restore while any turn runs, and a turn while a disk copy runs.
+  - **Egress.** Every connection through egress-gate, allowed or refused, is `environment.egress` on the Environment's stream, with `runningTurns: [{ sessionId, turnId }]`, the turns running when it opened (at most 16). `egress.connection` leaves the session event catalog, and turn traces carry no `CONNECT` span.
+  - **Reading it.** `GET /v1/environments/{id}/events` takes `types` (comma-separated), `since` and `until` (ISO times); `client.environments.events(id, { types, since, until })` in `@nylorun/agents`, and `nylorun environments events <id> --types --since --until`.
+  - `@nylorun/core`: `EgressRunningTurnSchema`, `EgressRunningTurn`; `EgressConnectionPayloadSchema` gains `runningTurns`.
+
+- bc22487: **`nylorun` does what `@nylorun/agents` does: `agents`, `sessions`, `environments` and `artifacts`.** Each is a group on the Runtime API, with the installation's application key, an identity provider's token (`NYLORUN_TOKEN`), and `--as <subject> [--scope <scope>]...` to act for a person.
+
+  - **`agents list | get | save`:** `save <manifest.json|-> --files <dir>...` saves an agent from its manifest, uploading the definition files it names (found by their SHA-256) that the Runtime lacks.
+  - **`sessions`:** `list`, `create`, `get`, `send` (text, `--data` JSON, or `--file <artifact>[@<version>]` parts), `approve [--deny]`, `respond`, `cancel`, `watch [--follow]` (events as JSON lines), `history`, `usage`, `calls [--tool]`, `trace`, and `exec <id> -- <command>` (bash in the session's sandbox; exits with its exit code).
+  - **`environments`:** `list`, `get`, `put <id> [<recipe.json|->] [--kind] [--label]`, `stop`, `reset`, `delete`, `snapshot`, `versions`, `restore`, `delete-version`, `events`, and `secrets list|get|put|rm`; a secret's JSON comes from a file or standard input, never the command line.
+  - **`artifacts`:** `list`, `get`, `upload <file|->` (`--to <id>` for a new version), `download`, `tree`, `diff`, `zip`, `link`, `rm`.
+  - **`nylorun` now depends on `@nylorun/agents`.** A release of `@nylorun/agents` releases nylorun too.
+  - **`@nylorun/agents`:** an incompatible Runtime's remedy names `npx nylorun@latest start` instead of a `nylorun runtime restart` that no longer exists.
+
+- f0d4817: **`nylorun tenant` covers the Management API: models, usage, calls, budgets, tool policy, coverage and settings.** The group set the model only with prompts, and the rest of `@nylorun/admin` needed code. Now each Management API call has a command, for a local Tenant or the installation `NYLORUN_RUNTIME_URL` and `NYLORUN_MANAGEMENT_KEY` name.
+
+  - **Models.** `tenant models catalog | providers | get` print a table or a line (`--json` for the answer). `tenant models select <provider> [--model <id>]` switches to a provider that has a credential, keeping its model and endpoint. `tenant models set --provider <id> --model <id> [--base-url <url>]` sets an API key without prompts or pi-ai, for CI: the key is read from stdin, never from the arguments, and a terminal on stdin is refused (exit 2). With no flags, `models set` prompts as before.
+  - **Usage and calls.** `tenant usage [--scope tenant|agent|turn] [--id <id>] [--period day|month|total]` prints the totals as JSON. `tenant calls [--after <cursor>] [--limit <n>]` prints every recorded model call as one JSON line, page after page, until caught up, then the cursor to resume from on stderr.
+  - **Files in, files out.** `tenant budgets`, `tenant tool-policy`, `tenant settings sandbox` and `tenant settings artifacts` take `get` (the default), which prints the document as JSON, or `put <file|->`, which replaces it with the JSON body in a file or on stdin. A body is checked against its schema before anything is sent (exit 2 when it does not parse). What `budgets`, `tool-policy` and `settings artifacts` print, `put` takes back.
+  - **Coverage.** `tenant coverage --agent <id> [--environment <id>]` shows which secret of the Environment each of the agent's MCP servers and HTTP tools would get (`--json` for the answer).
+  - Usage errors exit 2 before any request.
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [3a32a57]
+- Updated dependencies [af90d1e]
+- Updated dependencies [104f24f]
+- Updated dependencies [c96b9a8]
+- Updated dependencies [94bf329]
+- Updated dependencies [b5ea2b5]
+- Updated dependencies [aff9bb8]
+- Updated dependencies [f44c018]
+- Updated dependencies [bc22487]
+- Updated dependencies [0b7cbbd]
+- Updated dependencies [9b07bdd]
+- Updated dependencies [c8e640b]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.21.0-beta
+  - @nylorun/agents@0.21.0-beta
+  - @nylorun/admin@0.17.0-beta
+
 ## 0.14.0-beta
 
 ### Minor Changes
