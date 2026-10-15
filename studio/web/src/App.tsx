@@ -101,6 +101,7 @@ import {
 } from "@/environment-path";
 import { NewSessionProvider } from "@/components/new-session";
 import { ApprovalCard } from "@/components/approval-card";
+import { Markdown } from "@/components/markdown";
 import { pendingApprovals } from "@/approvals";
 import type {
   AgentManifest,
@@ -1129,9 +1130,13 @@ function SessionView({
                       <p className="mb-1 text-xs text-muted-foreground">
                         Assistant
                       </p>
-                      <pre className="whitespace-pre-wrap font-sans">
-                        {pretty(payload.output)}
-                      </pre>
+                      {typeof payload.output === "string" ? (
+                        <Markdown>{payload.output}</Markdown>
+                      ) : (
+                        <pre className="whitespace-pre-wrap font-sans">
+                          {pretty(payload.output)}
+                        </pre>
+                      )}
                     </article>
                   );
                 if (
