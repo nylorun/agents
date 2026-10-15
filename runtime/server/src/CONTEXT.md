@@ -445,7 +445,8 @@ _Avoid_: "presigned URL" (the Object store's own URLs never leave the Runtime).
 the caller may read, of the session or Tenant-wide, at a version or its latest. The commands
 service pins each file to a version and gives the engine an opaque media part whose reference is
 `{ artifactId, version, name, size }`; model-gate reads the bytes (`artifacts/files.ts`) only for the call's
-session, the run token's on the gate's route, and reads none for a call without one, so the
+session, the run token's on the gate's route, and only what `read_artifact` reads (the session's
+own artifacts and the Tenant-wide ones its messages named), and reads none for a call without one, so the
 transcript and the record hold only the reference. An agent session's message naming a file its
 model does not read is refused at accept (`422 attachment_unsupported`, the type only, never the
 size; skipped with no model in the vault), and the files a session's messages named are kept on
