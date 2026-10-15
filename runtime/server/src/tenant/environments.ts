@@ -40,6 +40,7 @@
  * - **Lifecycle events** go to the Environment's own stream in the record (`Tx.environmentEvent`,
  *   `record/environment.ts`); the session's log records `environment.attached` too.
  */
+import { randomUUID } from "node:crypto";
 import {
   environmentGranted,
   parseEnvironmentManifestRef,
@@ -71,6 +72,7 @@ import { deleteDiskArtifact, forkSeedOf, runPendingSeed, snapshotEnvironment } f
 import { manifestChanges, manifestRecipeRequest } from "./environment-manifests.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
+import type { SealedSecretCopies } from "../vault/service.js";
 
 /** The Environment grants that limit `scope`, or undefined when it reaches every Environment. */
 export function environmentGrantsOf(scope: AuthScope): readonly string[] | undefined {
@@ -489,13 +491,9 @@ export async function putEnvironment(
       deleting(again);
       return found(again);
     }
-    await ctx.vault.createEnvironmentVault(t, id, actorOf(scope));
-    if (fork?.secrets === "copy") {
-      const slots = recipe.secrets === undefined ? undefined : Object.fromEntries(
-        Object.entries(recipe.secrets).map(([name, slot]) => [name, slotRequest(slot)]),
-      );
-      fork.copied = await ctx.vault.copyEnvironmentSecrets(t, fork.source, id, actorOf(scope), slots);
-    }
+    const vaultId = await ctx.vault.createEnvironmentVault(t, id, actorOf(scope), fork?.sealed?.vaultId);
+    if (fork?.sealed)
+      fork.copied = await ctx.vault.insertEnvironmentSecretCopies(t, vaultId, fork.source, actorOf(scope), fork.sealed.copies);
     const madeFrom = manifest ? { manifest: { name: manifest.name, version: manifest.version } } : {};
     await t.environmentEvent(id, "environment.created", {
       kind,
@@ -600,7 +598,11 @@ async function forkSource(
 interface Fork {
   source: string;
   setup: boolean;
-  secrets: "copy" | "none";
+  /**
+   * The source's secrets sealed by keys for the new vault `vaultId` (F4.2), before the create's
+   * transaction, which inserts them; absent with `secrets: none`.
+   */
+  sealed?: { vaultId: string; copies: SealedSecretCopies };
   copied?: { copied: string[]; dropped: string[] };
 }
 
@@ -622,7 +624,7 @@ export async function forkEnvironment(
   reachable(grants, sourceId);
   reachable(grants, body.id);
   if (body.id === sourceId) fail(400, "A fork is a new Environment: give it another id.");
-  const planned = await ctx.store.tx(async (t) => {
+  const { plan: planned, slots } = await ctx.store.tx(async (t) => {
     const source = (await liveEnvironment(t, sourceId)) ?? notFound();
     const subject = subjectOf(scope);
     if (subject !== undefined && source.ownerUserId !== undefined && source.ownerUserId !== subject) notFound();
@@ -683,12 +685,23 @@ export async function forkEnvironment(
       changes: manifestChanges(source.recipe, recipe),
       sessions: (await t.sessionsOnEnvironment(sourceId)).length,
     };
-    return plan;
+    const slots =
+      recipe.secrets === undefined
+        ? null
+        : Object.fromEntries(Object.entries(recipe.secrets).map(([item, slot]) => [item, slotRequest(slot)]));
+    return { plan, slots };
   });
   if (body.dryRun) return { dryRun: true, plan: planned };
   // `latest`: a version of the disk as it is now, between turns (an unchanged disk makes none).
   const disk = planned.disk === "latest" ? (await snapshotEnvironment(ctx, sourceId, scope)).version : planned.disk;
-  const fork: Fork = { source: sourceId, setup: planned.setup, secrets: body.secrets ?? "copy" };
+  // Keys holds the vault key (F4.2): it seals the copies first, outside the create's transaction,
+  // and the create inserts them, so the fork is still one commit.
+  const vaultId = randomUUID();
+  const sealed =
+    (body.secrets ?? "copy") === "copy"
+      ? { vaultId, copies: await ctx.keys.sealEnvironmentSecretCopies(sourceId, vaultId, slots) }
+      : undefined;
+  const fork: Fork = { source: sourceId, setup: planned.setup, ...(sealed ? { sealed } : {}) };
   const environment = await putEnvironment(
     ctx,
     body.id,

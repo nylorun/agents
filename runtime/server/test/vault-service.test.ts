@@ -177,6 +177,46 @@ describe("VaultService administration", () => {
     expect(await status(vault.getEnvironmentSecret("missing", "token"))).toBe(404);
   });
 
+  it("seals a fork's copies where the vault key is, and inserts them without it (Q15, F4.2)", async () => {
+    const { vault, store, read, environment } = await setup();
+    await environment("ada/v1");
+    await vault.putEnvironmentSecret(
+      "ada/v1",
+      "GH_TOKEN",
+      { type: "environment_secret", value: "gh-secret-value", allowedHosts: ["api.github.com"] },
+      "application",
+    );
+    await vault.putEnvironmentSecret("ada/v1", "OLD", { type: "environment_variable", value: "kept-behind" }, "application");
+    // The process that forks: in the runtime container the vault key lives in the keys service.
+    const forking = new VaultService({
+      store,
+      kek: () => {
+        throw new Error("this process never reads the vault key");
+      },
+    });
+    const vaultId = await environment("ada/v2");
+    const sealed = await vault.sealEnvironmentSecretCopies("ada/v1", vaultId, {
+      GH_TOKEN: { type: "environment_secret", allowedHosts: ["api.github.com", "uploads.github.com"] },
+    });
+    expect(JSON.stringify(sealed)).not.toContain("gh-secret-value");
+    expect(sealed.dropped).toEqual(["OLD"]);
+    const copied = await store.tx((t) => forking.insertEnvironmentSecretCopies(t, vaultId, "ada/v1", "application", sealed));
+    expect(copied).toEqual({ copied: ["GH_TOKEN"], dropped: ["OLD"] });
+    // Sealed under the new vault's ids, with the slot's binding.
+    expect(await vault.releaseEnvironmentSecret({ environmentId: "ada/v2", host: "uploads.github.com" })).toMatchObject({
+      status: "released",
+      header: "Authorization",
+      value: "Bearer gh-secret-value",
+    });
+    expect(await vault.listEnvironmentSecrets("ada/v1")).toHaveLength(2);
+    expect((await read((t) => t.vaultAudit())).at(-1)).toMatchObject({
+      action: "create",
+      vaultId,
+      target: "ada/v1",
+      outcome: "copied",
+    });
+  });
+
   it("replaces a secret by name, deletes it, and audits each", async () => {
     const { vault, read, environment } = await setup();
     const { vaultId } = await bearer(vault, environment, "ada", ADA_TOKEN);

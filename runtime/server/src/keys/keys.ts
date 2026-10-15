@@ -1,7 +1,8 @@
 /**
  * The keys seam (blueprint §14, F4.2): everything that needs the vault key. Vault writes that
  * touch a secret (writing an Environment's secret, setting and selecting the host model;
- * rotation and selection decrypt the old secret first) and all token signing (capability
+ * rotation and selection decrypt the old secret first; sealing a fork's copies of its source's
+ * secrets, which the fork's transaction then inserts) and all token signing (capability
  * links, run and host tokens, signing-key rotation) run here, whole, so the process that calls them never
  * holds the key or a private signing key.
  *
@@ -28,7 +29,7 @@ import { previewMcpServer } from "../mcp/preview.js";
 import type { SessionStore } from "../store/types.js";
 import type { OutboundPolicy } from "../tenant/outbound.js";
 import { signingKeyView, type SigningKeys } from "../tenant/signing-keys.js";
-import type { VaultService } from "../vault/service.js";
+import type { SealedSecretCopies, VaultService } from "../vault/service.js";
 
 /** One JWT to sign: its `typ` and every claim, `iss`, `aud`, `sub`, `iat`, `exp` and `jti` included. */
 export interface SignRequest {
@@ -52,6 +53,17 @@ export interface Keys {
   ): Promise<EnvironmentSecretView>;
   putHostModel(body: PutHostModelRequest): Promise<HostModelView>;
   selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>;
+  /**
+   * Environment `from`'s secrets sealed again for a fork's new vault `vaultId`, limited to
+   * `slots` when given (`VaultService.sealEnvironmentSecretCopies`, Q15). Writes nothing: the
+   * fork's transaction inserts the copies; call it before that transaction opens. `null`, not
+   * `undefined`, crosses the wire.
+   */
+  sealEnvironmentSecretCopies(
+    from: string,
+    vaultId: string,
+    slots: Readonly<Record<string, Record<string, unknown>>> | null,
+  ): Promise<SealedSecretCopies>;
   /** Signs with the current key, creating the Tenant's keys if it has none. */
   sign(request: SignRequest): Promise<Signed>;
   /** Rotates the signing keys (`SigningKeys.rotate`); 409 while the previous key may verify live tokens. */
@@ -77,6 +89,7 @@ export const KEYS_OPERATIONS = [
   "putEnvironmentSecret",
   "putHostModel",
   "selectHostModel",
+  "sealEnvironmentSecretCopies",
   "sign",
   "rotateSigningKeys",
   "ensureSigningKeys",
@@ -106,6 +119,7 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
       vault.putEnvironmentSecret(environmentId, name, body, actor),
     putHostModel: (body) => vault.putHostModel(body),
     selectHostModel: (body) => vault.selectHostModel(body),
+    sealEnvironmentSecretCopies: (from, vaultId, slots) => vault.sealEnvironmentSecretCopies(from, vaultId, slots),
     async sign(request) {
       const key = kek();
       const row = await store.tx((t) => signingKeys.ensure(t, key));
