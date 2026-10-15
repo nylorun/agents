@@ -23,6 +23,9 @@ async function serve(handler: Parameters<typeof createServer>[1]) {
 
 const signal = () => AbortSignal.timeout(5_000);
 
+/** A bounded fetch's limits, as a caller passes them (a Tenant's Runtime limits). */
+const BOUNDED = { maxResponseBytes: 1024 * 1024, timeoutMs: 30_000 };
+
 describe("addresses", () => {
   it("knows private, loopback, link-local and mapped addresses", () => {
     for (const address of ["10.1.2.3", "172.16.0.1", "192.168.1.1", "127.0.0.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1"])
@@ -122,7 +125,7 @@ describe("guardedFetch (F9 C2)", () => {
         res.writeHead(201, { "content-type": "application/json", "set-cookie": ["a=1", "b=2"] }).end('{"ok":true}');
       });
     });
-    const fetchFn = guardedFetch({});
+    const fetchFn = guardedFetch({}, BOUNDED);
     const form = await fetchFn(`http://localhost:${port}/token`, {
       method: "POST",
       headers: new Headers({ accept: "application/json" }),
@@ -145,10 +148,10 @@ describe("guardedFetch (F9 C2)", () => {
       hits += 1;
       res.end("{}");
     });
-    const fetchFn = guardedFetch({ privateAddresses: "refuse" });
+    const fetchFn = guardedFetch({ privateAddresses: "refuse" }, BOUNDED);
     await expect(fetchFn(`http://127.0.0.1:${port}/a`)).rejects.toBeInstanceOf(OutboundRefused);
     await expect(fetchFn(`http://localhost:${port}/a`)).rejects.toBeInstanceOf(OutboundRefused);
-    await expect(guardedFetch({ allowHttp: false })(`http://localhost:${port}/a`)).rejects.toThrow(/only https/);
+    await expect(guardedFetch({ allowHttp: false }, BOUNDED)(`http://localhost:${port}/a`)).rejects.toThrow(/only https/);
     expect(hits).toBe(0);
   });
 
@@ -157,14 +160,14 @@ describe("guardedFetch (F9 C2)", () => {
       if (req.url === "/redirect") res.writeHead(302, { location: "http://169.254.169.254/" }).end();
       else res.end("x".repeat(2048));
     });
-    await expect(guardedFetch({})(`http://localhost:${port}/redirect`)).rejects.toMatchObject({
+    await expect(guardedFetch({}, BOUNDED)(`http://localhost:${port}/redirect`)).rejects.toMatchObject({
       name: "OutboundFailed",
       code: "REDIRECT",
     });
-    await expect(guardedFetch({}, { maxResponseBytes: 1024 })(`http://localhost:${port}/big`)).rejects.toBeInstanceOf(
+    await expect(guardedFetch({}, { ...BOUNDED, maxResponseBytes: 1024 })(`http://localhost:${port}/big`)).rejects.toBeInstanceOf(
       OutboundFailed,
     );
-    await expect(guardedFetch({})(`http://localhost:1/closed`)).rejects.toBeInstanceOf(OutboundFailed);
+    await expect(guardedFetch({}, BOUNDED)(`http://localhost:1/closed`)).rejects.toBeInstanceOf(OutboundFailed);
   });
 
   it("streams an answer that stays open, unbounded, when asked to (MCP)", async () => {
@@ -174,7 +177,7 @@ describe("guardedFetch (F9 C2)", () => {
       res.write("x".repeat(2048));
       finish = () => res.end("done");
     });
-    const answer = await guardedFetch({}, { stream: true, maxResponseBytes: 1024 })(`http://localhost:${port}/sse`);
+    const answer = await guardedFetch({}, { stream: true })(`http://localhost:${port}/sse`);
     expect(answer.headers.get("content-type")).toBe("text/event-stream");
     const reader = answer.body!.getReader();
     let text = "";

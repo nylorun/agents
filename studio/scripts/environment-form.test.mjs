@@ -149,8 +149,10 @@ test("refuses setup and files off a pod, and rows the Runtime would refuse, nami
   assert.throws(() => environmentRequest(pod({ files: [{ artifactId: "report", version: "1", path: "/workspace" }] })), /Input file 1 needs an artifact id/);
   assert.throws(() => environmentRequest(pod({ files: [{ artifactId: ARTIFACT, version: "0", path: "/workspace" }] })), /needs a version/);
   assert.throws(() => environmentRequest(pod({ files: [{ artifactId: ARTIFACT, version: "1", path: "data" }] })), /path must be \/workspace/);
+  // How many a recipe holds is the Tenant's Runtime limit `environmentSetupCommands`, which the
+  // Runtime checks: the form sends them all.
   const many = Array.from({ length: 17 }, () => ({ command: "true", cwd: "", timeout: "" }));
-  assert.throws(() => environmentRequest(pod({ setup: many })), /at most 16 setup commands/);
+  assert.equal(environmentRequest(pod({ setup: many })).setup.length, 17);
 });
 
 test("a harness id is sent when set, and an existing one's harness fills the form", () => {

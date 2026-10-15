@@ -136,7 +136,7 @@ export function fileRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: { description: "The limit now in force", content: { "application/json": { schema: TenantSkillsView } } } },
     },
     async (c) => {
-      const { requestId: _requestId, ...config } = PutTenantSkillsRequestSchema.parse(await readJson(c.req.raw));
+      const { requestId: _requestId, ...config } = PutTenantSkillsRequestSchema.parse(await readJson(c));
       await c.env.tenant.store.tx((t) => writeSkillsConfig(t, config));
       return jsonResponse(200, { limits: effectiveSkillLimits(config) });
     },

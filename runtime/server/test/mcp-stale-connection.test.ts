@@ -106,7 +106,7 @@ function poolFor(via?: () => string) {
         via
           ? { status: "authorized", url, headers: {}, via: via(), vault: "installation" }
           : { status: "unauthenticated", url, headers: {} },
-      toolAnswerBytes: async () => RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
+      limits: async () => RUNTIME_LIMIT_DEFAULTS,
     }
   );
   return new McpPool({ openRemote: gate.openMcp! });

@@ -19,7 +19,6 @@ import type { LiveEvent } from "@nylorun/core/contracts";
 import { applyUpdate, transcriptOf, type TranscriptUpdate } from "@nylorun/core/harness-api";
 
 export {
-  CHUNK_BYTES,
   TranscriptFoldError,
   applyUpdate,
   applyUpdates,

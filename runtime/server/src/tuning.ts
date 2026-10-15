@@ -159,6 +159,8 @@ export const HostTuningSchema = z
        * sandboxes service is not ready.
        */
       retryAfterSeconds: count(5),
+      /** How long a pending Environment seed holds the disk before another process may take it over. */
+      seedLeaseMs: ms(10 * MINUTE),
     }),
     /** The Tenant's sweep (`tenant/sweep.ts`): outbox, orphaned sessions, stale pods. */
     sweep: group({

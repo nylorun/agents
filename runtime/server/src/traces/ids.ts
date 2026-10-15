@@ -60,9 +60,9 @@ export function parseTraceparent(value: string): { traceId: string; spanId: stri
 }
 
 /**
- * The most `tracestate` the Runtime keeps: W3C Trace Context asks vendors to propagate
- * at least 512 characters, and a longer header may be cut there. A constant of the standard, not a
- * setting.
+ * The most `tracestate` the Runtime keeps: W3C Trace Context (Level 1, section 3.3.1.1) has
+ * vendors propagate at least 512 characters of it, and lets one cut what is past that. A
+ * standard's constant, not a limit (B15).
  */
 const TRACESTATE_MAX = 512;
 

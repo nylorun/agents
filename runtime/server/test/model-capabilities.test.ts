@@ -12,7 +12,7 @@ import {
   hostModelDescriptor,
   selectionOf,
 } from "../src/model/descriptor.js";
-import { CUSTOM_CONTEXT_WINDOW, CUSTOM_MAX_TOKENS } from "../src/model/models.js";
+import { CUSTOM_MODEL_SETTING_DEFAULTS } from "@nylorun/core/contracts";
 
 it("reads the catalog's inputs, and additions only where the API carries them", () => {
   const claude = { api: "anthropic-messages", input: ["text", "image"] } as const;
@@ -65,8 +65,8 @@ it("describes a model the way the gate resolves it (protocol 15)", () => {
     provider: "custom",
     id: "m",
     inputs: ["text"],
-    contextWindow: CUSTOM_CONTEXT_WINDOW,
-    maxOutputTokens: CUSTOM_MAX_TOKENS,
+    contextWindow: CUSTOM_MODEL_SETTING_DEFAULTS.contextWindow,
+    maxOutputTokens: CUSTOM_MODEL_SETTING_DEFAULTS.maxTokens,
     reasoning: false,
   });
   expect(

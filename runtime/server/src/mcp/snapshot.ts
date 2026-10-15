@@ -14,7 +14,7 @@ import {
   type AgentManifest,
   type ResolvedMcpToolSettings,
 } from "@nylorun/core/define";
-import type { McpFacts, McpSnapshot, McpToolRecord } from "@nylorun/core/harness-api";
+import type { McpFacts, McpServerRecord, McpSnapshot, McpToolRecord } from "@nylorun/core/harness-api";
 import type { HostEffect } from "@nylorun/harness/run";
 import { findServer } from "./pool.js";
 
@@ -143,6 +143,46 @@ export function manifestFor(
   agent: HostEffect["agent"]
 ): AgentManifest | undefined {
   return agent ? delegateManifest(manifest, agent.id) : manifest;
+}
+
+/**
+ * `snapshot` within the Tenant's Runtime limit `mcpSnapshotBytes` (its JSON, which every
+ * `turn.start.mcp` carries): its servers in order while they fit. A server that does not is left
+ * out, so the session never offers its tools, and its diagnostic says so (`failed`, replacing
+ * the one it had). Unchanged when the whole snapshot fits.
+ */
+export function fitSnapshot(
+  snapshot: McpSnapshot,
+  diagnostics: readonly McpDiagnostic[],
+  limitBytes: number,
+): { snapshot: McpSnapshot; diagnostics: McpDiagnostic[] } {
+  const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+  if (bytes(snapshot) <= limitBytes) return { snapshot, diagnostics: [...diagnostics] };
+  const kept: McpServerRecord[] = [];
+  const dropped = new Map<string, number>();
+  const key = (agentId: string | undefined, serverName: string) => JSON.stringify([agentId ?? null, serverName]);
+  for (const server of snapshot.servers) {
+    const next = { ...snapshot, servers: [...kept, server] };
+    const size = bytes(next);
+    if (size <= limitBytes) kept.push(server);
+    else dropped.set(key(server.agentId, server.name), bytes(server));
+  }
+  const tooLarge = (agentId: string | undefined, serverName: string, size: number): McpDiagnostic => ({
+    ...(agentId === undefined ? {} : { agentId }),
+    serverName,
+    outcome: "failed",
+    message: `The server's tools and instructions take ${size} bytes, past what the session may pin with the rest: the Runtime limit mcpSnapshotBytes (${limitBytes} bytes; PUT /v1/tenant/limits). Its tools are not offered.`,
+  });
+  const out = diagnostics.map((item) => {
+    const size = dropped.get(key(item.agentId, item.serverName));
+    return size === undefined ? item : tooLarge(item.agentId, item.serverName, size);
+  });
+  for (const server of snapshot.servers) {
+    const size = dropped.get(key(server.agentId, server.name));
+    if (size !== undefined && !out.some((item) => key(item.agentId, item.serverName) === key(server.agentId, server.name)))
+      out.push(tooLarge(server.agentId, server.name, size));
+  }
+  return { snapshot: { ...snapshot, servers: kept }, diagnostics: out };
 }
 
 /** True for a snapshot of the shape this Runtime pins (`snapshotSchemaVersion` 2). */

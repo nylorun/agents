@@ -18,7 +18,6 @@ import {
   EMPTY_FILE_ROW,
   EMPTY_SETUP_ROW,
   ENVIRONMENT_FORM_KINDS,
-  SETUP_MAX,
   environmentForm,
   environmentRequest,
   forkForm,
@@ -822,7 +821,6 @@ function Rows<Row>({
         variant="outline"
         size="sm"
         className="justify-self-start"
-        disabled={rows.length >= SETUP_MAX}
         onClick={() => onChange([...rows, empty])}
       >
         <Plus />

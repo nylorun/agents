@@ -5,7 +5,7 @@
  * what really ran.
  */
 import { afterEach, expect, it } from "vitest";
-import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
+import { HARNESS_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import {
   HARNESS_API_VERSION,
   effectRequestHash,
@@ -110,7 +110,8 @@ it("hands the harness the Tenant's Runtime limits in turn.start, and holds its s
   const leased = acme.request("lease", {});
   await message(runtime, 1);
   const { run, input } = (await leased) as { run: { runId: string }; input: TurnStart };
-  expect(input.limits).toEqual({ ...RUNTIME_LIMIT_DEFAULTS, harnessStateBytes: 1024 });
+  // Only the limits a harness must respect (B15).
+  expect(input.limits).toEqual({ ...HARNESS_LIMIT_DEFAULTS, harnessStateBytes: 1024 });
   await expect(
     acme.request("turn.completed", { runId: run.runId, status: "completed", state: { blob: "x".repeat(2048) } })
   ).rejects.toMatchObject({ code: "limit_exceeded", message: expect.stringContaining("harnessStateBytes (1024 bytes") });

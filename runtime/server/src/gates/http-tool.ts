@@ -23,6 +23,7 @@ import {
 import {
   HTTP_TOOL_DEFAULT_TIMEOUT_MS,
   delegateManifest,
+  delegatesOf,
   flowHttpTarget,
   httpPathParameters,
   httpToolRequest,
@@ -35,6 +36,7 @@ import {
   type WorkflowManifest,
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
+import type { RuntimeLimits } from "@nylorun/core/contracts";
 import { scrubValues } from "../redact.js";
 import { send, type OutboundPolicy } from "../tenant/outbound.js";
 import type { Logger } from "../tenant/types.js";
@@ -43,9 +45,6 @@ import type { AuthorizeResult } from "../vault/service.js";
 import type { McpCredentialRequest } from "../vault/sources.js";
 import type { TenantVaults } from "./tenant-vaults.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
-
-/** How much of a failed answer's body the model sees. */
-export const HTTP_ERROR_BODY_CHARS = 2_000;
 
 /** What an HTTP request came to, as a tool outcome. */
 export type HttpOutcome =
@@ -97,14 +96,17 @@ export interface HttpToolCall {
 }
 
 /**
- * What `runHttpTool` reads of the Tenant: the session's pinned manifest, its credentials, and the
- * Runtime limit `toolAnswerBytes`, read for each call.
+ * What `runHttpTool` reads of the Tenant: the session's pinned manifest, its credentials, and its
+ * Runtime limits (`toolAnswerBytes`, `httpToolTimeoutMs`, `errorExcerptChars`), read for each call.
  */
 export interface HttpToolTenant {
   session(sessionId: string): Promise<{ readonly manifest: unknown } | undefined>;
   authorize(sessionId: string, request: McpCredentialRequest): Promise<AuthorizeResult>;
-  toolAnswerBytes(): Promise<number>;
+  limits(): Promise<HttpToolLimits>;
 }
+
+/** The Runtime limits an HTTP tool call keeps to. */
+export type HttpToolLimits = Pick<RuntimeLimits, "toolAnswerBytes" | "httpToolTimeoutMs" | "errorExcerptChars">;
 
 /** The HTTP tool `toolName` of the agent `agentId` (the root when absent). */
 export function declaredHttpTool(
@@ -118,6 +120,26 @@ export function declaredHttpTool(
   const agent = agentId === undefined ? root : delegateManifest(root, agentId);
   const tool = agent?.tools?.find((item) => item.name === toolName);
   return tool?.http ? (tool as ToolManifest & { http: HttpToolTarget }) : undefined;
+}
+
+/**
+ * Why `manifest` cannot be deployed: each HTTP tool of it, or of an agent it uses as a tool, whose
+ * `timeoutMs` is longer than the Tenant's Runtime limit `httpToolTimeoutMs`. A call also waits at
+ * most the limit in force then (`callHttpTarget`).
+ */
+export function httpToolTimeoutIssues(manifest: unknown, limitMs: number): string[] {
+  const root = manifest as AgentManifest | undefined;
+  if (!root || typeof root !== "object" || isWorkflowManifest(root as never)) return [];
+  return [root, ...delegatesOf(root).map((delegate) => delegate.manifest)].flatMap((agent) =>
+    (agent.tools ?? []).flatMap((tool) => {
+      const asked = tool.http?.timeoutMs;
+      return asked !== undefined && asked > limitMs
+        ? [
+            `HTTP tool '${tool.name}' of agent '${agent.id}' asks for timeoutMs ${asked}; the Runtime limit httpToolTimeoutMs allows at most ${limitMs} (PUT /v1/tenant/limits).`,
+          ]
+        : [];
+    }),
+  );
 }
 
 /** The HTTP stage or HTTP verifier at stage key `stage` of a flow session's `manifest`. */
@@ -165,21 +187,26 @@ export async function callHttpTarget(
     readonly headers: Readonly<Record<string, string>>;
     readonly policy: OutboundPolicy;
     readonly signal: AbortSignal;
-    /** The largest answer read (the Runtime limit `toolAnswerBytes`); past it, `http.too-large`. */
-    readonly maxResponseBytes: number;
+    /**
+     * The Tenant's Runtime limits: the largest answer read (`toolAnswerBytes`; past it,
+     * `http.too-large`), the longest the tool may wait (`httpToolTimeoutMs`, which its own
+     * `timeoutMs` may not pass) and how much of an error answer is quoted (`errorExcerptChars`).
+     */
+    readonly limits: HttpToolLimits;
     /** Checked against the answer; a mismatch is `tool.invalid-output`. */
     readonly outputSchema?: JsonObject;
   },
 ): Promise<HttpOutcome> {
   const request = httpToolRequest(target, input);
   if ("issue" in request) return failed("tool.invalid-input", request.issue);
-  const timeoutMs = target.timeoutMs ?? HTTP_TOOL_DEFAULT_TIMEOUT_MS;
+  const { limits } = options;
+  const timeoutMs = Math.min(target.timeoutMs ?? HTTP_TOOL_DEFAULT_TIMEOUT_MS, limits.httpToolTimeoutMs);
   const timeout = AbortSignal.timeout(timeoutMs);
   const result = await send(request.url, request.body, { ...options.headers }, {
     policy: options.policy,
     method: request.method,
     signal: AbortSignal.any([options.signal, timeout]),
-    maxResponseBytes: options.maxResponseBytes,
+    maxResponseBytes: limits.toolAnswerBytes,
   });
   if (options.signal.aborted) throw options.signal.reason;
   if (timeout.aborted) return failed("http.timeout", `The service did not answer within ${timeoutMs} ms`);
@@ -196,7 +223,7 @@ export async function callHttpTarget(
     case "too_large":
       return failed(
         "http.too-large",
-        `The answer (HTTP ${result.status}) is larger than ${options.maxResponseBytes} bytes (the Runtime limit toolAnswerBytes)`,
+        `The answer (HTTP ${result.status}) is larger than ${limits.toolAnswerBytes} bytes (the Runtime limit toolAnswerBytes)`,
       );
   }
   // The service answered, so the outcome is known; never retried, and its body is not shown (R2b C1).
@@ -204,7 +231,8 @@ export async function callHttpTarget(
     return failed("credential_rejected", "The service answered HTTP 401: it rejected the credential, or needs one");
   const text = result.body.toString("utf8");
   if (result.status < 200 || result.status > 299) {
-    const body = text.length > HTTP_ERROR_BODY_CHARS ? `${text.slice(0, HTTP_ERROR_BODY_CHARS)}…` : text;
+    const chars = limits.errorExcerptChars;
+    const body = text.length > chars ? `${text.slice(0, chars)}…` : text;
     return failed("http.status", `The service answered HTTP ${result.status}${body ? `: ${body}` : ""}`);
   }
   const type = String(result.headers["content-type"] ?? "");
@@ -315,7 +343,7 @@ export async function runHttpTool(
       },
       policy: options.policy,
       signal: options.signal,
-      maxResponseBytes: await tenant.toolAnswerBytes(),
+      limits: await tenant.limits(),
       ...(declared.outputSchema === undefined ? {} : { outputSchema: declared.outputSchema }),
     });
     // Nothing the service echoes of the credential reaches the model, an event or the gate's
@@ -340,8 +368,7 @@ export function gateHttpTools(vaults: TenantVaults, policy: OutboundPolicy, logg
           session: async (sessionId) => (await vaults.open(tenantId)).session(sessionId),
           authorize: async (sessionId, request) =>
             (await vaults.open(tenantId)).authorizeMcp(sessionId, request),
-          toolAnswerBytes: async () =>
-            (await (await vaults.open(tenantId)).store.tx((t) => readRuntimeLimits(t))).toolAnswerBytes,
+          limits: async () => (await vaults.open(tenantId)).store.tx((t) => readRuntimeLimits(t)),
         },
         call,
         { policy, signal, logger },

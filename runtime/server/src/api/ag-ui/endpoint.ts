@@ -10,7 +10,6 @@ import { z } from "zod";
 import { EventSchemas, MessageSchema, RunAgentInputSchema } from "@ag-ui/core/schemas";
 import type { TenantEnv } from "../http/app.js";
 import { readJson } from "../http/body.js";
-import { INLINE_BODY_MAX_BYTES } from "../inbound-files.js";
 import { TraceHeaders, tenantRoute, type RouteAccess } from "../http/define.js";
 import { traceContextOf } from "../../traces/ids.js";
 import { jsonResponse } from "../http/respond.js";
@@ -87,7 +86,7 @@ export function agUiRoutes(api: OpenAPIHono<TenantEnv>): void {
         c.req.param("agentId")!,
         { subject, access },
         // A message may carry files inline.
-        await readJson(c.req.raw, INLINE_BODY_MAX_BYTES),
+        await readJson(c, "inline"),
         c.env.outgoing,
         traceContextOf(c.req.raw.headers),
       );

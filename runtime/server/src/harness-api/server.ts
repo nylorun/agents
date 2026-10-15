@@ -51,6 +51,7 @@ import { definitionFilesOf, limitExceededMessage, type EventWriter } from "@nylo
 import { isOwnershipLost } from "../store/ownership.js";
 import { harnessOf, ownedSession, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import {
+  fitSnapshot,
   isSnapshot,
   mcpDiscovered,
   mcpFactsOf,
@@ -58,6 +59,7 @@ import {
   type McpSnapshot,
 } from "../mcp/snapshot.js";
 import { turnManifestOf } from "../tenant/session.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { sandboxWorkspaceKey, workspacePrefix } from "../sandbox/records.js";
 import type { RunOf } from "../tenant/run-grants.js";
 import { abortKind } from "../tenant/worker.js";
@@ -448,8 +450,10 @@ export function createHarnessApiServer(
 
   /**
    * What a harness found readying the run's MCP servers: the first snapshot recorded for the
-   * session wins, pinned as it is, with `mcp.discovered` in its log; diagnostics replace those of
-   * the same server. Answers the session's facts as the run's turn sees them (protocol 15).
+   * session wins, pinned as it is within the Tenant's Runtime limit `mcpSnapshotBytes` (a server
+   * past it is left out, with a diagnostic: `fitSnapshot`), with `mcp.discovered` in its log;
+   * diagnostics replace those of the same server. Answers the session's facts as the run's turn
+   * sees them (protocol 15).
    */
   const recordMcp = async (run: Run, params: ParamsOf<"session.mcp">) => {
     const snapshot = params.snapshot as McpSnapshot | undefined;
@@ -458,9 +462,11 @@ export function createHarnessApiServer(
     return ctx.store.tx(async (t) => {
       const { lease } = run.offer;
       const current = await ownedSession(t, lease, lease.sessionId);
-      const diagnostics = params.diagnostics as McpDiagnostic[];
+      let diagnostics = params.diagnostics as McpDiagnostic[];
       if (snapshot && !current.mcpSnapshot) {
-        current.mcpSnapshot = snapshot;
+        const fitted = fitSnapshot(snapshot, diagnostics, (await readRuntimeLimits(t)).mcpSnapshotBytes);
+        diagnostics = fitted.diagnostics;
+        current.mcpSnapshot = fitted.snapshot;
         current.mcpDiagnostics = diagnostics;
         await t.put("sessions", current.id, current);
         await t.event(

@@ -9,8 +9,3 @@ export const SAVE_ARTIFACT_TOOL = "save_artifact";
  * reference line.
  */
 export const READ_ARTIFACT_TOOL = "read_artifact";
-/**
- * The page our engine's `read_artifact` reads by default, and the most of one tool result it keeps
- * inline by default: 32 KiB.
- */
-export const READ_ARTIFACT_MAX_BYTES = 32 * 1024;

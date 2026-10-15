@@ -27,7 +27,8 @@ import { hashManifest } from "@nylorun/core/compatibility";
 import { canonical } from "../store/canonical.js";
 import type { EnvironmentManifestRow, Tx } from "../store/types.js";
 import { resolveRecipe, type RecipeRequest } from "../sandbox/resolve.js";
-import { limitIssues, readTenantLimits } from "./limits.js";
+import { limitIssues, manifestShapeIssues, readTenantLimits } from "./limits.js";
+import { readRuntimeLimits } from "./runtime-limits.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import type { AuthScope, TenantContext } from "./context.js";
 import { actorOf, fileErrors } from "./environments.js";
@@ -116,6 +117,7 @@ async function errorsOf(t: Tx, manifest: EnvironmentManifest): Promise<string[]>
   return [
     ...(resolved.kind === "error" ? resolved.errors : []),
     ...limitIssues(manifest.limits, await readTenantLimits(t)),
+    ...manifestShapeIssues(manifest, await readRuntimeLimits(t)),
     ...(await fileErrors(t, manifest.files)),
   ];
 }

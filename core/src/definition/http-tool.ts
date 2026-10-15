@@ -19,6 +19,7 @@ import { HarnessError } from "../errors.js";
 import { ToolError } from "./tool-error.js";
 import { normalizedSchemasFor, prepareTool } from "./schema.js";
 import { schemaFromJSON } from "./schema-json.js";
+import { TIMER_MAX_MS } from "../utils/runtime-limits.js";
 
 type AnyTool = ToolDefinition<any, any, any>;
 
@@ -30,10 +31,12 @@ export const HTTP_TOOL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as co
 /** The methods that send the input as a JSON body; the others send it as the query string. */
 export const HTTP_BODY_METHODS = ["POST", "PUT", "PATCH"] as const satisfies readonly HttpToolMethod[];
 export const APPROVAL_MODES = ["never", "always"] as const satisfies readonly ApprovalMode[];
-/** How long a service may take to answer when the tool sets no `timeoutMs`. */
+/**
+ * The default of a tool's `timeoutMs` setting: how long a service may take to answer when the
+ * tool sets none. The longest a tool may set is the Tenant's Runtime limit `httpToolTimeoutMs`,
+ * checked when the agent is deployed and when the tool is called.
+ */
 export const HTTP_TOOL_DEFAULT_TIMEOUT_MS = 60_000;
-/** The longest `timeoutMs` a tool may set. */
-export const HTTP_TOOL_MAX_TIMEOUT_MS = 300_000;
 
 /** What an HTTP tool puts in its manifest entry besides its name and schemas. */
 export interface HttpTool {
@@ -182,9 +185,9 @@ export function httpTargetIssue(target: HttpToolTarget): string | undefined {
     return "credential must be a non-empty name";
   if (
     target.timeoutMs !== undefined &&
-    (!Number.isInteger(target.timeoutMs) || target.timeoutMs <= 0 || target.timeoutMs > HTTP_TOOL_MAX_TIMEOUT_MS)
+    (!Number.isInteger(target.timeoutMs) || target.timeoutMs <= 0 || target.timeoutMs > TIMER_MAX_MS)
   )
-    return `timeoutMs must be a positive integer of at most ${HTTP_TOOL_MAX_TIMEOUT_MS}`;
+    return `timeoutMs must be a positive integer of at most ${TIMER_MAX_MS}`;
   return undefined;
 }
 

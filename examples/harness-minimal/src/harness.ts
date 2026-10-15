@@ -349,7 +349,7 @@ async function segment(
           // Opaque to core: it hands it back with the next turn's checkpoint.
           state: { steps: (checkpoint.state?.steps ?? 0) + step + 1 },
           output: text,
-          transcript: transcriptUpdates(before, [...before, ...added]),
+          transcript: transcriptUpdates(before, [...before, ...added], run.start.limits.recordEntryBytes),
         },
       };
     }

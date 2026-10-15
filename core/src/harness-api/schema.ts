@@ -13,7 +13,7 @@ import {
 } from "./messages.js";
 import { HarnessApiError } from "./errors.js";
 import { ARTIFACT_NAME_MAX, ENVIRONMENT_KINDS, EffectOutcomeSchema, ModelInputSchema } from "../contracts.js";
-import { RUNTIME_LIMIT_CEILINGS, RuntimeLimitsSchema } from "../utils/runtime-limits.js";
+import { HarnessLimitsSchema, RUNTIME_LIMIT_CEILINGS } from "../utils/runtime-limits.js";
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
 import { McpFactsSchema, McpSnapshotSchema } from "./mcp.js";
 
@@ -212,7 +212,7 @@ export const DiskOpSchema = z.union([
         .object({
           path: z.string().min(1),
           offset: z.number().int().nonnegative(),
-          length: z.number().int().positive().max(16 * 1024 * 1024),
+          length: z.number().int().positive().max(RUNTIME_LIMIT_CEILINGS.chunkBytes.value),
         })
         .strict(),
     })
@@ -379,10 +379,11 @@ export const TurnStartSchema = z
     /**
      * The Runtime limits in force when the segment started (the Tenant's, `PUT
      * /v1/tenant/limits`): what one record entry (an effect outcome, a claimed event, a transcript
-     * update), model call, model file, tool answer, custom harness state and `definition.file`
-     * range may hold. Past one, core refuses the request with `limit_exceeded`.
+     * update), model call, model file, tool answer, custom harness state, Harness API chunk and
+     * folder artifact may hold. Past one, core refuses the request with `limit_exceeded`. Only
+     * the limits a harness must respect (`HarnessLimitsSchema`); one it does not know is dropped.
      */
-    limits: RuntimeLimitsSchema,
+    limits: HarnessLimitsSchema,
     /**
      * The model the turn's calls use when they name none (protocol 15): what it reads and its
      * window, as the segment started. Absent for a flow, and when the Tenant has no model.

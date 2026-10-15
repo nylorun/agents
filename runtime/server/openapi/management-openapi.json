@@ -838,8 +838,7 @@
                       },
                       "environments": {
                         "type": "integer",
-                        "minimum": 0,
-                        "maximum": 100000
+                        "minimum": 0
                       }
                     },
                     "additionalProperties": false
@@ -1189,6 +1188,114 @@
               "folderEntries": {
                 "type": "integer",
                 "exclusiveMinimum": 0
+              },
+              "requestBodyBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "inlineFileBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "a2aWaitMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "errorExcerptChars": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "traceContentBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentLabels": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentSetupCommands": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentFiles": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentFilesPerEntry": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentSecretSlots": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "setupCommandMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "setupOutputChars": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "diskVersionEntries": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "diskVersionBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "diskLeaseMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "diskPodWaitMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelRequestMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelIdleMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelAttempts": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelRetryDelayMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelProviderRetries": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "modelRetryDelayMaxMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "toolAttempts": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "httpToolTimeoutMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "mcpSnapshotBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "mcpPreviewMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "mcpMetadataBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
               }
             },
             "required": [
@@ -1198,7 +1305,34 @@
               "toolAnswerBytes",
               "harnessStateBytes",
               "chunkBytes",
-              "folderEntries"
+              "folderEntries",
+              "requestBodyBytes",
+              "inlineFileBytes",
+              "a2aWaitMs",
+              "errorExcerptChars",
+              "traceContentBytes",
+              "environmentLabels",
+              "environmentSetupCommands",
+              "environmentFiles",
+              "environmentFilesPerEntry",
+              "environmentSecretSlots",
+              "setupCommandMs",
+              "setupOutputChars",
+              "diskVersionEntries",
+              "diskVersionBytes",
+              "diskLeaseMs",
+              "diskPodWaitMs",
+              "modelRequestMs",
+              "modelIdleMs",
+              "modelAttempts",
+              "modelRetryDelayMs",
+              "modelProviderRetries",
+              "modelRetryDelayMaxMs",
+              "toolAttempts",
+              "httpToolTimeoutMs",
+              "mcpSnapshotBytes",
+              "mcpPreviewMs",
+              "mcpMetadataBytes"
             ],
             "additionalProperties": false
           }
@@ -1239,6 +1373,114 @@
                 "exclusiveMinimum": 0
               },
               "folderEntries": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "requestBodyBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "inlineFileBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "a2aWaitMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "errorExcerptChars": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "traceContentBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentLabels": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentSetupCommands": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentFiles": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentFilesPerEntry": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "environmentSecretSlots": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "setupCommandMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "setupOutputChars": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "diskVersionEntries": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "diskVersionBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "diskLeaseMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "diskPodWaitMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelRequestMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelIdleMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelAttempts": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelRetryDelayMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelProviderRetries": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "modelRetryDelayMaxMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "toolAttempts": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "httpToolTimeoutMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "mcpSnapshotBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "mcpPreviewMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "mcpMetadataBytes": {
                 "type": "integer",
                 "exclusiveMinimum": 0
               }
@@ -1533,8 +1775,7 @@
               },
               "environments": {
                 "type": "integer",
-                "minimum": 0,
-                "maximum": 100000
+                "minimum": 0
               }
             },
             "additionalProperties": false
@@ -6378,7 +6619,7 @@
           "Settings"
         ],
         "summary": "Get the Tenant's Runtime limits",
-        "description": "What one record entry, model call, model file, tool answer, custom harness state and Harness API chunk may hold, in bytes: the Tenant's (Tenant setting `limits.config`), with the default for each it leaves out. Harnesses get them in `turn.start.limits`. Defaults and ceilings: `recordEntryBytes` 983040 bytes, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432 bytes, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608 bytes, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608 bytes, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144 bytes, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216 bytes, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON); `folderEntries` 10000 entries, at most 4628197 (a folder's manifest is read as one string, of at most 536870888 characters, and each entry takes at least 116).",
+        "description": "The sizes, counts and deadlines the Runtime holds what crosses it to: the Tenant's (Tenant setting `limits.config`), with the default for each it leaves out. Harnesses get the ones they must respect in `turn.start.limits` (record entry, model call, model file, tool answer, custom harness state, Harness API chunk, folder entries). Defaults and ceilings: `recordEntryBytes` 983040 bytes, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432 bytes, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608 bytes, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608 bytes, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144 bytes, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216 bytes, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON); `folderEntries` 10000 entries, at most 4628197 (a folder's manifest is read as one string, of at most 536870888 characters, and each entry takes at least 116); `requestBodyBytes` 1048576 bytes, at most 536870888 (a body is read as one string, of at most 536870888 characters); `inlineFileBytes` 20971520 bytes, at most 402653166 (a file sent inline arrives in base64 in a body read as one string, of at most 536870888 characters); `a2aWaitMs` 300000 milliseconds, at most 2147483647 (the wait is timed with a JavaScript timer, which waits at most 2147483647 ms); `errorExcerptChars` 2000 characters, at most 163840 (the excerpt is kept in one record entry (at most 983040 bytes), where JSON may escape a character to 6); `traceContentBytes` 8192 bytes, at most 983040 (span content is cut from one record entry, which holds at most 983040 bytes); `environmentLabels` 32 entries, at most 59652320 (labels arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 9); `environmentSetupCommands` 16 entries, at most 33554430 (setup commands arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 16); `environmentFiles` 16 entries, at most 16268814 (input file entries arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 33); `environmentFilesPerEntry` 1000 entries, at most 6710886 (the files of an entry arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 80); `environmentSecretSlots` 64 entries, at most 14128181 (secret slots arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 38); `setupCommandMs` 1800000 milliseconds, at most 2147483647 (the engine times a command with a JavaScript timer, which waits at most 2147483647 ms); `setupOutputChars` 4096 characters, at most 163840 (the output is kept in one record entry (at most 983040 bytes), where JSON may escape a character to 6); `diskVersionEntries` 200000 entries, at most 1917396 (a disk is listed in one Harness API frame (67108864 bytes, each entry at least 35), and a version's manifest is read as one string of at most 536870888 characters); `diskVersionBytes` 10737418240 bytes, at most 9007199254740991 (the files' sizes are added up in a JavaScript number, exact up to 9007199254740991); `diskLeaseMs` 120000 milliseconds, at most 2147483647 (the lease is renewed with a JavaScript timer, which waits at most 2147483647 ms); `diskPodWaitMs` 60000 milliseconds, at most 9007199254740991 (the deadline is reckoned from the clock in a JavaScript number, exact up to 9007199254740991); `modelRequestMs` 600000 milliseconds, at most 2147483647 (the provider's SDK times the request with a JavaScript timer, which waits at most 2147483647 ms); `modelIdleMs` 300000 milliseconds, at most 2147483647 (the stream's silence is timed with a JavaScript timer, which waits at most 2147483647 ms); `modelAttempts` 3 attempts, at most 9007199254740991 (attempts are counted in a JavaScript number, exact up to 9007199254740991); `modelRetryDelayMs` 2000 milliseconds, at most 2147483647 (the delay is waited with a JavaScript timer, which waits at most 2147483647 ms); `modelProviderRetries` 2 retries, at most 9007199254740991 (retries are counted in a JavaScript number, exact up to 9007199254740991); `modelRetryDelayMaxMs` 60000 milliseconds, at most 2147483647 (the delay is waited with a JavaScript timer, which waits at most 2147483647 ms); `toolAttempts` 3 attempts, at most 9007199254740991 (sends are counted in a JavaScript number, exact up to 9007199254740991); `httpToolTimeoutMs` 300000 milliseconds, at most 2147483647 (the call is timed with a JavaScript timer, which waits at most 2147483647 ms); `mcpSnapshotBytes` 4194304 bytes, at most 16777216 (the facts cross in turn.start, one Harness API frame (67108864 bytes), beside the harness's state (at most half of it) and the rest); `mcpPreviewMs` 15000 milliseconds, at most 2147483647 (the preview is timed with a JavaScript timer, which waits at most 2147483647 ms); `mcpMetadataBytes` 65536 bytes, at most 536870888 (the document is read as one string, of at most 536870888 characters).",
         "security": [
           {
             "managementKey": []
@@ -6478,7 +6719,7 @@
           "Settings"
         ],
         "summary": "Set the Tenant's Runtime limits",
-        "description": "Replaces the Tenant's Runtime limits: a limit left out takes its default. A limit above its ceiling, which a dependency sets, is `400` naming the ceiling, and nothing is written. Each is read where it is checked, so a new value holds for the next write, call or segment. Defaults and ceilings: `recordEntryBytes` 983040 bytes, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432 bytes, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608 bytes, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608 bytes, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144 bytes, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216 bytes, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON); `folderEntries` 10000 entries, at most 4628197 (a folder's manifest is read as one string, of at most 536870888 characters, and each entry takes at least 116).",
+        "description": "Replaces the Tenant's Runtime limits: a limit left out takes its default. A limit above its ceiling, which a dependency sets, is `400` naming the ceiling, and nothing is written. Each is read where it is checked, so a new value holds for the next request, write, call or segment. Defaults and ceilings: `recordEntryBytes` 983040 bytes, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432 bytes, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608 bytes, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608 bytes, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144 bytes, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216 bytes, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON); `folderEntries` 10000 entries, at most 4628197 (a folder's manifest is read as one string, of at most 536870888 characters, and each entry takes at least 116); `requestBodyBytes` 1048576 bytes, at most 536870888 (a body is read as one string, of at most 536870888 characters); `inlineFileBytes` 20971520 bytes, at most 402653166 (a file sent inline arrives in base64 in a body read as one string, of at most 536870888 characters); `a2aWaitMs` 300000 milliseconds, at most 2147483647 (the wait is timed with a JavaScript timer, which waits at most 2147483647 ms); `errorExcerptChars` 2000 characters, at most 163840 (the excerpt is kept in one record entry (at most 983040 bytes), where JSON may escape a character to 6); `traceContentBytes` 8192 bytes, at most 983040 (span content is cut from one record entry, which holds at most 983040 bytes); `environmentLabels` 32 entries, at most 59652320 (labels arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 9); `environmentSetupCommands` 16 entries, at most 33554430 (setup commands arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 16); `environmentFiles` 16 entries, at most 16268814 (input file entries arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 33); `environmentFilesPerEntry` 1000 entries, at most 6710886 (the files of an entry arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 80); `environmentSecretSlots` 64 entries, at most 14128181 (secret slots arrive in one request body, read as one string of at most 536870888 characters, and each takes at least 38); `setupCommandMs` 1800000 milliseconds, at most 2147483647 (the engine times a command with a JavaScript timer, which waits at most 2147483647 ms); `setupOutputChars` 4096 characters, at most 163840 (the output is kept in one record entry (at most 983040 bytes), where JSON may escape a character to 6); `diskVersionEntries` 200000 entries, at most 1917396 (a disk is listed in one Harness API frame (67108864 bytes, each entry at least 35), and a version's manifest is read as one string of at most 536870888 characters); `diskVersionBytes` 10737418240 bytes, at most 9007199254740991 (the files' sizes are added up in a JavaScript number, exact up to 9007199254740991); `diskLeaseMs` 120000 milliseconds, at most 2147483647 (the lease is renewed with a JavaScript timer, which waits at most 2147483647 ms); `diskPodWaitMs` 60000 milliseconds, at most 9007199254740991 (the deadline is reckoned from the clock in a JavaScript number, exact up to 9007199254740991); `modelRequestMs` 600000 milliseconds, at most 2147483647 (the provider's SDK times the request with a JavaScript timer, which waits at most 2147483647 ms); `modelIdleMs` 300000 milliseconds, at most 2147483647 (the stream's silence is timed with a JavaScript timer, which waits at most 2147483647 ms); `modelAttempts` 3 attempts, at most 9007199254740991 (attempts are counted in a JavaScript number, exact up to 9007199254740991); `modelRetryDelayMs` 2000 milliseconds, at most 2147483647 (the delay is waited with a JavaScript timer, which waits at most 2147483647 ms); `modelProviderRetries` 2 retries, at most 9007199254740991 (retries are counted in a JavaScript number, exact up to 9007199254740991); `modelRetryDelayMaxMs` 60000 milliseconds, at most 2147483647 (the delay is waited with a JavaScript timer, which waits at most 2147483647 ms); `toolAttempts` 3 attempts, at most 9007199254740991 (sends are counted in a JavaScript number, exact up to 9007199254740991); `httpToolTimeoutMs` 300000 milliseconds, at most 2147483647 (the call is timed with a JavaScript timer, which waits at most 2147483647 ms); `mcpSnapshotBytes` 4194304 bytes, at most 16777216 (the facts cross in turn.start, one Harness API frame (67108864 bytes), beside the harness's state (at most half of it) and the rest); `mcpPreviewMs` 15000 milliseconds, at most 2147483647 (the preview is timed with a JavaScript timer, which waits at most 2147483647 ms); `mcpMetadataBytes` 65536 bytes, at most 536870888 (the document is read as one string, of at most 536870888 characters).",
         "security": [
           {
             "managementKey": []

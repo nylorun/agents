@@ -18,7 +18,7 @@
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { ChangeSource, CommittedTx } from "../streams/relay/types.js";
 import type { TraceKey } from "./ids.js";
-import { spanOf, turnTraceOf, type OtlpSpan, type TraceContent, type TurnTrace } from "./map.js";
+import { spanOf, turnTraceOf, type OtlpSpan, type SpanSettings, type TraceContent, type TurnTrace } from "./map.js";
 import type { OtlpPoster } from "./otlp.js";
 import { hostTuning } from "../tuning.js";
 
@@ -30,6 +30,8 @@ export interface TraceProjectorOptions {
   readonly post: OtlpPoster;
   /** The Tenant's trace key (`traces/key.ts`). */
   readonly key: () => Promise<TraceKey>;
+  /** The Tenant's Runtime limit `traceContentBytes`, read for each transaction mapped. */
+  readonly contentBytes: () => Promise<number>;
   /** The `command.message` that started turn `turnId`, or undefined when the log has none. */
   readonly turnMessage: (sessionId: string, turnId: string) => Promise<LiveEvent | undefined>;
   readonly content: TraceContent;
@@ -97,7 +99,7 @@ export function createTraceProjector(options: TraceProjectorOptions): TraceProje
 
   async function turnOf(
     row: LiveEvent,
-    settings: { key: TraceKey; content: TraceContent },
+    settings: SpanSettings,
   ): Promise<TurnTrace> {
     const turnId = row.turnId!;
     const cacheKey = `${row.sessionId}\u0000${turnId}`;
@@ -111,7 +113,7 @@ export function createTraceProjector(options: TraceProjectorOptions): TraceProje
   async function spansOf(tx: CommittedTx): Promise<OtlpSpan[]> {
     const spans: OtlpSpan[] = [];
     if (tx.rows.length === 0) return spans;
-    const settings = { key: await options.key(), content: options.content };
+    const settings = { key: await options.key(), content: options.content, contentBytes: await options.contentBytes() };
     for (const record of tx.rows) {
       const row = record.body as LiveEvent;
       if (!row || typeof row !== "object" || row.turnId == null) continue;

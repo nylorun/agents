@@ -2,8 +2,8 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { effectSpanOf, traceIdOf, turnSpanOf } from "../../src/traces/ids.js";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import {
-  CONTENT_MAX_BYTES,
   SPAN_KIND,
   STATUS,
   TRACE_CONTENT_KINDS,
@@ -17,8 +17,9 @@ import {
 import { SESSION, TENANT, TURN, message, row } from "./rows.js";
 
 const key = randomBytes(32);
-const plain: SpanSettings = { key, content: new Set() };
-const all: SpanSettings = { key, content: new Set(TRACE_CONTENT_KINDS) };
+const contentBytes = RUNTIME_LIMIT_DEFAULTS.traceContentBytes;
+const plain: SpanSettings = { key, content: new Set(), contentBytes };
+const all: SpanSettings = { key, content: new Set(TRACE_CONTENT_KINDS), contentBytes };
 const ids = { tenantId: TENANT, sessionId: SESSION, turnId: TURN };
 const attrs = (span: OtlpSpan | undefined) =>
   Object.fromEntries(
@@ -225,7 +226,7 @@ describe("spanOf", () => {
   });
 
   it("exports content per kind when the installation opts in", () => {
-    const only = (kind: TraceContentKind) => JSON.stringify(spans({ key, content: new Set([kind]) }));
+    const only = (kind: TraceContentKind) => JSON.stringify(spans({ key, content: new Set([kind]), contentBytes }));
     expect(only("user")).toContain("Fix the failing test");
     expect(only("user")).not.toContain("WEB-412");
     expect(only("outputs")).toContain("Looking");
@@ -239,14 +240,18 @@ describe("spanOf", () => {
     for (const secret of ["alice@example.com", "idem-secret-key", "idem-approve-secret"]) expect(everything).not.toContain(secret);
   });
 
-  it("cuts content at 8 KiB, on a character boundary", () => {
+  it("cuts content at the Tenant's traceContentBytes, on a character boundary", () => {
     const rows = [message({ content: "é".repeat(10_000) }), row("turn.completed", { output: null, agentId: "coder" })];
     const root = spans(all, rows)[1]!;
     const input = root.attributes.find((a) => a.key === "gen_ai.input.messages")!.value.stringValue!;
-    expect(Buffer.byteLength(input)).toBeLessThanOrEqual(CONTENT_MAX_BYTES);
+    expect(Buffer.byteLength(input)).toBeLessThanOrEqual(contentBytes);
     expect(input).not.toContain("�");
-    expect(Buffer.byteLength(truncate("x".repeat(9000)))).toBe(CONTENT_MAX_BYTES);
-    expect(truncate("short")).toBe("short");
+    expect(Buffer.byteLength(truncate("x".repeat(9000), contentBytes))).toBe(contentBytes);
+    expect(truncate("short", contentBytes)).toBe("short");
+    // A lowered limit cuts shorter.
+    const lowered = spans({ ...all, contentBytes: 100 }, rows)[1]!;
+    const cut = lowered.attributes.find((a) => a.key === "gen_ai.input.messages")!.value.stringValue!;
+    expect(Buffer.byteLength(cut)).toBeLessThanOrEqual(100);
   });
 
   it("marks an uncertain call as an error on its span", () => {

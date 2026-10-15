@@ -67,7 +67,6 @@ import type { Tx } from "../store/types.js";
 import { traceKey } from "../traces/key.js";
 import { effectSpanOf, traceparentOf, turnTraceIdOf, type TraceKey } from "../traces/ids.js";
 import {
-  MAX_TOOL_ATTEMPTS,
   firstSend,
   interrupted,
   settleToolRow,
@@ -305,7 +304,7 @@ function coreIn(scope: RecordScope): EventWriter | undefined {
 /**
  * The answer to a tool row still `invoking` (R5.3, R5.4): a crash, a shutdown or a lost gate
  * hop interrupted its send. An MCP or HTTP call (it crosses the Tool Gate, which hands the tool
- * its key) is sent again, one more attempt, until `MAX_TOOL_ATTEMPTS`; then it fails to the
+ * its key) is sent again, one more attempt, until the Tenant's `toolAttempts`; then it fails to the
  * model. Any other call (sandbox, harness, core-served) has no key to dedupe on: it fails to the
  * model now, and is not run again (Q2).
  */
@@ -320,12 +319,13 @@ async function resend(t: Tx, s: Session, row: StoredEffect, rejoin: boolean): Pr
     return { status: "completed", outcome };
   }
   const attempts = (row.attempts ?? 1) + 1;
-  if (attempts > MAX_TOOL_ATTEMPTS) {
+  const { toolAttempts } = await readRuntimeLimits(t);
+  if (attempts > toolAttempts) {
     const outcome = await settleToolRow(
       t,
       s,
       row,
-      interrupted(`The call was interrupted ${MAX_TOOL_ATTEMPTS} times and may have run.`),
+      interrupted(`The call was interrupted ${toolAttempts} times and may have run (the Runtime limit toolAttempts).`),
     );
     return { status: "completed", outcome };
   }

@@ -181,8 +181,8 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   `normalizeContentType`, `isText`, `isModelImage`, `isOffice`, `modelInputOf`, `inputLabel`,
   `extensionFor`, `MODEL_IMAGE_TYPES` and `DEFAULT_CONTENT_TYPE`), so the Runtime and a harness
   type a file alike. `unreadableReason` is removed (use `fileView`), and `mediaReferenceLine`
-  moved from `@nylorun/core/define` to `@nylorun/harness`: it names our tool. `READ_ARTIFACT_TOOL`, `SAVE_ARTIFACT_TOOL` and
-  `READ_ARTIFACT_MAX_BYTES` stay in `@nylorun/core/define`. `@nylorun/harness`'s `createHarness`
+  moved from `@nylorun/core/define` to `@nylorun/harness`: it names our tool. `READ_ARTIFACT_TOOL` and `SAVE_ARTIFACT_TOOL`
+  stay in `@nylorun/core/define`. `@nylorun/harness`'s `createHarness`
   takes `artifactPageBytes` (the most one `read_artifact` page holds, 32 KiB by default),
   `sandboxTools` (the sandbox tools' limits, `DEFAULT_SANDBOX_TOOL_LIMITS`), `skillReadBytes`,
   `mcpTools` (when to defer MCP tools and `tool_search`'s limits, `DEFAULT_MCP_TOOL_CONFIG`) and
@@ -211,6 +211,57 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   `leaseRetryMs`, beside `transcriptCacheMb`; `runDurable` takes `loop` (`LoopConfig`), and the
   compaction functions take a `CompactionConfig`. `EngineToolConfig` is `EngineConfig` (the tool
   config with `loop` and `resendDelaysMs`), and `apiHost` takes it.
+
+- **The remaining request, upload, token and sandbox limits are Tenant settings.**
+  `GET /v1/tenant/limits` answers 27 more Runtime limits, each with today's value as its default:
+  `requestBodyBytes` (1 MiB), `inlineFileBytes` (20 MiB; an inline endpoint reads one such file's
+  base64 and `requestBodyBytes` more, where it read 28 MiB), `a2aWaitMs`, `errorExcerptChars`,
+  `traceContentBytes`, `environmentLabels`, `environmentSetupCommands`, `environmentFiles`,
+  `environmentFilesPerEntry`, `environmentSecretSlots`, `setupCommandMs`, `setupOutputChars`,
+  `diskVersionEntries`, `diskVersionBytes`, `diskLeaseMs`, `diskPodWaitMs`, `modelRequestMs`,
+  `modelIdleMs`, `modelAttempts`, `modelRetryDelayMs`, `modelProviderRetries`,
+  `modelRetryDelayMaxMs`, `toolAttempts`, `httpToolTimeoutMs`, `mcpSnapshotBytes` (new: what a
+  session pins of its MCP servers' tools and instructions; a server past it is left out, with a
+  `failed` diagnostic), `mcpPreviewMs` and `mcpMetadataBytes`. See
+  [DEPLOYMENT.md](./DEPLOYMENT.md#runtime-limits). A `PUT` still replaces the whole document, so
+  put back what you set before with the new ones.
+- **An Environment's manifest may lower its disk versions' limits**: `limits.disk.versionBytes`
+  and `versionEntries`, within the Tenant's. `EnvironmentView.limits` gains `disk`.
+- **Counts and timeouts a schema capped are checked against the Tenant's limits.** The request
+  schemas no longer cap an Environment's labels (32), setup commands and input files (16 each),
+  the files of an entry by hash (1,000), secret slots (64) or a setup command's `timeout` (30m),
+  nor an HTTP tool's `timeoutMs` (300 s: it may now ask for up to a JavaScript timer's
+  2,147,483,647 ms). The Runtime refuses one past the Tenant's limit with `400` naming it: labels
+  whenever they are set, a manifest when an Environment is made or the manifest saved, an agent
+  when it is deployed; and a call waits at most the limit in force then. `limits.environments`
+  in `PUT /v1/tenant/sandbox` has no maximum, and `lifecycle.stopGrace` no 30 s cap (it is the
+  pod's `terminationGracePeriodSeconds`). An identity file's issuer takes any number of
+  `environments` grants, and `jwksFetch` (`timeoutMs`, `maxBytes`, `maxKeys`, `refetchMs`,
+  `maxAgeMs`) for how its JWKS is fetched.
+- **Tokens are read up to Node's header size.** A bearer, issuer token or capability link is
+  read up to `http.maxHeaderSize` (16 KiB), where the Runtime's own tokens stopped at 4 KiB.
+- **`turn.start.limits` carries only a harness's limits** (`HarnessLimitsSchema`:
+  `recordEntryBytes`, `modelCallBytes`, `modelFileBytes`, `toolAnswerBytes`, `harnessStateBytes`,
+  `chunkBytes`, `folderEntries`), and a harness drops a limit it does not know.
+- **Transcript edits fill each event up to `recordEntryBytes`.**
+  `transcriptUpdates(before, after, recordEntryBytes, compaction?)` takes the run's
+  `turn.start.limits.recordEntryBytes` (it split at 48 KiB, `CHUNK_BYTES`, now removed), so a
+  long edit is fewer, larger `transcript.updated` events, each within the record entry limit.
+- **Removed from `@nylorun/core`**: `ENVIRONMENT_LABELS_MAX`, `ENVIRONMENT_SETUP_MAX`,
+  `ENVIRONMENT_FILES_MAX`, `ENVIRONMENT_SECRET_SLOTS_MAX`, `TOKEN_ENVIRONMENT_GRANTS_MAX`,
+  `HTTP_TOOL_MAX_TIMEOUT_MS`, `READ_ARTIFACT_MAX_BYTES` (our harness's `artifactPageBytes`
+  default) and `CHUNK_BYTES`; `ENVIRONMENT_SETUP_TIMEOUT_MAX_MS` is
+  `ENVIRONMENT_SETUP_TIMEOUT_DEFAULT` (`"10m"`, a command's default). New: `HarnessLimitsSchema`,
+  `HARNESS_LIMIT_DEFAULTS`, `harnessLimitsOf`, `inlineBodyBytes`, `TIMER_MAX_MS`,
+  `FILE_NAME_MAX`, `FILE_PATH_MAX` (`ARTIFACT_NAME_MAX` and `ARTIFACT_PATH_MAX` are these) and
+  `CUSTOM_MODEL_SETTING_DEFAULTS`. `SKILL_FILE_PATH_MAX` is what `FILE_PATH_MAX` leaves under a
+  skill's mount folder (747, it was 512).
+- **Removed from `@nylorun/runtime`**: `IMAGE_MEDIA_TYPES`, `MAX_IMAGE_BYTES`,
+  `decodeImageBase64` and `validateImageBytes` (the Runtime used none of them; the
+  interior-design example keeps its own), the Tenant configuration's `modelCall` (the Runtime
+  limits `model*`; `piModel`'s `settings` still overrides them, and takes `providerRetries` and
+  `maxRetryDelayMs`), and `TrustedIssuersOptions`' `refetchMs` and `maxAgeMs` (an issuer's
+  `jwksFetch`).
 
 # Runtime limits are a Tenant setting
 

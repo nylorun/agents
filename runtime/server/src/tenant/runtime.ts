@@ -283,7 +283,7 @@ export class TenantRuntime implements TenantHandle {
         inProcessToolGate(config.delivery ?? {}, {
           session: (sessionId) => opened.tx((t) => t.get<{ manifest: unknown }>("sessions", sessionId)),
           authorize: (sessionId, request) => authorize(ctx, sessionId, request),
-          toolAnswerBytes: async () => (await opened.tx((t) => readRuntimeLimits(t))).toolAnswerBytes,
+          limits: () => opened.tx((t) => readRuntimeLimits(t)),
           logger: config.logger,
         });
       const signingKeys = new SigningKeys({ tenantId: config.tenantId, kek: ensureKek });
@@ -372,7 +372,6 @@ export class TenantRuntime implements TenantHandle {
             root: paths.home,
             logger: config.logger,
             blobs,
-            ...(config.modelCall ? { settings: config.modelCall } : {}),
           }));
 
       const sessionStreams = createSessionStreams();

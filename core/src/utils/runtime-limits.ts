@@ -1,11 +1,13 @@
 /**
- * Runtime limits (harness boundary S0): the sizes the Runtime holds what crosses it to, one
- * Tenant setting (`limits.config`, `GET`/`PUT /v1/tenant/limits`) with a default each. A harness
- * learns the ones in force from `turn.start.limits`.
+ * Runtime limits (harness boundary S0, B15): the sizes, counts and deadlines the Runtime holds
+ * what crosses it to, one Tenant setting (`limits.config`, `GET`/`PUT /v1/tenant/limits`) with a
+ * default each. A harness learns the ones it must respect from `turn.start.limits`
+ * (`HarnessLimitsSchema`, a part of them).
  *
  * A limit is configuration; what the Runtime depends on is not. Each limit has a ceiling taken
  * from a dependency (S2's largest record, the Harness API's largest WebSocket frame, the longest
- * string the JavaScript engine makes), and a setting above its ceiling is refused when it is put
+ * string the JavaScript engine makes, the longest timer it sets, the largest integer a JavaScript
+ * number holds exactly), and a setting above its ceiling is refused when it is put
  * (`runtimeLimitIssues`).
  */
 import { z } from "zod";
@@ -29,59 +31,201 @@ export const RECORD_ENVELOPE_RESERVE_BYTES = 64 * 1024;
  */
 export const JS_STRING_MAX_LENGTH = 2 ** 29 - 24;
 
+/**
+ * The longest delay a JavaScript timer takes (`setTimeout`, `setInterval`, `AbortSignal.timeout`):
+ * a signed 32-bit count of milliseconds, about 24.8 days. A longer one fires at once.
+ */
+export const TIMER_MAX_MS = 2 ** 31 - 1;
+
 /** The most bytes base64 of `length` characters decodes to: groups of 4 characters, 3 bytes each. */
 const base64Bytes = (length: number) => Math.floor(length / 4) * 3;
 
-/**
- * The fewest characters one entry of a folder's manifest takes as JSON: an entry with a
- * one-character path and type, and the comma before the next. A folder's manifest is read as one
- * string, so it holds at most `JS_STRING_MAX_LENGTH` of them.
- */
-const FOLDER_ENTRY_MIN_CHARS =
-  JSON.stringify({ path: "a", size: 0, sha256: "0".repeat(64), contentType: "a" }).length + 1;
+/** The fewest characters one item of a JSON list or map takes: its JSON and the comma after it. */
+const minChars = (item: unknown) => JSON.stringify(item).length + 1;
 
 /**
- * The Runtime limits, in bytes but for `folderEntries`:
+ * The fewest characters one entry of a folder's manifest takes as JSON: an entry with a
+ * one-character path and type. A folder's manifest is read as one string, so it holds at most
+ * `JS_STRING_MAX_LENGTH` of them.
+ */
+const FOLDER_ENTRY_MIN_CHARS = minChars({ path: "a", size: 0, sha256: "0".repeat(64), contentType: "a" });
+
+/** The fewest characters one entry of a disk listing takes as JSON (`DiskOp` `list`). */
+const DISK_ENTRY_MIN_CHARS = minChars({ path: "a", type: "dir", mode: 0 });
+
+/** The most bytes JSON escapes one character of a quoted text to: a control character, `\u0000`. */
+const JSON_ESCAPE_MAX_BYTES = 6;
+
+/**
+ * The limits a harness must respect, sent in `turn.start.limits`:
  *
  * - `recordEntryBytes`: the most JSON one entry of the record may hold: an event's payload (a
  *   harness's claimed event, a transcript update, core's own), and an effect outcome a harness
- *   reports. Past it the write is refused with `limit_exceeded`.
+ *   reports. Past it the write is refused with `limit_exceeded`. A transcript edit fills events up
+ *   to it (`transcriptUpdates`).
  * - `modelCallBytes`: the largest model call body the Model Gate reads.
  * - `modelFileBytes`: the largest file (an image, a text file) the Model Gate sends a model.
  * - `toolAnswerBytes`: the largest answer the Tool Gate keeps of an MCP or HTTP tool
  *   (`mcp.too-large`, `http.too-large` past it), and the largest tool call body it reads.
  * - `harnessStateBytes`: the most state a custom harness may keep per session, as JSON.
- * - `chunkBytes`: the most bytes one chunked Harness API answer carries (`definition.file` with
- *   a range).
+ * - `chunkBytes`: the most bytes one chunked Harness API answer carries (`definition.file` and
+ *   `artifact.read` with a range, a disk read).
  * - `folderEntries`: the most files one folder artifact a harness writes may hold
  *   (`artifact.write` with `kind: "folder"`, such as our engine's outputs folder).
  */
+const harnessLimits = {
+  recordEntryBytes: z.number().int().positive(),
+  modelCallBytes: z.number().int().positive(),
+  modelFileBytes: z.number().int().positive(),
+  toolAnswerBytes: z.number().int().positive(),
+  harnessStateBytes: z.number().int().positive(),
+  chunkBytes: z.number().int().positive(),
+  folderEntries: z.number().int().positive(),
+};
+
+/**
+ * The Runtime limits: the harness's (above), and the ones only the Runtime checks (B15), by area.
+ *
+ * Requests and uploads:
+ * - `requestBodyBytes`: the largest JSON body a Runtime or Management API route reads.
+ * - `inlineFileBytes`: the largest file a message carries inline, decoded (AG-UI, A2A). Such an
+ *   endpoint reads a body of one file at this size in base64 and `requestBodyBytes` more
+ *   (`inlineBodyBytes`).
+ * - `a2aWaitMs`: how long a blocking A2A `SendMessage` waits for its task to end or ask for input.
+ * - `errorExcerptChars`: how much of a failed MCP server's or HTTP tool's answer an error quotes.
+ * - `traceContentBytes`: the most UTF-8 bytes of one content attribute of an exported span.
+ *
+ * Environments (checked when one is made, and its labels whenever they are set):
+ * - `environmentLabels`: the most labels one Environment carries.
+ * - `environmentSetupCommands`, `environmentFiles`: the most setup commands, and input file
+ *   entries, one manifest holds.
+ * - `environmentFilesPerEntry`: the most files one input file entry by hash names.
+ * - `environmentSecretSlots`: the most secret slots one manifest declares.
+ * - `setupCommandMs`: the longest `timeout` one setup command may ask for (a command's default is
+ *   10 minutes).
+ * - `setupOutputChars`: how much of a failed setup command's output its event and reason keep.
+ *
+ * Disk versions:
+ * - `diskVersionEntries`, `diskVersionBytes`: the most entries, and bytes of files, one version
+ *   of an Environment's disk holds (an Environment's manifest may set less: `limits.disk`).
+ * - `diskLeaseMs`: how long a disk copy's lease lasts unrenewed; the copy renews it every quarter
+ *   of it, and a copy whose process died is taken over once it lapses.
+ * - `diskPodWaitMs`: how long a disk copy waits for a pod's engine to connect.
+ *
+ * Model calls (the Model Gate's provider calls):
+ * - `modelRequestMs`: the longest one provider request may take.
+ * - `modelIdleMs`: how long a provider's stream may go without an event before the attempt is
+ *   abandoned and tried again.
+ * - `modelAttempts`: the attempts one call makes, the first included.
+ * - `modelRetryDelayMs`: the delay before the second attempt; it doubles each time, with jitter.
+ * - `modelProviderRetries`, `modelRetryDelayMaxMs`: the retries the provider's SDK makes within
+ *   one attempt, and the longest delay it waits before one.
+ *
+ * Tools:
+ * - `toolAttempts`: how many times an MCP or HTTP tool call is sent, across crashes and lost
+ *   hops, before it fails to the model as `tool.interrupted`.
+ * - `httpToolTimeoutMs`: the longest `timeoutMs` an HTTP tool may ask for (a tool's default is
+ *   60 s), checked when an agent is deployed and when the tool is called.
+ * - `mcpSnapshotBytes`: the most JSON a session pins of what its MCP servers said at discovery
+ *   (tools with their schemas, instructions), which every `turn.start.mcp` carries. A server that
+ *   does not fit is left out, with a diagnostic.
+ * - `mcpPreviewMs`: how long an MCP preview may take, `initialize` and every `tools/list` page.
+ * - `mcpMetadataBytes`: the largest protected-resource metadata document a preview reads.
+ */
 export const RuntimeLimitsSchema = z
   .object({
-    recordEntryBytes: z.number().int().positive(),
-    modelCallBytes: z.number().int().positive(),
-    modelFileBytes: z.number().int().positive(),
-    toolAnswerBytes: z.number().int().positive(),
-    harnessStateBytes: z.number().int().positive(),
-    chunkBytes: z.number().int().positive(),
-    folderEntries: z.number().int().positive(),
+    ...harnessLimits,
+    requestBodyBytes: z.number().int().positive(),
+    inlineFileBytes: z.number().int().positive(),
+    a2aWaitMs: z.number().int().positive(),
+    errorExcerptChars: z.number().int().positive(),
+    traceContentBytes: z.number().int().positive(),
+    environmentLabels: z.number().int().positive(),
+    environmentSetupCommands: z.number().int().positive(),
+    environmentFiles: z.number().int().positive(),
+    environmentFilesPerEntry: z.number().int().positive(),
+    environmentSecretSlots: z.number().int().positive(),
+    setupCommandMs: z.number().int().positive(),
+    setupOutputChars: z.number().int().positive(),
+    diskVersionEntries: z.number().int().positive(),
+    diskVersionBytes: z.number().int().positive(),
+    diskLeaseMs: z.number().int().positive(),
+    diskPodWaitMs: z.number().int().positive(),
+    modelRequestMs: z.number().int().positive(),
+    modelIdleMs: z.number().int().positive(),
+    modelAttempts: z.number().int().positive(),
+    modelRetryDelayMs: z.number().int().positive(),
+    modelProviderRetries: z.number().int().nonnegative(),
+    modelRetryDelayMaxMs: z.number().int().positive(),
+    toolAttempts: z.number().int().positive(),
+    httpToolTimeoutMs: z.number().int().positive(),
+    mcpSnapshotBytes: z.number().int().positive(),
+    mcpPreviewMs: z.number().int().positive(),
+    mcpMetadataBytes: z.number().int().positive(),
   })
   .strict();
 export type RuntimeLimits = z.infer<typeof RuntimeLimitsSchema>;
 export type RuntimeLimit = keyof RuntimeLimits;
 
+/**
+ * The Runtime limits a harness must respect (`turn.start.limits`). A limit the Runtime adds later
+ * that a harness does not know is dropped when it parses them.
+ */
+export const HarnessLimitsSchema = z.object(harnessLimits);
+export type HarnessLimits = z.infer<typeof HarnessLimitsSchema>;
+export type HarnessLimit = keyof HarnessLimits;
+const HARNESS_LIMIT_NAMES = Object.keys(harnessLimits) as HarnessLimit[];
+
+/** The part of `limits` a harness is sent. */
+export function harnessLimitsOf(limits: RuntimeLimits): HarnessLimits {
+  return Object.fromEntries(HARNESS_LIMIT_NAMES.map((name) => [name, limits[name]])) as HarnessLimits;
+}
+
 /** What a limit counts. */
-export type RuntimeLimitUnit = "bytes" | "entries";
+export type RuntimeLimitUnit = "bytes" | "entries" | "characters" | "milliseconds" | "attempts" | "retries";
+
+interface Ceiling {
+  readonly value: number;
+  readonly unit: RuntimeLimitUnit;
+  readonly why: string;
+}
+
+const recordEntryCeiling = S2_RECORD_MAX_BYTES - RECORD_ENVELOPE_RESERVE_BYTES;
+/** A time a JavaScript timer waits. */
+const timer = (what: string): Ceiling => ({
+  value: TIMER_MAX_MS,
+  unit: "milliseconds",
+  why: `${what} with a JavaScript timer, which waits at most ${TIMER_MAX_MS} ms`,
+});
+/** A number the Runtime counts or adds up, with no other bound. */
+const counted = (unit: RuntimeLimitUnit, what: string): Ceiling => ({
+  value: Number.MAX_SAFE_INTEGER,
+  unit,
+  why: `${what} in a JavaScript number, exact up to ${Number.MAX_SAFE_INTEGER}`,
+});
+/** A count of items one request carries, which is read as one string. */
+const inRequest = (what: string, item: unknown): Ceiling => {
+  const chars = minChars(item);
+  return {
+    value: Math.floor(JS_STRING_MAX_LENGTH / chars),
+    unit: "entries",
+    why: `${what} arrive in one request body, read as one string of at most ${JS_STRING_MAX_LENGTH} characters, and each takes at least ${chars}`,
+  };
+};
+/** A text quoted in one record entry, as JSON. */
+const quoted = (what: string): Ceiling => ({
+  value: Math.floor(recordEntryCeiling / JSON_ESCAPE_MAX_BYTES),
+  unit: "characters",
+  why: `${what} is kept in one record entry (at most ${recordEntryCeiling} bytes), where JSON may escape a character to ${JSON_ESCAPE_MAX_BYTES}`,
+});
 
 /**
  * Each limit's ceiling, which no setting may pass, what it counts, and the dependency it comes
  * from.
  */
-export const RUNTIME_LIMIT_CEILINGS: {
-  readonly [K in RuntimeLimit]: { readonly value: number; readonly unit: RuntimeLimitUnit; readonly why: string };
-} = {
+export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } = {
   recordEntryBytes: {
-    value: S2_RECORD_MAX_BYTES - RECORD_ENVELOPE_RESERVE_BYTES,
+    value: recordEntryCeiling,
     unit: "bytes",
     why: `S2 takes records of at most ${S2_RECORD_MAX_BYTES} bytes, and an event's envelope needs ${RECORD_ENVELOPE_RESERVE_BYTES} beside its payload`,
   },
@@ -115,12 +259,66 @@ export const RUNTIME_LIMIT_CEILINGS: {
     unit: "entries",
     why: `a folder's manifest is read as one string, of at most ${JS_STRING_MAX_LENGTH} characters, and each entry takes at least ${FOLDER_ENTRY_MIN_CHARS}`,
   },
+  requestBodyBytes: {
+    value: JS_STRING_MAX_LENGTH,
+    unit: "bytes",
+    why: `a body is read as one string, of at most ${JS_STRING_MAX_LENGTH} characters`,
+  },
+  inlineFileBytes: {
+    value: base64Bytes(JS_STRING_MAX_LENGTH),
+    unit: "bytes",
+    why: `a file sent inline arrives in base64 in a body read as one string, of at most ${JS_STRING_MAX_LENGTH} characters`,
+  },
+  a2aWaitMs: timer("the wait is timed"),
+  errorExcerptChars: quoted("the excerpt"),
+  traceContentBytes: {
+    value: recordEntryCeiling,
+    unit: "bytes",
+    why: `span content is cut from one record entry, which holds at most ${recordEntryCeiling} bytes`,
+  },
+  environmentLabels: inRequest("labels", { a: "" }),
+  environmentSetupCommands: inRequest("setup commands", { command: "a" }),
+  environmentFiles: inRequest("input file entries", { path: "/workspace", files: {} }),
+  environmentFilesPerEntry: inRequest("the files of an entry", { a: `sha256:${"0".repeat(64)}` }),
+  environmentSecretSlots: inRequest("secret slots", { A: { type: "environment_variable" } }),
+  setupCommandMs: timer("the engine times a command"),
+  setupOutputChars: quoted("the output"),
+  diskVersionEntries: {
+    value: Math.min(
+      Math.floor(JS_STRING_MAX_LENGTH / FOLDER_ENTRY_MIN_CHARS),
+      Math.floor(HARNESS_MAX_PAYLOAD / DISK_ENTRY_MIN_CHARS),
+    ),
+    unit: "entries",
+    why: `a disk is listed in one Harness API frame (${HARNESS_MAX_PAYLOAD} bytes, each entry at least ${DISK_ENTRY_MIN_CHARS}), and a version's manifest is read as one string of at most ${JS_STRING_MAX_LENGTH} characters`,
+  },
+  diskVersionBytes: counted("bytes", "the files' sizes are added up"),
+  diskLeaseMs: timer("the lease is renewed"),
+  diskPodWaitMs: counted("milliseconds", "the deadline is reckoned from the clock"),
+  modelRequestMs: timer("the provider's SDK times the request"),
+  modelIdleMs: timer("the stream's silence is timed"),
+  modelAttempts: counted("attempts", "attempts are counted"),
+  modelRetryDelayMs: timer("the delay is waited"),
+  modelProviderRetries: counted("retries", "retries are counted"),
+  modelRetryDelayMaxMs: timer("the delay is waited"),
+  toolAttempts: counted("attempts", "sends are counted"),
+  httpToolTimeoutMs: timer("the call is timed"),
+  mcpSnapshotBytes: {
+    value: HARNESS_MAX_PAYLOAD / 4,
+    unit: "bytes",
+    why: `the facts cross in turn.start, one Harness API frame (${HARNESS_MAX_PAYLOAD} bytes), beside the harness's state (at most half of it) and the rest`,
+  },
+  mcpPreviewMs: timer("the preview is timed"),
+  mcpMetadataBytes: {
+    value: JS_STRING_MAX_LENGTH,
+    unit: "bytes",
+    why: `the document is read as one string, of at most ${JS_STRING_MAX_LENGTH} characters`,
+  },
 };
 
 /**
- * The limits a Tenant that sets none runs with: today's sizes. `recordEntryBytes` is its
- * ceiling, so every event S2 took before is still taken; what keeps a step's tool results well
- * inside it is the harness's shaping of them (Nylorun's engine: 256 KiB a step,
+ * The limits a Tenant that sets none runs with: today's sizes and times. `recordEntryBytes` is
+ * its ceiling, so every event S2 took before is still taken; what keeps a step's tool results
+ * well inside it is the harness's shaping of them (Nylorun's engine: 256 KiB a step,
  * `shapeToolOutcome` in `@nylorun/harness`), since the record refuses an entry past it.
  */
 export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
@@ -131,7 +329,37 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   harnessStateBytes: 256 * 1024,
   chunkBytes: 16 * 1024 * 1024,
   folderEntries: 10_000,
+  requestBodyBytes: 1024 * 1024,
+  inlineFileBytes: 20 * 1024 * 1024,
+  a2aWaitMs: 5 * 60_000,
+  errorExcerptChars: 2_000,
+  traceContentBytes: 8 * 1024,
+  environmentLabels: 32,
+  environmentSetupCommands: 16,
+  environmentFiles: 16,
+  environmentFilesPerEntry: 1_000,
+  environmentSecretSlots: 64,
+  setupCommandMs: 30 * 60_000,
+  setupOutputChars: 4 * 1024,
+  diskVersionEntries: 200_000,
+  diskVersionBytes: 10 * 1024 ** 3,
+  diskLeaseMs: 2 * 60_000,
+  diskPodWaitMs: 60_000,
+  modelRequestMs: 600_000,
+  modelIdleMs: 300_000,
+  modelAttempts: 3,
+  modelRetryDelayMs: 2_000,
+  modelProviderRetries: 2,
+  modelRetryDelayMaxMs: 60_000,
+  toolAttempts: 3,
+  httpToolTimeoutMs: 300_000,
+  mcpSnapshotBytes: 4 * 1024 * 1024,
+  mcpPreviewMs: 15_000,
+  mcpMetadataBytes: 64 * 1024,
 });
+
+/** The Runtime limits a harness gets when the Tenant sets none. */
+export const HARNESS_LIMIT_DEFAULTS: HarnessLimits = Object.freeze(harnessLimitsOf(RUNTIME_LIMIT_DEFAULTS));
 
 /** The limits in force: `set`, with the default for each it leaves out. */
 export function runtimeLimitsOf(set: Partial<RuntimeLimits> | undefined): RuntimeLimits {
@@ -164,4 +392,13 @@ export function runtimeLimitIssues(set: Partial<RuntimeLimits> | undefined): str
 export function limitExceededMessage(what: string, amount: number, name: RuntimeLimit, limit: number): string {
   const unit = RUNTIME_LIMIT_CEILINGS[name].unit;
   return `${what} is ${amount} ${unit}, over the Runtime limit ${name} (${limit} ${unit}; PUT /v1/tenant/limits).`;
+}
+
+/**
+ * The body an endpoint that takes files inline reads (AG-UI, A2A): one file at `inlineFileBytes`
+ * in base64 (a third larger), and `requestBodyBytes` for the rest of the request; never more
+ * than one string holds.
+ */
+export function inlineBodyBytes(limits: Pick<RuntimeLimits, "inlineFileBytes" | "requestBodyBytes">): number {
+  return Math.min(JS_STRING_MAX_LENGTH, Math.ceil(limits.inlineFileBytes / 3) * 4 + limits.requestBodyBytes);
 }

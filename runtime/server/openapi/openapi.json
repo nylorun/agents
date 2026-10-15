@@ -6522,7 +6522,7 @@
                             "timeoutMs": {
                               "type": "integer",
                               "exclusiveMinimum": 0,
-                              "maximum": 300000
+                              "maximum": 2147483647
                             }
                           },
                           "required": [
@@ -6832,7 +6832,7 @@
                             "timeoutMs": {
                               "type": "integer",
                               "exclusiveMinimum": 0,
-                              "maximum": 300000
+                              "maximum": 2147483647
                             }
                           },
                           "required": [
@@ -7141,7 +7141,7 @@
                             "timeoutMs": {
                               "type": "integer",
                               "exclusiveMinimum": 0,
-                              "maximum": 300000
+                              "maximum": 2147483647
                             }
                           },
                           "required": [
@@ -7585,7 +7585,7 @@
                         "timeoutMs": {
                           "type": "integer",
                           "exclusiveMinimum": 0,
-                          "maximum": 300000
+                          "maximum": 2147483647
                         }
                       },
                       "required": [
@@ -7961,7 +7961,7 @@
                               "timeoutMs": {
                                 "type": "integer",
                                 "exclusiveMinimum": 0,
-                                "maximum": 300000
+                                "maximum": 2147483647
                               }
                             },
                             "required": [
@@ -8236,7 +8236,7 @@
                       "timeoutMs": {
                         "type": "integer",
                         "exclusiveMinimum": 0,
-                        "maximum": 300000
+                        "maximum": 2147483647
                       }
                     },
                     "required": [
@@ -8421,7 +8421,7 @@
               "timeoutMs": {
                 "type": "integer",
                 "exclusiveMinimum": 0,
-                "maximum": 300000
+                "maximum": 2147483647
               }
             },
             "required": [
@@ -8699,7 +8699,7 @@
                             "timeoutMs": {
                               "type": "integer",
                               "exclusiveMinimum": 0,
-                              "maximum": 300000
+                              "maximum": 2147483647
                             }
                           },
                           "required": [
@@ -16305,6 +16305,20 @@
                             }
                           },
                           "additionalProperties": false
+                        },
+                        "disk": {
+                          "type": "object",
+                          "properties": {
+                            "versionBytes": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "versionEntries": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            }
+                          },
+                          "additionalProperties": false
                         }
                       },
                       "additionalProperties": false
@@ -16520,11 +16534,28 @@
                         "totalBytes"
                       ],
                       "additionalProperties": false
+                    },
+                    "disk": {
+                      "type": "object",
+                      "properties": {
+                        "versionBytes": {
+                          "type": "integer"
+                        },
+                        "versionEntries": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "versionBytes",
+                        "versionEntries"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
                     "artifacts",
-                    "skills"
+                    "skills",
+                    "disk"
                   ],
                   "additionalProperties": false
                 },
@@ -16934,6 +16965,20 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "disk": {
+                    "type": "object",
+                    "properties": {
+                      "versionBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      "versionEntries": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 },
                 "additionalProperties": false
@@ -17149,11 +17194,28 @@
                   "totalBytes"
                 ],
                 "additionalProperties": false
+              },
+              "disk": {
+                "type": "object",
+                "properties": {
+                  "versionBytes": {
+                    "type": "integer"
+                  },
+                  "versionEntries": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "versionBytes",
+                  "versionEntries"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
               "artifacts",
-              "skills"
+              "skills",
+              "disk"
             ],
             "additionalProperties": false
           },
@@ -17462,8 +17524,7 @@
                 "command"
               ],
               "additionalProperties": false
-            },
-            "maxItems": 16
+            }
           },
           "files": {
             "type": "array",
@@ -17514,8 +17575,7 @@
                   "additionalProperties": false
                 }
               ]
-            },
-            "maxItems": 16
+            }
           },
           "limits": {
             "type": "object",
@@ -17538,6 +17598,20 @@
                 "type": "object",
                 "properties": {
                   "totalBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "disk": {
+                "type": "object",
+                "properties": {
+                  "versionBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "versionEntries": {
                     "type": "integer",
                     "exclusiveMinimum": 0
                   }
@@ -18257,6 +18331,20 @@
                               }
                             },
                             "additionalProperties": false
+                          },
+                          "disk": {
+                            "type": "object",
+                            "properties": {
+                              "versionBytes": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "versionEntries": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              }
+                            },
+                            "additionalProperties": false
                           }
                         },
                         "additionalProperties": false
@@ -18472,11 +18560,28 @@
                           "totalBytes"
                         ],
                         "additionalProperties": false
+                      },
+                      "disk": {
+                        "type": "object",
+                        "properties": {
+                          "versionBytes": {
+                            "type": "integer"
+                          },
+                          "versionEntries": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "versionBytes",
+                          "versionEntries"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "required": [
                       "artifacts",
-                      "skills"
+                      "skills",
+                      "disk"
                     ],
                     "additionalProperties": false
                   },
@@ -19259,8 +19364,7 @@
                           "command"
                         ],
                         "additionalProperties": false
-                      },
-                      "maxItems": 16
+                      }
                     },
                     "files": {
                       "type": "array",
@@ -19311,8 +19415,7 @@
                             "additionalProperties": false
                           }
                         ]
-                      },
-                      "maxItems": 16
+                      }
                     },
                     "limits": {
                       "type": "object",
@@ -19335,6 +19438,20 @@
                           "type": "object",
                           "properties": {
                             "totalBytes": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "disk": {
+                          "type": "object",
+                          "properties": {
+                            "versionBytes": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "versionEntries": {
                               "type": "integer",
                               "exclusiveMinimum": 0
                             }
@@ -19666,8 +19783,7 @@
                         "command"
                       ],
                       "additionalProperties": false
-                    },
-                    "maxItems": 16
+                    }
                   },
                   "files": {
                     "type": "array",
@@ -19718,8 +19834,7 @@
                           "additionalProperties": false
                         }
                       ]
-                    },
-                    "maxItems": 16
+                    }
                   },
                   "limits": {
                     "type": "object",
@@ -19742,6 +19857,20 @@
                         "type": "object",
                         "properties": {
                           "totalBytes": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "disk": {
+                        "type": "object",
+                        "properties": {
+                          "versionBytes": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "versionEntries": {
                             "type": "integer",
                             "exclusiveMinimum": 0
                           }
@@ -20159,8 +20288,7 @@
                 "command"
               ],
               "additionalProperties": false
-            },
-            "maxItems": 16
+            }
           },
           "files": {
             "type": "array",
@@ -20211,8 +20339,7 @@
                   "additionalProperties": false
                 }
               ]
-            },
-            "maxItems": 16
+            }
           },
           "limits": {
             "type": "object",
@@ -20235,6 +20362,20 @@
                 "type": "object",
                 "properties": {
                   "totalBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "disk": {
+                "type": "object",
+                "properties": {
+                  "versionBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "versionEntries": {
                     "type": "integer",
                     "exclusiveMinimum": 0
                   }
@@ -20529,8 +20670,7 @@
                     "command"
                   ],
                   "additionalProperties": false
-                },
-                "maxItems": 16
+                }
               },
               "files": {
                 "type": "array",
@@ -20581,8 +20721,7 @@
                       "additionalProperties": false
                     }
                   ]
-                },
-                "maxItems": 16
+                }
               },
               "limits": {
                 "type": "object",
@@ -20605,6 +20744,20 @@
                     "type": "object",
                     "properties": {
                       "totalBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "disk": {
+                    "type": "object",
+                    "properties": {
+                      "versionBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      "versionEntries": {
                         "type": "integer",
                         "exclusiveMinimum": 0
                       }

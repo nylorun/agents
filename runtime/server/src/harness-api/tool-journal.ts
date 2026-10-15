@@ -5,7 +5,8 @@
  * Delivery (R5.3, R5.4). A tool call is sent at least once, and every send carries its effect
  * id as the key. After a crash, a shutdown or a lost gate hop, a row still `invoking` is sent
  * again: an MCP or HTTP tool call (it crosses the Tool Gate, which hands the tool the key) up to
- * `MAX_TOOL_ATTEMPTS` sends, then it fails to the model as `tool.interrupted`. A sandbox or
+ * the Tenant's Runtime limit `toolAttempts` sends, then it fails to the model as
+ * `tool.interrupted`. A sandbox or
  * core-served call has no key to dedupe on, so a crash fails it to the model at once, and
  * nothing runs it again (Q2). No tool call leaves its session `uncertain`.
  *
@@ -33,9 +34,6 @@ import {
 } from "../tenant/transcript.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import { toolCallDuration, toolCallStatus } from "./tool-status.js";
-
-/** How many times a tool call is sent before it fails to the model as `tool.interrupted`. */
-export const MAX_TOOL_ATTEMPTS = 3;
 
 /** A tool row's journal facts (R5), kept in its body. */
 export interface ToolRowFacts {

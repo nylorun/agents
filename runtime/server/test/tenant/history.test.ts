@@ -3,6 +3,7 @@
  * the transcript from them.
  */
 import { describe, expect, it } from "vitest";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import {
   TranscriptFoldError,
   applyUpdate,
@@ -20,20 +21,22 @@ const updated = (turnId: string | null, payload: TranscriptUpdate) => ({
 const fold = (...events: { type: string; turnId: string | null; payload?: unknown }[]) =>
   foldTranscript(events.map((event) => ({ payload: undefined, ...event })));
 
+const RECORD_ENTRY = RUNTIME_LIMIT_DEFAULTS.recordEntryBytes;
+
 describe("transcriptUpdates", () => {
   it("appends only the new entries", () => {
-    expect(transcriptUpdates([entry(1)], [entry(1), entry(2), entry(3)])).toEqual([
+    expect(transcriptUpdates([entry(1)], [entry(1), entry(2), entry(3)], RECORD_ENTRY)).toEqual([
       { keep: 1, entries: [entry(2), entry(3)], length: 3 },
     ]);
   });
 
   it("is empty when nothing changed", () => {
-    expect(transcriptUpdates([entry(1)], [entry(1)])).toEqual([]);
+    expect(transcriptUpdates([entry(1)], [entry(1)], RECORD_ENTRY)).toEqual([]);
   });
 
   it("is a snapshot when the prefix changed (compaction)", () => {
     const compacted = [{ kind: "compaction", summary: "s" }, entry(3)];
-    expect(transcriptUpdates([entry(1), entry(2), entry(3)], compacted)).toEqual([
+    expect(transcriptUpdates([entry(1), entry(2), entry(3)], compacted, RECORD_ENTRY)).toEqual([
       { keep: 0, entries: compacted, length: 2 },
     ]);
   });

@@ -19,6 +19,7 @@ describe("a compaction edit", () => {
   it("marks the first chunk of the edit with the facts, and folds like any edit", () => {
     const before = ["a", "b", "c"].map((text) => ({ kind: "input", text }));
     const after = [{ kind: "compaction", summary: "x".repeat(40) }, { kind: "input", text: "c" }];
+    // A record entry limit smaller than one entry: each entry is an event of its own.
     const updates = transcriptUpdates(before, after, 30, facts);
     expect(updates.length).toBeGreaterThan(1);
     expect(updates[0]).toMatchObject({ kind: "compaction", keep: 0, compaction: facts });
@@ -26,8 +27,8 @@ describe("a compaction edit", () => {
     for (const update of updates) expect(TranscriptUpdateSchema.safeParse(update).success).toBe(true);
     expect(applyUpdates(before, updates)).toEqual(after);
     // Without facts, nothing is marked; nothing changed, nothing is sent.
-    expect(transcriptUpdates(before, after).some((update) => "kind" in update)).toBe(false);
-    expect(transcriptUpdates(before, before, undefined, facts)).toEqual([]);
+    expect(transcriptUpdates(before, after, 30).some((update) => "kind" in update)).toBe(false);
+    expect(transcriptUpdates(before, before, 30, facts)).toEqual([]);
   });
 
   it("names at least one summary call", () => {

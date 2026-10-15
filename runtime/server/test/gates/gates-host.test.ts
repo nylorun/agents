@@ -20,6 +20,7 @@ import { KEYS_PATH } from "../../src/keys/contract.js";
 import type { HostModelSecret } from "../../src/vault/service.js";
 import type { RunGrant } from "../../src/tenant/run-token.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
+import { setLimits } from "../support/limits.js";
 import { writeLimitsConfig } from "../../src/tenant/runtime-limits.js";
 
 const realFetch = globalThis.fetch;
@@ -79,6 +80,8 @@ const logger = {
 
 const servers: GatesServer[] = [];
 async function gate(options: { blobs?: BlobStore } = {}) {
+  // Retries without waiting: the Tenant's Runtime limit `modelRetryDelayMs`, read per call.
+  await setLimits(runs.store, { modelRetryDelayMs: 1 });
   const server = await startGates({
     gates: {
       listen: { host: "127.0.0.1", port: 0, allowedHosts: ["gateway:4100"] },
@@ -86,7 +89,6 @@ async function gate(options: { blobs?: BlobStore } = {}) {
     },
     logger,
     vaults,
-    settings: { retryBaseDelayMs: 1 },
     drainMs: 200,
     keys: true,
     ...options,

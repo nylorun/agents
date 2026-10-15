@@ -16,7 +16,11 @@
  * until a turn start asks the pod to run again (`wantRunning`), and the engine, polling, runs the
  * setup again then.
  */
-import type { EnvironmentRecipe, FolderManifest } from "@nylorun/core/contracts";
+import {
+  ENVIRONMENT_SETUP_TIMEOUT_DEFAULT,
+  type EnvironmentRecipe,
+  type FolderManifest,
+} from "@nylorun/core/contracts";
 import { parseSandboxDuration } from "@nylorun/core/define";
 import { contentKey, readManifest } from "../artifacts/folders.js";
 import { contentTypeFor } from "@nylorun/core/contracts";
@@ -24,13 +28,10 @@ import { definitionFileKey } from "../tenant/definition-files.js";
 import type { Environment, Tx } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
 import { SETUP_FAILED } from "./pods/lifecycle.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 
 export { SETUP_FAILED };
 
-/** The most of a failed command's output kept in its event and reason. */
-const OUTPUT_TAIL = 4 * 1024;
-/** A command's timeout when the recipe gives none. */
-const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 
 /** What the engine runs on a new disk. */
 export interface SetupPlan {
@@ -51,12 +52,16 @@ export async function setupPlanOf(
 ): Promise<SetupPlan | undefined> {
   const recipe = environment.applied;
   if (!recipe.setup?.length && !recipe.files?.length) return undefined;
+  // A command's own timeout, else the default, within the Tenant's `setupCommandMs` as it is now.
+  const { setupCommandMs } = await readRuntimeLimits(t);
+  const timeoutOf = (timeout: string | undefined) =>
+    Math.min(parseSandboxDuration(timeout ?? ENVIRONMENT_SETUP_TIMEOUT_DEFAULT)!, setupCommandMs);
   return {
     recipeVersion: environment.appliedVersion,
     commands: (recipe.setup ?? []).map((command) => ({
       command: command.command,
       cwd: command.cwd ?? "/workspace",
-      timeoutMs: (command.timeout && parseSandboxDuration(command.timeout)) || DEFAULT_TIMEOUT_MS,
+      timeoutMs: timeoutOf(command.timeout),
     })),
     files: (recipe.files ?? []).map((file, index) => ({ index, path: file.path })),
     environment: await ctx.vault.environmentVariables(t, environment.id),
@@ -79,7 +84,7 @@ export function parseSetupReport(value: unknown): SetupReport | undefined {
   if (report.status !== "ok" && report.status !== "failed") return undefined;
   const index = typeof report.index === "number" && Number.isInteger(report.index) ? report.index : undefined;
   const exitCode = typeof report.exitCode === "number" && Number.isInteger(report.exitCode) ? report.exitCode : undefined;
-  const output = typeof report.output === "string" ? report.output.slice(-OUTPUT_TAIL) : undefined;
+  const output = typeof report.output === "string" ? report.output : undefined;
   return {
     status: report.status,
     ...(index === undefined ? {} : { index }),
@@ -91,7 +96,8 @@ export function parseSetupReport(value: unknown): SetupReport | undefined {
 /**
  * Records a failed setup on Environment `id` held at host epoch `epoch` (the reporting engine's):
  * the pod is `failed` with a reason that starts `setup:`, and `environment.failed` says which
- * command failed and how. A report from an older host, or a success, changes nothing.
+ * command failed and how, with the end of its output (the Tenant's `setupOutputChars`). A report
+ * from an older host, or a success, changes nothing.
  */
 export async function recordSetup(
   ctx: TenantContext,
@@ -109,10 +115,12 @@ export async function recordSetup(
         await t.updateEnvironment(id, { diskSeed: null }, new Date().toISOString());
       return;
     }
+    const { setupOutputChars } = await readRuntimeLimits(t);
+    const output = (report.output ?? "").slice(-setupOutputChars);
     const command = report.index === undefined ? undefined : environment.applied.setup?.[report.index];
     const what =
       command === undefined ? "copying the input files failed" : `command ${report.index! + 1} (${command.command.slice(0, 80)}) exited ${report.exitCode ?? "abnormally"}`;
-    const tail = (report.output ?? "").trim().slice(-500);
+    const tail = output.trim().slice(-500);
     const reason = `${SETUP_FAILED} ${what}${tail ? `: ${tail}` : ""}`;
     await t.updateEnvironmentPod(id, { observed: "failed", reason }, new Date().toISOString());
     await t.environmentEvent(id, "environment.failed", {
@@ -120,7 +128,7 @@ export async function recordSetup(
       setup: {
         ...(report.index === undefined ? {} : { index: report.index }),
         ...(report.exitCode === undefined ? {} : { exitCode: report.exitCode }),
-        output: report.output ?? "",
+        output,
       },
     });
   });

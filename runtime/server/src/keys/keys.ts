@@ -26,6 +26,7 @@ import type {
   SigningKeyView,
 } from "@nylorun/core/contracts";
 import { previewMcpServer } from "../mcp/preview.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import type { SessionStore } from "../store/types.js";
 import type { OutboundPolicy } from "../tenant/outbound.js";
 import { signingKeyView, type SigningKeys } from "../tenant/signing-keys.js";
@@ -140,7 +141,12 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
       const key = kek();
       await store.tx((t) => signingKeys.ensure(t, key));
     },
-    previewMcp: (body) => previewMcpServer(body, { vault, policy: options.policy ?? {} }),
+    previewMcp: async (body) =>
+      previewMcpServer(body, {
+        vault,
+        policy: options.policy ?? {},
+        limits: await store.tx((t) => readRuntimeLimits(t)),
+      }),
     egressCa: () => egress.certificate(),
     signEgressLeaf: (host, publicKey) => egress.signLeaf(host, publicKey),
   };

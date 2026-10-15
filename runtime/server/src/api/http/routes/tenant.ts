@@ -200,7 +200,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const ctx = c.env.tenant;
-      const request = ResetTenantRequestSchema.parse(await readJson(c.req.raw));
+      const request = ResetTenantRequestSchema.parse(await readJson(c));
       await drain(ctx, request.activeWork, hostTuning().tenant.drainTimeoutMs);
       // A sessions reset moves the Tenant to a new basin generation, so a session created
       // again with the same id, during or after the reset, starts in an empty basin at 0.
@@ -239,7 +239,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const ctx = c.env.tenant;
-      const request = SeedTenantConfigRequestSchema.parse(await readJson(c.req.raw));
+      const request = SeedTenantConfigRequestSchema.parse(await readJson(c));
       return jsonResponse(200, await seedTenantConfig({ store: ctx.store, vault: ctx.vault, keys: ctx.keys }, request));
     },
   );
@@ -276,7 +276,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(ModelInputsView, "What the model reads now") },
     },
     async (c) => {
-      const { provider, model, inputs } = PutModelInputsRequestSchema.parse(await readJson(c.req.raw));
+      const { provider, model, inputs } = PutModelInputsRequestSchema.parse(await readJson(c));
       if (provider === "custom")
         fail(400, "A custom endpoint's inputs are its settings: set settings.inputs on PUT /v1/tenant/model.");
       const found = catalogModel(provider, model);
@@ -301,7 +301,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/tenant/limits",
       tags: ["Tenant"],
       summary: "Get the Tenant's Runtime limits",
-      description: `What one record entry, model call, model file, tool answer, custom harness state and Harness API chunk may hold, in bytes: the Tenant's (Tenant setting \`limits.config\`), with the default for each it leaves out. Harnesses get them in \`turn.start.limits\`. ${LIMITS_TABLE}`,
+      description: `The sizes, counts and deadlines the Runtime holds what crosses it to: the Tenant's (Tenant setting \`limits.config\`), with the default for each it leaves out. Harnesses get the ones they must respect in \`turn.start.limits\` (record entry, model call, model file, tool answer, custom harness state, Harness API chunk, folder entries). ${LIMITS_TABLE}`,
       responses: { 200: json(TenantLimitsView, "The limits in force") },
     },
     async (c) => jsonResponse(200, { limits: await c.env.tenant.store.tx((t) => readRuntimeLimits(t)) }),
@@ -315,7 +315,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/tenant/limits",
       tags: ["Tenant"],
       summary: "Set the Tenant's Runtime limits",
-      description: `Replaces the Tenant's Runtime limits: a limit left out takes its default. A limit above its ceiling, which a dependency sets, is \`400\` naming the ceiling, and nothing is written. Each is read where it is checked, so a new value holds for the next write, call or segment. ${LIMITS_TABLE}`,
+      description: `Replaces the Tenant's Runtime limits: a limit left out takes its default. A limit above its ceiling, which a dependency sets, is \`400\` naming the ceiling, and nothing is written. Each is read where it is checked, so a new value holds for the next request, write, call or segment. ${LIMITS_TABLE}`,
       request: { body: body(PutTenantLimitsRequest) },
       responses: {
         200: json(TenantLimitsView, "The limits now in force"),
@@ -323,7 +323,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      const { requestId: _requestId, ...config } = PutTenantLimitsRequestSchema.parse(await readJson(c.req.raw));
+      const { requestId: _requestId, ...config } = PutTenantLimitsRequestSchema.parse(await readJson(c));
       const issues = runtimeLimitIssues(config.limits);
       if (issues.length > 0) fail(400, issues.join(" "));
       await c.env.tenant.store.tx((t) => writeLimitsConfig(t, config));
@@ -360,7 +360,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const ctx = c.env.tenant;
       const { requestId: _requestId, ...config } = PutTenantEnvironmentsRequestSchema.parse(
-        await readJson(c.req.raw),
+        await readJson(c),
       );
       const errors = sandboxConfigErrors(effectiveSandboxConfig(config));
       if (errors.length > 0) fail(400, errors.join(" "));
@@ -437,7 +437,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(ModelBudgets, "The budgets now in force") },
     },
     async (c) => {
-      const { budgets } = PutModelBudgetsRequestSchema.parse(await readJson(c.req.raw));
+      const { budgets } = PutModelBudgetsRequestSchema.parse(await readJson(c));
       const updatedAt = new Date().toISOString();
       const rows = await c.env.tenant.store.tx(async (t) => {
         await t.putModelBudgets(budgets.map((budget) => budgetRow(budget, updatedAt)));
@@ -483,7 +483,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(ToolPolicy, "The policy now in force") },
     },
     async (c) => {
-      const { rules } = PutToolPolicyRequestSchema.parse(await readJson(c.req.raw));
+      const { rules } = PutToolPolicyRequestSchema.parse(await readJson(c));
       const policy = { rules, updatedAt: new Date().toISOString() };
       await c.env.tenant.store.tx((t) => t.putSetting(TOOL_POLICY_SETTING, JSON.stringify(policy)));
       return jsonResponse(200, policy);
@@ -531,7 +531,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const ctx = c.env.tenant;
       return jsonResponse(
         200,
-        await ctx.keys.putHostModel(PutHostModelRequestSchema.parse(await readJson(c.req.raw))),
+        await ctx.keys.putHostModel(PutHostModelRequestSchema.parse(await readJson(c))),
       );
     },
   );
@@ -552,7 +552,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       return jsonResponse(
         200,
         await ctx.keys.selectHostModel(
-          SelectHostModelRequestSchema.parse(await readJson(c.req.raw)),
+          SelectHostModelRequestSchema.parse(await readJson(c)),
         ),
       );
     },

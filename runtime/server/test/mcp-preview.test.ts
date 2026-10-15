@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { McpPreviewSchema } from "@nylorun/core/contracts";
+import { McpPreviewSchema, RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { previewMcpServer, previewServerName } from "../src/mcp/preview.js";
 import { HttpError } from "../src/tenant/http.js";
 import { startTestTenant } from "./support/tenant.js";
@@ -327,7 +327,7 @@ describe("previewMcpServer", () => {
       },
     };
     const started = Date.now();
-    const error = await previewMcpServer({ url: `${origin(silent)}/mcp` }, { vault, policy: {}, timeoutMs: 200 }).catch(
+    const error = await previewMcpServer({ url: `${origin(silent)}/mcp` }, { vault, policy: {}, limits: { ...RUNTIME_LIMIT_DEFAULTS, mcpPreviewMs: 200 } }).catch(
       (caught: unknown) => caught,
     );
     expect(Date.now() - started).toBeLessThan(5_000);

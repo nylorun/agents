@@ -65,13 +65,8 @@ import {
 import { HttpError, fail } from "../../tenant/http.js";
 import { observeSession, readHistory } from "../../tenant/session-streams.js";
 import { putSession } from "../../tenant/sessions.js";
+import { readRuntimeLimits } from "../../tenant/runtime-limits.js";
 import type { TraceContext } from "../../traces/ids.js";
-
-/**
- * How long a blocking `SendMessage` waits for the task to end or ask for input. After it, the
- * task is returned `WORKING` and keeps running; the caller polls `GetTask`.
- */
-export const A2A_BLOCKING_WAIT_MS = 5 * 60_000;
 
 /** The caller of one A2A request: a subject, limited to its own sessions of one agent. */
 interface Caller {
@@ -506,8 +501,9 @@ async function cancelTask(caller: Caller, taskId: string): Promise<Task> {
 }
 
 /**
- * Waits until the turn ends, pauses or has an uncertain effect, the caller hangs up, or
- * `A2A_BLOCKING_WAIT_MS` passes. Follows the session's shared stream from the command's
+ * Waits until the turn ends, pauses or has an uncertain effect, the caller hangs up, or the
+ * Tenant's Runtime limit `a2aWaitMs` passes: after it, the task is returned `WORKING` and keeps
+ * running, and the caller polls `GetTask`. Follows the session's shared stream from the command's
  * cursor, so the events the task is built from are there when it returns. A feed that ends
  * (reset, deleted, closing) ends the wait: the task says what the session says then.
  */
@@ -519,7 +515,8 @@ async function settled(
   signal: AbortSignal
 ): Promise<void> {
   const stop = new AbortController();
-  const timer = setTimeout(() => stop.abort(), A2A_BLOCKING_WAIT_MS);
+  const { a2aWaitMs } = await ctx.store.tx((t) => readRuntimeLimits(t));
+  const timer = setTimeout(() => stop.abort(), a2aWaitMs);
   timer.unref();
   const hangup = () => stop.abort();
   signal.addEventListener("abort", hangup, { once: true });

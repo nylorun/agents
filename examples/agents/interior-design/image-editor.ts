@@ -14,7 +14,12 @@ export interface ImageEditor {
 export interface OpenAIImageEditorOptions {
   readonly apiKey: string;
   readonly model: string;
+  /** The largest edited image kept. Default `DEFAULT_MAX_IMAGE_BYTES`. */
+  readonly maxImageBytes?: number;
 }
+
+/** The editor's `maxImageBytes` when its options set none. */
+export const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 /** Minimal host-owned OpenAI Images edit client. Keys and provider payloads never enter Harness. */
 export function createOpenAIImageEditor(
@@ -54,7 +59,7 @@ export function createOpenAIImageEditor(
           "OpenAI image edit response did not include image data.",
         );
       return Object.freeze({
-        bytes: decodeImageBase64("image/png", encoded),
+        bytes: decodeImageBase64("image/png", encoded, options.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES),
         mediaType: "image/png" as const,
       });
     },
@@ -68,4 +73,4 @@ function extension(mediaType: string): string {
       ? "webp"
       : "png";
 }
-import { decodeImageBase64 } from "@nylorun/runtime";
+import { decodeImageBase64 } from "./image-bytes.js";

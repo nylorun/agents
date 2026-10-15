@@ -139,7 +139,7 @@ issuers:
     environments: ["users/{sub}/*"]              # grant templates; absent reaches none
 ```
 
-- Tokens must be RS256, ES256 or EdDSA, at most 16 KiB, with `exp`; how long they live is
+- Tokens must be RS256, ES256 or EdDSA, no longer than a request's headers may be (Node's `http.maxHeaderSize`, 16 KiB), with `exp`; how long they live is
   the identity provider's setting.
   Their scopes are the claim's, limited to `allowedScopes` (`agents:read`,
   `sessions:own`, `environments:write`, and `studio`, an operator scope for
@@ -362,7 +362,9 @@ Upgrading from protocol 10, which had sandbox resources and vaults:
 - **Setup and input files** (pods): `files` copies versions of Tenant-wide
   artifacts in (a file artifact at its `path`, a folder artifact under it), then
   `setup` runs its commands in order (`/bin/sh -c`, in `cwd`, default
-  `/workspace`; `timeout` default 10m, at most 30m; at most 16 of each), with the
+  `/workspace`; `timeout` default 10m, at most the Tenant's `setupCommandMs`, 30m by
+  default; at most `environmentSetupCommands` and `environmentFiles` of them, 16 each by
+  default: [Runtime limits](#runtime-limits)), with the
   Environment's variables and secrets (as the sentinel) and its egress. They run
   once per disk: when the pod's volume is new (created or reset), before its
   first turn; a resume keeps what they made. A failed command fails the pod (`observed: failed`, reason
@@ -544,7 +546,7 @@ these variables to it from the shell it runs in (a collector on your machine is
   collector. Read the turns it missed from `GET /v1/sessions/{id}/turns/{turnId}/trace` and post
   them to the collector's `/v1/traces` to backfill.
 - **What leaves.** By default a span carries references (`nylorun.event.cursor` points at the
-  log event), never content. The content kinds above are each cut at 8 KiB. A span never carries
+  log event), never content. The content kinds above are each cut at the Tenant's `traceContentBytes` (8 KiB by default, [Runtime limits](#runtime-limits)). A span never carries
   a credential value (the log holds none), a prompt (the log holds none), a person's id
   (`ownerUserId`, a subject, who approved), an identity header or an idempotency key.
 - **Trace context.** A command, an AG-UI run or an A2A message sent with a `traceparent` joins the
@@ -670,27 +672,76 @@ services in a later release.
 
 ## Runtime limits
 
-How large what crosses the Runtime may be is the Tenant's Runtime limits, in bytes but for
-`folderEntries`:
-`GET`/`PUT /v1/tenant/limits` (a management key; `admin.settings.limits`,
+How large, how many and how long what crosses the Runtime may be is the Tenant's Runtime
+limits: `GET`/`PUT /v1/tenant/limits` (a management key; `admin.settings.limits`,
 `nylorun tenant settings limits`). A `PUT` replaces them all: a limit left out takes its
-default.
+default. No size, count or deadline a Tenant meets is fixed in code; what stays fixed is a
+dependency's or a standard's (below the tables).
+
+What a harness must respect, sent in `turn.start.limits`:
 
 | Limit | What it holds | Default | Ceiling |
 | --- | --- | --- | --- |
-| `recordEntryBytes` | One event's payload, or one effect outcome, in a session's record | 960 KiB | 960 KiB: S2's 1 MiB record, less room for the event's envelope |
+| `recordEntryBytes` | One event's payload, or one effect outcome, in a session's record; a transcript edit fills events up to it | 960 KiB | 960 KiB: S2's 1 MiB record, less room for the event's envelope |
 | `modelCallBytes` | A model call's body at the Model Gate | 32 MiB | About 512 MiB: one JavaScript string |
 | `modelFileBytes` | One file the Model Gate sends a model | 8 MiB | About 384 MiB: its base64 in one string |
 | `toolAnswerBytes` | An MCP or HTTP tool's answer the Tool Gate keeps, and the tool bodies it reads | 8 MiB | 32 MiB: half a 64 MiB Harness API frame |
 | `harnessStateBytes` | A custom harness's state per session | 256 KiB | 32 MiB: half a frame |
-| `chunkBytes` | One chunked Harness API answer or upload chunk (a skill file's range, an artifact's) | 16 MiB | 48 MiB less 64 KiB: its base64 in one frame |
+| `chunkBytes` | One chunked Harness API answer or upload chunk (a skill file's range, an artifact's), and one range of a disk copy | 16 MiB | 48 MiB less 64 KiB: its base64 in one frame |
 | `folderEntries` | The files of one folder version a harness writes (our harness's `outputs` folder) | 10,000 files | About 5 million: entries of a manifest read as one string |
 
-A limit above its ceiling is `400`, naming the ceiling, and nothing changes. Each limit is
-read where it is checked, so a new value holds for the next write, call or turn. Past one, a
-write into the record is `413 limit_exceeded` (`details.limit: "recordEntryBytes"`) to an API
-client, and `limit_exceeded` to a harness; a turn whose harness reports more fails. Harnesses
-get the limits in force in `turn.start.limits` ([HARNESS_API.md](./HARNESS_API.md)).
+What only the Runtime checks:
+
+| Limit | What it holds | Default | Ceiling |
+| --- | --- | --- | --- |
+| `requestBodyBytes` | A Runtime or Management API request's JSON body (`413` past it) | 1 MiB | About 512 MiB: one string |
+| `inlineFileBytes` | One file a message carries inline (AG-UI, A2A); such an endpoint reads one file's base64 and `requestBodyBytes` more | 20 MiB | About 384 MiB: its base64 in one string |
+| `a2aWaitMs` | How long a blocking A2A `SendMessage` waits before it answers `WORKING` | 5 min | About 24.8 days: a JavaScript timer |
+| `errorExcerptChars` | How much of a failed MCP server's or HTTP tool's answer an error quotes | 2,000 characters | About 160,000: one record entry, escaped |
+| `traceContentBytes` | One content attribute of an exported span | 8 KiB | 960 KiB: one record entry |
+| `environmentLabels` | Labels on one Environment, checked whenever they are set | 32 | One request body |
+| `environmentSetupCommands` | Setup commands in one manifest | 16 | One request body |
+| `environmentFiles` | Input file entries in one manifest | 16 | One request body |
+| `environmentFilesPerEntry` | Files one input file entry by hash names | 1,000 | One request body |
+| `environmentSecretSlots` | Secret slots one manifest declares | 64 | One request body |
+| `setupCommandMs` | The longest `timeout` a setup command may ask for (a command's default is 10 minutes) | 30 min | A JavaScript timer |
+| `setupOutputChars` | The end of a failed setup command's output its event keeps | 4,096 characters | One record entry, escaped |
+| `diskVersionEntries` | Entries in one version of an Environment's disk (a manifest may set less: `limits.disk.versionEntries`) | 200,000 | About 1.9 million: one disk listing in a Harness API frame |
+| `diskVersionBytes` | Bytes of files in one disk version (`limits.disk.versionBytes`) | 10 GiB | A JavaScript number |
+| `diskLeaseMs` | How long a disk copy's lease lasts unrenewed (renewed every quarter of it) | 2 min | A JavaScript timer |
+| `diskPodWaitMs` | How long a disk copy waits for a pod's engine to connect | 60 s | A JavaScript number |
+| `modelRequestMs` | The longest one provider request may take | 600 s | A JavaScript timer |
+| `modelIdleMs` | A provider stream's silence before the attempt is retried | 300 s | A JavaScript timer |
+| `modelAttempts` | Attempts per model call, the first included | 3 | A JavaScript number |
+| `modelRetryDelayMs` | The delay before the second attempt (doubling, with jitter) | 2 s | A JavaScript timer |
+| `modelProviderRetries` | Retries the provider SDK makes within one attempt | 2 | A JavaScript number |
+| `modelRetryDelayMaxMs` | The longest delay the provider SDK waits before one | 60 s | A JavaScript timer |
+| `toolAttempts` | Sends of an MCP or HTTP tool call, across crashes and lost hops, before `tool.interrupted` | 3 | A JavaScript number |
+| `httpToolTimeoutMs` | The longest `timeoutMs` an HTTP tool may ask for (a tool's default is 60 s), checked at deploy and at each call | 300 s | A JavaScript timer |
+| `mcpSnapshotBytes` | What a session pins of its MCP servers' tools and instructions, which every `turn.start.mcp` carries; a server past it is left out, with a diagnostic | 4 MiB | 16 MiB: a quarter of a Harness API frame |
+| `mcpPreviewMs` | How long an MCP tool preview may take | 15 s | A JavaScript timer |
+| `mcpMetadataBytes` | The protected-resource metadata document a preview reads | 64 KiB | One string |
+
+A limit above its ceiling is `400`, naming the ceiling and its dependency, and nothing changes.
+Each limit is read where it is checked, so a new value holds for the next request, write, call
+or turn. Past one, a write into the record is `413 limit_exceeded`
+(`details.limit: "recordEntryBytes"`) to an API client, and `limit_exceeded` to a harness; a
+turn whose harness reports more fails. An Environment's labels, setup and input files are
+checked when it is made (or its manifest saved), its labels whenever they are set; an
+Environment made before a limit was lowered keeps running, within the lower limit where one
+applies at run time (a setup command's timeout, a disk version).
+
+Model calls and HTTP tools cross the gates, whose hop has its own timeout (host
+configuration): a `modelRequestMs` or `httpToolTimeoutMs` longer than it is cut there.
+
+What stays fixed, because a dependency or a standard fixes it: S2's 1 MiB record, the Harness
+API's 64 MiB frame, the longest JavaScript string and timer; a token's size (a bearer or a
+capability link arrives in a request's headers, which Node caps at `http.maxHeaderSize`); an
+artifact name's 255 characters and a folder path's 1,024 (`NAME_MAX`, and macOS's `PATH_MAX`,
+the file systems a workspace lives on), and a skill file's path within that under its mount
+folder; W3C `tracestate`'s 512 characters. A custom endpoint's `contextWindow` and `maxTokens`
+default to 32,768 and 8,192 (`settings` of `PUT /v1/tenant/model`), and a trusted issuer's
+JWKS fetch has its own settings in the identity file (`jwksFetch`).
 
 ## Host tuning
 
@@ -721,7 +772,7 @@ to the longest, with `minMs` at most `maxMs`. Tenant-facing limits are not here:
 These are fixed by a standard or a dependency, so they are ceilings the tuning is checked
 against, not settings: Node's longest timer (2^31 - 1 ms); S3's part sizes (5 MiB to 5 GiB) and
 its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes service's longest
-`?wait=` (30 s), its pod stop grace (1 to 30 s) and its 4096-byte pod variables; the
+`?wait=` (30 s) and its 4096-byte pod variables; the
 `environment.egress` event's 16 running turns (its contract); W3C Trace Context's 512-character
 `tracestate`; and the 24-hour floor of a wake's dedupe key (Durable Session Execution §12.3).
 
@@ -767,6 +818,7 @@ its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes se
 | `tenant.statusTimeoutMs` | 5 s | How long status waits for the execution's stuck invocations |
 | `tenant.signingKeyRotationGraceMs` | 60 s | Added to the longest token lifetime before a previous signing key may go (0 allowed) |
 | `tenant.retryAfterSeconds` | 5 | The `Retry-After` of a request refused while its Environment is busy or pods are not ready |
+| `tenant.seedLeaseMs` | 10 min | How long a pending Environment seed holds the disk before another process may take it over |
 | `sweep.intervalMs` | 5 s | The delay between sweep passes of the Tenant |
 | `sweep.batchSize` | 100 | Rows one sweep query reads at a time |
 | `sweep.signalRetentionMs` | 1 h | How long a control signal is kept |

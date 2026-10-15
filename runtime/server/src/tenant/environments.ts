@@ -70,10 +70,12 @@ import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
 import { deleteDiskArtifact, forkSeedOf, runPendingSeed, snapshotEnvironment } from "../artifacts/disk.js";
 import { manifestChanges, manifestRecipeRequest } from "./environment-manifests.js";
-import { limitIssues, limitsInForce, readTenantLimits } from "./limits.js";
+import { labelIssues, limitIssues, limitsInForce, manifestShapeIssues, readTenantLimits } from "./limits.js";
+import { readRuntimeLimits } from "./runtime-limits.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail, failRetryLater } from "./http.js";
 import type { SealedSecretCopies } from "../vault/service.js";
+import { hostTuning } from "../tuning.js";
 
 /** The Environment grants that limit `scope`, or undefined when it reaches every Environment. */
 export function environmentGrantsOf(scope: AuthScope): readonly string[] | undefined {
@@ -384,13 +386,17 @@ export async function putEnvironment(
     const now = new Date().toISOString();
     const config = effectiveSandboxConfig(await readSandboxConfig(t));
     const tenantLimits = await readTenantLimits(t);
-    // `limits` are checked against the Tenant's only when an Environment is made: a get-or-create
-    // on one made before the Tenant lowered a limit still answers, and the lower limit applies.
+    const runtimeLimits = await readRuntimeLimits(t);
+    // `limits` and the manifest's shape are checked against the Tenant's only when an Environment
+    // is made: a get-or-create on one made before the Tenant lowered a limit still answers, and
+    // the lower limit applies. Labels are checked whenever they are set.
+    const labels = labelIssues(body.labels, runtimeLimits);
+    if (labels.length > 0) fail(400, labels.join(" "));
     const resolve = (kind: EnvironmentKind, request: RecipeRequest, creating: boolean) => {
       const resolved = resolveRecipe(kind, request, config);
       const errors = [
         ...(resolved.kind === "error" ? resolved.errors : []),
-        ...(creating ? limitIssues(request.limits, tenantLimits) : []),
+        ...(creating ? [...limitIssues(request.limits, tenantLimits), ...manifestShapeIssues(request, runtimeLimits)] : []),
       ];
       return resolved.kind === "error" || errors.length > 0 ? fail(400, errors.join(" ")) : resolved.recipe;
     };
@@ -468,7 +474,7 @@ export async function putEnvironment(
               kind: "seed" as const,
               version: seed.version,
               startedAt: now,
-              until: new Date(Date.now() + SEED_LEASE_MS).toISOString(),
+              until: new Date(Date.now() + hostTuning().tenant.seedLeaseMs).toISOString(),
             },
           }
         : {}),
@@ -660,6 +666,8 @@ export async function forkEnvironment(
     const errors = [
       ...(resolved.kind === "error" ? resolved.errors : []),
       ...limitIssues(manifest.body.limits, await readTenantLimits(t)),
+      ...manifestShapeIssues(manifest.body, await readRuntimeLimits(t)),
+      ...labelIssues(body.labels, await readRuntimeLimits(t)),
     ];
     if (resolved.kind === "error" || errors.length > 0) return fail(400, errors.join(" "));
     const recipe = resolved.recipe;
@@ -1014,7 +1022,7 @@ export async function newVolume(
               kind: "seed",
               version: options.seed.version,
               startedAt: now,
-              until: new Date(Date.now() + SEED_LEASE_MS).toISOString(),
+              until: new Date(Date.now() + hostTuning().tenant.seedLeaseMs).toISOString(),
             },
           }),
     },
@@ -1048,9 +1056,6 @@ export async function newVolume(
   await revokeHost(t, id, epoch);
   return volumeGen;
 }
-
-/** How long a pending seed holds the disk before another process may take it over. */
-export const SEED_LEASE_MS = 10 * 60_000;
 
 /** `GET /v1/environments/{id}/events`: the Environment's lifecycle stream. */
 export async function environmentEventsOf(

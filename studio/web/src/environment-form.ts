@@ -18,9 +18,6 @@ type EnvironmentFile = NonNullable<EnvironmentInput["files"]>[number];
 export const ENVIRONMENT_FORM_KINDS = ["virtual", "pod", "none"] as const;
 export type EnvironmentFormKind = (typeof ENVIRONMENT_FORM_KINDS)[number];
 
-/** As `ENVIRONMENT_SETUP_MAX`: the most setup commands, and the most input files, a recipe holds. */
-export const SETUP_MAX = 16;
-
 /** One setup command, as typed. */
 export interface SetupRow {
   readonly command: string;
@@ -176,7 +173,7 @@ export function setupRequest(rows: readonly SetupRow[]): EnvironmentSetupCommand
     const timeout = duration(`Setup command ${n}'s timeout`, row.timeout);
     commands.push({ command, ...(cwd ? { cwd } : {}), ...(timeout ? { timeout } : {}) });
   }
-  if (commands.length > SETUP_MAX) throw new Error(`A recipe holds at most ${SETUP_MAX} setup commands.`);
+  // How many a recipe may hold is the Tenant's Runtime limit, which the Runtime checks.
   return commands;
 }
 
@@ -194,7 +191,6 @@ export function filesRequest(rows: readonly FileRow[]): EnvironmentFile[] {
       throw new Error(`Input file ${n} needs a version: a whole number from 1.`);
     files.push({ artifactId, version, path: workspacePath(`Input file ${n}'s path`, row.path) });
   }
-  if (files.length > SETUP_MAX) throw new Error(`A recipe holds at most ${SETUP_MAX} input files.`);
   return files;
 }
 

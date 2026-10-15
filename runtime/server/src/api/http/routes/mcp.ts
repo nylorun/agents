@@ -47,7 +47,7 @@ export function mcpRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      const request = McpPreviewRequestSchema.parse(await readJson(c.req.raw));
+      const request = McpPreviewRequestSchema.parse(await readJson(c));
       return jsonResponse(200, await c.env.tenant.keys.previewMcp(request));
     },
   );

@@ -54,7 +54,9 @@ describe("the manifest's HTTP tools", () => {
       expect(issues(manifest({ http: { url: "https://example.com/x", method } }))).toEqual([]);
     expect(issues(manifest({ http: { url: "https://example.com/x", method: "HEAD" } }))).toHaveLength(1);
     expect(issues(manifest({ http: { url: "https://example.com/x", method: "get" } }))).toHaveLength(1);
-    for (const timeoutMs of [0, -1, 1.5, 300_001])
+    // The longest a tool may ask for is the Tenant's Runtime limit `httpToolTimeoutMs`, checked
+    // when it is deployed; the manifest's own ceiling is the longest timer JavaScript sets.
+    for (const timeoutMs of [0, -1, 1.5, 2 ** 31])
       expect(issues(manifest({ http: { url: "https://example.com/x", timeoutMs } }))).toHaveLength(1);
     expect(issues(manifest({ http: { url: "https://example.com/x", credential: "" } }))).toHaveLength(1);
     expect(issues(manifest({ http: { url: "https://example.com/x", headers: {} } }))).toHaveLength(1);
@@ -113,7 +115,7 @@ describe("http()", () => {
   it("refuses a bad target when it is built", () => {
     expect(() => http({ name: "refund", input: z.object({}), url: "/refunds" })).toThrow(HarnessError);
     expect(() =>
-      http({ name: "refund", input: z.object({}), url: "https://example.com/x", timeoutMs: 1_000_000 }),
+      http({ name: "refund", input: z.object({}), url: "https://example.com/x", timeoutMs: 2 ** 31 }),
     ).toThrow(/timeoutMs/);
     // Tool approvals are the Tenant's tool policy (R5 step 2).
     expect(() =>
