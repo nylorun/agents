@@ -489,12 +489,14 @@ export async function putEnvironment(
       deleting(again);
       return found(again);
     }
-    await ctx.vault.createEnvironmentVault(t, id, actorOf(scope));
+    const vaultId = await ctx.vault.createEnvironmentVault(t, id, actorOf(scope));
     if (fork?.secrets === "copy") {
-      const slots = recipe.secrets === undefined ? undefined : Object.fromEntries(
+      const slots = recipe.secrets === undefined ? null : Object.fromEntries(
         Object.entries(recipe.secrets).map(([name, slot]) => [name, slotRequest(slot)]),
       );
-      fork.copied = await ctx.vault.copyEnvironmentSecrets(t, fork.source, id, actorOf(scope), slots);
+      // Sealed by keys, which holds the vault key (F4.2); inserted here, so the fork is one commit.
+      const sealed = await ctx.keys.sealEnvironmentSecretCopies(fork.source, vaultId, slots);
+      fork.copied = await ctx.vault.insertEnvironmentSecretCopies(t, vaultId, fork.source, actorOf(scope), sealed);
     }
     const madeFrom = manifest ? { manifest: { name: manifest.name, version: manifest.version } } : {};
     await t.environmentEvent(id, "environment.created", {

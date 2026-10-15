@@ -9,8 +9,13 @@
  * new VaultService({ store: SessionStore, kek: () => Buffer })
  *
  * // An Environment's vault, in the caller's transaction (`tenant/environments.ts`).
- * createEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void>
+ * createEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<string>
  * deleteEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void>
+ *
+ * // A fork's secrets (Q15): `Keys` seals the copies with the vault key in its own transaction,
+ * // then the fork's transaction inserts them, so the process that forks never holds the key.
+ * sealEnvironmentSecretCopies(from, vaultId, slots | null): Promise<SealedSecretCopies>
+ * insertEnvironmentSecretCopies(t: Tx, vaultId, from, actor, sealed): Promise<{ copied; dropped }>
  *
  * // Its secrets (`/v1/environments/{id}/secrets`): each opens its own transaction and writes its
  * // audit rows in it. A put needs the vault key, so callers reach it through `Keys`.
@@ -147,6 +152,26 @@ type UserCredentialRow = VaultCredentialRow & {
   type: "bearer" | "headers" | "environment_secret" | "environment_variable";
 };
 
+/**
+ * A fork's secrets sealed for its new vault (`sealEnvironmentSecretCopies`): each copy's
+ * ciphertext, base64 so it crosses the keys service's JSON, and what about it is not secret.
+ */
+export interface SealedSecretCopies {
+  readonly copies: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly type: UserCredentialRow["type"];
+    readonly bindingJson: string;
+    readonly expiresAt: string | null;
+    readonly kekId: string;
+    readonly nonce: string;
+    readonly ciphertext: string;
+    readonly wrappedDek: string;
+  }[];
+  /** Names left behind: no slot of the fork declares them, or their slot cannot take the value. */
+  readonly dropped: readonly string[];
+}
+
 /** A user credential's `bindingJson`: everything about it that is not secret. */
 type CredentialBinding = {
   /** A `bearer` or `headers` credential's server URL; absent for the environment kinds. */
@@ -214,8 +239,8 @@ export class VaultService {
 
   // --- an Environment's vault (caller's transaction) ------------------------------
 
-  /** Creates Environment `environmentId`'s vault (D56), in the transaction that creates it. */
-  async createEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void> {
+  /** Creates Environment `environmentId`'s vault (D56), in the transaction that creates it; answers its id. */
+  async createEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<string> {
     const row: VaultRow = {
       id: randomUUID(),
       name: environmentId,
@@ -225,6 +250,7 @@ export class VaultService {
     };
     await t.insertVault(row);
     await this.audit(t, { actor, action: "create", vaultId: row.id, target: environmentId, outcome: "created" });
+    return row.id;
   }
 
   /**
@@ -249,41 +275,42 @@ export class VaultService {
   }
 
   /**
-   * Copies Environment `from`'s secrets into Environment `to`'s new vault (a fork, Q15), in the
-   * transaction that creates `to`. Each value is unsealed and sealed again under the new vault's
-   * and credential's ids, which its AAD binds, so no value leaves the Runtime. With `slots` (what
-   * `to` runs declares secret slots, D64), only the names it declares are copied, each with its
-   * slot's binding; a value the slot's type cannot take is left behind.
+   * Seals Environment `from`'s secrets again for vault `vaultId`, a fork's new vault (Q15): each
+   * value is unsealed and sealed under the new vault's and credential's ids, which its AAD binds.
+   * Needs the vault key, so callers reach it through `Keys`; it reads `from` in its own
+   * transaction and writes nothing. With `slots` (what the fork runs declares secret slots, D64),
+   * only the names it declares are sealed, each with its slot's binding; a value the slot's type
+   * cannot take is left behind. The fork's transaction inserts the copies
+   * (`insertEnvironmentSecretCopies`).
    */
-  async copyEnvironmentSecrets(
-    t: Tx,
+  async sealEnvironmentSecretCopies(
     from: string,
-    to: string,
-    actor: string,
-    slots?: Readonly<Record<string, Record<string, unknown>>>,
-  ): Promise<{ copied: string[]; dropped: string[] }> {
-    const source = await t.vaultOfEnvironment(from);
-    const target = await t.vaultOfEnvironment(to);
-    if (!source || !target) return { copied: [], dropped: [] };
+    vaultId: string,
+    slots?: Readonly<Record<string, Record<string, unknown>>> | null,
+  ): Promise<SealedSecretCopies> {
     const kek = this.kek();
-    const copied: UserCredentialRow[] = [];
+    const rows = await this.store.tx(async (t) => {
+      const source = await t.vaultOfEnvironment(from);
+      return source ? (await t.credentialsForVault(source.id)).filter(isUserCredential) : [];
+    });
+    const sealed: UserCredentialRow[] = [];
     const dropped: string[] = [];
     const now = new Date().toISOString();
-    for (const row of (await t.credentialsForVault(source.id)).filter(isUserCredential)) {
+    for (const row of rows) {
       const payload = readPayload(kek, row);
       let type = row.type;
       let binding = credentialBinding(row);
-      let sealed = payload;
-      if (slots !== undefined) {
+      let value = payload;
+      if (slots) {
         const slot = slots[row.name];
         const rebound = slot === undefined ? undefined : rebind(row.name, slot, row, payload, binding);
         if (rebound === undefined) {
           dropped.push(row.name);
           continue;
         }
-        ({ type, binding, payload: sealed } = rebound);
+        ({ type, binding, payload: value } = rebound);
         try {
-          conflictOf(type, binding, copied);
+          conflictOf(type, binding, sealed);
         } catch (error) {
           if (!(error instanceof VaultError)) throw error;
           dropped.push(row.name);
@@ -291,22 +318,64 @@ export class VaultService {
         }
       }
       const id = randomUUID();
-      const credential: UserCredentialRow = {
+      sealed.push({
         id,
-        vaultId: target.id,
+        vaultId,
         name: row.name,
         type,
         bindingJson: JSON.stringify(binding),
         expiresAt: row.expiresAt,
         createdAt: now,
         rotatedAt: null,
-        ...encryptSecret(kek, credentialAad(target.id, id, type, binding), Buffer.from(JSON.stringify(sealed), "utf8")),
-      };
-      await t.insertCredential(credential);
-      await this.audit(t, { actor, action: "create", vaultId: target.id, credentialId: id, target: from, outcome: "copied" });
-      copied.push(credential);
+        ...encryptSecret(kek, credentialAad(vaultId, id, type, binding), Buffer.from(JSON.stringify(value), "utf8")),
+      });
     }
-    return { copied: copied.map((row) => row.name).sort(), dropped: dropped.sort() };
+    return {
+      copies: sealed.map((row) => ({
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        bindingJson: row.bindingJson,
+        expiresAt: row.expiresAt,
+        kekId: row.kekId,
+        nonce: Buffer.from(row.nonce).toString("base64"),
+        ciphertext: Buffer.from(row.ciphertext).toString("base64"),
+        wrappedDek: Buffer.from(row.wrappedDek).toString("base64"),
+      })),
+      dropped: dropped.sort(),
+    };
+  }
+
+  /**
+   * Inserts a fork's sealed copies (`sealEnvironmentSecretCopies`) into vault `vaultId`, in the
+   * transaction that creates the fork, with an audit row each naming `from`. Reads no secret.
+   */
+  async insertEnvironmentSecretCopies(
+    t: Tx,
+    vaultId: string,
+    from: string,
+    actor: string,
+    sealed: SealedSecretCopies,
+  ): Promise<{ copied: string[]; dropped: string[] }> {
+    const now = new Date().toISOString();
+    for (const copy of sealed.copies) {
+      await t.insertCredential({
+        id: copy.id,
+        vaultId,
+        name: copy.name,
+        type: copy.type,
+        bindingJson: copy.bindingJson,
+        expiresAt: copy.expiresAt,
+        createdAt: now,
+        rotatedAt: null,
+        kekId: copy.kekId,
+        nonce: Buffer.from(copy.nonce, "base64"),
+        ciphertext: Buffer.from(copy.ciphertext, "base64"),
+        wrappedDek: Buffer.from(copy.wrappedDek, "base64"),
+      });
+      await this.audit(t, { actor, action: "create", vaultId, credentialId: copy.id, target: from, outcome: "copied" });
+    }
+    return { copied: sealed.copies.map((copy) => copy.name).sort(), dropped: [...sealed.dropped] };
   }
 
   // --- an Environment's secrets ----------------------------------------------------
