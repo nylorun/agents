@@ -224,13 +224,17 @@ export function SessionComposer({
           ref={textarea}
           aria-label="Message"
           rows={1}
-          className="block max-h-60 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          className="block max-h-60 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm leading-6 outline-none placeholder:text-muted-foreground aria-disabled:cursor-not-allowed"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           placeholder={placeholder}
-          disabled={disabled}
+          // Read-only, not disabled, while a turn runs: a disabled box drops focus,
+          // and dictation and other assistive tools that paste into the focused
+          // field lose their target for the next message.
+          readOnly={disabled}
+          aria-disabled={disabled || undefined}
         />
         <div className="flex items-center justify-between gap-2 px-2 pb-2">
           <input

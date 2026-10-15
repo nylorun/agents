@@ -545,6 +545,30 @@ test("files attached to a message are uploaded into the session, then sent as it
   });
 });
 
+test("the message box keeps focus while a turn runs, so a paste into the focused field lands", async () => {
+  await withStudio(async ({ page, studioUrl, commands }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
+    const message = page.getByRole("textbox", { name: "Message" });
+    await message.fill("Where is order 42?");
+    await message.press("Enter");
+    await page.getByPlaceholder(`${AGENT} is working…`).waitFor();
+    assert.equal(commands.length, 1);
+    // Read-only, not disabled: focus stays in the box for the next message.
+    assert.equal(await message.getAttribute("aria-disabled"), "true");
+    assert.deepEqual(
+      await message.evaluate((element: HTMLTextAreaElement) => ({
+        disabled: element.disabled,
+        readOnly: element.readOnly,
+        focused: element === document.activeElement,
+      })),
+      { disabled: false, readOnly: true, focused: true },
+    );
+    await page.keyboard.type("too soon");
+    assert.equal(await message.inputValue(), "");
+  });
+});
+
 test("a file the model does not read keeps the draft, says why, and is not uploaded again on resend", async () => {
   await withStudio(async ({ page, studioUrl, uploads, commands }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
