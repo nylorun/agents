@@ -217,9 +217,9 @@ const assistant = Agent({ id: "assistant", name: "Assistant" })
 
 Each key names a server; its `name` defaults to the key and, when given, must equal it. Repeated `.mcp()` calls add servers to the manifest's `mcpServers`. Nylorun accepts remote servers only: `streamable-http` and `sse` ([Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers)); a `stdio` server is refused, so run it behind an HTTP transport and declare its URL. Attach an Agent Plugin package with `.plugin(path)`: its skills and remote MCP servers join the agent's `skills` and `mcpServers`, each labelled `plugin: { name, version }` from its `plugin.json`, and a stdio server in its `mcp.json` throws. Names are unique across the agent's tools, skills and servers.
 
-Set a server's tools one by one with `tools`, keyed by the server's own tool names, `"*"` for the rest: `{ "*": { enabled: false }, search_issues: { enabled: true }, create_issue: { enabled: true } }` is an allowlist (whether a call waits for a person is the [tool policy](#tool-policy)). When an agent's MCP tools would fill more than a tenth of the model's context window, the Runtime defers them: the model finds them with `tool_search` and runs them with `tool_call`. `deferred: true` or `false`, on a tool or on the server, decides instead. Either setting makes the manifest v6 (see MIGRATION.md).
+Set a server's tools one by one with `tools`, keyed by the server's own tool names, `"*"` for the rest: `{ "*": { enabled: false }, search_issues: { enabled: true }, create_issue: { enabled: true } }` is an allowlist (whether a call waits for a person is the [tool policy](#tool-policy)). When an agent's MCP tools would fill more than a tenth of the model's context window, the Runtime defers them: the model finds them with `tool_search` and runs them with `tool_call`. `deferred: true` or `false`, on a tool or on the server, decides instead.
 
-A manifest never carries a server's credential, and its `headers` hold no secret. You write a credential for the server's URL into an Environment (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in, with `client.environments.secrets.put`), and sessions that name the Environment use it: [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun mcp inspect` for listing a server's tools first. After `saveAgent`, `admin.coverage({ agentId, environmentId })` in `@nylorun/admin` says which credential each server and HTTP tool would get in that Environment ([Checking an agent's credentials](../../guides/DEPLOYMENT.md#checking-an-agents-credentials)). The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
+A manifest never carries a server's credential, and its `headers` hold no secret. You write a credential for the server's URL into an Environment (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in, with `client.environments.secrets.put`), and sessions that name the Environment use it: [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun tenant mcp inspect` for listing a server's tools first. After `saveAgent`, `admin.coverage({ agentId, environmentId })` in `@nylorun/admin` says which credential each server and HTTP tool would get in that Environment ([Checking an agent's credentials](../../guides/DEPLOYMENT.md#checking-an-agents-credentials)). The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
 
 A session runs in an **Environment**: one sandbox and one vault, with an id you choose, which outlives the sessions that name it (protocol 11). It is made from one version of an **environment manifest** or from inline fields, and never changes what it runs after that (protocol 14). The agent names no Environment, so the same agent runs in any Tenant; it may state what it needs (`.requires()`). Whether an Environment serves one session, one person or a project is your app's choice:
 
@@ -312,7 +312,7 @@ The tool is named after the agent's `id` and takes `{ task: string }`; the agent
 
 A flow agent can be a subagent too: `.subagents(researchFlow)` with a `description` like any other. Its manifest is inlined in the parent's, so it is saved with the parent. When the model calls it, the flow runs on the Runtime in its own linked session (a fresh one per call, linked from the parent's with a `node.agent` event at `support/<flow id>`), its agents in theirs, and the flow's output comes back as the tool result; a failed flow is a failed tool result. Cancelling the parent cancels the flow. Flow agents as subagents run on the Runtime only, not in a local `run()`. An approval asked for inside the flow waits on the flow's own session.
 
-Delegate when the parent should keep the answer. When a specialist should own the rest of the conversation, send the next message with a turn manifest that has the specialist's instructions instead. This version is one level deep and non-interactive: a delegated agent cannot use agents as tools, and its tools cannot declare `approval` (keep those on the parent). In the local engine (`@nylorun/harness/run`), a delegated agent's `tool({ run })` tools start with empty `ctx.state`, can read `ctx.agent` (`{ id, path, delegationId }`), and fail with `delegation.interaction-unsupported` on `ctx.ask`, `ctx.approve`, `ctx.sleep` or `ctx.waitFor`. Delegation is not an approval boundary; approvals live on tools.
+Delegate when the parent should keep the answer. When a specialist should own the rest of the conversation, send the next message with a turn manifest that has the specialist's instructions instead. This version is one level deep and non-interactive: a delegated agent cannot use agents as tools, and cannot pause for input, an approval or a wait (keep those on the parent). In the local engine (`@nylorun/harness/run`), a delegated agent's `tool({ run })` tools start with empty `ctx.state`, can read `ctx.agent` (`{ id, path, delegationId }`), and fail with `delegation.interaction-unsupported` on `ctx.ask`, `ctx.approve`, `ctx.sleep` or `ctx.waitFor`. Delegation is not an approval boundary.
 
 ## Flow agents
 
@@ -459,7 +459,8 @@ then `dev`. Agents do not hash the manifest; the Runtime pins the digest of the
 definition a session opens with. Model selection and model credentials belong to
 the Tenant.
 
-The Runtime makes a lost HTTP tool call `uncertain` instead of repeating its external effect.
+The Runtime sends a lost MCP or HTTP tool call again with the same key, then fails it to the
+model as `tool.interrupted` (see **How tool calls are delivered**).
 In the local engine (`@nylorun/harness/run`), `tool({ run })` tools receive state, info,
 identity, resume, signal, approval/response helpers and memoized `step`. Agent definitions
 have no `.run()`; explicit
@@ -590,8 +591,10 @@ What the Runtime answers (Host feature `a2a-endpoint`):
   on the same `taskId`.
 - The `messageId` is the idempotency key: a retried message returns the same
   task.
-- Text parts, or a single data part, in; the turn's output as the artifact
-  `output` (text, or JSON as a data part). Files are
+- Text parts, a single data part, or text and `raw` file parts in (at most
+  20 MiB each, stored as artifacts of the context's session); the turn's
+  output as the artifact `output` (text, or JSON as a data part). A file by
+  `url`, or one the Tenant's model does not read, is
   `ContentTypeNotSupportedError`.
 - Clients must send `A2A-Version: 1.0` (header or `?A2A-Version=`).
 - Not yet: `ListTasks`, streaming and `SubscribeToTask`

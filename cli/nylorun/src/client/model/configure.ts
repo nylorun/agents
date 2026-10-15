@@ -48,7 +48,7 @@ export type Selection = Readonly<{
 
 /**
  * Build a pi-ai registry for interactive login. Catalog listing prefers the
- * Tenant API payload when provided (F2-4).
+ * Management API payload when provided (F2-4).
  */
 function modelsFor(
   { builtinModels, createProvider, stream, streamSimple }: PiAi,
@@ -157,7 +157,7 @@ export async function configureProvider(
     root?: string;
     input?: Readable;
     output?: Writable;
-    /** Tenant API catalog from GET /v1/tenant/models. */
+    /** Management API catalog from GET /v1/tenant/models. */
     catalog?: ModelCatalog;
     /** This installation's stable id, for OAuth flows that need one (OpenAI). */
     deviceId?: () => string;

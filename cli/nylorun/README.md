@@ -17,10 +17,10 @@ it on its first start) and links the project to it; anywhere else, it starts
 the Tenant `default`. Projects that must not share agents, credentials or
 history run separate Tenants. The `tenant` and `environments` groups act on a
 Tenant over its APIs, so they work on a remote installation too
-([below](#remote-installations)). Depends on `@nylorun/core` and
-`@nylorun/admin` among Nylorun packages and never imports `@nylorun/runtime`;
-`start`, `stop` and the `local` commands load neither the API client nor
-`@nylorun/admin`. Vocabulary:
+([below](#remote-installations)). Depends on `@nylorun/core`,
+`@nylorun/admin` and `@nylorun/agents` among Nylorun packages and never imports
+`@nylorun/runtime`; `start`, `stop` and the `local` commands load neither
+`@nylorun/agents` nor `@nylorun/admin`. Vocabulary:
 [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
 
 Prerequisites, installed by the developer (nylorun never downloads them): Node

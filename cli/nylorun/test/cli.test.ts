@@ -40,7 +40,9 @@ describe("nylorun", () => {
     expect(stdout).toMatch(/^ {2}doctor sandbox \[--tenant <name>\] \[--json\]/m);
     expect(stdout).toMatch(/^ {2}agents {8}list \| get \| save/m);
     expect(stdout).toMatch(/^ {2}sessions {6}list \| create \| get \| send/m);
-    expect(stdout).toMatch(/^ {2}environments {2}list \| get \| put \| stop/m);
+    expect(stdout).toMatch(
+      /^ {2}environments {2}list \| get \| put \| fork \| stop .*\n {16}versions \| delete-version \| events \| secrets \| manifests$/m,
+    );
     expect(stdout).toMatch(/^ {2}artifacts {5}list \| get \| upload/m);
     expect(stdout).toMatch(
       /^ {2}tenant {8}reset \| keys \| signing-keys \| models \| usage \| calls \| budgets \| tool-policy \|\n {16}settings \| coverage \| mcp$/m,

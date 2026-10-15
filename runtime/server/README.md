@@ -172,7 +172,13 @@ are refused from browsers before they are looked up. The Runtime sends no CORS h
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
 unsupported protocol → `426` before authentication, unless the request sends neither
-`Nylorun-Protocol` nor `Authorization` (the Host serves protocol 13 only; protocol 13 makes the
+`Nylorun-Protocol` nor `Authorization` (the Host serves protocol 14 only; protocol 14 adds
+environment manifests (`/v1/environment-manifests/{name}`): an Environment is made from one
+version and never changes what it runs (a new version reaches it through
+`POST /v1/environments/{id}/fork`), a manifest's `secrets` declare slots and an agent's
+`requires` is checked when a session opens; sessions on one Environment run their turns in
+parallel, and egress connections are `environment.egress` events on the Environment's stream,
+in no session log or trace; protocol 13 makes the
 manifest flat, manifest 7: no `capabilities`, tools known by name, the Runtime's own tools in the
 pinned manifest's `runtime` block and no `capabilityId` on events, tool call rows or the Harness
 API, now 3; it closes every session opened before it; protocol 12 adds
@@ -268,7 +274,7 @@ stage) is refused. Your services are reached as tools: HTTP tools, POSTed from t
 so their URLs must be reachable from it, and remote MCP servers. Each URL gets a
 credential in the vault of the Environment a session names (`PUT
 /v1/environments/{id}/secrets/{name}`), the operator previews an MCP server's tools
-(`nylorun mcp inspect --environment <id>`),
+(`nylorun tenant mcp inspect --environment <id>`),
 and the manifest says which tools are enabled or deferred
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools)). Which calls wait for a
 person, or are refused, is the Tenant's tool policy
@@ -315,7 +321,7 @@ the Project link (outside a project it runs the Tenant `default`); the project's
 | `403 key_role_mismatch` | The key belongs to the other API: use a management key on `/v1/tenant/*` (`@nylorun/admin`) and an application key everywhere else (`@nylorun/agents`) |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
 | Port in use | Change `NYLORUN_PORT` in `~/.nylorun/tenants/<name>/docker/.env` and run `nylorun start` |
-| Logs | `nylorun logs runtime` |
+| Logs | `nylorun local logs runtime` |
 
 Definitions have no `agent.run()`; applications use `@nylorun/agents`.
 

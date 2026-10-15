@@ -502,9 +502,10 @@ a cancel then reaches another process only through the 5-second poll.
 ## Traces
 
 Each turn is one OpenTelemetry trace, derived from the session log (track R7): a root span
-`invoke_agent <agent>` for the turn, and a child span for every model call (`chat <model>`),
-tool call (`execute_tool <tool>`, a flow's HTTP stage too) and egress-gate tunnel
-(`CONNECT <host>`), plus a marker for each pause and answer. Attribute names follow the OTel
+`invoke_agent <agent>` for the turn, and a child span for every model call (`chat <model>`)
+and tool call (`execute_tool <tool>`, a flow's HTTP stage too), plus a marker for each pause
+and answer. Egress connections are not in a turn's trace: each is an `environment.egress` event
+on its Environment's stream (`GET /v1/environments/{id}/events`), naming the turns running. Attribute names follow the OTel
 GenAI semantic conventions at one pinned commit (`nylorun.semconv.genai` on the resource); the
 rest are `nylorun.*`. Span ids are derived from the log under a key the Tenant keeps (its
 setting `trace.key`), so exporting the same turn twice, or reading it from the route, gives the
@@ -894,10 +895,10 @@ Studio's **New session** runs this check for the Environment it picks.
 ### Previewing a server
 
 ```sh
-nylorun mcp inspect https://mcp.linear.app/mcp --server linear --environment projects/acme
+nylorun tenant mcp inspect https://mcp.linear.app/mcp --server linear --environment projects/acme
 ```
 
-`nylorun mcp inspect <url> --environment <id>` connects with that Environment's credential for
+`nylorun tenant mcp inspect <url> --environment <id>` connects with that Environment's credential for
 the URL (its headers and `via`, never an identity header), or with none when you name no
 Environment, lists the server's tools within 15 s, and calls none. So do
 `admin.mcp.preview({ url, environmentId })`, `POST /v1/tenant/mcp/preview` with

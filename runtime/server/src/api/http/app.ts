@@ -1,5 +1,5 @@
 /**
- * The Tenant API as a Hono app: one for every open Tenant, which arrives with each request as
+ * The Runtime and Management APIs as one Hono app: one for every open Tenant, which arrives with each request as
  * the `tenant` binding. Every route is declared once (`define.ts`) in `routes/`, `../ag-ui/`
  * and `../a2a/`. A request no route matches exactly is authenticated like any other, then
  * answered `404 Route not found`.
@@ -36,7 +36,7 @@ export type TenantEnv = {
 
 let app: OpenAPIHono<TenantEnv> | undefined;
 
-/** The Tenant API, built on first use. */
+/** The Runtime and Management APIs' app, built on first use. */
 export function tenantApi(): OpenAPIHono<TenantEnv> {
   return (app ??= build());
 }

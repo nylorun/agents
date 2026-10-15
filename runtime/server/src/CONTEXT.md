@@ -71,7 +71,7 @@ from `host.json` (`host`, `port`), the management key from the linked Project's
 
 **`nylorun-operate`**: The Runtime image's operator command (`host/operate.ts`), run
 inside the runtime container (`docker compose exec runtime nylorun-operate …`,
-`kubectl exec … -- nylorun-operate …`; `nylorun status` and `nylorun key` run it on a
+`kubectl exec … -- nylorun-operate …`; `nylorun status` and `nylorun tenant keys` run it on a
 local Tenant). It reads the Tenant's database from `NYLORUN_DATABASE_URL`, does one job
 and exits: `status [--json]` (version, protocol, the Tenant's id, name, state and cause;
 exit 2 when it is not open, needing no key) and `keys list | put <id> [--role
@@ -536,11 +536,23 @@ workspace run in order and different sessions' at once; opening, stopping and re
 alone (`sandbox/manager.ts`).
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 13`; the Host serves protocol 13 only and answers
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 14`; the Host serves protocol 14 only and answers
 older clients `426`; required features `studio-principal`, `artifacts`, `management-api`,
-`resource-server`, `environments` and `model-inputs`; optional Host features `tenant-fixture-model`,
-`transcript-events`, `subject-headers`, `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`,
-`trusted-issuers`, `session-reads`, `calls-export`, `credential-coverage` and `traces`).
+`resource-server`, `environments`, `model-inputs`, `flat-manifest` and `environment-manifests`;
+optional Host features `tenant-fixture-model`, `transcript-events`, `subject-headers`,
+`ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`, `trusted-issuers`, `session-reads`,
+`calls-export`, `credential-coverage`, `tool-calls`, `environment-setup`,
+`environment-disk-versions`, `tool-policy`, `traces` and `artifact-reads`).
+Protocol 14 added environment manifests (D63 to D65, `environment-manifests`): named, versioned
+definitions under `/v1/environment-manifests/{name}`, saved like agents (`If-Match`,
+`?dryRun=true`); an Environment is made from one version (or inline fields) and never changes
+what it runs (`409 environment_immutable`: a `PUT` changes only its labels and owner guard), so a
+new version reaches it through a fork (`POST /v1/environments/{id}/fork`); its view's `recipe` is
+now `manifest`; a manifest's `secrets` declare slots (`409 secret_not_in_manifest`); an agent
+manifest's `requires` is checked when a session opens (`409 environment_unsuitable`). Sessions
+on one Environment run their turns in parallel (D66), and every egress connection is an
+`environment.egress` event on the Environment's stream; `egress.connection` left session logs
+and traces (D67).
 Protocol 13 made the manifest flat (manifest 7, `flat-manifest`): no `capabilities`, tools known
 by name alone, and the Runtime's own tools in the pinned manifest's `runtime` block; `capabilityId`
 left `tool.completed`, `mcp.discovered`, tool call rows and the Harness API (now 3). A fresh start
@@ -611,8 +623,8 @@ _Avoid_: computing a span from `effects` timestamps or event times.
 the session log like SSE and AG-UI: one committed row maps to at most one span (`traces/map.ts`,
 `spanOf`), and nothing is instrumented outside the log. The turn's end is the root span
 `invoke_agent {agentId}`; each span-ready row of a model call (`chat`), tool call or flow stage
-(`execute_tool`) and egress tunnel (`CONNECT {host}`) is its child, with gate times when a gate
-measured the crossing; pauses and answers are markers. A turn whose `command.message` carried a
+(`execute_tool`) is its child, with gate times when a gate measured the crossing (egress
+connections are the Environment's, as `environment.egress` events, and in no trace, D67); pauses and answers are markers. A turn whose `command.message` carried a
 `traceparent` (R7.4, recorded as `trace`) is in the caller's trace, its root a child of the
 caller's span. Content is left out unless the installation opts in per kind
 (`NYLORUN_TRACE_CONTENT`). `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans
@@ -680,7 +692,7 @@ One line each; the module named is where the term lives in code.
 - **Shell credential**: An Environment's secret a skill's CLI uses in its pod (R2c, D50, D56): `environment_secret` (the variable is the secret's name; sealed value, `allowedHosts`, `inject` header and format) or `environment_variable` (a visible name and value). The lease's `routing.sandbox.environment` gives every command each secret's name with the sentinel `nylorun-managed` and each variable's value (`VaultService.environmentVariables`, `harness-api/start.ts`). For CONNECT to 443 of a bound host, egress-gate terminates TLS with a fresh leaf the egress CA signs (`keys/egress-ca.ts`, `keys/x509.ts`; the CA in the Tenant setting `egress.ca`, its key sealed) and sets the header on every request from the Environment's vault, uncached (`releaseEnvironmentSecret`, `gates/egress-credentials.ts`). A second secret for a host is refused at the write (`409 credential_conflict`). _Avoid_: "placeholder", "injection" for the variable itself.
 - **Egress CA**: The installation's one long-lived CA for egress-gate's leaves (R2c, `keys/egress-ca.ts`): created on first use under the signing keys' lock, its certificate in every join answer (`caCertificate`) and the pod's trust bundle (`<harness root>/egress-ca-bundle.pem`, `harness/pod.ts`), its key never outside keys. No rotation yet.
 - **Egress token**: The ES256 JWT (`typ: nylorun-egress+jwt`, `aud: nylorun-egress`) a pod's harness gets at join, naming its sandbox, host epoch and pod UID; minted with every host token (`mintEgressToken`, `tenant/host-token.ts`) and accepted only by egress-gate, as the proxy credential (`sandbox/egress-token.ts`).
-- **MCP tool preview**: What a remote MCP server offers before an agent names it (R2b C12, `POST /v1/tenant/mcp/preview`, a management key; `admin.mcp.preview`, `nylorun mcp inspect`, Studio's **Preview tools**): the keys service (`Keys.previewMcp`, `mcp/preview.ts`) connects with the credential for the URL in the vault of `environmentId`, if given (its headers and `via`, never an identity header), under the Host's address policy and within 15 s, lists the tools with the model names a server called `name` would give them (default from the URL's host, `previewServerName`), and closes. It never calls a tool, and scrubs every credential value sent from its answer. A `401` answers `200` with `authRequired` and the server's RFC 9728 protected-resource metadata (the challenge's `resource_metadata`, else the well-known path); any other failure is `502 mcp_preview_failed` with `details.failure` (`mcp.unreachable`, …). _Avoid_: "probe", "connect" (removed in protocol 10).
+- **MCP tool preview**: What a remote MCP server offers before an agent names it (R2b C12, `POST /v1/tenant/mcp/preview`, a management key; `admin.mcp.preview`, `nylorun tenant mcp inspect`, Studio's **Preview tools**): the keys service (`Keys.previewMcp`, `mcp/preview.ts`) connects with the credential for the URL in the vault of `environmentId`, if given (its headers and `via`, never an identity header), under the Host's address policy and within 15 s, lists the tools with the model names a server called `name` would give them (default from the URL's host, `previewServerName`), and closes. It never calls a tool, and scrubs every credential value sent from its answer. A `401` answers `200` with `authRequired` and the server's RFC 9728 protected-resource metadata (the challenge's `resource_metadata`, else the well-known path); any other failure is `502 mcp_preview_failed` with `details.failure` (`mcp.unreachable`, …). _Avoid_: "probe", "connect" (removed in protocol 10).
 - **Model Gate**: The gates service's endpoint for model calls, `POST /nylorun/v1/model-calls` (`api/gate/routes.ts`, `host/gates.ts`), and the `ModelGate` seam the loop calls (`gates/model-gate.ts`): in process (`gates/in-process.ts`) or over HTTP (`gates/http-client.ts`). Only it reads a model credential (`vault/host-model.ts`); a hop failure is a failure outcome, never an uncertain effect.
 - **API node**: A Runtime process that runs the core service, serving the Runtime API, the Management API and SSE (`host/stack-config.ts`, `infra/workers.ts`).
 - **Worker**: A Runtime process that runs the loop service, whose Restate endpoint runs advances and sweeps (`infra/workers.ts`, `tenant/worker.ts`).

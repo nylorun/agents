@@ -36,7 +36,7 @@ export class StudioSignedOutError extends Error {
   }
 }
 
-/** Server path that proxies one Tenant's Tenant API. */
+/** Server path that proxies one Tenant's Runtime and Management APIs. */
 export function tenantRuntimePath(tenantId: string): string {
   return `/_studio/tenants/${encodeURIComponent(tenantId)}/runtime`;
 }

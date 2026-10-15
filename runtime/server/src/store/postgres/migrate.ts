@@ -123,7 +123,7 @@ export async function assertCurrentLayout(q: Queryable): Promise<void> {
       "database-layout-old",
       "The database was created by a pre-release build of one Tenant per database, whose " +
         "migrations this release replaces. It is never changed: point the Runtime at a new " +
-        "database (locally, `nylorun reset` and then `nylorun start`).",
+        "database (locally, `nylorun local reset` and then `nylorun start`).",
     );
 }
 

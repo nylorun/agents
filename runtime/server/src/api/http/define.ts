@@ -1,5 +1,5 @@
 /**
- * How a Tenant API route is declared: once, with who may call it, for serving and for the
+ * How a Runtime or Management API route is declared: once, with who may call it, for serving and for the
  * OpenAPI document.
  *
  * `RouteAccess` says which credentials a route takes and which subject scopes reach it: the one

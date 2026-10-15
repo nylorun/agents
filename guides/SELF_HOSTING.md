@@ -104,8 +104,8 @@ that reaches both APIs.
 
 ```sh
 npx nylorun tenant keys put app-server     # create, or rotate: prints the new key once on stdout
-npx nylorun key list               # id, role, when issued (never the keys); --json
-npx nylorun key rm app-server      # it stops working at once
+npx nylorun tenant keys list       # id, role, when issued (never the keys); --json
+npx nylorun tenant keys rm app-server  # it stops working at once
 ```
 
 Add `--tenant <name>` outside the project the Tenant belongs to. From code, with a management

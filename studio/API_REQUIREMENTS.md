@@ -4,8 +4,10 @@ Studio uses only the public Runtime and Management APIs through its authenticate
 same-origin proxy. This change adds no database connection, storage client,
 Runtime route or SDK method. Artifacts are read-only except a message's attachments,
 uploaded into its session (protocol 12); Environments
-(protocol 11) are created, changed, stopped, reset and deleted, and their disk versions
-kept, restored, forked and deleted, through their public routes.
+(protocol 11) are created, relabelled, forked, stopped, reset and deleted, their manifests
+saved (protocol 14), and their disk versions kept, restored, forked and deleted, through their
+public routes. An Environment never changes what it runs: a new manifest version reaches it
+through a fork.
 
 ## Artifact pages
 
@@ -22,16 +24,19 @@ and inspector link it to that Environment.
 | Studio view | Public API / SDK |
 | --- | --- |
 | Environment table and labels | `environments.page()` → `GET /v1/environments?limit=50&label=…&cursor=…` |
-| Environment metadata and recipe | `environments.get()` → `GET /v1/environments/{id}` |
-| New Environment, Edit recipe | `environments.put(id, recipe)` → `PUT /v1/environments/{id}` |
+| Environment metadata and manifest | `environments.get()` → `GET /v1/environments/{id}` |
+| New Environment, from inline fields or a manifest version | `environments.put(id, fields)` or `environments.put(id, { manifest: "name@n" })` → `PUT /v1/environments/{id}` |
+| Edit labels and owner | `environments.put(id, …)` → `PUT /v1/environments/{id}` (what it runs is unchanged) |
+| Fork: a new Environment from a manifest version, with this one's disk and secrets | `environments.planFork()`, `.fork()` → `POST /v1/environments/{id}/fork` (`dryRun: true` for the plan) |
+| Environment manifests | `environments.manifests.list()`, `.get()`, `.plan()`, `.save()` → `GET /v1/environment-manifests`, `GET` and `PUT /v1/environment-manifests/{name}` (`?dryRun=true` for the plan, `If-Match` the version read) |
 | Stop, Reset (pods), Delete | `environments.stop()`, `.reset()`, `.delete()` → `POST /v1/environments/{id}/stop`, `POST …/reset`, `DELETE /v1/environments/{id}` |
 | Secrets tab (names, types, bindings) | `environments.secrets.list()` → `GET /v1/environments/{id}/secrets` |
 | Secrets tab forms | `environments.secrets.put()`, `.delete()` → `PUT`, `DELETE /v1/environments/{id}/secrets/{name}` |
 | Disk tab: versions | `environments.versions()` → `GET /v1/environments/{id}/versions` |
 | Disk tab: Snapshot disk, Restore, Delete | `environments.snapshot()`, `.restore(id, version)`, `.deleteVersion()` → `POST …/snapshot`, `POST …/restore`, `DELETE …/versions/{n}` |
-| Disk tab: New Environment from a version | `environments.put(id, { …recipe, from: { environment, version } })` → `PUT /v1/environments/{id}` |
+| Disk tab: New Environment from a version | `environments.put(id, { …fields, from: { environment, version } })` → `PUT /v1/environments/{id}` |
 | Disk tab: Browse a version | the artifact reads below, on the `artifactId` the versions read names |
-| Setup & files tab | the recipe's `setup` and `files` from `GET /v1/environments/{id}`; edited with `PUT` |
+| Setup & files tab | the manifest's `setup` and `files` from `GET /v1/environments/{id}`, read only |
 | Session's Environment tab | `session.inspect()` (`environment: { id, version }`), `environments.get()`, Management `coverage({ agentId, environmentId })` |
 | Sessions that name it | `sessions.page({ environmentId })` → `GET /v1/sessions?limit=50&environmentId=…` |
 | Lifecycle events, manual refresh | `environments.events({ from })` → `GET /v1/environments/{id}/events?from=…` |

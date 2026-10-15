@@ -62,7 +62,7 @@ and naming the `studio` scope.
 1. `GET /v1/me` with ben's token renders `issuer:keycloak`, the subject `u:<Keycloak user id>`,
    `agents:read` and `sessions:own` but not `studio`, and the Environment grant `acme/*`; ada's has
    `studio`. A request with an `Origin` and ben's token is served.
-2. An application key (`nylorun key put smoke`, which rotates that key on each run) acts for any
+2. An application key (`nylorun tenant keys put smoke`, which rotates that key on each run) acts for any
    person: it creates an agent, then a session for ben and one for another person with
    `Nylorun-Subject`, and the Environments `acme/smoke-<run>` and `other/smoke-<run>` (kind `none`).
    The same key sent with an `Origin` is `403 origin_rejected`.

@@ -223,7 +223,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sessions"],
       summary: "Open a session",
       description:
-        "Creates the session, or re-attaches vaults to an identical one. Its sandbox is chosen now and fixed for its life.",
+        "Creates the session, or answers the one already opened with the same agent, owner, info and Environment. Its Environment (its sandbox and vault) is chosen now and fixed for its life.",
       request: { params: sessionId, body: body(PutSessionRequest) },
       responses: {
         200: json(SessionView, "The session"),

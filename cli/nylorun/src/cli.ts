@@ -18,8 +18,9 @@ Groups, each with its own --help:
   sessions      list | create | get | send | approve | respond | cancel | watch | history
                 usage | calls | trace | exec
                                       the Tenant's sessions (Runtime API)
-  environments  list | get | put | stop | reset | delete | snapshot | restore | versions
-                events | secrets      the Tenant's Environments (Runtime API)
+  environments  list | get | put | fork | stop | reset | delete | snapshot | restore
+                versions | delete-version | events | secrets | manifests
+                                      the Tenant's Environments (Runtime API)
   artifacts     list | get | upload | download | tree | diff | zip | link | rm
                                       the Tenant's file artifacts (Runtime API)
   tenant        reset | keys | signing-keys | models | usage | calls | budgets | tool-policy |

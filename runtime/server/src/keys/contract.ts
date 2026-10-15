@@ -4,7 +4,7 @@
  * gates token. Internal: only core calls it, so it is not in the published OpenAPI documents.
  *
  * `200 {result}` when the operation succeeded, `200 {error}` when it refused: a vault error or
- * a Tenant API error with its status, code and details, so the route that called it answers
+ * a Runtime or Management API error with its status, code and details, so the route that called it answers
  * exactly what it answered when the operation ran in its own process.
  */
 export const KEYS_PATH = "/nylorun/v1/keys";

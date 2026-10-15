@@ -15,7 +15,7 @@ Developers never install this package. `nylorun` runs it for each Tenant:
 npx nylorun start      # starts the project's Tenant, including Studio, and opens it signed in
 npx nylorun studio     # signs a browser in
 npx nylorun status     # reports Studio's health and URL
-npx nylorun logs studio
+npx nylorun local logs studio
 ```
 
 Studio publishes on loopback (`127.0.0.1:4161` by default) and the CLI opens it
@@ -49,7 +49,7 @@ their sign-in, below.
    `NYLORUN_STUDIO_SESSION_COOKIE`) is `v1.<issued>.<nonce>.<signature>`, an
    HMAC-SHA256 with a key derived from the admin key. Studio keeps no session state, so a
    session survives container restarts and ends after 30 days or when the admin
-   key changes (`nylorun reset`).
+   key changes (`nylorun local reset`).
 5. Behind a sign-in proxy, a request with no session that carries a JWT
    (`X-Forwarded-Access-Token`, or an `Authorization` bearer that is not a
    Studio session) signs in once the Runtime's `GET /v1/me` verifies it and
