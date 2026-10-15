@@ -10,6 +10,7 @@ export { ABORT_MESSAGES, RunAbort, runAbortKind } from "./abort.js";
 export type {
   FailedFileOutcome,
   HarnessExecutors,
+  HarnessFileEntry,
   HarnessFiles,
   HarnessRun,
   McpRecorder,
@@ -38,12 +39,16 @@ export {
   LOAD_SKILL_TOOL,
   READ_SKILL_RESOURCE_TOOL,
   SKILLS_USAGE,
+  definitionFileChunks,
   formatSkillCatalog,
   isSkillTool,
   runSkillTool,
   skillCatalogText,
   skillFolderNote,
+  mountSkills,
+  sandboxSkillsOf,
   skillTools,
+  type SkillFiles,
   type SkillToolContext,
 } from "../tools/skills.js";
 export { skillOfToolCall } from "../tools/trace.js";
@@ -89,3 +94,10 @@ export {
   type Stored,
   type ToolResultConfig,
 } from "../tools/results.js";
+export {
+  DEFAULT_OUTPUTS_CONFIG,
+  outputsConfigOf,
+  saveOutputs,
+  type OutputsConfig,
+  type OutputsContext,
+} from "../tools/outputs.js";

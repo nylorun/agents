@@ -2381,9 +2381,10 @@ export const ModelFailedPayloadSchema = z
   })
   .passthrough();
 /**
- * `context.compacted`: the engine summarized older history to fit the model's window
- * (Model Calls §8). Token counts are estimates. `partial: true`: one summary call of several,
- * in the log for its timing; only the last one (without `partial`) replaced the history.
+ * `context.compacted`: the harness summarized older history to fit the model's window
+ * (Model Calls §8), and said so with the transcript edit that replaced it (`kind: "compaction"`,
+ * protocol 15). Token counts are the harness's estimates; `invocationId` and the model facts are
+ * the last summary call's. Written once per compaction, when the segment's edit is recorded.
  */
 export const ContextCompactedPayloadSchema = z
   .object({
@@ -2391,7 +2392,6 @@ export const ContextCompactedPayloadSchema = z
     trigger: z.enum(["threshold", "overflow"]),
     tokensBefore: z.number().int().nonnegative(),
     tokensAfter: z.number().int().nonnegative(),
-    partial: z.literal(true).optional(),
     ...modelOutcomeFacts,
     ...eventAgent,
   })
@@ -2708,9 +2708,10 @@ export const TranscriptUpdatedPayloadSchema = z
   .passthrough();
 
 /**
- * Where an artifact version's bytes came from: a client's upload, our engine's `save_artifact`,
- * or the turn-end export of a sandbox's outputs (F8.2), whose listing and bytes the harness
- * holding the workspace supplied.
+ * Where an artifact version's bytes came from: a client's upload, a harness over the artifact
+ * seam (our engine's `save_artifact`, its tool results and its outputs folder), an Environment's
+ * disk version (`snapshot`), or core's turn-end export of a sandbox's outputs, which versions
+ * before protocol 15 name (`export`).
  */
 export const ArtifactSourceSchema = z.enum(["upload", "engine", "export", "snapshot"]);
 export type ArtifactSource = z.infer<typeof ArtifactSourceSchema>;
@@ -2750,7 +2751,10 @@ export const ArtifactVersionPayloadSchema = z
 export const ArtifactDeletedPayloadSchema = z
   .object({ artifactId: z.string(), name: z.string() })
   .passthrough();
-/** Why a turn-end export stored nothing although the sandbox had outputs (F8.2). */
+/**
+ * Why the turn-end save of a session's outputs folder stored nothing although the sandbox had
+ * outputs: our engine's claim (protocol 15), with the limit it met.
+ */
 export const ArtifactExportSkipReasonSchema = z.enum([
   "too_many_files",
   "file_too_large",
@@ -2777,8 +2781,9 @@ export const ArtifactExportSkippedPayloadSchema = z
   })
   .passthrough();
 /**
- * `artifact.export.failed`: the turn-end export could not finish (the sandbox or the Object store
- * failed). The turn itself completed; the next turn exports again.
+ * `artifact.export.failed`: the turn-end save of the outputs folder could not finish (the sandbox
+ * or the artifact seam failed), as our engine claims it. The turn itself completed; the next turn
+ * saves again.
  */
 export const ArtifactExportFailedPayloadSchema = z
   .object({ name: z.string(), message: z.string() })
@@ -4251,12 +4256,8 @@ export const FOLDER_MANIFEST_FORMAT = "nylorun.folder.v1";
  * modes and modification times, symbolic links and empty directories. Readers accept both.
  */
 export const FOLDER_MANIFEST_FORMAT_V2 = "nylorun.folder.v2";
-/** The folder artifact a session's turn-end export writes, one per session. */
+/** The folder artifact our engine saves a session's outputs to at each turn's end, one per session. */
 export const OUTPUTS_ARTIFACT_NAME = "outputs";
-/** The most files one turn-end export stores; past it the export is skipped. */
-export const EXPORT_MAX_FILES = 10_000;
-/** The most bytes one turn-end export stores (before dedupe); past it the export is skipped. */
-export const EXPORT_MAX_BYTES = 1024 * 1024 * 1024;
 
 /**
  * One file of a folder: its path in the folder (`/`-separated, relative), size, hash and type.

@@ -5,6 +5,7 @@
  * relaunch, stop, idle, a pod that never changes what it runs, PVC loss →
  * `environment.lost`, reset, delete.
  */
+import { providerModelGate } from "../../src/gates/provider-gate.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -196,9 +197,7 @@ describe("pod Environments", { timeout: 90_000 }, () => {
         url: listener.url,
         token: () => host.token(),
         paths: { sandboxes: join(harnessRoot, "sandboxes") },
-        modelGate: { call: async () => ({ kind: "failed", message: "no gate" }) as never },
-        modelProvider: podModel,
-        useVaultModel: false,
+        modelGate: providerModelGate(podModel),
         toolGate: {},
         sandboxBackends: [localBackend({ workspace, env: { PATH: process.env.PATH }, proxyEnv: () => host.proxyEnv() })],
         logger: { info: () => undefined, warn: () => undefined },
@@ -254,9 +253,7 @@ describe("pod Environments", { timeout: 90_000 }, () => {
         url: listener.url,
         token: () => host.token(),
         paths: { sandboxes: join(harnessRoot, "sandboxes") },
-        modelGate: { call: async () => ({ kind: "failed", message: "no gate" }) as never },
-        modelProvider: twoModel,
-        useVaultModel: false,
+        modelGate: providerModelGate(twoModel),
         toolGate: {},
         sandboxBackends: [localBackend({ workspace, env: { PATH: process.env.PATH }, proxyEnv: () => host.proxyEnv() })],
         logger: { info: () => undefined, warn: () => undefined },

@@ -182,11 +182,10 @@ it("Tenant settings", async () => {
   await answer(ListProvidersResponseSchema, "GET", "/v1/tenant/providers");
   await answer(HostModelViewSchema, "GET", "/v1/tenant/model");
   await answer(TenantSandboxViewSchema, "GET", "/v1/tenant/sandbox");
-  expect(await answer(ModelUsageTotalsSchema, "GET", "/v1/tenant/usage")).toEqual({
+  // The scripted model's calls are metered too, through its gate (protocol 15).
+  expect(await answer(ModelUsageTotalsSchema, "GET", "/v1/tenant/usage")).toMatchObject({
     scope: "tenant",
     period: "total",
-    calls: 0,
-    tokens: 0,
     costUsd: 0,
   });
   await answer(ModelUsageTotalsSchema, "GET", "/v1/tenant/usage?scope=turn&id=t1&period=day");

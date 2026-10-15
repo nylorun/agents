@@ -1,13 +1,10 @@
 import type { AgentManifest, McpServerManifest } from "@nylorun/core/define";
 import { delegatesOf } from "@nylorun/core/define";
-import type { OutboundPolicy } from "../tenant/outbound.js";
-import type { AuthorizeResult } from "../vault/service.js";
 import {
   callMcpTool,
   diagnosticFromError,
   listMcpTools,
   McpConnectionStale,
-  openMcpServer,
   unreachable,
   type LiveConnection,
   type McpToolFailure,
@@ -38,32 +35,22 @@ export class McpPool {
   private readonly opening = new Map<string, Promise<Opened>>();
   private readonly idleMs: number;
   private readonly now: () => number;
-  private readonly open: typeof openMcpServer;
 
   constructor(
     private readonly options: {
-      readonly authorize: (
-        sessionId: string,
-        request: { url: string; serverName: string; agentId?: string },
-      ) => Promise<AuthorizeResult>;
       /** Default `DEFAULT_MCP_IDLE_MS`. */
       readonly idleMs?: number;
       readonly now?: () => number;
-      /** Tests replace how a declared server is opened. */
-      readonly open?: typeof openMcpServer;
-      /** How remote servers opened in this process are reached (`TenantConfig.delivery`). */
-      readonly policy?: OutboundPolicy;
       /**
-       * Opens a remote (`streamable-http` or `sse`) server somewhere else: the gates service
-       * holds the connection and its credential, and the loop never sees either (F4.1).
-       * Absent: they are opened in this process, with `authorize`.
+       * Opens a declared remote (`streamable-http` or `sse`) server through a Tool Gate
+       * (`ToolGate.openMcp`): the gate finds it in the session's pinned manifest and holds its
+       * credential, and the pool never sees either (F4.1, protocol 15).
        */
-      readonly openRemote?: (server: McpServerRef) => Promise<LiveConnection>;
+      readonly openRemote: (server: McpServerRef) => Promise<LiveConnection>;
     },
   ) {
     this.idleMs = options.idleMs ?? DEFAULT_MCP_IDLE_MS;
     this.now = options.now ?? Date.now;
-    this.open = options.open ?? openMcpServer;
   }
 
   /**
@@ -301,23 +288,10 @@ export class McpPool {
     declared: DeclaredServer,
   ): Promise<Opened> {
     try {
-      if (this.options.openRemote) {
-        const connection = await this.options.openRemote({
-          sessionId: input.sessionId,
-          ...ownerOf(declared),
-          serverName: declared.server.name,
-        });
-        return { ok: true, connection };
-      }
-      const connection = await this.open({
-        server: declared.server,
-        ...(this.options.policy ? { policy: this.options.policy } : {}),
-        authorize: (url) =>
-          this.options.authorize(input.sessionId, {
-            url,
-            serverName: declared.server.name,
-            ...ownerOf(declared),
-          }),
+      const connection = await this.options.openRemote({
+        sessionId: input.sessionId,
+        ...ownerOf(declared),
+        serverName: declared.server.name,
       });
       return { ok: true, connection };
     } catch (error) {

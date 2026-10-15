@@ -75,7 +75,6 @@ async function diskTarget(
     ref: {
       id: `disk:${environment.id}`,
       activeTurnId: null,
-      manifest: { manifestSchemaVersion: 7, id: "disk" } as unknown as SandboxSessionRef["manifest"],
       environmentId: environment.id,
       // Not through a host a restore or a lost volume retired: its connection outlives the commit.
       ...(environment.pod === undefined ? {} : { hostEpoch: environment.pod.hostEpoch }),

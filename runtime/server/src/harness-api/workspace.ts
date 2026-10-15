@@ -13,8 +13,8 @@
  *   removes theirs (`workspace.remove`); it also keeps the `sandboxes` table in step with the
  *   list.
  * - **Pod sandboxes** (F7.2, `withPodWorkspaces`): a session attached to a pod sandbox has its
- *   workspace in the pod, served by the sandbox's engine (its host connection). Its tool calls,
- *   listings and reads go there whatever serves the other workspaces; with the pod stopped or
+ *   workspace in the pod, served by the sandbox's engine (its host connection). Its tool calls
+ *   and disk operations go there whatever serves the other workspaces; with the pod stopped or
  *   starting they are `409 environment_unavailable`.
  */
 import { HarnessApiError, type CoreMethod, type WorkspaceRecord } from "@nylorun/core/harness-api";
@@ -43,22 +43,6 @@ export interface WorkspacePort {
     input: unknown,
     signal: AbortSignal
   ): Promise<SandboxToolOutcome>;
-  /** Lists the files under `dir` of the workspace of `session` (the turn-end export, F8.2). */
-  listFiles(
-    session: SandboxSessionRef,
-    sandbox: SandboxManifest | undefined,
-    dir: string,
-    maxEntries: number,
-    signal: AbortSignal
-  ): ReturnType<SandboxManager["listFiles"]>;
-  /** Reads a file of the workspace of `session` as bytes, at most `maxBytes` (the turn-end export). */
-  readBytes(
-    session: SandboxSessionRef,
-    sandbox: SandboxManifest | undefined,
-    path: string,
-    maxBytes: number,
-    signal: AbortSignal
-  ): ReturnType<SandboxManager["readBytes"]>;
   /** One operation on the disk of the workspace of `session` (R2d step 3). */
   disk(
     session: SandboxSessionRef,
@@ -81,10 +65,6 @@ export function localWorkspace(manager: SandboxManager): WorkspacePort {
   return {
     run: (session, sandbox, toolName, input, signal) =>
       manager.run(session, sandbox, toolName, input, signal),
-    listFiles: (session, sandbox, dir, maxEntries, signal) =>
-      manager.listFiles(session, sandbox, dir, maxEntries, signal),
-    readBytes: (session, sandbox, path, maxBytes, signal) =>
-      manager.readBytes(session, sandbox, path, maxBytes, signal),
     disk: (session, sandbox, op, signal) => manager.disk(session, sandbox, op, signal),
     report: () => manager.report(),
     sweep: (options) => manager.sweep(options),
@@ -194,50 +174,6 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
         throw error;
       }
     },
-    async listFiles(session, sandbox, dir, maxEntries, signal) {
-      try {
-        const answer = (await options.server.workspace(
-          "workspace.read",
-          { session: sessionOf(session), spec: sandbox ?? {}, list: { dir, maxEntries } },
-          signal,
-          target
-        )) as { kind: string; path?: string; listing?: unknown; code?: string; message?: string };
-        if (answer.kind === "listed")
-          return {
-            kind: "listed",
-            path: String(answer.path),
-            listing: answer.listing as Extract<Awaited<ReturnType<SandboxManager["listFiles"]>>, { kind: "listed" }>["listing"],
-          };
-        if (answer.kind === "missing") return { kind: "missing", path: String(answer.path) };
-        return { kind: "failed", code: String(answer.code), message: String(answer.message) };
-      } catch (error) {
-        // No harness holds the workspaces: there is nothing to export.
-        if (error instanceof NoWorkspaceHarness) return { kind: "missing", path: dir };
-        throw error;
-      }
-    },
-    async readBytes(session, sandbox, path, maxBytes, signal) {
-      try {
-        const answer = (await options.server.workspace(
-          "workspace.read",
-          {
-            session: sessionOf(session),
-            spec: sandbox ?? {},
-            bytes: { path, maxBytes },
-          },
-          signal,
-          target
-        )) as { kind: string; path?: string; base64?: string; code?: string; message?: string };
-        if (answer.kind === "read")
-          return { kind: "read", path: String(answer.path), bytes: new Uint8Array(Buffer.from(String(answer.base64), "base64")) };
-        if (answer.kind === "missing") return { kind: "missing", path: String(answer.path) };
-        return { kind: "failed", code: String(answer.code), message: String(answer.message) };
-      } catch (error) {
-        if (error instanceof NoWorkspaceHarness)
-          return { kind: "failed", code: "sandbox.unavailable", message: error.message };
-        throw error;
-      }
-    },
     async disk(session, sandbox, op, signal) {
       try {
         const answer = (await options.server.workspace(
@@ -304,10 +240,6 @@ export function withPodWorkspaces(
     ...base,
     run: async (session, sandbox, toolName, input, signal) =>
       (await routed(session)).run(session, sandbox, toolName, input, signal),
-    listFiles: async (session, sandbox, dir, maxEntries, signal) =>
-      (await routed(session)).listFiles(session, sandbox, dir, maxEntries, signal),
-    readBytes: async (session, sandbox, path, maxBytes, signal) =>
-      (await routed(session)).readBytes(session, sandbox, path, maxBytes, signal),
     disk: async (session, sandbox, op, signal) =>
       (await routed(session)).disk(session, sandbox, op, signal),
   };

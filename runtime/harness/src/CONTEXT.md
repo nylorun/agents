@@ -149,6 +149,29 @@ context (`createHarness({ skillReadBytes })`, 10 MiB by default), held also to t
 `limits.recordEntryBytes`, since an answer is one record entry; a larger file is
 `skill.resource_too_large`, used in the sandbox when there is one.
 
+**Skill folder**: Where one skill version's files are in the sandbox, read-only:
+`/skills/<name>@<hash>/` (`skillFolderOf`). Our engine decides the folders and when (protocol 15):
+before each `sandbox` call it mounts each skill version of the turn's tree (`sandboxSkillsOf`,
+the agent and the agents it uses as tools) with `executors.files.mount`, the bytes read over
+`definition.file` a `chunkBytes` range at a time (`definitionFileChunks`, `mountSkills` in
+`tools/skills.ts`). The host only writes them, once per open sandbox: a folder it holds answers
+`present`, and a reopened sandbox gets them again on its next call. One that cannot be written is
+the sandbox call's failed outcome (`sandbox.skills_unavailable`), and the call never runs.
+
+**Outputs folder**: Our engine's convention (Q5, protocol 15, `tools/outputs.ts`): when an agent's
+segment ends its turn `completed` in a session with a sandbox, it saves the outputs directory
+(`/workspace/outputs`) as a version of the session's `outputs` folder artifact over the artifact
+seam (`artifact.write` with `kind: "folder"`, key `outputs:<turnId>`), before `turn.completed`:
+`files.list`, then each file's bytes (`files.read`) with its SHA-256, whole in its `file` request
+or in `chunk`s naming it, then `commit`. A version equal to the latest is not added. At most the
+Runtime limit `folderEntries` files, each within the seam's per-file limit, within the seam's
+total and **outputs config** `maxBytes`; past one it claims `artifact.export.skipped`, and a
+failure `artifact.export.failed`. It never fails the turn.
+
+**Outputs config**: The harness's configuration of the outputs folder (`OutputsConfig`,
+`DEFAULT_OUTPUTS_CONFIG`; `createHarness({ outputs })`): its directory, and the most bytes one
+save reads and sends (1 GiB by default).
+
 **Artifact seam**: How the harness reads and writes the artifacts of the run it holds
 (`artifact.read`, `artifact.write`; the client helpers `readArtifact`, `openArtifactWrite`,
 `writeArtifactBytes` in `@nylorun/core/harness-api`), in chunks of at most the run's
@@ -170,7 +193,12 @@ completed outcome, never `uncertain`.
 
 **Compaction**: Replacing the older part of the transcript with a summary the model wrote,
 so the next prompt fits the model's window. Recorded as a `compaction` entry, always first,
-with the reference lines of the files it summarized away (`files`). The window and reply reserve
+with the reference lines of the files it summarized away (`files`). Its model calls say
+`purpose: "summary"` (no assistant message is recorded for them), and the segment's transcript
+edit that replaced the history says so (`kind: "compaction"`, Q4, protocol 15): its trigger and
+token estimates, and the root agent's summary calls of the segment (`summaryEffectIds`), from
+which core writes one `context.compacted`. A compaction of an agent used as a tool lives in our
+state, not the session's transcript, and writes no event. The window and reply reserve
 are the latest candidate's (`evidence.extras`), or, before any answer, the **model descriptor**'s
 (`contextBudget(transcript, model)`). The estimate counts the turn's files as the model gets
 them (`fileView`): a note nothing, inlined text a quarter of its bytes, an image 1 600 tokens,

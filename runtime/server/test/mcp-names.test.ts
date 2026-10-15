@@ -64,8 +64,7 @@ describe("the pool", () => {
   it("pins the raw names, says nothing of renaming in mcp.discovered, and calls the server by its own name", async () => {
     const remote = client(["read.v2", LONG]);
     const pool = new McpPool({
-      authorize: async () => ({ status: "none" }) as never,
-      open: async () => ({ client: remote, close: async () => {} }),
+      openRemote: async () => ({ client: remote, close: async () => {} }),
     });
     const found = await pool.discover({
       sessionId: "s1",
@@ -96,8 +95,7 @@ describe("the pool", () => {
 
   it("leaves out instructions past a record entry, and says so", async () => {
     const pool = new McpPool({
-      authorize: async () => ({ status: "none" }) as never,
-      open: async () => ({ client: client(["read"]), instructions: "x".repeat(100), close: async () => {} }),
+      openRemote: async () => ({ client: client(["read"]), instructions: "x".repeat(100), close: async () => {} }),
     });
     const found = await pool.discover({
       sessionId: "s1",

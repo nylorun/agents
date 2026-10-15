@@ -3,7 +3,8 @@
  * (same id, same request hash) resolves here; any other becomes an `effect.intent`. A model
  * intent carries no prompt: core stores its hash. When core answers `execute`, the harness runs
  * the call and reports its outcome: a `harness` tool (ours) here, over the Harness API's seams,
- * and anything else through the executors.
+ * and anything else through the executors. Before a `sandbox` call our engine mounts the skill
+ * folders of the turn's tree (`mountSkills`); the host only writes them.
  *
  * Every tool outcome is shaped before it is reported (`shapeToolOutcome`, protocol 15): the
  * record refuses an entry past `limits.recordEntryBytes`, so a large or binary MCP or HTTP result,
@@ -29,7 +30,7 @@ import {
 import type { DurableHost, EffectResolution, HostEffect } from "../run/durable.js";
 import { delegatesOf, type AgentManifest } from "@nylorun/core/define";
 import { isArtifactTool, runArtifactTool } from "../tools/artifacts.js";
-import { isSkillTool, runSkillTool } from "../tools/skills.js";
+import { isSkillTool, mountSkills, runSkillTool } from "../tools/skills.js";
 import type { EngineToolOptions } from "../tools/engine-tools.js";
 import type { McpToolSet } from "../tools/mcp.js";
 import {
@@ -91,7 +92,8 @@ export function apiHost(
           ? await executors.model(effect, signal, run)
           : effect.target?.kind === "harness"
             ? await engineTool(effect)
-            : await executors.tool(effect, signal, run, traceparent ? { traceparent } : {});
+            : ((await mounted(effect)) ??
+              (await executors.tool(effect, signal, run, traceparent ? { traceparent } : {})));
         const outcome = model ? value : await shape(effect, value);
         const answer = await ask("effect.outcome", {
           runId,
@@ -199,6 +201,15 @@ export function apiHost(
       };
     }
   };
+
+  /**
+   * Before a `sandbox` call, the skill folders of the turn's tree, which our engine decides about
+   * (protocol 15): a failed outcome, the call's own, when one cannot be put in the sandbox.
+   */
+  const mounted = async (effect: HostEffect) =>
+    effect.target?.kind === "sandbox" && executors.files
+      ? mountSkills(executors.files, channel, run, signal)
+      : undefined;
 
   /** Runs a call of one of our engine's own tools. */
   const engineTool = (effect: HostEffect): Promise<unknown> => {

@@ -4,11 +4,13 @@
  * call needs that the loop must not hold: the provider credential, pi-ai, its retries and
  * idle watchdog, failure classification and scrubbing.
  *
- * Two implementations: `inProcessModelGate` (embedding, the ephemeral Runtime, tests) and the
+ * Three implementations: `inProcessModelGate` (embedding, the ephemeral Runtime, tests), the
  * HTTP client of the gates service (the `gateway` container), which keeps the credential out
- * of the loop process. Both return what `piModel` returns, so the effect journal is the same
+ * of the loop process, and `providerModelGate`, which serves a Runtime's scripted model (tests,
+ * `model: {kind: "scripted"}`) the same way, metered. Both return what `piModel` returns, so the effect journal is the same
  * either way.
  */
+import type { AgentRef } from "@nylorun/core/define";
 import type { RuntimeModelAdapter, RuntimeModelCall } from "../contracts.js";
 
 export type { ModelCallSettings } from "../model/pi-model.js";
@@ -27,6 +29,13 @@ export interface ModelGateRequest {
   /** The effect's journal id; sent as `Idempotency-Key` (acted on from P1.2). */
   readonly effectId: string;
   readonly invocationId: string;
+  /**
+   * The agent used as a tool the call is for; absent for the session's root agent. In process
+   * only: a scripted provider reads it (`providerModelGate`).
+   */
+  readonly agent?: AgentRef;
+  /** A call that summarizes history for a compaction (protocol 15); in process only, like `agent`. */
+  readonly purpose?: "summary";
   readonly call: RuntimeModelCall;
 }
 

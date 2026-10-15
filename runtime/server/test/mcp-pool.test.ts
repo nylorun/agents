@@ -19,10 +19,9 @@ function harness() {
   let finish: (() => void) | undefined;
   const gate = { hold: false, holdCalls: false };
   const pool = new McpPool({
-    authorize: async () => ({ status: "none" }) as never,
     idleMs: 1_000,
     now: () => now,
-    open: async () => {
+    openRemote: async () => {
       const state = { closed: false };
       opened.push(state);
       if (gate.hold) await new Promise<void>((resolve) => (release = resolve));

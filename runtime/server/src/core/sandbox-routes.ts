@@ -71,7 +71,6 @@ async function runTool(
   const ref: SandboxSessionRef = {
     id: workspace.ownerId,
     activeTurnId: session.activeTurnId,
-    manifest: session.manifest as SandboxSessionRef["manifest"],
     ...(workspace.environmentId === undefined ? {} : { environmentId: workspace.environmentId }),
   };
   return deps.sandbox.run(ref, spec, tool, input, signal);

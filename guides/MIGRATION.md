@@ -1,4 +1,4 @@
-# The harness boundary: artifacts, inputs, instructions and tools are the harness's (protocol 15, Harness API 4)
+# The harness boundary: artifacts, inputs, instructions, tools and the workspace are the harness's (protocol 15, Harness API 4)
 
 A fresh start for agent sessions: the Runtime speaks protocol 15 only, and harnesses Harness API 4
 only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness together.
@@ -75,6 +75,27 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   what does not fit as file artifacts of the session, as core did, and the model sees the same
   previews. The Tool Gate still scrubs credentials and refuses an answer past `toolAnswerBytes`
   (`mcp.too-large`, `http.too-large`).
+- **The outputs folder is our harness's.** Our harness saves `/workspace/outputs` as the
+  session's `outputs` folder when a turn completes in a sandbox, before the turn ends (it was
+  core, after). Versions it writes say `source: "engine"` (they said `export`; older versions
+  keep it), still `claimed: true`, and an unchanged turn still adds none. The 10,000-file bound
+  is the new Runtime limit `folderEntries` (`PUT /v1/tenant/limits`), and the 1 GiB bound is our
+  harness's configuration (`createHarness({ outputs: { dir, maxBytes } })`).
+  `artifact.export.skipped` and `artifact.export.failed` are our harness's claims, with the same
+  payloads. A custom harness saves no outputs folder unless it writes one (§4b's folder mode).
+- **Our harness mounts skill folders.** It puts each skill version's files at
+  `/skills/<name>@<hash>/` before each sandbox call, as before; the Runtime mounts none, so
+  `POST /v1/sessions/{id}/sandbox/{tool}` on a sandbox no turn has used finds no `/skills`.
+- **Compaction is a transcript edit.** `context.compacted` is written once per compaction, when
+  the segment's transcript edit that replaced the history is recorded (it was written per
+  summary call, as it returned), and has no `partial`. A compaction of an agent used as a tool
+  writes none; its model calls are in the log as before. Traces lose
+  `nylorun.compaction.partial`.
+- **Scripted models go through a gate.** A Runtime whose model is not the vault's
+  (`model: {kind: "scripted"}` or `"fixture"`, or an embedder's `modelProvider`) serves it from a
+  Model Gate over the provider, metered like any: usage a scripted answer reports is in
+  `GET /v1/tenant/usage`. The in-process harness opens every MCP server through the Tool Gate
+  (`ToolGate.openMcp`), as a remote one does.
 - **Any file may be sent.** A message naming a file the model does not read is accepted: no more
   `422 attachment_unsupported` (the error code is gone; A2A clients get no
   `CONTENT_TYPE_NOT_SUPPORTED` for one, and AG-UI no `RUN_ERROR`). Files are still held to the
@@ -132,11 +153,30 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
     `spillKey` from `@nylorun/harness`. See [HARNESS_API.md §5b](./HARNESS_API.md#5b-tool-results);
   - **`hello.features.tools` is removed**, and `NativeToolSchema` with it: a harness declares no
     tools;
+  - **mark a compaction.** Send each summary call's intent with `purpose: "summary"` (no
+    `message.assistant` is recorded for it), and the edit that replaced the history with
+    `kind: "compaction"` and `compaction: {trigger, tokensBefore, tokensAfter, summaryEffectIds}`
+    (`transcriptUpdates(before, after, chunkBytes, compaction)`); core refuses facts naming a call
+    that wrote no summary (`invalid`), and the turn fails. See
+    [HARNESS_API.md §6](./HARNESS_API.md#6-transcript);
+  - **`artifact.write` has a folder mode** (`kind: "folder"`, `file`, `refused`, `unchanged`) and
+    `turn.start.limits.folderEntries`; `artifact.export.skipped` and `artifact.export.failed`
+    are claims a harness may send. Core no longer sends `workspace.read` with `list` or `bytes`:
+    a harness that serves workspaces drops them. See
+    [HARNESS_API.md §4b](./HARNESS_API.md#4b-artifacts);
+  - **a host that embeds `@nylorun/harness/api`** gives `HarnessExecutors.files` `list` and
+    `mount` beside `read` and `write`: our engine lists and reads the outputs folder and mounts
+    skill folders through them;
   - **`turn.start.environment`** states the Environment, `{id, kind, sandbox?: {workspace}}`, and
     `routing.sandbox.spec` the sandbox spec the session pinned. Offer sandbox tools, and write a
     note on the sandbox, from them: there is no `runtime` block to copy. Our engine's helpers
     are in `@nylorun/harness` (`engineToolsFor`, `sandboxTools`, `sandboxInstructions`,
     `skillCatalogText`, `skillFolderNote`, `skillTools`, `runSkillTool`).
+- **Removed from `@nylorun/core`:** `EXPORT_MAX_FILES` (now `limits.folderEntries`),
+  `EXPORT_MAX_BYTES` (now `OutputsConfig.maxBytes`, `DEFAULT_OUTPUTS_CONFIG` in
+  `@nylorun/harness`), `WorkspaceBytesCall`, `WorkspaceListCall` and their schemas. Each
+  `RUNTIME_LIMIT_CEILINGS` entry is `{value, unit, why}` (it was `{bytes, why}`); `unit` is
+  `entries` for `folderEntries`.
 - **Moved to `@nylorun/core/contracts`:** the media type helpers (`contentTypeFor`, `essence`,
   `normalizeContentType`, `isText`, `isModelImage`, `isOffice`, `modelInputOf`, `inputLabel`,
   `extensionFor`, `MODEL_IMAGE_TYPES` and `DEFAULT_CONTENT_TYPE`), so the Runtime and a harness

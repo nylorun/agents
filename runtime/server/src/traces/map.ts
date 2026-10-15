@@ -234,7 +234,6 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         .str("nylorun.effect.id", p.effectId)
         .int("nylorun.effect.window_ms", p.durationMs)
         .str("nylorun.compaction.trigger", row.type === "context.compacted" ? p.trigger : undefined)
-        .bool("nylorun.compaction.partial", row.type === "context.compacted" && p.partial === true ? true : undefined)
         .str("error.type", row.type === "model.failed" ? p.code : undefined)
         .str("gen_ai.output.messages", output);
       return {

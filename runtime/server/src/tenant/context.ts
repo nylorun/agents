@@ -28,7 +28,6 @@ import type {
 import type { AgentManifest, JsonValue, SandboxManifest } from "@nylorun/core/define";
 import type { OutboxRequest, SessionStore, StoredSession, Tx } from "../store/types.js";
 import type { FlowLimits } from "../core/limits.js";
-import type { ModelProvider } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
 import type { ToolGate } from "../gates/tool-gate.js";
 import type { Keys } from "../keys/keys.js";
@@ -45,7 +44,6 @@ import type { StuckInvocation, Wake } from "../execution/types.js";
 import type { WorkState } from "./scheduler.js";
 import type { SigningKeys } from "./signing-keys.js";
 import type { BlobStore } from "../blob/index.js";
-import type { WorkspaceReader } from "../artifacts/workspace.js";
 import type { RunGrants } from "./run-grants.js";
 import { fail } from "./http.js";
 import type { TraceOptions } from "../traces/options.js";
@@ -192,10 +190,15 @@ export interface TenantContext {
    */
   readonly sandbox: WorkspacePort;
   readonly flowLimits: FlowLimits;
-  readonly modelProvider: ModelProvider;
-  /** True when the model comes from the Tenant vault selection, served by `modelGate`. */
-  readonly useVaultModel: boolean;
-  /** Serves vault-backed model calls (blueprint §15): in this process, or the gates service. */
+  /**
+   * True when the Runtime's model is not the vault's (scripted, the fixture model, an embedder's
+   * provider): `modelGate` serves it, and no vault model need be configured.
+   */
+  readonly scriptedModel: boolean;
+  /**
+   * Serves every model call (blueprint §15, protocol 15): the vault's model in this process or
+   * the gates service, or a scripted model (`providerModelGate`).
+   */
   readonly modelGate: ModelGate;
   /**
    * Serves remote MCP servers and HTTP tools (blueprint §12, F4.1): in this process, or the
@@ -214,11 +217,6 @@ export interface TenantContext {
    * they mean, and a blob counts once a committed row names its key.
    */
   readonly blobs: BlobStore;
-  /**
-   * How core reads a session's sandbox workspace at turn end, to export its outputs (F8.2): over
-   * this process's `sandbox` today; over the Harness API's `workspace.read` from F6.2.
-   */
-  readonly workspaces: WorkspaceReader;
   /**
    * How the trace route (R7.5) makes spans: the resource and the content the installation exports
    * (R7.2). Absent: `service.name` `nylorun`, no content.

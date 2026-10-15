@@ -39,12 +39,14 @@ _Avoid_: "Admin API" (removed), "Tenant settings API".
 **Runtime limits**: The sizes the Runtime holds what crosses it to, one Tenant setting
 (`limits.config`, `GET`/`PUT /v1/tenant/limits`, `admin.settings.limits`, `nylorun tenant
 settings limits`; `RuntimeLimitsSchema` in `@nylorun/core`, `tenant/runtime-limits.ts`), in
-bytes: `recordEntryBytes` (one event's payload or one effect outcome; default and ceiling 960
+bytes but for `folderEntries`: `recordEntryBytes` (one event's payload or one effect outcome; default and ceiling 960
 KiB: S2's 1 MiB record less 64 KiB for the event's envelope), `modelCallBytes` (a Model Gate
 call's body, 32 MiB), `modelFileBytes` (one file the Model Gate sends a model, 8 MiB),
 `toolAnswerBytes` (an MCP or HTTP tool's answer the Tool Gate keeps, and the tool bodies it reads,
-8 MiB), `harnessStateBytes` (a custom harness's state, 256 KiB) and `chunkBytes` (one
-`definition.file` range, 16 MiB). A limit left out is its default (`RUNTIME_LIMIT_DEFAULTS`); one
+8 MiB), `harnessStateBytes` (a custom harness's state, 256 KiB), `chunkBytes` (one
+`definition.file` range or artifact chunk, 16 MiB) and `folderEntries` (the files of one folder
+version a harness writes, 10,000; its ceiling is how many entries a manifest, read as one string,
+can hold). A limit left out is its default (`RUNTIME_LIMIT_DEFAULTS`); one
 above its **ceiling** (`RUNTIME_LIMIT_CEILINGS`, from a dependency: S2's record, the Harness API's
 64 MiB frame, the longest JavaScript string) is `400` naming the ceiling. Nothing keeps them: each
 is read from Postgres where it is checked (the store's event write, the Record seam, the gates, a
@@ -434,20 +436,24 @@ content-addressed, at `blobs/sha256/<hex>` (a `head` that finds them skips the `
 file once and deleting a folder removes only the files nothing else names. Content is deleted only
 under the quota lock, and each such delete moves the **content epoch** (`artifacts.content_epoch`)
 that a writer re-checks at commit. Read as a tree, one file by path with Range, a diff between
-versions, or a streamed zip (`artifacts/zip.ts`); a version's `/content` is a `400`. Folders
-come only from the turn-end export today; a client cannot upload one.
+versions, or a streamed zip (`artifacts/zip.ts`); a version's `/content` is a `400`. A harness
+writes a folder version over the artifact seam (`artifact.write` with `kind: "folder"`,
+`artifacts/folder-upload.ts`, protocol 15); a client cannot upload one.
 
-**Turn-end export**: When an agent's turn completes, the advance calls `exportOutputs`
-(`artifacts/export.ts`) after `settle` commits, outside its transaction and still holding the
-lease: core lists and reads `/workspace/outputs` of the session's sandbox through the
-**`WorkspaceReader`** seam (`artifacts/workspace.ts`: `list(session, dir)` and
-`readBytes(session, path)`, over the in-process `SandboxManager` today, over the Harness API's
-`workspace.read` from F6.2, and for F7.2's pods) and writes a version of the session's folder
-`outputs` (source `export`, `claimed: true` on its event: the listing and bytes are the
-harness's claim). A turn whose outputs did not change adds no version; no sandbox, a sandbox never
-created or no outputs export nothing. Bounded by 10,000 files and 1 GiB per export, the per-file
-limit and the Tenant total; past one it records `artifact.export.skipped` with the reason, and a
-failure records `artifact.export.failed`. Neither fails the turn.
+**Outputs folder**: Our engine's convention, not the Runtime's (Q5, protocol 15): when an
+agent's turn completes in a session with a sandbox, our engine lists and reads its outputs
+directory (`/workspace/outputs` by default, harness configuration) with `executors.files` and
+saves it, before `turn.completed`, as a version of the session's folder `outputs` over the
+artifact seam (`artifact.write` with `kind: "folder"`, key `outputs:<turnId>`, source `engine`,
+`claimed: true` on its event). The seam takes every byte of every file (a file whose content the
+store holds is hashed and dropped; any other is streamed to a key of its own and copied to its
+content key once its hash is checked), refuses a file whose bytes do not match its hash, adds no
+version when the files equal the folder's latest (`unchanged`), and answers `refused` past the
+Tenant's or the Environment's total. Bounded by the Runtime limit `folderEntries`, the per-file
+limit, the totals and the harness's `outputs.maxBytes`; past one our engine claims
+`artifact.export.skipped` with the reason, and a failure `artifact.export.failed`. Neither fails
+the turn. A harness of your own saves no outputs folder unless it writes one; core exports
+nothing.
 _Avoid_: "reader pod" (dropped; D37).
 
 **Capability link**: A short-lived URL that downloads one artifact version with no credential
@@ -594,10 +600,12 @@ and runs itself, reading the skill's definition files over `definition.file` (`h
 calls): nothing reaches the developer's process, and core serves only the bytes a run's
 definition names. A session with a sandbox also has each skill's files read-only in a folder per
 version, `/skills/<name>@<hash>/` (`skillFolderOf`, D66), never replaced, so sessions whose
-agents carry different versions share an Environment: the SandboxManager mounts the folders a
-call needs (`sandbox/skills.ts`), streaming bytes from the Object store, or in a harness from
-core (`definition.file`, for the run that made the call, the run's Runtime limit `chunkBytes` at
-a time). A stop clears them; the next open mounts what is in use. Each session's calls on a
+agents carry different versions share an Environment. Our engine decides the folders and when
+(protocol 15): before each `sandbox` call it mounts each skill version of the turn's tree with
+`executors.files.mount`, reading the bytes over `definition.file` (the run's `chunkBytes` at a
+time), in process too; the host's SandboxManager only writes them (`mountFolder`,
+`sandbox/skills.ts`), once per open handle (a repeat is `present`). A stop clears them; the next
+sandbox call mounts them again. The operator sandbox route mounts none. Each session's calls on a
 workspace run in order and different sessions' at once; opening, stopping and removing run
 alone (`sandbox/manager.ts`).
 
@@ -678,9 +686,12 @@ the effect, so a replay writes nothing (`tenant/transcript.ts`); payload
 schemas and `parseTranscriptEvent` are in `@nylorun/core/contracts`.
 The Runtime's AG-UI endpoint turns them into AG-UI events
 (`runtime/server/src/api/ag-ui/`). Every model call has one outcome row (R7.1): a step that
-said nothing writes `message.assistant` with `text: ""` and a partial summary writes
-`context.compacted` with `partial: true`; readers that build a conversation (AG-UI, A2A) skip
-them (`isEmptyAssistantMessage`).
+said nothing writes `message.assistant` with `text: ""`, which readers that build a conversation
+(AG-UI, A2A) skip (`isEmptyAssistantMessage`). A summary call (`purpose: "summary"`) writes no
+row of its own: **compaction** is an explicit transcript edit (Q4, protocol 15), whose first
+chunk says `kind: "compaction"` with the harness's facts and the summary calls it names; the
+record checks those calls and writes one `context.compacted` with the edit, from the facts and
+the last summary call (`tenant/transcript.ts contextCompacted`). It never parses the entries.
 _Avoid_: rebuilding a chat from `turn.completed` output or from effect id formats.
 
 **Span-ready row**: An event that ends a crossing and carries its own timing (R7.1), so one row
@@ -775,7 +786,7 @@ One line each; the module named is where the term lives in code.
 - **Egress CA**: The installation's one long-lived CA for egress-gate's leaves (R2c, `keys/egress-ca.ts`): created on first use under the signing keys' lock, its certificate in every join answer (`caCertificate`) and the pod's trust bundle (`<harness root>/egress-ca-bundle.pem`, `harness/pod.ts`), its key never outside keys. No rotation yet.
 - **Egress token**: The ES256 JWT (`typ: nylorun-egress+jwt`, `aud: nylorun-egress`) a pod's harness gets at join, naming its sandbox, host epoch and pod UID; minted with every host token (`mintEgressToken`, `tenant/host-token.ts`) and accepted only by egress-gate, as the proxy credential (`sandbox/egress-token.ts`).
 - **MCP tool preview**: What a remote MCP server offers before an agent names it (R2b C12, `POST /v1/tenant/mcp/preview`, a management key; `admin.mcp.preview`, `nylorun tenant mcp inspect`, Studio's **Preview tools**): the keys service (`Keys.previewMcp`, `mcp/preview.ts`) connects with the credential for the URL in the vault of `environmentId`, if given (its headers and `via`, never an identity header), under the Host's address policy and within 15 s, lists the tools with the model names a server called `name` would get from Nylorun's engine (`modelName` and `renamed`, from `mcpToolNames` in `@nylorun/harness`; a custom harness names its own; default from the URL's host, `previewServerName`) and the server's `instructions`, uncut, and closes. It never calls a tool, and scrubs every credential value sent from its answer. A `401` answers `200` with `authRequired` and the server's RFC 9728 protected-resource metadata (the challenge's `resource_metadata`, else the well-known path); any other failure is `502 mcp_preview_failed` with `details.failure` (`mcp.unreachable`, …). _Avoid_: "probe", "connect" (removed in protocol 10).
-- **Model Gate**: The gates service's endpoint for model calls, `POST /nylorun/v1/model-calls` (`api/gate/routes.ts`, `host/gates.ts`), and the `ModelGate` seam the loop calls (`gates/model-gate.ts`): in process (`gates/in-process.ts`) or over HTTP (`gates/http-client.ts`). Only it reads a model credential (`vault/host-model.ts`); a hop failure is a failure outcome, never an uncertain effect.
+- **Model Gate**: The gates service's endpoint for model calls, `POST /nylorun/v1/model-calls` (`api/gate/routes.ts`, `host/gates.ts`), and the `ModelGate` seam every harness calls (`gates/model-gate.ts`): in process (`gates/in-process.ts`), over HTTP (`gates/http-client.ts`), or over a scripted model (`gates/provider-gate.ts providerModelGate`: tests, `model: {kind: "scripted"}`, metered like any). No harness calls a provider directly, the in-process one included (protocol 15). Only the gate reads a model credential (`vault/host-model.ts`); a hop failure is a failure outcome, never an uncertain effect.
 - **API node**: A Runtime process that runs the core service, serving the Runtime API, the Management API and SSE (`host/stack-config.ts`, `infra/workers.ts`).
 - **Worker**: A Runtime process that runs the loop service, whose Restate endpoint runs advances and sweeps (`infra/workers.ts`, `tenant/worker.ts`).
 - **Session Store**: The Tenant's durable state in the fixed schemas of its own Postgres database, behind the async `SessionStore`/`Tx` seam (`store/types.ts`, `store/postgres/`). Drizzle defines its tables (`store/postgres/schema.ts`), generates its migrations (`store/postgres/drizzle/`) and runs its queries; only `store/postgres/` imports Drizzle or the driver. It holds what happened to a session: the checkpoint, the effect journal, the Record, the lease and its epoch, and the outbox (the split with Durable Session Execution is under that term).
@@ -787,13 +798,13 @@ One line each; the module named is where the term lives in code.
 - **SessionStreams**: A process's readers of Durable Streams for one open Tenant (`ctx.sessionStreams`): one `SessionStream` per observed session, and the streams wiring (`tenant/session-streams.ts`).
 - **SessionStream**: The shared read of one observed session's stream in this process, followed by that session's SSE and in-process clients, each from its own next sequence (`tenant/session-streams.ts`).
 - **Advance**: One run of a session's current segment under ownership: load the checkpoint, offer the segment to a harness as a run, settle what it reports (`tenant/advance.ts`). A run whose harness connection is lost keeps the lease until it lapses, so the next advance takes the session over.
-- **Harness API**: The protocol between core and a harness (v3, `@nylorun/core/harness-api`, blueprint D37; v2 dropped held runs with track R2, v3 renamed `hello.capabilities` to `features` and dropped `capabilityId`): requests and messages over a channel, in process by reference (or through JSON in tests), or over WebSocket (F6.2: core's listener `harness-api/ws-server.ts`, `NYLORUN_HARNESS_LISTEN_*`; the client `harness/ws-client.ts`). A harness says `hello`, keeps a `lease` waiting, and per run sends `effect.intent`/`effect.outcome` (the Record seam), `lease.renew`, and one output (`turn.completed`, `turn.paused`, `turn.waiting`, `turn.failed`, `checkpoint` for a yield) or `lease.release`. Core sends `cancel` with the advance's abort reason. A harness readies the session's MCP servers itself (`session.mcp`) and claims its `environment.state` and `environment.exec` events (`event`). A public contract since track R4 (R4.5): every body has a schema in `@nylorun/core/harness-api`, the Runtime validates with the same schemas, and core refuses a `hello` whose `api` is not 3.
+- **Harness API**: The protocol between core and a harness (v4, `@nylorun/core/harness-api`, blueprint D37; v2 dropped held runs with track R2, v3 renamed `hello.capabilities` to `features` and dropped `capabilityId`, v4 is the harness boundary of protocol 15: effect targets, the artifact seam, `turn.start` facts): requests and messages over a channel, in process by reference (or through JSON in tests), or over WebSocket (F6.2: core's listener `harness-api/ws-server.ts`, `NYLORUN_HARNESS_LISTEN_*`; the client `harness/ws-client.ts`). A harness says `hello`, keeps a `lease` waiting, and per run sends `effect.intent`/`effect.outcome` (the Record seam), `lease.renew`, and one output (`turn.completed`, `turn.paused`, `turn.waiting`, `turn.failed`, `checkpoint` for a yield) or `lease.release`. Core sends `cancel` with the advance's abort reason. A harness readies the session's MCP servers itself (`session.mcp`) and claims its `environment.state`, `environment.exec` and `artifact.export.*` events (`event`). A public contract since track R4 (R4.5): every body has a schema in `@nylorun/core/harness-api`, the Runtime validates with the same schemas, and core refuses a `hello` whose `api` is not 4.
 - **Harness id** (R4.1): What a harness names itself in `hello` (`^[a-z][a-z0-9-]{1,62}$`; ours is `nylorun`), an Environment's `harness`, and the key of placement. A session pins its harness when it opens (`Session.harness`: its Environment's applied harness, else `nylorun`; a flow always `nylorun`), and only a connection that said that id takes its runs (`RunOffer.harness`). A connection's credential binds its id: `NYLORUN_HARNESS_TOKEN` is `nylorun`'s, a custom harness's own token (`tenant/harness-tokens.ts`, Tenant setting `harness.tokens`, made with `nylorun-operate harness token put <id>`) is its own, and a pod's host must be its Environment's harness. Workspace requests go to a pod's host or to `nylorun` connections only. An Environment's harness is fixed for its life (protocol 14; a fork runs another). A turn whose Environment runs another harness than the session pinned is `409 harness_mismatch`: its id was deleted and made again with another harness, or an Environment changed in place before protocol 14 applies that change (a pod at its next wake, with its image).
 - **Harness state** (R4.2): A harness's turn state (`TurnOutput.state`) is its own: core stores it and hands it back to the same harness, and never reads it. Our engine aligns its state's `manifestHash` with the turn's checkpoint itself; core strips only our engine's transcript from it (`leanState`). A custom harness's state is at most the Tenant's Runtime limit `harnessStateBytes` (256 KiB by default; else its turn fails, `limit_exceeded`), it cannot pause for approvals, and a tool it runs itself is a `harness` call (its **effect target**), journaled like ours. It declares no tools (protocol 15: `hello.features.tools` is gone). Our engine's state holds its **MCP layout** (`ExecutionState.mcpLayout = {factsHash, deferred}`): which of the session's MCP tools it defers, decided once and kept while the facts' hash matches, so a model switch does not change the tool list; core never reads it.
 - **Event writer** (R4.9): Who wrote an event, set by the code that writes it (`Tx.event`'s `EventWriter`), not by its type: `client` for a command (with its `principal`, from the credential), `harness` with the harness id and `runId` for what a harness reported (evidence `claimed`), `core` for core's own logic (evidence `observed`; with the run's id during a run). `egress-gate` is a kind no session event uses since D67: its **Egress event** is on the Environment's stream. The Model Gate's usage row is the measured record of a model call a harness reported.
-- **Harness**: One long-running client of the Harness API that runs the engine for the runs it leases, with injected executors for model, MCP and sandbox calls (`@nylorun/harness/api`, `harness/executors.ts`). Each Tenant runs one in process (`harness-api/in-process.ts`, the default outside Compose), or none with `NYLORUN_HARNESS=remote` (the Compose stack's default): harness services (`--service harness`, `harness/main.ts`, `harness/service.ts`), the **Harness container** and the engines in pod Environments, attach over WebSocket with their own MCP pool and SandboxManager. It reaches no store (`scripts/check-boundaries.mjs`).
+- **Harness**: One long-running client of the Harness API that runs the engine for the runs it leases, with injected executors for model, MCP and sandbox calls and the sandbox files our engine decides about (`files`: read, write, list, mount; `@nylorun/harness/api`, `harness/executors.ts`). Placement changes nothing of what it reaches (protocol 15): in process or not, its model calls go through the Model Gate, its MCP pool opens servers only through the Tool Gate (`ToolGate.openMcp`, `openMcpThrough`; the in-process gate finds the server in the session's pinned manifest and authorizes it with the vault), and skill bytes come over `definition.file`. Each Tenant runs one in process (`harness-api/in-process.ts`, the default outside Compose), or none with `NYLORUN_HARNESS=remote` (the Compose stack's default): harness services (`--service harness`, `harness/main.ts`, `harness/service.ts`), the **Harness container** and the engines in pod Environments, attach over WebSocket with their own MCP pool and SandboxManager. It reaches no store (`scripts/check-boundaries.mjs`).
 - **Harness container**: A local Tenant's `harness` container: the Runtime image with `--service harness`, connected to core's Harness API with `NYLORUN_HARNESS_TOKEN` and mounting only the Tenant's `sandboxes/` (`cli/nylorun/src/stack/compose-file.ts`). It runs the turns and the virtual sandboxes of every session not on a pod Environment. `NYLORUN_HARNESS=in-process` in `.env` drops it and runs them in the `runtime` container.
-- **Workspace feature**: What core does with sandbox workspaces outside a run (`ctx.sandbox`, a `WorkspacePort`, `harness-api/workspace.ts`): the sandbox tool routes, the turn-end export's reads, Tenant status, the sweep, an Environment's deletion and an Environments reset. In process it is the Tenant's SandboxManager; with remote harnesses it is the `workspace.*` requests to the harness that declared `workspace` in its `hello` (`503 request_rejected` when none is connected). The SandboxManager keeps its compute records through a `SandboxRecords` port (`sandbox/records.ts`: the `sandboxes` table, or `<root>/sandboxes/records.json` in a harness, mirrored into the table from its `environment.state` claims and sweep answers).
+- **Workspace feature**: What core does with sandbox workspaces outside a run (`ctx.sandbox`, a `WorkspacePort`, `harness-api/workspace.ts`): the sandbox tool routes, disk versions, Tenant status, the sweep, an Environment's deletion and an Environments reset. In process it is the Tenant's SandboxManager; with remote harnesses it is the `workspace.*` requests to the harness that declared `workspace` in its `hello` (`503 request_rejected` when none is connected). The SandboxManager keeps its compute records through a `SandboxRecords` port (`sandbox/records.ts`: the `sandboxes` table, or `<root>/sandboxes/records.json` in a harness, mirrored into the table from its `environment.state` claims and sweep answers).
 - **Run**: A lease on one session's segment, offered by an advance to the first waiting harness (`harness-api/server.ts`): a `runId` bound to the connection that leased it (any other gets `run_not_held`), the turn, the epoch and, from F5, a run token. Its `turn.start` carries the segment's checkpoint without the transcript, its completed outcomes and the transcript's cursor.
 - **Transcript cursor**: The record `seq` of the last event that changed a session's transcript fold (`transcript.updated`, `turn.cancelled`, `turn.failed`). A harness that holds the transcript at the run's cursor resumes from its cache; otherwise it reads it once (`transcript.read`).
 - **Wake**: A request, delivered at least once, that a session advance (`WakeReason` in `execution/types.ts`). A transaction asks for one with `Tx.wake`, which writes it to the outbox.

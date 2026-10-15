@@ -55,16 +55,9 @@ afterEach(async () => {
 });
 
 describe("the loop's MCP pool with a Tool Gate", () => {
-  it("opens remote servers through the gate and never authorizes them itself", async () => {
-    const authorize = vi.fn();
+  it("opens remote servers through the gate, by name only", async () => {
     const opened: McpServerRef[] = [];
-    const inProcess: string[] = [];
     const pool = new McpPool({
-      authorize,
-      open: async (input) => {
-        inProcess.push(input.server.name);
-        return fakeConnection();
-      },
       openRemote: async (server) => {
         opened.push(server);
         return fakeConnection();
@@ -84,8 +77,6 @@ describe("the loop's MCP pool with a Tool Gate", () => {
       { sessionId: "s1", serverName: "github" },
       { sessionId: "s1", serverName: "docs" },
     ]);
-    expect(inProcess).toEqual([]);
-    expect(authorize).not.toHaveBeenCalled();
     await pool.close();
   });
 });

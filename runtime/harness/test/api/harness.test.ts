@@ -377,4 +377,77 @@ describe("a harness", () => {
     expect(core.calls.filter(([method]) => method === "effect.outcome")).toEqual([]);
     expect(core.calls.at(-1)).toEqual(["lease.release", { runId: "r1", reason: "shutdown" }]);
   });
+
+  it("saves the outputs folder before it reports a completed turn in a sandbox, and only then", async () => {
+    const core = fakeCore({
+      answer: (method, params) =>
+        method === "artifact.write"
+          ? params.op === "begin"
+            ? {
+                status: "open",
+                uploadId: "u1",
+                maxBytes: 1_000,
+                maxFileBytes: 1_000,
+                maxEntries: 10,
+                received: 0,
+              }
+            : params.op === "file"
+              ? { status: "open", uploadId: "u1", maxBytes: 1_000, received: 1 }
+              : {
+                  status: "written",
+                  artifact: {
+                    artifactId: "art_1",
+                    kind: "folder",
+                    name: "outputs",
+                    version: 1,
+                    contentType: "application/vnd.nylorun.folder+json",
+                    size: 1,
+                    sha256: "0".repeat(64),
+                    tenantWide: false,
+                  },
+                  created: true,
+                }
+          : method === "event"
+            ? {}
+            : undefined,
+    });
+    const listed: string[] = [];
+    await harnessFor(
+      core,
+      executors(async () => ({ output: [{ type: "text", text: "done" }] }), {
+        files: {
+          read: async (_run, path) => ({
+            kind: "read",
+            path,
+            bytes: new TextEncoder().encode("x"),
+          }),
+          write: async () => ({ kind: "failed", code: "unused", message: "unused" }),
+          mount: async () => ({ kind: "present" }),
+          async list(_run, dir) {
+            listed.push(dir);
+            return { kind: "listed", entries: [{ path: "a.txt", size: 1 }], truncated: false };
+          },
+        },
+      }),
+    );
+    await core.offer(
+      start({ environment: { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } } }),
+    );
+    expect(listed).toEqual(["/workspace/outputs"]);
+    const methods = core.calls.map(([method, params]) =>
+      method === "artifact.write" ? `artifact.write ${params.op}` : method,
+    );
+    const commit = methods.indexOf("artifact.write commit");
+    expect(commit).toBeGreaterThan(0);
+    expect(methods.indexOf("turn.completed")).toBeGreaterThan(commit);
+    expect(core.calls.find(([method]) => method === "artifact.write")![1]).toMatchObject({
+      kind: "folder",
+      key: "outputs:t1",
+    });
+
+    // Without a sandbox nothing is listed.
+    listed.length = 0;
+    await core.offer(start(), "t2");
+    expect(listed).toEqual([]);
+  });
 });

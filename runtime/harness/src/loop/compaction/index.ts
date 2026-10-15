@@ -244,7 +244,6 @@ export async function compact(
   const base = `compaction-${input.stepId}${input.trigger === "overflow" ? "-overflow" : ""}`;
   let summary = previous?.summary;
   for (const [index, chunk] of chunks.entries()) {
-    const last = index === chunks.length - 1;
     const outcome = await input.invoke(summaryCall(input, chunk, summary, maxOutputTokens), {
       request: summaryRequest(input),
       invocationId: index === 0 ? base : `${base}-${index}`,
@@ -253,7 +252,6 @@ export async function compact(
         trigger: input.trigger,
         tokensBefore,
         keptTokens,
-        ...(last ? {} : { partial: true }),
       },
       reportPreparedCall() {},
     });

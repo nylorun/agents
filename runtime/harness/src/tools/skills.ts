@@ -14,6 +14,12 @@
  * A skill's bytes come over the Harness API's `definition.file` seam, a range of at most
  * `turn.start.limits.chunkBytes` at a time. Expected problems are failed outcomes the model sees;
  * only the run's own failures throw.
+ *
+ * With a sandbox, our engine also decides where and when the skills' files are in it (protocol
+ * 15): before each `sandbox` call it mounts each skill version of the turn's tree (the agent and
+ * the agents it uses as tools, which share its sandbox) at its folder (`skillFolderOf`) with
+ * `executors.files.mount` (`mountSkills`). The host only writes the files, and answers `present`
+ * for a folder the sandbox already holds since it last started.
  */
 import {
   SKILL_ENTRY,
@@ -26,7 +32,7 @@ import {
 } from "@nylorun/core/define";
 import { fromBase64, type EffectTarget, type HarnessChannel } from "@nylorun/core/harness-api";
 import type { DurableSessionTool, HostEffect } from "../run/durable.js";
-import type { FailedFileOutcome, HarnessRun } from "../api/executors.js";
+import type { FailedFileOutcome, HarnessFiles, HarnessRun } from "../api/executors.js";
 
 /** Loads a skill's `SKILL.md`. */
 export const LOAD_SKILL_TOOL = "load_skill";
@@ -259,4 +265,72 @@ export async function runSkillTool(
         : `${path} is not a text file; only text files can be read without a sandbox.`,
     );
   return answer(path, { name: skill.name, path, content });
+}
+
+/** A skill's files, by path in its folder, as `sha256:<hex>`. */
+export type SkillFiles = Readonly<Record<string, string>>;
+
+/**
+ * The skill versions of `manifest` and of the agents it uses as tools (they share its sandbox),
+ * by folder (`/skills/<name>@<hash>`): each distinct version once.
+ */
+export function sandboxSkillsOf(
+  manifest: AgentManifest | undefined,
+  into = new Map<string, SkillFiles>(),
+): Map<string, SkillFiles> {
+  for (const skill of Object.values(manifest?.skills ?? {})) {
+    const folder = skillFolderOf(skill);
+    if (!into.has(folder)) into.set(folder, skill.files);
+  }
+  for (const tool of manifest?.tools ?? [])
+    if (tool.agent !== undefined && !("kind" in tool.agent))
+      sandboxSkillsOf(tool.agent as AgentManifest, into);
+  return into;
+}
+
+/**
+ * A definition file's bytes over `definition.file`, a range of at most the run's
+ * `limits.chunkBytes` at a time, as they come: a file may be larger than one frame holds.
+ */
+export async function* definitionFileChunks(
+  channel: Pick<HarnessChannel, "request">,
+  run: HarnessRun,
+  sha256: string,
+  signal: AbortSignal,
+): AsyncGenerator<Uint8Array> {
+  const length = run.start.limits.chunkBytes;
+  for (let offset = 0; ; offset += length) {
+    const { base64 } = await channel.request(
+      "definition.file",
+      { runId: run.runId, sha256, offset, length },
+      signal,
+    );
+    const chunk = fromBase64(base64);
+    if (chunk.byteLength > 0) yield chunk;
+    if (chunk.byteLength < length) return;
+  }
+}
+
+/**
+ * Mounts the skill folders of the run's tree in its sandbox, before a `sandbox` call: each one
+ * the sandbox does not hold yet is written, read-only. A failed outcome (the call's, then) when
+ * one cannot be; nothing when the tree has no skills.
+ */
+export async function mountSkills(
+  files: HarnessFiles,
+  channel: Pick<HarnessChannel, "request">,
+  run: HarnessRun,
+  signal: AbortSignal,
+): Promise<FailedFileOutcome | undefined> {
+  for (const [folder, skill] of sandboxSkillsOf(run.start.manifest as AgentManifest)) {
+    const mounted = await files.mount(
+      run,
+      folder,
+      skill,
+      (sha256) => definitionFileChunks(channel, run, sha256, signal),
+      signal,
+    );
+    if (mounted.kind === "failed") return mounted;
+  }
+  return undefined;
 }

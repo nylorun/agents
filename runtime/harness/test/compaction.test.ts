@@ -179,9 +179,10 @@ describe("compact", () => {
     expect(calls.map((c) => c.invocationId)).toEqual(
       calls.map((_, index) => (index === 0 ? "compaction-s9" : `compaction-s9-${index}`)),
     );
-    // Only the last call completes the compaction.
-    expect(contexts.slice(0, -1).every((c) => (c as { partial?: boolean }).partial)).toBe(true);
-    expect((contexts.at(-1) as { partial?: boolean }).partial).toBeUndefined();
+    // Every call is a summary call of the one compaction; its facts go with the transcript edit.
+    expect(
+      contexts.every((c) => (c as { trigger?: string }).trigger === contexts[0]!.trigger),
+    ).toBe(true);
     expect(next![0]).toMatchObject({
       kind: "compaction",
       summary: `running summary ${calls.length}`,

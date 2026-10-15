@@ -4,7 +4,7 @@
  * records and folds them, and a harness, which computes them and keeps its cache with them.
  */
 import type { z } from "zod";
-import type { TranscriptUpdateSchema } from "./schema.js";
+import type { CompactionFactsSchema, TranscriptUpdateSchema } from "./schema.js";
 
 /** The payload of one `transcript.updated` event. */
 export type TranscriptUpdate = z.infer<typeof TranscriptUpdateSchema>;
@@ -39,13 +39,22 @@ export function withTranscript<T>(state: T, transcript: readonly unknown[]): T {
 
 /**
  * The edits from `before` to `after`, split into chunks of at most `CHUNK_BYTES` of entries.
- * Empty when nothing changed.
+ * Empty when nothing changed. With `compaction`, the edit replaced older history with a summary:
+ * its first chunk says so (`kind: "compaction"`, with the facts).
  */
 export function transcriptUpdates(
   before: readonly unknown[],
   after: readonly unknown[],
-  chunkBytes = CHUNK_BYTES
+  chunkBytes = CHUNK_BYTES,
+  compaction?: z.infer<typeof CompactionFactsSchema>
 ): TranscriptUpdate[] {
+  const updates = edits(before, after, chunkBytes);
+  if (compaction === undefined || updates.length === 0) return updates;
+  const [first, ...rest] = updates;
+  return [{ kind: "compaction", ...first!, compaction }, ...rest];
+}
+
+function edits(before: readonly unknown[], after: readonly unknown[], chunkBytes: number): TranscriptUpdate[] {
   let keep = 0;
   while (keep < before.length && keep < after.length && same(before[keep], after[keep])) keep += 1;
   if (keep === before.length && keep === after.length) return [];
