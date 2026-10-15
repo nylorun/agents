@@ -67,7 +67,7 @@ Management keys are issued on the Tenant's machine only:
 | `admin.mcp` | `preview({ url, type?, name?, environmentId? })` | `POST /v1/tenant/mcp/preview` |
 | `admin.toolPolicy` | `get()`, `put({ rules })`: which MCP and HTTP tool calls run, wait for a person (`ask`) or are refused (`deny`) | `/v1/tenant/tool-policy` |
 | `admin.signingKeys` | `list()`, `rotate({ force? })`, `revoke(kid)` | `/v1/tenant/signing-keys…` |
-| `admin.settings` | `sandbox.get()`, `sandbox.put(request)`, `artifacts.get()`, `artifacts.put(request)`, `skills.get()`, `skills.put(request)` | `/v1/tenant/sandbox`, `/v1/tenant/artifacts`, `/v1/tenant/skills` |
+| `admin.settings` | `sandbox.get()`, `sandbox.put(request)`, `artifacts.get()`, `artifacts.put(request)`, `skills.get()`, `skills.put(request)`, `limits.get()`, `limits.put(request)` | `/v1/tenant/sandbox`, `/v1/tenant/artifacts`, `/v1/tenant/skills`, `/v1/tenant/limits` |
 
 A request body's `requestId` is optional: the client makes one.
 
@@ -123,6 +123,14 @@ if (preview.authRequired) console.log("needs a sign-in:", preview.authRequired.r
 `defaultResources`, `idle`, `environments`), the pods' `lifecycle.stopGrace` and
 `placement`. `admin.tenant.reset({ scope })` takes `sessions`, `environments`
 or `all`.
+
+`admin.settings.limits` reads and replaces the Tenant's Runtime limits (Tenant
+setting `limits.config`), in bytes: `recordEntryBytes` (one event or effect
+outcome in the record), `modelCallBytes`, `modelFileBytes`, `toolAnswerBytes`,
+`harnessStateBytes` (a custom harness's state) and `chunkBytes` (one chunked
+Harness API answer). A limit left out takes its default; one above its ceiling,
+which a dependency such as S2's 1 MiB record sets, is refused with `400`.
+Harnesses get the limits in force in `turn.start.limits`.
 
 ## In a browser
 

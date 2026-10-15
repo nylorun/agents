@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   HARNESS_API_VERSION,
   HarnessApiError,
+  RUNTIME_LIMIT_DEFAULTS,
   applyUpdates,
   effectRequestHash,
   memoryChannels,
@@ -173,6 +174,7 @@ describe("published contract (R4.5)", () => {
       transcript: { cursor: 0 },
       options: { fixtureModel: false },
       routing: { rootManifest: {} },
+      limits: RUNTIME_LIMIT_DEFAULTS,
     };
     expect(TurnStartSchema.safeParse(start).success).toBe(true);
     const traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";

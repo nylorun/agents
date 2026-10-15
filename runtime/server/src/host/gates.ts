@@ -28,6 +28,7 @@ import { createFsBlobStore, type BlobStore } from "../blob/index.js";
 import type { ModelCallSettings } from "../gates/model-gate.js";
 import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
 import { journalCheck } from "../gates/journal.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { probeDatabase } from "../infra/database.js";
 import type { PostgresClient } from "../store/postgres/connect.js";
 import type { Logger } from "../tenant/types.js";
@@ -57,8 +58,6 @@ export interface StartGatesOptions {
   readonly vaults?: TenantVaults;
   /** Retries and timeouts of model calls (tests). */
   readonly settings?: ModelCallSettings;
-  /** Largest model call body (tests). */
-  readonly maxBodyBytes?: number;
   /** How long `close` lets running calls finish. Default 10 s. */
   readonly drainMs?: number;
   /** How long keyed outcomes are kept, and how many (tests). */
@@ -157,7 +156,8 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
         return false;
       }
     },
-    ...(options.maxBodyBytes !== undefined ? { maxBodyBytes: options.maxBodyBytes } : {}),
+    // The Tenant's Runtime limits, read from its database for each call.
+    limits: async () => (await vaults.open()).store.tx((t) => readRuntimeLimits(t)),
     mcp,
     http: gateHttpTools(vaults, options.delivery ?? {}, logger),
     toolCalls,

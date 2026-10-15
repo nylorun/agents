@@ -1,3 +1,23 @@
+# Runtime limits are a Tenant setting
+
+Still protocol 14 and Harness API 3.
+
+- **The limits are settings.** What one record entry, model call, model file, tool answer,
+  custom harness state and Harness API chunk may hold is `GET`/`PUT /v1/tenant/limits`
+  (`admin.settings.limits`, `nylorun tenant settings limits`), with today's sizes as defaults.
+  See [DEPLOYMENT.md](./DEPLOYMENT.md#runtime-limits).
+- **Every write into the record is held to `recordEntryBytes`** (960 KiB by default, S2's
+  record less its envelope). A message, an outcome or an event past it is `413
+  limit_exceeded` (`limit_exceeded` to a harness) instead of a record S2 cannot take.
+- **A custom harness gets `turn.start.limits`**, and must be built against this release's
+  `@nylorun/core`: an older one refuses a `turn.start` that carries the field. A harness whose
+  state, outcome or `definition.file` range passes a limit gets the new Harness API error code
+  `limit_exceeded` (the state's turn fails as before, now with that code).
+- **Removed exports**, each now a Runtime limit: `MAX_MODEL_CALL_BYTES` and
+  `MAX_TOOL_BODY_BYTES` (`modelCallBytes`, `toolAnswerBytes`), `MAX_HARNESS_STATE_BYTES`
+  (`harnessStateBytes`) and `DEFINITION_FILE_CHUNK_BYTES` (`chunkBytes`). Read their defaults
+  from `RUNTIME_LIMIT_DEFAULTS`, and a harness reads the values in force from `turn.start.limits`.
+
 # Environment manifests, and Environments that never change (protocol 14)
 
 The Runtime speaks protocol 14 only: upgrade the Runtime, the SDKs, Studio and the CLI

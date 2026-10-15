@@ -3,6 +3,7 @@
  * and Gemini on Vertex take `[A-Za-z0-9_-]` up to 64. The model knows a tool by a normalized
  * name, `mcp.discovered` lists the renamed ones, and the server is still called by its own name.
  */
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
@@ -125,6 +126,7 @@ describe("the pool", () => {
       }),
     ]);
     const outcome = await pool.call({
+      maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
       sessionId: "s1",
       serverName: "files",
       serverToolName: found.snapshot.mcpTools[0]!.serverToolName,

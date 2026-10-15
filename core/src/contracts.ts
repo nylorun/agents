@@ -40,6 +40,20 @@ export {
   isDefinitionFileHash,
   skillsOf,
 } from "./utils/definition-files.js";
+export {
+  JS_STRING_MAX_LENGTH,
+  RECORD_ENVELOPE_RESERVE_BYTES,
+  RUNTIME_LIMIT_CEILINGS,
+  RUNTIME_LIMIT_DEFAULTS,
+  RuntimeLimitsSchema,
+  S2_RECORD_MAX_BYTES,
+  limitExceededMessage,
+  runtimeLimitIssues,
+  runtimeLimitsOf,
+  type RuntimeLimit,
+  type RuntimeLimits,
+} from "./utils/runtime-limits.js";
+import { RuntimeLimitsSchema } from "./utils/runtime-limits.js";
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES, isArtifactId } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
@@ -4393,6 +4407,25 @@ export const TenantSkillsViewSchema = z
   .object({ limits: z.object({ totalBytes: z.number().int() }).strict() })
   .strict();
 export type TenantSkillsView = z.infer<typeof TenantSkillsViewSchema>;
+
+/**
+ * A Tenant's Runtime limits (harness boundary S0), stored as Tenant setting `limits.config`: what
+ * one record entry, model call, model file, tool answer, harness state and Harness API chunk may
+ * hold. Each limit left out is its default (`RUNTIME_LIMIT_DEFAULTS`); none may pass its ceiling
+ * (`RUNTIME_LIMIT_CEILINGS`, a `400` naming it).
+ */
+export const TenantLimitsConfigSchema = z
+  .object({ limits: RuntimeLimitsSchema.partial().strict().optional() })
+  .strict();
+export type TenantLimitsConfig = z.infer<typeof TenantLimitsConfigSchema>;
+/** `PUT /v1/tenant/limits`: replaces the Tenant's Runtime limits. */
+export const PutTenantLimitsRequestSchema = TenantLimitsConfigSchema.extend({
+  requestId: RequestIdSchema.optional(),
+}).strict();
+export type PutTenantLimitsRequest = z.infer<typeof PutTenantLimitsRequestSchema>;
+/** The Runtime limits in force: the Tenant's, with the default for each it leaves out. */
+export const TenantLimitsViewSchema = z.object({ limits: RuntimeLimitsSchema }).strict();
+export type TenantLimitsView = z.infer<typeof TenantLimitsViewSchema>;
 
 /** Opt-in session reads (Host feature `session-reads`). */
 export const SessionListItemSchema = SessionSummarySchema.extend({

@@ -12,6 +12,7 @@ import {
   type HarnessChannel,
   type ResultOf,
   type RunGrant,
+  type TurnStart,
 } from "@nylorun/core/harness-api";
 import { ABORT_MESSAGES, RunAbort } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
@@ -38,6 +39,11 @@ export interface HarnessOptions {
   onHello?(answer: ResultOf<"hello">): void;
   /** Sees every grant a run gets: when it is leased, and each renewal with a new run token. */
   onGrant?(grant: RunGrant): void;
+  /**
+   * Sees each run's `turn.start` when it is leased: the Runtime limits in force
+   * (`start.limits`) among the rest.
+   */
+  onStart?(grant: RunGrant, start: TurnStart): void;
 }
 
 export interface Harness {
@@ -128,6 +134,7 @@ export function createHarness(options: HarnessOptions): Harness {
     };
     live.set(run.runId, run);
     options.onGrant?.(grant);
+    options.onStart?.(grant, start);
     const stopRenewing = renew(run);
     const done = runTurn({ channel, executors, cache }, run)
       .catch((error: unknown) =>

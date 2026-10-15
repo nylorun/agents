@@ -23,9 +23,9 @@ import type { z } from "zod";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { isTenantId } from "@nylorun/core/compatibility";
+import type { RuntimeLimits } from "@nylorun/core/contracts";
 import type { RuntimeModelCall } from "../../contracts.js";
 import {
-  MAX_MODEL_CALL_BYTES,
   MODEL_CALLS_PATH,
   ModelCallBodySchema,
   TENANT_HEADER,
@@ -45,7 +45,6 @@ import type { Logger } from "../../tenant/types.js";
 import {
   HTTP_CALLS_PATH,
   HttpCallBodySchema,
-  MAX_TOOL_BODY_BYTES,
   MCP_CLOSE_PATH,
   MCP_CONNECT_PATH,
   MCP_LIST_PATH,
@@ -77,8 +76,11 @@ export interface GatesAppOptions {
   readonly inflight: InflightCalls;
   /** Whether the gate's dependencies answer (Postgres). */
   readonly ready: () => Promise<boolean>;
-  /** Largest body read. Default `MAX_MODEL_CALL_BYTES`. */
-  readonly maxBodyBytes?: number;
+  /**
+   * The Tenant's Runtime limits, read from its database for each call (`modelCallBytes` bounds a
+   * model call's body, `toolAnswerBytes` a tool request's).
+   */
+  readonly limits: () => Promise<RuntimeLimits>;
   /** Remote MCP servers (F4.1). Without it the MCP routes answer 404. */
   readonly mcp?: McpHandler;
   /** HTTP tool calls (R2 M3). Without it the HTTP calls route answers 404. */
@@ -111,7 +113,6 @@ const gateError = (code: GateErrorBody["error"]["code"], message: string): GateE
 
 export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
   const app = new Hono<GateEnv>();
-  const maxSize = options.maxBodyBytes ?? MAX_MODEL_CALL_BYTES;
   const logger = options.logger ?? { info() {}, warn() {}, error() {} };
 
   // Hono's default, but logged through the logger: never the body, which may hold secrets.
@@ -189,10 +190,21 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
   };
   const badTenant = (c: Context) =>
     c.json(invalid(`The ${TENANT_HEADER} header must name a Tenant, the run token's when there is one`), 400);
-  const toolBodies = bodyLimit({
-    maxSize: MAX_TOOL_BODY_BYTES,
-    onError: (c) => c.json(invalid(`A request body may be at most ${MAX_TOOL_BODY_BYTES} bytes`), 400),
-  });
+  /**
+   * A body of at most the Tenant's limit `name`, read for this request: a larger one is `400`,
+   * naming the limit.
+   */
+  const limited =
+    (name: "modelCallBytes" | "toolAnswerBytes", what: string): MiddlewareHandler<GateEnv> =>
+    async (c, next) => {
+      const maxSize = (await options.limits())[name];
+      return bodyLimit({
+        maxSize,
+        onError: (c) =>
+          c.json(invalid(`${what} may be at most ${maxSize} bytes (the Runtime limit ${name})`), 400),
+      })(c, next);
+    };
+  const toolBodies = limited("toolAnswerBytes", "A request body");
   /** The parsed body, or the 400 to answer. */
   async function read<S extends z.ZodType>(
     c: Context<GateEnv>,
@@ -426,11 +438,7 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
   app.post(
     MODEL_CALLS_PATH,
     run({ live: true }),
-    bodyLimit({
-      maxSize,
-      onError: (c) =>
-        c.json(invalid(`A model call body may be at most ${maxSize} bytes`), 400),
-    }),
+    limited("modelCallBytes", "A model call body"),
     async (c) => {
       // Optional: the gate serves its database's one Tenant, and refuses a call naming another.
       const tenantId = tenantOf(c);

@@ -20,6 +20,7 @@ import {
 } from "../mcp/connect.js";
 import { findServer, type McpServerRef } from "../mcp/pool.js";
 import type { OutboundPolicy } from "../tenant/outbound.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import type { Logger } from "../tenant/types.js";
 import type { McpAnswer, McpGateError } from "./tool-contract.js";
 import { GateRefusal, type TenantVault, type TenantVaults } from "./tenant-vaults.js";
@@ -214,6 +215,8 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
     },
     signal: AbortSignal,
   ) {
+    // The Tenant's Runtime limit, read for this call: the largest answer the gate keeps.
+    const { toolAnswerBytes } = await (await vaults.open(tenantId)).store.tx((t) => readRuntimeLimits(t));
     for (let attempt = 0; ; attempt += 1) {
       try {
         return await use(
@@ -224,6 +227,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
               { name: request.name, arguments: request.arguments },
               {
                 signal,
+                maxResultBytes: toolAnswerBytes,
                 ...(request.key === undefined ? {} : { key: request.key }),
                 ...(request.traceparent === undefined ? {} : { traceparent: request.traceparent }),
               },

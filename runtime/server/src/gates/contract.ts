@@ -6,7 +6,8 @@
  * - Headers: `Authorization: Bearer <run token>` (F5, `tenant/run-token.ts`), `Idempotency-Key:
  *   <effect id>`, and optionally `Nylorun-Tenant: <tenant id>`, which must then be the token's
  *   Tenant. Core's credential (`NYLORUN_GATES_TOKEN`) is refused: only a run calls the model.
- * - Body: `ModelCallBody`, at most `MAX_MODEL_CALL_BYTES`. It names no session, turn or agent:
+ * - Body: `ModelCallBody`, at most the Tenant's Runtime limit `modelCallBytes` (`PUT
+ *   /v1/tenant/limits`, default 32 MiB). It names no session, turn or agent:
  *   the gate takes them from the token, and refuses a body that names them.
  * - `200 {outcome}` once the call has finished, whether the outcome is a candidate or a
  *   failure; nothing is sent while it runs. `401 gate_unauthorized` for a missing, malformed,
@@ -25,7 +26,6 @@
 import type { ModelGateOutcome } from "./model-gate.js";
 
 export {
-  MAX_MODEL_CALL_BYTES,
   MODEL_CALLS_PATH,
   ModelCallBodySchema,
   type GateErrorBody,

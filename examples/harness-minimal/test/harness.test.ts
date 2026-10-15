@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
+  RUNTIME_LIMIT_DEFAULTS,
   applyUpdates,
   memoryChannels,
   type EffectIntent,
@@ -54,6 +55,7 @@ const turn = (input: string, outcomes: RecordedOutcome[] = []): TurnStart => ({
   transcript: { cursor: 4 },
   options: { fixtureModel: false },
   routing: { rootManifest: manifest, sandbox: { ownerId: "s1" } },
+  limits: RUNTIME_LIMIT_DEFAULTS,
 });
 
 /** A Model Gate that answers by `answer`, or hangs until its client goes away. */

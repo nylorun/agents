@@ -19,6 +19,7 @@ import { KEYS_PATH } from "../../src/keys/contract.js";
 import type { HostModelSecret } from "../../src/vault/service.js";
 import type { RunGrant } from "../../src/tenant/run-token.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
+import { writeLimitsConfig } from "../../src/tenant/runtime-limits.js";
 
 const realFetch = globalThis.fetch;
 const token = "cd".repeat(32);
@@ -76,7 +77,7 @@ const logger = {
 };
 
 const servers: GatesServer[] = [];
-async function gate(options: { maxBodyBytes?: number; blobs?: BlobStore } = {}) {
+async function gate(options: { blobs?: BlobStore } = {}) {
   const server = await startGates({
     gates: {
       listen: { host: "127.0.0.1", port: 0, allowedHosts: ["gateway:4100"] },
@@ -395,19 +396,25 @@ describe("the gates service", () => {
     expect(await status("gateway:4100")).toBe(200);
   });
 
-  it("refuses a bad Tenant header, malformed JSON, a malformed call and an oversized body", async () => {
-    const server = await gate({ maxBodyBytes: 2048 });
+  it("refuses a bad Tenant header, malformed JSON, a malformed call and a body past the Tenant's modelCallBytes", async () => {
+    const server = await gate();
     const grant = await running();
-    const cases: [Parameters<typeof post>[2], RegExp][] = [
-      [{ headers: { "nylorun-tenant": "../../etc" } }, /must name a Tenant/],
-      [{ body: "{not json" }, /must be JSON/],
-      [{ body: { ...body, call: { tools: [] } } }, /Invalid model call/],
-      [{ body: { ...body, padding: "x".repeat(4096) } }, /at most 2048 bytes/],
-    ];
-    for (const [init, message] of cases) {
-      const response = await post(server, grant, init);
-      expect(response.status).toBe(400);
-      expect((await response.json()).error.message).toMatch(message);
+    // The Tenant's Runtime limit, read for each call: lowered here, put back after.
+    await runs.store.tx((t) => writeLimitsConfig(t, { limits: { modelCallBytes: 2048 } }));
+    try {
+      const cases: [Parameters<typeof post>[2], RegExp][] = [
+        [{ headers: { "nylorun-tenant": "../../etc" } }, /must name a Tenant/],
+        [{ body: "{not json" }, /must be JSON/],
+        [{ body: { ...body, call: { tools: [] } } }, /Invalid model call/],
+        [{ body: { ...body, padding: "x".repeat(4096) } }, /at most 2048 bytes \(the Runtime limit modelCallBytes\)/],
+      ];
+      for (const [init, message] of cases) {
+        const response = await post(server, grant, init);
+        expect(response.status).toBe(400);
+        expect((await response.json()).error.message).toMatch(message);
+      }
+    } finally {
+      await runs.store.tx((t) => writeLimitsConfig(t, {}));
     }
   });
 

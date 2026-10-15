@@ -64,7 +64,14 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
           effect,
           signal
         );
-      return callMcpTool(options.mcp, routing, effect, abortOn(signal, kinds), traceparent);
+      return callMcpTool(
+        options.mcp,
+        routing,
+        effect,
+        abortOn(signal, kinds),
+        run.start.limits.toolAnswerBytes,
+        traceparent
+      );
     },
     recovers: {
       get model() {

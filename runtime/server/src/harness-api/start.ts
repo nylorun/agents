@@ -6,7 +6,7 @@
  * harness holds at the fold's cursor or reads once.
  */
 import type { LiveEvent } from "@nylorun/core/contracts";
-import type { RecordedOutcome, TurnStart } from "@nylorun/core/harness-api";
+import type { RecordedOutcome, RuntimeLimits, TurnStart } from "@nylorun/core/harness-api";
 import type { DurableCheckpoint, FlowCheckpoint } from "@nylorun/harness/run";
 import { isWorkflowManifest } from "../core/flow-host.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
@@ -24,6 +24,7 @@ import {
   type TranscriptUpdate,
 } from "../tenant/history.js";
 import { usesFixtureModel } from "../tenant/model-setting.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { sessionToolsOf, turnManifestOf } from "../tenant/session.js";
 import { bulkOutcomes } from "./record.js";
 import { traceKey } from "../traces/key.js";
@@ -43,6 +44,8 @@ const ROLLOVER_MS = 20 * 60_000;
 export interface SegmentStart {
   readonly current: Session;
   readonly fixtureModel: boolean;
+  /** The Tenant's Runtime limits as the segment starts: what `turn.start.limits` hands the harness. */
+  readonly limits: RuntimeLimits;
   /** The transcript the engine resumes from (agents with state; empty otherwise). */
   readonly transcript: unknown[];
   /** The record position of `transcript` (`foldTranscriptWithCursor`). */
@@ -88,7 +91,8 @@ export async function startSegment(
         await t.put("sessions", id, current);
       }
       const fixtureModel = await usesFixtureModel(t);
-      if (!options.harness) return { current, fixtureModel, outcomes: [], sandbox: { ownerId: id } };
+      const limits = await readRuntimeLimits(t);
+      if (!options.harness) return { current, fixtureModel, limits, outcomes: [], sandbox: { ownerId: id } };
       const workspace = sandboxWorkspaceOf(current);
       const resource = workspace.environmentId === undefined ? undefined : await t.environment(workspace.environmentId);
       const environment = await ctx.vault.environmentVariables(t, current.environmentId);
@@ -97,6 +101,7 @@ export async function startSegment(
       return {
         current,
         fixtureModel,
+        limits,
         outcomes: current.checkpoint ? await bulkOutcomes(t, current, current.checkpoint) : [],
         sandbox,
         ...(key && turnId ? { trace: turnContextOf(key, ctx.store.tenantId, current, turnId) } : {}),
@@ -151,6 +156,7 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
       sandbox: segment.sandbox,
     },
     ...(segment.trace ? { trace: segment.trace } : {}),
+    limits: segment.limits,
   };
 }
 

@@ -7,13 +7,13 @@
 import { z } from "zod";
 import {
   ABORT_REASONS,
-  DEFINITION_FILE_CHUNK_BYTES,
   HARNESS_API_VERSION,
   HARNESS_CLAIMS,
   HARNESS_ERROR_CODES,
 } from "./messages.js";
 import { HarnessApiError } from "./errors.js";
 import { EffectOutcomeSchema } from "../contracts.js";
+import { RUNTIME_LIMIT_CEILINGS, RuntimeLimitsSchema } from "../utils/runtime-limits.js";
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
 import { McpSnapshotSchema } from "./mcp.js";
 
@@ -223,7 +223,7 @@ export const RunRoutingSchema = z
  * metadata?}` with user content parts, `{kind: "continue"}` for the next segment of a yielded
  * turn, or an approval or response event. Effect ids are prefixed `<turnId>:<segment>:`
  * (`effectIdOf`), and every intent carries `manifestHash`. `state` is the harness's own, as its
- * last output left it: core stores it unread (at most `MAX_HARNESS_STATE_BYTES` for a harness
+ * last output left it: core stores it unread (at most `limits.harnessStateBytes` for a harness
  * other than ours) and folds the transcript every segment, whatever the state holds. A model
  * call's `executionId` is the session id.
  */
@@ -294,6 +294,13 @@ export const TurnStartSchema = z
      * spans join the turn's trace. The Runtime never ingests a harness's spans.
      */
     trace: TraceContextSchema.optional(),
+    /**
+     * The Runtime limits in force when the segment started (the Tenant's, `PUT
+     * /v1/tenant/limits`): what one record entry (an effect outcome, a claimed event, a transcript
+     * update), model call, model file, tool answer, custom harness state and `definition.file`
+     * range may hold. Past one, core refuses the request with `limit_exceeded`.
+     */
+    limits: RuntimeLimitsSchema,
   })
   .strict();
 
@@ -435,16 +442,17 @@ export const harnessRequests = {
   },
   /**
    * A definition file's bytes, base64 (track R2 M4): one the run's definition names, for the
-   * skills its sandbox mounts. With `offset` and `length` (at most `DEFINITION_FILE_CHUNK_BYTES`),
-   * only those bytes: fewer than `length`, none past the end, once the file ends. Without them
-   * the whole file, which must then fit one frame.
+   * skills its sandbox mounts. With `offset` and `length` (at most `turn.start.limits.chunkBytes`,
+   * its default without `length`; more is `limit_exceeded`), only those bytes: fewer than
+   * `length`, none past the end, once the file ends. Without them the whole file, which must then
+   * fit one frame.
    */
   "definition.file": {
     params: runId
       .extend({
         sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
         offset: z.number().int().nonnegative().optional(),
-        length: z.number().int().positive().max(DEFINITION_FILE_CHUNK_BYTES).optional(),
+        length: z.number().int().positive().max(RUNTIME_LIMIT_CEILINGS.chunkBytes.bytes).optional(),
       })
       .strict(),
     result: z.object({ base64: z.string() }).strict(),

@@ -1,7 +1,7 @@
 /**
  * The Tenant's own settings (`/v1/tenant/**`): its status, reset, a first configuration, the
- * model it calls, what its model calls cost and may cost (budgets), and the sandboxes its
- * sessions get.
+ * model it calls, what its model calls cost and may cost (budgets), the sandboxes its
+ * sessions get, and its Runtime limits.
  *
  * A reset that deletes sessions moves the Tenant to a new basin generation, so a session
  * created again starts in an empty basin; the old basin is deleted after a grace period.
@@ -17,7 +17,12 @@ import {
   type ModelBudget,
   PutHostModelRequestSchema,
   PutTenantEnvironmentsRequestSchema,
+  PutTenantLimitsRequestSchema,
+  RUNTIME_LIMIT_CEILINGS,
+  RUNTIME_LIMIT_DEFAULTS,
   ResetTenantRequestSchema,
+  runtimeLimitIssues,
+  runtimeLimitsOf,
   SeedTenantConfigRequestSchema,
   SelectHostModelRequestSchema,
 } from "@nylorun/core/contracts";
@@ -34,14 +39,17 @@ import {
   ToolPolicy,
   PutHostModelRequest,
   PutTenantEnvironmentsRequest,
+  PutTenantLimitsRequest,
   ResetTenantRequest,
   ResetTenantResponse,
   SeedTenantConfigRequest,
   SeedTenantConfigResponse,
   SelectHostModelRequest,
+  TenantLimitsView,
   TenantSandboxView,
   TenantStatus,
 } from "../../components.js";
+import { readRuntimeLimits, writeLimitsConfig } from "../../../tenant/runtime-limits.js";
 import { periodStart } from "../../../gates/meter.js";
 import { readToolPolicy, TOOL_POLICY_SETTING } from "../../../gates/policy.js";
 import { addableInputs, capabilitiesOf, inputsError } from "../../../model/capabilities.js";
@@ -72,6 +80,14 @@ import { rearmPodTimers } from "../../../tenant/environments.js";
 
 /** Every Management API route (`/v1/tenant/*`): a management key, acting as itself (protocol 8). */
 const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
+
+/** Each Runtime limit's default and ceiling, for the limits routes' descriptions. */
+const LIMITS_TABLE = `Defaults and ceilings (bytes): ${Object.entries(RUNTIME_LIMIT_CEILINGS)
+  .map(
+    ([name, ceiling]) =>
+      `\`${name}\` ${RUNTIME_LIMIT_DEFAULTS[name as keyof typeof RUNTIME_LIMIT_DEFAULTS]}, at most ${ceiling.bytes} (${ceiling.why})`,
+  )
+  .join("; ")}.`;
 
 const json = (schema: z.ZodType, description: string) => ({
   description,
@@ -273,6 +289,44 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
         model,
         inputs: capabilitiesOf(found!, added).inputs,
       });
+    },
+  );
+
+  tenantRoute(
+    api,
+    MANAGEMENT,
+    {
+      method: "get",
+      path: "/v1/tenant/limits",
+      tags: ["Tenant"],
+      summary: "Get the Tenant's Runtime limits",
+      description: `What one record entry, model call, model file, tool answer, custom harness state and Harness API chunk may hold, in bytes: the Tenant's (Tenant setting \`limits.config\`), with the default for each it leaves out. Harnesses get them in \`turn.start.limits\`. ${LIMITS_TABLE}`,
+      responses: { 200: json(TenantLimitsView, "The limits in force") },
+    },
+    async (c) => jsonResponse(200, { limits: await c.env.tenant.store.tx((t) => readRuntimeLimits(t)) }),
+  );
+
+  tenantRoute(
+    api,
+    MANAGEMENT,
+    {
+      method: "put",
+      path: "/v1/tenant/limits",
+      tags: ["Tenant"],
+      summary: "Set the Tenant's Runtime limits",
+      description: `Replaces the Tenant's Runtime limits: a limit left out takes its default. A limit above its ceiling, which a dependency sets, is \`400\` naming the ceiling, and nothing is written. Each is read where it is checked, so a new value holds for the next write, call or segment. ${LIMITS_TABLE}`,
+      request: { body: body(PutTenantLimitsRequest) },
+      responses: {
+        200: json(TenantLimitsView, "The limits now in force"),
+        400: { description: "A limit above its ceiling" },
+      },
+    },
+    async (c) => {
+      const { requestId: _requestId, ...config } = PutTenantLimitsRequestSchema.parse(await readJson(c.req.raw));
+      const issues = runtimeLimitIssues(config.limits);
+      if (issues.length > 0) fail(400, issues.join(" "));
+      await c.env.tenant.store.tx((t) => writeLimitsConfig(t, config));
+      return jsonResponse(200, { limits: runtimeLimitsOf(config.limits) });
     },
   );
 

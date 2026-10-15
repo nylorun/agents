@@ -666,6 +666,28 @@ The combined packing suits one developer on one machine: the gateway holds
 every secret of the Tenant in one process. Kubernetes splits it into separate
 services in a later release.
 
+## Runtime limits
+
+How large what crosses the Runtime may be is the Tenant's Runtime limits, in bytes:
+`GET`/`PUT /v1/tenant/limits` (a management key; `admin.settings.limits`,
+`nylorun tenant settings limits`). A `PUT` replaces them all: a limit left out takes its
+default.
+
+| Limit | What it holds | Default | Ceiling |
+| --- | --- | --- | --- |
+| `recordEntryBytes` | One event's payload, or one effect outcome, in a session's record | 960 KiB | 960 KiB: S2's 1 MiB record, less room for the event's envelope |
+| `modelCallBytes` | A model call's body at the Model Gate | 32 MiB | About 512 MiB: one JavaScript string |
+| `modelFileBytes` | One file the Model Gate sends a model | 8 MiB | About 384 MiB: its base64 in one string |
+| `toolAnswerBytes` | An MCP or HTTP tool's answer the Tool Gate keeps, and the tool bodies it reads | 8 MiB | 32 MiB: half a 64 MiB Harness API frame |
+| `harnessStateBytes` | A custom harness's state per session | 256 KiB | 32 MiB: half a frame |
+| `chunkBytes` | One chunked Harness API answer (a skill file's range) | 16 MiB | 48 MiB less 64 KiB: its base64 in one frame |
+
+A limit above its ceiling is `400`, naming the ceiling, and nothing changes. Each limit is
+read where it is checked, so a new value holds for the next write, call or turn. Past one, a
+write into the record is `413 limit_exceeded` (`details.limit: "recordEntryBytes"`) to an API
+client, and `limit_exceeded` to a harness; a turn whose harness reports more fails. Harnesses
+get the limits in force in `turn.start.limits` ([HARNESS_API.md](./HARNESS_API.md)).
+
 ## MCP servers and HTTP tools
 
 An agent names its remote MCP servers and HTTP tools by URL, and its manifest never holds a
@@ -951,7 +973,8 @@ Agent({ id: "triage" }).mcp({
 - **Results.** A result past 32 KiB, and every image, audio or file part of one, becomes a file
   artifact of the session, and the model gets a preview and the artifact's id. It reads on with
   the built-in `read_artifact`, 32 KiB a call. These artifacts count toward the Tenant's artifact
-  limits (`PUT /v1/tenant/artifacts`). An answer past 8 MiB is not kept.
+  limits (`PUT /v1/tenant/artifacts`). An answer past the Runtime limit `toolAnswerBytes`
+  (8 MiB by default, [Runtime limits](#runtime-limits)) is not kept.
 - **Secrets.** A credential value a server echoes back is replaced with `[redacted]` before the
   model, an event or the Tool Gate's record sees it.
 
@@ -966,7 +989,7 @@ an MCP call, `retryable`), and `tool.completed`'s `error` records the same:
 | `mcp.error` | A JSON-RPC error, with its code in the message | No |
 | `mcp.status` | Another HTTP error status | For `408`, `429`, `502`, `503` and `504` |
 | `mcp.lost` | Sent, and the answer lost: the tool may have run, and the model decides whether to call it again | Yes |
-| `mcp.too-large` | An answer past 8 MiB | No |
+| `mcp.too-large` | An answer past the Runtime limit `toolAnswerBytes` (8 MiB by default) | No |
 
 A tool's own error result (`isError`) is `mcp.tool`. `tool_call` answers `tool.unknown` for a
 name no deferred tool has, and `tool.invalid-arguments` for arguments that do not match the

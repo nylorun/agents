@@ -4,6 +4,7 @@
  * (`routes.ts`) both answer through here, so a route answers the same wherever it runs.
  */
 import { SandboxRouteError } from "../../core/sandbox-routes.js";
+import { RecordEntryTooLargeError } from "../../record/index.js";
 import { HttpError, OpaqueAuthError } from "../../tenant/http.js";
 import { VaultError } from "../../vault/error.js";
 
@@ -37,14 +38,17 @@ export function rejectionOf(error: unknown): Rejection {
   const status =
     error instanceof HttpError ||
     error instanceof VaultError ||
-    error instanceof SandboxRouteError
+    error instanceof SandboxRouteError ||
+    error instanceof RecordEntryTooLargeError
       ? error.status
       : (error as { name?: string } | undefined)?.name === "ZodError" ||
           (error as Error | undefined)?.message === "Invalid cursor"
         ? 400
         : 500;
   const rejection =
-    error instanceof HttpError || error instanceof VaultError ? error.rejection : {};
+    error instanceof HttpError || error instanceof VaultError || error instanceof RecordEntryTooLargeError
+      ? error.rejection
+      : {};
   return {
     status,
     body: {

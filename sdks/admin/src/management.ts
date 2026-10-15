@@ -29,6 +29,7 @@ import {
   type PutOperatorKeyResponse,
   type PutTenantArtifactsRequest,
   type PutTenantEnvironmentsRequest,
+  type PutTenantLimitsRequest,
   type PutTenantSkillsRequest,
   type ResetTenantRequest,
   type ResetTenantResponse,
@@ -38,6 +39,7 @@ import {
   type SigningKeyView,
   type TenantArtifactsView,
   type TenantSandboxView,
+  type TenantLimitsView,
   type TenantSkillsView,
   type TenantStatus,
   type ToolPolicy,
@@ -147,6 +149,12 @@ export interface ManagementSettings {
     get(): Promise<TenantSkillsView>;
     /** The most bytes one skill's files may hold together; an Environment's manifest may set less. */
     put(request: Body<PutTenantSkillsRequest>): Promise<TenantSkillsView>;
+  };
+  readonly limits: {
+    /** The Runtime limits in force: record entry, model call, model file, tool answer, harness state and chunk bytes. */
+    get(): Promise<TenantLimitsView>;
+    /** Replaces them; a limit left out takes its default, one above its ceiling is refused (`400`). */
+    put(request: Body<PutTenantLimitsRequest>): Promise<TenantLimitsView>;
   };
 }
 
@@ -265,6 +273,10 @@ export class ManagementClient {
       skills: {
         get: () => call("GET", "/v1/tenant/skills"),
         put: (request) => call("PUT", "/v1/tenant/skills", withId(request)),
+      },
+      limits: {
+        get: () => call("GET", "/v1/tenant/limits"),
+        put: (request) => call("PUT", "/v1/tenant/limits", withId(request)),
       },
     };
   }

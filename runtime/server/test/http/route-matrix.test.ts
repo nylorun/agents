@@ -236,6 +236,8 @@ function tenantOperations(): Operation[] {
     { method: "PUT", path: "/v1/tenant/artifacts", body: INVALID },
     { method: "GET", path: "/v1/tenant/skills" },
     { method: "PUT", path: "/v1/tenant/skills", body: INVALID },
+    { method: "GET", path: "/v1/tenant/limits" },
+    { method: "PUT", path: "/v1/tenant/limits", body: INVALID },
     { method: "GET", path: "/v1/tenant" },
     { method: "POST", path: "/v1/tenant/reset", body: INVALID },
     { method: "PUT", path: "/v1/tenant/config/seed", body: INVALID },

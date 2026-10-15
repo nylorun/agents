@@ -16,11 +16,12 @@
  * - When an artifact cannot be stored (the Tenant's artifact limits, an Object store that
  *   fails), the preview stays and `dropped` says why the rest is gone: a result never passes
  *   the cap. Only an abort throws.
- * - **One step's results share a budget** (`STEP_RESULTS_BUDGET_BYTES`, 256 KiB), since the
- *   transcript keeps a step's results in one entry, one event: the record seam counts what the
- *   step's other results took, under the session lock, and gives this one the rest as its cap
- *   (`resultLimit`). Once the budget is spent, a result past `TOOL_RESULT_SMALL_BYTES` becomes a
- *   stub naming its artifact, its preview cut to fit `TOOL_RESULT_STUB_BYTES`.
+ * - **One step's results share a budget** (`stepResultsBudget`: 256 KiB, or half the Tenant's
+ *   Runtime limit `recordEntryBytes` when that is less), since the transcript keeps a step's
+ *   results in one entry, one event: the record seam counts what the step's other results took,
+ *   under the session lock, and gives this one the rest as its cap (`resultLimit`). Once the
+ *   budget is spent, a result past `TOOL_RESULT_SMALL_BYTES` becomes a stub naming its artifact,
+ *   its preview cut to fit `TOOL_RESULT_STUB_BYTES`.
  *
  * The model reads a stored result with `read_artifact` (`artifact-tool.ts`). Artifacts are the
  * session's, saved by our engine (`source: "engine"`), with the turn and the tool call on their
@@ -29,7 +30,6 @@
 import { READ_ARTIFACT_MAX_BYTES, type ToolResultFile } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import {
-  MODEL_FILE_MAX_BYTES,
   extensionFor,
   isModelImage,
   isText,
@@ -47,10 +47,18 @@ export const TOOL_RESULT_INLINE_BYTES = READ_ARTIFACT_MAX_BYTES;
 export const PREVIEW_HEAD_BYTES = 4 * 1024;
 export const PREVIEW_TAIL_BYTES = 1024;
 /**
- * The most one step's results may hold together: a step's results are one transcript entry, so
- * one event, which must stay well under S2's 1 MiB record.
+ * The most one step's results may hold together by default: a step's results are one transcript
+ * entry, so one event, which must stay well under the record entry limit (`stepResultsBudget`).
  */
 export const STEP_RESULTS_BUDGET_BYTES = 256 * 1024;
+
+/**
+ * One step's budget under the Tenant's Runtime limit `recordEntryBytes`: `STEP_RESULTS_BUDGET_BYTES`,
+ * or half the limit when that is less, so the entry's stubs and calls fit beside its results.
+ */
+export function stepResultsBudget(recordEntryBytes: number): number {
+  return Math.min(STEP_RESULTS_BUDGET_BYTES, Math.floor(recordEntryBytes / 2));
+}
 /** A result's cap once its step's budget is spent: a stub naming its artifact. */
 export const TOOL_RESULT_STUB_BYTES = 512;
 /** A result this small is never shaped, nor counted against its step's budget. */
@@ -64,14 +72,19 @@ export interface ShapedCall {
   readonly mcp: boolean;
   /** This result's cap (`resultLimit`). Default `TOOL_RESULT_INLINE_BYTES`. */
   readonly limit?: number;
+  /**
+   * The Tenant's Runtime limit `modelFileBytes`: an image part this large or smaller also goes to
+   * the model as a file.
+   */
+  readonly modelFileBytes: number;
 }
 
-/** A result's cap when the other results of its step already took `used` bytes. */
-export function resultLimit(used: number): number {
-  return Math.max(
-    TOOL_RESULT_STUB_BYTES,
-    Math.min(TOOL_RESULT_INLINE_BYTES, STEP_RESULTS_BUDGET_BYTES - used)
-  );
+/**
+ * A result's cap when the other results of its step already took `used` bytes of the step's
+ * `budget` (`stepResultsBudget`).
+ */
+export function resultLimit(used: number, budget: number): number {
+  return Math.max(TOOL_RESULT_STUB_BYTES, Math.min(TOOL_RESULT_INLINE_BYTES, budget - used));
 }
 
 type Json = unknown;
@@ -226,7 +239,7 @@ async function shapeBinary(shaping: Shaping, part: Part, index: number): Promise
     part.type === "image" &&
     "artifactId" in kept &&
     isModelImage(contentType) &&
-    kept.size <= MODEL_FILE_MAX_BYTES
+    kept.size <= shaping.modelFileBytes
   )
     shaping.files.push({
       mediaType: contentType,

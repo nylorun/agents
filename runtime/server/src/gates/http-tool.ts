@@ -36,12 +36,13 @@ import {
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { scrubValues } from "../redact.js";
-import { MAX_RESPONSE_BYTES, send, type OutboundPolicy } from "../tenant/outbound.js";
+import { send, type OutboundPolicy } from "../tenant/outbound.js";
 import type { Logger } from "../tenant/types.js";
 import { credentialSecrets } from "../vault/headers.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import type { McpCredentialRequest } from "../vault/sources.js";
 import type { TenantVaults } from "./tenant-vaults.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 
 /** How much of a failed answer's body the model sees. */
 export const HTTP_ERROR_BODY_CHARS = 2_000;
@@ -95,10 +96,14 @@ export interface HttpToolCall {
   readonly traceparent?: string;
 }
 
-/** What `runHttpTool` reads of the Tenant: the session's pinned manifest and its credentials. */
+/**
+ * What `runHttpTool` reads of the Tenant: the session's pinned manifest, its credentials, and the
+ * Runtime limit `toolAnswerBytes`, read for each call.
+ */
 export interface HttpToolTenant {
   session(sessionId: string): Promise<{ readonly manifest: unknown } | undefined>;
   authorize(sessionId: string, request: McpCredentialRequest): Promise<AuthorizeResult>;
+  toolAnswerBytes(): Promise<number>;
 }
 
 /** The HTTP tool `toolName` of the agent `agentId` (the root when absent). */
@@ -153,6 +158,8 @@ export async function callHttpTarget(
     readonly headers: Readonly<Record<string, string>>;
     readonly policy: OutboundPolicy;
     readonly signal: AbortSignal;
+    /** The largest answer read (the Runtime limit `toolAnswerBytes`); past it, `http.too-large`. */
+    readonly maxResponseBytes: number;
     /** Checked against the answer; a mismatch is `tool.invalid-output`. */
     readonly outputSchema?: JsonObject;
   },
@@ -165,6 +172,7 @@ export async function callHttpTarget(
     policy: options.policy,
     method: request.method,
     signal: AbortSignal.any([options.signal, timeout]),
+    maxResponseBytes: options.maxResponseBytes,
   });
   if (options.signal.aborted) throw options.signal.reason;
   if (timeout.aborted) return failed("http.timeout", `The service did not answer within ${timeoutMs} ms`);
@@ -179,7 +187,10 @@ export async function callHttpTarget(
         `The connection was lost after the request was sent, so the call may have run: ${result.message}`,
       );
     case "too_large":
-      return failed("http.too-large", `The answer (HTTP ${result.status}) is larger than ${MAX_RESPONSE_BYTES} bytes`);
+      return failed(
+        "http.too-large",
+        `The answer (HTTP ${result.status}) is larger than ${options.maxResponseBytes} bytes (the Runtime limit toolAnswerBytes)`,
+      );
   }
   // The service answered, so the outcome is known; never retried, and its body is not shown (R2b C1).
   if (result.status === 401)
@@ -297,6 +308,7 @@ export async function runHttpTool(
       },
       policy: options.policy,
       signal: options.signal,
+      maxResponseBytes: await tenant.toolAnswerBytes(),
       ...(declared.outputSchema === undefined ? {} : { outputSchema: declared.outputSchema }),
     });
     // Nothing the service echoes of the credential reaches the model, an event or the gate's
@@ -321,6 +333,8 @@ export function gateHttpTools(vaults: TenantVaults, policy: OutboundPolicy, logg
           session: async (sessionId) => (await vaults.open(tenantId)).session(sessionId),
           authorize: async (sessionId, request) =>
             (await vaults.open(tenantId)).authorizeMcp(sessionId, request),
+          toolAnswerBytes: async () =>
+            (await (await vaults.open(tenantId)).store.tx((t) => readRuntimeLimits(t))).toolAnswerBytes,
         },
         call,
         { policy, signal, logger },

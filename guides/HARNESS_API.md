@@ -33,7 +33,8 @@ that file.
 - Core pings every 30 s and drops a harness it has not heard from for 90 s. Its runs then end
   as `connection.lost`, and the next advance offers them again.
 - Error codes (`HARNESS_ERROR_CODES`): `run_not_held`, `turn_cancelled`, `ownership_lost`,
-  `effect_drift`, `invalid`, `unavailable`, `internal`.
+  `effect_drift`, `invalid`, `unavailable`, `internal`, `limit_exceeded` (what you sent passes
+  a Runtime limit of `turn.start.limits`; the message names the limit and its value).
 
 Which token:
 
@@ -96,6 +97,18 @@ Which token:
 - `trace`: optional W3C trace context (`{traceparent, tracestate?}`).
   - Send it as `traceparent` on your gate calls, and as `TRACEPARENT` to processes you start.
   - The Runtime never ingests a harness's spans; send them to your own collector.
+- `limits` (`RuntimeLimitsSchema`): the Tenant's Runtime limits when the segment started, in
+  bytes. The operator sets them (`PUT /v1/tenant/limits`); keep within them, or core refuses
+  what passes one with `limit_exceeded`:
+  - `recordEntryBytes`: one entry of the record, as JSON: an `effect.outcome` value, a
+    transcript update (§6), a claimed event. Default 960 KiB, its ceiling (S2's 1 MiB record
+    less room for the event's envelope).
+  - `modelCallBytes`: a Model Gate call's body (default 32 MiB; past it, `400`).
+  - `modelFileBytes`: one file the Model Gate sends a model (default 8 MiB).
+  - `toolAnswerBytes`: an MCP or HTTP tool's answer the Tool Gate keeps (default 8 MiB; past it,
+    `mcp.too-large` or `http.too-large`), and the tool bodies it reads.
+  - `harnessStateBytes`: your state (§7), as JSON (default 256 KiB).
+  - `chunkBytes`: one `definition.file` range: ask for at most this `length` (default 16 MiB).
 
 ## §4 Record: intent, outcome, hash, effect ids
 
@@ -111,7 +124,8 @@ Every effect is journaled before it runs.
   - `{status: "pending" | "uncertain"}`: stop the segment with `turn.waiting`.
 - **`effect.outcome {runId, effectId, value}`**, or `{..., error}` when you could not learn
   what happened. It answers `completed` with the recorded outcome. A tool call whose fate is
-  unknown fails to the model; a model call becomes `uncertain`.
+  unknown fails to the model; a model call becomes `uncertain`. A `value` larger than
+  `limits.recordEntryBytes` as JSON is refused with `limit_exceeded`, and nothing is recorded.
 
 Re-sends:
 
@@ -213,7 +227,8 @@ End each segment with one output request (`TurnOutputSchema`):
 The output also carries:
 
 - `state`: what you want back next segment. It is stored as you send it and never read.
-  - A custom harness's state is at most 256 KiB (`MAX_HARNESS_STATE_BYTES`), or the turn fails.
+  - A custom harness's state is at most `limits.harnessStateBytes` (256 KiB by default), or the
+    turn fails (`limit_exceeded`).
   - Return some state on every segment.
 - `transcript`: your edits (§6).
 - `effectIds`: the effects a waiting segment waits on. When they are calls the tool policy holds,
@@ -290,8 +305,10 @@ There are three numbers:
 - the messages: `HARNESS_API_VERSION`, 3;
 - the Runtime protocol, which only the Runtime and Management APIs carry.
 
-v3 is frozen: its schemas are strict, so a field is added only in a new version. Core speaks one
-version: a harness that says `api: 2` is refused. v3 renamed `hello.capabilities` to `features`,
+v3's schemas are strict. Core speaks one version: a harness that says `api: 2` is refused. Two
+fields came within v3 for a harness and core of the same release: `definition.file`'s
+`offset`/`length` and `turn.start.limits`. A harness built against an older
+`@nylorun/core` refuses a `turn.start` that carries `limits`: upgrade it with the Runtime. v3 renamed `hello.capabilities` to `features`,
 removed `capabilityId` from effects, gate calls and MCP records, and gives the harness flat
 manifests (protocol 13). The next version adds a window of supported versions (N and N−1).
 

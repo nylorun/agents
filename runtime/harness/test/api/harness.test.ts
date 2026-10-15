@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import {
   HARNESS_API_VERSION,
+  RUNTIME_LIMIT_DEFAULTS,
   effectRequestHash,
   memoryChannels,
   type RecordedOutcome,
@@ -28,6 +29,7 @@ function start(fields: Partial<TurnStart> & { checkpoint?: unknown } = {}): Turn
     transcript: { cursor: -1 },
     options: { fixtureModel: false },
     routing: { rootManifest: manifest },
+    limits: RUNTIME_LIMIT_DEFAULTS,
     ...fields,
   };
 }

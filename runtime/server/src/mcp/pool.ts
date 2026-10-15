@@ -191,6 +191,11 @@ export class McpPool {
     effectId?: string;
     /** The call's span context (R7.4), sent as `traceparent` on a connection this process holds. */
     traceparent?: string;
+    /**
+     * The largest answer kept on a connection this process holds: the Runtime limit
+     * `toolAnswerBytes` (`turn.start.limits`). The gates service reads its own.
+     */
+    maxResultBytes: number;
     signal?: AbortSignal;
   }): Promise<McpToolOutcome> {
     const key = this.liveKey(input.sessionId, input.agentId, input.serverName);
@@ -204,6 +209,7 @@ export class McpPool {
           ...(input.effectId === undefined ? {} : { key: input.effectId }),
           ...(input.signal ? { signal: input.signal } : {}),
           ...(input.traceparent === undefined ? {} : { traceparent: input.traceparent }),
+          maxResultBytes: input.maxResultBytes,
         });
       } catch (error) {
         if (!(error instanceof McpConnectionStale)) throw error;
