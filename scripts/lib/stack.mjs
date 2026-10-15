@@ -100,11 +100,17 @@ export async function buildImage(name, tag, { log = console.log } = {}) {
 /** Run a command with stdout captured (and echoed) and stderr inherited. */
 function exec(command, args, { env, cwd = root, echo = true, timeout = 600_000 }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "inherit"] });
+    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
+    let stderr = "";
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
       if (echo) process.stdout.write(chunk);
+    });
+    // Captured for assertions, and still shown as it arrives.
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+      process.stderr.write(chunk);
     });
     const timer = setTimeout(() => child.kill("SIGKILL"), timeout);
     child.once("error", (error) => {
@@ -113,7 +119,7 @@ function exec(command, args, { env, cwd = root, echo = true, timeout = 600_000 }
     });
     child.once("close", (code, signal) => {
       clearTimeout(timer);
-      resolve({ code: code ?? (signal ? 1 : 0), stdout });
+      resolve({ code: code ?? (signal ? 1 : 0), stdout, stderr });
     });
   });
 }
