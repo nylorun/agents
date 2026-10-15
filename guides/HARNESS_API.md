@@ -91,10 +91,25 @@ Which token:
   without asking core again.
 - `transcript: {cursor}`: read the transcript with `transcript.read {runId}`, which answers
   `{cursor, entries}`. Entries are `TranscriptEntrySchema` (§6).
-- `sessionTools`: the session's MCP tools, as the model should see them.
+- `mcp` (`McpFactsSchema`, optional): the session's MCP discovery as this turn sees it, once a
+  run recorded it. It is facts, not tools: naming them for the model, and deciding which to
+  defer, is yours.
+  - `servers`: each server of the agent tree that connected, `{agentId?, name, instructions?,
+    tools}`. `agentId` names the agent used as a tool that declares it (absent for the root);
+    `instructions` are the server's own, scrubbed and uncut.
+  - Each tool is as the server listed it: `name` (its raw name on the server, which you call it
+    by), `description?`, `inputSchema`, `outputSchema?` and `annotations?`, plus `enabled` (false
+    when the turn's manifest disables it: skip it, since core refuses its calls as
+    `tool.disabled`) and `deferred?` (the manifest's setting, a hint; absent, you decide).
+  - Name each tool within 64 characters, the ceiling every provider accepts. Our engine's names,
+    `server__tool` with a hash suffix when needed, are `mcpToolName` and `mcpToolNames` in
+    `@nylorun/harness`, and `mcpToolSet` builds our whole MCP tool list.
+  - Absent until the session's MCP servers are discovered: connect them through the Tool Gate
+    (§5) and record what they listed with `session.mcp {runId, snapshot?, diagnostics}`
+    (`McpSnapshotSchema`, `snapshotSchemaVersion: 2`). The first snapshot recorded wins; the
+    answer is `{mcp?}`, the facts this turn runs with.
 - `routing`: where tool calls go.
   - `rootManifest`: the session's pinned manifest.
-  - `mcpSnapshot`: the session's MCP tools by server (`McpSnapshotSchema`).
   - `sandbox`: the session's sandbox: `ownerId` and `environmentId`, which key its workspace,
     `spec`, the sandbox spec the session pinned when it opened (absent without a sandbox), and
     `environment`, the variables every command gets.
@@ -145,15 +160,15 @@ Every effect is journaled before it runs.
 - **`effect.outcome {runId, effectId, value}`**, or `{..., error}` when you could not learn
   what happened. It answers `completed` with the recorded outcome. A tool call whose fate is
   unknown fails to the model; a model call becomes `uncertain`. A `value` larger than
-  `limits.recordEntryBytes` as JSON is refused with `limit_exceeded`, and nothing is recorded.
+  `limits.recordEntryBytes` as JSON is refused with `limit_exceeded`, and nothing is recorded:
+  core shapes no result, so store the rest with `artifact.write` and report a preview (§5b).
 
 Re-sends:
 
 - Tool calls are delivered at least once. When a gate hop is lost, ask the same intent again.
 - An intent for a row still `invoking` is a re-send. Core counts it, up to 3 attempts, and
   answers `execute`, or `completed` with a `tool.interrupted` failure.
-- A `sandbox`, `harness` or `platform` call that a crash interrupted gets `tool.interrupted` at
-  once.
+- A `sandbox` or `harness` call that a crash interrupted gets `tool.interrupted` at once.
 
 What an intent carries:
 
@@ -167,27 +182,36 @@ What an intent carries:
   - a model effect needs `invocationId` (the step);
   - a tool effect needs `callId` (the model's tool call id) and `invocationId`, or no
     `tool.completed` is written;
-  - a tool effect may name its `stepId`, which shares one result budget among the step's calls.
+  - a tool effect may name its `stepId`.
 - **Kinds:**
   - `model`;
-  - `tool` with `toolName`, the name the model called it by (for display), and `target`, what
-    runs it. Core routes a call by `target.kind`, never by its name, and no name is reserved:
-    | `target.kind` | Runs when | Who runs it |
+  - `tool` with `toolName`, the name the model called it by (for display only), and `target`,
+    what runs it, by identity. Core routes a call by its target, never by its name, and no name
+    is reserved. The target is in the request hash, so a replay that names another tool is
+    `effect_drift`:
+    | `target` | Runs when | Who runs it |
     | --- | --- | --- |
-    | `mcp` | the tool is in the session's MCP snapshot and the turn's manifest leaves it enabled | you, through the Tool Gate for a remote server |
-    | `http` | the agent declares an HTTP tool of that name | you, through the Tool Gate |
-    | `sandbox` | the session has a sandbox and `toolName` is one of `bash`, `read`, `write`, `edit`, `grep`, `glob` | you, in the session's sandbox |
-    | `harness` | always: your own process, whose egress gate is its only control | you |
-    | `platform` | `tool_search`, when the session defers MCP tools | core |
-    A call with no target, or one whose target the session lacks, is answered `completed` with a
-    `tool.unavailable` failure and never runs; an MCP tool the turn disabled is `tool.disabled`.
-    A tool of yours may take any name; a name two of the model's tools share is yours to refuse.
-    `skill` (optional) names the skill the call ran.
+    | `{kind: "mcp", server, tool}` | the call's agent declares `server`, the session discovered `tool` (the server's raw name) on it, and the turn's manifest leaves it enabled | you, through the Tool Gate |
+    | `{kind: "http", tool}` | the call's agent declares an HTTP tool named `tool` | you, through the Tool Gate |
+    | `{kind: "sandbox"}` | the session has a sandbox and `toolName` is one of `bash`, `read`, `write`, `edit`, `grep`, `glob` | you, in the session's sandbox |
+    | `{kind: "harness"}` | always: your own process, whose egress gate is its only control | you |
+    Each refusal is answered `completed` with a failure and never runs: an MCP tool the session
+    did not discover is `tool.unknown`, one the turn disabled `tool.disabled`, and a call with no
+    target, or an HTTP tool or sandbox the session lacks, `tool.unavailable`. Core runs no tool
+    itself: `tool_search` over deferred tools is yours (ours is a `harness` call), and the
+    deferred tool's call names its own MCP target. A tool of yours may take any name; a name two
+    of the model's tools share is yours to refuse. `skill` (optional) names the skill the call
+    ran.
+  - The tool policy matches the identity too: a rule's `server` and `tool` are the MCP server and
+    its raw tool name, or `tool` an HTTP tool's declared name. The name you gave the model never
+    matches.
   - `delegation` and `agent` belong to our engine's subagents and flows.
 - **What the log records of a tool call.** Each one ends in one `tool.completed`, and a row at
   `GET /v1/sessions/{id}/calls/tool`:
   - `kind`: the target's kind;
   - `server`: the MCP server, or the HTTP tool's URL host;
+  - `tool`: the target's identity, an MCP tool's raw name or an HTTP tool's declared name
+    (`toolName` stays the model's name);
   - `skill`: the skill the intent named, when the agent has it. Our engine names a skill tool's
     and a sandbox call's whose input names its folder, `/skills/<name>@<hash>/`;
   - `plugin`: `{name, version?}`, the Agent Plugin that brought its MCP server or skill.
@@ -287,10 +311,44 @@ The calls:
     `effectId` at `GET /v1/sessions/{id}/calls/model`.
   - `POST /nylorun/v1/model-calls/{key}/cancel` aborts a call.
 - **MCP.** `mcp/connect`, `mcp/list`, `tool-calls` (`ToolCallBodySchema`) and `mcp/close` name
-  a server of the snapshot, never a URL.
+  a server the agent declares, never a URL: `server: {agentId?, serverName}`. A `tool-calls`
+  body is `{server, effectId, name, arguments}`, with `name` the tool's raw name on the server,
+  `target.tool`. The gate runs it only when the journaled row's target names the same agent,
+  server and tool.
 - **HTTP tools.** `http-calls` (`HttpCallBodySchema`) names a manifest tool.
 - **Answers.** MCP and HTTP calls answer `200 {ok: true, result}` or `{ok: false, error}`; a
-  tool's failure is an answer, not a gate error. `tool-calls/{key}/cancel` aborts either.
+  tool's failure is an answer, not a gate error. `tool-calls/{key}/cancel` aborts either. The
+  gate replaces the credential values it sent that an answer echoes with `[redacted]`, and
+  refuses an answer past `limits.toolAnswerBytes` (`mcp.too-large`, `http.too-large`). It shapes
+  nothing else: the whole result is yours to fit (§5b). A re-send under the same key returns the
+  same bytes.
+
+## §5b Tool results
+
+A tool's answer can be far larger than one record entry. Fitting it is the harness's job.
+
+- **What must fit.** Each `effect.outcome` value, and each transcript entry (§6), is at most
+  `limits.recordEntryBytes` as JSON. A step's results are one `tool-results` entry, so they
+  share it.
+- **Spill the rest.** Store what does not fit as file artifacts with `artifact.write` (§4b),
+  with the call's `effectId`, so `artifact.created` names the call. Report a preview the model
+  can act on, and let it read the rest (ours: `read_artifact`).
+- **Key each store by the call.** A crash can run a call again, and the gate answers it with
+  the same bytes. A key made from the effect id and the bytes' hash writes nothing new then.
+- **Binary parts.** An MCP `image`, `audio` or blob `resource` part is base64 in the answer.
+  Store it, and send an image to the model as a file only when `turn.start.model` reads images.
+- **Our shaping is reusable.** `@nylorun/harness` exports what our engine does:
+  - `shapeToolOutcome(value, ctx)`: one outcome, shaped to a cap;
+  - `StepBudget`: one step's budget, `stepBudgetBytes` (256 KiB) held under
+    `recordEntryBytes` less `entryEnvelopeBytes` (4 KiB). Each MCP or HTTP result gets at most
+    `resultInlineBytes` (32 KiB), and a result once the budget is spent a 512-byte stub naming its
+    artifact;
+  - `spillKey(effectId, index | "whole", bytes)`: the store's key;
+  - `DEFAULT_TOOL_RESULT_CONFIG` and `ToolResultConfig`.
+- **What our engine sends the model.** Text or JSON past the cap becomes `{truncated: true,
+  artifactId, size, preview}`, the first 4 KiB and the last 1 KiB. A store refusal keeps the
+  preview, with `dropped` saying why. A result that still cannot fit fails as
+  `tool.result-too-large`.
 
 ## §6 Transcript
 
@@ -329,7 +387,9 @@ The output also carries:
   - Return some state on every segment.
 - `transcript`: your edits (§6).
 - `effectIds`: the effects a waiting segment waits on. When they are calls the tool policy holds,
-  core pauses the turn with one `approval` interaction per call, whose id is the effect id. Once
+  core pauses the turn with one `approval` interaction per call, whose id is the effect id. An
+  MCP call's interaction names its `server` and `tool` (`Approve <server> / <tool>?`), and
+  `toolName` stays the model's name. Once
   a person answers, a new segment replays: an approved call's intent answers `execute`, a denied
   one's `completed` with `tool.denied`. A harness needs nothing more for approvals.
 
@@ -417,7 +477,16 @@ What v4 changed (protocol 15, the harness boundary):
   reserved;
 - `turn.start.model` (§3), and files are the harness's to show: the Model Gate only fetches and
   translates, refusing what the provider cannot take (`unsupported_input`), and `ModelCall` has no
-  `outputSchema` (§5).
+  `outputSchema` (§5);
+- the MCP surface: `turn.start.mcp` (raw facts, with `enabled` and a `deferred` hint) replaced
+  `sessionTools` and `routing.mcpSnapshot`, `session.mcp` answers `{mcp?}`, and the snapshot is
+  `snapshotSchemaVersion: 2` with raw names (§3). The harness names, defers and searches MCP
+  tools; core runs no `tool_search`, and the target kind `platform` is gone;
+- a tool call's target is its identity, `{kind: "mcp", server, tool}` or `{kind: "http", tool}`,
+  in the request hash; the record refuses an undiscovered MCP tool as `tool.unknown`; the tool
+  policy and approvals key on the identity; tool rows and `tool.completed` carry `tool` (§4);
+- tool results are the harness's to fit: core shapes nothing and refuses an outcome past
+  `recordEntryBytes`; spill with `artifact.write` (§5b).
 
 v3 renamed `hello.capabilities` to `features`, removed `capabilityId` from effects, gate calls and
 MCP records, and gave the harness flat manifests (protocol 13); `definition.file`'s

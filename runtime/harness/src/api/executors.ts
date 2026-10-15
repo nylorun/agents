@@ -1,11 +1,5 @@
-import type {
-  McpSnapshot,
-  ParamsOf,
-  ResultOf,
-  RunGrant,
-  TurnStart,
-} from "@nylorun/core/harness-api";
-import type { DurableSessionTool, HostEffect } from "../run/durable.js";
+import type { McpFacts, ParamsOf, ResultOf, RunGrant, TurnStart } from "@nylorun/core/harness-api";
+import type { HostEffect } from "../run/durable.js";
 
 /** A run as the harness holds it: the lease, what it started from, and its signal. */
 export interface HarnessRun {
@@ -56,15 +50,18 @@ export interface HarnessFiles {
 /**
  * What runs the effects the harness executes: model calls, MCP, HTTP and sandbox tools, and the
  * sandbox files our engine's artifact tools use. Our engine runs its own tools (`harness` calls:
- * the skill tools over `definition.file`, the artifact tools over the artifact seam); core runs
- * flow work, linked sessions and `tool_search`.
+ * the skill tools over `definition.file`, the artifact tools over the artifact seam,
+ * `tool_search` over the run's MCP tools) and shapes every tool result before it is recorded;
+ * core runs flow work and linked sessions.
  */
 export interface HarnessExecutors {
   /** A model call. A provider failure is a failure outcome; only an abort throws. */
   model(effect: HostEffect, signal: AbortSignal, run: HarnessRun): Promise<unknown>;
   /**
-   * An MCP, HTTP or sandbox tool call, routed by its `target` and `run.start.routing` (a
-   * `sandbox` call runs in the sandbox `routing.sandbox.spec` names). `call.traceparent` is the
+   * An MCP, HTTP or sandbox tool call, routed by its `target` and `run.start.routing`: an MCP
+   * call names its server and the server's own tool name, an HTTP call the declared tool, and a
+   * `sandbox` call runs in the sandbox `routing.sandbox.spec` names. What it answers is the
+   * tool's whole result: our engine shapes it before it is recorded. `call.traceparent` is the
    * call's span context from core's `execute` answer (R7.4): a sandbox command gets it as
    * `TRACEPARENT`.
    */
@@ -93,9 +90,9 @@ export interface HarnessExecutors {
   resends?(effect: HostEffect, error: unknown, run: HarnessRun): boolean;
   /**
    * Readies the session's MCP servers before an agent's segment runs (F6.2): discovers their
-   * tools the first time, reconnects them after. `record` keeps what it found in the session
-   * (`session.mcp`; the first snapshot recorded wins) and answers the session's snapshot and
-   * tools, which the segment runs with. Undefined: nothing to change.
+   * tools when the run has no MCP facts yet (`turn.start.mcp`), reconnects them after. `record`
+   * keeps what it found in the session (`session.mcp`; the first snapshot recorded wins) and
+   * answers the facts the segment runs with. Undefined: nothing to change.
    */
   prepare?(run: HarnessRun, record: McpRecorder): Promise<PreparedRun | undefined>;
   /** The run's sandbox files. Undefined: a `path` of an artifact tool fails `artifact.no_sandbox`. */
@@ -112,8 +109,7 @@ export type McpRecorder = (
   params: Omit<ParamsOf<"session.mcp">, "runId">,
 ) => Promise<ResultOf<"session.mcp">>;
 
-/** The session's MCP snapshot and tools after `prepare`. */
+/** The session's MCP facts after `prepare`, as the turn sees them. */
 export interface PreparedRun {
-  readonly sessionTools: readonly DurableSessionTool[];
-  readonly mcpSnapshot?: McpSnapshot;
+  readonly mcp?: McpFacts;
 }

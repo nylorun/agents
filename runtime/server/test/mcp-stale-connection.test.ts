@@ -118,7 +118,7 @@ describe("the loop's pool", () => {
     const remote = await sessionServer();
     const manifest = agentFor(remote.url);
     const pool = poolFor();
-    await pool.discover({ sessionId: "s1", manifest, manifestHash: "h" });
+    await pool.discover({ sessionId: "s1", manifest, manifestHash: "h", maxInstructionBytes: 1024 * 1024 });
     expect(await callThrough(pool, manifest)).toEqual({ kind: "completed", output: "ran in session-1" });
     remote.expire();
     expect(await callThrough(pool, manifest)).toEqual({ kind: "completed", output: "ran in session-2" });

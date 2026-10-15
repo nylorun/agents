@@ -51,7 +51,7 @@ import {
 } from "../../components.js";
 import { readRuntimeLimits, writeLimitsConfig } from "../../../tenant/runtime-limits.js";
 import { periodStart } from "../../../gates/meter.js";
-import { readToolPolicy, TOOL_POLICY_SETTING } from "../../../gates/policy.js";
+import { readToolPolicy, TOOL_POLICY_SETTING, ToolPolicyUnreadable } from "../../../gates/policy.js";
 import { addableInputs, capabilitiesOf, inputsError } from "../../../model/capabilities.js";
 import { catalogModel, hostModelCatalog } from "../../../model/catalog.js";
 import { sandboxConfigErrors } from "../../../sandbox/resolve.js";
@@ -456,7 +456,16 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       summary: "Get the Tenant's tool policy",
       responses: { 200: json(ToolPolicy, "The rules the Tool Gate applies to every MCP and HTTP tool call") },
     },
-    async (c) => jsonResponse(200, await c.env.tenant.store.tx((t) => readToolPolicy(t))),
+    async (c) => {
+      try {
+        return jsonResponse(200, await c.env.tenant.store.tx((t) => readToolPolicy(t)));
+      } catch (error) {
+        // A stored rule this Runtime refuses (an MCP tool named `server__tool`, protocol 15):
+        // every call is denied until the policy is set again.
+        if (error instanceof ToolPolicyUnreadable) return fail(409, error.message, { code: "request_rejected" });
+        throw error;
+      }
+    },
   );
 
   tenantRoute(

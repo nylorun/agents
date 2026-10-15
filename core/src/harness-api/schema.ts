@@ -15,7 +15,7 @@ import { HarnessApiError } from "./errors.js";
 import { ARTIFACT_NAME_MAX, ENVIRONMENT_KINDS, EffectOutcomeSchema, ModelInputSchema } from "../contracts.js";
 import { RUNTIME_LIMIT_CEILINGS, RuntimeLimitsSchema } from "../utils/runtime-limits.js";
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
-import { McpSnapshotSchema } from "./mcp.js";
+import { McpFactsSchema, McpSnapshotSchema } from "./mcp.js";
 
 const id = z.string().min(1).max(512);
 const runId = z.object({ runId: id });
@@ -44,29 +44,30 @@ export const FrameSchema = z.union([
 ]);
 
 /**
- * What a tool call runs (protocol 15). The record routes a call by its target's `kind`, never by
- * the tool's name: the name the model used (`toolName`) is for display, and no name is reserved.
+ * What a tool call runs (protocol 15). The record routes a call by its target, never by the
+ * tool's name: the name the model used (`toolName`) is for display, and no name is reserved.
  *
- * - `mcp`: a tool of an MCP server the agent declares, discovered for the session (the
- *   `sessionTools` of `turn.start`); the harness calls it, through the Tool Gate when remote.
- * - `http`: an HTTP tool the agent declares; the harness calls it through the Tool Gate.
+ * - `mcp`: the tool `tool` (its own name on the server) of the MCP server `server` that the call's
+ *   agent declares (`effect.agent`, absent for the root), as the session discovered it
+ *   (`turn.start.mcp`); the harness calls it through the Tool Gate. The record refuses one the
+ *   session did not discover (`tool.unknown`) or the turn disables (`tool.disabled`).
+ * - `http`: the HTTP tool the agent declares as `tool`; the harness calls it through the Tool Gate.
  * - `sandbox`: one of the sandbox operations (`bash`, `read`, `write`, `edit`, `grep`, `glob`,
  *   named by `toolName`) in the session's sandbox, which the harness runs. Only a session with a
  *   sandbox runs one.
  * - `harness`: a tool the harness runs in its own process over the Harness API's seams, such as
- *   our engine's `load_skill`, `read_skill_resource`, `read_artifact` and `save_artifact`. Its
- *   egress gate is its only control.
- * - `platform`: `tool_search`, which core runs over the session's MCP snapshot.
+ *   our engine's `load_skill`, `read_artifact` and `tool_search`. Its egress gate is its only
+ *   control.
  *
- * A tool call without a target, or with one the session lacks, fails to the model
- * (`tool.unavailable`), and nothing runs.
+ * Tool policy and approval key on the identity (`server` and `tool`, or the HTTP tool's declared
+ * name), never on the model's name. A tool call without a target, or with one the session lacks,
+ * fails to the model (`tool.unavailable`), and nothing runs.
  */
 export const EffectTargetSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("mcp") }).strict(),
-  z.object({ kind: z.literal("http") }).strict(),
+  z.object({ kind: z.literal("mcp"), server: z.string().min(1), tool: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal("http"), tool: z.string().min(1) }).strict(),
   z.object({ kind: z.literal("sandbox") }).strict(),
   z.object({ kind: z.literal("harness") }).strict(),
-  z.object({ kind: z.literal("platform") }).strict(),
 ]);
 
 /**
@@ -74,12 +75,17 @@ export const EffectTargetSchema = z.discriminatedUnion("kind", [
  * `context` carries the ids the record derives its events from: a model effect's
  * `invocationId` (the step), and a tool effect's `callId` (the model's tool call id) and
  * `invocationId`; without them the call is journaled but no `tool.completed` is written. A
- * tool effect may name its step (`stepId`), which shares one result budget among its calls.
+ * tool effect may name its step (`stepId`).
  *
- * An agent's tool effect names its `target` (what runs it) beside the name the model used
- * (`toolName`), and may name the `skill` it ran (a skill tool's skill, or a sandbox call in a
- * skill's folder): the record keeps the skill, and the plugin that brought it, when the agent
- * has that skill.
+ * An agent's tool effect names its `target` (what runs it: for an MCP or HTTP tool, its
+ * identity) beside the name the model used (`toolName`, for display), and may name the `skill` it
+ * ran (a skill tool's skill, or a sandbox call in a skill's folder): the record keeps the skill,
+ * and the plugin that brought it, when the agent has that skill. The target is in the request
+ * hash, so a replay that names another tool is `effect_drift`.
+ *
+ * Each outcome the harness reports is one record entry: past `turn.start.limits.recordEntryBytes`
+ * it is refused (`limit_exceeded`), so a harness stores a large tool result with
+ * `artifact.write` and reports a preview.
  *
  * `requestHash` (`effectRequestHash`) covers the whole request: for a model effect, the intent
  * with `input` set to its `ModelCall`, though the intent is sent without it. A replay that asks
@@ -249,8 +255,6 @@ export const RunRoutingSchema = z
   .object({
     /** The session's pinned manifest: an effect's agent resolves against it. */
     rootManifest: document,
-    /** The session's MCP snapshot, once its first run recorded one (`session.mcp`). */
-    mcpSnapshot: McpSnapshotSchema.optional(),
     /**
      * The session's sandbox: the session, and the Environment whose sandbox it is. `spec` is the
      * sandbox spec the session pinned when it opened (`SandboxManifest`); absent, the session has
@@ -341,7 +345,13 @@ export const TurnStartSchema = z
     manifest: document,
     /** The segment's checkpoint; an agent's state has no transcript (`transcript.cursor`). */
     checkpoint: document,
-    sessionTools: z.array(z.unknown()).readonly().optional(),
+    /**
+     * The session's MCP discovery as this turn sees it (protocol 15), once its first run recorded
+     * it (`session.mcp`): each server of the agent tree that connected, its instructions and its
+     * tools, raw, with whether the turn's manifest leaves each `enabled`. The harness names the
+     * tools for the model and calls one by its target `{kind: "mcp", server, tool}`.
+     */
+    mcp: McpFactsSchema.optional(),
     /** Completed outcomes of this segment, resolved without asking core. */
     outcomes: z.array(RecordedOutcomeSchema).readonly(),
     /** The record position the session's transcript was folded at. */
@@ -516,7 +526,7 @@ export const harnessRequests = {
   },
   "session.mcp": {
     params: runId.extend({ snapshot: McpSnapshotSchema.optional(), diagnostics: z.array(z.unknown()) }).strict(),
-    result: z.object({ snapshot: McpSnapshotSchema.optional(), sessionTools: z.array(z.unknown()) }).strict(),
+    result: z.object({ mcp: McpFactsSchema.optional() }).strict(),
   },
   /**
    * A definition file's bytes, base64 (track R2 M4): one the run's definition names, for the

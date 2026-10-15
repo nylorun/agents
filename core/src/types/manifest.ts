@@ -96,8 +96,9 @@ export interface McpToolSettings {
   readonly approval?: ApprovalMode;
   /**
    * `true`: the tool leaves the model's tool list; the model finds it with `tool_search` and runs
-   * it with `tool_call` (R2b C10). Default: the server's `deferred`, else deferred when the
-   * agent's MCP tools would take more than a tenth of the model's context window.
+   * it with `tool_call` (R2b C10). A hint the harness reads (`turn.start.mcp`): Nylorun's engine
+   * follows it, and without one defers when the agent's MCP tools would take more than a tenth of
+   * the model's context window.
    */
   readonly deferred?: boolean;
 }

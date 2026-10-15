@@ -20,3 +20,43 @@ export {
   skillTools,
 } from "./tools/skills.js";
 export { engineToolsFor, type EngineToolOptions, type EngineTools } from "./tools/engine-tools.js";
+export {
+  DEFAULT_MCP_TOOL_CONFIG,
+  MODEL_TOOL_NAME_MAX,
+  mcpToolConfigOf,
+  mcpToolKey,
+  mcpToolName,
+  mcpToolNames,
+  mcpToolSet,
+  type McpLayout,
+  type McpRenamedTool,
+  type McpToolConfig,
+  type McpToolSet,
+} from "./tools/mcp.js";
+export {
+  TOOL_CALL_TOOL,
+  TOOL_SEARCH_TOOL,
+  deferredToolsNote,
+  deferredToolsTools,
+  isToolSearch,
+  rank,
+  runToolSearch,
+  tokens,
+  type DeferredServerNote,
+} from "./tools/tool-search.js";
+export {
+  DEFAULT_TOOL_RESULT_CONFIG,
+  StepBudget,
+  cutMessage,
+  jsonBytes,
+  mayNeedShaping,
+  previewOf,
+  resultBytes,
+  shapeToolOutcome,
+  spillKey,
+  toolResultConfigOf,
+  utf8Boundary,
+  type ShapeContext,
+  type Stored,
+  type ToolResultConfig,
+} from "./tools/results.js";

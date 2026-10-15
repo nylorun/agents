@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, tool, type ModelAdapter, type ModelCall } from "@nylorun/core/define";
-import { addPart } from "./fixtures.js";
+import { addPart, toolSet } from "./fixtures.js";
 import {
   bindingFromAgent,
   createDurableCheckpoint,
@@ -619,13 +619,14 @@ describe("agents used as tools, durable", () => {
         input: "go",
       }),
       host,
-      sessionTools: [
+      mcp: toolSet([
         {
           agentId: "researcher",
           name: "github__get_issue",
           inputSchema: { type: "object" },
+          target: { kind: "mcp", server: "github", tool: "get_issue" },
         },
-      ],
+      ]),
     });
     expect(result.status).toBe("completed");
     expect(seen.child).toContain("github__get_issue");

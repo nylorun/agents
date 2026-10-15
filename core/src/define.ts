@@ -53,16 +53,6 @@ export {
   normalizeMcpServers,
   stdioMcpRefusal,
 } from "./definition/mcp.js";
-export {
-  SERVER_INSTRUCTIONS_MAX_CHARS,
-  TOOL_CALL_TOOL,
-  TOOL_SEARCH_DEFAULT_LIMIT,
-  TOOL_SEARCH_MAX_LIMIT,
-  TOOL_SEARCH_TOOL,
-  deferredToolsInstructions,
-  deferredToolsTools,
-  type DeferredServerNote,
-} from "./definition/deferred-tools.js";
 export { codeToolRefusal, codeToolsOf } from "./definition/code-tools.js";
 export { pluginOf, type ToolCallTrace } from "./definition/trace.js";
 export { approvalRefusal, approvalsOf } from "./definition/approval.js";

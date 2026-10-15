@@ -148,6 +148,14 @@ it("refuses an effect outcome past the record entry limit, and records nothing o
       value: { kind: "completed", output: "x".repeat(8 * 1024) },
     })
   ).rejects.toMatchObject({ code: "limit_exceeded", message: expect.stringContaining("recordEntryBytes (4096 bytes") });
+  // Core shapes nothing (protocol 15): an MCP tool's outcome past the limit is refused alike.
+  await expect(
+    acme.request("effect.outcome", {
+      runId: run.runId,
+      effectId: effect.effectId,
+      value: { kind: "completed", output: [{ type: "text", text: "x".repeat(8 * 1024) }] },
+    })
+  ).rejects.toMatchObject({ code: "limit_exceeded", message: expect.stringContaining("artifact.write") });
   // What fits is recorded as before.
   await acme.request("effect.outcome", {
     runId: run.runId,

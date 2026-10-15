@@ -13,13 +13,7 @@ import {
   type McpToolFailure,
   type McpToolOutcome,
 } from "./connect.js";
-import {
-  declaredToolNames,
-  type McpDiagnostic,
-  type McpServerNote,
-  type McpSnapshot,
-  type McpToolRecord,
-} from "./snapshot.js";
+import type { McpDiagnostic, McpServerRecord, McpSnapshot } from "./snapshot.js";
 
 /** A connection unused this long is closed by the sweep; the next call opens it again. */
 export const DEFAULT_MCP_IDLE_MS = 15 * 60_000;
@@ -72,16 +66,20 @@ export class McpPool {
     this.open = options.open ?? openMcpServer;
   }
 
+  /**
+   * Opens each declared server of the session and lists its tools (protocol 15): the snapshot
+   * holds every server that connected, with its instructions and its tools as it named them.
+   * Instructions past `maxInstructionBytes` (the Runtime limit `recordEntryBytes`) are left out,
+   * and the server's diagnostic says so.
+   */
   async discover(input: {
     sessionId: string;
     manifest: AgentManifest;
     manifestHash: string;
+    maxInstructionBytes: number;
     signal?: AbortSignal;
   }): Promise<{ snapshot: McpSnapshot; diagnostics: McpDiagnostic[] }> {
-    // Each agent names its own tools, so collisions are checked per agent.
-    const taken = new Map<string | undefined, Set<string>>();
-    const tools: McpToolRecord[] = [];
-    const notes: McpServerNote[] = [];
+    const servers: McpServerRecord[] = [];
     const diagnostics: McpDiagnostic[] = [];
     for (const declared of serversOf(input.manifest)) {
       input.signal?.throwIfAborted();
@@ -91,22 +89,20 @@ export class McpPool {
         continue;
       }
       try {
-        if (!taken.has(declared.agentId))
-          taken.set(declared.agentId, declaredToolNames(declared.manifest));
         const listed = await listMcpTools(opened.connection.client, {
           serverName: declared.server.name,
-          taken: taken.get(declared.agentId)!,
           server: declared.server,
           ...(input.signal ? { signal: input.signal } : {}),
         });
-        tools.push(...listed.tools.map((tool) => owned(declared, tool)));
-        if (opened.connection.instructions)
-          notes.push(
-            owned(declared, {
-              serverName: declared.server.name,
-              instructions: opened.connection.instructions,
-            }),
-          );
+        const text = opened.connection.instructions;
+        const tooLong = text !== undefined && Buffer.byteLength(text) > input.maxInstructionBytes;
+        servers.push(
+          owned(declared, {
+            name: declared.server.name,
+            ...(text === undefined || tooLong ? {} : { instructions: text }),
+            tools: listed.tools,
+          }),
+        );
         diagnostics.push({
           ...ownerOf(declared),
           serverName: declared.server.name,
@@ -117,8 +113,12 @@ export class McpPool {
             ...(listed.unknownTools.length === 0
               ? []
               : [`Its tools settings name tools it does not list: ${listed.unknownTools.join(", ")}`]),
+            ...(tooLong
+              ? [
+                  `Its instructions are ${Buffer.byteLength(text!)} bytes, more than a record entry holds (the Runtime limit recordEntryBytes, ${input.maxInstructionBytes} bytes), and are left out`,
+                ]
+              : []),
           ].join(". "),
-          ...(listed.renamed.length === 0 ? {} : { renamed: listed.renamed }),
           ...(listed.disabled === 0 ? {} : { disabled: listed.disabled }),
           ...(listed.unknownTools.length === 0 ? {} : { unknownTools: listed.unknownTools }),
         });
@@ -131,26 +131,22 @@ export class McpPool {
       }
     }
     return {
-      snapshot: {
-        snapshotSchemaVersion: 1,
-        manifestHash: input.manifestHash,
-        mcpTools: tools,
-        ...(notes.length === 0 ? {} : { servers: notes }),
-      },
+      snapshot: { snapshotSchemaVersion: 2, manifestHash: input.manifestHash, servers },
       diagnostics,
     };
   }
 
+  /** Opens again each server of the snapshot this process holds no connection to. */
   async reconnect(input: {
     sessionId: string;
     manifest: AgentManifest;
-    tools: readonly McpToolRecord[];
+    servers: readonly { readonly agentId?: string; readonly name: string }[];
     signal?: AbortSignal;
   }): Promise<McpDiagnostic[]> {
     const diagnostics: McpDiagnostic[] = [];
     const seen = new Set<string>();
-    for (const tool of input.tools) {
-      const key = this.liveKey(input.sessionId, tool.agentId, tool.serverName);
+    for (const server of input.servers) {
+      const key = this.liveKey(input.sessionId, server.agentId, server.name);
       if (seen.has(key)) continue;
       seen.add(key);
       const live = this.live.get(key);
@@ -160,11 +156,11 @@ export class McpPool {
         continue;
       }
       input.signal?.throwIfAborted();
-      const declared = findServer(input.manifest, tool.agentId, tool.serverName);
+      const declared = findServer(input.manifest, server.agentId, server.name);
       if (!declared) {
         diagnostics.push({
-          ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
-          serverName: tool.serverName,
+          ...(server.agentId === undefined ? {} : { agentId: server.agentId }),
+          serverName: server.name,
           outcome: "failed",
           message: "Declared MCP server is missing from the pinned manifest",
         });

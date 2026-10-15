@@ -35,8 +35,8 @@ export interface RunFixture {
   update(sessionId: string, patch: Partial<Session>): Promise<void>;
   /**
    * Journals a tool call of the session's active turn, `invoking`, as core does before a harness
-   * sends it (R5.6). With `mcp`, the session's snapshot gets the tool's record, so the gate can
-   * match the call to its server.
+   * sends it (R5.6). With `mcp`, the call names that server's tool as its target (protocol 15),
+   * which the gate matches the call against; without, the agent's HTTP tool `toolName`.
    */
   journal(
     sessionId: string,
@@ -113,31 +113,19 @@ export async function runFixture(tenantId = newTenantId()): Promise<RunFixture> 
             sessionId,
             turnId: session.activeTurnId,
             toolName: call.toolName,
-            // What runs the call (protocol 15): an MCP tool's, else the agent's HTTP tool.
-            ...(call.toolName === undefined ? {} : { target: { kind: call.mcp ? "mcp" : "http" } }),
+            // What runs the call (protocol 15): an MCP tool by its identity, else the agent's HTTP tool.
+            ...(call.toolName === undefined
+              ? {}
+              : {
+                  target: call.mcp
+                    ? { kind: "mcp", server: call.mcp.serverName, tool: call.mcp.serverToolName }
+                    : { kind: "http", tool: call.toolName },
+                }),
             input: call.input,
             context: {},
           },
           status: "invoking",
         });
-        if (call.mcp) {
-          const tools = (session.mcpSnapshot as { mcpTools?: unknown[] } | undefined)?.mcpTools ?? [];
-          await t.put("sessions", sessionId, {
-            ...session,
-            mcpSnapshot: {
-              ...(session.mcpSnapshot as object | undefined),
-              mcpTools: [
-                ...tools,
-                {
-                  serverName: call.mcp.serverName,
-                  serverToolName: call.mcp.serverToolName,
-                  name: call.toolName,
-                  inputSchema: { type: "object" },
-                },
-              ],
-            },
-          });
-        }
       });
     },
     async update(sessionId, patch) {

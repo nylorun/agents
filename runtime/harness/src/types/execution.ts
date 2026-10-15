@@ -95,6 +95,11 @@ export interface ExecutionState {
    * Runtime persists this with the checkpoint.
    */
   readonly state?: JsonObject;
+  /**
+   * Which of the session's MCP tools our engine defers (R2b C10, `McpLayout`), decided once for
+   * the facts whose hash it names and kept while they stay the same.
+   */
+  readonly mcpLayout?: { readonly factsHash: string; readonly deferred: readonly string[] };
 }
 
 export type ExecutionEvent = (

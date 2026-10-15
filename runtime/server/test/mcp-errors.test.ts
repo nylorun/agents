@@ -233,14 +233,14 @@ describe("tool names every model accepts (R2b C6)", () => {
     const result = await run("faulty", "faulty__files_read");
     expect(result.discovered).toEqual({
       servers: [
-        expect.objectContaining({
-          serverName: "faulty",
-          outcome: "connected",
-          renamed: [{ serverToolName: "files.read", name: "faulty__files_read" }],
-        }),
+        expect.objectContaining({ serverName: "faulty", outcome: "connected" }),
       ],
     });
-    expect(result.completed).toEqual([expect.objectContaining({ toolName: "faulty__files_read", output: "read hi" })]);
+    expect(result.discovered.servers[0]).not.toHaveProperty("renamed");
+    // Our engine named it; the record keeps the tool's identity beside the model's name.
+    expect(result.completed).toEqual([
+      expect.objectContaining({ toolName: "faulty__files_read", server: "faulty", tool: "files.read", output: "read hi" }),
+    ]);
   });
 
   it("refuses to save a tool or an MCP server whose name a model would refuse", async () => {

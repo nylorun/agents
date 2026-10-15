@@ -1,6 +1,9 @@
 import { runAgent } from "./run-agent.js";
 import { z } from "zod";
 import { createExecutionState } from "../src/run/index.js";
+import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
+import { DEFAULT_MCP_TOOL_CONFIG } from "../src/tools/mcp.js";
+import { DEFAULT_TOOL_RESULT_CONFIG } from "../src/tools/results.js";
 import {
   Agent,
   AgentBuildError,
@@ -204,4 +207,31 @@ export function addPart<B>(builder: B, declaration: PartDeclaration): B {
     declaration,
     "part()",
   );
+}
+
+/**
+ * Session tools as a run's MCP tool set (`runDurable({ mcp })`), laid out as given: a deferred one
+ * stays deferred, and `tool_search` searches an agent's deferred ones.
+ */
+export function toolSet(tools: readonly import("../src/run/durable.js").DurableSessionTool[]) {
+  return {
+    tools,
+    layout: { factsHash: "test", deferred: [] as string[] },
+    deferredOf: (agentId: string | undefined) =>
+      tools.filter((item) => item.deferred === true && item.agentId === agentId),
+  };
+}
+
+/** Our engine's configuration of its own tools, with the defaults for what a test leaves out. */
+export function engineConfig(
+  set: Partial<import("../src/tools/engine-tools.js").EngineToolOptions> = {},
+): import("../src/tools/engine-tools.js").EngineToolOptions {
+  return {
+    artifactPageBytes: 32 * 1024,
+    sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS,
+    skillReadBytes: 1024,
+    mcpTools: DEFAULT_MCP_TOOL_CONFIG,
+    toolResults: DEFAULT_TOOL_RESULT_CONFIG,
+    ...set,
+  };
 }

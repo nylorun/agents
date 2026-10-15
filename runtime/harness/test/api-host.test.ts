@@ -4,7 +4,8 @@
  * or the call's outcome once the call reached its cap.
  */
 import { describe, expect, it } from "vitest";
-import type { HarnessChannel } from "@nylorun/core/harness-api";
+import { RUNTIME_LIMIT_DEFAULTS, type HarnessChannel } from "@nylorun/core/harness-api";
+import { engineConfig } from "./fixtures.js";
 import { apiHost } from "../src/api/host.js";
 import type { HarnessExecutors, HarnessRun } from "../src/api/executors.js";
 import type { HostEffect } from "../src/run/durable.js";
@@ -19,6 +20,7 @@ const effect = {
   agentId: "bot",
   manifestHash: "h",
   toolName: "refund",
+  target: { kind: "http", tool: "refund" },
   input: { charge: "ch_1" },
   context: { callId: "call-1", invocationId: "inv-1" },
 } as unknown as HostEffect;
@@ -59,11 +61,11 @@ function harness(options: { answers: ("execute" | "interrupted")[]; failures: nu
   const run: HarnessRun = {
     runId: "r1",
     grant: {} as HarnessRun["grant"],
-    start: { outcomes: [] } as unknown as HarnessRun["start"],
+    start: { outcomes: [], limits: RUNTIME_LIMIT_DEFAULTS } as unknown as HarnessRun["start"],
     signal: new AbortController().signal,
   };
   return {
-    host: apiHost(channel, executors, run, { artifactPageBytes: 32 * 1024 }),
+    host: apiHost(channel, executors, run, engineConfig()),
     intents,
     outcomes,
     sends: () => sends,

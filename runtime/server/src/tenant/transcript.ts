@@ -192,6 +192,8 @@ export interface ToolCallFacts {
   readonly status: ToolCallStatus;
   readonly kind?: ToolCallKind;
   readonly server?: string;
+  /** The tool's identity: an MCP tool's name on `server`, an HTTP tool's declared name. */
+  readonly tool?: string;
   readonly skill?: string;
   readonly plugin?: PluginLabel;
   readonly attempts?: number;
@@ -244,6 +246,7 @@ export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolC
           status: facts.status,
           ...(facts.kind === undefined ? {} : { kind: facts.kind }),
           ...(facts.server === undefined ? {} : { server: facts.server }),
+          ...(facts.tool === undefined ? {} : { tool: facts.tool }),
           ...(facts.skill === undefined ? {} : { skill: facts.skill }),
           ...(facts.plugin === undefined ? {} : { plugin: facts.plugin }),
           ...(facts.attempts === undefined ? {} : { attempts: facts.attempts }),

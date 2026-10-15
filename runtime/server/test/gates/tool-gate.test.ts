@@ -9,6 +9,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { Agent, http } from "@nylorun/core/define";
 import { newTenantId } from "@nylorun/core/compatibility";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import type { LiveConnection, McpClient } from "../../src/mcp/connect.js";
 import { McpPool, type McpServerRef } from "../../src/mcp/pool.js";
 import { createMcpHandler } from "../../src/gates/mcp-handler.js";
@@ -73,10 +74,11 @@ describe("the loop's MCP pool with a Tool Gate", () => {
       sessionId: "s1",
       manifest: agent.manifest,
       manifestHash: "h",
+      maxInstructionBytes: RUNTIME_LIMIT_DEFAULTS.recordEntryBytes,
     });
-    expect(found.snapshot.mcpTools.map((tool) => tool.name).sort()).toEqual([
-      "docs__echo",
-      "github__echo",
+    expect(found.snapshot.servers.map((server) => `${server.name}/${server.tools.map((tool) => tool.name)}`).sort()).toEqual([
+      "docs/echo",
+      "github/echo",
     ]);
     expect(opened).toEqual([
       { sessionId: "s1", serverName: "github" },
@@ -222,6 +224,31 @@ describe("a session's MCP requests under its run token (F5)", () => {
     expect(await connection.client.callTool({ name: "echo", arguments: {} }, { key })).toBeDefined();
     expect(authorizeMcp).toHaveBeenCalledWith("mcp-a", expect.anything());
     expect(mine.claims.sessionId).toBe("mcp-a");
+  });
+
+  it("sends only the server and tool the journaled call's target names (protocol 15)", async () => {
+    const { server, release } = await gate();
+    release();
+    const mine = await runs.run("mcp-g", { manifest: agent.manifest });
+    const key = "turn-1:0:tool:g";
+    await runs.journal("mcp-g", {
+      effectId: key,
+      toolName: "github__echo",
+      input: {},
+      mcp: { serverName: "github", serverToolName: "echo" },
+    });
+    // The model's name is not the tool's identity, and neither is another server's tool.
+    for (const call of [
+      { server: { serverName: "github" }, effectId: key, name: "github__echo", arguments: {} },
+      { server: { serverName: "docs" }, effectId: key, name: "echo", arguments: {} },
+      { server: { serverName: "github", agentId: "helper" }, effectId: key, name: "echo", arguments: {} },
+    ]) {
+      const refused = await send(server.url, TOOL_CALLS_PATH, mine.token, call, key);
+      expect(refused.status, JSON.stringify(call)).toBe(409);
+      expect(await refused.json()).toMatchObject({ error: { code: "effect_not_journaled" } });
+    }
+    const call = { server: { serverName: "github" }, effectId: key, name: "echo", arguments: {} };
+    expect((await send(server.url, TOOL_CALLS_PATH, mine.token, call, key)).status).toBe(200);
   });
 
   it("refuses a run token naming another session, and a stale or missing one", async () => {

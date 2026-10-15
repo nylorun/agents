@@ -18,6 +18,7 @@ import {
 } from "@nylorun/core/harness-api";
 import { runArtifactTool } from "../src/tools/artifacts.js";
 import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
+import { engineConfig } from "./fixtures.js";
 import { apiHost } from "../src/api/host.js";
 import type { HarnessExecutors, HarnessFiles, HarnessRun } from "../src/api/executors.js";
 import type { HostEffect } from "../src/run/durable.js";
@@ -571,7 +572,7 @@ describe("the API host", () => {
       channel,
       executors,
       { ...run(), start: { ...run().start, outcomes: [] } },
-      { artifactPageBytes: 4, sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS, skillReadBytes: 1024 },
+      engineConfig({ artifactPageBytes: 4 }),
     );
     const resolved = await host.resolveEffect(call("read_artifact", { artifactId: "af_t" }));
     expect(resolved).toMatchObject({
@@ -583,7 +584,11 @@ describe("the API host", () => {
     await host.resolveEffect(call("bash", { command: "ls" }, "t1:0:tool:c9", { kind: "sandbox" }));
     expect(toolCalls).toBe(1);
     await host.resolveEffect(
-      call("read_artifact", { artifactId: "af_t" }, "t1:0:tool:c8", { kind: "mcp" }),
+      call("read_artifact", { artifactId: "af_t" }, "t1:0:tool:c8", {
+        kind: "mcp",
+        server: "docs",
+        tool: "read_artifact",
+      }),
     );
     expect(toolCalls).toBe(2);
   });

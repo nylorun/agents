@@ -10,7 +10,7 @@ import type { AgentManifest } from "@nylorun/core/define";
 import type { TurnManifestStore } from "../core/turn-manifest.js";
 import type { Session } from "./context.js";
 
-export { manifestFor, sessionToolsOf } from "../mcp/snapshot.js";
+export { manifestFor } from "../mcp/snapshot.js";
 
 /** Turn-manifest store backed by the session's `variants` map (no schema change). */
 export function variantStore(session: Session): TurnManifestStore {

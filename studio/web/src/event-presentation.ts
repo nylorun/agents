@@ -73,19 +73,34 @@ export function agentOf(
     : undefined;
 }
 
-/** Names the tool a `tool.completed` event is for: `Tool · name`, with its agent. */
+/**
+ * The tool a `tool.completed` payload or tool call row ran, by its identity (protocol 15): an MCP
+ * tool is `server / tool`, the server's own name for it, with ` (as toolName)` when the model
+ * called it by another name; any other tool is the name the model called it by (`toolName`).
+ */
+export function toolName(payload: Readonly<Record<string, unknown>>): string {
+  const called = text(payload.toolName, "tool");
+  const { kind, server, tool } = payload;
+  if (kind !== "mcp" || typeof server !== "string" || server === "" || typeof tool !== "string" || tool === "")
+    return called;
+  const identity = `${server} / ${tool}`;
+  return typeof payload.toolName === "string" && payload.toolName !== "" && payload.toolName !== tool
+    ? `${identity} (as ${payload.toolName})`
+    : identity;
+}
+
+/** Names the tool a `tool.completed` event is for: `Tool · name` (see `toolName`), with its agent. */
 export function toolLabel(payload: Readonly<Record<string, unknown>>): string {
   const agent = agentOf(payload);
   const owner = agent ? `${agent.id} › ` : "";
-  return `${owner}Tool · ${text(payload.toolName, "tool")}`;
+  return `${owner}Tool · ${toolName(payload)}`;
 }
 
-/** How Studio names where a tool call ran (`kind`); `platform` is `tool_search`, which the Runtime runs. */
+/** How Studio names where a tool call ran (`kind`): an MCP server, an HTTP tool, the sandbox, or the harness itself. */
 const TOOL_KINDS: Readonly<Record<string, string>> = {
   mcp: "MCP",
   http: "HTTP",
   sandbox: "Sandbox",
-  platform: "Runtime",
   harness: "Harness",
 };
 

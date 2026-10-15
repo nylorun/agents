@@ -10,6 +10,7 @@ import {
 } from "../src/run/index.js";
 import { engineToolsFor } from "../src/tools/engine-tools.js";
 import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
+import { toolSet } from "./fixtures.js";
 
 describe("durable reconstruction", () => {
   it.each(["pending", "uncertain"] as const)(
@@ -126,7 +127,7 @@ describe("durable reconstruction", () => {
       manifest,
       checkpoint,
       host,
-      sessionTools: [
+      mcp: toolSet([
         {
           name: "github__get_issue",
           description: "Read an issue.",
@@ -135,8 +136,9 @@ describe("durable reconstruction", () => {
             properties: { number: { type: "integer" } },
             required: ["number"],
           },
+          target: { kind: "mcp", server: "github", tool: "get_issue" },
         },
-      ],
+      ]),
     });
     expect(result.status).toBe("completed");
     expect(names[0]).toEqual(["job", "github__get_issue"]);
@@ -218,14 +220,14 @@ describe("our engine's own tools (protocol 15)", () => {
       checkpoint,
       host,
       engineTools: (agent) => engineToolsFor(agent, sandboxed, options),
-      sessionTools: [
+      mcp: toolSet([
         {
           name: "github__get_issue",
           inputSchema: { type: "object" },
           instructions: ["MCP note."],
-          target: { kind: "mcp" },
+          target: { kind: "mcp", server: "github", tool: "get_issue" },
         },
-      ],
+      ]),
     });
     expect(result.status).toBe("completed");
     expect(offered[0]).toEqual([

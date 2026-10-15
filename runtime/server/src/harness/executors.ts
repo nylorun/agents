@@ -10,11 +10,9 @@
 import { hashManifest, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
 import { sandboxToolLimitsOf, type SandboxToolLimits } from "@nylorun/harness";
 import type { HarnessExecutors, HarnessRun, McpRecorder, PreparedRun } from "@nylorun/harness/api";
-import type { DurableSessionTool } from "@nylorun/harness/run";
 import type { ToolGate } from "../gates/tool-gate.js";
 import { GateCallLost } from "../gates/tool-client.js";
 import { serversOf, type McpPool } from "../mcp/pool.js";
-import type { McpSnapshot } from "../mcp/snapshot.js";
 import type { SandboxManager, SandboxSessionRef } from "../sandbox/manager.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
 import {
@@ -134,9 +132,10 @@ async function withSandbox<T>(
 }
 
 /**
- * Readies the run's MCP servers (§10.5 step 3): the first segment of a session discovers their
- * tools and records the snapshot (the first recorded wins); later ones reconnect them and record
- * what failed. Nothing for a session without MCP servers.
+ * Readies the run's MCP servers (§10.5 step 3): a run without MCP facts (`turn.start.mcp`, the
+ * session's first) discovers their tools and records the snapshot (the first recorded wins);
+ * later ones reconnect the snapshot's servers and record what failed. Answers the facts the run
+ * goes on with. Nothing for a session without MCP servers.
  */
 export async function prepareMcp(
   pool: McpPool,
@@ -148,28 +147,22 @@ export async function prepareMcp(
   if (serversOf(manifest).length === 0) return undefined;
   const sessionId = run.grant.sessionId;
   let answer: Awaited<ReturnType<McpRecorder>>;
-  if (!routing.mcpSnapshot) {
+  const facts = run.start.mcp;
+  if (!facts) {
     const found = await pool.discover({
       sessionId,
       manifest,
       manifestHash: hashManifest(manifest),
+      maxInstructionBytes: run.start.limits.recordEntryBytes,
       signal: run.signal,
     });
     answer = await record({ snapshot: found.snapshot, diagnostics: found.diagnostics });
   } else {
-    const diagnostics = await pool.reconnect({
-      sessionId,
-      manifest,
-      tools: routing.mcpSnapshot.mcpTools,
-      signal: run.signal,
-    });
+    const diagnostics = await pool.reconnect({ sessionId, manifest, servers: facts.servers, signal: run.signal });
     if (diagnostics.length === 0) return undefined;
     answer = await record({ diagnostics });
   }
-  return {
-    sessionTools: answer.sessionTools as DurableSessionTool[],
-    ...(answer.snapshot === undefined ? {} : { mcpSnapshot: answer.snapshot }),
-  };
+  return answer.mcp === undefined ? undefined : { mcp: answer.mcp };
 }
 
 /** A run's routing, as the call helpers take it. Its sandbox events are claimed for the run. */
@@ -177,7 +170,6 @@ export function routingOf(run: HarnessRun): ToolRouting {
   const { routing } = run.start;
   return {
     rootManifest: routing.rootManifest as AgentManifest,
-    ...(routing.mcpSnapshot ? { mcpSnapshot: routing.mcpSnapshot as McpSnapshot } : {}),
     sandboxOwnerId: routing.sandbox?.ownerId ?? run.grant.sessionId,
     ...(routing.sandbox?.spec === undefined ? {} : { spec: routing.sandbox.spec as SandboxManifest }),
     ...(routing.sandbox?.environmentId === undefined ? {} : { environmentId: routing.sandbox.environmentId }),

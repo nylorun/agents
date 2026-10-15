@@ -85,7 +85,7 @@ export function recoversToolCalls(ctx: TenantContext): boolean {
 /** True when `request` calls a tool of a declared MCP server (every one is remote) or an HTTP tool. */
 export function isGateToolEffect(s: Session, request: HostEffect): boolean {
   return (
-    isRemoteMcpCall({ rootManifest: s.manifest, mcpSnapshot: s.mcpSnapshot }, request) ||
+    isRemoteMcpCall({ rootManifest: s.manifest }, request) ||
     isHttpToolCall(s.manifest, request)
   );
 }

@@ -1935,8 +1935,9 @@ export const McpPreviewToolSchema = z
     /** The server's own name for the tool. */
     serverToolName: z.string(),
     /**
-     * What the model would call it (R2b C6); absent when the Runtime leaves the tool out (its
-     * input schema is not one the Runtime can use).
+     * What the model would call it as Nylorun's engine names MCP tools (R2b C6); absent when the
+     * engine leaves the tool out (its input schema is not one it can use). A harness of your own
+     * names tools itself.
      */
     modelName: z.string().optional(),
     description: z.string().optional(),
@@ -1962,10 +1963,10 @@ export const McpPreviewSchema = z
     credentialSent: z.boolean(),
     /** The server's `initialize` answer: its name, version and title. */
     serverInfo: z.record(z.string(), z.unknown()).optional(),
-    /** The server's instructions from `initialize`, cut to 2,000 characters. */
+    /** The server's instructions from `initialize`. */
     instructions: z.string().optional(),
     tools: z.array(McpPreviewToolSchema),
-    /** Tools the model knows by another name than `server__tool` (R2b C6). */
+    /** Tools Nylorun's engine names otherwise than `server__tool` (R2b C6). */
     renamed: z.array(z.object({ serverToolName: z.string(), name: z.string() }).strict()),
     authRequired: z
       .object({
@@ -2399,11 +2400,10 @@ export const ContextCompactedPayloadSchema = z
 export const TOOL_CALL_STATUSES = ["completed", "failed", "cancelled"] as const;
 /**
  * Where a tool call ran (R5.1), its effect's target kind (protocol 15): an MCP server, an HTTP
- * tool's URL, the session's sandbox, the Runtime itself (`platform`: `tool_search`), or the
- * harness that runs the turn (`harness`: a tool it runs in its own process, such as our engine's
- * skill and artifact tools).
+ * tool's URL, the session's sandbox, or the harness that runs the turn (`harness`: a tool it runs
+ * in its own process, such as our engine's skill, artifact and `tool_search` tools).
  */
-export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "platform", "harness"] as const;
+export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "harness"] as const;
 /**
  * What the Tenant's tool policy did with a tool call (R5 step 2), when it did more than allow
  * it: `deny` refused it unsent; `ask` held it for a person, who approved it (`approvedBy`, when
@@ -2429,11 +2429,17 @@ export const ToolCompletedPayloadSchema = z
     ...toolIds,
     /** The tool call's effect id (R7.1). */
     effectId: z.string().min(1).optional(),
+    /** The name the model called the tool by, as its harness named it: for display. */
     toolName: z.string().min(1),
     status: z.enum(TOOL_CALL_STATUSES).optional(),
     kind: z.enum(TOOL_CALL_KINDS).optional(),
     /** The MCP server, or the HTTP tool's URL host. */
     server: z.string().min(1).optional(),
+    /**
+     * The tool's identity (protocol 15): an MCP tool's own name on `server`, or the HTTP tool's
+     * declared name. Tool policy and approval key on it.
+     */
+    tool: z.string().min(1).optional(),
     /**
      * The skill the call ran: `load_skill` and `read_skill_resource` name it, and a sandbox tool
      * whose input names its folder, `/skills/<name>@<hash>/`, ran its files.
@@ -2789,13 +2795,8 @@ export const McpServerOutcomeSchema = z
     /** `refused`: the vault has no usable credential for it; `failed`: it could not be reached or listed. */
     outcome: z.enum(["connected", "refused", "failed"]),
     message: z.string(),
-    /** The tools it added to the session; 0 unless connected. */
+    /** The tools it added to the session that its `tools` settings leave enabled; 0 unless connected. */
     tools: z.number().int().nonnegative(),
-    /**
-     * Of those, the tools out of the model's tool list, which it finds with `tool_search` and runs
-     * with `tool_call` (R2b C10); absent when none is.
-     */
-    deferred: z.number().int().positive().optional(),
     /** Listed tools the server's `tools` settings disable (R2b C9); absent when none. */
     disabled: z.number().int().positive().optional(),
     /**
@@ -2805,14 +2806,6 @@ export const McpServerOutcomeSchema = z
     unknownTools: z.array(z.string()).optional(),
     /** The credentials a refusal names. */
     credentialIds: z.array(z.string()).optional(),
-    /**
-     * Tools the model knows by another name (R2b C6): `server__tool` with characters outside
-     * `[A-Za-z0-9_-]` replaced by `_`, and shortened to 64 with a hash, or suffixed with the hash
-     * when that collides. The server is still called by `serverToolName`.
-     */
-    renamed: z
-      .array(z.object({ serverToolName: z.string(), name: z.string() }).passthrough())
-      .optional(),
   })
   .passthrough();
 export type McpServerOutcome = z.infer<typeof McpServerOutcomeSchema>;
@@ -3906,11 +3899,15 @@ export type ToolInputCondition = z.infer<typeof ToolInputConditionSchema>;
 /**
  * One rule of the Tenant's tool policy (R5 step 2), applied at the Tool Gate to every MCP and
  * HTTP tool call of every harness. A rule matches a call when every selector it sets matches:
- * `tool` (the name the model calls it by, `*` for any run of characters), `server` (an MCP
+ * `tool` (the tool's identity: an MCP tool's own name on its server, or an HTTP tool's declared
+ * name; never the name a harness gave the model; `*` for any run of characters), `server` (an MCP
  * server's name), `kind`, `agent` (the agent that calls it) and `when` (fields of the input, by
  * dotted path). The strictest matching rule decides: `deny` refuses the call before it is sent,
  * `ask` holds it until a person approves it on the session (`approve`), `allow` runs it. A call no
  * rule matches runs. Sandbox tools never cross the gate; their network side is egress policy.
+ *
+ * A `tool` with `__` in it is refused (protocol 15): no declared tool's name has one, so it can
+ * only be an MCP tool's model-facing `server__tool` name. Name an MCP tool by `server` and `tool`.
  */
 export const ToolRuleSchema = z
   .object({
@@ -3923,7 +3920,15 @@ export const ToolRuleSchema = z
     /** Why the rule exists: shown with a held or denied call. */
     reason: z.string().min(1).max(500).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((rule, ctx) => {
+    if (rule.tool !== undefined && rule.tool.includes("__"))
+      ctx.addIssue({
+        code: "custom",
+        path: ["tool"],
+        message: `Name an MCP tool by \`server\` and \`tool\` (its own name on the server), not by a model-facing name such as '${rule.tool}'`,
+      });
+  });
 export type ToolRule = z.infer<typeof ToolRuleSchema>;
 /** `PUT /v1/tenant/tool-policy`: replaces every rule. An empty list allows every call. */
 export const PutToolPolicyRequestSchema = z
@@ -4493,9 +4498,12 @@ export const ToolCallSchema = z
     effectId: z.string(),
     turnId: z.string(),
     callId: z.string().nullable(),
+    /** The name the model called it by: for display. */
     toolName: z.string().nullable(),
     kind: z.enum(TOOL_CALL_KINDS).nullable(),
     server: z.string().nullable(),
+    /** Its identity (see `tool.completed`): an MCP tool's name on `server`, an HTTP tool's declared name. */
+    tool: z.string().nullable(),
     /** The skill the call ran (see `tool.completed`). */
     skill: z.string().nullable(),
     /** The Agent Plugin that brought its MCP server or skill. */

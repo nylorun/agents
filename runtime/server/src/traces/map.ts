@@ -260,6 +260,7 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         .str("gen_ai.agent.id", p.agent?.id)
         .str("nylorun.tool.kind", kind)
         .str("nylorun.tool.server", p.server)
+        .str("nylorun.tool.identity", p.tool)
         .str("nylorun.tool.status", p.status)
         .int("nylorun.tool.attempts", p.attempts)
         .int("nylorun.tool.redacted", p.redacted)

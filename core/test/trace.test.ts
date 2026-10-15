@@ -66,6 +66,7 @@ it("carries skill, plugin and the harness kind on tool.completed and tool-call r
     toolName: "linear__create_issue",
     kind: "mcp",
     server: "linear",
+    tool: "create_issue",
     skill: null,
     plugin: { name: "ops" },
     status: "completed",

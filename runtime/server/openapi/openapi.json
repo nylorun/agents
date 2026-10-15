@@ -12068,11 +12068,14 @@
                   "mcp",
                   "http",
                   "sandbox",
-                  "platform",
                   "harness"
                 ]
               },
               "server": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tool": {
                 "type": "string",
                 "minLength": 1
               },
@@ -13019,10 +13022,6 @@
                       "type": "integer",
                       "minimum": 0
                     },
-                    "deferred": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0
-                    },
                     "disabled": {
                       "type": "integer",
                       "exclusiveMinimum": 0
@@ -13037,25 +13036,6 @@
                       "type": "array",
                       "items": {
                         "type": "string"
-                      }
-                    },
-                    "renamed": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "serverToolName": {
-                            "type": "string"
-                          },
-                          "name": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "serverToolName",
-                          "name"
-                        ],
-                        "additionalProperties": {}
                       }
                     }
                   },
@@ -22256,12 +22236,17 @@
               "mcp",
               "http",
               "sandbox",
-              "platform",
               "harness",
               null
             ]
           },
           "server": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tool": {
             "type": [
               "string",
               "null"
@@ -22348,6 +22333,7 @@
           "toolName",
           "kind",
           "server",
+          "tool",
           "skill",
           "plugin",
           "status",

@@ -17,6 +17,8 @@ import {
 import { READ_ARTIFACT_MAX_BYTES } from "@nylorun/core/define";
 import { sandboxToolLimitsOf, type SandboxToolLimits } from "../tools/sandbox.js";
 import { DEFAULT_SKILL_READ_BYTES } from "../tools/skills.js";
+import { mcpToolConfigOf, type McpToolConfig } from "../tools/mcp.js";
+import { toolResultConfigOf, type ToolResultConfig } from "../tools/results.js";
 import { ABORT_MESSAGES, RunAbort } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { runTurn } from "./run.js";
@@ -52,6 +54,20 @@ export interface HarnessOptions {
    * `turn.start.limits.recordEntryBytes`, since it is one record entry.
    */
   readonly skillReadBytes?: number;
+  /**
+   * How our engine offers the session's MCP tools: when it defers them (`deferShare` of the
+   * model's context window at `charsPerToken`, `fallbackContextWindow` without a model), how much
+   * of a server's instructions the deferred tools' note shows, and `tool_search`'s limits. Each
+   * left out is its default (`DEFAULT_MCP_TOOL_CONFIG`).
+   */
+  readonly mcpTools?: Partial<McpToolConfig>;
+  /**
+   * How our engine shapes tool results before it records them: the inline cap, the preview's head
+   * and tail, the step budget (held under the run's `limits.recordEntryBytes` less
+   * `entryEnvelopeBytes`), the stub and the size never shaped. Each left out is its default
+   * (`DEFAULT_TOOL_RESULT_CONFIG`).
+   */
+  readonly toolResults?: Partial<ToolResultConfig>;
   readonly name?: string;
   readonly version?: string;
   /** What `hello` declares: `workspace` when this harness serves the Tenant's workspaces. */
@@ -93,6 +109,8 @@ export function createHarness(options: HarnessOptions): Harness {
     artifactPageBytes: options.artifactPageBytes ?? READ_ARTIFACT_MAX_BYTES,
     sandboxTools: sandboxToolLimitsOf(options.sandboxTools),
     skillReadBytes: options.skillReadBytes ?? DEFAULT_SKILL_READ_BYTES,
+    mcpTools: mcpToolConfigOf(options.mcpTools),
+    toolResults: toolResultConfigOf(options.toolResults),
   };
   const live = new Map<string, Live>();
   const finished = new Set<Promise<void>>();

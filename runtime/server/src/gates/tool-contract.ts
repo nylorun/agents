@@ -25,13 +25,15 @@
  * answer, not a gate error. A tool call's failure is coded (`error.failure`, R2b C7), and neither
  * a result nor a failure carries a credential value the gate sent (C8). An answer past the
  * Tenant's Runtime limit `toolAnswerBytes` (default 8 MiB), which also caps the bodies the gate
- * reads, is `mcp.too-large` (C11), as an HTTP tool's is `http.too-large`; core shapes what fits into a
- * result the model can take (`tenant/tool-results.ts`). A keyed call whose earlier attempt was
+ * reads, is `mcp.too-large` (C11), as an HTTP tool's is `http.too-large`; the harness shapes
+ * what fits into a result the model can take (`shapeToolOutcome`, protocol 15). The tool-calls
+ * body names the tool by its identity: the server (`{agentId?, serverName}`) and the server's
+ * own name for the tool (`name`). A keyed call whose earlier attempt was
  * lost with the gateway runs again under the same key (R5.3); one another gateway process holds
  * answers `{ok: false, error: {uncertain: true}}`, and the caller sends it again.
  *
  * HTTP tools (R2 M3). `POST /nylorun/v1/http-calls` `{tool, effectId, turnId, input}`: one call
- * of an HTTP tool. The loop names the tool (`{sessionId?, agentId?, toolName}`), or a
+ * of an HTTP tool. The loop names the tool (`{sessionId?, agentId?, toolName}`, its declared name), or a
  * flow's HTTP stage or HTTP verifier by its stage key (`{sessionId?, stage}`); the gate finds its
  * URL, method and credential in the session's pinned manifest
  * (`gates/http-tool.ts`). A run token's turn is the call's; `turnId` counts only under core's

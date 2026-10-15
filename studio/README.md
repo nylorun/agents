@@ -110,8 +110,12 @@ without an Environment says it has no sandbox and no secrets.
 
 Settings links use `/tenants/<id>/settings/overview` and `/settings/models`
 under the same Tenant prefix; a legacy `/settings` link redirects to Models.
+Tool calls show the tool by its identity: an MCP tool as `server / tool` (the server's own name
+for it), with the name the model called it by when that differs, such as
+`github / create_issue (as github__create_issue)`; any other tool by the model's name.
 A session paused on a tool call the Tenant's tool policy holds shows an approval card with the
-tool, why it is held and its input, with **Approve** and **Deny**. Token streaming is deferred.
+tool by the same identity (and what the model called it), why it is held and its input, with
+**Approve** and **Deny**. Token streaming is deferred.
 
 ### Attachments
 
@@ -208,7 +212,8 @@ links working.
 The inspector pins a numbered version and shows metadata (with its owner),
 version history, bounded previews, exported folder files and changes between
 adjacent versions. Session artifact events and versioned message file parts open
-that exact version. Text previews stop at 256 KiB; raster images at 10 MiB. HTML
+that exact version, as do the artifacts a harness stored a large tool result in: a tool call
+links each artifact its result names (`{artifactId, version, size}`, whole or per part). Text previews stop at 256 KiB; raster images at 10 MiB. HTML
 and SVG appear as escaped source. Downloads stream through the proxy as
 attachments using a 60-second capability minted by the existing Runtime API,
 including in embeds. No full-file browser buffer is used for downloads. Studio

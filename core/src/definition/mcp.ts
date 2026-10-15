@@ -75,7 +75,7 @@ export const MCP_TOOL_DEFAULTS = "*";
 export interface ResolvedMcpToolSettings {
   readonly enabled: boolean;
   readonly approval: ApprovalMode;
-  /** Undefined: nothing sets it, and the Runtime decides (R2b C10, automatic deferral). */
+  /** Undefined: nothing sets it, and the harness decides (R2b C10, automatic deferral). */
   readonly deferred?: boolean;
 }
 

@@ -11,8 +11,12 @@ export { hashManifest } from "./utils/hash.js";
  * describes the model the turn uses (what it reads, its window), and the Model Gate only fetches
  * the artifacts a call names and translates the call, refusing a part the provider cannot take
  * (`unsupported_input`). A `ModelCall` has no `outputSchema`: a harness writes its own JSON
- * instruction and parses the answer. Sessions pinned before protocol 15 must be recreated. The
- * Host serves protocol 15 only.
+ * instruction and parses the answer. The harness names a session's MCP tools, defers them and
+ * shapes tool results: `turn.start.mcp` states what the servers listed, raw, and every MCP tool
+ * call names its identity (`target: {kind: "mcp", server, tool}`), which tool policy and approval
+ * key on (a policy rule with `__` in its `tool` refuses every call). The record refuses an
+ * outcome past `limits.recordEntryBytes`. Sessions pinned before protocol 15 must be recreated.
+ * The Host serves protocol 15 only.
  * Protocol 14: environment manifests (D63 to D65). `/v1/environment-manifests/{name}` holds
  * named, versioned definitions of a kind of Environment, saved like agents (with `If-Match` and
  * `?dryRun=true`), and `PUT /v1/environments/{id}` takes `manifest: "name"` or `"name@n"`. An
@@ -109,7 +113,8 @@ export const PROTOCOL_FEATURES = [
   /**
    * Protocol 15: the harness boundary. `read_artifact` and `save_artifact` are our harness's
    * tools, not the Runtime's: a session's pinned `runtime` block no longer carries them, and an
-   * author tool may take their names.
+   * author tool may take their names. MCP tools are named by the harness and identified by
+   * `{server, tool}`: tool policy rules and approvals name them so.
    */
   "harness-boundary",
 ] as const;

@@ -278,10 +278,10 @@ so their URLs must be reachable from it, and remote MCP servers. Each URL gets a
 credential in the vault of the Environment a session names (`PUT
 /v1/environments/{id}/secrets/{name}`), the operator previews an MCP server's tools
 (`nylorun tenant mcp inspect --environment <id>`),
-and the manifest says which tools are enabled or deferred
-([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools)). Which calls wait for a
-person, or are refused, is the Tenant's tool policy
-([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#tool-policy)). Model gateway
+and the manifest says which tools are enabled, and which to defer (a hint the harness
+follows; [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools)). Which calls wait for a
+person, or are refused, is the Tenant's tool policy, which names an MCP tool by `server` and
+its own name ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#tool-policy)). Model gateway
 and sandbox backend are Tenant configuration (the Tenant's own vault, Tenant
 settings and seed), not Host process env.
 

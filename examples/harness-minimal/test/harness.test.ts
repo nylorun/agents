@@ -1,8 +1,9 @@
 /**
  * The loop against a fake core (a memory channel that validates every frame, as a socket does)
  * and a fake Model Gate on 127.0.0.1: a text turn, a bash turn journaled intent first, a replay
- * that runs nothing twice, and a cancel.
+ * that runs nothing twice, a bash output too large to report stored as an artifact, and a cancel.
  */
+import { createHash } from "node:crypto";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,7 +29,11 @@ afterEach(async () => {
 
 const manifest = { manifestSchemaVersion: 7, id: "bot", instructions: ["Be brief."] };
 
-const turn = (input: string, outcomes: RecordedOutcome[] = []): TurnStart => ({
+const turn = (
+  input: string,
+  outcomes: RecordedOutcome[] = [],
+  limits: TurnStart["limits"] = RUNTIME_LIMIT_DEFAULTS,
+): TurnStart => ({
   type: "turn.start",
   engine: "agent",
   manifest,
@@ -37,7 +42,7 @@ const turn = (input: string, outcomes: RecordedOutcome[] = []): TurnStart => ({
   transcript: { cursor: 4 },
   options: { fixtureModel: false },
   routing: { rootManifest: manifest, sandbox: { ownerId: "s1", spec: {} } },
-  limits: RUNTIME_LIMIT_DEFAULTS,
+  limits,
   // A session with a sandbox: the harness offers its bash, with a note of its own.
   environment: { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } },
 });
@@ -96,6 +101,7 @@ function fakeCore(
   const journal = hooks.journal ?? new Map<string, Row>();
   const intents: EffectIntent[] = [];
   const order: string[] = [];
+  const writes: Record<string, any>[] = [];
   let leased = false;
   let settle!: (end: { method: string; output: TurnOutput }) => void;
   const settled = new Promise<{ method: string; output: TurnOutput }>(
@@ -134,6 +140,26 @@ function fakeCore(
         if ("error" in p) return { status: "uncertain" };
         journal.get(p.effectId)!.value = p.value;
         return { status: "completed", outcome: { value: p.value } };
+      case "artifact.write": {
+        // Whole bodies only: a begin with its base64, stored as version 1.
+        writes.push(p);
+        order.push(`artifact.write ${p.key}`);
+        const bytes = Buffer.from(p.base64, "base64");
+        return {
+          status: "written",
+          artifact: {
+            artifactId: `af_${writes.length}`,
+            kind: "file",
+            name: p.name,
+            version: 1,
+            contentType: p.contentType ?? "application/octet-stream",
+            size: bytes.byteLength,
+            sha256: createHash("sha256").update(bytes).digest("hex"),
+            tenantWide: false,
+          },
+          created: true,
+        };
+      }
       case "turn.completed":
       case "turn.failed":
       case "turn.waiting":
@@ -144,7 +170,7 @@ function fakeCore(
     }
   });
   cleanups.push(() => harness.close());
-  return { harness, core, journal, intents, order, settled, before };
+  return { harness, core, journal, intents, order, writes, settled, before };
 }
 
 it("runs a text turn: one model intent without its prompt, the gate keyed by the effect id", async () => {
@@ -262,6 +288,52 @@ it("runs bash journaled intent first, and replays a completed outcome without ru
     "t1:0:model:1",
   ]);
   expect(replayed.output.transcript).toEqual(done.output.transcript);
+});
+
+it("stores a bash output too large for its share of recordEntryBytes as an artifact, and reports a preview", async () => {
+  // 500 lines of 11 bytes: 5500 bytes, past a quarter of a 4 KiB record entry.
+  const message = "run yes abcdefghij | head -n 500";
+  const limits = { ...RUNTIME_LIMIT_DEFAULTS, recordEntryBytes: 4096 };
+  const gate = await fakeGate(scripted);
+  const core = fakeCore(turn(message, [], limits));
+  void serve(core.harness, { name: "minimal", gatesUrl: gate.url });
+  const { method, output } = await core.settled;
+
+  expect(method).toBe("turn.completed");
+  const toolId = "t1:0:tool:0:call-1";
+  // Stored after the command ran, before its outcome was reported.
+  expect(core.order).toEqual([
+    "intent t1:0:model:0",
+    "outcome t1:0:model:0",
+    `intent ${toolId}`,
+    `artifact.write bash:${toolId}`,
+    `outcome ${toolId}`,
+    "intent t1:0:model:1",
+    "outcome t1:0:model:1",
+  ]);
+  const whole = "abcdefghij\n".repeat(500);
+  expect(core.writes).toEqual([
+    {
+      runId: "r1",
+      op: "begin",
+      key: `bash:${toolId}`,
+      name: "bash-call-1.txt",
+      contentType: "text/plain",
+      effectId: toolId,
+      size: whole.length,
+      base64: Buffer.from(whole).toString("base64"),
+    },
+  ]);
+  // The outcome recorded (and so replayed) is the preview, within a quarter of the limit.
+  const value = core.journal.get(toolId)!.value as { kind: string; output: Record<string, any> };
+  expect(value).toMatchObject({
+    kind: "completed",
+    output: { exitCode: 0, truncated: true, artifactId: "af_1", version: 1, size: whole.length },
+  });
+  expect(value.output.note).toContain("artifact af_1, version 1");
+  expect(value.output.preview).toMatch(/^abcdefghij\n[\s\S]*characters omitted[\s\S]*abcdefghij\n$/);
+  expect(Buffer.byteLength(JSON.stringify(value))).toBeLessThanOrEqual(limits.recordEntryBytes / 4);
+  expect(output.output).toBe(`done: ${JSON.stringify(value.output)}`);
 });
 
 it("ends a cancelled turn as cancelled and stops its call at the gate", async () => {

@@ -9,8 +9,8 @@
  * core-served call has no key to dedupe on, so a crash fails it to the model at once, and
  * nothing runs it again (Q2). No tool call leaves its session `uncertain`.
  *
- * The row body keeps the journal's facts: `toolKind`, `server`, `attempts`, `startedAt` and
- * `settledAt`. A row written before R5 has none of them.
+ * The row body keeps the journal's facts: `toolKind`, `server`, `tool` (the identity, protocol
+ * 15), `attempts`, `startedAt` and `settledAt`. A row written before R5 has none of them.
  *
  * Spans (R7.1). `tool.completed` also carries the call's effect id, the Tool Gate's own start
  * and end of its last send (`gate`, from its `tool_crossings` row: MCP and HTTP calls through
@@ -22,7 +22,6 @@ import { pluginOf, type AgentManifest, type PluginLabel } from "@nylorun/core/de
 import type { HostEffect } from "@nylorun/harness/run";
 import { isFlowToolEffect } from "../core/flow-host.js";
 import { declaredHttpTool } from "../gates/http-tool.js";
-import { mcpToolOf } from "../mcp/snapshot.js";
 import type { Session } from "../tenant/context.js";
 import {
   toolCompleted,
@@ -46,6 +45,8 @@ export interface ToolRowFacts {
   approval?: { approved: true; at: string; by?: string };
   toolKind?: ToolCallKind;
   server?: string;
+  /** The tool's identity: an MCP tool's name on `server`, an HTTP tool's declared name. */
+  tool?: string;
   /** The skill the call ran, and the plugin that brought its skill or MCP server. */
   skill?: string;
   plugin?: PluginLabel;
@@ -72,34 +73,37 @@ export interface ToolCallPlace {
   toolKind?: ToolCallKind;
   /** Its MCP server or, for an agent's HTTP tool, its URL's host. */
   server?: string;
+  /** Its identity: an MCP tool's own name on the server, an HTTP tool's declared name. */
+  tool?: string;
   skill?: string;
   plugin?: PluginLabel;
 }
 
 /**
  * Where a tool call runs, and what it traces to (protocol 15): its target's kind; an MCP call
- * names its server and the plugin that brought it, an HTTP call its URL's host. The skill the
- * effect names (`skill`: a skill tool's, or a sandbox call in a skill's folder) is kept when the
- * agent has it, with the plugin that brought it.
+ * names its identity (server and tool) and the plugin that brought the server, an HTTP call its
+ * declared name and its URL's host. The skill the effect names (`skill`: a skill tool's, or a
+ * sandbox call in a skill's folder) is kept when the agent has it, with the plugin that brought it.
  */
 export function toolKindOf(
-  s: Pick<Session, "manifest" | "mcpSnapshot">,
+  s: Pick<Session, "manifest">,
   agentManifest: AgentManifest | undefined,
   request: HostEffect,
 ): ToolCallPlace {
-  const kind = request.target?.kind;
-  if (kind === "mcp") {
-    const mcp = mcpToolOf(s.mcpSnapshot, request);
-    const plugin = mcp === undefined ? undefined : pluginOf(agentManifest, { server: mcp.serverName });
+  const target = request.target;
+  const kind = target?.kind;
+  if (target?.kind === "mcp") {
+    const plugin = pluginOf(agentManifest, { server: target.server });
     return {
       toolKind: "mcp",
-      ...(mcp === undefined ? {} : { server: mcp.serverName }),
+      server: target.server,
+      tool: target.tool,
       ...(plugin === undefined ? {} : { plugin }),
     };
   }
-  if (kind === "http") {
-    const host = httpHostOf(declaredHttpTool(s.manifest, request.agent?.id, request.toolName)?.http.url);
-    return { toolKind: "http", ...(host === undefined ? {} : { server: host }) };
+  if (target?.kind === "http") {
+    const host = httpHostOf(declaredHttpTool(s.manifest, request.agent?.id, target.tool)?.http.url);
+    return { toolKind: "http", ...(host === undefined ? {} : { server: host }), tool: target.tool };
   }
   const skill =
     request.skill !== undefined && agentManifest?.skills?.[request.skill] !== undefined
@@ -141,6 +145,7 @@ export function factsOf(row: ToolRow, status: ToolCallStatus, gate?: GateTimes):
     status,
     ...(row.toolKind === undefined ? {} : { kind: row.toolKind }),
     ...(row.server === undefined ? {} : { server: row.server }),
+    ...(row.tool === undefined ? {} : { tool: row.tool }),
     ...(row.skill === undefined ? {} : { skill: row.skill }),
     ...(row.plugin === undefined ? {} : { plugin: row.plugin }),
     ...(row.attempts === undefined ? {} : { attempts: row.attempts }),

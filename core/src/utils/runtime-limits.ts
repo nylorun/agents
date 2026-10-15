@@ -94,7 +94,8 @@ export const RUNTIME_LIMIT_CEILINGS: {
 /**
  * The limits a Tenant that sets none runs with: today's sizes. `recordEntryBytes` is its
  * ceiling, so every event S2 took before is still taken; what keeps a step's tool results well
- * inside it is core's shaping of them (256 KiB a step, `tenant/tool-results.ts`).
+ * inside it is the harness's shaping of them (Nylorun's engine: 256 KiB a step,
+ * `shapeToolOutcome` in `@nylorun/harness`), since the record refuses an entry past it.
  */
 export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   recordEntryBytes: RUNTIME_LIMIT_CEILINGS.recordEntryBytes.bytes,
