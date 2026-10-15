@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.26.0-beta
+
+### Minor Changes
+
+- a0cf8b2: **HTTP tools take `GET` and `DELETE`, and URL path parameters.**
+
+  - `method` is `GET`, `POST` (default), `PUT`, `PATCH` or `DELETE`. `POST`, `PUT` and `PATCH` send the input as the JSON body, as before. `GET` and `DELETE` send no body: the input becomes the query string, after any query string written in the URL. An array repeats its name (`tag=a&tag=b`) and a `null` is left out.
+  - The URL's path may name input fields as `{field}`, as in `https://api.example.com/orders/{orderId}`. Each value is percent-encoded into the path and is not sent again in the body or query string. A value that is empty, `.` or `..`, or not a string, number or boolean is refused before the call is sent (`tool.invalid-input`).
+  - `http()` and the manifest contract check a tool against its input schema. Each `{field}` must be a required scalar property. For `GET` and `DELETE`, a property must not be an object and must not repeat a query parameter the URL already sets.
+  - An HTTP verifier still takes only `POST`, `PUT` or `PATCH` and a URL without `{field}` parameters, because it is sent `{ input, output, iteration }` as a body. A credential with `via` cannot serve a tool with `{field}` parameters (`http.credential`).
+  - core exports `httpToolRequest`, which maps a call's input to the request, and `httpPathParameters`. The Runtime's outbound `post()` is now `send()`, which can send a request without a body.
+
+### Patch Changes
+
+- 620072d: **Docs and schemas match what the CLI and the Runtime do.**
+
+  - `@nylorun/core`: the environment manifest's JSON Schema (`@nylorun/core/schemas/environment-manifest.json`) takes the CLI's `{ path, from }` `files` entry, so an editor no longer flags a manifest that `nylorun environments manifests save` accepts. The Runtime's own schema is unchanged: the CLI turns the folder into `{ path, files }` before saving. `manifest_changed` says to save without `If-Match` (`--if-match`, `ifMatch`); no command takes `--force`.
+  - Tool names, skill names and MCP server names are each unique within their kind, as the builder and the Runtime check; a tool, a skill and a server may share a name. The docs said they were unique across kinds.
+  - `harness_mismatch` is described as what it is since protocol 14: an Environment's harness is fixed for its life (fork onto a manifest version to run another), and a session's turn is refused when its Environment id was deleted and made again with another harness, or an Environment changed in place before protocol 14 applies that change.
+  - `@nylorun/agents`: the README names `nylorun environments list | delete`, not `nylorun local sandbox ls | rm`.
+  - MIGRATION.md no longer offers a tool's `approval`, removed in protocol 11, as a replacement for step middleware.
+
+- 71edf68: egress-gate's `environment.egress` names the turns its one read saw as the connection opened: the read starts as the name resolves and the tunnel never waits for it, as the docs now say. The egress-gate event test waits for that read before it moves a turn, so it no longer fails on a slow runner.
+- 000ff75: **READMEs and help text match protocol 14.**
+
+  - `nylorun --help` lists `environments fork`, `manifests` and `delete-version`. The package description no longer offers `nylo` as the Runtime client, and the README says nylorun depends on `@nylorun/agents` too.
+  - The READMEs name the current commands: `nylorun tenant keys`, `nylorun tenant mcp inspect`, `nylorun local logs` and `nylorun local reset`. `@nylorun/admin` says it speaks protocol 14.
+  - `@nylorun/agents`: a lost MCP or HTTP tool call is sent again with its key, then fails to the model as `tool.interrupted` (it is not left `uncertain`). Every manifest is v7. A2A takes `raw` files. A delegated agent cannot pause.
+  - `@nylorun/runtime`: the README describes protocol 14, `PUT /v1/sessions/{id}` says it answers an identical session (vaults are no longer attached), and the database-layout error names `nylorun local reset`.
+  - `@nylorun/create-agent`: `nylorun start` writes the project's keys (no key is derived any more).
+
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [620072d]
+- Updated dependencies [a0cf8b2]
+- Updated dependencies
+  - @nylorun/core@0.22.0-beta
+  - @nylorun/harness@0.27.1-beta
+
 ## 0.25.0-beta
 
 ### Minor Changes

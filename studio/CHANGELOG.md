@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.25.1-beta
+
+### Patch Changes
+
+- 1fbd4eb: Studio's message box stays focused while a turn runs: it is read-only, not disabled, until the turn ends, so dictation and other assistive tools that paste into the focused field reach it for the next message without a reload.
+- b897c60: Studio renders an assistant reply as GitHub-flavored Markdown: tables, bold, lists, links and code show formatted instead of as raw `|` and `**` text. Raw HTML in a reply stays escaped text, and a reply that is not a string still shows as JSON.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies [620072d]
+- Updated dependencies [a0cf8b2]
+- Updated dependencies [000ff75]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.22.0-beta
+  - @nylorun/admin@0.17.1-beta
+
 ## 0.25.0-beta
 
 ### Minor Changes
