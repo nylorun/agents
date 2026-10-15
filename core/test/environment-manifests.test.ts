@@ -49,6 +49,20 @@ describe("environment manifests (protocol 14)", () => {
     expect(agent.$id).toBe("https://docs.nylorun.com/schemas/agent-manifest/v7.json");
     expect(Object.keys(agent.properties as object)).toEqual(expect.arrayContaining(["$schema", "requires"]));
   });
+
+  it("lets the environment manifest's JSON Schema take the CLI's { path, from } files entry", () => {
+    const files = (environmentManifestJsonSchema().properties as { files: { items: { anyOf: unknown[] } } }).files;
+    expect(files.items.anyOf).toContainEqual(
+      expect.objectContaining({
+        properties: { path: expect.objectContaining({ type: "string" }), from: { type: "string", minLength: 1 } },
+        required: ["path", "from"],
+        additionalProperties: false,
+      }),
+    );
+    // The Runtime's own schema still refuses it: the CLI resolves it before saving.
+    const manifest = { manifestSchemaVersion: 1, name: "box", kind: "pod", files: [{ path: "/workspace/kit", from: "kit" }] };
+    expect(EnvironmentManifestSchema.safeParse(manifest).success).toBe(false);
+  });
 });
 
 describe("requires (D65)", () => {

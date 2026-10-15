@@ -1128,11 +1128,14 @@ export async function checkEnvironmentTurn(
       code: "environment_owner_mismatch",
     });
   // The harness the turn would run on (R4.1, Q9): a pod about to wake runs its recipe's. A
-  // session never moves to another harness: its state is that harness's.
+  // session never moves to another harness: its state is that harness's. An Environment's
+  // harness never changes since protocol 14, so this refuses a session whose Environment id was
+  // deleted and made again with another harness, and an Environment changed in place before
+  // protocol 14 whose recipe (a pod's, at its wake) names another harness than it applied.
   const waking = environment.pod !== undefined && (environment.pod.desired !== "running" || environment.pod.observed === "failed");
   const runs = waking ? environment.recipe.harness : environment.applied.harness;
   if (!isWorkflowManifest(session.manifest) && runs !== harnessOf(session))
-    fail(409, `Environment ${id} now runs the ${runs} harness, and this session runs ${harnessOf(session)}: open a new session to run on it.`, {
+    fail(409, `Environment ${id} runs the ${runs} harness, and this session runs ${harnessOf(session)}: open a new session to run on it.`, {
       code: "harness_mismatch",
       details: { harness: harnessOf(session), environmentHarness: runs },
     });

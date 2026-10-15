@@ -4,7 +4,9 @@
  * from its `$schema` and a client in another language validates what core enforces. The build
  * writes them to `dist/schemas/` (`@nylorun/core/schemas/agent-manifest.json` and
  * `@nylorun/core/schemas/environment-manifest.json`). Both allow a top-level `$schema`, which
- * the CLI and SDK drop before they save: the Runtime's own schemas stay strict.
+ * the CLI and SDK drop before they save: the Runtime's own schemas stay strict. The environment
+ * manifest's `files` also allow the CLI's `{ path, from }`, a folder beside the file that
+ * `nylorun environments manifests save` hashes into `{ path, files }`: the Runtime never sees it.
  */
 import { z } from "zod";
 import {
@@ -36,11 +38,24 @@ function document(schema: z.ZodType, id: string, title: string): Record<string, 
 
 /** The environment manifest's JSON Schema document (draft 2020-12). */
 export function environmentManifestJsonSchema(): Record<string, unknown> {
-  return document(
+  const schema = document(
     EnvironmentManifestSchema,
     `environment-manifest/v${ENVIRONMENT_MANIFEST_SCHEMA_VERSION}`,
     `Nylorun environment manifest ${ENVIRONMENT_MANIFEST_SCHEMA_VERSION}`,
   );
+  // A `files` entry only the CLI reads: it turns the folder into `{ path, files }` before saving.
+  type Shape = Record<string, unknown> & { properties: Record<string, unknown> };
+  const shapes = (schema.properties as { files: { items: { anyOf: Shape[] } } }).files.items.anyOf;
+  const tree = shapes.find((shape) => "files" in shape.properties);
+  shapes.push({
+    type: "object",
+    description:
+      "For the CLI only: a folder, relative to this file, that `nylorun environments manifests save` uploads by hash and saves as { path, files }",
+    properties: { path: tree?.properties.path, from: { type: "string", minLength: 1 } },
+    required: ["path", "from"],
+    additionalProperties: false,
+  });
+  return schema;
 }
 
 /** The agent manifest's JSON Schema document (draft 2020-12). */
