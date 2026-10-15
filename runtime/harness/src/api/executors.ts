@@ -18,9 +18,18 @@ export interface FailedFileOutcome {
   readonly retryable?: boolean;
 }
 
+/** One regular file under a directory `HarnessFiles.list` listed. */
+export interface HarnessFileEntry {
+  /** Relative to the directory listed, `/`-separated, never `.` or `..` segments. */
+  readonly path: string;
+  readonly size: number;
+}
+
 /**
- * The run's sandbox files as bytes, for our engine's artifact tools (`save_artifact` reads a
- * file, `read_artifact` with `path` writes one), in the session's sandbox queue. Paths are the
+ * The run's sandbox files, which our engine decides about and the host only executes (protocol
+ * 15): bytes for its artifact tools (`save_artifact` reads a file, `read_artifact` with `path`
+ * writes one), a listing and reads for the outputs folder it saves at a turn's end, and the skill
+ * folders it mounts before a sandbox call. Each runs in the session's sandbox queue. Paths are the
  * model's: relative ones resolve in the workspace. A session without a sandbox, or a sandbox that
  * cannot start, answers a failed outcome.
  */
@@ -45,11 +54,42 @@ export interface HarnessFiles {
   ): Promise<
     { readonly kind: "written"; readonly path: string; readonly size: number } | FailedFileOutcome
   >;
+  /**
+   * The regular files under directory `dir`, recursively, in path order: at most `maxEntries`,
+   * with `truncated` when there are more. `missing` when `dir` is not a directory, or the sandbox
+   * was never created (nothing is started to look).
+   */
+  list(
+    run: HarnessRun,
+    dir: string,
+    maxEntries: number,
+    signal: AbortSignal,
+  ): Promise<
+    | {
+        readonly kind: "listed";
+        readonly entries: readonly HarnessFileEntry[];
+        readonly truncated: boolean;
+      }
+    | { readonly kind: "missing" }
+    | FailedFileOutcome
+  >;
+  /**
+   * Writes `files` (path in `folder` to `sha256:<hex>`) to `folder`, read-only, each one's bytes
+   * from `read`: `mounted`. A folder this sandbox already holds, since it last started, is
+   * `present`, and nothing is written. A partial copy a failed mount left is replaced.
+   */
+  mount(
+    run: HarnessRun,
+    folder: string,
+    files: Readonly<Record<string, string>>,
+    read: (sha256: string) => AsyncIterable<Uint8Array>,
+    signal: AbortSignal,
+  ): Promise<{ readonly kind: "mounted" | "present" } | FailedFileOutcome>;
 }
 
 /**
- * What runs the effects the harness executes: model calls, MCP, HTTP and sandbox tools, and the
- * sandbox files our engine's artifact tools use. Our engine runs its own tools (`harness` calls:
+ * What runs the effects the harness executes: model calls (always through the Model Gate), MCP,
+ * HTTP and sandbox tools, and the sandbox files our engine uses. Our engine runs its own tools (`harness` calls:
  * the skill tools over `definition.file`, the artifact tools over the artifact seam,
  * `tool_search` over the run's MCP tools) and shapes every tool result before it is recorded;
  * core runs flow work and linked sessions.
@@ -95,7 +135,10 @@ export interface HarnessExecutors {
    * answers the facts the segment runs with. Undefined: nothing to change.
    */
   prepare?(run: HarnessRun, record: McpRecorder): Promise<PreparedRun | undefined>;
-  /** The run's sandbox files. Undefined: a `path` of an artifact tool fails `artifact.no_sandbox`. */
+  /**
+   * The run's sandbox files. Undefined: a `path` of an artifact tool fails `artifact.no_sandbox`,
+   * no skill folder is mounted and no outputs folder is saved.
+   */
   readonly files?: HarnessFiles;
 }
 

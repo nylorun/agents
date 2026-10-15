@@ -79,8 +79,13 @@ Which token:
   `runSkillTool`.
   - Skills: each skill's `name`, `description` and `files` (path to `sha256:<hex>`). Read a
     file's bytes with `definition.file {runId, sha256, offset?, length?}`, at most
-    `limits.chunkBytes` a range. With a sandbox, the Runtime mounts each skill's files read-only
-    at `/skills/<name>@<hash>/` (`skillFolderOf`).
+    `limits.chunkBytes` a range. Putting a skill's files in the sandbox is yours too: our engine
+    mounts each skill version of the tree read-only at `/skills/<name>@<hash>/` (`skillFolderOf`)
+    before each sandbox call (`mountSkills`, `sandboxSkillsOf` and `definitionFileChunks` in
+    `@nylorun/harness`); the Runtime mounts nothing, its operator sandbox route included.
+  - Outputs: core exports none. Our engine saves `/workspace/outputs` as the session's
+    `outputs` folder at a completed turn's end (`saveOutputs`, §4b); a harness of your own saves
+    one only if it writes it.
   - Artifacts: reading and saving them is yours to offer, over the artifact seam (§4b).
 - `checkpoint` (`HarnessCheckpointSchema`): `sessionId`, `turnId`, `segment`, `manifestHash`,
   `input` and `state`.
@@ -136,6 +141,8 @@ Which token:
   - `harnessStateBytes`: your state (§7), as JSON (default 256 KiB).
   - `chunkBytes`: one `definition.file` range, `artifact.read` answer or `artifact.write` chunk
     (§4b): ask for and send at most this many bytes (default 16 MiB).
+  - `folderEntries`: the most files one folder version you write may hold (§4b; a count, not
+    bytes; default 10,000).
 - `model` (`ModelDescriptorSchema`, optional): the model the Model Gate uses for a call that
   names no `model.id`, as the segment started: `{provider, id, inputs, contextWindow,
   maxOutputTokens, reasoning?}`. `inputs` is what it reads (`text` always, and `image`, `pdf`,
@@ -268,13 +275,37 @@ helpers `readArtifact`, `openArtifactWrite` and `writeArtifactBytes` in
 - **Ends.** An upload your run leaves open ends with the run, and nothing of it is stored.
   `abort` ends one now, and answers `aborted` for one already gone.
 
+**Folders.** A `begin` with `kind: "folder"` writes a folder version of the session instead, file
+by file:
+
+| `op` | Params | Answer |
+| --- | --- | --- |
+| `begin` | `kind: "folder"`, `key`, `name`; optional `artifactId` (a new version of that folder of the session) or `sameName: true` (of its newest folder named `name`, made when there is none) | `{status: "open", uploadId, maxBytes, maxFileBytes, maxEntries, received: 0}`, or `written` |
+| `file` | `uploadId`, `path` (relative, `/`-separated, no `.` or `..`), `size`, `sha256`; optional `contentType`, `base64` (the whole file, when it fits one chunk) | `{status: "open", …, received}`: the file's bytes received |
+| `chunk` | `uploadId`, `sha256` (the file in progress), `offset` (within the file), `base64` | as `file` |
+| `commit` | `uploadId` | `{status: "written", artifact, created, unchanged?}`, or `{status: "refused", reason, message, limit}` |
+
+- **Every byte.** Core takes every file's bytes, whether the store holds that content already
+  or not, so a hash alone never names content. A file whose bytes do not match its `sha256` is
+  `invalid`, and the upload ends.
+- **Limits.** `maxEntries` is `limits.folderEntries`, `maxFileBytes` the per-file limit and
+  `maxBytes` the most the files may hold together; past one, the `file` request is
+  `limit_exceeded`. At commit, the version's new content (after dedupe) must fit the Tenant's and
+  the Environment's totals: past one the answer is `refused` with `reason` `tenant_total` or
+  `environment_total`, and nothing is stored.
+- **Unchanged.** A version whose files are the folder's latest is not added: `written` with
+  `created: false` and `unchanged: true` names that version.
+- Our engine's outputs folder writes one at each completed turn's end, keyed `outputs:<turnId>`,
+  and claims `artifact.export.skipped` (`{name, reason, message, limit?, path?}`) or
+  `artifact.export.failed` (`{name, message}`) with `event` when it stores nothing.
+
 Errors:
 
 | Code | When |
 | --- | --- |
-| `not_found` | The artifact is not there for the run, or `artifactId` is not one of the session's file artifacts |
+| `not_found` | The artifact is not there for the run, or `artifactId` is not one of the session's file artifacts (or, for a folder, folders) |
 | `limit_exceeded` | A chunk past `chunkBytes`; a file or total artifact limit |
-| `invalid` | A bad name or media type, no name, an offset other than `received`, an unknown `uploadId`, an `effectId` not a tool call of the turn |
+| `invalid` | A bad name, path or media type, no name, an offset other than `received`, an unknown `uploadId`, an `effectId` not a tool call of the turn, a file's bytes that do not match its hash |
 | `run_not_held`, `turn_cancelled`, `ownership_lost` | As for every run request |
 
 ## §5 Gates
@@ -365,6 +396,17 @@ Entries are one of five kinds (`TranscriptEntrySchema`):
 History, `transcript.read` and the next turn's cursor fold these edits, so write these kinds
 only.
 
+**Compaction is an edit you mark** (protocol 15). Core never parses your entries to find one:
+
+- send each model call that writes a summary with `purpose: "summary"` on its intent; core
+  records no `message.assistant` for it;
+- mark the edit that replaced the history `kind: "compaction"`, with `compaction: {trigger,
+  tokensBefore, tokensAfter, summaryEffectIds}` (`CompactionFactsSchema`; `transcriptUpdates(before,
+  after, chunkBytes, compaction)` puts it on the edit's first chunk). `summaryEffectIds` are the
+  completed summary calls of this turn that wrote it, in order;
+- core checks those calls (a call that is not one is `invalid`, and the turn fails) and writes one
+  `context.compacted` with your facts and the last call's step and timing.
+
 ## §7 Output
 
 End each segment with one output request (`TurnOutputSchema`):
@@ -451,8 +493,9 @@ A harness that declares `features.workspace` serves sandbox workspaces: core sen
 - A session's workspace off a pod is served by its own harness, if that harness declared the
   feature: our harness's workspaces are never a custom harness's files. Sweeps and removes go
   to ours.
-- Without the feature, core answers the turn-end export and the session sandbox routes with
-  "missing", and turns still run.
+- Without the feature, core answers the session sandbox routes `503`, and turns still run.
+- `workspace.read` carries a sandbox tool call or a disk operation only: core lists and reads no
+  workspace files of its own (no outputs export, protocol 15).
 
 ## §11 Versioning
 
@@ -486,7 +529,15 @@ What v4 changed (protocol 15, the harness boundary):
   in the request hash; the record refuses an undiscovered MCP tool as `tool.unknown`; the tool
   policy and approvals key on the identity; tool rows and `tool.completed` carry `tool` (§4);
 - tool results are the harness's to fit: core shapes nothing and refuses an outcome past
-  `recordEntryBytes`; spill with `artifact.write` (§5b).
+  `recordEntryBytes`; spill with `artifact.write` (§5b);
+- workspace conventions are the harness's: core mounts no skill folder and exports no outputs.
+  `artifact.write` gained a folder mode (`kind: "folder"`, `file`, `refused`, `unchanged`) and
+  `limits.folderEntries`; `artifact.export.skipped` and `artifact.export.failed` are claims;
+  `workspace.read`'s listing and bytes calls are gone (§4b, §10);
+- compaction is an explicit transcript edit (`kind: "compaction"`) naming its summary calls,
+  which say `purpose: "summary"`; `context.compacted` has no `partial` (§6);
+- our in-process harness reaches what a remote one does: the Model Gate for every model call,
+  the Tool Gate for every MCP server, `definition.file` for skill bytes.
 
 v3 renamed `hello.capabilities` to `features`, removed `capabilityId` from effects, gate calls and
 MCP records, and gave the harness flat manifests (protocol 13); `definition.file`'s

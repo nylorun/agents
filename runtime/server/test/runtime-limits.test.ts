@@ -55,7 +55,7 @@ it("refuses a limit above its ceiling, naming the ceiling, and keeps what was se
   });
   expect(refused.status).toBe(400);
   expect(refused.body.message).toContain(
-    `limits.recordEntryBytes asks for ${S2_RECORD_MAX_BYTES} bytes; its ceiling is ${RUNTIME_LIMIT_CEILINGS.recordEntryBytes.bytes}`,
+    `limits.recordEntryBytes asks for ${S2_RECORD_MAX_BYTES} bytes; its ceiling is ${RUNTIME_LIMIT_CEILINGS.recordEntryBytes.value}`,
   );
   expect(refused.body.message).toContain("S2");
   expect((await limits(runtime, "GET")).body.limits.harnessStateBytes).toBe(1024);

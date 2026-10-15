@@ -82,10 +82,10 @@ import { rearmPodTimers } from "../../../tenant/environments.js";
 const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
 
 /** Each Runtime limit's default and ceiling, for the limits routes' descriptions. */
-const LIMITS_TABLE = `Defaults and ceilings (bytes): ${Object.entries(RUNTIME_LIMIT_CEILINGS)
+const LIMITS_TABLE = `Defaults and ceilings: ${Object.entries(RUNTIME_LIMIT_CEILINGS)
   .map(
     ([name, ceiling]) =>
-      `\`${name}\` ${RUNTIME_LIMIT_DEFAULTS[name as keyof typeof RUNTIME_LIMIT_DEFAULTS]}, at most ${ceiling.bytes} (${ceiling.why})`,
+      `\`${name}\` ${RUNTIME_LIMIT_DEFAULTS[name as keyof typeof RUNTIME_LIMIT_DEFAULTS]} ${ceiling.unit}, at most ${ceiling.value} (${ceiling.why})`,
   )
   .join("; ")}.`;
 
@@ -173,7 +173,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
           sandbox: ctx.sandbox,
           closing: ctx.closing || ctx.closed,
           modelConfigured:
-            !ctx.useVaultModel ||
+            ctx.scriptedModel ||
             (await ctx.store.tx((t) => usesFixtureModel(t))) ||
             (await vault.getHostModel()).configured,
           ...(ctx.stuckInvocations ? { stuckInvocations: ctx.stuckInvocations } : {}),

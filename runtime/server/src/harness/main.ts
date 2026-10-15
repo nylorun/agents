@@ -83,7 +83,6 @@ export async function runHarness(
       : {}),
     paths,
     modelGate: httpModelGate({ url: config.gatesUrl, runTokens }),
-    useVaultModel: true,
     toolGate: httpToolGate({ url: config.gatesUrl, runTokens }),
     logger,
     version: RUNTIME_VERSION,

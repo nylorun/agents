@@ -12,6 +12,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { McpPool } from "../src/mcp/pool.js";
+import { inProcessToolGate } from "../src/gates/tool-gate.js";
 import { createMcpHandler } from "../src/gates/mcp-handler.js";
 import type { TenantVaults } from "../src/gates/tenant-vaults.js";
 import { noLimitsStore } from "./support/limits.js";
@@ -92,17 +93,27 @@ async function sessionServer(options: { endEveryCall?: boolean } = {}) {
 const agentFor = (url: string) =>
   Agent({ id: "bot" }).mcp({ remote: { type: "streamable-http", url } }).build().manifest;
 
-/** A pool whose server's credential sends requests to `via()`. */
+/** The manifest the session pinned: what the in-process Tool Gate finds the server in. */
+let pinned: unknown;
+
+/** A pool whose server's credential sends requests to `via()`, opened through the in-process gate. */
 function poolFor(via?: () => string) {
-  return new McpPool({
-    authorize: async (_session, { url }): Promise<AuthorizeResult> =>
-      via
-        ? { status: "authorized", url, headers: {}, via: via(), vault: "installation" }
-        : { status: "unauthenticated", url, headers: {} },
-  });
+  const gate = inProcessToolGate(
+    {},
+    {
+      session: async () => ({ manifest: pinned }),
+      authorize: async (_session, { url }): Promise<AuthorizeResult> =>
+        via
+          ? { status: "authorized", url, headers: {}, via: via(), vault: "installation" }
+          : { status: "unauthenticated", url, headers: {} },
+      toolAnswerBytes: async () => RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
+    }
+  );
+  return new McpPool({ openRemote: gate.openMcp! });
 }
 
 async function callThrough(pool: McpPool, manifest: ReturnType<typeof agentFor>) {
+  pinned = manifest;
   return pool.call({
     maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
     sessionId: "s1",

@@ -96,7 +96,7 @@ export function isGateToolEffect(s: Session, request: HostEffect): boolean {
  * the running call or gets its outcome, instead of becoming `uncertain`.
  */
 export function recoversModelCalls(ctx: TenantContext): boolean {
-  return ctx.useVaultModel && ctx.modelGate.recovers === true;
+  return ctx.modelGate.recovers === true;
 }
 
 type FlowStep =

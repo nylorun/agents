@@ -18,14 +18,37 @@ import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
 import { McpFactsSchema, McpSnapshotSchema } from "./mcp.js";
 
 const id = z.string().min(1).max(512);
+const hex64 = z.string().regex(/^[0-9a-f]{64}$/);
 const runId = z.object({ runId: id });
 /** An engine document (a manifest, a checkpoint): an object here, which the engine checks. */
 const document: z.ZodType<object> = z.record(z.string(), z.unknown());
 
-/** The payload of one `transcript.updated` event. */
-export const TranscriptUpdateSchema = z
-  .object({ keep: z.number().int().min(0), entries: z.array(z.unknown()), length: z.number().int().min(0) })
+const edit = { keep: z.number().int().min(0), entries: z.array(z.unknown()), length: z.number().int().min(0) };
+
+/**
+ * What a harness says of a compaction it made (protocol 15): why, its estimated tokens before and
+ * after, and the model calls of this turn that wrote the summary (`purpose: "summary"`), in
+ * order. Core checks them and writes one `context.compacted` from them and the last call.
+ */
+export const CompactionFactsSchema = z
+  .object({
+    trigger: z.enum(["threshold", "overflow"]),
+    tokensBefore: z.number().int().min(0),
+    tokensAfter: z.number().int().min(0),
+    summaryEffectIds: z.array(id).min(1),
+  })
   .strict();
+
+/**
+ * The payload of one `transcript.updated` event: keep the first `keep` entries, append `entries`,
+ * giving `length` entries. A harness that replaced older history with a summary marks the edit
+ * `kind: "compaction"` with its facts (the first chunk of the edit; the record never parses the
+ * entries to find one).
+ */
+export const TranscriptUpdateSchema = z.union([
+  z.object(edit).strict(),
+  z.object({ kind: z.literal("compaction"), ...edit, compaction: CompactionFactsSchema }).strict(),
+]);
 
 export const FrameSchema = z.union([
   z.object({ t: z.literal("req"), id: z.number().int().positive(), m: z.string().min(1), p: z.unknown() }).strict(),
@@ -77,6 +100,9 @@ export const EffectTargetSchema = z.discriminatedUnion("kind", [
  * `invocationId`; without them the call is journaled but no `tool.completed` is written. A
  * tool effect may name its step (`stepId`).
  *
+ * A model effect that writes a compaction's summary says so (`purpose: "summary"`): it is no
+ * assistant message, and the compaction edit that follows names it (`CompactionFactsSchema`).
+ *
  * An agent's tool effect names its `target` (what runs it: for an MCP or HTTP tool, its
  * identity) beside the name the model used (`toolName`, for display), and may name the `skill` it
  * ran (a skill tool's skill, or a sandbox call in a skill's folder): the record keeps the skill,
@@ -103,6 +129,8 @@ export const EffectIntentSchema = z
     toolName: z.string().optional(),
     target: EffectTargetSchema.optional(),
     skill: z.string().min(1).optional(),
+    /** A model call that summarizes history for a compaction: the record writes no `message.assistant` for it. */
+    purpose: z.literal("summary").optional(),
     path: z.string().optional(),
     key: z.string().optional(),
     iterations: z.string().optional(),
@@ -166,32 +194,6 @@ export const WorkspaceCallSchema = z
     spec: z.unknown(),
     tool: z.enum(SANDBOX_TOOL_NAMES),
     input: z.unknown(),
-  })
-  .strict();
-
-/**
- * A file of a workspace read as bytes (the turn-end export, F8.2), at most `maxBytes`. The answer is
- * `{kind: "read", path, base64}`, `{kind: "missing", path}` or a failed tool outcome.
- */
-export const WorkspaceBytesCallSchema = z
-  .object({
-    session: WorkspaceSessionSchema,
-    spec: z.unknown(),
-    bytes: z.object({ path: z.string().min(1), maxBytes: z.number().int().positive() }).strict(),
-  })
-  .strict();
-
-/**
- * The regular files under a directory of a workspace, recursively, at most `maxEntries + 1`
- * (the turn-end export, F8.2). The answer is `{kind: "listed", path, listing: {entries,
- * truncated}}`, `{kind: "missing", path}` (no sandbox yet, or not a directory) or a failed tool
- * outcome.
- */
-export const WorkspaceListCallSchema = z
-  .object({
-    session: WorkspaceSessionSchema,
-    spec: z.unknown(),
-    list: z.object({ dir: z.string().min(1), maxEntries: z.number().int().positive() }).strict(),
   })
   .strict();
 
@@ -540,7 +542,7 @@ export const harnessRequests = {
       .extend({
         sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
         offset: z.number().int().nonnegative().optional(),
-        length: z.number().int().positive().max(RUNTIME_LIMIT_CEILINGS.chunkBytes.bytes).optional(),
+        length: z.number().int().positive().max(RUNTIME_LIMIT_CEILINGS.chunkBytes.value).optional(),
       })
       .strict(),
     result: z.object({ base64: z.string() }).strict(),
@@ -585,6 +587,17 @@ export const harnessRequests = {
    *   of the last chunk is answered as before.
    * - `commit` stores the version (`written`); `abort` drops the upload. An upload the run leaves
    *   open ends with the run.
+   *
+   * With `kind: "folder"`, `begin` opens a folder version instead: a new version of the session's
+   * folder `artifactId`, or with `sameName` of its newest folder named `name` (made when there is
+   * none), or else a new folder. Its answer adds `maxFileBytes` (one file's limit) and
+   * `maxEntries` (`limits.folderEntries`); `maxBytes` is the most its files may hold together.
+   * Each file starts with `file` (its path in the folder, size and SHA-256, the whole body in
+   * `base64` when it fits one chunk), and goes on with `chunk`s naming it by `sha256`, from
+   * `offset` within the file. Core always takes every byte, stored or not (it holds content once,
+   * by hash), and refuses a file whose bytes do not match its hash (`invalid`; the upload ends).
+   * `commit` answers `written` with `unchanged: true` and no new version when the files are the
+   * folder's latest version's, and `refused` when a total would be passed.
    */
   "artifact.write": {
     params: z.union([
@@ -602,8 +615,31 @@ export const harnessRequests = {
         .strict(),
       runId
         .extend({
+          op: z.literal("begin"),
+          kind: z.literal("folder"),
+          key: id,
+          name: z.string().min(1).max(ARTIFACT_NAME_MAX),
+          artifactId: id.optional(),
+          sameName: z.literal(true).optional(),
+        })
+        .strict(),
+      runId
+        .extend({
+          op: z.literal("file"),
+          uploadId: id,
+          path: z.string().min(1),
+          size: z.number().int().nonnegative(),
+          sha256: hex64,
+          contentType: z.string().min(1).optional(),
+          base64: z.string().optional(),
+        })
+        .strict(),
+      runId
+        .extend({
           op: z.literal("chunk"),
           uploadId: id,
+          /** A folder upload's file this chunk continues. */
+          sha256: hex64.optional(),
           offset: z.number().int().nonnegative(),
           base64: z.string().min(1),
         })
@@ -617,10 +653,31 @@ export const harnessRequests = {
           status: z.literal("open"),
           uploadId: id,
           maxBytes: z.number().int().nonnegative(),
+          /** A folder upload: one file's limit, and the most files it may hold. */
+          maxFileBytes: z.number().int().nonnegative().optional(),
+          maxEntries: z.number().int().positive().optional(),
+          /** Bytes received: of the upload, or of a folder upload's file in progress. */
           received: z.number().int().nonnegative(),
         })
         .strict(),
-      z.object({ status: z.literal("written"), artifact: ArtifactMetaSchema, created: z.boolean() }).strict(),
+      z
+        .object({
+          status: z.literal("written"),
+          artifact: ArtifactMetaSchema,
+          created: z.boolean(),
+          /** A folder whose files are its latest version's: no version was added. */
+          unchanged: z.literal(true).optional(),
+        })
+        .strict(),
+      z
+        .object({
+          status: z.literal("refused"),
+          /** The total a folder version would pass: the Tenant's, or the session's Environment's. */
+          reason: z.enum(["tenant_total", "environment_total"]),
+          message: z.string(),
+          limit: z.number().int().nonnegative(),
+        })
+        .strict(),
       z.object({ status: z.literal("aborted") }).strict(),
     ]),
   },
@@ -635,12 +692,11 @@ export const harnessRequests = {
 /**
  * Requests core sends to a harness that declared `workspace` (F6.2), with their answers. A
  * sandbox tool's answer is its `SandboxToolOutcome`; the harness claims its `environment.*` events
- * while the request is in flight. `workspace.read` stays generic: F8.2 exports outputs
- * through it.
+ * while the request is in flight.
  */
 export const coreRequests = {
   "workspace.read": {
-    params: z.union([WorkspaceCallSchema, WorkspaceBytesCallSchema, WorkspaceListCallSchema, WorkspaceDiskCallSchema]),
+    params: z.union([WorkspaceCallSchema, WorkspaceDiskCallSchema]),
     result: outcomeObject,
   },
   "workspace.write": { params: z.union([WorkspaceCallSchema, WorkspaceDiskCallSchema]), result: outcomeObject },

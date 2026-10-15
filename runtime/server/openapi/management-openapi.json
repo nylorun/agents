@@ -1185,6 +1185,10 @@
               "chunkBytes": {
                 "type": "integer",
                 "exclusiveMinimum": 0
+              },
+              "folderEntries": {
+                "type": "integer",
+                "exclusiveMinimum": 0
               }
             },
             "required": [
@@ -1193,7 +1197,8 @@
               "modelFileBytes",
               "toolAnswerBytes",
               "harnessStateBytes",
-              "chunkBytes"
+              "chunkBytes",
+              "folderEntries"
             ],
             "additionalProperties": false
           }
@@ -1230,6 +1235,10 @@
                 "exclusiveMinimum": 0
               },
               "chunkBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "folderEntries": {
                 "type": "integer",
                 "exclusiveMinimum": 0
               }
@@ -6369,7 +6378,7 @@
           "Settings"
         ],
         "summary": "Get the Tenant's Runtime limits",
-        "description": "What one record entry, model call, model file, tool answer, custom harness state and Harness API chunk may hold, in bytes: the Tenant's (Tenant setting `limits.config`), with the default for each it leaves out. Harnesses get them in `turn.start.limits`. Defaults and ceilings (bytes): `recordEntryBytes` 983040, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON).",
+        "description": "What one record entry, model call, model file, tool answer, custom harness state and Harness API chunk may hold, in bytes: the Tenant's (Tenant setting `limits.config`), with the default for each it leaves out. Harnesses get them in `turn.start.limits`. Defaults and ceilings: `recordEntryBytes` 983040 bytes, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432 bytes, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608 bytes, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608 bytes, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144 bytes, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216 bytes, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON); `folderEntries` 10000 entries, at most 4628197 (a folder's manifest is read as one string, of at most 536870888 characters, and each entry takes at least 116).",
         "security": [
           {
             "managementKey": []
@@ -6469,7 +6478,7 @@
           "Settings"
         ],
         "summary": "Set the Tenant's Runtime limits",
-        "description": "Replaces the Tenant's Runtime limits: a limit left out takes its default. A limit above its ceiling, which a dependency sets, is `400` naming the ceiling, and nothing is written. Each is read where it is checked, so a new value holds for the next write, call or segment. Defaults and ceilings (bytes): `recordEntryBytes` 983040, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON).",
+        "description": "Replaces the Tenant's Runtime limits: a limit left out takes its default. A limit above its ceiling, which a dependency sets, is `400` naming the ceiling, and nothing is written. Each is read where it is checked, so a new value holds for the next write, call or segment. Defaults and ceilings: `recordEntryBytes` 983040 bytes, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432 bytes, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608 bytes, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608 bytes, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144 bytes, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216 bytes, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON); `folderEntries` 10000 entries, at most 4628197 (a folder's manifest is read as one string, of at most 536870888 characters, and each entry takes at least 116).",
         "security": [
           {
             "managementKey": []

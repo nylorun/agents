@@ -531,7 +531,7 @@ its `put` takes the settings alone (`limits`, `lifecycle`, `placement`).
 
 `settings limits` is the Tenant's Runtime limits, in bytes: `recordEntryBytes`,
 `modelCallBytes`, `modelFileBytes`, `toolAnswerBytes`, `harnessStateBytes` and
-`chunkBytes`. A limit left out of a `put` takes its default; one above its
+`chunkBytes`, and `folderEntries` (a count of files). A limit left out of a `put` takes its default; one above its
 ceiling (S2's 1 MiB record, the Harness API's 64 MiB frame) is refused, and the
 error names the ceiling.
 

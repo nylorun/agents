@@ -61,6 +61,11 @@ export interface HostEffect {
   readonly target?: EffectTarget;
   /** The skill the call ran, which the record keeps when the agent has that skill. */
   readonly skill?: string;
+  /**
+   * A model call that summarizes history for a compaction (protocol 15): the record writes no
+   * assistant message for it, and the compaction's transcript edit names it.
+   */
+  readonly purpose?: "summary";
   /** Workflow node path (flow effects). */
   readonly path?: string;
   /** Workflow node key without Map indices (flow effects). */
@@ -90,6 +95,11 @@ export type DurableResult =
       readonly status: "completed" | "paused" | "cancelled" | "failed" | "yielded";
       readonly checkpoint: DurableCheckpoint;
       readonly result: RunResult<unknown>;
+      /**
+       * The root agent's summary calls of this segment, in order: the effects a compaction edit
+       * of its transcript names (`CompactionFacts.summaryEffectIds`).
+       */
+      readonly summaryEffectIds?: readonly string[];
     };
 /**
  * A tool our engine adds to an agent for this execution (an MCP tool of the session, one of our
@@ -186,7 +196,7 @@ export async function runDurable(options: {
     input: unknown,
     context: Record<string, unknown>,
     identity: string,
-    target: Pick<HostEffect, "toolName" | "agent" | "target" | "skill"> = {},
+    target: Pick<HostEffect, "toolName" | "agent" | "target" | "skill" | "purpose"> = {},
   ): Promise<EffectOutcome> => {
     const effectId = effectIdOf(checkpoint.turnId, checkpoint.segment, kind, identity);
     const request: HostEffect = JSON.parse(
@@ -322,22 +332,29 @@ export async function runDurable(options: {
       }),
     );
   };
+  /** The root agent's summary calls, in the order they were made: a compaction edit names them. */
+  const summaries: string[] = [];
   const modelCall =
     (ref?: AgentRef): ModelAdapter =>
-    async (call, ctx) =>
-      (
+    async (call, ctx) => {
+      const identity = scoped(ref, ctx.invocationId);
+      // A compaction of an agent used as a tool lives in our state, not the session's transcript.
+      if (ctx.compaction && !ref)
+        summaries.push(effectIdOf(checkpoint.turnId, checkpoint.segment, "model", identity));
+      return (
         await effect(
           "model",
           call,
           // The call already holds the whole prompt; journaling the request would store it twice.
+          { invocationId: ctx.invocationId },
+          identity,
           {
-            invocationId: ctx.invocationId,
-            ...(ctx.compaction ? { compaction: ctx.compaction } : {}),
+            ...(ref ? { agent: ref } : {}),
+            ...(ctx.compaction ? { purpose: "summary" as const } : {}),
           },
-          scoped(ref, ctx.invocationId),
-          ref ? { agent: ref } : {},
         )
       ).value as any;
+    };
   const delegation: DelegationHost = {
     child: (delegate, ref) => ({
       definition: hostedDefinition(delegate.manifest as AgentManifest, ref),
@@ -385,7 +402,12 @@ export async function runDurable(options: {
         { delegation, ...(options.yieldAfter ? { yieldAfter: options.yieldAfter } : {}) },
       ),
     );
-    return { status: result.status, checkpoint: { ...checkpoint, state: result.state }, result };
+    return {
+      status: result.status,
+      checkpoint: { ...checkpoint, state: result.state },
+      result,
+      ...(summaries.length > 0 ? { summaryEffectIds: [...summaries] } : {}),
+    };
   } catch (error) {
     // Parallel tool dispatch can suspend more than one action. Drain persistence before returning.
     await Promise.allSettled([...inFlight]);

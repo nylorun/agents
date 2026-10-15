@@ -8,6 +8,7 @@
  */
 import {
   fromBase64,
+  type CompactionFacts,
   transcriptOf,
   transcriptUpdates,
   withTranscript,
@@ -27,6 +28,7 @@ import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { apiHost, type EngineToolConfig } from "./host.js";
 import { engineToolsFor } from "../tools/engine-tools.js";
 import { mcpToolSet } from "../tools/mcp.js";
+import { saveOutputs } from "../tools/outputs.js";
 import type { TranscriptCache } from "./transcript-cache.js";
 import type { FileContext } from "../loop/model/files.js";
 
@@ -121,6 +123,20 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             ...(start.model ? { model: start.model } : {}),
             files: filesOf(ctx, run, start),
           });
+    // Our engine's outputs folder (Q5): saved before the turn ends, while the run is held.
+    if (
+      start.engine === "agent" &&
+      result.status === "completed" &&
+      start.environment?.sandbox !== undefined &&
+      ctx.executors.files
+    )
+      await saveOutputs({
+        channel: ctx.channel,
+        run,
+        files: ctx.executors.files,
+        config: ctx.engine.outputs,
+        signal,
+      });
     ({ output, after } = outputOf(runId, result, transcript));
   } catch (error) {
     output = {
@@ -231,14 +247,39 @@ function outputOf(
   };
   if (outcome.state === undefined) return { output: { runId, status: result.status, ...fields } };
   const after = transcriptOf(outcome.state);
+  const compaction = compactionOf(start, after, result);
   return {
     output: {
       runId,
       status: result.status,
       state: withTranscript(outcome.state, []),
-      transcript: transcriptUpdates(start, after),
+      transcript: transcriptUpdates(start, after, undefined, compaction),
       ...fields,
     },
     after,
+  };
+}
+
+/**
+ * What the segment says of a compaction it made (Q4): its transcript starts with a summary it did
+ * not start with, written by the root's summary calls. Our engine keeps one summary, first; a
+ * segment that compacted twice names every summary call, and the facts of the last.
+ */
+function compactionOf(
+  start: readonly unknown[],
+  after: readonly unknown[],
+  result: EngineResult,
+): CompactionFacts | undefined {
+  const ids = "summaryEffectIds" in result ? result.summaryEffectIds : undefined;
+  const entry = after[0] as
+    | { kind?: unknown; trigger?: unknown; tokensBefore?: unknown; tokensAfter?: unknown }
+    | undefined;
+  if (!ids?.length || entry?.kind !== "compaction") return undefined;
+  if (JSON.stringify(start[0]) === JSON.stringify(entry)) return undefined;
+  return {
+    trigger: entry.trigger === "overflow" ? "overflow" : "threshold",
+    tokensBefore: Math.max(0, Math.round(Number(entry.tokensBefore) || 0)),
+    tokensAfter: Math.max(0, Math.round(Number(entry.tokensAfter) || 0)),
+    summaryEffectIds: [...ids],
   };
 }

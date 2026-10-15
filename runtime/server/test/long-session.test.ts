@@ -27,7 +27,7 @@ function model(stats: { overflows: number; compactions: number; largest: number 
     const call = effect.input as ModelCall;
     const tokens = Math.ceil(JSON.stringify(call.prompt).length / 4);
     stats.largest = Math.max(stats.largest, tokens);
-    if ((effect.context as { compaction?: unknown }).compaction) {
+    if (effect.purpose === "summary") {
       stats.compactions++;
       return { output: [{ type: "text", text: "## Goal\nWrite the files.\n## Progress\nMany written." }] };
     }
@@ -104,7 +104,6 @@ it.each([
       const { items } = await session.history();
       const compacted = items.filter((item) => item.type === "context.compacted");
       expect(compacted.length).toBeGreaterThan(0);
-      expect(stats.compactions).toBe(compacted.length);
       // Proactive compaction kept every call inside the window.
       expect(stats.overflows).toBe(0);
       expect(stats.largest).toBeLessThanOrEqual(WINDOW);
@@ -121,6 +120,19 @@ it.each([
           ).map((row) => row.body as LiveEvent),
         }),
       );
+      // Each compaction is a transcript edit that says so (Q4), naming its summary calls; one
+      // context.compacted follows each, and every summary call is named once.
+      const edits = stored.events.filter(
+        (event) => event.type === "transcript.updated" && (event.payload as { kind?: string }).kind === "compaction",
+      );
+      expect(edits).toHaveLength(compacted.length);
+      const named = edits.flatMap(
+        (event) => (event.payload as { compaction: { summaryEffectIds: string[] } }).compaction.summaryEffectIds,
+      );
+      expect(named).toHaveLength(stats.compactions);
+      expect(new Set(named).size).toBe(named.length);
+      const summaries = stored.effects.filter((effect) => effect.request.purpose === "summary");
+      expect(summaries.map((effect) => effect.id ?? effect.request.effectId).sort()).toEqual([...named].sort());
       const models = stored.effects.filter((effect) => effect.request.kind === "model");
       expect(models.length).toBeGreaterThan(TURNS * STEPS);
       expect(models.every((effect) => effect.slimmed === true)).toBe(true);

@@ -1,7 +1,8 @@
 /**
  * Calls of several sessions on one workspace (D66): each session's calls run in the order it sends
  * them, different sessions' calls run at the same time, a cancel ends only its own call, a stop or
- * removal waits for the calls running, and each version of a skill gets its own folder.
+ * removal waits for the calls running, and each version of a skill gets its own folder, written
+ * once per open handle (`mountFolder`, protocol 15).
  */
 import { expect, it } from "vitest";
 import { skillFolderOf, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
@@ -92,17 +93,26 @@ async function setup() {
     preference: "virtual",
     ephemeral: false,
     emit: () => undefined,
-    definitionFile: async (sha256) => new TextEncoder().encode(`# ${sha256}\n`),
   });
-  const session = (id: string, manifest = manifestWith()): SandboxSessionRef => ({
+  const session = (id: string): SandboxSessionRef => ({
     id,
     activeTurnId: `${id}-turn`,
-    manifest,
     environmentId: "team/ws",
   });
+  const mount = (ref: SandboxSessionRef, manifest: AgentManifest) => {
+    const skill = manifest.skills!.notes!;
+    return manager.mountFolder(
+      ref,
+      SPEC,
+      skillFolderOf(skill),
+      skill.files,
+      (sha256) => new TextEncoder().encode(`# ${sha256}\n`),
+      new AbortController().signal
+    );
+  };
   const bash = (ref: SandboxSessionRef, command: string, signal = new AbortController().signal) =>
     manager.run(ref, SPEC, "bash", { command }, signal);
-  return { ...fake, store, manager, session, bash };
+  return { ...fake, store, manager, session, bash, mount };
 }
 
 async function until(done: () => boolean): Promise<void> {
@@ -184,19 +194,26 @@ it("stops or removes a workspace only after the calls running end", async () => 
   await manager.close();
 });
 
-it("mounts each version of a skill in its own folder, once", async () => {
-  const { manager, session, bash, writes } = await setup();
+it("mounts each version of a skill in its own folder, once per open handle", async () => {
+  const { manager, session, mount, writes } = await setup();
   const v1 = manifestWith({ "SKILL.md": SKILL_V1 });
   const v2 = manifestWith({ "SKILL.md": SKILL_V2 });
   const folder1 = skillFolderOf(v1.skills!.notes!);
   const folder2 = skillFolderOf(v2.skills!.notes!);
   expect(folder1).not.toBe(folder2);
-  await Promise.all([bash(session("a", v1), "echo a"), bash(session("b", v2), "echo b")]);
+  expect(await Promise.all([mount(session("a"), v1), mount(session("b"), v2)])).toEqual([
+    { kind: "mounted" },
+    { kind: "mounted" },
+  ]);
   expect(writes.filter((path) => path === `${folder1}/SKILL.md`)).toHaveLength(1);
   expect(writes.filter((path) => path === `${folder2}/SKILL.md`)).toHaveLength(1);
-  // A third session with the first version finds it mounted.
-  await bash(session("c", v1), "echo c");
+  // A third session with the first version finds it mounted, without an exec.
+  expect(await mount(session("c"), v1)).toEqual({ kind: "present" });
   expect(writes.filter((path) => path.startsWith("/skills/"))).toHaveLength(2);
+  // A stop clears the folders: the next mount after the reopen writes them again.
+  await manager.stopIdle(Date.now() + 3_600_000);
+  expect(await mount(session("a"), v1)).toEqual({ kind: "mounted" });
+  expect(writes.filter((path) => path === `${folder1}/SKILL.md`)).toHaveLength(2);
   await manager.close();
 });
 

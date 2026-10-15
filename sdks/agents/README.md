@@ -706,11 +706,11 @@ oldest-first behavior and does not require `artifact-reads`.
 
 ### Outputs: folder artifacts
 
-At the end of each turn, the Runtime exports the files the agent wrote into
+At the end of each turn, our harness saves the files the agent wrote into
 `/workspace/outputs` of its sandbox as a version of the session's **folder**
-artifact `outputs` (kind `folder`): the first export creates it, and each later
+artifact `outputs` (kind `folder`): the first save creates it, and each later
 turn whose outputs changed adds a version, announced by `artifact.created` or
-`artifact.version.created` with `source: "export"`. A file that did not change is
+`artifact.version.created` with `source: "engine"` (`"export"` before protocol 15). A file that did not change is
 stored once. Read a folder as a tree, one file by path, a diff or a zip:
 
 ```ts
@@ -722,8 +722,9 @@ const zip = await client.artifacts.zip(outputs.artifactId); // a streamed Respon
 const { url } = await client.artifacts.link(outputs.artifactId, { file: "app/index.html" }); // or the zip without `file`
 ```
 
-An export past a limit (10,000 files, 1 GiB, the per-file limit or the Tenant
-total) stores nothing and records `artifact.export.skipped`; the turn still
+A save past a limit (the Runtime limit `folderEntries`, 10,000 files by default;
+1 GiB, our harness's own bound; the per-file limit or the Tenant total) stores
+nothing, and our harness records `artifact.export.skipped`; the turn still
 completes.
 
 ## Acting for a person (app servers)

@@ -97,6 +97,13 @@ describe("public API", () => {
         "spillKey",
         "toolResultConfigOf",
         "utf8Boundary",
+        // Our engine's workspace conventions: skill folders and the outputs folder (protocol 15).
+        "definitionFileChunks",
+        "mountSkills",
+        "sandboxSkillsOf",
+        "DEFAULT_OUTPUTS_CONFIG",
+        "outputsConfigOf",
+        "saveOutputs",
       ].sort(),
     );
   });

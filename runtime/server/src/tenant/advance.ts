@@ -62,6 +62,7 @@ import type { ToolRowFacts } from "../harness-api/tool-journal.js";
 import { harnessOf, type Lease, type Session, type TenantContext } from "./context.js";
 import { HARNESS_ID } from "../sandbox/placement.js";
 import { recoversModelCalls } from "./effects.js";
+import { contextCompacted } from "./transcript.js";
 import { slimModelEffects } from "./slim.js";
 import {
   applyUpdates,
@@ -71,7 +72,6 @@ import {
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
-import { exportOutputs } from "../artifacts/export.js";
 import { dropRunGrant, grantRun, type RunOf } from "./run-grants.js";
 import { startHeartbeat } from "../harness-api/renew.js";
 import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/start.js";
@@ -378,13 +378,12 @@ async function runRemoteSegment(
     else {
       const recorded =
         result.status === "yielded" || result.status === "completed" || result.status === "paused";
-      cursor = await settleTurn(
+      cursor = await settle(
         ctx,
         lease,
         started,
         result,
         recorded ? output.transcript ?? [] : [],
-        signal,
         segment.cursor,
         // The turn's end and its transcript are what the harness reported (R4.9).
         { source: { kind: "harness", id: harnessOf(started) }, evidence: "claimed", runId: output.runId }
@@ -484,27 +483,6 @@ async function wakeWorkflowOf(
       cancelled: true,
       error: "Agent turn was cancelled",
     });
-}
-
-/**
- * `settle`, then, for a completed turn, the turn-end export of its sandbox outputs (F8.2): after
- * the turn has committed and while the advance still holds the lease. The harness hears back
- * after the export. The export never throws.
- */
-async function settleTurn(
-  ctx: TenantContext,
-  lease: Lease,
-  s: Session,
-  result: SegmentResult,
-  updates: readonly TranscriptUpdate[],
-  signal: AbortSignal,
-  cursor?: number,
-  writer?: EventWriter
-): Promise<number | undefined> {
-  const kept = await settle(ctx, lease, s, result, updates, cursor, writer);
-  if (result.status === "completed")
-    await exportOutputs(ctx, lease.sessionId, s.activeTurnId, signal);
-  return kept;
 }
 
 /**
@@ -791,8 +769,9 @@ function leanCheckpoint<T extends object | undefined>(session: Session, checkpoi
 }
 
 /**
- * Appends a segment's transcript edits; a snapshot moves `history.snapshot`. Returns the seq of
- * the last edit, if any.
+ * Appends a segment's transcript edits; a snapshot moves `history.snapshot`. An edit the harness
+ * marks as a compaction (`kind: "compaction"`, Q4) also writes `context.compacted`, from its facts
+ * and the summary calls it names. Returns the seq of the last edit, if any.
  */
 async function recordTranscript(
   t: Tx,
@@ -805,6 +784,8 @@ async function recordTranscript(
   let last: number | undefined;
   for (const update of updates) {
     const event = await t.event(id, turnId, "transcript.updated", update, writer);
+    if ("compaction" in update)
+      await t.event(id, turnId, "context.compacted", await contextCompacted(t, id, turnId, update.compaction), writer);
     if (update.keep === 0) s.history = { from: s.history?.from ?? event.seq, snapshot: event.seq };
     last = event.seq;
   }

@@ -17,6 +17,9 @@
  *   it from the journal, so the harness only names the call.
  * - **Ends.** `abort`, the run's end and core's abort of the advance stop an upload: nothing
  *   commits.
+ * - **Folders.** `begin` with `kind: "folder"` writes a folder version of the session instead
+ *   (`artifacts/folder-upload.ts`): file by file, each checked against its hash, committed with
+ *   dedupe, and not added when it equals the folder's latest version.
  */
 import { randomUUID } from "node:crypto";
 import { HarnessApiError, type ArtifactMeta, type ParamsOf, type ResultOf } from "@nylorun/core/harness-api";
@@ -34,10 +37,13 @@ import {
   type Uploaded,
 } from "../artifacts/service.js";
 import type { ArtifactRow, ArtifactVersionRow } from "../store/types.js";
+import { FolderUpload } from "../artifacts/folder-upload.js";
+import { contentEpoch } from "../artifacts/folders.js";
 import type { Session, TenantContext } from "../tenant/context.js";
 import { HttpError } from "../tenant/http.js";
 import { toolIds } from "../tenant/transcript.js";
 import { abortKind } from "../tenant/worker.js";
+import { Pipe } from "../artifacts/pipe.js";
 
 /** The run an artifact request is for, as the server holds it. */
 export interface ArtifactScope {
@@ -78,6 +84,97 @@ const notOurs = (artifactId: string) =>
 
 export function createArtifactSeam(ctx: TenantContext): ArtifactSeam {
   const uploads = new Map<string, Map<string, Upload>>();
+  const folders = new Map<string, Map<string, FolderUpload>>();
+
+  const folderOf = (scope: ArtifactScope, uploadId: string): FolderUpload | undefined =>
+    folders.get(scope.runId)?.get(uploadId);
+
+  const forgetFolder = (runId: string, uploadId: string) => {
+    const open = folders.get(runId);
+    open?.delete(uploadId);
+    if (open?.size === 0) folders.delete(runId);
+  };
+
+  /** Opens a folder version of the session (`kind: "folder"`). */
+  const beginFolder = async (
+    scope: ArtifactScope,
+    params: Extract<ParamsOf<"artifact.write">, { op: "begin"; kind: "folder" }>,
+  ): Promise<ResultOf<"artifact.write">> => {
+    stopped(scope.runSignal);
+    const { sessionId } = scope;
+    harnessError(() => checkArtifactName(params.name));
+    const writeKey = writeKeyOf(sessionId, params.key);
+    const begun = await ctx.store.tx(async (t) => {
+      // A key written before answers its version: a harness repeating a write stores nothing.
+      const known = await t.artifactVersionByWriteKey(writeKey);
+      if (known) {
+        const row = await t.artifact(known.artifactId);
+        if (row) return { written: metaOf(row, known) };
+      }
+      const session = await t.get<Session>("sessions", sessionId);
+      if (!session) throw new HarnessApiError("run_not_held", `Session ${sessionId} is gone`);
+      let prior: ArtifactRow | undefined;
+      if (params.artifactId !== undefined) {
+        prior = isArtifactId(params.artifactId) ? await t.artifact(params.artifactId) : undefined;
+        if (!prior || prior.kind !== "folder" || prior.sessionId !== sessionId) throw notOurs(params.artifactId);
+      } else if (params.sameName)
+        prior = (await t.listArtifacts({ sessionId }))
+          .filter((row) => row.kind === "folder" && row.name === params.name)
+          .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))[0];
+      const latest = prior ? await t.artifactVersion(prior.id, prior.latestVersion) : undefined;
+      return {
+        upload: new FolderUpload(ctx, {
+          sessionId,
+          turnId: scope.turnId,
+          name: params.name,
+          ...(prior ? { prior: { row: prior, ...(latest ? { latest } : {}) } } : {}),
+          quota: await artifactQuota(t, await environmentOfSession(t, sessionId)),
+          epoch: await contentEpoch(t),
+          writeKey,
+          limits: scope.limits,
+        }),
+      };
+    });
+    if ("written" in begun) return { status: "written", artifact: begun.written!, created: false };
+    const upload = begun.upload;
+    const open = folders.get(scope.runId) ?? new Map<string, FolderUpload>();
+    folders.set(scope.runId, open);
+    open.set(upload.id, upload);
+    const end = () => {
+      forgetFolder(scope.runId, upload.id);
+      void upload.abort("the run stopped");
+    };
+    if (scope.runSignal.aborted) end();
+    else scope.runSignal.addEventListener("abort", end, { once: true });
+    return {
+      status: "open",
+      uploadId: upload.id,
+      maxBytes: upload.maxBytes,
+      maxFileBytes: upload.maxFileBytes,
+      maxEntries: upload.maxEntries,
+      received: 0,
+    };
+  };
+
+  /** One request of an open folder upload; a refusal ends the upload. */
+  const inFolder = async <T>(scope: ArtifactScope, upload: FolderUpload, step: () => Promise<T>): Promise<T> => {
+    try {
+      return await step();
+    } catch (error) {
+      forgetFolder(scope.runId, upload.id);
+      await upload.abort("a request of it was refused");
+      throw toHarnessError(error);
+    }
+  };
+
+  const folderAnswer = (upload: FolderUpload, received: number): ResultOf<"artifact.write"> => ({
+    status: "open",
+    uploadId: upload.id,
+    maxBytes: upload.maxBytes,
+    maxFileBytes: upload.maxFileBytes,
+    maxEntries: upload.maxEntries,
+    received,
+  });
 
   const stop = (upload: Upload, reason: string) => {
     if (!upload.controller.signal.aborted) upload.controller.abort(new Error(reason));
@@ -98,7 +195,7 @@ export function createArtifactSeam(ctx: TenantContext): ArtifactSeam {
 
   const begin = async (
     scope: ArtifactScope,
-    params: Extract<ParamsOf<"artifact.write">, { op: "begin" }>,
+    params: Exclude<Extract<ParamsOf<"artifact.write">, { op: "begin" }>, { kind: "folder" }>,
     signal: AbortSignal,
   ): Promise<ResultOf<"artifact.write">> => {
     stopped(scope.runSignal);
@@ -300,12 +397,39 @@ export function createArtifactSeam(ctx: TenantContext): ArtifactSeam {
     async write(scope, params, signal) {
       switch (params.op) {
         case "begin":
-          return begin(scope, params, signal);
-        case "chunk":
+          return "kind" in params ? beginFolder(scope, params) : begin(scope, params, signal);
+        case "file": {
+          const folder = folderOf(scope, params.uploadId);
+          if (!folder) throw new HarnessApiError("invalid", `No folder upload ${params.uploadId} is open for this run`);
+          return folderAnswer(folder, await inFolder(scope, folder, () => folder.file(params, signal)));
+        }
+        case "chunk": {
+          const folder = folderOf(scope, params.uploadId);
+          if (folder) return folderAnswer(folder, await inFolder(scope, folder, () => folder.chunk(params)));
           return chunk(scope, params);
-        case "commit":
-          return commit(scope, params);
+        }
+        case "commit": {
+          const folder = folderOf(scope, params.uploadId);
+          if (!folder) return commit(scope, params);
+          stopped(scope.runSignal);
+          const done = await inFolder(scope, folder, () => folder.commit(signal));
+          forgetFolder(scope.runId, folder.id);
+          return done.kind === "refused"
+            ? { status: "refused", reason: done.reason, message: done.message, limit: done.limit }
+            : {
+                status: "written",
+                artifact: metaOf(done.row, done.version),
+                created: done.created,
+                ...(done.unchanged ? { unchanged: true as const } : {}),
+              };
+        }
         case "abort": {
+          const folder = folderOf(scope, params.uploadId);
+          if (folder) {
+            forgetFolder(scope.runId, folder.id);
+            await folder.abort("the harness aborted it");
+            return { status: "aborted" };
+          }
           const upload = uploads.get(scope.runId)?.get(params.uploadId);
           if (upload) {
             stop(upload, "the harness aborted it");
@@ -317,6 +441,9 @@ export function createArtifactSeam(ctx: TenantContext): ArtifactSeam {
       }
     },
     endRun(runId) {
+      const openFolders = folders.get(runId);
+      folders.delete(runId);
+      for (const folder of openFolders?.values() ?? []) void folder.abort("the run ended");
       const open = uploads.get(runId);
       if (!open) return;
       uploads.delete(runId);
@@ -407,71 +534,5 @@ async function harnessErrorOf<T>(promise: Promise<T>): Promise<T> {
     return await promise;
   } catch (error) {
     throw toHarnessError(error);
-  }
-}
-
-/**
- * The body of an upload: chunks handed over one at a time. `push` resolves once the store took
- * the chunk, so a harness's next chunk waits for the store (backpressure across frames, nothing
- * held whole); `close` ends the body, `fail` ends it with an error on both sides.
- */
-class Pipe implements AsyncIterable<Uint8Array> {
-  private taker?: { resolve(result: IteratorResult<Uint8Array>): void; reject(error: unknown): void };
-  private offered?: { bytes: Uint8Array; taken(): void; reject(error: unknown): void };
-  private ended = false;
-  private error?: { value: unknown };
-
-  push(bytes: Uint8Array): Promise<void> {
-    if (this.error) return Promise.reject(this.error.value);
-    if (this.ended) return Promise.reject(new HarnessApiError("invalid", "The upload is committing"));
-    if (this.taker) {
-      const taker = this.taker;
-      this.taker = undefined;
-      taker.resolve({ value: bytes, done: false });
-      return Promise.resolve();
-    }
-    return new Promise((taken, reject) => {
-      this.offered = { bytes, taken, reject };
-    });
-  }
-
-  close(): void {
-    this.ended = true;
-    if (this.taker && !this.offered) {
-      const taker = this.taker;
-      this.taker = undefined;
-      taker.resolve({ value: undefined, done: true });
-    }
-  }
-
-  fail(error: unknown): void {
-    if (this.error) return;
-    this.error = { value: error };
-    this.offered?.reject(error);
-    this.offered = undefined;
-    this.taker?.reject(error);
-    this.taker = undefined;
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<Uint8Array> {
-    return {
-      next: () => {
-        if (this.error) return Promise.reject(this.error.value);
-        if (this.offered) {
-          const { bytes, taken } = this.offered;
-          this.offered = undefined;
-          taken();
-          return Promise.resolve({ value: bytes, done: false });
-        }
-        if (this.ended) return Promise.resolve({ value: undefined, done: true });
-        return new Promise((resolve, reject) => {
-          this.taker = { resolve, reject };
-        });
-      },
-      return: () => {
-        this.fail(new HarnessApiError("invalid", "The store stopped reading the upload"));
-        return Promise.resolve({ value: undefined, done: true });
-      },
-    };
   }
 }

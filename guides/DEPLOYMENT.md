@@ -670,7 +670,8 @@ services in a later release.
 
 ## Runtime limits
 
-How large what crosses the Runtime may be is the Tenant's Runtime limits, in bytes:
+How large what crosses the Runtime may be is the Tenant's Runtime limits, in bytes but for
+`folderEntries`:
 `GET`/`PUT /v1/tenant/limits` (a management key; `admin.settings.limits`,
 `nylorun tenant settings limits`). A `PUT` replaces them all: a limit left out takes its
 default.
@@ -682,7 +683,8 @@ default.
 | `modelFileBytes` | One file the Model Gate sends a model | 8 MiB | About 384 MiB: its base64 in one string |
 | `toolAnswerBytes` | An MCP or HTTP tool's answer the Tool Gate keeps, and the tool bodies it reads | 8 MiB | 32 MiB: half a 64 MiB Harness API frame |
 | `harnessStateBytes` | A custom harness's state per session | 256 KiB | 32 MiB: half a frame |
-| `chunkBytes` | One chunked Harness API answer (a skill file's range) | 16 MiB | 48 MiB less 64 KiB: its base64 in one frame |
+| `chunkBytes` | One chunked Harness API answer or upload chunk (a skill file's range, an artifact's) | 16 MiB | 48 MiB less 64 KiB: its base64 in one frame |
+| `folderEntries` | The files of one folder version a harness writes (our harness's `outputs` folder) | 10,000 files | About 5 million: entries of a manifest read as one string |
 
 A limit above its ceiling is `400`, naming the ceiling, and nothing changes. Each limit is
 read where it is checked, so a new value holds for the next write, call or turn. Past one, a

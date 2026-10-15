@@ -11761,12 +11761,6 @@
                 "type": "integer",
                 "minimum": 0
               },
-              "partial": {
-                "type": "boolean",
-                "enum": [
-                  true
-                ]
-              },
               "effectId": {
                 "type": "string",
                 "minLength": 1

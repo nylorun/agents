@@ -1,7 +1,9 @@
 /**
- * The calls a harness executes, as pure helpers over what routes them: the Model Gate (or the
- * Tenant's provider), the Tool Gate, the MCP pool, the SandboxManager. No store, no record: the
- * session's routing comes with the run (`TurnStart.routing`).
+ * The calls a harness executes, as pure helpers over what routes them: the Model Gate, the Tool
+ * Gate, the MCP pool, the SandboxManager. No store, no record: the session's routing comes with
+ * the run (`TurnStart.routing`). Every model call goes through the Model Gate, in a harness
+ * process and in core's alike (protocol 15): a Runtime with a scripted model serves it from a
+ * gate too (`providerModelGate`).
  */
 import { isSandboxToolName, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
@@ -9,7 +11,6 @@ import type { SandboxToolLimits } from "@nylorun/harness";
 import { runAbortKind } from "@nylorun/harness/api";
 import type { AbortReason } from "@nylorun/core/harness-api";
 import type { RuntimeModelCall } from "../contracts.js";
-import type { ModelProvider } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
 import type { ToolGate } from "../gates/tool-gate.js";
 import { httpToolRefOf } from "../gates/http-tool.js";
@@ -17,13 +18,10 @@ import { classifyThrown } from "../model/classify.js";
 import { findServer, type McpPool } from "../mcp/pool.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 
-/** Where a Tenant's model calls go. */
+/** Where a Tenant's model calls go: its Model Gate. */
 export interface ModelRoute {
   readonly tenantId: string;
   readonly modelGate: ModelGate;
-  readonly modelProvider: ModelProvider;
-  /** True when the model comes from the Tenant vault selection, served by `modelGate`. */
-  readonly useVaultModel: boolean;
 }
 
 /** What a session's tool calls are routed by. */
@@ -42,20 +40,13 @@ export interface ToolRouting {
 }
 
 /**
- * Call the model for one effect. A provider failure comes back as a failure outcome
- * (Model Calls §6), whichever provider serves the call; only an abort throws, and the
- * advance decides what the abort means. `atGate` sends the call to the Model Gate even when the
- * Tenant's model is not from the vault: the Tenant's fixture model is answered there (R4.3).
+ * Call the model for one effect, through the Model Gate. A provider failure comes back as a
+ * failure outcome (Model Calls §6), whichever provider serves the call; only an abort throws, and
+ * the advance decides what the abort means. The Tenant's fixture model is answered at the gate
+ * too (R4.3).
  */
-export async function invokeModel(
-  route: ModelRoute,
-  request: HostEffect,
-  signal: AbortSignal,
-  options: { readonly atGate?: boolean } = {}
-): Promise<unknown> {
-  const atGate = route.useVaultModel || options.atGate === true;
+export async function invokeModel(route: ModelRoute, request: HostEffect, signal: AbortSignal): Promise<unknown> {
   try {
-    if (!atGate) return await route.modelProvider(request, signal);
     return await route.modelGate.call(
       {
         tenantId: route.tenantId,
@@ -64,6 +55,8 @@ export async function invokeModel(
         agentId: request.agentId,
         effectId: request.effectId,
         invocationId: String(request.context.invocationId),
+        ...(request.agent === undefined ? {} : { agent: request.agent }),
+        ...(request.purpose === undefined ? {} : { purpose: request.purpose }),
         call: request.input as RuntimeModelCall,
       },
       signal
@@ -72,7 +65,7 @@ export async function invokeModel(
     if (signal.aborted) {
       // A call that outlives this process stops only when told to: on a user cancel. After a
       // shutdown or a lost lease the next owner re-sends it and picks up its outcome (P1.2).
-      if (atGate && runAbortKind(signal) === "cancel" && route.modelGate.cancel)
+      if (runAbortKind(signal) === "cancel" && route.modelGate.cancel)
         await route.modelGate.cancel({
           tenantId: route.tenantId,
           sessionId: request.sessionId,
@@ -181,7 +174,6 @@ export async function callSandboxTool(
     {
       id: routing.sandboxOwnerId,
       activeTurnId: routing.activeTurnId,
-      manifest: routing.rootManifest,
       ...(routing.environmentId === undefined ? {} : { environmentId: routing.environmentId }),
       ...(routing.environment === undefined ? {} : { environment: routing.environment }),
       ...(routing.claim === undefined ? {} : { claim: routing.claim }),

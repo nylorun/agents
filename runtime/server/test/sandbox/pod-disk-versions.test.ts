@@ -5,6 +5,7 @@
  * engine connects, and turns wait for it; a lost volume with a version is recovered from the
  * latest one instead of refusing turns.
  */
+import { providerModelGate } from "../../src/gates/provider-gate.js";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -153,9 +154,7 @@ async function engine(id: string, name: string) {
     url: listener.url,
     token: () => host.token(),
     paths: { sandboxes: join(harnessRoot, "sandboxes") },
-    modelGate: { call: async () => ({ kind: "failed", message: "no gate" }) as never },
-    modelProvider: podModel,
-    useVaultModel: false,
+    modelGate: providerModelGate(podModel),
     toolGate: {},
     sandboxBackends: [localBackend({ workspace, harnessRoot, env: { PATH: process.env.PATH }, proxyEnv: () => host.proxyEnv() })],
     logger: { info: () => undefined, warn: () => undefined },

@@ -197,9 +197,9 @@ credential_required` or `credential_invalid` with a `WWW-Authenticate: Bearer` c
 token without a route's scope gets `error="insufficient_scope"`, and
 `/.well-known/oauth-protected-resource` lists the trusted issuers (RFC 9728); protocol 8 gives keys roles, moves vaults and signing keys under `/v1/tenant` and removes
 the Admin API, and those old paths answer `404` with no alias; protocol 7 removes subject tokens, the access policy, revocations, browser keys and
-derived principals, whose routes answer `404`; protocol 6 adds file and folder artifacts and message `parts`; at each turn's end the
-Runtime exports `/workspace/outputs` of the session's sandbox as a version of its
-`outputs` folder, read at `/v1/artifacts/{id}/versions/{n|latest}/tree`, `/files/{path}`,
+derived principals, whose routes answer `404`; protocol 6 adds file and folder artifacts and message `parts`; at each turn's end
+our harness saves `/workspace/outputs` of the session's sandbox as a version of its
+`outputs` folder (over the artifact seam since protocol 15), read at `/v1/artifacts/{id}/versions/{n|latest}/tree`, `/files/{path}`,
 `/diff?from=` and `/zip`). Clients name no Tenant (since protocol 5). A Tenant that
 could not be opened → opaque `404` with identical body. A path or method no route serves is `404 Route not found`
 once the caller is known.

@@ -128,7 +128,8 @@ or `all`.
 setting `limits.config`), in bytes: `recordEntryBytes` (one event or effect
 outcome in the record), `modelCallBytes`, `modelFileBytes`, `toolAnswerBytes`,
 `harnessStateBytes` (a custom harness's state) and `chunkBytes` (one chunked
-Harness API answer). A limit left out takes its default; one above its ceiling,
+Harness API answer), and `folderEntries` (the files of one folder a harness
+writes, a count). A limit left out takes its default; one above its ceiling,
 which a dependency such as S2's 1 MiB record sets, is refused with `400`.
 Harnesses get the limits in force in `turn.start.limits`.
 

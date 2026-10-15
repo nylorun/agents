@@ -4,6 +4,7 @@
  * own sandbox and no store runs a turn with `bash`, claims its sandbox events, serves the
  * session's sandbox routes, and leaves them `503` once it is gone.
  */
+import { providerModelGate } from "../../src/gates/provider-gate.js";
 import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,7 +13,6 @@ import { afterEach, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { Agent } from "@nylorun/core/define";
 import type { ModelProvider } from "../../src/core/provider.js";
-import type { ModelGate } from "../../src/gates/model-gate.js";
 import { startHarnessListener, type HarnessListener } from "../../src/harness-api/ws-server.js";
 import { startHarnessService, type HarnessService } from "../../src/harness/service.js";
 import { withTestSessionStore } from "../support/store.js";
@@ -110,9 +110,7 @@ it("runs a turn with bash in a harness service with its own sandbox and no store
     url: listener.url,
     token: TOKEN,
     paths,
-    modelGate: {} as ModelGate,
-    modelProvider: bashOnce,
-    useVaultModel: false,
+    modelGate: providerModelGate(bashOnce),
     toolGate: { recovers: false },
     logger,
   });

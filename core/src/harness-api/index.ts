@@ -36,6 +36,7 @@ export {
 } from "./rpc.js";
 export {
   ArtifactMetaSchema,
+  CompactionFactsSchema,
   EffectIntentSchema,
   FrameSchema,
   HarnessCheckpointSchema,

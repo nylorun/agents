@@ -19,6 +19,7 @@ import { sandboxToolLimitsOf, type SandboxToolLimits } from "../tools/sandbox.js
 import { DEFAULT_SKILL_READ_BYTES } from "../tools/skills.js";
 import { mcpToolConfigOf, type McpToolConfig } from "../tools/mcp.js";
 import { toolResultConfigOf, type ToolResultConfig } from "../tools/results.js";
+import { outputsConfigOf, type OutputsConfig } from "../tools/outputs.js";
 import { ABORT_MESSAGES, RunAbort } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { runTurn } from "./run.js";
@@ -68,6 +69,12 @@ export interface HarnessOptions {
    * (`DEFAULT_TOOL_RESULT_CONFIG`).
    */
   readonly toolResults?: Partial<ToolResultConfig>;
+  /**
+   * Our engine's outputs folder: the directory it saves as the session's `outputs` folder artifact
+   * when a turn completes in a sandbox, and the most bytes one save stores. Each left out is its
+   * default (`DEFAULT_OUTPUTS_CONFIG`: `/workspace/outputs`, 1 GiB).
+   */
+  readonly outputs?: Partial<OutputsConfig>;
   readonly name?: string;
   readonly version?: string;
   /** What `hello` declares: `workspace` when this harness serves the Tenant's workspaces. */
@@ -111,6 +118,7 @@ export function createHarness(options: HarnessOptions): Harness {
     skillReadBytes: options.skillReadBytes ?? DEFAULT_SKILL_READ_BYTES,
     mcpTools: mcpToolConfigOf(options.mcpTools),
     toolResults: toolResultConfigOf(options.toolResults),
+    outputs: outputsConfigOf(options.outputs),
   };
   const live = new Map<string, Live>();
   const finished = new Set<Promise<void>>();

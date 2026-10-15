@@ -56,6 +56,8 @@ function contextOf(
     work: createWorkState(),
     config: { logger: silent },
     toolGate: inProcessToolGate(),
+    // A model gate that dies with this process: its calls are uncertain after a takeover.
+    modelGate: { call: async () => ({}) },
     // What the whole sweep reaches beyond the store: no sandboxes, pods, MCP or hooks.
     sandbox: { sweep: async () => {} },
     sweepHooks: new Set(),

@@ -11,6 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent } from "@nylorun/core/define";
 import { callMcpTool, diagnosticFromError, listMcpTools, openMcpServer } from "../src/mcp/connect.js";
+import { inProcessToolGate } from "../src/gates/tool-gate.js";
 import { McpPool } from "../src/mcp/pool.js";
 
 // `host.docker.internal` resolves only inside Docker (or on some Docker Desktop hosts): here it
@@ -182,9 +183,15 @@ describe("a call that never reached its server (R2b C7)", () => {
     const agent = Agent({ id: "bot" })
       .mcp({ local: { type: "streamable-http", url: "http://flaky.test:9/mcp" } })
       .build();
-    const pool = new McpPool({
-      authorize: async (_session, { url }) => ({ status: "unauthenticated", url, headers: {} }),
-    });
+    const gate = inProcessToolGate(
+      {},
+      {
+        session: async () => ({ manifest: agent.manifest }),
+        authorize: async (_session, { url }) => ({ status: "unauthenticated", url, headers: {} }),
+        toolAnswerBytes: async () => RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
+      }
+    );
+    const pool = new McpPool({ openRemote: gate.openMcp! });
     const outcome = await pool.call({
       maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
       sessionId: "s1",

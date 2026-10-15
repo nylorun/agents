@@ -74,7 +74,8 @@ import {
   type TenantWorker,
 } from "./worker.js";
 import { authorize } from "./effects.js";
-import { inProcessToolGate, type ToolGate } from "../gates/tool-gate.js";
+import { inProcessToolGate, openMcpThrough, type ToolGate } from "../gates/tool-gate.js";
+import { providerModelGate } from "../gates/provider-gate.js";
 import { inProcessKeys, type Keys } from "../keys/keys.js";
 import type { RunGrants } from "./run-grants.js";
 import { tenantApi } from "../api/http/app.js";
@@ -101,8 +102,6 @@ import { hostAuthority, type HostAuthority } from "../sandbox/join.js";
 import { harnessOfToken } from "./harness-tokens.js";
 import { reconcileSandbox } from "../sandbox/pods/reconcile.js";
 import type { TenantPods } from "./context.js";
-import { sandboxWorkspaceReader } from "../artifacts/workspace.js";
-import { openDefinitionFile } from "./definition-files.js";
 import type { TraceOptions } from "../traces/options.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
@@ -304,13 +303,9 @@ export class TenantRuntime implements TenantHandle {
       const preference = seededBackend ?? config.sandbox.backend;
       // With a harness in this process, the Tenant's MCP pool and SandboxManager are its
       // executors; otherwise the harness holds both (F6.2).
-      const mcp = inProcess
-        ? new McpPool({
-            authorize: (sessionId, request) => authorize(ctx, sessionId, request),
-            policy: config.delivery ?? {},
-            ...(toolGate.openMcp ? { openRemote: (server) => toolGate.openMcp!(server) } : {}),
-          })
-        : undefined;
+      // The pool opens every server through the Tool Gate: core never authorizes an MCP
+      // connection outside a gate (protocol 15).
+      const mcp = inProcess ? new McpPool({ openRemote: openMcpThrough(toolGate) }) : undefined;
       const ephemeral = config.mode === "ephemeral";
       const manager = inProcess
         ? new SandboxManager({
@@ -321,11 +316,6 @@ export class TenantRuntime implements TenantHandle {
               defaultSandboxBackends({ root: paths.sandboxes }),
             preference,
             ephemeral,
-            definitionFile: async (sha256) => {
-              const body = await openDefinitionFile(blobs, sha256);
-              if (!body) throw new Error(`The Object store has no bytes for ${sha256}`);
-              return body;
-            },
             emit: async (sessionId, turnId, type, payload) => {
               if (ctx.closed) return;
               try {
@@ -361,9 +351,12 @@ export class TenantRuntime implements TenantHandle {
           })
         : workspaces;
 
-      const useVaultModel = config.model.kind === "vault";
-      let modelProvider: ModelProvider;
-      if (hooks.modelProvider) modelProvider = hooks.modelProvider;
+      // A model that is not the vault's (scripted, the fixture, an embedder's provider) is
+      // served by a gate over it, metered like any (protocol 15): no harness calls a provider.
+      const scripted = config.model.kind !== "vault";
+      let modelProvider: ModelProvider | undefined;
+      if (!scripted) modelProvider = undefined;
+      else if (hooks.modelProvider) modelProvider = hooks.modelProvider;
       else if (config.model.kind === "scripted")
         modelProvider = scriptedModel(config.model.output);
       else if (config.model.kind === "fixture")
@@ -372,16 +365,17 @@ export class TenantRuntime implements TenantHandle {
       const blobs = hooks.blobs ?? createFsBlobStore({ root: paths.blobs });
       // With the gates service the loop never reads a model credential: only a Runtime
       // without one (embedding, the ephemeral Runtime, tests) reads it here.
-      const modelGate =
-        hooks.modelGate ??
-        tenantModelGate({
-          store: opened,
-          kek: ensureKek,
-          root: paths.home,
-          logger: config.logger,
-          blobs,
-          ...(config.modelCall ? { settings: config.modelCall } : {}),
-        });
+      const modelGate = modelProvider
+        ? providerModelGate(modelProvider, { store: opened, logger: config.logger })
+        : (hooks.modelGate ??
+          tenantModelGate({
+            store: opened,
+            kek: ensureKek,
+            root: paths.home,
+            logger: config.logger,
+            blobs,
+            ...(config.modelCall ? { settings: config.modelCall } : {}),
+          }));
 
       const sessionStreams = createSessionStreams();
       const workers = hooks.execution?.workers ?? new TenantWorkers();
@@ -408,8 +402,7 @@ export class TenantRuntime implements TenantHandle {
         ...(mcp ? { mcp } : {}),
         sandbox,
         flowLimits,
-        modelProvider,
-        useVaultModel,
+        scriptedModel: scripted,
         modelGate,
         toolGate,
         get harness() {
@@ -422,7 +415,6 @@ export class TenantRuntime implements TenantHandle {
         signingKeys,
         keys,
         blobs,
-        workspaces: sandboxWorkspaceReader(sandbox),
         ...(hooks.traces ? { traces: hooks.traces } : {}),
         ...(hooks.runGrants ? { runGrants: hooks.runGrants } : {}),
         workerId: hooks.workerId ?? WORKER_ID,

@@ -15,17 +15,14 @@ import {
   DEFAULT_HARNESS,
   HarnessApiError,
   type RequestHandler,
-  type WorkspaceBytesCall,
   type WorkspaceCall,
-  type WorkspaceListCall,
   type WorkspaceDiskCall,
   type WorkspaceSession,
 } from "@nylorun/core/harness-api";
 import type { SandboxManifest, SandboxToolName } from "@nylorun/core/define";
 import type { HarnessOptions } from "@nylorun/harness/api";
-import type { ModelProvider } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
-import type { ToolGate } from "../gates/tool-gate.js";
+import { openMcpThrough, type ToolGate } from "../gates/tool-gate.js";
 import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
 import { fileSandboxRecords, workspacePrefix } from "../sandbox/records.js";
@@ -52,20 +49,13 @@ export interface HarnessServiceOptions {
   readonly token: HarnessClientOptions["token"];
   /** Where workspaces (and their records) live. */
   readonly paths: { readonly sandboxes: string };
-  /** Vault-backed model calls (the gates service's client). */
+  /** Every model call (the gates service's client; a scripted model's gate in tests). */
   readonly modelGate: ModelGate;
-  /** Models served without the vault; a harness process has none (`useVaultModel`). */
-  readonly modelProvider?: ModelProvider;
-  readonly useVaultModel: boolean;
-  /** Remote MCP servers (`openMcp`) and keyed cancels; the gates service's client. */
-  readonly toolGate: Pick<ToolGate, "recovers" | "cancel" | "openMcp" | "callHttp">;
   /**
-   * Authorizes a remote MCP server opened in this process. A harness process has no vault: it
-   * opens remote servers through the Tool Gate, and refuses them without one.
+   * Remote MCP servers (`openMcp`), HTTP tools and keyed cancels: the gates service's client. A
+   * harness process has no vault: it opens MCP servers only through the Tool Gate.
    */
-  readonly authorize?: ConstructorParameters<typeof McpPool>[0]["authorize"];
-  /** How remote MCP servers opened in this process are reached (`TenantConfig.delivery`). */
-  readonly delivery?: ConstructorParameters<typeof McpPool>[0]["policy"];
+  readonly toolGate: Pick<ToolGate, "recovers" | "cancel" | "openMcp" | "callHttp">;
   /** Default: the virtual backend under `paths.sandboxes`. */
   readonly sandboxBackends?: readonly SandboxBackend[];
   /** Delete the workspaces on stop (an ephemeral Runtime's loopback harness). */
@@ -97,10 +87,6 @@ function refOf(session: WorkspaceSession) {
   };
 }
 
-const noModel: ModelProvider = async () => {
-  throw new Error("This harness calls models only through the gates service");
-};
-
 export function startHarnessService(options: HarnessServiceOptions): HarnessService {
   const { logger } = options;
   const backends = options.sandboxBackends ?? defaultSandboxBackends({ root: options.paths.sandboxes });
@@ -113,15 +99,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     return manager;
   };
 
-  const pool = new McpPool({
-    authorize:
-      options.authorize ??
-      (async () => {
-        throw new Error("This harness opens remote MCP servers only through the gates service");
-      }),
-    ...(options.delivery ? { policy: options.delivery } : {}),
-    ...(options.toolGate.openMcp ? { openRemote: (server) => options.toolGate.openMcp!(server) } : {}),
-  });
+  const pool = new McpPool({ openRemote: openMcpThrough(options.toolGate) });
   const sweep = setInterval(() => void pool.sweep().catch(() => undefined), MCP_SWEEP_MS);
   sweep.unref();
 
@@ -131,8 +109,6 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
         return tenantId;
       },
       modelGate: options.modelGate,
-      modelProvider: options.modelProvider ?? noModel,
-      useVaultModel: options.useVaultModel,
     },
     toolGate: options.toolGate,
     mcp: pool,
@@ -155,29 +131,6 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
             signal
           );
           return "code" in answer ? answer : toWireAnswer(answer);
-        }
-        if (method === "workspace.read" && "list" in (params as object)) {
-          const call = params as WorkspaceListCall;
-          return sandbox().listFiles(
-            refOf(call.session),
-            call.spec as SandboxManifest,
-            call.list.dir,
-            call.list.maxEntries,
-            signal
-          );
-        }
-        if (method === "workspace.read" && "bytes" in (params as object)) {
-          const call = params as WorkspaceBytesCall;
-          const read = await sandbox().readBytes(
-            refOf(call.session),
-            call.spec as SandboxManifest,
-            call.bytes.path,
-            call.bytes.maxBytes,
-            signal
-          );
-          return read.kind === "read"
-            ? { kind: "read", path: read.path, base64: Buffer.from(read.bytes).toString("base64") }
-            : read;
         }
         const call = params as WorkspaceCall;
         if (METHODS[call.tool as SandboxToolName] !== method)
@@ -217,11 +170,6 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     }
   };
 
-  // The Runtime limit `chunkBytes` of the latest run core handed over (`turn.start.limits`): the
-  // range this harness asks for when it fetches a definition file. Every run carries the Tenant's
-  // limits as they are when it starts.
-  let chunkBytes: number | undefined;
-
   client = connectHarness({
     url: options.url,
     token: options.token,
@@ -241,24 +189,6 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
         backends,
         preference: answer.sandbox.backend ?? "auto",
         ephemeral: options.ephemeral === true,
-        // A skill file's bytes come from core, for the run that made the call, a range at a
-        // time: a file may be larger than one frame holds.
-        definitionFile: async (sha256, session) => {
-          const runId = session.claim;
-          if (runId === undefined) throw new Error(`No run to fetch ${sha256} for`);
-          const length = chunkBytes;
-          if (length === undefined) throw new Error(`No run's limits to fetch ${sha256} with`);
-          return (async function* () {
-            for (let offset = 0; ; offset += length) {
-              const channel = client.channel();
-              if (!channel) throw new Error(`No connection to core to fetch ${sha256}`);
-              const { base64 } = await channel.request("definition.file", { runId, sha256, offset, length });
-              const chunk = new Uint8Array(Buffer.from(base64, "base64"));
-              if (chunk.byteLength > 0) yield chunk;
-              if (chunk.byteLength < length) return;
-            }
-          })();
-        },
         // A claim core refuses (its run ended, the session is gone) is dropped, as core's own
         // SandboxManager drops an event it cannot write.
         emit: async (sessionId, turnId, type, payload, meta) => {
@@ -284,9 +214,6 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
       });
     },
     ...(options.onGrant ? { onGrant: options.onGrant } : {}),
-    onStart(_grant, start) {
-      chunkBytes = start.limits.chunkBytes;
-    },
     ...(options.backoff ? { backoff: options.backoff } : {}),
     ...(options.liveness ? { liveness: options.liveness } : {}),
   });

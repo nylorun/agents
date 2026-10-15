@@ -57,7 +57,6 @@ import {
 } from "../tenant/effects.js";
 import {
   assistantMessage,
-  contextCompacted,
   modelFailed,
   modelOutcomeFacts,
 } from "../tenant/transcript.js";
@@ -477,20 +476,18 @@ export async function recordOutcome(
     await t.put("effects", effectId, effect);
     const model = request.kind === "model";
     const failed = model ? modelFailed(request, value) : undefined;
-    // A summary call is never an assistant message; it publishes context.compacted, `partial`
-    // unless it is the last.
-    const summarizing = model && Boolean((request.context as { compaction?: unknown }).compaction);
-    const compacted = summarizing && !failed ? contextCompacted(request, value) : undefined;
+    // A summary call is never an assistant message: the compaction's transcript edit names it,
+    // and `context.compacted` is written with that edit (Q4).
+    const summarizing = model && request.purpose === "summary";
     const transcript = failed || summarizing || !model ? undefined : assistantMessage(request, value);
     if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
     const writer = scope.writer;
     // The call's span (R7.1): the journal's window, and the meter's row for it when a gate ran it.
     const facts =
-      failed || compacted || transcript
+      failed || transcript
         ? modelOutcomeFacts(effectId, effect, await t.modelUsageOf(effectId))
         : undefined;
     if (failed) await t.event(s.id, request.turnId, "model.failed", { ...failed, ...facts }, writer);
-    if (compacted) await t.event(s.id, request.turnId, "context.compacted", { ...compacted, ...facts }, writer);
     if (transcript)
       await t.event(
         s.id,

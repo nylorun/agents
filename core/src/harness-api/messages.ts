@@ -12,6 +12,7 @@
 import type { z } from "zod";
 import type {
   ArtifactMetaSchema,
+  CompactionFactsSchema,
   EffectIntentSchema,
   EffectTargetSchema,
   IntentAnswerSchema,
@@ -26,9 +27,7 @@ import type {
   TurnEnvironmentSchema,
   TurnOutputSchema,
   TurnStartSchema,
-  WorkspaceBytesCallSchema,
   WorkspaceCallSchema,
-  WorkspaceListCallSchema,
   WorkspaceDiskCallSchema,
   WorkspaceRecordSchema,
   WorkspaceSessionSchema,
@@ -48,9 +47,16 @@ export type ReleaseReason = z.infer<typeof ReleaseReasonSchema>;
 
 /**
  * Events a harness may claim: for a run it holds, or for a workspace request core sent it. A
- * `environment.state` claim carries the workspace's compute record, which core keeps.
+ * `environment.state` claim carries the workspace's compute record, which core keeps. Our engine
+ * claims `artifact.export.skipped` and `artifact.export.failed` when the turn-end save of its
+ * outputs folder stores nothing (protocol 15).
  */
-export const HARNESS_CLAIMS = ["environment.state", "environment.exec"] as const;
+export const HARNESS_CLAIMS = [
+  "environment.state",
+  "environment.exec",
+  "artifact.export.skipped",
+  "artifact.export.failed",
+] as const;
 export type HarnessClaim = (typeof HARNESS_CLAIMS)[number];
 
 export const HARNESS_ERROR_CODES = [
@@ -89,11 +95,17 @@ export type ArtifactMeta = z.infer<typeof ArtifactMetaSchema>;
 /** One `artifact.read` answer: the artifact, and up to one chunk of its bytes from `offset`. */
 export type ArtifactReadResult = ResultOf<"artifact.read">;
 
-/** One `artifact.write` request: `begin`, `chunk`, `commit` or `abort`. */
+/** One `artifact.write` request: `begin`, `chunk`, `commit` or `abort`; a folder's `file` too. */
 export type ArtifactWriteParams = ParamsOf<"artifact.write">;
 
-/** One `artifact.write` answer: the upload `open`, the artifact `written`, or `aborted`. */
+/**
+ * One `artifact.write` answer: the upload `open`, the artifact `written`, a folder version
+ * `refused` (past a total), or `aborted`.
+ */
 export type ArtifactWriteResult = ResultOf<"artifact.write">;
+
+/** What a harness says of a compaction it made (`transcript.updated` with `kind: "compaction"`). */
+export type CompactionFacts = z.infer<typeof CompactionFactsSchema>;
 
 /** A completed outcome of the segment, with the hash of the request it answered. */
 export type RecordedOutcome = z.infer<typeof RecordedOutcomeSchema>;
@@ -139,12 +151,6 @@ export type WorkspaceRecord = z.infer<typeof WorkspaceRecordSchema>;
 
 /** A sandbox tool call core sends to the harness that serves workspaces. */
 export type WorkspaceCall = z.infer<typeof WorkspaceCallSchema>;
-
-/** A file of a workspace read as bytes (the turn-end export, F8.2), at most `maxBytes`. */
-export type WorkspaceBytesCall = z.infer<typeof WorkspaceBytesCallSchema>;
-
-/** The regular files under a directory of a workspace (the turn-end export, F8.2). */
-export type WorkspaceListCall = z.infer<typeof WorkspaceListCallSchema>;
 
 /** One operation on a workspace's disk (R2d step 3). */
 export type WorkspaceDiskCall = z.infer<typeof WorkspaceDiskCallSchema>;

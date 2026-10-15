@@ -6,6 +6,7 @@
  * `environment_variable` as its value; the vault releases the real header only for a bound host,
  * read afresh after a rotation. egress-gate's use of the release is `gates/egress-credentials`.
  */
+import { providerModelGate } from "../../src/gates/provider-gate.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -183,9 +184,7 @@ describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
         url: listener.url,
         token: () => host.token(),
         paths: { sandboxes: join(harnessRoot, "sandboxes") },
-        modelGate: { call: async () => ({ kind: "failed", message: "no gate" }) as never },
-        modelProvider: podModel,
-        useVaultModel: false,
+        modelGate: providerModelGate(podModel),
         toolGate: {},
         sandboxBackends: [localBackend({ workspace, env: { PATH: process.env.PATH }, proxyEnv: () => host.proxyEnv() })],
         logger: { info: () => undefined, warn: () => undefined },

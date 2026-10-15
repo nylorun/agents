@@ -33,7 +33,15 @@ export const JS_STRING_MAX_LENGTH = 2 ** 29 - 24;
 const base64Bytes = (length: number) => Math.floor(length / 4) * 3;
 
 /**
- * The Runtime limits, in bytes:
+ * The fewest characters one entry of a folder's manifest takes as JSON: an entry with a
+ * one-character path and type, and the comma before the next. A folder's manifest is read as one
+ * string, so it holds at most `JS_STRING_MAX_LENGTH` of them.
+ */
+const FOLDER_ENTRY_MIN_CHARS =
+  JSON.stringify({ path: "a", size: 0, sha256: "0".repeat(64), contentType: "a" }).length + 1;
+
+/**
+ * The Runtime limits, in bytes but for `folderEntries`:
  *
  * - `recordEntryBytes`: the most JSON one entry of the record may hold: an event's payload (a
  *   harness's claimed event, a transcript update, core's own), and an effect outcome a harness
@@ -45,6 +53,8 @@ const base64Bytes = (length: number) => Math.floor(length / 4) * 3;
  * - `harnessStateBytes`: the most state a custom harness may keep per session, as JSON.
  * - `chunkBytes`: the most bytes one chunked Harness API answer carries (`definition.file` with
  *   a range).
+ * - `folderEntries`: the most files one folder artifact a harness writes may hold
+ *   (`artifact.write` with `kind: "folder"`, such as our engine's outputs folder).
  */
 export const RuntimeLimitsSchema = z
   .object({
@@ -54,40 +64,56 @@ export const RuntimeLimitsSchema = z
     toolAnswerBytes: z.number().int().positive(),
     harnessStateBytes: z.number().int().positive(),
     chunkBytes: z.number().int().positive(),
+    folderEntries: z.number().int().positive(),
   })
   .strict();
 export type RuntimeLimits = z.infer<typeof RuntimeLimitsSchema>;
 export type RuntimeLimit = keyof RuntimeLimits;
 
+/** What a limit counts. */
+export type RuntimeLimitUnit = "bytes" | "entries";
+
 /**
- * Each limit's ceiling, which no setting may pass, and the dependency it comes from.
+ * Each limit's ceiling, which no setting may pass, what it counts, and the dependency it comes
+ * from.
  */
 export const RUNTIME_LIMIT_CEILINGS: {
-  readonly [K in RuntimeLimit]: { readonly bytes: number; readonly why: string };
+  readonly [K in RuntimeLimit]: { readonly value: number; readonly unit: RuntimeLimitUnit; readonly why: string };
 } = {
   recordEntryBytes: {
-    bytes: S2_RECORD_MAX_BYTES - RECORD_ENVELOPE_RESERVE_BYTES,
+    value: S2_RECORD_MAX_BYTES - RECORD_ENVELOPE_RESERVE_BYTES,
+    unit: "bytes",
     why: `S2 takes records of at most ${S2_RECORD_MAX_BYTES} bytes, and an event's envelope needs ${RECORD_ENVELOPE_RESERVE_BYTES} beside its payload`,
   },
   modelCallBytes: {
-    bytes: JS_STRING_MAX_LENGTH,
+    value: JS_STRING_MAX_LENGTH,
+    unit: "bytes",
     why: `the Model Gate reads a call's body as one string, of at most ${JS_STRING_MAX_LENGTH} characters`,
   },
   modelFileBytes: {
-    bytes: base64Bytes(JS_STRING_MAX_LENGTH),
+    value: base64Bytes(JS_STRING_MAX_LENGTH),
+    unit: "bytes",
     why: `a file goes to the provider as one base64 string, of at most ${JS_STRING_MAX_LENGTH} characters`,
   },
   toolAnswerBytes: {
-    bytes: HARNESS_MAX_PAYLOAD / 2,
+    value: HARNESS_MAX_PAYLOAD / 2,
+    unit: "bytes",
     why: `a harness reports the answer to core in one Harness API frame (${HARNESS_MAX_PAYLOAD} bytes), as JSON, whose escapes may double it`,
   },
   harnessStateBytes: {
-    bytes: HARNESS_MAX_PAYLOAD / 2,
+    value: HARNESS_MAX_PAYLOAD / 2,
+    unit: "bytes",
     why: `the state crosses in one Harness API frame (${HARNESS_MAX_PAYLOAD} bytes) with the rest of its output or turn.start`,
   },
   chunkBytes: {
-    bytes: base64Bytes(HARNESS_MAX_PAYLOAD) - RECORD_ENVELOPE_RESERVE_BYTES,
+    value: base64Bytes(HARNESS_MAX_PAYLOAD) - RECORD_ENVELOPE_RESERVE_BYTES,
+    unit: "bytes",
     why: `a chunk crosses in base64 in one Harness API frame (${HARNESS_MAX_PAYLOAD} bytes), with room for the frame's own JSON`,
+  },
+  folderEntries: {
+    value: Math.floor(JS_STRING_MAX_LENGTH / FOLDER_ENTRY_MIN_CHARS),
+    unit: "entries",
+    why: `a folder's manifest is read as one string, of at most ${JS_STRING_MAX_LENGTH} characters, and each entry takes at least ${FOLDER_ENTRY_MIN_CHARS}`,
   },
 };
 
@@ -98,12 +124,13 @@ export const RUNTIME_LIMIT_CEILINGS: {
  * `shapeToolOutcome` in `@nylorun/harness`), since the record refuses an entry past it.
  */
 export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
-  recordEntryBytes: RUNTIME_LIMIT_CEILINGS.recordEntryBytes.bytes,
+  recordEntryBytes: RUNTIME_LIMIT_CEILINGS.recordEntryBytes.value,
   modelCallBytes: 32 * 1024 * 1024,
   modelFileBytes: 8 * 1024 * 1024,
   toolAnswerBytes: 8 * 1024 * 1024,
   harnessStateBytes: 256 * 1024,
   chunkBytes: 16 * 1024 * 1024,
+  folderEntries: 10_000,
 });
 
 /** The limits in force: `set`, with the default for each it leaves out. */
@@ -122,8 +149,10 @@ export function runtimeLimitIssues(set: Partial<RuntimeLimits> | undefined): str
   for (const name of Object.keys(RUNTIME_LIMIT_CEILINGS) as RuntimeLimit[]) {
     const asked = set?.[name];
     const ceiling = RUNTIME_LIMIT_CEILINGS[name];
-    if (asked !== undefined && asked > ceiling.bytes)
-      issues.push(`limits.${name} asks for ${asked} bytes; its ceiling is ${ceiling.bytes}: ${ceiling.why}.`);
+    if (asked !== undefined && asked > ceiling.value)
+      issues.push(
+        `limits.${name} asks for ${asked} ${ceiling.unit}; its ceiling is ${ceiling.value}: ${ceiling.why}.`,
+      );
   }
   return issues;
 }
@@ -132,6 +161,7 @@ export function runtimeLimitIssues(set: Partial<RuntimeLimits> | undefined): str
  * The message of a write refused for passing limit `name`: what was sent, the limit, and where an
  * operator sets it.
  */
-export function limitExceededMessage(what: string, bytes: number, name: RuntimeLimit, limit: number): string {
-  return `${what} is ${bytes} bytes, over the Runtime limit ${name} (${limit} bytes; PUT /v1/tenant/limits).`;
+export function limitExceededMessage(what: string, amount: number, name: RuntimeLimit, limit: number): string {
+  const unit = RUNTIME_LIMIT_CEILINGS[name].unit;
+  return `${what} is ${amount} ${unit}, over the Runtime limit ${name} (${limit} ${unit}; PUT /v1/tenant/limits).`;
 }

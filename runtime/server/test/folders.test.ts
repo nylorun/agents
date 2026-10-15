@@ -200,7 +200,7 @@ it("exports /workspace/outputs at turn end as a folder: tree, files with Range, 
     kind: "folder",
     name: "outputs",
     version: 1,
-    source: "export",
+    source: "engine",
     claimed: true,
     fileCount: 3,
     size: "<h1>v1</h1>".length + "body { color: red }".length + "# Notes".length,
@@ -222,7 +222,7 @@ it("exports /workspace/outputs at turn end as a folder: tree, files with Range, 
     kind: string;
     versions: { source: string }[];
   };
-  expect(view).toMatchObject({ kind: "folder", versions: [{ source: "export" }] });
+  expect(view).toMatchObject({ kind: "folder", versions: [{ source: "engine" }] });
 
   // One file by path, whole and with Range; a folder has no content; a missing path is a 404.
   const style = `${base}/latest/files/${encodeURIComponent("app/src/style.css")}`;
@@ -388,7 +388,7 @@ it("skips an export past its Environment's own total, which its manifest sets", 
     name: "outputs",
     reason: "environment_total",
     limit: 20,
-    message: "Environment env-s1's artifacts may hold at most 20 bytes; these outputs add 12 to 12",
+    message: "Environment env-s1's artifacts may hold at most 20 bytes; this folder version adds 12 to 12",
   });
 });
 
@@ -400,7 +400,7 @@ it("exports the outputs of a sandbox a harness holds over WebSocket (F6.2)", asy
   await openSession(runtime, "s1", { environment: "env-s1" });
   await turn(runtime, "s1", "build");
   const [created] = await eventually(runtime, "s1", "artifact.created");
-  expect(created!.payload).toMatchObject({ kind: "folder", name: "outputs", version: 1, source: "export", fileCount: 1 });
+  expect(created!.payload).toMatchObject({ kind: "folder", name: "outputs", version: 1, source: "engine", fileCount: 1 });
   const tree = (await (
     await fetch(`${runtime.url}/v1/artifacts/${created!.payload.artifactId}/versions/1/tree`, { headers: auth })
   ).json()) as { entries: { path: string; sha256: string }[] };

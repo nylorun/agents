@@ -7,6 +7,8 @@ import type { HostEffect } from "@nylorun/harness/run";
 import type { PluginLabel } from "@nylorun/core/define";
 import type { TOOL_CALL_KINDS, TOOL_CALL_STATUSES } from "@nylorun/core/contracts";
 import { isModelFailureOutcome } from "@nylorun/core/define";
+import { HarnessApiError, type CompactionFacts } from "@nylorun/core/harness-api";
+import type { EffectDoc, Tx } from "../store/types.js";
 
 export type ToolCallStatus = (typeof TOOL_CALL_STATUSES)[number];
 export type ToolCallKind = (typeof TOOL_CALL_KINDS)[number];
@@ -76,33 +78,48 @@ export function assistantMessage(request: HostEffect, value: unknown) {
 }
 
 /**
- * `context.compacted` for a model effect that summarized history (Model Calls §8): the
- * engine replaced the older transcript with that summary. A partial summary (one call of
- * several) is marked `partial: true` (R7.1): only the last call's event replaced the history.
+ * `context.compacted` for a compaction a harness reported with its transcript edit (Q4, protocol
+ * 15): its facts, the last summary call's step and model facts, and the agent. Every summary
+ * effect it names must be a completed, successful model call of turn `turnId` made for a summary
+ * (`purpose: "summary"`); otherwise the edit is refused (`invalid`).
  */
-export function contextCompacted(request: HostEffect, value: unknown) {
-  const compaction = (request.context as {
-    compaction?: { trigger?: unknown; tokensBefore?: unknown; keptTokens?: unknown; partial?: unknown };
-  } | null)?.compaction;
-  if (!compaction || isModelFailureOutcome(value)) return undefined;
-  const summary =
-    typeof value === "string"
-      ? value
-      : Array.isArray((value as { output?: unknown } | null)?.output)
-      ? (value as { output: { type?: unknown; text?: unknown }[] }).output
-          .map((block) => (block.type === "text" && typeof block.text === "string" ? block.text : ""))
-          .join("")
-      : "";
-  const invocationId = (request.context as { invocationId?: unknown })?.invocationId;
-  const tokensBefore = Number(compaction.tokensBefore) || 0;
-  const keptTokens = Number(compaction.keptTokens) || 0;
+export async function contextCompacted(
+  t: Tx,
+  sessionId: string,
+  turnId: string | null,
+  facts: CompactionFacts
+) {
+  let last: { effectId: string; row: EffectDoc & { request: HostEffect; outcome?: { value: unknown }; startedAt?: string; settledAt?: string } } | undefined;
+  for (const effectId of facts.summaryEffectIds) {
+    const row = await t.get<EffectDoc & { request: HostEffect; outcome?: { value: unknown }; startedAt?: string; settledAt?: string }>(
+      "effects",
+      effectId
+    );
+    const request = row?.request;
+    if (
+      !row ||
+      row.status !== "completed" ||
+      request?.kind !== "model" ||
+      request.sessionId !== sessionId ||
+      request.turnId !== turnId ||
+      request.purpose !== "summary" ||
+      isModelFailureOutcome(row.outcome?.value)
+    )
+      throw new HarnessApiError(
+        "invalid",
+        `The compaction names ${effectId}, which is not a completed summary call of this turn`
+      );
+    last = { effectId, row };
+  }
+  const { effectId, row } = last!;
+  const invocationId = (row.request.context as { invocationId?: unknown } | undefined)?.invocationId;
   return {
     ...(typeof invocationId === "string" ? { invocationId } : {}),
-    trigger: compaction.trigger === "overflow" ? ("overflow" as const) : ("threshold" as const),
-    tokensBefore,
-    tokensAfter: keptTokens + Math.ceil(summary.trim().length / 4),
-    ...(compaction.partial ? { partial: true as const } : {}),
-    ...agentOf(request),
+    trigger: facts.trigger,
+    tokensBefore: facts.tokensBefore,
+    tokensAfter: facts.tokensAfter,
+    ...modelOutcomeFacts(effectId, row, await t.modelUsageOf(effectId)),
+    ...agentOf(row.request),
   };
 }
 

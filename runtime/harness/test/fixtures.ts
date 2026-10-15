@@ -4,6 +4,7 @@ import { createExecutionState } from "../src/run/index.js";
 import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
 import { DEFAULT_MCP_TOOL_CONFIG } from "../src/tools/mcp.js";
 import { DEFAULT_TOOL_RESULT_CONFIG } from "../src/tools/results.js";
+import { DEFAULT_OUTPUTS_CONFIG } from "../src/tools/outputs.js";
 import {
   Agent,
   AgentBuildError,
@@ -232,6 +233,7 @@ export function engineConfig(
     skillReadBytes: 1024,
     mcpTools: DEFAULT_MCP_TOOL_CONFIG,
     toolResults: DEFAULT_TOOL_RESULT_CONFIG,
+    outputs: DEFAULT_OUTPUTS_CONFIG,
     ...set,
   };
 }

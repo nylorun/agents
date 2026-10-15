@@ -50,9 +50,9 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
   const recovered = (effect: Parameters<HarnessExecutors["tool"]>[0], run: HarnessRun) =>
     recoversTools && atGate(effect, run);
   return {
-    // With the Tenant's fixture model on, the Model Gate answers it (R4.3), metered like any call.
-    model: (effect, signal, run) =>
-      invokeModel(options.model, effect, signal, { atGate: run.start.options.fixtureModel }),
+    // Every call goes through the Model Gate (protocol 15); with the Tenant's fixture model on,
+    // the gate answers it (R4.3), metered like any call.
+    model: (effect, signal) => invokeModel(options.model, effect, signal),
     tool(effect, signal, run, call) {
       const routing = routingOf(run);
       const traceparent = call?.traceparent;
@@ -84,7 +84,7 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
     },
     recovers: {
       get model() {
-        return options.model.useVaultModel && options.model.modelGate.recovers === true;
+        return options.model.modelGate.recovers === true;
       },
       tool: recovered,
     },
@@ -103,6 +103,19 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
         withSandbox(run, (session, spec) => options.sandbox().readBytes(session, spec, path, maxBytes, signal)),
       write: (run, path, body, signal) =>
         withSandbox(run, (session, spec) => options.sandbox().writeBytes(session, spec, path, body, signal)),
+      list: (run, dir, maxEntries, signal) =>
+        withSandbox(run, async (session, spec) => {
+          const listed = await options.sandbox().listFiles(session, spec, dir, maxEntries, signal);
+          return listed.kind === "listed"
+            ? { kind: "listed" as const, entries: listed.listing.entries, truncated: listed.listing.truncated }
+            : listed.kind === "missing"
+              ? { kind: "missing" as const }
+              : listed;
+        }),
+      mount: (run, folder, files, read, signal) =>
+        withSandbox(run, (session, spec) =>
+          options.sandbox().mountFolder(session, spec, folder, files, read, signal)
+        ),
     },
   };
 }
@@ -123,7 +136,6 @@ async function withSandbox<T>(
     {
       id: routing.sandboxOwnerId,
       activeTurnId: routing.activeTurnId,
-      manifest: routing.rootManifest,
       ...(routing.environmentId === undefined ? {} : { environmentId: routing.environmentId }),
       ...(routing.claim === undefined ? {} : { claim: routing.claim }),
     },

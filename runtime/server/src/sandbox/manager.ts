@@ -15,18 +15,13 @@
  * (after a restart); `reconcile` removes workspaces whose owner is gone. `sweep` does both, the
  * reconcile once per process, as the Tenant sweep does in core's process.
  *
- * A session's skills (track R2 M4) are mounted on its workspace, read-only, one folder per
- * version (`/skills/<name>@<hash>/`, D66), before the first call that needs them (`skills.ts`);
- * their bytes come through the `definitionFile` port.
+ * A folder the harness asks for (`mountFolder`: our engine's skill folders, `/skills/<name>@<hash>/`,
+ * D66, protocol 15) is written read-only, once per open handle: the harness decides which folders
+ * and when, and gives their bytes; the manager only writes them (`skills.ts`).
  */
 import { posix } from "node:path";
 import type { EventPayload } from "@nylorun/core/contracts";
-import {
-  SANDBOX_WORKSPACE,
-  type AgentManifest,
-  type SandboxManifest,
-  type SandboxToolName,
-} from "@nylorun/core/define";
+import { SANDBOX_WORKSPACE, type SandboxManifest, type SandboxToolName } from "@nylorun/core/define";
 import {
   sandboxWorkspaceKey,
   sessionWorkspaceKey,
@@ -50,7 +45,7 @@ import {
   type SandboxSelection,
   type SandboxSelectionReport,
 } from "./select.js";
-import { mountSkill, sandboxSkillsOf } from "./skills.js";
+import { mountFolderFiles, type FolderFiles } from "./skills.js";
 import { DEFAULT_SANDBOX_TOOL_LIMITS, type SandboxToolLimits } from "@nylorun/harness";
 import { runDiskOp, type DiskAnswer, type DiskOp } from "./disk-fs.js";
 import {
@@ -76,7 +71,6 @@ export interface SandboxSessionRef {
   /** The session whose log records the workspace's events: the owning session. */
   readonly id: string;
   readonly activeTurnId: string | null;
-  readonly manifest?: AgentManifest;
   /**
    * The sandbox resource the owning session is attached to. Its workspace is keyed by this id,
    * so every session attached to it shares the files; absent, the workspace is the session's.
@@ -120,8 +114,8 @@ interface Live {
   readonly lanes: Map<string, Promise<unknown>>;
   /** Stops and removals, one at a time; a call waits until none is pending. */
   gate: Promise<unknown>;
-  /** The skill folders mounted, or being mounted, on the open handle (`/skills/<name>@<hash>`). */
-  readonly skills: Map<string, Promise<void>>;
+  /** The folders mounted, or being mounted, on the open handle (`mountFolder`). */
+  readonly mounts: Map<string, Promise<void>>;
 }
 
 export interface SandboxSweepOptions {
@@ -143,13 +137,6 @@ export interface SandboxManagerOptions {
   readonly preference: string | undefined;
   /** Delete sandboxes on close (the Runtime's store does not outlive the process). */
   readonly ephemeral: boolean;
-  /**
-   * A definition file's bytes by `sha256:<hex>`, for the skills a session's workspace mounts,
-   * whole or as chunks (a file may hold up to 2 GiB): the Tenant's Object store in core's
-   * process, core's answers in a harness (for the run that made the call, `session.claim`).
-   * Without it no skills are mounted.
-   */
-  readonly definitionFile?: (sha256: string, session: SandboxSessionRef) => Promise<SandboxFileBytes>;
   /** Writes a session event (in core, in its own transaction; in a harness, as a claim). */
   readonly emit: <T extends SandboxEventType>(
     sessionId: string,
@@ -333,8 +320,8 @@ export class SandboxManager {
   }
 
   /**
-   * The bytes of one file in the session's sandbox, for our engine's `save_artifact` and the
-   * turn-end export, in the same queue as its tool calls: `missing` when there is no such file, a failed outcome when the sandbox
+   * The bytes of one file in the session's sandbox, for our engine's `save_artifact` and its
+   * outputs folder (`files.read`), in the same queue as its tool calls: `missing` when there is no such file, a failed outcome when the sandbox
    * cannot open or the file is larger than `maxBytes`. Relative paths resolve in the workspace.
    */
   async readBytes(
@@ -414,8 +401,8 @@ export class SandboxManager {
   }
 
   /**
-   * The files under directory `dir` of the session's sandbox, for the turn-end export (F8.2), in
-   * the same queue as its tool calls. `missing` when the sandbox was never created (nothing is
+   * The files under directory `dir` of the session's sandbox, for our engine's outputs folder
+   * (`files.list`, protocol 15), in the same queue as its tool calls. `missing` when the sandbox was never created (nothing is
    * started to look) or `dir` is not a directory. Relative paths resolve in the workspace.
    */
   async listFiles(
@@ -493,8 +480,6 @@ export class SandboxManager {
           message: `The sandbox could not start: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
-      const unmounted = await this.mountSkills(live, handle, session, signal);
-      if (unmounted) return unmounted;
       return await use(handle, live);
     });
   }
@@ -538,7 +523,7 @@ export class SandboxManager {
         lastUsedAt: Date.now(),
         lanes: new Map(),
         gate: Promise.resolve(),
-        skills: new Map(),
+        mounts: new Map(),
       };
       this.live.set(key, live);
     }
@@ -559,18 +544,17 @@ export class SandboxManager {
     return this.executeOpen(live, session, spec, toolName, input, signal, limits);
   }
 
-  private async executeOpen(
+  /**
+   * The workspace's handle, opened when there is none. A start that fails is recorded as stopped
+   * and answered as a failed outcome: nothing ran yet, so it is definite, not uncertain.
+   */
+  private async started(
     live: Live,
     session: SandboxSessionRef,
-    spec: SandboxSpec,
-    toolName: SandboxToolName,
-    input: unknown,
-    signal: AbortSignal,
-    limits: SandboxToolLimits
-  ): Promise<SandboxToolOutcome> {
-    let handle: SandboxHandle;
+    spec: SandboxSpec
+  ): Promise<SandboxHandle | Extract<SandboxToolOutcome, { kind: "failed" }>> {
     try {
-      handle = await this.handleOf(live, session, spec);
+      return await this.handleOf(live, session, spec);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const record = await this.record(spec.key, live, session.id, spec.image, "stopped");
@@ -581,15 +565,25 @@ export class SandboxManager {
         { state: "stopped", backend: live.backend.name, error: message },
         { record, ...claimOf(session) }
       );
-      // Nothing ran yet, so a failed start is a definite outcome, not an uncertain one.
       return {
         kind: "failed",
         code: "sandbox.start_failed",
         message: `The sandbox could not start on ${live.backend.name} (image ${spec.image ?? "the backend's default"}): ${message}`,
       };
     }
-    const unmounted = await this.mountSkills(live, handle, session, signal);
-    if (unmounted) return unmounted;
+  }
+
+  private async executeOpen(
+    live: Live,
+    session: SandboxSessionRef,
+    spec: SandboxSpec,
+    toolName: SandboxToolName,
+    input: unknown,
+    signal: AbortSignal,
+    limits: SandboxToolLimits
+  ): Promise<SandboxToolOutcome> {
+    const handle = await this.started(live, session, spec);
+    if ("kind" in handle) return handle;
     const started = Date.now();
     let report: SandboxToolReport = {};
     try {
@@ -632,26 +626,36 @@ export class SandboxManager {
   }
 
   /**
-   * Mounts the skill folders the session needs that the workspace does not hold (D66): on a
-   * handle just opened all of them, later only versions another session has not mounted. Calls
-   * that need one folder at once share its mount. A failed outcome when one cannot be mounted;
-   * the folder is not marked mounted then, so the next call tries again.
+   * Writes `files` (path in `folder` to `sha256:<hex>`) to `folder` of the session's sandbox,
+   * read-only, each one's bytes from `read`, in the session's queue (protocol 15: the harness
+   * decides which folders, and when). A folder the open handle already holds is `present` without
+   * an exec; calls that need one folder at once share its mount. A failed outcome when the sandbox
+   * cannot start or the folder cannot be written; it is not marked mounted then, so the next call
+   * tries again. A reopened handle holds none.
    */
-  private async mountSkills(
-    live: Live,
-    handle: SandboxHandle,
+  async mountFolder(
     session: SandboxSessionRef,
+    sandbox: SandboxManifest | undefined,
+    folder: string,
+    files: FolderFiles,
+    read: (sha256: string) => SandboxFileBytes | Promise<SandboxFileBytes>,
     signal: AbortSignal
-  ): Promise<Extract<SandboxToolOutcome, { kind: "failed" }> | undefined> {
-    const read = this.options.definitionFile;
-    if (!read) return undefined;
-    for (const [folder, files] of sandboxSkillsOf(session.manifest)) {
-      let mounting = live.skills.get(folder);
+  ): Promise<{ kind: "mounted" | "present" } | Extract<SandboxToolOutcome, { kind: "failed" }>> {
+    const prepared = await this.prepare(session, sandbox);
+    if ("kind" in prepared) return prepared;
+    const { live, spec } = prepared;
+    return this.inLane(live, session.id, async () => {
+      if (signal.aborted) throw new Error("Turn cancelled");
+      if (this.closing) throw new Error("Runtime is shutting down");
+      const handle = await this.started(live, session, spec);
+      if ("kind" in handle) return handle;
+      let mounting = live.mounts.get(folder);
+      const present = mounting !== undefined;
       if (!mounting) {
-        const mount = mountSkill(handle, folder, files, (sha256) => read(sha256, session), signal);
-        live.skills.set(folder, mount);
+        const mount = mountFolderFiles(handle, folder, files, async (sha256) => read(sha256), signal);
+        live.mounts.set(folder, mount);
         void mount.catch(() => {
-          if (live.skills.get(folder) === mount) live.skills.delete(folder);
+          if (live.mounts.get(folder) === mount) live.mounts.delete(folder);
         });
         mounting = mount;
       }
@@ -660,13 +664,13 @@ export class SandboxManager {
       } catch (error) {
         if (signal.aborted) throw error;
         return {
-          kind: "failed",
+          kind: "failed" as const,
           code: "sandbox.skills_unavailable",
-          message: `The files of skill folder ${folder} could not be put in the sandbox: ${error instanceof Error ? error.message : String(error)}`,
+          message: `The files of folder ${folder} could not be put in the sandbox: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
-    }
-    return undefined;
+      return { kind: present ? ("present" as const) : ("mounted" as const) };
+    });
   }
 
   private async open(live: Live, session: SandboxSessionRef, spec: SandboxSpec): Promise<SandboxHandle> {
@@ -686,8 +690,8 @@ export class SandboxManager {
       { record: creating, ...claimOf(session) }
     );
     const handle = await live.backend.open(spec);
-    // A handle opened afresh holds no skills this manager knows of.
-    live.skills.clear();
+    // A handle opened afresh holds no folder this manager knows of.
+    live.mounts.clear();
     const running = await this.record(spec.key, live, session.id, spec.image, "running", existing);
     await this.options.emit(
       session.id,

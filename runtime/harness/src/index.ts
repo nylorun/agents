@@ -14,10 +14,14 @@ export {
   LOAD_SKILL_TOOL,
   READ_SKILL_RESOURCE_TOOL,
   SKILLS_USAGE,
+  definitionFileChunks,
   formatSkillCatalog,
   skillCatalogText,
   skillFolderNote,
+  mountSkills,
+  sandboxSkillsOf,
   skillTools,
+  type SkillFiles,
 } from "./tools/skills.js";
 export { engineToolsFor, type EngineToolOptions, type EngineTools } from "./tools/engine-tools.js";
 export {
@@ -60,3 +64,10 @@ export {
   type Stored,
   type ToolResultConfig,
 } from "./tools/results.js";
+export {
+  DEFAULT_OUTPUTS_CONFIG,
+  outputsConfigOf,
+  saveOutputs,
+  type OutputsConfig,
+  type OutputsContext,
+} from "./tools/outputs.js";

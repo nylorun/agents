@@ -19,6 +19,7 @@ import { sandboxInstructions, sandboxTools, type SandboxToolLimits } from "./san
 import { skillCatalogText, skillFolderNote, skillTools } from "./skills.js";
 import type { McpToolConfig } from "./mcp.js";
 import type { ToolResultConfig } from "./results.js";
+import type { OutputsConfig } from "./outputs.js";
 
 /** The harness's configuration of our engine's own tools. */
 export interface EngineToolOptions {
@@ -32,6 +33,8 @@ export interface EngineToolOptions {
   readonly mcpTools: McpToolConfig;
   /** How our engine shapes tool results to fit the record: inline caps, previews, step budget. */
   readonly toolResults: ToolResultConfig;
+  /** Where our engine finds a turn's outputs folder, and the most bytes it saves of it. */
+  readonly outputs: OutputsConfig;
 }
 
 /** Our engine's tools for one agent, and the text the model reads with them, in order. */

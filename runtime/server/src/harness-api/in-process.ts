@@ -1,8 +1,10 @@
 /**
  * The Tenant's own harness (D37): `@nylorun/harness/api` in this process, attached to the
  * Tenant's Harness API server over a memory channel, with the Tenant's model gate, MCP pool
- * and SandboxManager as its executors. `json` sends every frame through JSON and validates it,
- * as a socket will (tests).
+ * and SandboxManager as its executors. It uses the same seams and gates as a remote one
+ * (protocol 15): every model call goes through the Model Gate, every MCP server opens through
+ * the Tool Gate, and skill bytes come over `definition.file`. `json` sends every frame through
+ * JSON and validates it, as a socket will (tests).
  *
  * `startLoopbackHarness` (tests, `harness: "ws"`) runs a harness service in this process instead:
  * over a WebSocket to a Harness API listener on 127.0.0.1, with its own MCP pool and
@@ -19,7 +21,6 @@ import type { McpPool } from "../mcp/pool.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { SandboxBackend } from "../sandbox/types.js";
 import type { TenantContext } from "../tenant/context.js";
-import { authorize } from "../tenant/effects.js";
 import { startHarnessListener } from "./ws-server.js";
 
 /** Where the Tenant's model calls go. */
@@ -27,8 +28,6 @@ export function modelRouteOf(ctx: TenantContext): ModelRoute {
   return {
     tenantId: ctx.config.tenantId,
     modelGate: ctx.modelGate,
-    modelProvider: ctx.modelProvider,
-    useVaultModel: ctx.useVaultModel,
   };
 }
 
@@ -72,8 +71,8 @@ export async function startInProcessHarness(
 
 /**
  * A harness service over a loopback WebSocket (tests): what `--service harness` runs, in this
- * process. Its workspaces live under the Tenant's `sandboxes` directory. Remote MCP servers go
- * through the Tenant's Tool Gate when it opens them, else they are authorized in this process.
+ * process. Its workspaces live under the Tenant's `sandboxes` directory, and its MCP servers
+ * open through the Tenant's Tool Gate.
  */
 export async function startLoopbackHarness(
   ctx: TenantContext,
@@ -94,13 +93,7 @@ export async function startLoopbackHarness(
     token,
     paths: { sandboxes: ctx.config.paths.sandboxes },
     modelGate: route.modelGate,
-    modelProvider: route.modelProvider,
-    useVaultModel: route.useVaultModel,
     toolGate: ctx.toolGate,
-    ...(ctx.toolGate.openMcp
-      ? {}
-      : { authorize: (sessionId: string, request: { url: string; serverName: string; agentId?: string }) => authorize(ctx, sessionId, request) }),
-    ...(ctx.config.delivery ? { delivery: ctx.config.delivery } : {}),
     ...(options.sandboxBackends ? { sandboxBackends: options.sandboxBackends } : {}),
     logger: quietLogger(ctx),
     ephemeral: ctx.config.mode === "ephemeral",

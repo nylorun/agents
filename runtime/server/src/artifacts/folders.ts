@@ -18,7 +18,7 @@
  * others again and refuses to commit a version naming a file that is gone.
  */
 import { createHash, randomUUID } from "node:crypto";
-import type { ArtifactDiff, FolderEntry, FolderManifest } from "@nylorun/core/contracts";
+import type { ArtifactDiff, ArtifactSource, FolderEntry, FolderManifest } from "@nylorun/core/contracts";
 import {
   FOLDER_CONTENT_TYPE,
   FOLDER_MANIFEST_FORMAT,
@@ -141,7 +141,7 @@ export async function collectContent(
   return orphans.length;
 }
 
-/** The commit could not go ahead: a limit, or content removed while the export ran. */
+/** The commit could not go ahead: a limit, or content removed while the folder was written. */
 export class FolderCommitRefused extends Error {
   constructor(
     message: string,
@@ -165,12 +165,16 @@ export interface FolderVersionInput {
   readonly epoch: number;
   /** The totals the version counts towards (`./quota.ts`). */
   readonly quota: ArtifactQuota;
+  /** Who wrote the files: a harness over the artifact seam (`engine`). */
+  readonly source: ArtifactSource;
+  /** The write's key in the session (`writeKeyOf`): a repeat of the write answers this version. */
+  readonly writeKey?: string;
 }
 
 /**
  * Commits a folder version whose files are already stored: its manifest to the Object store,
  * then, in one transaction under the session and quota locks, the version row, its content rows
- * and `artifact.created` or `artifact.version.created` (`claimed: true`, source `export`).
+ * and `artifact.created` or `artifact.version.created` (`claimed: true`, with its source).
  * Throws `FolderCommitRefused` when a total (the Tenant's, or the session's Environment's) would
  * be passed or a file is gone.
  */
@@ -200,7 +204,7 @@ export async function commitFolderVersion(
         for (const sha of fresh)
           if (!(await ctx.blobs.head(contentKey(sha))))
             throw new FolderCommitRefused(
-              "A file's bytes were removed while the export ran",
+              "A file's bytes were removed while the folder was written",
               "content_gone",
             );
       for (const total of input.quota.totals) {
@@ -211,7 +215,7 @@ export async function commitFolderVersion(
         const used = await t.artifactBytes(scope);
         if (used + added > total.limitBytes)
           throw new FolderCommitRefused(
-            `${totalSubject(total)} may hold at most ${total.limitBytes} bytes; these outputs add ${added} to ${used}`,
+            `${totalSubject(total)} may hold at most ${total.limitBytes} bytes; this folder version adds ${added} to ${used}`,
             scope === undefined ? "tenant_total" : "environment_total",
             total.limitBytes,
           );
@@ -224,14 +228,14 @@ export async function commitFolderVersion(
         size,
         sha256,
         contentType: FOLDER_CONTENT_TYPE,
-        source: "export",
+        source: input.source,
         createdAt,
-        writeKey: null,
+        writeKey: input.writeKey ?? null,
       };
       if (input.artifactId !== undefined) {
         const prior = await t.artifact(input.artifactId, { lock: true });
         if (!prior || prior.kind !== "folder" || prior.sessionId !== input.sessionId)
-          throw new FolderCommitRefused("The folder was deleted while the export ran", "artifact_gone");
+          throw new FolderCommitRefused("The folder was deleted while it was written", "artifact_gone");
         version.version = prior.latestVersion + 1;
         await t.insertArtifactVersion(version);
         row = { ...prior, latestVersion: version.version, contentType: FOLDER_CONTENT_TYPE, updatedAt: createdAt };
@@ -267,7 +271,7 @@ export async function commitFolderVersion(
           version: version.version,
           size,
           sha256,
-          source: "export",
+          source: input.source,
           fileCount: entries.length,
           claimed: true,
         },
