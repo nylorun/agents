@@ -45,8 +45,11 @@ import {
   resultBytes,
   resultLimit,
   shapeToolOutcome,
+  stepResultsBudget,
   type ShapedCall,
 } from "../tenant/tool-results.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
+import { checkEntry } from "../record/index.js";
 import { callSkillTool, isSkillToolCall } from "../tenant/skill-tool.js";
 import { callToolSearch, isToolSearchCall } from "../tenant/tool-search.js";
 import { turnManifestOf } from "../tenant/session.js";
@@ -468,6 +471,8 @@ export async function recordOutcome(
     const s = await t.assertEpoch<Session>(lease.sessionId, lease.epoch);
     const effect = await t.get<StoredEffect>("effects", effectId);
     if (!effect) throw new HarnessApiError("invalid", `Effect ${effectId} was never journaled`);
+    // An entry of the record (S0): past the Tenant's `recordEntryBytes`, `limit_exceeded`.
+    checkEntry(`The outcome of effect ${effectId}`, value, (await readRuntimeLimits(t)).recordEntryBytes);
     const { request } = effect;
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId || abortKind(signal) === "cancel")
       throw TURN_CANCELLED();
@@ -546,10 +551,17 @@ async function shaped(scope: RecordScope, effectId: string, value: unknown): Pro
           other.resultBytes ??
           (other.status === "completed" ? resultBytes(other.outcome?.value) : 0);
       }
-    const limit = resultLimit(used);
+    const limits = await readRuntimeLimits(t);
+    const limit = resultLimit(used, stepResultsBudget(limits.recordEntryBytes));
     effect.resultBytes = Math.min(resultBytes(value), limit);
     await t.put("effects", effectId, effect);
-    return { request, session: { id: s.id, ownerUserId: s.ownerUserId }, mcp, limit };
+    return {
+      request,
+      session: { id: s.id, ownerUserId: s.ownerUserId },
+      mcp,
+      limit,
+      modelFileBytes: limits.modelFileBytes,
+    };
   });
   return call ? shapeToolOutcome(ctx, call, value, abortOn(signal, ["cancel"])) : value;
 }

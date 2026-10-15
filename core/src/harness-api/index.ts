@@ -76,3 +76,10 @@ export type { InputEvent, TranscriptEntry } from "../types/transcript.js";
 export type { ToolResult } from "../types/tool.js";
 export { harnessApiJsonSchema, harnessApiSchemas } from "./json-schema.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "../utils/harness-id.js";
+export {
+  RUNTIME_LIMIT_CEILINGS,
+  RUNTIME_LIMIT_DEFAULTS,
+  RuntimeLimitsSchema,
+  type RuntimeLimit,
+  type RuntimeLimits,
+} from "../utils/runtime-limits.js";

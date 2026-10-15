@@ -3,6 +3,7 @@
  * logger gets one entry with the cause, never the request's body.
  */
 import { expect, it } from "vitest";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { createGatesApp, type GatesAppOptions } from "../../src/api/gate/routes.js";
 import type { Keys } from "../../src/keys/keys.js";
 
@@ -22,6 +23,7 @@ function gates(overrides: Partial<GatesAppOptions>) {
     modelGate: { call: async () => ({ kind: "unused" }) },
     inflight: {},
     ready: async () => true,
+    limits: async () => RUNTIME_LIMIT_DEFAULTS,
     logger: { info: log("info"), warn: log("warn"), error: log("error") },
     ...overrides,
   } as GatesAppOptions);

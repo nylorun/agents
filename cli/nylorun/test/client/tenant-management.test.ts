@@ -76,6 +76,8 @@ function route(url: string, init?: RequestInit): Response | undefined {
     return json({ limits: body.limits, usedBytes: 5 });
   if (method === "GET" && path === "/v1/tenant/skills") return json({ limits: { totalBytes: 2048 } });
   if (method === "PUT" && path === "/v1/tenant/skills") return json({ limits: body.limits });
+  if (method === "GET" && path === "/v1/tenant/limits") return json({ limits: { recordEntryBytes: 4096, chunkBytes: 1024 } });
+  if (method === "PUT" && path === "/v1/tenant/limits") return json({ limits: body.limits });
   if (method === "POST" && path === "/v1/tenant/credential-coverage")
     return json({
       agentId: body.agentId,
@@ -245,6 +247,7 @@ describe("nylorun tenant budgets, tool-policy and settings", () => {
       ["settings", "sandbox"],
       ["settings", "artifacts", "get"],
       ["settings", "skills"],
+      ["settings", "limits", "get"],
     ])
       expect(await tenantCommand(deps, args)).toBe(0);
     expect(sent(deps).map((r) => `${r.method} ${r.path}`)).toEqual([
@@ -254,12 +257,14 @@ describe("nylorun tenant budgets, tool-policy and settings", () => {
       "GET /v1/tenant/sandbox",
       "GET /v1/tenant/artifacts",
       "GET /v1/tenant/skills",
+      "GET /v1/tenant/limits",
     ]);
-    expect(JSON.parse(deps.lines.at(-2)!)).toEqual({
+    expect(JSON.parse(deps.lines.at(-3)!)).toEqual({
       limits: { fileBytes: 100, totalBytes: 1000 },
       usedBytes: 5,
     });
-    expect(JSON.parse(deps.lines.at(-1)!)).toEqual({ limits: { totalBytes: 2048 } });
+    expect(JSON.parse(deps.lines.at(-2)!)).toEqual({ limits: { totalBytes: 2048 } });
+    expect(JSON.parse(deps.lines.at(-1)!)).toEqual({ limits: { recordEntryBytes: 4096, chunkBytes: 1024 } });
   });
 
   it("put reads the body from a file or from stdin, and what get printed puts back", async () => {
@@ -277,6 +282,8 @@ describe("nylorun tenant budgets, tool-policy and settings", () => {
     expect(await tenantCommand(deps, ["settings", "sandbox", "put", join(dir, "sandbox.json")])).toBe(0);
     await writeFile(join(dir, "skills.json"), JSON.stringify({ limits: { totalBytes: 4096 } }));
     expect(await tenantCommand(deps, ["settings", "skills", "put", join(dir, "skills.json")])).toBe(0);
+    await writeFile(join(dir, "limits.json"), JSON.stringify({ limits: { modelCallBytes: 2048 } }));
+    expect(await tenantCommand(deps, ["settings", "limits", "put", join(dir, "limits.json")])).toBe(0);
     const puts = sent(deps);
     expect(puts.map((r) => `${r.method} ${r.path}`)).toEqual([
       "PUT /v1/tenant/budgets",
@@ -284,8 +291,10 @@ describe("nylorun tenant budgets, tool-policy and settings", () => {
       "PUT /v1/tenant/artifacts",
       "PUT /v1/tenant/sandbox",
       "PUT /v1/tenant/skills",
+      "PUT /v1/tenant/limits",
     ]);
     expect(puts[4]!.body).toEqual({ requestId: expect.any(String), limits: { totalBytes: 4096 } });
+    expect(puts[5]!.body).toEqual({ requestId: expect.any(String), limits: { modelCallBytes: 2048 } });
     expect(puts[0]!.body).toMatchObject(budgets);
     expect(puts[1]!.body).toEqual({ requestId: expect.any(String), rules: policy.rules });
     expect(puts[2]!.body).toEqual({ requestId: expect.any(String), limits: { fileBytes: 10 } });

@@ -2,6 +2,7 @@
  * The MCP pool's connection lifetime: idle connections are closed by the sweep and opened
  * again on the next call, and concurrent calls for a missing connection share one.
  */
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import type { LiveConnection, McpClient } from "../src/mcp/connect.js";
@@ -43,6 +44,7 @@ function harness() {
   });
   const call = () =>
     pool.call({
+      maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
       sessionId: "s1",
       serverName: "local",
       serverToolName: "echo",

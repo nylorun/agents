@@ -2,6 +2,7 @@
 import { writeFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { openTenantDatabase } from "../../src/store/postgres/tenant.js";
 import { shippedMigrations } from "../../src/store/postgres/migrate.js";
 import { createPostgresReadStore } from "../../src/store/postgres/reads.js";
@@ -51,6 +52,7 @@ it.skipIf(!process.env.SESSION_READS_EVIDENCE)(
             time: new Date(),
             type: "turn.completed",
             payload: { output: {} },
+            maxEntryBytes: RUNTIME_LIMIT_DEFAULTS.recordEntryBytes,
           });
         });
         if (n >= 20) samples.push(performance.now() - start);

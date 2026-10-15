@@ -14,7 +14,6 @@ import {
 import { scrub, scrubValues } from "../redact.js";
 import {
   guardedFetch,
-  MAX_RESPONSE_BYTES,
   OutboundFailed,
   OutboundRefused,
   type OutboundPolicy,
@@ -49,6 +48,12 @@ export interface McpCallOptions extends McpRequestOptions {
    * it from the call's journal row.
    */
   readonly traceparent?: string;
+  /**
+   * The largest answer kept, in bytes: the Tenant's Runtime limit `toolAnswerBytes` (R2b C11).
+   * A larger one is `mcp.too-large`. Required where this process holds the connection; a client
+   * of the gates service leaves it out, since the gate reads the limit itself.
+   */
+  readonly maxResultBytes?: number;
 }
 
 /** A page of `tools/list`, as the MCP SDK returns it. */
@@ -130,8 +135,8 @@ export type McpToolOutcome =
  * - `mcp.status`: the server answered another HTTP error status, without a JSON-RPC error.
  * - `mcp.lost`: sent, and the answer was lost, so the tool may have run. The model sees it, and
  *   decides whether to call again (R5; it replaced R2b's read-only and idempotent exception).
- * - `mcp.too-large`: the answer passed `MCP_RESULT_MAX_BYTES` (R2b C11), as an HTTP tool's
- *   answer is `http.too-large`. The tool ran; its answer was not kept.
+ * - `mcp.too-large`: the answer passed the Tenant's Runtime limit `toolAnswerBytes` (R2b C11),
+ *   as an HTTP tool's answer is `http.too-large`. The tool ran; its answer was not kept.
  */
 export type McpFailureCode =
   | "mcp.unreachable"
@@ -141,12 +146,6 @@ export type McpFailureCode =
   | "mcp.status"
   | "mcp.lost"
   | "mcp.too-large";
-
-/**
- * The largest `tools/call` answer the gate holds (R2b C11): 8 MiB, an HTTP tool's cap. Core
- * stores what does not fit a tool result as an artifact (`tenant/tool-results.ts`).
- */
-export const MCP_RESULT_MAX_BYTES = MAX_RESPONSE_BYTES;
 
 export interface McpCallFailure {
   readonly code: McpFailureCode;
@@ -257,7 +256,9 @@ interface Tracker {
   sent: boolean;
   /** Why the answer was lost after the request was sent. */
   lost?: string;
-  /** A tool call's answer passed `MCP_RESULT_MAX_BYTES` (R2b C11). */
+  /** A tool call's largest answer (`McpCallOptions.maxResultBytes`). */
+  readonly maxResultBytes?: number;
+  /** A tool call's answer passed `maxResultBytes` (R2b C11). */
   tooLarge?: boolean;
   /** A tool call's: aborted when its answer is lost or too large, so the call ends now. */
   readonly calling?: AbortController;
@@ -269,13 +270,19 @@ interface Tracker {
 /** The operation a request of the transport's fetch belongs to. */
 const tracking = new AsyncLocalStorage<Tracker>();
 
-function tracked<T>(call: boolean, run: (tracker: Tracker) => Promise<T>, traceparent?: string): Promise<T> {
+function tracked<T>(
+  call: boolean,
+  run: (tracker: Tracker) => Promise<T>,
+  options: { readonly traceparent?: string | undefined; readonly maxResultBytes?: number | undefined } = {},
+): Promise<T> {
+  const { traceparent, maxResultBytes } = options;
   const tracker: Tracker = {
     secrets: new Set(),
     sent: false,
     settled: false,
     ...(call ? { calling: new AbortController() } : {}),
     ...(traceparent ? { traceparent } : {}),
+    ...(maxResultBytes === undefined ? {} : { maxResultBytes }),
   };
   return tracking.run(tracker, () => run(tracker));
 }
@@ -303,8 +310,11 @@ export function sdkClient(client: Client, serverName: string): McpClient {
           throw scrubError(error, tracker);
         }
       }),
-    callTool: (params, options) =>
-      tracked(true, async (tracker) => {
+    callTool: (params, options) => {
+      const maxResultBytes = options?.maxResultBytes;
+      if (maxResultBytes === undefined)
+        return Promise.reject(new Error("A tool call on a connection this process holds needs maxResultBytes"));
+      return tracked(true, async (tracker) => {
         const lost = tracker.calling!.signal;
         try {
           const keyed =
@@ -315,8 +325,8 @@ export function sdkClient(client: Client, serverName: string): McpClient {
             signal: options?.signal ? AbortSignal.any([options.signal, lost]) : lost,
           })) as Record<string, unknown>;
           // An answer the stream did not count (an `sse` server answers on its event stream).
-          if (Buffer.byteLength(JSON.stringify(result)) > MCP_RESULT_MAX_BYTES)
-            throw tooLargeFailure(serverName);
+          if (Buffer.byteLength(JSON.stringify(result)) > maxResultBytes)
+            throw tooLargeFailure(serverName, maxResultBytes);
           const answer = scrubValues(result, [...tracker.secrets]);
           return { result: answer.value, ...(answer.redacted > 0 ? { redacted: answer.redacted } : {}) };
         } catch (error) {
@@ -326,7 +336,8 @@ export function sdkClient(client: Client, serverName: string): McpClient {
         } finally {
           tracker.settled = true;
         }
-      }, options?.traceparent),
+      }, { traceparent: options?.traceparent, maxResultBytes });
+    },
   };
 }
 
@@ -517,6 +528,7 @@ export async function callMcpTool(
         ...(options.key === undefined ? {} : { key: options.key }),
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.traceparent === undefined ? {} : { traceparent: options.traceparent }),
+        ...(options.maxResultBytes === undefined ? {} : { maxResultBytes: options.maxResultBytes }),
       },
     );
   } catch (error) {
@@ -719,10 +731,10 @@ function lostFailure(server: string, detail: string): McpCallFailed {
   });
 }
 
-function tooLargeFailure(server: string): McpCallFailed {
+function tooLargeFailure(server: string, maxResultBytes: number): McpCallFailed {
   return new McpCallFailed({
     code: "mcp.too-large",
-    message: `The MCP server '${server}' answered more than ${MCP_RESULT_MAX_BYTES} bytes, the most a tool result may hold, so the answer was not kept`,
+    message: `The MCP server '${server}' answered more than ${maxResultBytes} bytes, the most a tool result may hold (the Runtime limit toolAnswerBytes), so the answer was not kept`,
     sent: true,
     retryable: false,
   });
@@ -731,7 +743,7 @@ function tooLargeFailure(server: string): McpCallFailed {
 /** What a tool call's failure means (R2b C7). */
 function failureOf(server: string, error: unknown, tracker: Tracker): McpCallFailed {
   if (error instanceof McpCallFailed) return error;
-  if (tracker.tooLarge) return tooLargeFailure(server);
+  if (tracker.tooLarge) return tooLargeFailure(server, tracker.maxResultBytes ?? 0);
   const detail = error instanceof Error ? error.message : String(error);
   if (tracker.lost !== undefined) return lostFailure(server, tracker.lost);
   if (error instanceof OutboundRefused) return unreachableFailure(server, detail);
@@ -772,7 +784,7 @@ function scrubError(error: unknown, tracker: Tracker): unknown {
 /**
  * A tool call's answer whose body reports its loss (R2b C7): a stream that breaks after the
  * request was sent ends the call as lost, now, instead of at the SDK's request timeout. One that
- * passes `MCP_RESULT_MAX_BYTES` ends it as `mcp.too-large` (C11), before more of it is read.
+ * passes the call's `maxResultBytes` ends it as `mcp.too-large` (C11), before more of it is read.
  */
 function watched(response: Response, tracker: Tracker): Response {
   const source = response.body!.getReader();
@@ -792,9 +804,9 @@ function watched(response: Response, tracker: Tracker): Response {
       }
       if (next.done) return controller.close();
       received += next.value.byteLength;
-      if (received > MCP_RESULT_MAX_BYTES) {
+      if (tracker.maxResultBytes !== undefined && received > tracker.maxResultBytes) {
         tracker.tooLarge = true;
-        const error = new Error(`The answer passed ${MCP_RESULT_MAX_BYTES} bytes`);
+        const error = new Error(`The answer passed ${tracker.maxResultBytes} bytes`);
         tracker.calling?.abort(error);
         controller.error(error);
         void source.cancel(error).catch(() => undefined);

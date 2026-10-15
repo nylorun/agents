@@ -83,6 +83,7 @@ import type {
 import type { RecordReader } from "../../streams/relay/types.js";
 import type { SandboxSignal, SandboxTimer, Wake, WakeReason } from "../../execution/types.js";
 import { appendEnvironmentEvent, appendEvent } from "../../record/index.js";
+import { readRuntimeLimits } from "../../tenant/runtime-limits.js";
 import { OwnershipLostError, PrincipalRoleConflict } from "../ownership.js";
 import type {
   ArtifactRow,
@@ -608,6 +609,7 @@ class PostgresTx implements Tx {
       type,
       payload,
       ...(writer ? { writer } : {}),
+      maxEntryBytes: await this.maxEntryBytes(),
     });
     this.events.push(event);
     this.generations.push(generation);
@@ -1053,7 +1055,13 @@ class PostgresTx implements Tx {
       time: this.now(),
       type,
       payload,
+      maxEntryBytes: await this.maxEntryBytes(),
     });
+  }
+
+  /** The Tenant's Runtime limit `recordEntryBytes`, read in this transaction for each write. */
+  private async maxEntryBytes(): Promise<number> {
+    return (await readRuntimeLimits(this)).recordEntryBytes;
   }
 
   async environmentEvents(

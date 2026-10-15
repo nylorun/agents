@@ -3,6 +3,7 @@
  * HTTP tools are: in the local stack `localhost` means the Docker host, and a Host that
  * refuses private addresses refuses them for MCP too.
  */
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -89,7 +90,7 @@ it("reaches a localhost server on the Docker host in the local stack, and stream
       taken: new Set(),
     });
     expect(listed.tools.map((tool) => tool.name)).toEqual(["local__echo"]);
-    expect(await callMcpTool(connection.client, "echo", { text: "hi" })).toEqual({
+    expect(await callMcpTool(connection.client, "echo", { text: "hi" }, { maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes })).toEqual({
       kind: "completed",
       output: "hi",
     });
@@ -152,7 +153,7 @@ describe("a call that never reached its server (R2b C7)", () => {
     const { connection } = await connected("flaky.test");
     resolver.down = true;
     try {
-      expect(await callMcpTool(connection.client, "echo", { text: "hi" })).toMatchObject({
+      expect(await callMcpTool(connection.client, "echo", { text: "hi" }, { maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes })).toMatchObject({
         kind: "failed",
         code: "mcp.unreachable",
         retryable: true,
@@ -168,7 +169,7 @@ describe("a call that never reached its server (R2b C7)", () => {
     servers.pop();
     await new Promise((resolve) => server.close(resolve));
     try {
-      expect(await callMcpTool(connection.client, "echo", { text: "hi" })).toMatchObject({
+      expect(await callMcpTool(connection.client, "echo", { text: "hi" }, { maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes })).toMatchObject({
         kind: "failed",
         code: "mcp.unreachable",
         retryable: true,
@@ -188,6 +189,7 @@ describe("a call that never reached its server (R2b C7)", () => {
       authorize: async (_session, { url }) => ({ status: "unauthenticated", url, headers: {} }),
     });
     const outcome = await pool.call({
+      maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
       sessionId: "s1",
       serverName: "local",
       serverToolName: "echo",

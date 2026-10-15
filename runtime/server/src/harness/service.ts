@@ -13,7 +13,6 @@ import { fromWireOp, toWireAnswer, type WireDiskOp } from "../sandbox/disk-fs.js
 import { join } from "node:path";
 import {
   DEFAULT_HARNESS,
-  DEFINITION_FILE_CHUNK_BYTES,
   HarnessApiError,
   type RequestHandler,
   type WorkspaceBytesCall,
@@ -212,6 +211,11 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     }
   };
 
+  // The Runtime limit `chunkBytes` of the latest run core handed over (`turn.start.limits`): the
+  // range this harness asks for when it fetches a definition file. Every run carries the Tenant's
+  // limits as they are when it starts.
+  let chunkBytes: number | undefined;
+
   client = connectHarness({
     url: options.url,
     token: options.token,
@@ -235,19 +239,16 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
         definitionFile: async (sha256, session) => {
           const runId = session.claim;
           if (runId === undefined) throw new Error(`No run to fetch ${sha256} for`);
+          const length = chunkBytes;
+          if (length === undefined) throw new Error(`No run's limits to fetch ${sha256} with`);
           return (async function* () {
-            for (let offset = 0; ; offset += DEFINITION_FILE_CHUNK_BYTES) {
+            for (let offset = 0; ; offset += length) {
               const channel = client.channel();
               if (!channel) throw new Error(`No connection to core to fetch ${sha256}`);
-              const { base64 } = await channel.request("definition.file", {
-                runId,
-                sha256,
-                offset,
-                length: DEFINITION_FILE_CHUNK_BYTES,
-              });
+              const { base64 } = await channel.request("definition.file", { runId, sha256, offset, length });
               const chunk = new Uint8Array(Buffer.from(base64, "base64"));
               if (chunk.byteLength > 0) yield chunk;
-              if (chunk.byteLength < DEFINITION_FILE_CHUNK_BYTES) return;
+              if (chunk.byteLength < length) return;
             }
           })();
         },
@@ -276,6 +277,9 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
       });
     },
     ...(options.onGrant ? { onGrant: options.onGrant } : {}),
+    onStart(_grant, start) {
+      chunkBytes = start.limits.chunkBytes;
+    },
     ...(options.backoff ? { backoff: options.backoff } : {}),
     ...(options.liveness ? { liveness: options.liveness } : {}),
   });

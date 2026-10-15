@@ -179,6 +179,14 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
+  "GET /v1/tenant/limits": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "PUT /v1/tenant/limits": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
   "GET /v1/tenant": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"

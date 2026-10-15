@@ -2,7 +2,8 @@
  * R2b C11 end to end over the Tenant API: MCP and HTTP tool results that fit. A result too large
  * to show becomes an artifact of the session and the model gets a preview, which it reads on with
  * `read_artifact`; an image becomes an artifact and goes to the model as a file; each part of a
- * mixed result is shaped alone; an answer past 8 MiB is `mcp.too-large`; and no event of the
+ * mixed result is shaped alone; an answer past 8 MiB (the Tenant's `toolAnswerBytes`) is
+ * `mcp.too-large`, as one past a lowered limit is, or `http.too-large`; and no event of the
  * session's record passes 64 KiB. With `NYLORUN_TEST_MODEL_GATE=http` the gates service makes
  * every call; otherwise the Tenant does, in process.
  */
@@ -398,6 +399,34 @@ describe("the gate's cap", () => {
     expect(result.created).toEqual([]);
     expect(largest(result.recorded)).toBeLessThan(EVENT_MAX);
   });
+
+  it("holds MCP and HTTP answers to the Tenant's toolAnswerBytes once it lowers it", async () => {
+    const limits = (body: unknown) =>
+      fetch(`${runtime.url}/v1/tenant/limits`, {
+        method: "PUT",
+        headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    expect((await limits({ limits: { toolAnswerBytes: 64 * KiB } })).status).toBe(200);
+    try {
+      const mcp = once("files__big_text");
+      await run();
+      expect(mcp[0]!.payload).toMatchObject({
+        kind: "failed",
+        code: "mcp.too-large",
+        message: expect.stringContaining(`more than ${64 * KiB} bytes`),
+      });
+      const report = once("report");
+      await run();
+      expect(report[0]!.payload).toMatchObject({
+        kind: "failed",
+        code: "http.too-large",
+        message: expect.stringContaining(`larger than ${64 * KiB} bytes`),
+      });
+    } finally {
+      expect((await limits({})).status).toBe(200);
+    }
+  });
 });
 
 describe("read_artifact (Q24)", () => {
@@ -511,7 +540,7 @@ describe("when the artifact cannot be stored", () => {
     const limits = (body: unknown) =>
       fetch(`${runtime.url}/v1/tenant/artifacts`, {
         method: "PUT",
-        headers: runtime.managementHeaders(),
+        headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
         body: JSON.stringify(body),
       });
     expect((await limits({ limits: { fileBytes: 64 * KiB } })).status).toBe(200);

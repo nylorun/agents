@@ -1156,6 +1156,93 @@
         ],
         "additionalProperties": false
       },
+      "TenantLimitsView": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "type": "object",
+            "properties": {
+              "recordEntryBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelCallBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelFileBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "toolAnswerBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "harnessStateBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "chunkBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "recordEntryBytes",
+              "modelCallBytes",
+              "modelFileBytes",
+              "toolAnswerBytes",
+              "harnessStateBytes",
+              "chunkBytes"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "limits"
+        ],
+        "additionalProperties": false
+      },
+      "PutTenantLimitsRequest": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "type": "object",
+            "properties": {
+              "recordEntryBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelCallBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "modelFileBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "toolAnswerBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "harnessStateBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "chunkBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
       "TenantSandboxView": {
         "type": "object",
         "properties": {
@@ -6275,6 +6362,211 @@
           }
         }
       }
+    },
+    "/v1/tenant/limits": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Get the Tenant's Runtime limits",
+        "description": "What one record entry, model call, model file, tool answer, custom harness state and Harness API chunk may hold, in bytes: the Tenant's (Tenant setting `limits.config`), with the default for each it leaves out. Harnesses get them in `turn.start.limits`. Defaults and ceilings (bytes): `recordEntryBytes` 983040, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON).",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
+            },
+            "required": true,
+            "description": "The protocol version, `14`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The limits in force",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantLimitsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Set the Tenant's Runtime limits",
+        "description": "Replaces the Tenant's Runtime limits: a limit left out takes its default. A limit above its ceiling, which a dependency sets, is `400` naming the ceiling, and nothing is written. Each is read where it is checked, so a new value holds for the next write, call or segment. Defaults and ceilings (bytes): `recordEntryBytes` 983040, at most 983040 (S2 takes records of at most 1048576 bytes, and an event's envelope needs 65536 beside its payload); `modelCallBytes` 33554432, at most 536870888 (the Model Gate reads a call's body as one string, of at most 536870888 characters); `modelFileBytes` 8388608, at most 402653166 (a file goes to the provider as one base64 string, of at most 536870888 characters); `toolAnswerBytes` 8388608, at most 33554432 (a harness reports the answer to core in one Harness API frame (67108864 bytes), as JSON, whose escapes may double it); `harnessStateBytes` 262144, at most 33554432 (the state crosses in one Harness API frame (67108864 bytes) with the rest of its output or turn.start); `chunkBytes` 16777216, at most 50266112 (a chunk crosses in base64 in one Harness API frame (67108864 bytes), with room for the frame's own JSON).",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `14`"
+            },
+            "required": true,
+            "description": "The protocol version, `14`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutTenantLimitsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The limits now in force",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantLimitsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A limit above its ceiling"
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "webhooks": {},
@@ -6309,7 +6601,7 @@
     },
     {
       "name": "Settings",
-      "description": "The Tenant's sandbox backend, Environment, artifact and skill settings. `admin.settings`."
+      "description": "The Tenant's sandbox backend, Environment, artifact and skill settings, and its Runtime limits. `admin.settings`."
     }
   ]
 }

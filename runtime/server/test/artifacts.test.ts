@@ -250,7 +250,7 @@ it("refuses a body past the per-file cap mid-stream and stores nothing; then the
   await openSession(runtime, "s1");
   const limits = await fetch(`${runtime.url}/v1/tenant/artifacts`, {
     method: "PUT",
-    headers: runtime.managementHeaders(),
+    headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
     body: JSON.stringify({ limits: { fileBytes: 1024, totalBytes: 1500 } }),
   });
   expect(await limits.json()).toEqual({ limits: { fileBytes: 1024, totalBytes: 1500 }, usedBytes: 0 });
@@ -326,7 +326,7 @@ it("holds an Environment's artifacts to its manifest's limits, within the Tenant
   // A Tenant that lowers its limit lowers it for every Environment, whatever its manifest says.
   await fetch(`${runtime.url}/v1/tenant/artifacts`, {
     method: "PUT",
-    headers: runtime.managementHeaders(),
+    headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
     body: JSON.stringify({ limits: { fileBytes: 100 } }),
   });
   const viewed = (await (await fetch(`${runtime.url}/v1/environments/small`, { headers: auth })).json()) as {
@@ -396,7 +396,7 @@ for (const gate of ["in-process", "http"] as const)
     const runtime = await boot({ useHostModel: true, modelCall: { retryBaseDelayMs: 1 } });
     const configured = await realFetch(`${runtime.url}/v1/tenant/model`, {
       method: "PUT",
-      headers: runtime.managementHeaders(),
+      headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
       body: JSON.stringify({
         requestId: "model-1",
         idempotencyKey: "model-1",
@@ -541,6 +541,27 @@ it("lets model-gate read a Tenant-wide file only once the session's messages nam
   expect(new TextDecoder().decode((await files("s1")).bytes)).toBe("tenant-wide");
   await openSession(runtime, "s2");
   await expect(files("s2")).rejects.toBeInstanceOf(FileUnavailableError);
+});
+
+it("refuses a file larger than the Tenant's modelFileBytes when model-gate reads it", async () => {
+  const runtime = await boot();
+  await openSession(runtime, "s1");
+  const { artifact } = await uploaded(await upload(runtime, "name=a.txt&sessionId=s1", "secret"));
+  const read = () =>
+    artifactFiles({
+      store: (runtime.handle as unknown as { ctx: { store: SessionStore } }).ctx.store,
+      blobs: createFsBlobStore({ root: tenantPaths(runtime.root).blobs }),
+      sessionId: "s1",
+    })({ artifactId: artifact.artifactId, version: 1 });
+  expect(new TextDecoder().decode((await read()).bytes)).toBe("secret");
+  const lowered = await fetch(`${runtime.url}/v1/tenant/limits`, {
+    method: "PUT",
+    headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
+    body: JSON.stringify({ limits: { modelFileBytes: 4 } }),
+  });
+  expect(lowered.status).toBe(200);
+  // Read where it is checked: the next read holds the file to the lowered limit.
+  await expect(read()).rejects.toThrow("a model reads files of at most 4 bytes (the Runtime limit modelFileBytes)");
 });
 
 it("refuses a file part naming another session's artifact, or one that does not exist", async () => {

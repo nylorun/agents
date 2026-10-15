@@ -9,6 +9,7 @@ import {
   PutModelBudgetsRequestSchema,
   PutTenantArtifactsRequestSchema,
   PutTenantEnvironmentsRequestSchema,
+  PutTenantLimitsRequestSchema,
   PutTenantSkillsRequestSchema,
   PutToolPolicyRequestSchema,
 } from "@nylorun/core/contracts";
@@ -27,6 +28,9 @@ export const settingsUsage = `  budgets [get | put <file|->] [--tenant <name>]
                                       the artifact store's limits
   settings skills [get | put <file|->] [--tenant <name>]
                                       the most bytes one skill may hold
+  settings limits [get | put <file|->] [--tenant <name>]
+                                      the Runtime limits: record entry, model call, model file,
+                                      tool answer, harness state and chunk bytes
   coverage --agent <id> [--environment <id>] [--tenant <name>] [--json]
                                       which secret of the Environment each of the agent's MCP
                                       servers and HTTP tools would get`;
@@ -79,6 +83,13 @@ const skillSettings: Document<Parameters<ManagementClient["settings"]["skills"][
   put: (admin, body) => admin.settings.skills.put(body),
 };
 
+const limitSettings: Document<Parameters<ManagementClient["settings"]["limits"]["put"]>[0]> = {
+  name: "settings limits",
+  schema: PutTenantLimitsRequestSchema,
+  get: (admin) => admin.settings.limits.get(),
+  put: (admin, body) => admin.settings.limits.put(body),
+};
+
 /** `<document> [get | put <file|->]`: `get` when no verb is given. */
 async function documentCommand<T>(
   deps: StackDeps,
@@ -101,12 +112,13 @@ export const budgetsCommand = (deps: StackDeps, args: readonly string[]) =>
 export const toolPolicyCommand = (deps: StackDeps, args: readonly string[]) =>
   documentCommand(deps, toolPolicy, args);
 
-/** `nylorun tenant settings sandbox | artifacts | skills ...` */
+/** `nylorun tenant settings sandbox | artifacts | skills | limits ...` */
 export async function settingsCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [which, ...rest] = args;
   if (which === "sandbox") return documentCommand(deps, sandbox, rest);
   if (which === "artifacts") return documentCommand(deps, artifacts, rest);
   if (which === "skills") return documentCommand(deps, skillSettings, rest);
+  if (which === "limits") return documentCommand(deps, limitSettings, rest);
   throw usageError();
 }
 

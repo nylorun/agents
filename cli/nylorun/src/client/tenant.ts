@@ -37,7 +37,7 @@ ${settingsUsage}
 ${mcpUsage}
 
 A put reads a JSON body from a file, or from stdin for -, and replaces the whole document; what
-budgets, tool-policy, settings artifacts and settings skills get print, put takes back. An API key is read from
+budgets, tool-policy, settings artifacts, settings skills and settings limits get print, put takes back. An API key is read from
 stdin, never from the arguments.`;
 
 const usageError = (message: string) => new CliError(message, 2);

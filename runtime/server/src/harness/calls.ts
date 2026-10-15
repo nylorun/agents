@@ -143,6 +143,8 @@ export async function callMcpTool(
   routing: ToolRouting,
   request: HostEffect,
   signal: AbortSignal,
+  /** The run's Runtime limit `toolAnswerBytes`: the largest answer kept where this process holds the connection. */
+  maxResultBytes: number,
   /** The call's span context (R7.4), sent as `traceparent` where this process holds the connection. */
   traceparent?: string
 ): Promise<unknown> {
@@ -158,6 +160,7 @@ export async function callMcpTool(
     manifest: routing.rootManifest,
     effectId: request.effectId,
     ...(traceparent ? { traceparent } : {}),
+    maxResultBytes,
     signal,
   });
 }

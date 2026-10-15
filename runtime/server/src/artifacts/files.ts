@@ -10,7 +10,7 @@ import type { JsonValue } from "@nylorun/core/define";
 import type { BlobStore } from "../blob/index.js";
 import type { SessionStore } from "../store/types.js";
 import type { Session } from "../tenant/context.js";
-import { MODEL_FILE_MAX_BYTES } from "./media-types.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { fileReferenceOf } from "./parts.js";
 
 /** A file a prompt names, with its bytes. */
@@ -37,16 +37,15 @@ export type FileResolver = (reference: JsonValue) => Promise<ResolvedFile>;
  * the call of session `sessionId`. It reads what `read_artifact` reads: an artifact of the
  * session, or a Tenant-wide one its messages named (`Session.fileArtifacts`). Another session's
  * artifact, or a Tenant-wide one the session never named, is refused, and without a session
- * every file is: the check is never skipped.
+ * every file is: the check is never skipped. A file larger than the Tenant's Runtime limit
+ * `modelFileBytes`, read with the row, is refused too.
  */
 export function artifactFiles(options: {
   readonly store: SessionStore;
   readonly blobs: BlobStore;
   /** The session the call is for: the run token's, over HTTP. */
   readonly sessionId: string | undefined;
-  readonly maxBytes?: number;
 }): FileResolver {
-  const maxBytes = options.maxBytes ?? MODEL_FILE_MAX_BYTES;
   return async (value) => {
     const reference = fileReferenceOf(value);
     if (!reference) throw new FileUnavailableError("Expected an artifact reference.");
@@ -61,18 +60,18 @@ export function artifactFiles(options: {
         if (!session?.fileArtifacts?.includes(artifact.id)) return undefined;
       } else if (artifact.sessionId !== sessionId) return undefined;
       const version = await t.artifactVersion(artifact.id, reference.version);
-      return version ? { artifact, version } : undefined;
+      return version ? { artifact, version, maxBytes: (await readRuntimeLimits(t)).modelFileBytes } : undefined;
     });
     if (!found)
       throw new FileUnavailableError(
         `Artifact ${reference.artifactId} version ${reference.version} is not available.`,
       );
-    const { artifact, version } = found;
+    const { artifact, version, maxBytes } = found;
     if (artifact.kind !== "file")
       throw new FileUnavailableError(`${artifact.name} is a folder; a model reads files only.`);
     if (version.size > maxBytes)
       throw new FileUnavailableError(
-        `${artifact.name} is ${version.size} bytes; a model reads files of at most ${maxBytes} bytes.`,
+        `${artifact.name} is ${version.size} bytes; a model reads files of at most ${maxBytes} bytes (the Runtime limit modelFileBytes).`,
       );
     const got = await options.blobs.get(version.blobKey);
     if (!got)

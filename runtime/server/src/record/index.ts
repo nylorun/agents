@@ -8,7 +8,14 @@
  */
 export { buildEvent, InvalidEventError, type EventInput } from "./envelope.js";
 export { decodeCursor, encodeCursor } from "./cursor.js";
-export { appendEvent, type AppendInput, type RecordWriter } from "./append.js";
+export {
+  RecordEntryTooLargeError,
+  appendEvent,
+  checkEntry,
+  entryBytes,
+  type AppendInput,
+  type RecordWriter,
+} from "./append.js";
 export {
   appendEnvironmentEvent,
   buildEnvironmentEvent,

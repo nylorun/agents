@@ -32,15 +32,6 @@ import type {
 
 export const HARNESS_API_VERSION = 3;
 
-/**
- * The most bytes one `definition.file` answer carries when the harness names a range: base64 in
- * one frame, well under `HARNESS_MAX_PAYLOAD`. A larger file comes a range at a time.
- */
-export const DEFINITION_FILE_CHUNK_BYTES = 16 * 1024 * 1024;
-
-/** The most state a custom harness may keep per session (R4.2): its serialized JSON, in bytes. */
-export const MAX_HARNESS_STATE_BYTES = 256 * 1024;
-
 /** Why core stopped a run. Matches the advance's abort kinds. */
 export const ABORT_REASONS = ["cancel", "shutdown", "deadline", "ownership.lost"] as const;
 export type AbortReason = (typeof ABORT_REASONS)[number];
@@ -63,6 +54,11 @@ export const HARNESS_ERROR_CODES = [
   "invalid",
   "unavailable",
   "internal",
+  /**
+   * What the harness sent passes a Runtime limit (`turn.start.limits`): the message names the
+   * limit and its value.
+   */
+  "limit_exceeded",
 ] as const;
 export type HarnessErrorCode = (typeof HARNESS_ERROR_CODES)[number];
 

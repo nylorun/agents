@@ -17,6 +17,7 @@ import { createMcpHandler } from "../../src/gates/mcp-handler.js";
 import { GateCallLost, httpToolGate } from "../../src/gates/tool-client.js";
 import { MCP_CONNECT_PATH, TOOL_CALLS_PATH, type McpAnswer } from "../../src/gates/tool-contract.js";
 import type { TenantVaults } from "../../src/gates/tenant-vaults.js";
+import { noLimitsStore } from "../support/limits.js";
 
 const TOKEN = "gate-bearer-plaintext-1234567890";
 const tenantId = newTenantId();
@@ -65,6 +66,7 @@ describe("the gate's MCP handler", () => {
       open: async () =>
         ({
           tenantId,
+          store: noLimitsStore,
           session: async (id: string) => ({ id, manifest: agent.manifest }),
           authorizeMcp: async (_session: string, request: { url: string }) => ({
             status: "authorized",

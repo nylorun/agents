@@ -34,9 +34,6 @@ export type OutboundResult =
   | { kind: "not_sent"; code: string; message: string }
   | { kind: "lost"; code: string; message: string };
 
-/** The largest answer read from an endpoint. */
-export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
-
 const PRIVATE = new BlockList();
 for (const [network, prefix] of [
   ["0.0.0.0", 8],
@@ -122,12 +119,13 @@ export async function send(
   options: {
     policy: OutboundPolicy;
     signal: AbortSignal;
-    maxResponseBytes?: number;
+    /** The largest answer read: the Tenant's Runtime limit `toolAnswerBytes` for an HTTP tool. */
+    maxResponseBytes: number;
     method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   },
 ): Promise<OutboundResult> {
   const { policy, signal } = options;
-  const limit = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
+  const limit = options.maxResponseBytes;
   const url = new URL(target);
   const refused = refusal(url, policy);
   if (refused) return { kind: "not_sent", code: "ENDPOINT_ADDRESS_REFUSED", message: refused };

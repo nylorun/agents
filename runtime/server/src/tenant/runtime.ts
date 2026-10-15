@@ -28,6 +28,7 @@ import { tenantModelGate } from "../gates/in-process.js";
 import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
 import { SigningKeys } from "./signing-keys.js";
+import { readRuntimeLimits } from "./runtime-limits.js";
 import { VaultService, type AuthorizeResult } from "../vault/service.js";
 import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
@@ -285,6 +286,7 @@ export class TenantRuntime implements TenantHandle {
         inProcessToolGate(config.delivery ?? {}, {
           session: (sessionId) => opened.tx((t) => t.get<{ manifest: unknown }>("sessions", sessionId)),
           authorize: (sessionId, request) => authorize(ctx, sessionId, request),
+          toolAnswerBytes: async () => (await opened.tx((t) => readRuntimeLimits(t))).toolAnswerBytes,
           logger: config.logger,
         });
       const signingKeys = new SigningKeys({ tenantId: config.tenantId, kek: ensureKek });

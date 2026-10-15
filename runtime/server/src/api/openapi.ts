@@ -347,7 +347,8 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   },
   {
     name: "Settings",
-    description: "The Tenant's sandbox backend, Environment, artifact and skill settings. `admin.settings`.",
+    description:
+      "The Tenant's sandbox backend, Environment, artifact and skill settings, and its Runtime limits. `admin.settings`.",
     operations: [
       "GET /v1/tenant/sandbox",
       "PUT /v1/tenant/sandbox",
@@ -355,6 +356,8 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
       "PUT /v1/tenant/artifacts",
       "GET /v1/tenant/skills",
       "PUT /v1/tenant/skills",
+      "GET /v1/tenant/limits",
+      "PUT /v1/tenant/limits",
     ],
   },
 ];

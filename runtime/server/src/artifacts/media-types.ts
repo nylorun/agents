@@ -53,9 +53,6 @@ export const MODEL_IMAGE_TYPES: readonly string[] = Object.freeze([
   "image/gif",
 ]);
 
-/** The largest image or text file a model call carries inline. */
-export const MODEL_FILE_MAX_BYTES = 8 * 1024 * 1024;
-
 /** The type part of a `Content-Type` value, lowercased, without parameters. */
 export function essence(contentType: string): string {
   return contentType.split(";")[0]!.trim().toLowerCase();

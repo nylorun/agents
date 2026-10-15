@@ -96,7 +96,7 @@ nylorun tenant usage [--scope tenant|agent|turn] [--id <id>] [--period day|month
 nylorun tenant calls [--after <cursor>] [--limit <n>] [--tenant <name>]   # every recorded model call as NDJSON, until caught up
 nylorun tenant budgets [get | put <file|->] [--tenant <name>]       # the model spend caps
 nylorun tenant tool-policy [get | put <file|->] [--tenant <name>]   # the Tool Gate's rules
-nylorun tenant settings sandbox|artifacts|skills [get | put <file|->] [--tenant <name>]   # Environment, artifact store and skill settings
+nylorun tenant settings sandbox|artifacts|skills|limits [get | put <file|->] [--tenant <name>]   # Environment, artifact store and skill settings, Runtime limits
 nylorun tenant coverage --agent <id> [--environment <id>] [--tenant <name>] [--json]   # which secret each MCP server and HTTP tool would get
 nylorun tenant mcp inspect <url> [--server <name>] [--environment <id>] [--sse] [--tenant <name>] [--json]
 
@@ -510,14 +510,14 @@ already has a credential, keeping its model (or `--model`) and endpoint.
 
 ### Files in, files out
 
-`budgets`, `tool-policy`, `settings sandbox`, `settings artifacts` and
-`settings skills` are documents: `get` (the default) prints one as JSON, and
-`put <file>` (or `put -` for stdin) replaces the whole document with the JSON
-body in the file, the Management API's request body (`PUT /v1/tenant/budgets`,
-`/tool-policy`, `/sandbox`, `/artifacts`, `/skills`). The body is checked against
-its schema before anything is sent; one that does not parse exits 2. What
-`budgets`, `tool-policy`, `settings artifacts` and `settings skills` print,
-`put` takes back (their `updatedAt` and
+`budgets`, `tool-policy`, `settings sandbox`, `settings artifacts`,
+`settings skills` and `settings limits` are documents: `get` (the default)
+prints one as JSON, and `put <file>` (or `put -` for stdin) replaces the whole
+document with the JSON body in the file, the Management API's request body
+(`PUT /v1/tenant/budgets`, `/tool-policy`, `/sandbox`, `/artifacts`, `/skills`,
+`/limits`). The body is checked against its schema before anything is sent; one
+that does not parse exits 2. What `budgets`, `tool-policy`, `settings artifacts`,
+`settings skills` and `settings limits` print, `put` takes back (their `updatedAt` and
 `usedBytes` are dropped), so they can be kept in a repository and applied from
 CI:
 
@@ -528,6 +528,12 @@ nylorun tenant tool-policy put tool-policy.json
 
 `settings sandbox get` prints the effective settings and what the Host offers;
 its `put` takes the settings alone (`limits`, `lifecycle`, `placement`).
+
+`settings limits` is the Tenant's Runtime limits, in bytes: `recordEntryBytes`,
+`modelCallBytes`, `modelFileBytes`, `toolAnswerBytes`, `harnessStateBytes` and
+`chunkBytes`. A limit left out of a `put` takes its default; one above its
+ceiling (S2's 1 MiB record, the Harness API's 64 MiB frame) is refused, and the
+error names the ceiling.
 
 `nylorun tenant calls` prints each recorded model call as one JSON line, page
 after page, until it is caught up, then the cursor on stderr: pass it as

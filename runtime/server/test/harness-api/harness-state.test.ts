@@ -5,6 +5,7 @@
  * declared tool whose name a tool of the turn's agents has fails the turn (Harness API 3).
  */
 import { afterEach, expect, it } from "vitest";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import {
   effectRequestHash,
   memoryChannels,
@@ -90,8 +91,84 @@ it("fails the turn when a custom harness's state is over 256 KiB", async () => {
   const { run } = await leased;
   await expect(
     acme.request("turn.completed", { runId: run.runId, status: "completed", state: { blob: "x".repeat(257 * 1024) } })
-  ).rejects.toMatchObject({ code: "invalid", message: expect.stringContaining("state over 256 KiB") });
+  ).rejects.toMatchObject({ code: "limit_exceeded", message: expect.stringContaining("harnessStateBytes (262144 bytes") });
   await until(() => view(runtime), (v) => v.status === "failed" || v.status === "idle", "failed turn");
+});
+
+/** Sets the Tenant's Runtime limits (`PUT /v1/tenant/limits`). */
+async function putLimits(runtime: Started, limits: Record<string, number>) {
+  const response = await fetch(`${runtime.url}/v1/tenant/limits`, {
+    method: "PUT",
+    headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
+    body: JSON.stringify({ limits }),
+  });
+  expect(response.status).toBe(200);
+}
+
+it("hands the harness the Tenant's Runtime limits in turn.start, and holds its state to a lowered one", async () => {
+  const { runtime, acme } = await start();
+  await putLimits(runtime, { harnessStateBytes: 1024 });
+  const leased = acme.request("lease", {});
+  await message(runtime, 1);
+  const { run, input } = (await leased) as { run: { runId: string }; input: TurnStart };
+  expect(input.limits).toEqual({ ...RUNTIME_LIMIT_DEFAULTS, harnessStateBytes: 1024 });
+  await expect(
+    acme.request("turn.completed", { runId: run.runId, status: "completed", state: { blob: "x".repeat(2048) } })
+  ).rejects.toMatchObject({ code: "limit_exceeded", message: expect.stringContaining("harnessStateBytes (1024 bytes") });
+  await until(() => view(runtime), (v) => v.status === "failed" || v.status === "idle", "failed turn");
+});
+
+it("refuses an effect outcome past the record entry limit, and records nothing of it", async () => {
+  const { runtime, acme } = await start();
+  await putLimits(runtime, { recordEntryBytes: 4096 });
+  const leased = acme.request("lease", {});
+  await message(runtime, 1);
+  const { run, input } = (await leased) as {
+    run: { runId: string; sessionId: string; turnId: string };
+    input: TurnStart;
+  };
+  expect(input.limits.recordEntryBytes).toBe(4096);
+  const checkpoint = input.checkpoint as { turnId: string; segment: number; manifestHash: string };
+  const effect: EffectIntent = {
+    effectId: `${checkpoint.turnId}:${checkpoint.segment}:tool:1:c1`,
+    sessionId: run.sessionId,
+    turnId: run.turnId,
+    agentId: "bot",
+    manifestHash: checkpoint.manifestHash,
+    kind: "tool",
+    toolName: "apply_patch",
+    input: {},
+    context: { callId: "c1", invocationId: "i1" },
+  };
+  await acme.request("effect.intent", { runId: run.runId, effect, requestHash: effectRequestHash(effect) });
+  await expect(
+    acme.request("effect.outcome", {
+      runId: run.runId,
+      effectId: effect.effectId,
+      value: { kind: "completed", output: "x".repeat(8 * 1024) },
+    })
+  ).rejects.toMatchObject({ code: "limit_exceeded", message: expect.stringContaining("recordEntryBytes (4096 bytes") });
+  // What fits is recorded as before.
+  await acme.request("effect.outcome", {
+    runId: run.runId,
+    effectId: effect.effectId,
+    value: { kind: "completed", output: "ok" },
+  });
+  // A transcript update the harness reports past the limit is refused too, and the turn fails.
+  await expect(
+    acme.request("turn.completed", {
+      runId: run.runId,
+      status: "completed",
+      state: {},
+      output: "done",
+      transcript: [{ keep: 0, entries: [{ role: "user", content: "y".repeat(8 * 1024) }], length: 1 }],
+    })
+  ).rejects.toMatchObject({ code: "limit_exceeded", message: expect.stringContaining("recordEntryBytes") });
+  const items = (await call(runtime, "GET", "/v1/sessions/s1/items")).body.items as {
+    type: string;
+    payload: Record<string, unknown>;
+  }[];
+  expect(items.filter((item) => item.type === "tool.completed").map((item) => item.payload.output)).toEqual(["ok"]);
 });
 
 it("refuses a pause from a custom harness", async () => {

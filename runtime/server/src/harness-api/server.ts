@@ -27,10 +27,8 @@
 import { randomUUID } from "node:crypto";
 import {
   DEFAULT_HARNESS,
-  DEFINITION_FILE_CHUNK_BYTES,
   HARNESS_API_VERSION,
   HARNESS_CLAIMS,
-  MAX_HARNESS_STATE_BYTES,
   isHarnessId,
   HarnessApiError,
   type CoreMethod,
@@ -46,7 +44,7 @@ import {
   type TurnStart,
   type WorkspaceRecord,
 } from "@nylorun/core/harness-api";
-import { definitionFilesOf, type EventWriter } from "@nylorun/core/contracts";
+import { definitionFilesOf, limitExceededMessage, type EventWriter } from "@nylorun/core/contracts";
 import {
   TOOL_CALL_TOOL,
   TOOL_SEARCH_TOOL,
@@ -70,6 +68,7 @@ import { abortKind } from "../tenant/worker.js";
 import { BlobRangeError } from "../blob/index.js";
 import { openDefinitionFile, readDefinitionFile } from "../tenant/definition-files.js";
 import { recordIntent, recordOutcome } from "./record.js";
+import { RecordEntryTooLargeError } from "../record/index.js";
 import { redactTokens } from "./redact.js";
 import { beat, renewEveryMs, tokenOf } from "./renew.js";
 
@@ -406,7 +405,8 @@ export function createHarnessApiServer(
    * A `sandbox.*` event the harness claims: for a run it holds (the run's session, or the
    * session owning its sandbox), or a session one of its workspace requests acts for. A
    * `sandbox.state` record becomes the workspace's `sandboxes` row. Claims are best effort, as
-   * the events of core's own SandboxManager are: a session gone since is skipped.
+   * the events of core's own SandboxManager are: a session gone since is skipped. One past the
+   * Tenant's `recordEntryBytes` is refused (`limit_exceeded`).
    */
   const claim = async (connection: Connection, event: ParamsOf<"event">): Promise<Record<string, never>> => {
     if (!HARNESS_CLAIMS.includes(event.type as HarnessClaim))
@@ -440,6 +440,8 @@ export function createHarnessApiServer(
         );
       });
     } catch (error) {
+      // Past the record entry limit is the harness's to hear (`limit_exceeded`), not a lost claim.
+      if (error instanceof RecordEntryTooLargeError) throw error;
       ctx.config.logger.warn("harness event claim not recorded", {
         sessionId: event.sessionId,
         type: event.type,
@@ -499,7 +501,8 @@ export function createHarnessApiServer(
 
   /**
    * A definition file the run's definition names (its skills', for its sandbox), base64: whole,
-   * or the range `offset` and `length` name (none past the end).
+   * or the range `offset` and `length` name (none past the end), at most the run's
+   * `limits.chunkBytes`, which is also the length when the harness names none.
    */
   const definitionFile = async (
     run: Run,
@@ -514,8 +517,14 @@ export function createHarnessApiServer(
       if (!bytes) throw missing();
       return { base64: Buffer.from(bytes).toString("base64") };
     }
+    const { chunkBytes } = run.offer.start.limits;
+    if (length !== undefined && length > chunkBytes)
+      throw new HarnessApiError(
+        "limit_exceeded",
+        limitExceededMessage("The range asked for", length, "chunkBytes", chunkBytes)
+      );
     const start = offset ?? 0;
-    const end = start + (length ?? DEFINITION_FILE_CHUNK_BYTES) - 1;
+    const end = start + (length ?? chunkBytes) - 1;
     let body: ReadableStream<Uint8Array> | undefined;
     try {
       body = await openDefinitionFile(ctx.blobs, sha256, { range: { start, end }, signal });
@@ -529,22 +538,24 @@ export function createHarnessApiServer(
 
   /**
    * A custom harness's output (R4.2): its state is its own, stored as sent and never read, so it
-   * must be JSON and at most `MAX_HARNESS_STATE_BYTES`; a larger one fails the turn, as an engine
-   * that threw would. It cannot pause for approvals in v2 (Q14): approvals read our engine's plan
-   * until R5 makes them core holds.
+   * must be JSON and at most the run's `limits.harnessStateBytes`; a larger one fails the turn
+   * (`limit_exceeded`), as an engine that threw would. It cannot pause for approvals in v2 (Q14):
+   * approvals read our engine's plan until R5 makes them core holds.
    */
   const checkCustomOutput = (run: Run, method: string, params: Record<string, unknown>) => {
     if (method === "turn.paused")
       throw new HarnessApiError("invalid", "A custom harness cannot pause for approvals in Harness API 2");
     if (params.state === undefined || run.outputs.has(method)) return;
     const bytes = Buffer.byteLength(JSON.stringify(params.state) ?? "");
-    if (bytes <= MAX_HARNESS_STATE_BYTES) return;
+    const { harnessStateBytes } = run.offer.start.limits;
+    if (bytes <= harnessStateBytes) return;
+    const message = limitExceededMessage("The harness's state", bytes, "harnessStateBytes", harnessStateBytes);
     output(run, "turn.failed", {
       runId: run.grant.runId,
       status: "failed",
-      thrown: { code: "invalid", message: `The harness's state is ${bytes} bytes, over ${MAX_HARNESS_STATE_BYTES}` },
+      thrown: { code: "limit_exceeded", message },
     }).catch(() => undefined);
-    throw new HarnessApiError("invalid", `state over 256 KiB (${bytes} bytes): the turn failed`);
+    throw new HarnessApiError("limit_exceeded", `${message} The turn failed.`);
   };
 
   const output = (run: Run, method: string, params: Record<string, unknown>) => {

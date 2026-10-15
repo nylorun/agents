@@ -21,6 +21,7 @@ import {
   type EnvironmentEventType,
 } from "@nylorun/core/contracts";
 import { InvalidEventError } from "./envelope.js";
+import { checkEntry } from "./append.js";
 
 /** The Environment stream's two statements, in the caller's transaction. */
 export interface EnvironmentRecordWriter {
@@ -35,6 +36,8 @@ export interface EnvironmentAppendInput<T extends EnvironmentEventType> {
   time: Date;
   type: T;
   payload: EnvironmentEventPayload<T>;
+  /** The Tenant's Runtime limit `recordEntryBytes`, as for a session's events. */
+  maxEntryBytes: number;
 }
 
 /** Builds the event and checks it against the Environment event catalog. */
@@ -67,6 +70,7 @@ export async function appendEnvironmentEvent<T extends EnvironmentEventType>(
   writer: EnvironmentRecordWriter,
   input: EnvironmentAppendInput<T>,
 ): Promise<EnvironmentEvent> {
+  checkEntry(`The ${input.type} event's payload`, input.payload, input.maxEntryBytes);
   const seq = await writer.nextSeq(input.environmentId);
   const event = buildEnvironmentEvent({ ...input, seq });
   await writer.insert({ environmentId: input.environmentId, seq, type: input.type, body: event });

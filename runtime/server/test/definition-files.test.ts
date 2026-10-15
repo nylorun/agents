@@ -13,7 +13,7 @@ import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent, AgentsClient } from "@nylorun/agents";
 import { SKILL_TOTAL_BYTES_DEFAULT } from "@nylorun/core/contracts";
 import { DELEGATE_INPUT_SCHEMA, skillFolderOf } from "@nylorun/core/define";
-import { DEFINITION_FILE_CHUNK_BYTES } from "@nylorun/core/harness-api";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/harness-api";
 import type { BlobStore } from "../src/blob/index.js";
 import type { ModelProvider } from "../src/core/provider.js";
 import { withTestSessionStore } from "./support/store.js";
@@ -461,7 +461,7 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     // A file larger than one harness answer carries, and than the skill tools read: the
     // sandbox gets it a range at a time.
     const folderOfPlugin = pluginFolder();
-    const BIG = DEFINITION_FILE_CHUNK_BYTES + 3;
+    const BIG = RUNTIME_LIMIT_DEFAULTS.chunkBytes + 3;
     writeFileSync(join(folderOfPlugin, "skills/triage/references/big.txt"), "a".repeat(BIG));
     const agent = Agent({ id: "triager", instructions: "Triage." }).plugin(folderOfPlugin).build();
     // The version's own folder (D66).

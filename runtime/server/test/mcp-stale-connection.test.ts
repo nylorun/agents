@@ -5,6 +5,7 @@
  * whose `via` now sends the server's requests elsewhere. In the loop's pool (in process) and in
  * the gate's MCP handler alike.
  */
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, describe, expect, it } from "vitest";
@@ -13,6 +14,7 @@ import { newTenantId } from "@nylorun/core/compatibility";
 import { McpPool } from "../src/mcp/pool.js";
 import { createMcpHandler } from "../src/gates/mcp-handler.js";
 import type { TenantVaults } from "../src/gates/tenant-vaults.js";
+import { noLimitsStore } from "./support/limits.js";
 import type { AuthorizeResult } from "../src/vault/service.js";
 
 const servers: Server[] = [];
@@ -102,6 +104,7 @@ function poolFor(via?: () => string) {
 
 async function callThrough(pool: McpPool, manifest: ReturnType<typeof agentFor>) {
   return pool.call({
+    maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
     sessionId: "s1",
     serverName: "remote",
     serverToolName: "echo",
@@ -162,6 +165,7 @@ describe("the gate's MCP handler", () => {
       open: async () =>
         ({
           tenantId: newTenantId(),
+          store: noLimitsStore,
           session: async (id: string) => ({ id, manifest }),
           authorizeMcp: async (_session: string, request: { url: string }) => ({
             status: "unauthenticated",

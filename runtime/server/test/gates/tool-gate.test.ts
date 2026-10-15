@@ -19,6 +19,7 @@ import {
   TOOL_CALLS_PATH,
 } from "../../src/gates/tool-contract.js";
 import type { TenantVaults } from "../../src/gates/tenant-vaults.js";
+import { noLimitsStore } from "../support/limits.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
 import { createRunGrants } from "../../src/tenant/run-grants.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
@@ -92,6 +93,7 @@ describe("the gate's MCP handler", () => {
     open: async () =>
       ({
         tenantId,
+        store: noLimitsStore,
         session: async (id: string) => (id === "s1" ? { id, manifest } : undefined),
         authorizeMcp: async () => ({ status: "none" }),
       }) as never,
@@ -119,6 +121,7 @@ describe("the gate's MCP handler", () => {
         open: async () =>
           ({
             tenantId,
+            store: noLimitsStore,
             session: async (id: string) => ({ id, manifest: agent.manifest }),
             authorizeMcp,
           }) as never,

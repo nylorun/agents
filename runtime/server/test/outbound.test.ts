@@ -6,6 +6,9 @@ import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { guardedFetch, isPrivateAddress, OutboundFailed, OutboundRefused, refusal, send } from "../src/tenant/outbound.js";
 
+/** The largest answer read: the Runtime limit `toolAnswerBytes`, as an HTTP tool passes it. */
+const MAX_RESPONSE = 8 * 1024 * 1024;
+
 const servers: Server[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) await new Promise((resolve) => server.close(resolve));
@@ -38,7 +41,7 @@ describe("addresses", () => {
 
   it("refuses a name that resolves only to private addresses, as not sent", async () => {
     const port = await serve((_req, res) => res.end("{}"));
-    const result = await send(`http://localhost:${port}/a`, "{}", {}, { policy: { privateAddresses: "refuse" }, signal: signal() });
+    const result = await send(`http://localhost:${port}/a`, "{}", {}, { policy: { privateAddresses: "refuse" }, signal: signal(), maxResponseBytes: MAX_RESPONSE });
     expect(result).toMatchObject({ kind: "not_sent", code: "ENDPOINT_ADDRESS_REFUSED" });
   });
 });
@@ -54,7 +57,7 @@ describe("requests", () => {
         res.writeHead(200, { "x-answer": "yes" }).end('{"ok":true}');
       });
     });
-    const result = await send(`http://localhost:${port}/a`, '{"x":1}', { "nylorun-signature": "t" }, { policy: {}, signal: signal() });
+    const result = await send(`http://localhost:${port}/a`, '{"x":1}', { "nylorun-signature": "t" }, { policy: {}, signal: signal(), maxResponseBytes: MAX_RESPONSE });
     expect(result).toMatchObject({ kind: "response", status: 200, headers: { "x-answer": "yes" } });
     expect(result.kind === "response" && result.body.toString()).toBe('{"ok":true}');
     expect(seen).toMatchObject({
@@ -66,7 +69,7 @@ describe("requests", () => {
 
   it("does not follow redirects", async () => {
     const port = await serve((_req, res) => res.writeHead(302, { location: "http://169.254.169.254/" }).end());
-    expect(await send(`http://127.0.0.1:${port}/a`, "{}", {}, { policy: {}, signal: signal() })).toMatchObject({
+    expect(await send(`http://127.0.0.1:${port}/a`, "{}", {}, { policy: {}, signal: signal(), maxResponseBytes: MAX_RESPONSE })).toMatchObject({
       kind: "response",
       status: 302,
     });
@@ -83,17 +86,17 @@ describe("requests", () => {
     const closed = await serve(() => {});
     const port = closed;
     await new Promise((resolve) => servers.pop()!.close(resolve));
-    expect(await send(`http://127.0.0.1:${port}/a`, "{}", {}, { policy: {}, signal: signal() })).toMatchObject({
+    expect(await send(`http://127.0.0.1:${port}/a`, "{}", {}, { policy: {}, signal: signal(), maxResponseBytes: MAX_RESPONSE })).toMatchObject({
       kind: "not_sent",
       code: "ECONNREFUSED",
     });
     const cut = await serve((req) => req.on("data", () => req.socket.destroy()));
-    expect(await send(`http://127.0.0.1:${cut}/a`, "{}", {}, { policy: {}, signal: signal() })).toMatchObject({
+    expect(await send(`http://127.0.0.1:${cut}/a`, "{}", {}, { policy: {}, signal: signal(), maxResponseBytes: MAX_RESPONSE })).toMatchObject({
       kind: "lost",
     });
     const slow = await serve(() => {});
     expect(
-      await send(`http://127.0.0.1:${slow}/a`, "{}", {}, { policy: {}, signal: AbortSignal.timeout(200) }),
+      await send(`http://127.0.0.1:${slow}/a`, "{}", {}, { policy: {}, signal: AbortSignal.timeout(200), maxResponseBytes: MAX_RESPONSE }),
     ).toMatchObject({ kind: "lost", code: "ABORTED" });
   });
 
@@ -101,6 +104,7 @@ describe("requests", () => {
     const result = await send("http://localhost:1/a", "{}", {}, {
       policy: { loopback: "docker-host" },
       signal: AbortSignal.timeout(2_000),
+      maxResponseBytes: MAX_RESPONSE,
     });
     // host.docker.internal does not resolve outside Docker, so nothing was sent.
     expect(result.kind).toBe("not_sent");

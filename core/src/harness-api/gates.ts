@@ -32,12 +32,6 @@ export const MCP_CLOSE_PATH = "/nylorun/v1/mcp/close";
 export const TOOL_CALLS_PATH = "/nylorun/v1/tool-calls";
 export const HTTP_CALLS_PATH = "/nylorun/v1/http-calls";
 
-/** Largest model call body the gate reads: one `ModelCall` with its whole projected history. */
-export const MAX_MODEL_CALL_BYTES = 32 * 1024 * 1024;
-
-/** Largest tool call body the gate reads. */
-export const MAX_TOOL_BODY_BYTES = 8 * 1024 * 1024;
-
 /**
  * One model call. It names no session, turn or agent: the gate takes them from the run token,
  * and refuses a body that names them. `call` is the engine's `ModelCall`.
