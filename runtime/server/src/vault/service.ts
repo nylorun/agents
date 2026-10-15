@@ -9,11 +9,12 @@
  * new VaultService({ store: SessionStore, kek: () => Buffer })
  *
  * // An Environment's vault, in the caller's transaction (`tenant/environments.ts`).
- * createEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<string>
+ * createEnvironmentVault(t: Tx, environmentId: string, actor: string, id?: string): Promise<string>
  * deleteEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void>
  *
  * // A fork's secrets (Q15): `Keys` seals the copies with the vault key in its own transaction,
- * // then the fork's transaction inserts them, so the process that forks never holds the key.
+ * // before the fork's; the fork's transaction inserts them, so the process that forks never
+ * // holds the key.
  * sealEnvironmentSecretCopies(from, vaultId, slots | null): Promise<SealedSecretCopies>
  * insertEnvironmentSecretCopies(t: Tx, vaultId, from, actor, sealed): Promise<{ copied; dropped }>
  *
@@ -239,10 +240,13 @@ export class VaultService {
 
   // --- an Environment's vault (caller's transaction) ------------------------------
 
-  /** Creates Environment `environmentId`'s vault (D56), in the transaction that creates it; answers its id. */
-  async createEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<string> {
+  /**
+   * Creates Environment `environmentId`'s vault (D56), in the transaction that creates it; answers
+   * its id, `id` when given (a fork's, whose secrets were sealed for it first).
+   */
+  async createEnvironmentVault(t: Tx, environmentId: string, actor: string, id: string = randomUUID()): Promise<string> {
     const row: VaultRow = {
-      id: randomUUID(),
+      id,
       name: environmentId,
       metadataJson: null,
       createdAt: new Date().toISOString(),

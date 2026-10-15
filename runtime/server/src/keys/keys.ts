@@ -56,7 +56,8 @@ export interface Keys {
   /**
    * Environment `from`'s secrets sealed again for a fork's new vault `vaultId`, limited to
    * `slots` when given (`VaultService.sealEnvironmentSecretCopies`, Q15). Writes nothing: the
-   * fork's transaction inserts the copies. `null`, not `undefined`, crosses the wire.
+   * fork's transaction inserts the copies; call it before that transaction opens. `null`, not
+   * `undefined`, crosses the wire.
    */
   sealEnvironmentSecretCopies(
     from: string,

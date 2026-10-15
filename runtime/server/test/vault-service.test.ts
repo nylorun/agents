@@ -205,7 +205,8 @@ describe("VaultService administration", () => {
     // Sealed under the new vault's ids, with the slot's binding.
     expect(await vault.releaseEnvironmentSecret({ environmentId: "ada/v2", host: "uploads.github.com" })).toMatchObject({
       status: "released",
-      value: "gh-secret-value",
+      header: "Authorization",
+      value: "Bearer gh-secret-value",
     });
     expect(await vault.listEnvironmentSecrets("ada/v1")).toHaveLength(2);
     expect((await read((t) => t.vaultAudit())).at(-1)).toMatchObject({

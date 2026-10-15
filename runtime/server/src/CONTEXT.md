@@ -218,8 +218,8 @@ _Avoid_: "recipe" for the manifest (the recipe is what one Environment runs), "t
 makes a new Environment from the version (default the source's manifest at its latest), its disk
 seeded from a version of the source's (`latest` snapshots first) and its secrets copied inside the
 Runtime (`Keys.sealEnvironmentSecretCopies`: unsealed and sealed again under the new vault's ids
-where the vault key lives, only the names its slots declare, with the slots' bindings; the fork's
-transaction inserts the copies, `VaultService.insertEnvironmentSecretCopies`). The view's `forkedFrom` names the
+where the vault key lives, before the fork's transaction, only the names its slots declare, with
+the slots' bindings; that transaction inserts the copies, `VaultService.insertEnvironmentSecretCopies`). The view's `forkedFrom` names the
 source; the source gets `environment.forked` and keeps what it runs, its disk and its sessions. A
 pod fork onto other setup (Q17) keeps its `disk_seed` (`setup`, then `written`) until the engine,
 which connects first (`afterSeed` in the join answer), has run that setup on the written disk;
