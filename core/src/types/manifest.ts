@@ -19,15 +19,24 @@ export interface PluginLabel {
  */
 export type ApprovalMode = "never" | "always";
 
-/** The methods an HTTP tool may use: each sends the tool input as a JSON body. */
-export type HttpToolMethod = "POST" | "PUT" | "PATCH";
+/**
+ * The methods an HTTP tool may use. `POST`, `PUT` and `PATCH` send the tool input as a JSON body;
+ * `GET` and `DELETE` send no body and put it in the query string.
+ */
+export type HttpToolMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 /**
- * A tool the Runtime runs as one HTTP request through its Tool Gate: the input as a JSON body,
- * the answer as the output. A sibling of `agent`; `fn` and `command` are reserved for later kinds.
+ * A tool the Runtime runs as one HTTP request through its Tool Gate: the input's path parameters
+ * in the URL, the rest as a JSON body (or, for `GET` and `DELETE`, as the query string), the
+ * answer as the output. A sibling of `agent`; `fn` and `command` are reserved for later kinds.
  */
 export interface HttpToolTarget {
-  /** Absolute `http` or `https` URL. */
+  /**
+   * Absolute `http` or `https` URL. Its path may name input fields as `{field}`, such as
+   * `https://api.example.com/orders/{orderId}`: each is a required field of the input schema,
+   * sent percent-encoded in its place and not again in the query string or body. A query string
+   * in the URL is kept, and the input's fields are added after it.
+   */
   readonly url: string;
   /** Default `POST`. */
   readonly method?: HttpToolMethod;

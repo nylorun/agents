@@ -150,7 +150,22 @@ describe("an HTTP stage", () => {
     });
     expect(issues(at({ url: "https://example.com/x", method: "PATCH" }))).toEqual([]);
     expect(issues(at({ url: "/x" }))).toHaveLength(1);
-    expect(issues(at({ url: "https://example.com/x", method: "GET" }))).toHaveLength(1);
+    expect(issues(at({ url: "https://example.com/x", method: "HEAD" }))).toHaveLength(1);
+  });
+
+  it("is a GET stage with URL parameters, checked against its input schema", () => {
+    const at = (http: unknown, inputSchema: unknown) => ({
+      kind: "workflow",
+      workflowSchemaVersion: 3,
+      id: "d",
+      root: { tool: { name: "order", inputSchema, http } },
+      agents: {},
+    });
+    const input = { type: "object", properties: { orderId: { type: "string" } }, required: ["orderId"] };
+    expect(issues(at({ url: "https://example.com/orders/{orderId}", method: "GET" }, input))).toEqual([]);
+    expect(issues(at({ url: "https://example.com/orders/{id}", method: "GET" }, input))).toEqual([
+      "Tool 'order': url names {id}, which is not a property of the input schema",
+    ]);
   });
 
   it("leaves code tool stages bound as before", () => {
@@ -193,6 +208,9 @@ describe("an HTTP verifier", () => {
     expect(() => http({ url: "https://example.com", timeoutMs: 0 })).toThrow(/timeoutMs/);
     expect(() => http({ url: "https://example.com", approval: "always" } as never)).toThrow(/unknown option approval/);
     expect(() => http({ name: "x", url: "https://example.com" } as never)).toThrow(/input is required/);
+    // A verifier is sent { input, output, iteration } as a JSON body.
+    expect(() => http({ url: "https://example.com", method: "GET" })).toThrow(/method must be one of POST, PUT, PATCH/);
+    expect(() => http({ url: "https://example.com/{run}" })).toThrow(/takes no \{field\} parameters/);
   });
 
   it("is not a stage, and an HTTP tool is not a verifier", () => {
@@ -220,6 +238,9 @@ describe("an HTTP verifier", () => {
     expect(issues(at({ agent: "fixer", http: { url: "https://example.com/v" } }))).toHaveLength(1);
     expect(issues(at({}))).toHaveLength(1);
     expect(issues(at({ http: { url: "https://example.com/v" }, id: "v" }))).toEqual(["An HTTP verifier takes no id"]);
+    expect(issues(at({ http: { url: "https://example.com/v", method: "DELETE" } }))).toEqual([
+      "an HTTP verifier is sent a JSON body: method must be one of POST, PUT, PATCH",
+    ]);
   });
 
   it("works beside a verifier agent elsewhere in the same flow", () => {

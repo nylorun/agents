@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, http, httpToolOf, isToolError } from "../src/define.js";
+import { Agent, http, httpToolOf, httpToolRequest, isToolError } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
 import { HarnessError } from "../src/errors.js";
 import { hashManifest } from "../src/utils/hash.js";
@@ -49,9 +49,11 @@ describe("the manifest's HTTP tools", () => {
       expect(issues(manifest({ http: { url } }))).toHaveLength(1);
   });
 
-  it("refuses methods without a body, a bad timeout, an empty credential and unknown fields", () => {
-    expect(issues(manifest({ http: { url: "https://example.com/x", method: "GET" } }))).toHaveLength(1);
-    expect(issues(manifest({ http: { url: "https://example.com/x", method: "DELETE" } }))).toHaveLength(1);
+  it("refuses an unknown method, a bad timeout, an empty credential and unknown fields", () => {
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"])
+      expect(issues(manifest({ http: { url: "https://example.com/x", method } }))).toEqual([]);
+    expect(issues(manifest({ http: { url: "https://example.com/x", method: "HEAD" } }))).toHaveLength(1);
+    expect(issues(manifest({ http: { url: "https://example.com/x", method: "get" } }))).toHaveLength(1);
     for (const timeoutMs of [0, -1, 1.5, 300_001])
       expect(issues(manifest({ http: { url: "https://example.com/x", timeoutMs } }))).toHaveLength(1);
     expect(issues(manifest({ http: { url: "https://example.com/x", credential: "" } }))).toHaveLength(1);
@@ -124,5 +126,149 @@ describe("http()", () => {
     const error = await tool.execute!({} as never, {} as never).catch((caught: unknown) => caught);
     expect(isToolError(error)).toBe(true);
     expect(error).toMatchObject({ code: "http.runtime-only" });
+  });
+});
+
+describe("URL parameters and methods without a body", () => {
+  const order = {
+    type: "object",
+    properties: { orderId: { type: "string" }, status: { type: "string" } },
+    required: ["orderId"],
+  };
+  const at = (http: Record<string, unknown>, inputSchema: unknown = order) =>
+    issues({ manifestSchemaVersion: 7, id: "orders", tools: [{ name: "order", inputSchema, http }] });
+
+  it("accepts {field} in the path for a required scalar field", () => {
+    expect(at({ url: "https://api.example.com/orders/{orderId}", method: "GET" })).toEqual([]);
+    expect(at({ url: "https://api.example.com/orders/{orderId}/items?v=2", method: "DELETE" })).toEqual([]);
+    expect(at({ url: "https://api.example.com/orders/{orderId}", method: "PATCH" })).toEqual([]);
+    expect(at({ url: "http://localhost:4000/{orderId}.json" })).toEqual([]);
+  });
+
+  it("refuses a malformed template, or one outside the path", () => {
+    for (const [url, message] of [
+      ["https://api.example.com/orders/{orderId", "url has an unmatched { or }"],
+      ["https://api.example.com/orders/orderId}", "url has an unmatched { or }"],
+      ["https://api.example.com/orders?id={orderId}", "url may name input fields as {field} only in its path"],
+      ["https://api.example.com/{order-id}", "url parameter {order-id} must be an input field name"],
+      ["https://api.example.com/{}", "url parameter {} must be an input field name"],
+      ["https://api.example.com/{orderId}/{orderId}", "url names {orderId} twice"],
+    ])
+      expect(at({ url }), url).toEqual([message]);
+    expect(at({ url: "https://{host}.example.com/x" })).toHaveLength(1);
+  });
+
+  it("refuses a URL parameter that is not a required scalar property of the input", () => {
+    expect(at({ url: "https://api.example.com/{status}" })).toEqual([
+      "Tool 'order': url names {status}, which the input schema must list as required",
+    ]);
+    expect(at({ url: "https://api.example.com/{missing}" })).toEqual([
+      "Tool 'order': url names {missing}, which is not a property of the input schema",
+    ]);
+    const tags = { type: "object", properties: { tags: { type: "array" } }, required: ["tags"] };
+    expect(at({ url: "https://api.example.com/{tags}" }, tags)).toEqual([
+      "Tool 'order': url names {tags}, which must be a string, a number or a boolean",
+    ]);
+  });
+
+  it("refuses, for GET and DELETE, a field that is an object or a query parameter the URL fixes", () => {
+    const filter = {
+      type: "object",
+      properties: { filter: { type: "object" }, rows: { type: "array", items: { type: "object" } } },
+    };
+    expect(at({ url: "https://api.example.com/search", method: "GET" }, filter)).toEqual([
+      "Tool 'order': 'filter' is sent in the query string by GET, so it must not be an object or hold objects",
+    ]);
+    expect(at({ url: "https://api.example.com/search", method: "POST" }, filter)).toEqual([]);
+    expect(at({ url: "https://api.example.com/orders?status=open", method: "GET" })).toEqual([
+      "Tool 'order': 'status' is both an input field and a query parameter the url fixes",
+    ]);
+  });
+
+  it("is checked when http() builds the tool", () => {
+    expect(() =>
+      http({ name: "order", input: z.object({ id: z.string() }), url: "https://api.example.com/{orderId}", method: "GET" }),
+    ).toThrow("HTTP tool 'order': url names {orderId}, which is not a property of the input schema");
+    const tool = http({
+      name: "order",
+      input: z.object({ orderId: z.string(), expand: z.array(z.string()).optional() }),
+      url: "https://api.example.com/orders/{orderId}",
+      method: "GET",
+    });
+    expect(httpToolOf(tool)).toEqual({ http: { url: "https://api.example.com/orders/{orderId}", method: "GET" } });
+  });
+});
+
+describe("httpToolRequest", () => {
+  const request = (url: string, method: string | undefined, input: unknown) =>
+    httpToolRequest({ url, ...(method ? { method: method as "GET" } : {}) }, input);
+
+  it("sends a body method's input as it is, as before", () => {
+    expect(request("https://api.example.com/refunds", undefined, { orderId: "o-1", amount: 2 })).toEqual({
+      url: "https://api.example.com/refunds",
+      method: "POST",
+      body: '{"orderId":"o-1","amount":2}',
+    });
+    expect(request("https://api.example.com/refunds", "PUT", undefined)).toMatchObject({ method: "PUT", body: "{}" });
+  });
+
+  it("puts a GET's fields in the query string, after the URL's own", () => {
+    expect(
+      request("https://api.open-meteo.com/v1/forecast?current=temperature_2m,wind_speed_10m", "GET", {
+        latitude: 22.57,
+        longitude: 88.36,
+        timezone: "Asia/Kolkata",
+        past_days: null,
+        models: ["icon", "gfs"],
+        metric: true,
+      }),
+    ).toEqual({
+      url: "https://api.open-meteo.com/v1/forecast?current=temperature_2m,wind_speed_10m&latitude=22.57&longitude=88.36&timezone=Asia%2FKolkata&models=icon&models=gfs&metric=true",
+      method: "GET",
+    });
+    expect(request("https://api.example.com/search", "GET", { q: "a b&c=d#e" })).toEqual({
+      url: "https://api.example.com/search?q=a%20b%26c%3Dd%23e",
+      method: "GET",
+    });
+    expect(request("https://api.example.com/search?", "GET", { q: "x" })).toMatchObject({
+      url: "https://api.example.com/search?q=x",
+    });
+    expect(request("https://api.example.com/all", "GET", {})).toEqual({ url: "https://api.example.com/all", method: "GET" });
+  });
+
+  it("fills URL parameters percent-encoded, and leaves them out of the query string and the body", () => {
+    expect(request("https://api.example.com/orders/{orderId}", "DELETE", { orderId: "a/b?c#d", reason: "dup" })).toEqual({
+      url: "https://api.example.com/orders/a%2Fb%3Fc%23d?reason=dup",
+      method: "DELETE",
+    });
+    expect(request("https://api.example.com/users/{id}/orders/{orderId}", "PATCH", { id: 7, orderId: "ö", note: "x" })).toEqual({
+      url: "https://api.example.com/users/7/orders/%C3%B6",
+      method: "PATCH",
+      body: '{"note":"x"}',
+    });
+    expect(request("https://api.example.com/flags/{on}", "GET", { on: false })).toMatchObject({
+      url: "https://api.example.com/flags/false",
+    });
+  });
+
+  it("refuses a URL parameter that would move the request, and a value the URL cannot hold", () => {
+    for (const orderId of ["", ".", "..", null, undefined, { a: 1 }, ["a"], Number.NaN])
+      expect(request("https://api.example.com/orders/{orderId}", "GET", { orderId })).toHaveProperty("issue");
+    expect(request("https://api.example.com/{a}{b}/x", "GET", { a: ".", b: "." })).toEqual({
+      issue: "'a' must be a non-empty string, a number or a boolean, and not . or ..: it fills {a} in the URL",
+    });
+    expect(request("https://api.example.com/.{a}/x", "GET", { a: "." })).toHaveProperty("issue");
+    expect(request("https://api.example.com/{a}{b}/x", "GET", { a: ".x", b: "..y" })).toMatchObject({
+      url: "https://api.example.com/.x..y/x",
+    });
+  });
+
+  it("refuses an object in the query string, and an input that is not an object", () => {
+    expect(request("https://api.example.com/search", "GET", { filter: { a: 1 } })).toEqual({
+      issue: "'filter' is sent in the query string, so it must not be an object or hold objects",
+    });
+    expect(request("https://api.example.com/search", "GET", { rows: [{ a: 1 }] })).toHaveProperty("issue");
+    expect(request("https://api.example.com/search", "GET", "text")).toEqual({ issue: "The tool input must be an object" });
+    expect(request("https://api.example.com/{id}", "POST", ["x"])).toEqual({ issue: "The tool input must be an object" });
   });
 });

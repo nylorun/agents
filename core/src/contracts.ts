@@ -22,7 +22,10 @@ import {
   APPROVAL_MODES,
   HTTP_TOOL_MAX_TIMEOUT_MS,
   HTTP_TOOL_METHODS,
+  httpInputIssue,
   httpUrlIssue,
+  httpUrlTemplateIssue,
+  httpVerifierIssue,
 } from "./definition/http-tool.js";
 import { canonical } from "./utils/canonical.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
@@ -176,7 +179,7 @@ const sandboxManifestSchema = z
 const httpToolTargetSchema = z
   .object({
     url: z.string().superRefine((url, ctx) => {
-      const issue = httpUrlIssue(url);
+      const issue = httpUrlIssue(url) ?? httpUrlTemplateIssue(url);
       if (issue) ctx.addIssue({ code: "custom", message: issue });
     }),
     method: z.enum(HTTP_TOOL_METHODS).optional(),
@@ -221,6 +224,8 @@ const toolManifestSchema = z
         path: ["approval"],
         message: `Tool '${tool.name}' takes approval only as an HTTP tool`,
       });
+    const parameters = tool.http && httpInputIssue(tool.http, tool.inputSchema);
+    if (parameters) ctx.addIssue({ code: "custom", path: ["http", "url"], message: `Tool '${tool.name}': ${parameters}` });
   });
 /** A manifest naming a removed field is refused with what replaces it. */
 const removedFieldError =
@@ -386,6 +391,8 @@ const workflowLoopVerifySchema = z
       });
     else if (verify.http !== undefined && verify.id !== undefined)
       ctx.addIssue({ code: "custom", path: ["id"], message: "An HTTP verifier takes no id" });
+    const verifier = verify.http && httpVerifierIssue(verify.http);
+    if (verifier) ctx.addIssue({ code: "custom", path: ["http"], message: verifier });
   })
   .meta({ id: "WorkflowLoopVerify" }) as z.ZodType<WorkflowLoopVerify>; // the refinement picks one kind
 const workflowNodeKinds = z.lazy(() =>
@@ -402,7 +409,12 @@ const workflowNodeKinds = z.lazy(() =>
             /** An HTTP stage: the Runtime makes the request, as for an agent's HTTP tool. */
             http: httpToolTargetSchema.optional(),
           })
-          .strict(),
+          .strict()
+          .superRefine((tool, ctx) => {
+            const parameters = tool.http && httpInputIssue(tool.http, tool.inputSchema);
+            if (parameters)
+              ctx.addIssue({ code: "custom", path: ["http", "url"], message: `Tool '${tool.name}': ${parameters}` });
+          }),
         ...workflowNodeOptions,
       })
       .strict(),

@@ -3,8 +3,10 @@
  * The loop names the tool; the gate finds its URL, method and credential in the session's pinned
  * manifest, as it finds a remote MCP server, so the loop never chooses a URL or a credential.
  *
- * `callHttpTarget` is the request and its answer, for any declared HTTP target: the input as a
- * JSON body under the Host's address policy (`tenant/outbound.ts`), a 2xx answer as the output
+ * `callHttpTarget` is the request and its answer, for any declared HTTP target: the input as
+ * core's `httpToolRequest` maps it (path parameters in the URL, the rest as a JSON body or, for
+ * `GET` and `DELETE`, the query string) under the Host's address policy (`tenant/outbound.ts`),
+ * a 2xx answer as the output
  * (JSON, or text when the answer is not JSON and no output schema asks for JSON), and every other
  * answer, a timeout or a refused address as a failed outcome the model sees. `runHttpTool` adds
  * what a tool call needs: the declaration, the vault credential and the identity headers.
@@ -22,6 +24,8 @@ import {
   HTTP_TOOL_DEFAULT_TIMEOUT_MS,
   delegateManifest,
   flowHttpTarget,
+  httpPathParameters,
+  httpToolRequest,
   isWorkflowManifest,
   schemaFromJSON,
   type AgentManifest,
@@ -32,7 +36,7 @@ import {
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { scrubValues } from "../redact.js";
-import { MAX_RESPONSE_BYTES, post, type OutboundPolicy } from "../tenant/outbound.js";
+import { MAX_RESPONSE_BYTES, send, type OutboundPolicy } from "../tenant/outbound.js";
 import type { Logger } from "../tenant/types.js";
 import { credentialSecrets } from "../vault/headers.js";
 import type { AuthorizeResult } from "../vault/service.js";
@@ -153,11 +157,13 @@ export async function callHttpTarget(
     readonly outputSchema?: JsonObject;
   },
 ): Promise<HttpOutcome> {
+  const request = httpToolRequest(target, input);
+  if ("issue" in request) return failed("tool.invalid-input", request.issue);
   const timeoutMs = target.timeoutMs ?? HTTP_TOOL_DEFAULT_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
-  const result = await post(target.url, JSON.stringify(input ?? {}), { ...options.headers }, {
+  const result = await send(request.url, request.body, { ...options.headers }, {
     policy: options.policy,
-    method: target.method ?? "POST",
+    method: request.method,
     signal: AbortSignal.any([options.signal, timeout]),
   });
   if (options.signal.aborted) throw options.signal.reason;
@@ -271,7 +277,13 @@ export async function runHttpTool(
         );
       credential = authorized.headers;
       identity = authorized.identity;
-      // A credential with `via` sends the call there, a gateway (R2b C2, Q9).
+      // A credential with `via` sends the call there, a gateway (R2b C2, Q9): to its one URL, so
+      // it has no place for the tool's URL parameters.
+      if (authorized.via !== undefined && httpPathParameters(http.url).length > 0)
+        return failed(
+          "http.credential",
+          `The credential '${http.credential}' sends calls to its via URL, which cannot take the tool's {field} URL parameters`,
+        );
       if (authorized.via !== undefined) target = { ...http, url: authorized.via };
     }
     const answered = await callHttpTarget(target, call.input, {
