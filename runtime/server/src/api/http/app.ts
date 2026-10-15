@@ -78,13 +78,22 @@ function build(): OpenAPIHono<TenantEnv> {
   a2aRoutes(api);
   api.notFound(routeNotFound);
   api.onError((error, c) => {
-    const { outgoing } = c.env;
+    const { outgoing, tenant } = c.env;
+    const rejection = rejectionOf(error);
+    // The client sees only `internal_error`: the operator's log has the cause. The route's
+    // pattern, not its path, and never the body, which may hold secrets.
+    if (rejection.status === 500)
+      tenant.config.logger.error("request_failed", {
+        method: c.req.method,
+        route: c.req.routePath,
+        error: error.message,
+        stack: error.stack,
+      });
     // Once a response has started, the rejection can only end it.
     if (outgoing.headersSent) {
       outgoing.end();
       return RESPONSE_ALREADY_SENT;
     }
-    const rejection = rejectionOf(error);
     return jsonResponse(rejection.status, rejection.body, rejection.headers);
   });
   readRoutes(api);
