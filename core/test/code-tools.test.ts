@@ -10,7 +10,6 @@ import {
   codeToolRefusal,
   codeToolsOf,
   http,
-  runtimeManifestFor,
   tool,
 } from "../src/define.js";
 import type { AgentManifest } from "../src/types/manifest.js";
@@ -40,15 +39,9 @@ describe("code tools", () => {
     expect(codeToolRefusal(billing.build().manifest)).toBeUndefined();
   });
 
-  it("leaves the Runtime's built-ins: sandbox tools and the skill tools", () => {
+  it("finds none in an agent with skills: the harness adds the skill and sandbox tools", () => {
     const skills = { review: { name: "review", description: "Review.", files: { "SKILL.md": "sha256:00" } } };
-    const manifest: AgentManifest = {
-      manifestSchemaVersion: 7,
-      id: "worker",
-      skills,
-      runtime: runtimeManifestFor({ skills }, { sandbox: { image: "node:24" } }),
-    };
-    expect(manifest.runtime?.tools?.map((item) => item.name)).toContain("load_skill");
+    const manifest: AgentManifest = { manifestSchemaVersion: 7, id: "worker", skills };
     expect(codeToolsOf(manifest)).toEqual([]);
   });
 

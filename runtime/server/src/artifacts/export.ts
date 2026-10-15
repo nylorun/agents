@@ -28,7 +28,7 @@ import {
   type ArtifactExportSkipReason,
   type FolderEntry,
 } from "@nylorun/core/contracts";
-import { SANDBOX_WORKSPACE, type AgentManifest } from "@nylorun/core/define";
+import { SANDBOX_WORKSPACE } from "@nylorun/core/define";
 import { isWorkflowManifest } from "../core/flow-host.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
 import { SandboxFileTooLargeError } from "../sandbox/types.js";
@@ -131,7 +131,7 @@ async function runExport(
         turnId,
         ownerId: workspace.ownerId,
         ...(workspace.environmentId === undefined ? {} : { environmentId: workspace.environmentId }),
-        manifest: s.manifest as AgentManifest,
+        ...(s.sandbox === undefined ? {} : { spec: s.sandbox }),
       } satisfies WorkspaceSession,
       quota: await artifactQuota(t, s.environmentId),
       priorId: prior?.id,

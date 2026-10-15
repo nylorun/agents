@@ -25,7 +25,7 @@ import type { FlowOperatorLimits } from "../flow/limits.js";
 import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { apiHost, type EngineToolConfig } from "./host.js";
-import { artifactToolsFor } from "../tools/artifacts.js";
+import { engineToolsFor } from "../tools/engine-tools.js";
 import type { TranscriptCache } from "./transcript-cache.js";
 import type { FileContext } from "../loop/model/files.js";
 
@@ -108,9 +108,8 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             signal,
             host,
             sessionTools: start.sessionTools as readonly DurableSessionTool[] | undefined,
-            // Our engine's own tools, run here over the artifact seam (protocol 15).
-            engineTools: (agent) =>
-              artifactToolsFor(agent, { pageBytes: ctx.engine.artifactPageBytes }),
+            // Our engine's own tools and text, from the turn's facts (protocol 15).
+            engineTools: (agent) => engineToolsFor(agent, start.environment, ctx.engine),
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
             ...(start.model ? { model: start.model } : {}),
             files: filesOf(ctx, run, start),

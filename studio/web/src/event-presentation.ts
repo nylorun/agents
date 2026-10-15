@@ -80,7 +80,7 @@ export function toolLabel(payload: Readonly<Record<string, unknown>>): string {
   return `${owner}Tool · ${text(payload.toolName, "tool")}`;
 }
 
-/** How Studio names where a tool call ran (`kind`); `platform` is the Runtime's own tools. */
+/** How Studio names where a tool call ran (`kind`); `platform` is `tool_search`, which the Runtime runs. */
 const TOOL_KINDS: Readonly<Record<string, string>> = {
   mcp: "MCP",
   http: "HTTP",

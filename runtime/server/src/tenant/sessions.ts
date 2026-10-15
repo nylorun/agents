@@ -15,8 +15,7 @@ import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
 import type { Environment, Tx } from "../store/types.js";
 import { sandboxSpecOf } from "../sandbox/resolve.js";
-import { withRuntimeTools, withSandbox } from "../sandbox/session-sandbox.js";
-import { authoredRuntimeBlocks, declaredSandboxes } from "../sandbox/share.js";
+import { declaredSandboxes } from "../sandbox/share.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import { HARNESS_ID, checkPlacement, requirePods } from "../sandbox/placement.js";
 import { openEnvironment, recordAttachment } from "./environments.js";
@@ -102,12 +101,6 @@ export async function putDefinition(
     fail(
       400,
       `${declared.join(", ")} declares a sandbox. Agents no longer declare one: remove .sandbox(), create an Environment with the sandbox (PUT /v1/environments/{id}) and open the session on it, createSession({ environment }). See MIGRATION.md.`
-    );
-  const runtime = authoredRuntimeBlocks(body.manifest);
-  if (runtime.length > 0)
-    fail(
-      400,
-      `${runtime.join(", ")} sets runtime, which only the Runtime writes when it pins a session's agent. Remove it and register the manifest your builder makes.`
     );
   const definition = {
     ...body,
@@ -254,13 +247,14 @@ export async function putSession(
       environment === undefined || environment.kind === "none"
         ? undefined
         : sandboxSpecOf(environment.applied, effectiveSandboxConfig(config).limits.idle);
-    const pinned = spec === undefined ? runtimeTools(definition) : pin(definition, spec);
+    // The session pins its definition as registered (protocol 15): the sandbox's spec stays on
+    // the session, and the harness words the facts and defines the tools.
     const created: Session = {
       id,
       agentId: body.agentId,
       ownerUserId: body.ownerUserId,
-      manifest: pinned.manifest ?? definition.manifest,
-      manifestHash: pinned.manifestHash ?? definition.manifestHash,
+      manifest: definition.manifest,
+      manifestHash: definition.manifestHash,
       definitionHash: definition.manifestHash,
       implementationVersion: definition.implementationVersion,
       info: body.info,
@@ -323,29 +317,6 @@ async function checkSkillLimit(t: Tx, manifest: unknown, environment: Environmen
     `Environment ${environment.id} allows a skill's files at most ${limitBytes} bytes together, and agent ${(manifest as { id?: string }).id} carries ${oversized.map((skill) => `'${skill.name}' (${skill.bytes})`).join(", ")}.`,
     { code: "environment_unsuitable", details: { limitBytes, skills: oversized } },
   );
-}
-
-/**
- * The manifest a session without a sandbox pins: each agent with skills gets a `runtime` block
- * with its skill tools; an agent without skills is pinned as defined. Nothing for a workflow.
- */
-function runtimeTools(definition: Definition): { manifest?: AgentManifest; manifestHash?: string } {
-  if (isWorkflowManifest(definition.manifest)) return {};
-  const pinned = withRuntimeTools(definition.manifest as AgentManifest);
-  if (!pinned.ok) return fail(400, pinned.message);
-  return { manifest: pinned.manifest, manifestHash: pinned.manifestHash };
-}
-
-/** The manifest a session with a sandbox pins: the definition with the sandbox in its `runtime` block. */
-function pin(
-  definition: Definition,
-  spec: SandboxManifest
-): { manifest?: AgentManifest; manifestHash?: string } {
-  // A workflow's manifest stays as registered: its agents inherit the sandbox when they start.
-  if (isWorkflowManifest(definition.manifest)) return {};
-  const sandboxed = withSandbox(definition.manifest as AgentManifest, spec);
-  if (!sandboxed.ok) return fail(400, sandboxed.message);
-  return { manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
 }
 
 /** The session resource returned by `GET`/`PUT /v1/sessions/:id`. */

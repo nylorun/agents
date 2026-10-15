@@ -15,14 +15,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent, createClient, http, type AgentsClient } from "@nylorun/agents";
 import type { LiveEvent } from "@nylorun/core/contracts";
-import {
-  delegateManifest,
-  type AgentManifest,
-  type ModelCall,
-  type PromptContentPart,
-} from "@nylorun/core/define";
+import type { ModelCall, PromptContentPart } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
-import { withRuntimeTools, withSandbox } from "../src/sandbox/session-sandbox.js";
 import { startTestTenant } from "./support/tenant.js";
 import { withTestSessionStore } from "./support/store.js";
 
@@ -627,32 +621,3 @@ describe("the session view", () => {
   });
 });
 
-describe("the pinned manifest", () => {
-  const files = { files: { type: "streamable-http" as const, url: "https://files.example.invalid/mcp" } };
-  const names = (manifest: AgentManifest) => (manifest.runtime?.tools ?? []).map((tool) => tool.name);
-
-  it("pins no artifact tools: they are our engine's (protocol 15)", () => {
-    const lookup = Agent({ id: "lookup", description: "Looks things up." })
-      .tools(http({ name: "find", input: z.object({}), url: "https://lookup.example.invalid/find" }))
-      .build();
-    const lead = Agent({ id: "lead" }).mcp(files).subagents(lookup).build();
-    const pinned = withRuntimeTools(lead.manifest);
-    expect(pinned.ok && pinned.manifest).toEqual(lead.manifest);
-    // A session with a sandbox gets the sandbox tools, and no artifact tools.
-    const sandboxed = withSandbox(lead.manifest, { network: { preset: "none" } });
-    expect(sandboxed.ok).toBe(true);
-    const manifest = (sandboxed as { manifest: AgentManifest }).manifest;
-    expect(names(manifest)).not.toContain("save_artifact");
-    expect(names(manifest)).not.toContain("read_artifact");
-    expect(names(delegateManifest(manifest, "lookup")!)).toContain("bash");
-  });
-
-  it("never pins tool_search or tool_call, and lets an author tool take an artifact tool's name", () => {
-    // tool_search and tool_call are session tools, given per run when tools are deferred (R2b C10).
-    const pinned = withRuntimeTools(Agent({ id: "mcp" }).mcp(files).build().manifest);
-    expect(pinned.ok && names(pinned.manifest)).toEqual([]);
-    // The manifest schema takes it; our harness refuses its turns (harness-state.test.ts).
-    const readArtifact = http({ name: "read_artifact", input: z.object({}), url: "https://own.example.invalid/read" });
-    expect(Agent({ id: "own" }).tools(readArtifact).build().manifest.tools?.[0]?.name).toBe("read_artifact");
-  });
-});

@@ -1,12 +1,11 @@
 import type { DefinitionPart } from "./bound.js";
 import type { BuiltAgent } from "../types/agent.js";
-import type { AgentManifest, AgentRequirements, RuntimeManifest } from "../types/manifest.js";
+import type { AgentManifest, AgentRequirements } from "../types/manifest.js";
 import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import type { ToolSchemaSource } from "../types/tool.js";
 import { bindAgent } from "./bind-agent.js";
-import { createManifest, RUNTIME_PART_ID } from "./manifest.js";
+import { createManifest, SESSION_PART_ID } from "./manifest.js";
 import { DELEGATE_NAME_PATTERN, delegateOf, delegatesOf } from "./delegate.js";
-import { isRuntimeToolName } from "../utils/runtime-tools.js";
 
 type BuildResult<Agent> =
   | {
@@ -31,8 +30,6 @@ export function assembleAgent(
     metadata?: JsonObject;
     outputSchema?: ToolSchemaSource;
     requires?: AgentRequirements;
-    /** A pinned manifest's `runtime` block, kept as it was (`agentFrom`). */
-    runtime?: RuntimeManifest;
   }>
 ): BuildResult<BuiltAgent> {
   const diagnostics: BuildDiagnostic[] = [];
@@ -74,15 +71,7 @@ export function assembleAgent(
           })
         );
       toolNames.add(entry.name);
-      if (item.id !== RUNTIME_PART_ID && isRuntimeToolName(entry.name))
-        diagnostics.push(
-          diagnostic(
-            "tool.reserved-name",
-            `Tool '${entry.name}' takes the name of a tool the Runtime serves; rename it`,
-            { toolName: entry.name }
-          )
-        );
-      if (item.id !== RUNTIME_PART_ID && entry.name.includes("__"))
+      if (item.id !== SESSION_PART_ID && entry.name.includes("__"))
         diagnostics.push(
           diagnostic(
             "tool.invalid-name",
@@ -109,7 +98,6 @@ export function assembleAgent(
     metadata: identity.metadata,
     outputSchema: identity.outputSchema,
     requires: identity.requires,
-    runtime: identity.runtime,
     parts: frozenParts,
   });
   const agent = bindAgent(frozenParts, manifest, identity);
@@ -185,8 +173,8 @@ function delegationDiagnostics(items: readonly DefinitionPart[]): BuildDiagnosti
 
 /**
  * Definitions declare no sandbox: a session gets one when it is opened (Sandboxes v3), and the
- * Runtime pins it in the manifest's `runtime` block. A part that still carries `sandbox` fails the
- * build instead of being silently dropped.
+ * Runtime keeps its spec on the session. A part that still carries `sandbox` fails the build
+ * instead of being silently dropped.
  */
 function sandboxDiagnostics(items: readonly DefinitionPart[]): BuildDiagnostic[] {
   return items

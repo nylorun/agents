@@ -1,5 +1,5 @@
 import { HarnessError } from "@nylorun/core/define";
-import { effectIdOf, type ModelDescriptor } from "@nylorun/core/harness-api";
+import { effectIdOf, type EffectTarget, type ModelDescriptor } from "@nylorun/core/harness-api";
 import type { FileContext } from "../loop/model/files.js";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { ExecutionInput, ExecutionState, RunResult } from "../types/execution.js";
@@ -15,6 +15,8 @@ import { definitionFor } from "../definition/agent-definition.js";
 import { schemaFromJSON } from "@nylorun/core/define";
 import { hashManifest } from "@nylorun/core/define";
 import { withDeterministicIds } from "../utils/ids.js";
+import { skillOfToolCall } from "../tools/trace.js";
+import type { EngineTools } from "../tools/engine-tools.js";
 import { execute } from "../loop/run.js";
 import { initializeExecutionState } from "../loop/initial-state.js";
 import { HostSuspension } from "../loop/host-suspension.js";
@@ -46,7 +48,16 @@ export interface HostEffect {
   readonly kind: "model" | "tool" | "delegation" | "agent";
   /** Set on work for an agent used as a tool; `agentId` stays the session's root agent. */
   readonly agent?: AgentRef;
+  /** The name the model called a tool by, for display; the record routes by `target`. */
   readonly toolName?: string;
+  /**
+   * What runs a tool call (protocol 15): an `mcp` or `http` tool the agent declares, a `sandbox`
+   * operation, a `harness` tool (ours, run here) or `platform` (`tool_search`). An author's code
+   * tool has none: the record fails it to the model.
+   */
+  readonly target?: EffectTarget;
+  /** The skill the call ran, which the record keeps when the agent has that skill. */
+  readonly skill?: string;
   /** Workflow node path (flow effects). */
   readonly path?: string;
   /** Workflow node key without Map indices (flow effects). */
@@ -90,8 +101,10 @@ export interface DurableSessionTool {
    * with `tool_call`, which makes the call as this tool's own.
    */
   readonly deferred?: boolean;
-  /** Text the model reads with the Runtime's instructions while this tool is advertised. */
+  /** Text the model reads, after the engine's, while this tool is advertised. */
   readonly instructions?: readonly string[];
+  /** What runs its calls: their effects' `target` (an MCP tool's `mcp`, `tool_search`'s `platform`). */
+  readonly target?: EffectTarget;
 }
 export function createDurableCheckpoint(input: {
   manifest: AgentManifest;
@@ -126,11 +139,11 @@ export async function runDurable(options: {
   signal?: AbortSignal;
   sessionTools?: readonly DurableSessionTool[];
   /**
-   * The tools our engine adds to each agent of the tree (root and agents used as tools), such as
-   * `read_artifact`: offered before the session's tools, with their instructions first among
-   * theirs, and run as host effects like them. Not hashed.
+   * What our engine adds to each agent of the tree (root and agents used as tools,
+   * `engineToolsFor`): its tools, offered after the agent's own and before the session's, and the
+   * text that goes with them, before the session tools' own. Run as host effects; not hashed.
    */
-  engineTools?: (agent: AgentManifest) => readonly DurableSessionTool[];
+  engineTools?: (agent: AgentManifest) => EngineTools;
   /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
   yieldAfter?: { readonly steps?: number; readonly ms?: number };
   /** The model the turn's calls use (`turn.start.model`), for the root and every child. */
@@ -161,7 +174,7 @@ export async function runDurable(options: {
     input: unknown,
     context: Record<string, unknown>,
     identity: string,
-    target: Pick<HostEffect, "toolName" | "agent"> = {},
+    target: Pick<HostEffect, "toolName" | "agent" | "target" | "skill"> = {},
   ): Promise<EffectOutcome> => {
     const effectId = effectIdOf(checkpoint.turnId, checkpoint.segment, kind, identity);
     const request: HostEffect = JSON.parse(
@@ -192,13 +205,14 @@ export async function runDurable(options: {
     return result.outcome;
   };
   /** Tools of one agent. Each agent keeps its own patch order; children namespace their effects. */
-  const hostedTools = (ref?: AgentRef) => {
+  const hostedTools = (agent: AgentManifest, ref?: AgentRef) => {
     let patchTail: Promise<void> = Promise.resolve();
     return (tool: {
       readonly name: string;
       readonly description?: string;
       readonly inputSchema: JsonObject;
       readonly outputSchema?: JsonObject;
+      readonly target?: EffectTarget;
     }) => ({
       name: tool.name,
       ...(tool.description === undefined ? {} : { description: tool.description }),
@@ -229,7 +243,7 @@ export async function runDurable(options: {
               resume: ctx.resume,
             },
             scoped(ref, ctx.invocationId),
-            { toolName: tool.name, ...(ref ? { agent: ref } : {}) },
+            identityOf(agent, tool, args, ref),
           );
           // Apply concurrently resolved patches in manifest call order, independent of host I/O timing.
           await previous;
@@ -255,9 +269,10 @@ export async function runDurable(options: {
   const sessionTools = options.sessionTools ?? [];
   /** Rebuild one agent from its manifest with every tool routed through host effects. */
   const hostedDefinition = (agent: AgentManifest, ref?: AgentRef): AgentDefinition => {
-    const hostedTool = hostedTools(ref);
+    const hostedTool = hostedTools(agent, ref);
+    const engine = options.engineTools?.(agent);
     const mine = [
-      ...(options.engineTools?.(agent) ?? []),
+      ...(engine?.tools ?? []),
       ...sessionTools.filter((tool) => (tool.agentId ?? manifest.id) === agent.id),
     ];
     // Deferred tools stay out of the model's list; `tool_call` runs them (R2b C10).
@@ -266,17 +281,16 @@ export async function runDurable(options: {
     const tools: Record<string, any> = {};
     // Agents used as tools are rebuilt from their manifest body; the engine runs them. An
     // HTTP tool keeps its target (the manifest's hash covers it) and runs as a host effect.
+    // An author's code tool names no target: the record fails it to the model.
     for (const tool of agent.tools ?? [])
       if (tool.http)
         // A pinned `approval` stays for the definition's hash; the Tool Gate holds the call.
-        tools[tool.name] = withHttpTarget(hostedTool(tool), {
+        tools[tool.name] = withHttpTarget(hostedTool({ ...tool, target: HTTP }), {
           http: tool.http,
           ...(tool.approval === undefined ? {} : { approval: tool.approval }),
         });
       else if (!tool.agent) tools[tool.name] = hostedTool(tool);
-    // The tools the Runtime added (its `runtime` block) run as host effects too, as do our
-    // engine's own and the session's.
-    for (const tool of agent.runtime?.tools ?? []) tools[tool.name] = hostedTool(tool);
+    // Our engine's own tools and the session's run as host effects too.
     for (const tool of owned)
       tools[tool.name] =
         tool.name === TOOL_CALL_TOOL
@@ -284,18 +298,13 @@ export async function runDurable(options: {
           : hostedTool(tool);
     const implementations: Implementations = { tools };
     return definitionFor(
-      agentFrom(
-        agent,
-        implementations,
-        owned.length === 0
-          ? undefined
-          : {
-              sessionTools: owned.map((tool) => ({
-                name: tool.name,
-                ...(tool.instructions?.length ? { instructions: tool.instructions } : {}),
-              })),
-            },
-      ),
+      agentFrom(agent, implementations, {
+        sessionTools: owned.map((tool) => ({
+          name: tool.name,
+          ...(tool.instructions?.length ? { instructions: tool.instructions } : {}),
+        })),
+        ...(engine?.instructions.length ? { sessionInstructions: engine.instructions } : {}),
+      }),
     );
   };
   const modelCall =
@@ -370,6 +379,24 @@ export async function runDurable(options: {
       effectIds: [...pending.keys()],
     };
   }
+}
+
+const HTTP: EffectTarget = Object.freeze({ kind: "http" });
+
+/** What a tool effect names beside its input: the tool, what runs it, its skill and its agent. */
+function identityOf(
+  agent: AgentManifest,
+  tool: { readonly name: string; readonly target?: EffectTarget },
+  input: unknown,
+  ref: AgentRef | undefined,
+): Pick<HostEffect, "toolName" | "agent" | "target" | "skill"> {
+  const skill = skillOfToolCall(agent, tool, input);
+  return {
+    toolName: tool.name,
+    ...(tool.target === undefined ? {} : { target: tool.target }),
+    ...(skill === undefined ? {} : { skill }),
+    ...(ref ? { agent: ref } : {}),
+  };
 }
 
 /** Effect identities of an agent used as a tool live under its delegation. */

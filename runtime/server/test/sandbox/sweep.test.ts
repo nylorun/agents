@@ -6,9 +6,9 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { runtimeManifestFor, type AgentManifest } from "@nylorun/core/define";
+import type { AgentManifest, SandboxManifest } from "@nylorun/core/define";
 import { virtualBackend } from "../../src/adapters/sandbox/virtual.js";
-import { SandboxManager, sandboxToolSpec } from "../../src/sandbox/manager.js";
+import { SandboxManager } from "../../src/sandbox/manager.js";
 import { storeSandboxRecords } from "../../src/sandbox/records.js";
 import { createTestSessionStore } from "../support/store.js";
 
@@ -18,12 +18,9 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 
-/** A session's pinned manifest: the Runtime added its sandbox at open. */
-const manifest: AgentManifest = {
-  manifestSchemaVersion: 7,
-  id: "bot",
-  runtime: runtimeManifestFor({}, { sandbox: { idle: "1m" } }),
-};
+/** A session's manifest, and the sandbox spec it pinned at open (`Session.sandbox`). */
+const manifest: AgentManifest = { manifestSchemaVersion: 7, id: "bot" };
+const SPEC: SandboxManifest = { idle: "1m" };
 
 async function setup() {
   const root = await mkdtemp(join(tmpdir(), "nylorun-sandbox-sweep-"));
@@ -40,7 +37,7 @@ async function setup() {
       events.push({ sessionId, type, state: (payload as { state?: string }).state });
     },
   });
-  const spec = sandboxToolSpec(manifest, "write")!;
+  const spec = SPEC;
   const run = (sessionId: string, path: string) =>
     manager.run(
       { id: sessionId, activeTurnId: "t1", manifest },

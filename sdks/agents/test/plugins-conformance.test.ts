@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { loadPlugin, PluginError } from "../src/plugins/load.js";
 import { plugin } from "../src/plugins/plugin.js";
-import { runtimeManifestFor } from "@nylorun/core/define";
 import { Agent } from "../src/builder.js";
 
 const PLUGIN_SCHEMA =
@@ -303,16 +302,13 @@ it("composes skills and MCP into one agent without putting the skill body in the
     },
     plugin: { name: "documentation" },
   });
-  // The agent's own instructions only: the Runtime adds the skill catalog and the skill tools.
+  // The agent's own instructions only: the harness adds the skill catalog and the skill tools.
   expect(agent.manifest.instructions).toEqual(["Use lookup_order for orders."]);
   expect(agent.manifest.tools ?? []).toEqual([]);
   expect(JSON.stringify(agent.manifest)).not.toContain(realpathSync(tools));
   expect(JSON.stringify(agent.manifest)).not.toContain("Body stays stored.");
   expect(JSON.stringify(agent.manifest)).not.toContain("# Labels");
-  const runtime = runtimeManifestFor(agent.manifest);
-  expect(runtime?.instructions?.join("\n")).toContain("<name>triage</name>");
-  expect(runtime?.instructions?.join("\n")).not.toContain("Body stays stored.");
-  expect(runtime?.tools?.map((item) => item.name)).toEqual(["load_skill", "read_skill_resource"]);
+  expect(agent.manifest.skills?.triage).toMatchObject({ name: "triage", description: expect.any(String) });
   // The part carries the files' bytes to upload.
   const part = agent.getBinding().parts.find((item) => item.id === "plugin:documentation");
   expect(Object.keys(part?.skillFiles ?? {}).sort()).toEqual(
@@ -320,7 +316,7 @@ it("composes skills and MCP into one agent without putting the skill body in the
   );
 });
 
-it("advertises one load_skill for every plugin skill", () => {
+it("carries every plugin's skills in one manifest, for one load_skill", () => {
   const first = root();
   const second = root();
   write(first, "plugin.json", manifest("first-plugin"));
@@ -331,9 +327,9 @@ it("advertises one load_skill for every plugin skill", () => {
     .plugin(first)
     .plugin(second)
     .build();
-  const loads = (runtimeManifestFor(agent.manifest)?.tools ?? []).filter((item) => item.name === "load_skill");
-  expect(loads).toHaveLength(1);
-  expect(loads[0]!.inputSchema).toMatchObject({ properties: { name: { enum: ["summary", "triage"] } } });
+  // The harness offers one load_skill over the agent's skills (`skillTools`).
+  expect(Object.keys(agent.manifest.skills ?? {}).sort()).toEqual(["summary", "triage"]);
+  expect(agent.manifest.tools ?? []).toEqual([]);
 });
 
 it("rejects duplicate skill names across plugins", () => {

@@ -7,8 +7,6 @@ import {
   type BuiltAgent,
   type BuiltWorkflow,
 } from "@nylorun/agents";
-import type { AgentManifest } from "@nylorun/core/define";
-import { withRuntimeTools } from "../src/sandbox/session-sandbox.js";
 import { startTestTenant } from "./support/tenant.js";
 import { startToolServer, type ToolServer } from "./support/tool-server.js";
 import { setToolPolicy } from "./support/tool-policy.js";
@@ -534,14 +532,8 @@ describe.each([["agent"], ["workflow"]] as const)(
           agentId: "parity",
           ownerUserId: "user-1",
         });
-        // An agent pins its definition with its `runtime` block, `read_artifact` in it (R2b C11).
-        const pinnedF2 =
-          kind === "agent"
-            ? withRuntimeTools((defAfter as { manifest: AgentManifest }).manifest)
-            : undefined;
-        expect((await sessionF2.inspect()).manifestHash).toBe(
-          pinnedF2?.ok ? pinnedF2.manifestHash : newHash
-        );
+        // A session pins its definition as registered (protocol 15).
+        expect((await sessionF2.inspect()).manifestHash).toBe(newHash);
         const doneF2 = collectUntil(sessionF2, {
           done: rootTurnDone(sessionF2.id),
         });

@@ -36,8 +36,6 @@ import type { AuthorizeResult } from "../vault/service.js";
 import { sessionCredentials, type McpCredentialRequest } from "../vault/sources.js";
 import { isRemoteMcpCall } from "../harness/calls.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
-import { sandboxSpecOf } from "../sandbox/share.js";
-import { withRuntimeTools, withSandbox } from "../sandbox/session-sandbox.js";
 import {
   loadSession,
   ownedSession,
@@ -236,16 +234,14 @@ export async function resolveNewFlowEffect(
     await ownedSession(t, lease, workflow.id);
     if (exists) return;
     const definition = leafDefinition(workflow, body, request);
-    // The tree's Environment reaches every agent in it: its sandbox, with its tools, and its vault.
-    const inherited = inheritedSandbox(workflow, definition);
-    // Without one, the agent still gets its skill tools in its runtime block, if it has skills.
-    const pinned = inherited?.manifest ? inherited : runtimeTools(definition.manifest);
+    // The tree's Environment reaches every agent in it: its sandbox and its vault.
+    const sandbox = workflow.sandbox;
     const created: Session = {
       id: agentSessionId,
       agentId: body.agentId,
       ownerUserId: workflow.ownerUserId,
-      manifest: pinned?.manifest ?? definition.manifest,
-      manifestHash: pinned?.manifestHash ?? definition.manifestHash,
+      manifest: definition.manifest,
+      manifestHash: definition.manifestHash,
       definitionHash: definition.manifestHash,
       implementationVersion: definition.implementationVersion,
       status: "idle",
@@ -265,7 +261,7 @@ export async function resolveNewFlowEffect(
               ? {}
               : { environmentVersion: workflow.environmentVersion }),
           }),
-      ...(inherited ? { sandbox: inherited.spec } : {}),
+      ...(sandbox === undefined ? {} : { sandbox }),
     };
     await t.put("sessions", agentSessionId, created);
   });
@@ -327,34 +323,6 @@ export async function resolveNewFlowEffect(
     }
     return { status: "pending" };
   });
-}
-
-/**
- * The sandbox a linked session inherits from its tree's owner when that sandbox was chosen at
- * open (pinned on the owner). A definition that declares its own sandbox keeps it, as before.
- */
-function inheritedSandbox(
-  owner: Session | undefined,
-  definition: { manifest: any; manifestHash: string }
-):
-  | { spec: SandboxManifest; manifest?: AgentManifest; manifestHash?: string }
-  | undefined {
-  const spec = owner?.sandbox;
-  if (!spec || sandboxSpecOf(definition.manifest)) return undefined;
-  if (isWorkflowManifest(definition.manifest)) return { spec };
-  const sandboxed = withSandbox(definition.manifest as AgentManifest, spec);
-  if (!sandboxed.ok) throw new Error(sandboxed.message);
-  return { spec, manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
-}
-
-/** A linked agent session's `runtime` block without a sandbox (R2b C11); undefined for a workflow. */
-function runtimeTools(
-  manifest: AgentManifest | WorkflowManifest
-): { manifest: AgentManifest; manifestHash: string } | undefined {
-  if (isWorkflowManifest(manifest)) return undefined;
-  const pinned = withRuntimeTools(manifest as AgentManifest);
-  if (!pinned.ok) throw new Error(pinned.message);
-  return { manifest: pinned.manifest, manifestHash: pinned.manifestHash };
 }
 
 /**

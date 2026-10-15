@@ -47,3 +47,41 @@ it("closes the sessions that pinned the artifact tools, and only those", async (
     await current.store.close();
   }
 });
+
+it("closes the sessions that still pinned a runtime block, on the root or an agent used as a tool", async () => {
+  const db = await emptyTestDatabase();
+  const create = { tenantId: newTenantId(), name: "upgrade", principals: () => [] };
+  const at = shippedMigrations().findIndex((migration) => migration.tag === "0030_protocol_15_runtime_block");
+  expect(at).toBeGreaterThan(0);
+  const old = await openTenantDatabase({ sql: db.sql, create, migrations: shippedMigrations().slice(0, at) });
+  const manifest = (extra: object) => ({ manifestSchemaVersion: 7, id: "bot", ...extra });
+  const session = (body: object) => ({ agentId: "bot", status: "completed", ...body });
+  await old.store.tx(async (t) => {
+    await t.put("sessions", "root", session({ manifest: manifest({ runtime: { tools: [{ name: "bash" }] } }) }));
+    await t.put(
+      "sessions",
+      "child",
+      session({ manifest: manifest({ tools: [{ name: "helper", agent: { id: "helper", runtime: { instructions: ["x"] } } }] }) }),
+    );
+    await t.put("sessions", "plain", session({ manifest: manifest({ tools: [{ name: "helper", agent: { id: "helper" } }] }) }));
+    await t.put("sessions", "flow", session({ manifest: { kind: "workflow", id: "flow" } }));
+  });
+  await old.store.close();
+
+  const current = await openTenantDatabase({ sql: db.sql, create });
+  try {
+    const reasons = await current.store.tx(async (t) =>
+      Object.fromEntries(
+        await Promise.all(
+          ["root", "child", "plain", "flow"].map(async (id) => [
+            id,
+            (await t.get<{ closedReason?: string }>("sessions", id))?.closedReason ?? null,
+          ]),
+        ),
+      ),
+    );
+    expect(reasons).toEqual({ root: "protocol_15", child: "protocol_15", plain: null, flow: null });
+  } finally {
+    await current.store.close();
+  }
+});

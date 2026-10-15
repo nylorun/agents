@@ -7,7 +7,6 @@
 import { afterEach, expect, it } from "vitest";
 import { Agent, createClient } from "@nylorun/agents";
 import {
-  sandboxSpecOf,
   sandboxWorkspaceOf,
   sessionHasSandbox,
   sessionSandboxSpec,
@@ -16,31 +15,7 @@ import {
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 
-const agentManifest = (sandbox?: Record<string, unknown>) => ({
-  manifestSchemaVersion: 7 as const,
-  id: "bot",
-  name: "Bot",
-  ...(sandbox ? { runtime: { sandbox } } : {}),
-});
-
-const workflowManifest = (sandbox?: Record<string, unknown>) => ({
-  kind: "workflow" as const,
-  workflowSchemaVersion: 3 as const,
-  id: "flow",
-  root: { agent: "bot" },
-  agents: {},
-  ...(sandbox ? { sandbox } : {}),
-});
-
-it("reads sandbox specs from a pinned agent's runtime block and workflow manifests", () => {
-  expect(sandboxSpecOf(agentManifest({ image: "node:22" }))).toEqual({
-    image: "node:22",
-  });
-  expect(sandboxSpecOf(workflowManifest({ image: "node:22" }))).toEqual({
-    image: "node:22",
-  });
-  expect(sandboxSpecOf(agentManifest())).toBeUndefined();
-});
+const agentManifest = () => ({ manifestSchemaVersion: 7 as const, id: "bot", name: "Bot" });
 
 it("keys a session's workspace by its Environment, and its events by the session", () => {
   const spec = { network: { preset: "none" as const }, idle: "15m" };
@@ -60,10 +35,8 @@ it("keys a session's workspace by its Environment, and its events by the session
   expect(sessionHasSandbox(bare)).toBe(false);
   const none: SessionSandboxRef = { ...bare, environmentId: "plain/ws" };
   expect(sessionHasSandbox(none)).toBe(false);
-  // The spec pinned at open wins over one a stored definition declares.
-  expect(
-    sessionSandboxSpec({ ...bare, manifest: agentManifest({ image: "node:22" }), sandbox: spec })
-  ).toEqual(spec);
+  // The spec is the one the session pinned at open (protocol 15): its manifest holds none.
+  expect(sessionSandboxSpec(bare)).toBeUndefined();
 });
 
 const APP = "environment-share-app-key-aaaaaaaa";

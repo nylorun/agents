@@ -1,4 +1,4 @@
-# The harness boundary: artifacts and inputs reach the harness (protocol 15, Harness API 4)
+# The harness boundary: artifacts, inputs, instructions and tools are the harness's (protocol 15, Harness API 4)
 
 A fresh start for agent sessions: the Runtime speaks protocol 15 only, and harnesses Harness API 4
 only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness together.
@@ -10,14 +10,29 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   artifact into the sandbox. A `tool.completed` of either now says `kind: "harness"` (it said
   `platform`), and `artifact.created` still carries the call's `callId`.
 - **Sessions pinned before protocol 15 are closed.** Every agent session pinned
-  `read_artifact` (protocol 12 on), so the upgrade's migration closes each one
-  (`closedReason: "protocol_15"`); a message to one is `409 session_closed`. Its history stays
-  readable: open a new session. Workflow sessions carry over.
-- **A session without a sandbox or skills pins its definition unchanged**, so its `manifestHash`
-  equals its `definitionHash`.
-- **The names are no longer reserved.** An agent's own tool may be named `read_artifact` or
-  `save_artifact`, but our harness then refuses each turn of it (its own tools take those
-  names), so rename such a tool if the agent runs on our harness.
+  `read_artifact` (protocol 12 on), or a `runtime` block at all, so the upgrade's migrations
+  (0029, 0030) close each one (`closedReason: "protocol_15"`); a message to one is
+  `409 session_closed`. Its history stays readable: open a new session. Workflow sessions carry
+  over.
+- **The manifest has no `runtime` block.** The Runtime no longer writes the model's instructions
+  or defines tools: our harness writes the skill catalog, the sandbox note and the skills' folder
+  note, and defines the sandbox tools (`bash`, `read`, `write`, `edit`, `grep`, `glob`),
+  `load_skill` and `read_skill_resource` itself, from the facts `turn.start` carries. The model
+  sees the same text and tools in the same order, so the prompt's prefix is unchanged. A session
+  pins its definition as registered: its `manifestHash` equals its `definitionHash`, with or
+  without a sandbox or skills, and the sandbox spec stays on the session. Registering a manifest
+  that sets `runtime` is `400` ("Manifest field runtime was removed"), and so is a turn variant
+  that sets it.
+- **The skill tools run in our harness.** `load_skill` and `read_skill_resource` read a skill's
+  files over `definition.file`, and a file larger than the harness reads into the model's context
+  (10 MiB, `createHarness({ skillReadBytes })`) or than one record entry holds
+  (`limits.recordEntryBytes`) is `skill.resource_too_large`, as before for files over 10 MiB. A
+  `tool.completed` of either says `kind: "harness"` (it said `platform`), with its `skill` and
+  `plugin` as before.
+- **No tool name is reserved.** An agent's own tool may be named `bash`, `load_skill`,
+  `tool_search` or `read_artifact`: the manifest takes it. Our harness then fails a turn whose
+  tools would share a name with one of its own (`agent.build-failed`, naming the tool): an author
+  tool named `bash` runs in a session without a sandbox, and fails the turn in one with.
 - **Any file may be sent.** A message naming a file the model does not read is accepted: no more
   `422 attachment_unsupported` (the error code is gone; A2A clients get no
   `CONTENT_TYPE_NOT_SUPPORTED` for one, and AG-UI no `RUN_ERROR`). Files are still held to the
@@ -49,18 +64,38 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
 - **A custom harness** says `hello {api: 4}`. It reads and writes its run's session's artifacts
   with `artifact.read` and `artifact.write` (`readArtifact`, `openArtifactWrite` and
   `writeArtifactBytes` in `@nylorun/core/harness-api`), in chunks of at most
-  `turn.start.limits.chunkBytes`: see [HARNESS_API.md §4b](./HARNESS_API.md#4b-artifacts). One
-  that relied on core to answer `read_artifact` or `save_artifact` from `runtime.tools` offers
-  its own now. The new Harness API error code is `not_found`.
+  `turn.start.limits.chunkBytes`: see [HARNESS_API.md §4b](./HARNESS_API.md#4b-artifacts). The
+  new Harness API error code is `not_found`. And:
+  - **every tool call names its `target`** (`EffectTargetSchema`): `{kind: "mcp" | "http" |
+    "sandbox" | "harness" | "platform"}`. Core routes it by that kind, never by its name; a call
+    without one is answered `tool.unavailable` and runs nothing, and a `sandbox` call needs a
+    session with a sandbox and one of the six operations as its `toolName`. A tool the harness
+    runs in its own process is `harness`. An intent may name the `skill` it ran. See
+    [HARNESS_API.md §4](./HARNESS_API.md#4-record-intent-outcome-hash-effect-ids);
+  - **`hello.features.tools` is removed**, and `NativeToolSchema` with it: a harness declares no
+    tools;
+  - **`turn.start.environment`** states the Environment, `{id, kind, sandbox?: {workspace}}`, and
+    `routing.sandbox.spec` the sandbox spec the session pinned. Offer sandbox tools, and write a
+    note on the sandbox, from them: there is no `runtime` block to copy. Our engine's helpers
+    are in `@nylorun/harness` (`engineToolsFor`, `sandboxTools`, `sandboxInstructions`,
+    `skillCatalogText`, `skillFolderNote`, `skillTools`, `runSkillTool`).
 - **Moved to `@nylorun/core/contracts`:** the media type helpers (`contentTypeFor`, `essence`,
   `normalizeContentType`, `isText`, `isModelImage`, `isOffice`, `modelInputOf`, `inputLabel`,
   `extensionFor`, `MODEL_IMAGE_TYPES` and `DEFAULT_CONTENT_TYPE`), so the Runtime and a harness
   type a file alike. `unreadableReason` is removed (use `fileView`), and `mediaReferenceLine`
   moved from `@nylorun/core/define` to `@nylorun/harness`: it names our tool. `READ_ARTIFACT_TOOL`, `SAVE_ARTIFACT_TOOL` and
-  `READ_ARTIFACT_MAX_BYTES` stay in `@nylorun/core/define`, but leave `RUNTIME_TOOL_NAMES`, and
-  `runtimeManifestFor` takes no `save` or `read` option. `@nylorun/harness`'s `createHarness` takes
-  `artifactPageBytes` (the most one `read_artifact` page holds, 32 KiB by default), `runDurable`
-  takes `engineTools`, and `apiHost` takes the engine's configuration.
+  `READ_ARTIFACT_MAX_BYTES` stay in `@nylorun/core/define`. `@nylorun/harness`'s `createHarness`
+  takes `artifactPageBytes` (the most one `read_artifact` page holds, 32 KiB by default),
+  `sandboxTools` (the sandbox tools' limits, `DEFAULT_SANDBOX_TOOL_LIMITS`) and `skillReadBytes`;
+  `runDurable` takes `engineTools` (`engineToolsFor`: an agent's tools and their text), and
+  `apiHost` takes the engine's configuration.
+- **Removed from `@nylorun/core/define`:** `runtimeManifestFor`, `runtimeToolOf`,
+  `RuntimeManifest`, `RUNTIME_PART_ID` (now `SESSION_PART_ID`, `"session"`), `RUNTIME_TOOL_NAMES`,
+  `isRuntimeToolName`, `createSandboxTools`, `SANDBOX_INSTRUCTIONS`, `LOAD_SKILL_TOOL`,
+  `READ_SKILL_RESOURCE_TOOL`, `SKILL_TOOL_NAMES`, `isSkillTool`, `SKILLS_USAGE`,
+  `formatSkillCatalog` and `skillOfToolCall`; the skill and sandbox ones are in
+  `@nylorun/harness`. `@nylorun/agents` no longer re-exports `formatSkillCatalog` and
+  `SKILLS_USAGE`. `agentFrom` takes `sessionInstructions`.
 
 # Runtime limits are a Tenant setting
 

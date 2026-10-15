@@ -111,6 +111,7 @@ describe("credentials for skills in a pod (R2c)", () => {
       { command: "echo $GH_TOKEN $REGION $HTTPS_PROXY" },
       new AbortController().signal,
       () => undefined,
+      undefined,
       { GH_TOKEN: "nylorun_managed", REGION: "eu-west-1", HTTPS_PROXY: "http://elsewhere" },
     );
     expect(result).toMatchObject({

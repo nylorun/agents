@@ -12,8 +12,8 @@ The harness says `hello` with its harness id, `minimal` (or `HARNESS_ID`), and n
 
 1. `lease` hands it a run: the run token (`RunGrant.token`) and the turn (`TurnStart`). It renews the lease every `renewEveryMs` from the `hello` answer, and takes a new run token when a renewal brings one.
 2. `transcript.read`, once: the session's transcript so far.
-3. It builds the prompt from the manifest's instructions (the agent's `instructions`, then the Runtime's `runtime.instructions`), the transcript and the turn's message, and calls the Model Gate (`POST $NYLORUN_GATES_URL/nylorun/v1/model-calls`) with `Authorization: Bearer <run token>` and `Idempotency-Key: <effect id>`. The model is offered one tool: `bash`, from `runtime.tools` when the pinned manifest has a sandbox (`runtime.sandbox`). How a message's files reach the model is the harness's to decide: it sends each file the turn's model reads natively (`turn.start.model.inputs`; text and images without a descriptor) as its media part, which the gate fetches, and a line `[File "name" (type) not shown]` for the rest, text files included, since it reads none in. The gate refuses a part the model cannot take (`unsupported_input`).
-4. When the model calls `bash`, the harness runs the command itself with `bash -c`, in `/workspace` when it exists.
+3. It builds the prompt from the agent's `instructions`, then a one-line note of its own on the sandbox when the session has one (`turn.start.environment.sandbox`, with its `workspace`), the transcript and the turn's message, and calls the Model Gate (`POST $NYLORUN_GATES_URL/nylorun/v1/model-calls`) with `Authorization: Bearer <run token>` and `Idempotency-Key: <effect id>`. The model is offered one tool, its own `bash`, only then. How a message's files reach the model is the harness's to decide: it sends each file the turn's model reads natively (`turn.start.model.inputs`; text and images without a descriptor) as its media part, which the gate fetches, and a line `[File "name" (type) not shown]` for the rest, text files included, since it reads none in. The gate refuses a part the model cannot take (`unsupported_input`).
+4. When the model calls `bash`, the harness runs the command itself with `bash -c`, in `/workspace` when it exists, journaled as a `harness` call (`target: {kind: "harness"}`): it runs in the harness's own process, so the record keeps it as the harness's.
 5. It repeats until the model answers with text, then settles with `turn.completed`: the text as `output`, the transcript entries it added (`input`, `candidate`, `tool-results`, `final`) as edits, and `state: {steps}`, which core keeps and hands back with the next turn without reading it.
 
 Every model and tool call is an effect, journaled with `effect.intent` before it runs and `effect.outcome` after. Effect ids are built with `effectIdOf` from stable names, never from timing: `<turnId>:<segment>:model:<n>` and `<turnId>:<segment>:tool:<n>:<callId>`. A run that starts over (after a crash or a lost connection) asks for the same ids, so core answers what already happened (`completed`, with the recorded outcome) and nothing runs twice. A call core answers `uncertain` or `pending` ends the turn with `turn.waiting`. Core's `cancel` aborts the run: the model call is cancelled at the gate, a running command is killed, and the turn ends with `turn.failed` and status `cancelled`. A shutdown gives the run back with `lease.release`.
@@ -87,7 +87,7 @@ Then send `fixture:text` to a session, or `fixture:tool bash {"command":"uname -
 
 ## Artifacts
 
-This harness offers no artifact tools, but any harness may read and write its run's session's artifacts over the artifact seam ([HARNESS_API.md §4b](../../guides/HARNESS_API.md#4b-artifacts)). A tool of your own that hands the user a file, declared in `hello.features.tools` and journaled like `bash`, would save it like this, keyed by its effect id so a repeat stores nothing twice:
+This harness offers no artifact tools, but any harness may read and write its run's session's artifacts over the artifact seam ([HARNESS_API.md §4b](../../guides/HARNESS_API.md#4b-artifacts)). A tool of your own that hands the user a file, journaled like `bash` as a `harness` call, would save it like this, keyed by its effect id so a repeat stores nothing twice:
 
 ```ts
 import { readArtifact, writeArtifactBytes } from "@nylorun/core/harness-api";
@@ -119,7 +119,7 @@ This harness stays small. In this first version:
 
 - No workspace: it declares no `features.workspace` and serves no `workspace.*` requests, so the turn-end export of outputs and the session sandbox routes find no workspace.
 - No artifact tools: it offers no `read_artifact` or `save_artifact` (they are our harness's own since protocol 15). A harness reads and writes its run's artifacts over the artifact seam; see [Artifacts](#artifacts).
-- One tool: `bash` from the manifest's `runtime.tools`. It offers no `read`, `write`, `edit`, `grep` or `glob`, no remote MCP servers, no HTTP tools and no agents used as tools. A tool it does not run is answered `tool.unknown` to the model.
+- One tool: its own `bash`, with a sandbox. It offers no `read`, `write`, `edit`, `grep` or `glob`, no skill tools, no remote MCP servers, no HTTP tools and no agents used as tools. A tool it does not run is answered `tool.unknown` to the model.
 - No approvals or pauses, no flows, and no segment rollover: a turn that starts from an approval, a flow or a `continue` fails with `harness.unsupported`. A turn is at most 16 model steps.
 - One run at a time. As a container, every session's commands share one working directory.
 - No streaming: the Model Gate answers once a call has finished.

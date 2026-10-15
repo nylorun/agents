@@ -48,12 +48,6 @@ import {
   type WorkspaceRecord,
 } from "@nylorun/core/harness-api";
 import { definitionFilesOf, limitExceededMessage, type EventWriter } from "@nylorun/core/contracts";
-import {
-  TOOL_CALL_TOOL,
-  TOOL_SEARCH_TOOL,
-  delegatesOf,
-  type AgentManifest,
-} from "@nylorun/core/define";
 import { isOwnershipLost } from "../store/ownership.js";
 import { harnessOf, ownedSession, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import {
@@ -126,12 +120,7 @@ export type RunEnd =
   /** Core's controller aborted before any harness took the run. */
   | { readonly kind: "aborted" }
   /** No harness took the run within `offerWaitMs`. */
-  | { readonly kind: "unavailable" }
-  /**
-   * The harness that would take the run cannot: a tool it runs itself (`features.tools`) has the
-   * name of a tool of the turn's agents. The turn fails with `message`.
-   */
-  | { readonly kind: "refused"; readonly message: string };
+  | { readonly kind: "unavailable" };
 
 export interface HarnessApiServer {
   /** Serves a harness's channel until it closes. Returns a function that detaches it. */
@@ -195,8 +184,6 @@ interface Connection {
   harness?: string;
   /** Declared `workspace` in its `hello`. */
   workspace: boolean;
-  /** The tools it declared it runs itself (`features.tools`, R4.2), by name. */
-  tools?: ReadonlySet<string>;
   /** Sessions its workspace requests in flight act for, with how many each. */
   readonly claims: Map<string, number>;
   /** `workspace.sweep` and `workspace.remove` requests in flight: they may stop any workspace. */
@@ -264,15 +251,6 @@ export function createHarnessApiServer(
         continue;
       }
       queued.splice(i, 1);
-      const clash = nativeToolClashes(waiting[at]!.connection.tools, run.offer.start);
-      if (clash.length > 0) {
-        // The harness keeps waiting for a run its tools fit; this turn fails (R4.2).
-        run.end({
-          kind: "refused",
-          message: `Harness '${waiting[at]!.connection.harness}' runs tools named like tools of this turn's agents: ${clash.join(", ")}. A tool the harness runs itself needs a name no other tool of the session has.`,
-        });
-        continue;
-      }
       const lease = waiting.splice(at, 1)[0]!;
       run.connection = lease.connection;
       // The run token the advance holds now (F5): the gate calls of this run present it.
@@ -310,7 +288,6 @@ export function createHarnessApiServer(
     ctx,
     lease: run.offer.lease,
     signal: run.offer.controller.signal,
-    ...(run.connection?.tools ? { nativeTools: run.connection.tools } : {}),
     ...(run.connection ? { writer: writerOf(run.connection, run.grant.runId) } : {}),
   });
 
@@ -327,7 +304,6 @@ export function createHarnessApiServer(
           );
         connection.harness = await harnessIdOf(connection, name);
         connection.workspace = features.workspace !== undefined;
-        if (features.tools?.length) connection.tools = new Set(features.tools.map((tool) => tool.name));
         return {
           api: HARNESS_API_VERSION,
           tenantId: ctx.config.tenantId,
@@ -762,23 +738,4 @@ function isSnapshot(value: unknown): value is McpSnapshot {
     typeof snapshot.manifestHash === "string" &&
     Array.isArray(snapshot.mcpTools)
   );
-}
-
-/**
- * The tools a harness runs itself (`features.tools`) whose names the turn already uses: a tool of
- * the turn's agents (their own and the Runtime's `runtime` tools), a session tool, `tool_search` or
- * `tool_call` (session tools a later step may get). Tools are known by name alone, so a native
- * tool must not take one (R4.2), our harness's own `read_artifact` and `save_artifact` too: an
- * author tool of either name fails every turn our harness runs. `hello` already refuses a name
- * with `__`, which names an MCP server's tools. A flow turn runs no native tools.
- */
-export function nativeToolClashes(tools: ReadonlySet<string> | undefined, start: TurnStart): string[] {
-  if (!tools?.size || start.engine !== "agent") return [];
-  const manifest = start.manifest as unknown as AgentManifest;
-  const taken = new Set<string>([TOOL_SEARCH_TOOL, TOOL_CALL_TOOL]);
-  for (const agent of [manifest, ...delegatesOf(manifest).map((delegate) => delegate.manifest)])
-    for (const tool of [...(agent.tools ?? []), ...(agent.runtime?.tools ?? [])]) taken.add(tool.name);
-  for (const tool of (start.sessionTools ?? []) as readonly { readonly name?: unknown }[])
-    if (typeof tool?.name === "string") taken.add(tool.name);
-  return [...tools].filter((name) => taken.has(name)).sort();
 }

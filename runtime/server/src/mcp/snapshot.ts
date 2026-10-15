@@ -136,9 +136,9 @@ export function normalizeToolName(
   return `${name.slice(0, MODEL_TOOL_NAME_MAX - 9)}_${hash}`;
 }
 
-/** The names of the agent's tools: its own and those the Runtime pinned. */
+/** The names of the agent's own tools. */
 export function declaredToolNames(manifest: AgentManifest): Set<string> {
-  return new Set([...(manifest.tools ?? []), ...(manifest.runtime?.tools ?? [])].map((tool) => tool.name));
+  return new Set((manifest.tools ?? []).map((tool) => tool.name));
 }
 
 /** The declaration of the server a tool of the snapshot comes from, in `manifest`. */
@@ -161,7 +161,9 @@ export function mcpToolSettingsIn(manifest: AgentManifest, tool: McpToolRecord):
  *   or the Tenant's tool policy asks a person about (R5 step 2);
  * - a deferred tool (R2b C10) is marked so, out of the model's list, and its agent gets the
  *   session tools `tool_search`, with the note on the servers it holds deferred tools of, and
- *   `tool_call`. Their names are reserved: no tool of the agent's own takes them.
+ *   `tool_call`; an agent tool of either name fails the turn (`agentFrom`);
+ * - each MCP tool's calls are `mcp` effects, and `tool_search`'s are `platform` (core runs it);
+ *   `tool_call` makes the call it names, as that tool's.
  *
  * Nothing here changes between the steps of a turn, so neither does the model's tool list.
  */
@@ -184,6 +186,7 @@ export function sessionToolsOf(
       inputSchema: tool.inputSchema,
       ...(tool.outputSchema === undefined ? {} : { outputSchema: tool.outputSchema }),
       ...(defer ? { deferred: true } : {}),
+      target: { kind: "mcp" },
     };
     if (!defer) {
       inline.push(entry);
@@ -204,7 +207,7 @@ export function sessionToolsOf(
     });
     const [search, call] = deferredToolsTools();
     for (const tool of [
-      { ...search!, instructions: [deferredToolsInstructions(servers)] },
+      { ...search!, instructions: [deferredToolsInstructions(servers)], target: { kind: "platform" as const } },
       call!,
     ])
       session.push({ ...(agentId === undefined ? {} : { agentId }), ...tool });
@@ -251,9 +254,11 @@ export function pinDeferral(
  */
 export function mcpToolOf(
   snapshot: McpSnapshot | undefined,
-  request: Pick<HostEffect, "agent" | "toolName">,
+  request: Pick<HostEffect, "agent" | "toolName" | "target">,
   manifest?: AgentManifest
 ): McpToolRecord | undefined {
+  // A call names what runs it (protocol 15): only an `mcp` call is an MCP tool's.
+  if (request.target?.kind !== "mcp") return undefined;
   const tool = snapshot?.mcpTools.find(
     (tool) =>
       tool.agentId === request.agent?.id && tool.name === request.toolName

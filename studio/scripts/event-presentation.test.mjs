@@ -162,8 +162,8 @@ test("traces a tool call to its server or skill and the plugin that brought it",
     "Tool · bash (Sandbox, skill pdf, plugin office): ok",
   );
   assert.equal(
-    toolTraceText(toolTrace({ toolName: "load_skill", kind: "platform", skill: "pdf" })),
-    "Runtime, skill pdf",
+    toolTraceText(toolTrace({ toolName: "load_skill", kind: "harness", skill: "pdf" })),
+    "Harness, skill pdf",
   );
   assert.equal(
     toolTraceText(toolTrace({ toolName: "fetch", kind: "http", server: "api.example.com" })),

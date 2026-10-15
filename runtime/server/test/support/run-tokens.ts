@@ -113,6 +113,8 @@ export async function runFixture(tenantId = newTenantId()): Promise<RunFixture> 
             sessionId,
             turnId: session.activeTurnId,
             toolName: call.toolName,
+            // What runs the call (protocol 15): an MCP tool's, else the agent's HTTP tool.
+            ...(call.toolName === undefined ? {} : { target: { kind: call.mcp ? "mcp" : "http" } }),
             input: call.input,
             context: {},
           },

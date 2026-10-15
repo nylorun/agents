@@ -2,7 +2,8 @@
  * The engine's `DurableHost` over the Harness API. An effect whose outcome came with the run
  * (same id, same request hash) resolves here; any other becomes an `effect.intent`. A model
  * intent carries no prompt: core stores its hash. When core answers `execute`, the harness runs
- * the call and reports its outcome.
+ * the call and reports its outcome: a `harness` tool (ours) here, over the Harness API's seams,
+ * and anything else through the executors.
  *
  * A tool call whose gate hop lost its answer (`executors.resends`) is sent again with the same
  * key (R5.3): the harness waits a moment and asks core again with the same intent, and core
@@ -19,19 +20,20 @@ import {
   type ResultOf,
 } from "@nylorun/core/harness-api";
 import type { DurableHost, EffectResolution, HostEffect } from "../run/durable.js";
+import { delegatesOf, type AgentManifest } from "@nylorun/core/define";
 import { isArtifactTool, runArtifactTool } from "../tools/artifacts.js";
+import { isSkillTool, runSkillTool } from "../tools/skills.js";
+import type { EngineToolOptions } from "../tools/engine-tools.js";
 import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 
 /** What our engine's own tools run with: the harness's configuration of them. */
-export interface EngineToolConfig {
-  /** The most bytes one `read_artifact` page holds, escaped as JSON. */
-  readonly artifactPageBytes: number;
-}
+export type EngineToolConfig = EngineToolOptions;
 
 /**
- * The host of one run. Our engine's own tools (`read_artifact`, `save_artifact`) run here, over
- * the artifact seam and `executors.files`; every other tool call goes to `executors.tool`.
+ * The host of one run. A `harness` tool call is one of our engine's own tools, run here: the skill
+ * tools over `definition.file`, the artifact tools over the artifact seam and `executors.files`.
+ * Every other tool call goes to `executors.tool`, which routes it by its target.
  */
 export function apiHost(
   channel: HarnessChannel,
@@ -66,14 +68,8 @@ export function apiHost(
       try {
         const value = model
           ? await executors.model(effect, signal, run)
-          : isArtifactTool(effect.toolName)
-            ? await runArtifactTool(effect, {
-                channel,
-                run,
-                ...(executors.files ? { files: executors.files } : {}),
-                pageBytes: engine.artifactPageBytes,
-                signal,
-              })
+          : effect.target?.kind === "harness"
+            ? await engineTool(effect)
             : await executors.tool(effect, signal, run, traceparent ? { traceparent } : {});
         return await ask("effect.outcome", { runId, effectId: effect.effectId, value });
       } catch (error) {
@@ -105,6 +101,32 @@ export function apiHost(
         });
       }
     }
+  };
+
+  /** Runs a call of one of our engine's own tools. */
+  const engineTool = (effect: HostEffect): Promise<unknown> => {
+    if (isArtifactTool(effect.toolName))
+      return runArtifactTool(effect, {
+        channel,
+        run,
+        ...(executors.files ? { files: executors.files } : {}),
+        pageBytes: engine.artifactPageBytes,
+        signal,
+      });
+    if (isSkillTool(effect.toolName))
+      return runSkillTool(effect, {
+        channel,
+        run,
+        agent: agentOf(run.start.manifest as AgentManifest, effect),
+        readBytes: engine.skillReadBytes,
+        sandboxed: run.start.environment?.sandbox !== undefined,
+        signal,
+      });
+    return Promise.resolve({
+      kind: "failed",
+      code: "tool.unknown",
+      message: `This harness runs no tool named '${effect.toolName ?? ""}'.`,
+    });
   };
 
   return {
@@ -141,6 +163,15 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
     }, ms);
     signal.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+/** The agent of the turn's manifest an effect is for: the root, or an agent it uses as a tool. */
+function agentOf(manifest: AgentManifest, effect: HostEffect): Pick<AgentManifest, "skills"> {
+  if (effect.agent === undefined) return manifest;
+  return (
+    delegatesOf(manifest).find((delegate) => delegate.manifest.id === effect.agent!.id)?.manifest ??
+    {}
+  );
 }
 
 /** What crosses for an effect: a model call's prompt stays here. */

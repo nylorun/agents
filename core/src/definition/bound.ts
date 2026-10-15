@@ -39,7 +39,7 @@ export interface BoundToolDefinition<Info = unknown>
 
 /**
  * One part of an agent definition: what one builder call, skills folder or plugin added, or (in
- * an agent rebuilt from a pinned manifest) the `runtime` block. The engine offers each part's
+ * an agent rebuilt from its manifest) what one run adds, its session part. The engine offers each part's
  * tools and instructions to the model in part order; the manifest holds the parts merged.
  */
 export interface DefinitionPart {

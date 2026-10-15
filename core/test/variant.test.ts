@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentManifest } from "../src/types/manifest.js";
 import { isVariantOf } from "../src/definition/variant.js";
-import { runtimeManifestFor } from "../src/definition/runtime-manifest.js";
 
 const deploy = {
   name: "deploy",
@@ -84,15 +83,6 @@ describe("isVariantOf", () => {
     expect(isVariantOf(manifest({ tools: [{ ...deploy, description: "changed" }, lookup] }), pinned)).toBe(
       false
     );
-  });
-
-  it("refuses any runtime block: the turn runs with the pin's", () => {
-    const runtime = runtimeManifestFor({ skills }, { sandbox: {} })!;
-    const pinned = manifest({ skills, runtime });
-    // The candidate is a definition: it carries no runtime, and is checked against the pin's rest.
-    expect(isVariantOf(manifest({ skills }), pinned)).toBe(true);
-    expect(isVariantOf(manifest({ skills, runtime }), pinned)).toBe(false);
-    expect(isVariantOf(manifest({ skills, runtime: {} }), pinned)).toBe(false);
   });
 
   it("keeps skills as they were pinned, plugin labels included", () => {

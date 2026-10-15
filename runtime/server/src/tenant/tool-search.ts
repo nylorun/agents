@@ -20,13 +20,13 @@ const K1 = 1.2;
 const B = 0.75;
 
 /**
- * True when `request` calls `tool_search`, the session tool an agent gets when the session's
- * pinned snapshot holds deferred tools of its own. The name is reserved: no tool of the agent's
- * own takes it.
+ * True when `request` calls `tool_search` (a `platform` call, protocol 15), the session tool an
+ * agent gets when the session's pinned snapshot holds deferred tools of its own.
  */
 export function isToolSearchCall(snapshot: McpSnapshot | undefined, request: HostEffect): boolean {
   return (
     request.kind === "tool" &&
+    request.target?.kind === "platform" &&
     request.toolName === TOOL_SEARCH_TOOL &&
     snapshot?.mcpTools.some((tool) => tool.deferred === true && tool.agentId === request.agent?.id) === true
   );

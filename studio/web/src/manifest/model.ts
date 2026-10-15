@@ -1,18 +1,16 @@
 /**
  * The Agent Manifest tab's view of an agent manifest (v7, flat): the agent's instructions, tools,
- * skills and MCP servers, each skill and server with the plugin that brought it, and for a
- * session's pinned manifest the `runtime` block the Runtime added (sandbox, tools, instructions).
- * Pure, so `scripts/manifest-model.test.mjs` runs it without a browser.
+ * skills and MCP servers, each skill and server with the plugin that brought it. A session pins
+ * its definition as registered (protocol 15): the harness adds the sandbox and skill tools and
+ * their text when it runs a turn. Pure, so `scripts/manifest-model.test.mjs` runs it without a
+ * browser.
  */
 
-/** Tools the Runtime runs in a session's sandbox (core `createSandboxTools`). */
+/** The tools our harness offers in a session with a sandbox (its `sandboxTools`). */
 export const SANDBOX_TOOLS = ["bash", "read", "write", "edit", "grep", "glob"] as const;
 
-/**
- * `code`: a tool that would run your code, which the Runtime refuses at save (track R2).
- * `runtime`: a tool of the pinned manifest's `runtime` block, which the Runtime serves.
- */
-export type ToolKind = "code" | "http" | "subagent" | "flow-subagent" | "runtime";
+/** `code`: a tool that would run your code, which the Runtime refuses at save (track R2). */
+export type ToolKind = "code" | "http" | "subagent" | "flow-subagent";
 
 export type SchemaField = {
   name: string;
@@ -51,14 +49,6 @@ export type McpServerView = {
   approval?: true;
 };
 
-/** What the Runtime added when it pinned the session's agent (`manifest.runtime`). */
-export type RuntimeView = {
-  /** The sandbox spec, one short line per setting; absent without a sandbox. */
-  sandbox?: string[];
-  tools: ToolView[];
-  instructions: string[];
-};
-
 export type ManifestView = {
   description?: string;
   instructions: string[];
@@ -67,7 +57,6 @@ export type ManifestView = {
   mcpServers: McpServerView[];
   /** Every plugin a skill or server names, once each, in order of appearance. */
   plugins: PluginLabel[];
-  runtime?: RuntimeView;
 };
 
 type Json = Record<string, unknown>;
@@ -104,19 +93,17 @@ export function schemaFields(schema: unknown): SchemaField[] {
   }));
 }
 
-function toolView(tool: Json, runtime = false): ToolView {
+function toolView(tool: Json): ToolView {
   const name = String(tool.name);
   const agent = tool.agent;
   const http = isRecord(tool.http) ? tool.http : undefined;
-  const kind: ToolKind = runtime
-    ? "runtime"
-    : isRecord(agent)
-      ? agent.kind === "workflow"
-        ? "flow-subagent"
-        : "subagent"
-      : http
-        ? "http"
-        : "code";
+  const kind: ToolKind = isRecord(agent)
+    ? agent.kind === "workflow"
+      ? "flow-subagent"
+      : "subagent"
+    : http
+      ? "http"
+      : "code";
   const output = tool.outputSchema ?? tool.output;
   return {
     name,
@@ -131,8 +118,8 @@ function toolView(tool: Json, runtime = false): ToolView {
   };
 }
 
-function toolsOf(value: unknown, runtime = false): ToolView[] {
-  return (Array.isArray(value) ? value : []).filter(isRecord).map((tool) => toolView(tool, runtime));
+function toolsOf(value: unknown): ToolView[] {
+  return (Array.isArray(value) ? value : []).filter(isRecord).map((tool) => toolView(tool));
 }
 
 function instructionsOf(value: unknown): string[] {
@@ -153,31 +140,6 @@ function pluginOf(value: unknown): { plugin?: PluginLabel } {
 /** A plugin as its badge reads: `name version`, or the name alone. */
 export function pluginText(plugin: PluginLabel): string {
   return plugin.version === undefined ? plugin.name : `${plugin.name} ${plugin.version}`;
-}
-
-/** A sandbox spec as short lines: image, network, resources, idle; Runtime defaults when empty. */
-export function sandboxSummary(sandbox: unknown): string[] {
-  const spec = isRecord(sandbox) ? sandbox : {};
-  const lines: string[] = [];
-  if (typeof spec.image === "string") lines.push(`image ${spec.image}`);
-  if (isRecord(spec.network)) {
-    const allow = Array.isArray(spec.network.allow)
-      ? spec.network.allow.filter((host): host is string => typeof host === "string")
-      : [];
-    const preset = typeof spec.network.preset === "string" ? spec.network.preset : "dev";
-    lines.push(`network ${preset}${allow.length ? ` + ${allow.join(", ")}` : ""}`);
-  }
-  if (isRecord(spec.resources)) {
-    const parts = [
-      typeof spec.resources.cpus === "number"
-        ? `${spec.resources.cpus} cpu${spec.resources.cpus === 1 ? "" : "s"}`
-        : "",
-      typeof spec.resources.memory === "string" ? spec.resources.memory : "",
-    ].filter(Boolean);
-    if (parts.length) lines.push(parts.join(", "));
-  }
-  if (typeof spec.idle === "string") lines.push(`stops after ${spec.idle} idle`);
-  return lines.length ? lines : ["Runtime defaults"];
 }
 
 export function manifestView(manifest: unknown): ManifestView {
@@ -206,7 +168,6 @@ export function manifestView(manifest: unknown): ManifestView {
   for (const item of [...skills, ...mcpServers])
     if (item.plugin && !plugins.has(pluginText(item.plugin)))
       plugins.set(pluginText(item.plugin), item.plugin);
-  const runtime = isRecord(root.runtime) ? root.runtime : undefined;
   return {
     ...(typeof root.description === "string" ? { description: root.description } : {}),
     instructions: instructionsOf(root.instructions),
@@ -214,15 +175,6 @@ export function manifestView(manifest: unknown): ManifestView {
     skills,
     mcpServers,
     plugins: [...plugins.values()],
-    ...(runtime
-      ? {
-          runtime: {
-            ...("sandbox" in runtime ? { sandbox: sandboxSummary(runtime.sandbox) } : {}),
-            tools: toolsOf(runtime.tools, true),
-            instructions: instructionsOf(runtime.instructions),
-          },
-        }
-      : {}),
   };
 }
 
@@ -249,8 +201,7 @@ export function shortHash(hash: string): string {
 export type PinnedManifestState =
   /**
    * The Runtime returned the session's own manifest. `definitionHash` is the definition it was
-   * opened from (a newer Runtime's session view): the pinned manifest differs from it by the
-   * `runtime` block the Runtime added (sandbox tools, artifact tools, skill tools).
+   * opened from (a newer Runtime's session view); since protocol 15 the two are the same.
    */
   | {
       kind: "pinned";
@@ -266,8 +217,7 @@ export type PinnedManifestState =
 
 /**
  * True when the session runs an older manifest than the one now registered for its agent: the
- * definition it was opened from is not the registered one. The `runtime` block the Runtime adds
- * to a session's pin does not make it older.
+ * definition it was opened from is not the registered one.
  */
 export function isOutdated(
   state: PinnedManifestState,

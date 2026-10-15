@@ -26,26 +26,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-const manifest = {
-  manifestSchemaVersion: 7,
-  id: "bot",
-  instructions: ["Be brief."],
-  runtime: {
-    sandbox: {},
-    instructions: ["You have a sandbox."],
-    tools: [
-      {
-        name: "bash",
-        description: "Run a bash command.",
-        inputSchema: {
-          type: "object",
-          properties: { command: { type: "string" } },
-          required: ["command"],
-        },
-      },
-    ],
-  },
-};
+const manifest = { manifestSchemaVersion: 7, id: "bot", instructions: ["Be brief."] };
 
 const turn = (input: string, outcomes: RecordedOutcome[] = []): TurnStart => ({
   type: "turn.start",
@@ -55,8 +36,10 @@ const turn = (input: string, outcomes: RecordedOutcome[] = []): TurnStart => ({
   outcomes,
   transcript: { cursor: 4 },
   options: { fixtureModel: false },
-  routing: { rootManifest: manifest, sandbox: { ownerId: "s1" } },
+  routing: { rootManifest: manifest, sandbox: { ownerId: "s1", spec: {} } },
   limits: RUNTIME_LIMIT_DEFAULTS,
+  // A session with a sandbox: the harness offers its bash, with a note of its own.
+  environment: { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } },
 });
 
 /** A Model Gate that answers by `answer`, or hangs until its client goes away. */
@@ -201,6 +184,10 @@ it("runs a text turn: one model intent without its prompt, the gate keyed by the
     "message",
   ]);
   expect(gate.calls[0]!.body!.call.tools.map((tool) => tool.name)).toEqual(["bash"]);
+  // The instructions are the agent's, then the harness's own note on the sandbox.
+  expect(JSON.stringify(gate.calls[0]!.body!.call.prompt[0])).toContain(
+    "Be brief.\\n\\nYou can run commands with bash; the working directory is /workspace.",
+  );
   expect(applyUpdates(core.before, output.transcript!)).toEqual([
     ...core.before,
     { kind: "input", turnId: "t1", event: { kind: "user-message", text: "hi" } },
@@ -234,6 +221,8 @@ it("runs bash journaled intent first, and replays a completed outcome without ru
     effectId: toolId,
     kind: "tool",
     toolName: "bash",
+    // It runs bash itself: the record keeps the call as the harness's.
+    target: { kind: "harness" },
     input: { command: message.slice(4) },
     context: { callId: "call-1", invocationId: "t1:0:0:call-1", stepId: "t1:0:0" },
   });

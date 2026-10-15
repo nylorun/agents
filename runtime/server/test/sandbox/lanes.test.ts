@@ -4,8 +4,8 @@
  * removal waits for the calls running, and each version of a skill gets its own folder.
  */
 import { expect, it } from "vitest";
-import { runtimeManifestFor, skillFolderOf, type AgentManifest } from "@nylorun/core/define";
-import { SandboxManager, sandboxToolSpec, type SandboxSessionRef } from "../../src/sandbox/manager.js";
+import { skillFolderOf, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
+import { SandboxManager, type SandboxSessionRef } from "../../src/sandbox/manager.js";
 import { storeSandboxRecords } from "../../src/sandbox/records.js";
 import { wholeBytes, type SandboxBackend, type SandboxHandle } from "../../src/sandbox/types.js";
 import { createTestSessionStore } from "../support/store.js";
@@ -19,9 +19,11 @@ function manifestWith(files?: Record<string, string>): AgentManifest {
     manifestSchemaVersion: 7,
     id: "bot",
     ...(skills ? { skills } : {}),
-    runtime: runtimeManifestFor(skills ? { skills } : {}, { sandbox: { idle: "1m" } }),
   };
 }
+
+/** The sandbox spec the sessions pinned when they opened (`Session.sandbox`). */
+const SPEC: SandboxManifest = { idle: "1m" };
 
 /** A backend whose `wait <name>` commands run until `release(name)`, or until cancelled. */
 function gatedBackend() {
@@ -99,7 +101,7 @@ async function setup() {
     environmentId: "team/ws",
   });
   const bash = (ref: SandboxSessionRef, command: string, signal = new AbortController().signal) =>
-    manager.run(ref, sandboxToolSpec(ref.manifest!, "bash"), "bash", { command }, signal);
+    manager.run(ref, SPEC, "bash", { command }, signal);
   return { ...fake, store, manager, session, bash };
 }
 
@@ -207,7 +209,7 @@ it("writes a file's bytes as they come, in its session's lane, making its folder
     yield new Uint8Array([1, 2]);
     yield new Uint8Array([3]);
   }
-  const spec = sandboxToolSpec(a.manifest!, "bash");
+  const spec = SPEC;
   const written = manager.writeBytes(a, spec, "in/data.bin", chunks(), new AbortController().signal);
   await tick();
   // After the session's call before it (protocol 15: our engine's read_artifact with path).

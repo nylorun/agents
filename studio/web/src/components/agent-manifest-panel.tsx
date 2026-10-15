@@ -8,7 +8,6 @@ import {
   Info,
   LayoutList,
   Plug,
-  Server,
   Terminal,
   Workflow,
   Wrench,
@@ -37,7 +36,6 @@ import {
   type PinnedManifestState,
   type PluginFilter,
   type PluginLabel,
-  type RuntimeView,
   type ToolView,
 } from "@/manifest/model";
 import { useSessionManifest } from "@/manifest/use-session-manifest";
@@ -82,9 +80,8 @@ export function AgentManifestPanel({
     agent.kind === "workflow" || (manifest as { kind?: unknown }).kind === "workflow";
   const view = manifestView(manifest);
   const stats = manifestStats(view);
-  // A pinned manifest says itself whether the session has a sandbox; else its Environment does.
-  const sandboxOn =
-    pinned.kind === "pinned" && view.runtime ? view.runtime.sandbox !== undefined : hasSandbox;
+  // The session's Environment says whether it has a sandbox: its manifest holds none (protocol 15).
+  const sandboxOn = hasSandbox;
   return (
     // Radix sizes the viewport's child as a table, which grows to the longest line.
     <ScrollArea className="h-full [&_[data-slot=scroll-area-viewport]>div]:block!">
@@ -145,11 +142,7 @@ export function AgentManifestPanel({
               />
             </div>
 
-            <ManifestSections
-              view={view}
-              pinned={pinned.kind === "pinned"}
-              hasSandbox={hasSandbox}
-            />
+            <ManifestSections view={view} hasSandbox={hasSandbox} />
           </>
         )}
       </div>
@@ -249,12 +242,11 @@ function VersionAlert({ pinned }: Readonly<{ pinned: PinnedManifestState }>) {
   return null;
 }
 
-/** The agent's parts, flat: instructions, tools, skills, MCP servers, then the Runtime's block. */
+/** The agent's parts, flat: instructions, tools, skills, MCP servers, then its sandbox's tools. */
 function ManifestSections({
   view,
-  pinned,
   hasSandbox,
-}: Readonly<{ view: ManifestView; pinned: boolean; hasSandbox: boolean }>) {
+}: Readonly<{ view: ManifestView; hasSandbox: boolean }>) {
   const [filter, setFilter] = useState<PluginFilter>("all");
   const skills = byPlugin(view.skills, filter);
   const servers = byPlugin(view.mcpServers, filter);
@@ -334,11 +326,7 @@ function ManifestSections({
         )}
       </Section>
 
-      {pinned && view.runtime ? (
-        <RuntimeSection runtime={view.runtime} />
-      ) : hasSandbox ? (
-        <SandboxFallback />
-      ) : null}
+      {hasSandbox ? <SandboxSection /> : null}
     </>
   );
 }
@@ -380,47 +368,6 @@ function PluginFilterBar({
 
 const FILTER =
   "h-6 rounded-md! px-2 text-xs text-muted-foreground hover:bg-transparent data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm!";
-
-/** What the Runtime added when it pinned the session's agent: `manifest.runtime`. */
-function RuntimeSection({ runtime }: Readonly<{ runtime: RuntimeView }>) {
-  return (
-    <Section title="Runtime" hint="Added by the Runtime when the session pinned the agent.">
-      <div className="space-y-4">
-        {runtime.sandbox ? (
-          <Group icon={Terminal} title="Sandbox" note="from the session's Environment">
-            <ul className="rounded-md bg-muted px-2.5 py-2 font-mono text-[11.5px] leading-5">
-              {runtime.sandbox.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          </Group>
-        ) : null}
-        {runtime.tools.length ? (
-          <Group icon={Server} title="Tools" note="the Runtime serves them">
-            <div className="flex flex-wrap gap-1">
-              {runtime.tools.map((tool) => (
-                <Tooltip key={tool.name}>
-                  <TooltipTrigger asChild>
-                    <Badge variant="outline" className="cursor-default font-mono">
-                      {tool.name}
-                    </Badge>
-                  </TooltipTrigger>
-                  {tool.description ? (
-                    <TooltipContent className="max-w-xs">{tool.description}</TooltipContent>
-                  ) : null}
-                </Tooltip>
-              ))}
-            </div>
-          </Group>
-        ) : null}
-        {runtime.instructions.length ? <Instructions instructions={runtime.instructions} /> : null}
-        {!runtime.sandbox && !runtime.tools.length && !runtime.instructions.length ? (
-          <p className="text-sm text-muted-foreground">Nothing added</p>
-        ) : null}
-      </div>
-    </Section>
-  );
-}
 
 function Group({
   icon: Icon,
@@ -590,10 +537,10 @@ function ToolKindBadge({ tool }: Readonly<{ tool: ToolView }>) {
   return null;
 }
 
-/** The registered manifest has no `runtime` block: the session's Environment has a sandbox. */
-function SandboxFallback() {
+/** The session's Environment has a sandbox: the harness offers its tools with the agent's. */
+function SandboxSection() {
   return (
-    <Section title="Runtime" hint="The session's Environment has a sandbox.">
+    <Section title="Sandbox" hint="The session's Environment has a sandbox; the harness offers these tools.">
       <Group icon={Terminal} title="Sandbox tools" note={`on the session's persistent /workspace`}>
         <div className="flex flex-wrap gap-1">
           {SANDBOX_TOOLS.map((name) => (

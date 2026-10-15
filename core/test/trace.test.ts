@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { pluginOf, skillOfToolCall } from "../src/define.js";
+import { pluginOf } from "../src/define.js";
 import {
   ToolCallSchema,
   ToolCompletedPayloadSchema,
@@ -30,59 +30,6 @@ const agent = {
     },
   },
 };
-
-it("names the skill a skill tool loads, by its input", () => {
-  expect(skillOfToolCall(agent, "load_skill", { name: "triage" })).toBe(
-    "triage",
-  );
-  expect(
-    skillOfToolCall(agent, "read_skill_resource", {
-      name: "notes",
-      path: "a.md",
-    }),
-  ).toBe("notes");
-  expect(
-    skillOfToolCall(agent, "load_skill", { name: "missing" }),
-  ).toBeUndefined();
-});
-
-it("matches a sandbox tool's input on the skills' mount path", () => {
-  expect(
-    skillOfToolCall(agent, "bash", {
-      command: "python /skills/triage/scripts/run.py --x",
-    }),
-  ).toBe("triage");
-  expect(
-    skillOfToolCall(agent, "read", { path: "/skills/notes/references/a.md" }),
-  ).toBe("notes");
-  // A version's folder (D66).
-  expect(
-    skillOfToolCall(agent, "bash", { command: "python /skills/triage@0123456789ab/scripts/run.py" }),
-  ).toBe("triage");
-  expect(
-    skillOfToolCall(agent, "read", { path: "/skills/notes@abcdef012345/a.md" }),
-  ).toBe("notes");
-  expect(
-    skillOfToolCall(agent, "grep", {
-      pattern: "todo",
-      path: "/skills/triage/",
-    }),
-  ).toBe("triage");
-  // A script started without its path in the command is not traced.
-  expect(
-    skillOfToolCall(agent, "bash", { command: "cd /skills && ./run" }),
-  ).toBeUndefined();
-  expect(
-    skillOfToolCall(agent, "bash", { command: "cat /skills/other/x" }),
-  ).toBeUndefined();
-  // Only sandbox and skill tools are traced to a skill.
-  expect(
-    skillOfToolCall(agent, "lookup", { path: "/skills/triage/a" }),
-  ).toBeUndefined();
-  expect(
-    skillOfToolCall({}, "bash", { command: "/skills/triage/run" }),
-  ).toBeUndefined();
-});
 
 it("names the plugin that brought a skill or a server", () => {
   expect(pluginOf(agent, { skill: "triage" })).toEqual({

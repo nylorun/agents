@@ -1,0 +1,435 @@
+{
+  "sandbox": {
+    "prompt": [
+      {
+        "kind": "instructions",
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Fix the tests.\n\nThe following skills provide specialized instructions. When a task matches a skill description, call load_skill with that name before proceeding.\n\n<available_skills>\n  <skill>\n    <name>pdf</name>\n    <description>Work with PDF &lt;files&gt; &amp; &quot;forms&quot;.</description>\n  </skill>\n  <skill>\n    <name>notes</name>\n    <description>Take notes.</description>\n  </skill>\n</available_skills>\n\nYou have an isolated Linux sandbox with a persistent working directory at /workspace. Use bash to run commands, read/write/edit to work with files, and grep/glob to search. Network egress is limited by policy; a failed download usually means the host is not allowed.\n\nEach skill's files are in the sandbox, read-only, in its own folder under /skills/ (pdf: /skills/pdf@a6a0d5926594/, notes: /skills/notes@8ffbdb27ab5e/): read them there and run their scripts with bash.\n\nUse save_artifact to hand the user a file you made: a path in the sandbox, or text you pass as content. The user sees it as an artifact of this session and can download it; reply with its name, not its bytes. Files you write under /workspace/outputs reach the user too: when your turn ends, they become the session's outputs folder.\n\nA tool result too large to show is saved as an artifact of this session: the result says truncated: true, with its artifactId, its size in bytes and a preview of its start and end. Images and other files a tool returns are saved as artifacts too. Use read_artifact to read more of one, a page at a time, only when the preview is not enough. Files from earlier turns appear as lines like [Uploaded artifact \"name\" · <artifactId> v<version> · read_artifact to view]: call read_artifact with that artifactId and version only when you need the file again.\n\nMCP note."
+          }
+        ]
+      },
+      {
+        "kind": "message",
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "go"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "job",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "bash",
+        "description": "Run a bash command in the sandbox. The working directory is /workspace. Returns exitCode, stdout and stderr; a non-zero exit code is a normal result, not an error. Long output is truncated in the middle.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The command line to run with bash."
+            },
+            "timeout": {
+              "description": "Seconds before the command is killed. Default 120, maximum 600.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600
+            }
+          },
+          "required": ["command"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "read",
+        "description": "Read a text file from the sandbox. Relative paths resolve under /workspace. Returns numbered lines. Use offset and limit to page through large files.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "offset": {
+              "description": "First line to return, 1-based.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "limit": {
+              "description": "Maximum number of lines. Default 2000.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5000
+            }
+          },
+          "required": ["path"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "write",
+        "description": "Create or overwrite a text file in the sandbox. Relative paths resolve under /workspace. Parent directories are created.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": ["path", "content"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "edit",
+        "description": "Replace text in a sandbox file. Relative paths resolve under /workspace. old_string must match exactly and be unique unless replace_all is true.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "old_string": {
+              "type": "string",
+              "minLength": 1
+            },
+            "new_string": {
+              "type": "string"
+            },
+            "replace_all": {
+              "type": "boolean"
+            }
+          },
+          "required": ["path", "old_string", "new_string"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "grep",
+        "description": "Search file contents in the sandbox with an extended regular expression. Relative paths resolve under /workspace. Returns matching lines as path:line:text.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "path": {
+              "description": "Directory or file to search. Default /workspace.",
+              "type": "string",
+              "minLength": 1
+            },
+            "glob": {
+              "description": "Only search files whose name matches, e.g. \"*.py\".",
+              "type": "string",
+              "minLength": 1
+            },
+            "ignore_case": {
+              "type": "boolean"
+            },
+            "max_results": {
+              "description": "Default 200.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          "required": ["pattern"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "glob",
+        "description": "Find files in the sandbox by glob pattern, e.g. \"**/*.csv\". Relative paths resolve under /workspace. Returns matching paths.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "path": {
+              "description": "Directory to search. Default /workspace.",
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["pattern"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "load_skill",
+        "description": "Load the full instructions for a named skill. Call this before following a skill.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": ["notes", "pdf"]
+            }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "read_skill_resource",
+        "description": "Read one text resource from a skill after load_skill.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": ["notes", "pdf"]
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["name", "path"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "save_artifact",
+        "description": "Save a file as an artifact of this session, for the user to download. Give path (a file in the sandbox; relative paths resolve under /workspace) or content (text), not both. Returns the artifact's id and version. Pass artifactId to save a new version of an artifact you saved before.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "path": {
+              "description": "A file in the sandbox.",
+              "type": "string",
+              "minLength": 1
+            },
+            "content": {
+              "description": "Text to save instead of a file.",
+              "type": "string"
+            },
+            "name": {
+              "description": "The artifact's name. Default: the file's name.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "contentType": {
+              "description": "The media type, e.g. image/png. Default: from the name's extension.",
+              "type": "string",
+              "minLength": 1
+            },
+            "artifactId": {
+              "description": "Save a new version of this artifact.",
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "read_artifact",
+        "description": "Read an artifact of this session, such as a tool result marked truncated or a file from an earlier turn. A text file returns up to 32768 bytes from offset, with nextOffset while more remains: pass it as offset to read on. An image or another file you can read is shown to you. Pass path to copy the whole artifact into the sandbox instead (relative paths resolve under /workspace), for a command to use.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "artifactId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The artifact to read, e.g. a truncated result's artifactId."
+            },
+            "version": {
+              "description": "The version to read. Default: the latest.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "offset": {
+              "description": "The byte to start at. Default 0.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "length": {
+              "description": "How many bytes to read. Default and most: 32768.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32768
+            },
+            "path": {
+              "description": "Copy the artifact to this file in the sandbox instead of reading it.",
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["artifactId"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "github__get_issue",
+        "inputSchema": {
+          "type": "object"
+        }
+      },
+      {
+        "name": "tool_search",
+        "description": "Search.",
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    ],
+    "executionId": "s"
+  },
+  "bare": {
+    "prompt": [
+      {
+        "kind": "instructions",
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Fix the tests.\n\nThe following skills provide specialized instructions. When a task matches a skill description, call load_skill with that name before proceeding.\n\n<available_skills>\n  <skill>\n    <name>pdf</name>\n    <description>Work with PDF &lt;files&gt; &amp; &quot;forms&quot;.</description>\n  </skill>\n  <skill>\n    <name>notes</name>\n    <description>Take notes.</description>\n  </skill>\n</available_skills>\n\nA tool result too large to show is saved as an artifact of this session: the result says truncated: true, with its artifactId, its size in bytes and a preview of its start and end. Images and other files a tool returns are saved as artifacts too. Use read_artifact to read more of one, a page at a time, only when the preview is not enough. Files from earlier turns appear as lines like [Uploaded artifact \"name\" · <artifactId> v<version> · read_artifact to view]: call read_artifact with that artifactId and version only when you need the file again.\n\nMCP note."
+          }
+        ]
+      },
+      {
+        "kind": "message",
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "go"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "job",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "load_skill",
+        "description": "Load the full instructions for a named skill. Call this before following a skill.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": ["notes", "pdf"]
+            }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "read_skill_resource",
+        "description": "Read one text resource from a skill after load_skill.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": ["notes", "pdf"]
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["name", "path"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "read_artifact",
+        "description": "Read an artifact of this session, such as a tool result marked truncated or a file from an earlier turn. A text file returns up to 32768 bytes from offset, with nextOffset while more remains: pass it as offset to read on. An image or another file you can read is shown to you.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "artifactId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The artifact to read, e.g. a truncated result's artifactId."
+            },
+            "version": {
+              "description": "The version to read. Default: the latest.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "offset": {
+              "description": "The byte to start at. Default 0.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "length": {
+              "description": "How many bytes to read. Default and most: 32768.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32768
+            }
+          },
+          "required": ["artifactId"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "github__get_issue",
+        "inputSchema": {
+          "type": "object"
+        }
+      },
+      {
+        "name": "tool_search",
+        "description": "Search.",
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    ],
+    "executionId": "s"
+  }
+}

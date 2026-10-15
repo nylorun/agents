@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, hashManifest, runtimeManifestFor, type AgentManifest } from "@nylorun/core/define";
+import { Agent, hashManifest, type AgentManifest } from "@nylorun/core/define";
 import {
   createDurableCheckpoint,
   runDurable,
@@ -8,7 +8,8 @@ import {
   type EffectResolution,
   type HostEffect,
 } from "../src/run/index.js";
-import { artifactToolsFor } from "../src/tools/artifacts.js";
+import { engineToolsFor } from "../src/tools/engine-tools.js";
+import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
 
 describe("durable reconstruction", () => {
   it.each(["pending", "uncertain"] as const)(
@@ -153,15 +154,24 @@ describe("durable reconstruction", () => {
 });
 
 describe("our engine's own tools (protocol 15)", () => {
-  it("offers them after the Runtime's and before the session's, with their instructions, unhashed", async () => {
+  const sandboxed = { id: "env", kind: "virtual" as const, sandbox: { workspace: "/workspace" } };
+  const options = {
+    artifactPageBytes: 1024,
+    sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS,
+    skillReadBytes: 1024,
+  };
+  const skill = {
+    name: "pdf",
+    description: "PDFs.",
+    files: { "SKILL.md": `sha256:${"a".repeat(64)}` },
+  };
+
+  it("offers them after the agent's and before the session's, with their text first, unhashed", async () => {
     const definition = Agent({ id: "coder" })
       .instructions("Fix the tests.")
       .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
       .build().manifest;
-    const manifest: AgentManifest = {
-      ...definition,
-      runtime: runtimeManifestFor(definition, { sandbox: {} }),
-    };
+    const manifest = { ...definition, skills: { pdf: skill } } as AgentManifest;
     const checkpoint = createDurableCheckpoint({
       manifest,
       sessionId: "s",
@@ -187,83 +197,14 @@ describe("our engine's own tools (protocol 15)", () => {
                     name: "read_artifact",
                     args: { artifactId: "af_1" },
                   },
-                ];
-          return { status: "completed", outcome: { value: { output } } };
-        }
-        tools.push(effect);
-        return { status: "completed", outcome: { value: { kind: "completed", output: "ok" } } };
-      },
-    };
-    const engineTools = (agent: AgentManifest) => artifactToolsFor(agent, { pageBytes: 1024 });
-    const result = await runDurable({
-      manifest,
-      checkpoint,
-      host,
-      engineTools,
-      sessionTools: [
-        { name: "github__get_issue", inputSchema: { type: "object" }, instructions: ["MCP note."] },
-      ],
-    });
-    expect(result.status).toBe("completed");
-    expect(offered[0]).toEqual([
-      "job",
-      ...manifest.runtime!.tools!.map((tool) => tool.name),
-      "save_artifact",
-      "read_artifact",
-      "github__get_issue",
-    ]);
-    // Their instructions follow the Runtime's, before the session tools'.
-    const prompt = prompts[0]!;
-    const sandboxAt = prompt.indexOf(
-      JSON.stringify(manifest.runtime!.instructions![0]).slice(1, 40),
-    );
-    expect(prompt.indexOf("Use save_artifact")).toBeGreaterThan(sandboxAt);
-    expect(prompt.indexOf("Use read_artifact")).toBeGreaterThan(
-      prompt.indexOf("Use save_artifact"),
-    );
-    expect(prompt.indexOf("MCP note.")).toBeGreaterThan(prompt.indexOf("Use read_artifact"));
-    // The call is a tool effect named by the tool; the hash is the pinned manifest's.
-    expect(tools).toMatchObject([
-      { kind: "tool", toolName: "read_artifact", input: { artifactId: "af_1" } },
-    ]);
-    expect(checkpoint.manifestHash).toBe(hashManifest(manifest));
-    // Without a sandbox, read_artifact alone, and no path.
-    const bare = artifactToolsFor(definition, { pageBytes: 1024 });
-    expect(bare.map((tool) => tool.name)).toEqual(["read_artifact"]);
-    expect(Object.keys(bare[0]!.inputSchema.properties as object)).not.toContain("path");
-  });
-});
-
-describe("a pinned manifest's runtime block", () => {
-  it("hosts the agent's tools and the Runtime's by name, after the agent's, with its instructions", async () => {
-    const definition = Agent({ id: "coder" })
-      .instructions("Fix the tests.")
-      .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
-      .build().manifest;
-    const manifest: AgentManifest = {
-      ...definition,
-      runtime: runtimeManifestFor(definition, { sandbox: {} }),
-    };
-    const checkpoint = createDurableCheckpoint({
-      manifest,
-      sessionId: "s",
-      turnId: "t",
-      input: "go",
-    });
-    const offered: string[][] = [];
-    const prompts: string[] = [];
-    const tools: HostEffect[] = [];
-    const host: DurableHost = {
-      async resolveEffect(effect) {
-        if (effect.kind === "model") {
-          const call = effect.input as { tools: { name: string }[]; prompt: { kind?: string }[] };
-          offered.push(call.tools.map((tool) => tool.name));
-          prompts.push(JSON.stringify(call.prompt));
-          const output =
-            call.prompt.at(-1)?.kind === "tool-result"
-              ? [{ type: "text", text: "done" }]
-              : [
-                  { type: "tool-call", id: "b", name: "bash", args: { command: "ls" } },
+                  {
+                    type: "tool-call",
+                    id: "b",
+                    name: "bash",
+                    args: { command: "cat /skills/pdf/SKILL.md" },
+                  },
+                  { type: "tool-call", id: "l", name: "load_skill", args: { name: "pdf" } },
+                  { type: "tool-call", id: "g", name: "github__get_issue", args: {} },
                   { type: "tool-call", id: "j", name: "job", args: {} },
                 ];
           return { status: "completed", outcome: { value: { output } } };
@@ -272,15 +213,101 @@ describe("a pinned manifest's runtime block", () => {
         return { status: "completed", outcome: { value: { kind: "completed", output: "ok" } } };
       },
     };
-    const result = await runDurable({ manifest, checkpoint, host });
+    const result = await runDurable({
+      manifest,
+      checkpoint,
+      host,
+      engineTools: (agent) => engineToolsFor(agent, sandboxed, options),
+      sessionTools: [
+        {
+          name: "github__get_issue",
+          inputSchema: { type: "object" },
+          instructions: ["MCP note."],
+          target: { kind: "mcp" },
+        },
+      ],
+    });
     expect(result.status).toBe("completed");
-    expect(offered[0]).toEqual(["job", ...manifest.runtime!.tools!.map((tool) => tool.name)]);
-    // The agent's instructions come first, then the Runtime's.
-    const sandboxText = JSON.stringify(manifest.runtime!.instructions![0]).slice(1, 40);
-    expect(prompts[0]!.indexOf("Fix the tests.")).toBeGreaterThanOrEqual(0);
-    expect(prompts[0]!.indexOf(sandboxText)).toBeGreaterThan(prompts[0]!.indexOf("Fix the tests."));
-    expect(tools.map((effect) => effect.toolName).sort()).toEqual(["bash", "job"]);
-    for (const effect of tools) expect(effect).not.toHaveProperty("capabilityId");
+    expect(offered[0]).toEqual([
+      "job",
+      "bash",
+      "read",
+      "write",
+      "edit",
+      "grep",
+      "glob",
+      "load_skill",
+      "save_artifact",
+      "read_artifact",
+      "github__get_issue",
+    ]);
+    // The agent's text, then the skills', the sandbox's, the artifacts', then the session tools'.
+    const prompt = prompts[0]!;
+    const order = [
+      "Fix the tests.",
+      "The following skills",
+      "You have an isolated Linux sandbox",
+      "Each skill's files are in the sandbox",
+      "Use save_artifact",
+      "Use read_artifact",
+      "MCP note.",
+    ].map((text) => prompt.indexOf(text));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Each call names what runs it; the skill a call ran comes with it. The author's code tool
+    // names nothing: the record fails it.
+    const byName = Object.fromEntries(tools.map((effect) => [effect.toolName, effect]));
+    expect(byName.read_artifact).toMatchObject({ target: { kind: "harness" } });
+    expect(byName.read_artifact).not.toHaveProperty("skill");
+    expect(byName.bash).toMatchObject({ target: { kind: "sandbox" }, skill: "pdf" });
+    expect(byName.load_skill).toMatchObject({ target: { kind: "harness" }, skill: "pdf" });
+    expect(byName.github__get_issue).toMatchObject({ target: { kind: "mcp" } });
+    expect(byName.job).not.toHaveProperty("target");
+    // The hash is the definition's: nothing of ours is in the manifest.
+    expect(checkpoint.manifestHash).toBe(hashManifest(manifest));
+    // Without a sandbox: the skill tools and read_artifact, without path.
+    const bare = engineToolsFor(manifest, undefined, options);
+    expect(bare.tools.map((tool) => tool.name)).toEqual(["load_skill", "read_artifact"]);
+    expect(Object.keys(bare.tools[1]!.inputSchema.properties as object)).not.toContain("path");
+    expect(bare.instructions.join("\n")).not.toContain("sandbox, read-only");
+  });
+
+  it("fails the turn when an author tool takes the name of one of ours, and runs it without a sandbox", async () => {
+    const manifest = Agent({ id: "coder" })
+      .tools({ name: "bash", inputSchema: z.object({}), execute: async () => "unused" })
+      .build().manifest;
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "s",
+      turnId: "t",
+      input: "go",
+    });
+    const host: DurableHost = {
+      async resolveEffect() {
+        return {
+          status: "completed",
+          outcome: { value: { output: [{ type: "text", text: "done" }] } },
+        };
+      },
+    };
+    await expect(
+      runDurable({
+        manifest,
+        checkpoint,
+        host,
+        engineTools: (agent) => engineToolsFor(agent, sandboxed, options),
+      }),
+    ).rejects.toMatchObject({
+      code: "agent.build-failed",
+      message: expect.stringContaining("'bash'"),
+    });
+    const bare = await runDurable({
+      manifest,
+      checkpoint,
+      host,
+      engineTools: (agent) => engineToolsFor(agent, undefined, options),
+    });
+    expect(bare.status).toBe("completed");
   });
 });
 

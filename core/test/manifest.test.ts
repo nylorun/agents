@@ -62,7 +62,7 @@ it("accepts a skill's files by hash and rejects file contents", () => {
     description: "Triage an issue.",
     files: { "SKILL.md": SKILL_MD, "references/labels.md": LABELS },
   });
-  // The Runtime pins the skill tools in `runtime`; the definition carries none.
+  // The harness adds the skill tools (protocol 15); the definition carries none.
   expect(restored.getBinding().tools).toEqual([]);
 
   expect(issues(skillManifest({ "SKILL.md": SKILL_MD }, { instructions: "Body" }))).toBeDefined();
@@ -125,11 +125,10 @@ it("rejects a key that differs from the name, and empty maps", () => {
   ).toContain("skills key 'other' must equal the skill name");
 });
 
-it("refuses an author tool named like a Runtime tool, or containing __", () => {
+it("reserves no tool name, and refuses one containing __ (protocol 15)", () => {
+  // A call names what runs it: an author tool may be named like one of the harness's.
   for (const name of ["bash", "load_skill", "read_skill_resource", "tool_search", "tool_call"])
-    expect(issues(manifest({ tools: [plain(name)] })), name).toContain(
-      `Tool '${name}' takes the name of a tool the Runtime serves; rename it`,
-    );
+    expect(issues(manifest({ tools: [plain(name)] })), name).toBeUndefined();
   expect(issues(manifest({ tools: [plain("github__list")] }))).toContain(
     "Tool 'github__list' must not contain '__', which names an MCP server's tools",
   );
@@ -137,21 +136,14 @@ it("refuses an author tool named like a Runtime tool, or containing __", () => {
   // The builder refuses the same at build time.
   const named = (name: string) =>
     tool({ name, inputSchema: z.object({}), execute: async () => "ok" });
-  expect(() => Agent({ id: "bot" }).tools(named("bash")).build()).toThrow(
-    /Tool 'bash' takes the name of a tool the Runtime serves/,
-  );
+  expect(() => Agent({ id: "bot" }).tools(named("bash")).build()).not.toThrow();
   expect(() => Agent({ id: "bot" }).tools(named("gh__list")).build()).toThrow(/must not contain '__'/);
 });
 
-it("keeps tool names unique across tools and runtime.tools, and runtime.tools to Runtime tools", () => {
+it("keeps tool names unique, and refuses runtime with what replaces it (protocol 15)", () => {
   expect(issues(manifest({ tools: [plain("search"), plain("search")] }))).toContain("Tool names must be unique");
-  const bash = plain("bash");
-  expect(issues(manifest({ runtime: { tools: [bash] } }))).toBeUndefined();
-  expect(issues(manifest({ runtime: { tools: [bash, bash] } }))).toContain("Tool names must be unique");
-  expect(issues(manifest({ runtime: { tools: [plain("search")] } }))).toContain(
-    "runtime.tools holds only the tools the Runtime serves, not 'search'",
-  );
-  expect(issues(manifest({ runtime: { extra: true } }))).toBeDefined();
+  for (const runtime of [{ tools: [plain("bash")] }, { sandbox: { image: "node:24" } }, {}])
+    expect(issues(manifest({ runtime }))).toContain("Manifest field runtime was removed");
 });
 
 it("keeps names unique within each kind: a tool, a skill and a server may share one", () => {
@@ -234,12 +226,12 @@ it("rebuilds a frozen copy of the manifest", () => {
   expect(Object.isFrozen(json.metadata)).toBe(false);
 });
 
-it("refuses a pinned sandbox without its tools, and a hooks field with what replaces it", () => {
+it("refuses a runtime block and a hooks field with what replaces each", () => {
   const base = { manifestSchemaVersion: 7, id: "a" };
   expect(
     AgentManifestSchema.safeParse({ ...base, runtime: { sandbox: { image: "node:24" } } }).error?.issues[0]
       ?.message
-  ).toMatch(/runtime\.sandbox comes with the sandbox tools/);
+  ).toMatch(/the harness writes the model's instructions and defines the sandbox and skill tools/);
   expect(AgentManifestSchema.safeParse({ ...base, hooks: {} }).error?.issues[0]?.message).toMatch(
     /hooks were removed/
   );

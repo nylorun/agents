@@ -160,8 +160,6 @@ export {
   resolveSkillsRoot,
   parseSkill,
   SkillsError,
-  formatSkillCatalog,
-  SKILLS_USAGE,
 } from "./skills/index.js";
 export type { SkillDiagnostic } from "./skills/index.js";
 export { McpError } from "./mcp/index.js";

@@ -121,16 +121,17 @@ describe("memory channel", () => {
 });
 
 describe("Harness API 4", () => {
-  it("names features in hello, not capabilities", async () => {
+  it("names features in hello, not capabilities, and declares no tools (protocol 15)", async () => {
     const { validateParams } = await import("../src/harness-api/index.js");
     expect(HARNESS_API_VERSION).toBe(4);
     const hello = { api: 4, name: "h", version: "0" };
+    expect(() => validateParams("hello", { ...hello, features: { workspace: true } })).not.toThrow();
     expect(() =>
       validateParams("hello", {
         ...hello,
-        features: { workspace: true, tools: [{ name: "browse", inputSchema: { type: "object" } }] },
+        features: { tools: [{ name: "browse", inputSchema: { type: "object" } }] },
       })
-    ).not.toThrow();
+    ).toThrow(HarnessApiError);
     expect(() => validateParams("hello", { ...hello, capabilities: {} })).toThrow(HarnessApiError);
   });
 
@@ -178,11 +179,22 @@ describe("Harness API 4", () => {
       expect(() => validateResult("artifact.write", result)).not.toThrow();
   });
 
-  it("names a tool effect by its tool alone", async () => {
-    const { EffectIntentSchema } = await import("../src/harness-api/index.js");
+  it("names a tool effect by its tool and what runs it, and the skill it ran (protocol 15)", async () => {
+    const { EffectIntentSchema, effectRequestHash } = await import("../src/harness-api/index.js");
     const tool = effect({ kind: "tool", toolName: "bash", effectId: "t1:0:tool:c1", input: {} });
     expect(EffectIntentSchema.safeParse(tool).success).toBe(true);
     expect(EffectIntentSchema.safeParse({ ...tool, capabilityId: "nylorun.sandbox" }).success).toBe(false);
+    for (const kind of ["mcp", "http", "sandbox", "harness", "platform"])
+      expect(EffectIntentSchema.safeParse({ ...tool, target: { kind } }).success, kind).toBe(true);
+    expect(EffectIntentSchema.safeParse({ ...tool, target: { kind: "code" } }).success).toBe(false);
+    expect(EffectIntentSchema.safeParse({ ...tool, target: { kind: "mcp", extra: 1 } }).success).toBe(false);
+    const ran = { ...tool, target: { kind: "sandbox" }, skill: "pdf" };
+    expect(EffectIntentSchema.safeParse(ran).success).toBe(true);
+    expect(EffectIntentSchema.safeParse({ ...ran, skill: "" }).success).toBe(false);
+    // The target is part of the request: a replay that names another is drift.
+    expect(effectRequestHash(ran as never)).not.toBe(
+      effectRequestHash({ ...ran, target: { kind: "harness" } } as never)
+    );
   });
 
   it("names an HTTP tool call by agent and tool, and an MCP server by its name", async () => {
@@ -255,6 +267,27 @@ describe("published contract (R4.5)", () => {
     expect(ModelDescriptorSchema.safeParse({ ...model, extra: 1 }).success).toBe(false);
   });
 
+  it("states the turn's Environment on turn.start, its sandbox's workspace with one (protocol 15)", async () => {
+    const { TurnStartSchema, TurnEnvironmentSchema } = await import("../src/harness-api/index.js");
+    const start = {
+      type: "turn.start",
+      engine: "agent",
+      manifest: {},
+      checkpoint: {},
+      outcomes: [],
+      transcript: { cursor: 0 },
+      options: { fixtureModel: false },
+      routing: { rootManifest: {}, sandbox: { ownerId: "s", spec: { image: "node:24" } } },
+      limits: RUNTIME_LIMIT_DEFAULTS,
+    };
+    expect(TurnStartSchema.safeParse(start).success).toBe(true);
+    const environment = { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } };
+    expect(TurnStartSchema.safeParse({ ...start, environment }).success).toBe(true);
+    expect(TurnEnvironmentSchema.safeParse({ id: "env", kind: "none" }).success).toBe(true);
+    expect(TurnEnvironmentSchema.safeParse({ ...environment, kind: "cloud" }).success).toBe(false);
+    expect(TurnEnvironmentSchema.safeParse({ ...environment, sandbox: { workspace: "work" } }).success).toBe(false);
+  });
+
   it("checks gate bodies and the pod join with the published schemas", async () => {
     const { HostJoinRequestSchema, ModelCallBodySchema, ToolCallBodySchema } = await import(
       "../src/harness-api/index.js"
@@ -290,6 +323,8 @@ describe("published contract (R4.5)", () => {
     expect(document.title).toBe(`Nylorun Harness API ${HARNESS_API_VERSION}`);
     for (const name of [
       "TurnStart",
+      "TurnEnvironment",
+      "EffectTarget",
       "ModelDescriptor",
       "TurnOutput",
       "EffectIntent",

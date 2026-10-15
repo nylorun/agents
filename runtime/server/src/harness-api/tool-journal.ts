@@ -18,12 +18,11 @@
  * (`policy`). A flow's HTTP stage, which names no tool call, ends in `node.completed` instead.
  */
 import type { EventPayload, EventWriter } from "@nylorun/core/contracts";
-import { pluginOf, skillOfToolCall, type AgentManifest, type PluginLabel } from "@nylorun/core/define";
+import { pluginOf, type AgentManifest, type PluginLabel } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { isFlowToolEffect } from "../core/flow-host.js";
-import { declaredHttpTool, isHttpToolCall } from "../gates/http-tool.js";
+import { declaredHttpTool } from "../gates/http-tool.js";
 import { mcpToolOf } from "../mcp/snapshot.js";
-import { sandboxToolSpec } from "../sandbox/runtime-tools.js";
 import type { Session } from "../tenant/context.js";
 import {
   toolCompleted,
@@ -69,7 +68,8 @@ export type ToolRow = EffectDoc &
 
 /** Where a tool call runs, and what it traces to (Q7, Q11). */
 export interface ToolCallPlace {
-  toolKind: ToolCallKind;
+  /** Its target's kind; absent for a call that names none (an author's code tool). */
+  toolKind?: ToolCallKind;
   /** Its MCP server or, for an agent's HTTP tool, its URL's host. */
   server?: string;
   skill?: string;
@@ -77,34 +77,40 @@ export interface ToolCallPlace {
 }
 
 /**
- * Where a tool call runs, and what it traces to: an MCP call names its server and the plugin
- * that brought it; a skill tool, or a sandbox tool whose input names `/skills/<name>@<hash>/`, names the
- * skill and its plugin. A tool the turn's harness declared (`nativeTools`) runs in the harness.
+ * Where a tool call runs, and what it traces to (protocol 15): its target's kind; an MCP call
+ * names its server and the plugin that brought it, an HTTP call its URL's host. The skill the
+ * effect names (`skill`: a skill tool's, or a sandbox call in a skill's folder) is kept when the
+ * agent has it, with the plugin that brought it.
  */
 export function toolKindOf(
   s: Pick<Session, "manifest" | "mcpSnapshot">,
   agentManifest: AgentManifest | undefined,
   request: HostEffect,
-  nativeTools?: ReadonlySet<string>,
 ): ToolCallPlace {
-  const mcp = mcpToolOf(s.mcpSnapshot, request);
-  if (mcp) {
-    const plugin = pluginOf(agentManifest, { server: mcp.serverName });
-    return { toolKind: "mcp", server: mcp.serverName, ...(plugin === undefined ? {} : { plugin }) };
+  const kind = request.target?.kind;
+  if (kind === "mcp") {
+    const mcp = mcpToolOf(s.mcpSnapshot, request);
+    const plugin = mcp === undefined ? undefined : pluginOf(agentManifest, { server: mcp.serverName });
+    return {
+      toolKind: "mcp",
+      ...(mcp === undefined ? {} : { server: mcp.serverName }),
+      ...(plugin === undefined ? {} : { plugin }),
+    };
   }
-  if (isHttpToolCall(s.manifest, request)) {
+  if (kind === "http") {
     const host = httpHostOf(declaredHttpTool(s.manifest, request.agent?.id, request.toolName)?.http.url);
     return { toolKind: "http", ...(host === undefined ? {} : { server: host }) };
   }
-  if (request.toolName !== undefined && nativeTools?.has(request.toolName)) return { toolKind: "harness" };
-  const skill = skillOfToolCall(agentManifest, request.toolName, request.input);
+  const skill =
+    request.skill !== undefined && agentManifest?.skills?.[request.skill] !== undefined
+      ? request.skill
+      : undefined;
   const plugin = skill === undefined ? undefined : pluginOf(agentManifest, { skill });
-  const traced = {
+  return {
+    ...(kind === undefined ? {} : { toolKind: kind }),
     ...(skill === undefined ? {} : { skill }),
     ...(plugin === undefined ? {} : { plugin }),
   };
-  if (sandboxToolSpec(agentManifest, request.toolName)) return { toolKind: "sandbox", ...traced };
-  return { toolKind: "platform", ...traced };
 }
 
 /** The host (and port, when it names one) of an HTTP tool's URL. */
