@@ -1,5 +1,5 @@
 /**
- * The Tenant API client classes, with no Node-only imports. `client.ts` adds `createClient`,
+ * The Runtime API client classes, with no Node-only imports. `client.ts` adds `createClient`,
  * which resolves the connection from the environment or the Project link.
  */
 import type {

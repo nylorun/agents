@@ -58,7 +58,7 @@ function readProjectLink(cwd: string): ResolvedConnection | undefined {
 }
 
 /**
- * Resolve Tenant API connection: options → environment → project link (D§7.1). A connection is a
+ * Resolve a Runtime API connection: options → environment → project link (D§7.1). A connection is a
  * Runtime URL and a key: the Runtime serves one Tenant, so nothing names it.
  */
 export async function resolveConnection(options?: {

@@ -1,6 +1,6 @@
 # @nylorun/admin
 
-The Management API client (protocol 8): the Tenant's status, seed and reset, its
+The Management API client (protocol 14): the Tenant's status, seed and reset, its
 models, credential coverage, MCP server previews, signing keys, settings and application keys, through
 `/v1/tenant/*` with a **management key**. It also holds the two helpers over the
 admin key that Studio needs. Depends only on `@nylorun/core`.
@@ -48,11 +48,11 @@ validate (and nothing else names the Host root), or the linked Project's
 what it tried. Only this local-Host step reads the Host root: `@nylorun/agents`
 takes the Runtime API's key from the Project or the environment only. The
 Project files' reader is `@nylorun/core/project`. The first request checks the
-Host's `/health` and throws `incompatible_host` unless the Host serves protocol
-8 with the feature `management-api`.
+Host's `/health` and throws `incompatible_host` unless the Host serves this client's protocol
+(14) with its features, `management-api` among them.
 
 Management keys are issued on the Tenant's machine only:
-`npx nylorun key put <id> --management` on a local Tenant, or
+`npx nylorun tenant keys put <id> --management` on a local Tenant, or
 `nylorun-operate keys put <id> --role management` inside the runtime container
 ([SELF_HOSTING.md](../../guides/SELF_HOSTING.md#keys)). No API call creates one.
 

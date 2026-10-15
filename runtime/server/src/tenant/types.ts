@@ -78,7 +78,7 @@ export interface TenantConfig {
    */
   flowEnv?: Readonly<Record<string, string | undefined>>;
   /**
-   * The trusted issuers whose JWTs the Tenant API accepts (Host feature `trusted-issuers`), from
+   * The trusted issuers whose JWTs the Runtime API accepts (Host feature `trusted-issuers`), from
    * the identity file (`NYLORUN_IDENTITY_FILE`). Absent: none.
    */
   issuers?: import("./issuers.js").TrustedIssuers;
@@ -115,7 +115,7 @@ export interface TenantHandle {
   /** The handlers Durable Session Execution calls for this Tenant (`worker.ts`). */
   readonly worker?: TenantWorker;
   /**
-   * A Tenant API request whose headers the Host has validated: authenticates, authorizes,
+   * A Runtime or Management API request whose headers the Host has validated: authenticates, authorizes,
    * dispatches. A response already written to `node.outgoing` is `RESPONSE_ALREADY_SENT`.
    */
   fetch(request: Request, node: NodeBindings): Promise<Response>;

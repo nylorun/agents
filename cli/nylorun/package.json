@@ -3,7 +3,7 @@
   "version": "0.14.0-beta",
   "type": "module",
   "license": "Apache-2.0",
-  "description": "Set up and run local Nylorun Tenants (Runtime and Studio) with Docker Compose (nylorun), and the Runtime client of the linked installation (nylo)",
+  "description": "Set up and run local Nylorun Tenants (Runtime and Studio) with Docker Compose, and act on a Tenant through its Runtime and Management APIs",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nylorun/agents.git",

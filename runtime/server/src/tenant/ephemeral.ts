@@ -75,7 +75,7 @@ export interface StartEphemeralRuntimeOptions {
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
   /**
-   * Trusted issuers whose JWTs the Tenant API accepts (Host feature `trusted-issuers`): the
+   * Trusted issuers whose JWTs the Runtime API accepts (Host feature `trusted-issuers`): the
    * issuers of an identity file (`parseIdentityFile`), or ones already built with
    * `createTrustedIssuers`. Default none.
    */

@@ -115,7 +115,7 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * (`nylorun local sandbox enable`), with `POST /v1/environments/{id}/stop` and `/reset`, lifecycle
  * events (`environment.running`, `.suspended`, `.relaunched`, `.lost`, `.reset`, `.failed`) and
  * the Tenant's `placement`.
- * `trusted-issuers`: the Tenant API accepts JWTs from the issuers of the Host's identity file
+ * `trusted-issuers`: the Runtime API accepts JWTs from the issuers of the Host's identity file
  * (`NYLORUN_IDENTITY_FILE`) as bearers, from servers and from browsers alike, with the
  * issuer's subject, scopes (and the issuer-only `studio`), agents and Environment grants; `GET
  * /v1/me` reports who any credential is.

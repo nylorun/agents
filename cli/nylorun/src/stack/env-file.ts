@@ -12,7 +12,7 @@ export const DEFAULT_STUDIO_FRAME_ANCESTORS: readonly string[] = [];
  * persist; the Restate identity public key is derived from `restate-identity.pem`.
  */
 export interface StackEnv {
-  /** Published Runtime port (loopback): the Tenant API. */
+  /** Published Runtime port (loopback): the Runtime and Management APIs. */
   runtimePort: number;
   /** Published Studio port (loopback). */
   studioPort: number;

@@ -88,7 +88,7 @@ function countedBody(request: IncomingMessage, limit: number, onExceeded: () => 
 }
 
 /**
- * Trusted Runtime proxy: forwards one allowlisted Tenant API request with the
+ * Trusted Runtime proxy: forwards one allowlisted Runtime or Management API request with the
  * given bearer. The Host serves one Tenant, so nothing names it. Credentials
  * stay in this process, not the browser. It never sends `Nylorun-Subject` or
  * `Nylorun-Scopes`: on `/v1/tenant/*` Studio's key acts as itself (AP15).

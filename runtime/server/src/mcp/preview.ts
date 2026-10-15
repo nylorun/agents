@@ -1,6 +1,6 @@
 /**
  * A remote MCP server's tools before an agent names it (R2b C12, `POST /v1/tenant/mcp/preview`,
- * `nylorun mcp inspect`, an Environment's Secrets tab in Studio). It runs where plaintext credentials live:
+ * `nylorun tenant mcp inspect`, an Environment's Secrets tab in Studio). It runs where plaintext credentials live:
  * the keys service (`keys/keys.ts`, `previewMcp`), in the gateway or in process.
  *
  * One connection: `initialize` and `tools/list` with the Environment's credential for the

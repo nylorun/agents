@@ -39,7 +39,7 @@ npm start
 
 `nylorun start` in the project creates and starts the project's own local
 Tenant (Runtime, Studio and their infrastructure in Docker, named after the
-directory; `--tenant` picks or shares another). It writes the Project link and the derived application credentials to
+directory; `--tenant` picks or shares another). It writes the Project link and the project's keys (an application and a management key) to
 gitignored `.nylorun/`, and seeds the model provider from `.env`
 (`MODEL_PROVIDER`, `MODEL`, `MODEL_PROVIDER_API_KEY`) into the Tenant vault.
 `nylorun status` and `nylorun tenant reset` work on the linked Tenant. Studio or

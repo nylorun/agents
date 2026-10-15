@@ -1,5 +1,5 @@
 /**
- * How the Tenant API answers: JSON with an explicit length, and the one mapping from what a
+ * How the Runtime and Management APIs answer: JSON with an explicit length, and the one mapping from what a
  * route throws to the rejection a client sees. The Hono routes and the router they replace
  * (`routes.ts`) both answer through here, so a route answers the same wherever it runs.
  */

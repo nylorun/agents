@@ -3,7 +3,7 @@ import { AgentsClient } from "./session-client.js";
 import type { Destination } from "./http.js";
 
 /**
- * Build a Tenant API client.
+ * Build a Runtime API client.
  * Explicit connection fields keep today's sync Transport resolution (including
  * environment fill-ins). With no connection fields, resolves via
  * `resolveConnection` (environment → project link), which reads the Project's files: it is

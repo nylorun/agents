@@ -11,7 +11,7 @@
 #   5. Studio, through oauth2-proxy, admits ada (studio scope) and refuses ben.
 #
 # Environment (defaults match compose.yaml): NYLORUN_TENANT (selfhost), NYLORUN_CLI (npx --yes
-# nylorun), RUNTIME_URL (from nylorun status), NYLORUN_KEY (else `nylorun key put smoke`, which
+# nylorun), RUNTIME_URL (from nylorun status), NYLORUN_KEY (else `nylorun tenant keys put smoke`, which
 # rotates that key), KEYCLOAK_URL, PROXY_URL.
 set -euo pipefail
 
@@ -47,7 +47,7 @@ call() {
 body() { cat "$work/body"; }
 expect() { [ "$status" = "$1" ] || die "$2: HTTP $status, expected $1: $(head -c 400 "$work/body")"; }
 check() { [ "$(body | js "$1")" = "true" ] || die "$2: $(head -c 400 "$work/body")"; }
-# rt METHOD PATH BEARER [curl arguments]: a Tenant API call.
+# rt METHOD PATH BEARER [curl arguments]: a call to the Runtime.
 rt() {
   local method=$1 path=$2 bearer=$3
   shift 3
@@ -95,7 +95,7 @@ expect 200 "ben's token from a browser (Origin)"
 pass "a browser request with ben's token is served"
 
 # 3. A backend's operator key acts for any subject.
-KEY=${NYLORUN_KEY:-$($NYLORUN key put smoke --tenant "$TENANT")}
+KEY=${NYLORUN_KEY:-$($NYLORUN tenant keys put smoke --tenant "$TENANT")}
 rt GET /v1/me "$KEY"
 expect 200 "GET /v1/me with the operator key"
 check 'v.via.startsWith("application:")' "the operator key is an application key"

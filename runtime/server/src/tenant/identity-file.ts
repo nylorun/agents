@@ -1,6 +1,6 @@
 /**
  * The identity file (Host feature `trusted-issuers`, F9 I2): the YAML file
- * `NYLORUN_IDENTITY_FILE` names, listing the issuers whose JWTs the Tenant API accepts as
+ * `NYLORUN_IDENTITY_FILE` names, listing the issuers whose JWTs the Runtime API accepts as
  * bearers. Read once at boot (`host/main.ts`); a change takes a restart. A malformed file stops
  * the boot with a message naming the issuer and the field. A key the file does not define is
  * ignored with a warning (`maxLifetime`, gone in protocol 9, among them), so an older file
