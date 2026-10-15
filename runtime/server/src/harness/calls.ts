@@ -15,7 +15,6 @@ import type { ToolGate } from "../gates/tool-gate.js";
 import { httpToolRefOf } from "../gates/http-tool.js";
 import { classifyThrown } from "../model/classify.js";
 import { findServer, type McpPool } from "../mcp/pool.js";
-import { mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 
 /** Where a Tenant's model calls go. */
@@ -30,7 +29,6 @@ export interface ModelRoute {
 /** What a session's tool calls are routed by. */
 export interface ToolRouting {
   readonly rootManifest: AgentManifest;
-  readonly mcpSnapshot?: McpSnapshot;
   /** The session that owns the tree's sandbox, and the sandbox resource it is attached to. */
   readonly sandboxOwnerId: string;
   /** The sandbox spec the session pinned (`routing.sandbox.spec`); absent without a sandbox. */
@@ -103,15 +101,13 @@ export function abortOn(signal: AbortSignal, kinds: readonly AbortReason[]): Abo
   return controller.signal;
 }
 
-/** True when `request` calls a tool of a declared MCP server (every one is remote). */
-export function isRemoteMcpCall(
-  routing: Pick<ToolRouting, "rootManifest" | "mcpSnapshot">,
-  request: HostEffect
-): boolean {
-  if (request.kind !== "tool") return false;
-  const tool = mcpToolOf(routing.mcpSnapshot, request);
-  if (!tool) return false;
-  return findServer(routing.rootManifest, tool.agentId, tool.serverName) !== undefined;
+/**
+ * True when `request` calls a tool of an MCP server its agent declares (every one is remote): an
+ * `mcp` call, by its target's `server` (protocol 15).
+ */
+export function isRemoteMcpCall(routing: Pick<ToolRouting, "rootManifest">, request: HostEffect): boolean {
+  if (request.kind !== "tool" || request.target?.kind !== "mcp") return false;
+  return findServer(routing.rootManifest, request.agent?.id, request.target.server) !== undefined;
 }
 
 export async function callMcpTool(
@@ -124,14 +120,14 @@ export async function callMcpTool(
   /** The call's span context (R7.4), sent as `traceparent` where this process holds the connection. */
   traceparent?: string
 ): Promise<unknown> {
-  const tool = mcpToolOf(routing.mcpSnapshot, request);
-  if (!tool)
-    throw new Error(`MCP tool '${request.toolName ?? ""}' is not in the session snapshot`);
+  // The call names its tool by its identity (protocol 15): the server, and its own name there.
+  const target = request.target;
+  if (target?.kind !== "mcp") throw new Error(`'${request.toolName ?? ""}' is not an MCP tool call`);
   return mcp.call({
     sessionId: request.sessionId,
-    ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
-    serverName: tool.serverName,
-    serverToolName: tool.serverToolName,
+    ...(request.agent === undefined ? {} : { agentId: request.agent.id }),
+    serverName: target.server,
+    serverToolName: target.tool,
     args: request.input,
     manifest: routing.rootManifest,
     effectId: request.effectId,

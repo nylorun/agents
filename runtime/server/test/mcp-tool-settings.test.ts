@@ -1,10 +1,12 @@
 /**
  * R2b C9 and C10 end to end over the Runtime API. Per-tool settings on an MCP server: an
  * allowlist through `"*": {enabled: false}`, approval per tool, a diagnostic for a key that names
- * no tool, and turn variants that may only tighten them. Deferred tools: an agent
+ * no tool, and turn variants that may only tighten them: the turn's facts say which tools are
+ * enabled, and the record refuses a call of one that is not (`tool.disabled`) or that the session
+ * never discovered (`tool.unknown`). Deferred tools, through our engine (protocol 15): an agent
  * whose MCP tools pass a tenth of the model's context window gets `tool_search` and `tool_call`
- * in their place, decided once for the session, and `tool_call` runs a tool as a direct call
- * would (arguments checked, approval asked, the tool named). Manifests before 7 are refused.
+ * in their place, and `tool_call` runs a tool as a direct call would (arguments checked,
+ * approval asked, the tool named by its identity). Manifests before 7 are refused.
  * With `NYLORUN_TEST_MODEL_GATE=http` the gates service makes every call; otherwise the Tenant
  * does, in process.
  */
@@ -19,8 +21,7 @@ import { type AgentManifest, type ModelCall } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { hostModelCatalog } from "../src/model/catalog.js";
 import { hostModelDescriptor } from "../src/model/descriptor.js";
-import { pinDeferral, sessionToolsOf, type McpSnapshot } from "../src/mcp/snapshot.js";
-import { rank } from "../src/tenant/tool-search.js";
+import { mcpFactsOf, type McpSnapshot } from "../src/mcp/snapshot.js";
 import { startTestTenant } from "./support/tenant.js";
 import { setToolPolicy } from "./support/tool-policy.js";
 
@@ -227,8 +228,9 @@ beforeAll(async () => {
   );
   // The calls a person approves (R5 step 2).
   await setToolPolicy(runtime, [
-    { effect: "ask", tool: "github__create_issue" },
-    { effect: "ask", tool: "funds__transfer" },
+    // By the tool's identity (protocol 15): the server and the server's own name for the tool.
+    { effect: "ask", server: "github", tool: "create_issue" },
+    { effect: "ask", server: "funds", tool: "transfer" },
   ]);
 }, 60_000);
 
@@ -270,7 +272,9 @@ describe("per-tool settings (C9)", () => {
     script({ name: "github__create_issue", args: { title: "x" } });
     const session = await open("allow");
     const wait = await paused(session);
-    expect(wait.interaction.prompt).toBe("Approve github__create_issue?");
+    // A person approves the tool by its identity, the server's own name for it.
+    expect(wait.interaction.prompt).toBe("Approve github / create_issue?");
+    expect(wait.interaction).toMatchObject({ server: "github", tool: "create_issue" });
     expect(github.called).not.toContain("create_issue");
     await session.approve(wait.interaction.id, true, { idempotencyKey: "approve-create" });
     expect((await settled(session)).status).toBe("completed");
@@ -342,10 +346,11 @@ describe("deferred tools (C10)", () => {
     expect(prompts[0]).toContain("amounts are in cents");
     expect(prompts[0]).toContain("archive: 19 tools");
     const [discovered] = await events(session, "mcp.discovered");
+    // The discovery counts each server's tools; deferring them is our engine's.
     expect(discovered!.servers.map((server: any) => [server.serverName, server.tools, server.deferred])).toEqual([
-      ["ledger", 20, 20],
-      ["funds", 20, 20],
-      ["archive", 20, 19],
+      ["ledger", 20, undefined],
+      ["funds", 20, undefined],
+      ["archive", 20, undefined],
     ]);
   });
 
@@ -401,7 +406,7 @@ describe("deferred tools (C10)", () => {
     script({ name: "tool_call", args: { name: "funds__transfer", arguments: {} } });
     const session = await open("big");
     const wait = await paused(session);
-    expect(wait.interaction.prompt).toBe("Approve funds__transfer?");
+    expect(wait.interaction.prompt).toBe("Approve funds / transfer?");
     expect(funds.called).toEqual([]);
     await session.approve(wait.interaction.id, true, { idempotencyKey: "approve-transfer" });
     expect((await settled(session)).status).toBe("completed");
@@ -425,38 +430,43 @@ it("refuses a manifest of an earlier version: it is rebuilt (manifest 7)", async
   expect((await client.listAgents()).agents.find((agent) => agent.agentId === "legacy")).toBeUndefined();
 });
 
-describe("deciding deferral (Q21)", () => {
+describe("the turn's MCP facts (C9)", () => {
   const manifest = Agent({ id: "a" })
-    .mcp({ s: { type: "streamable-http", url: "https://s.example.invalid/mcp" } })
+    .mcp({
+      s: {
+        type: "streamable-http",
+        url: "https://s.example.invalid/mcp",
+        tools: { "*": { deferred: true }, t1: { enabled: false } },
+      },
+    })
     .build().manifest;
-  const snapshot = (count: number, size: number): McpSnapshot => ({
-    snapshotSchemaVersion: 1,
+  const snapshot: McpSnapshot = {
+    snapshotSchemaVersion: 2,
     manifestHash: "h",
-    mcpTools: Array.from({ length: count }, (_, i) => ({
-      serverName: "s",
-      serverToolName: `t${i}`,
-      name: `s__t${i}`,
-      description: "d".repeat(size),
-      inputSchema: { type: "object" },
-    })),
-  });
+    servers: [
+      { name: "s", instructions: "Hi.", tools: [0, 1].map((i) => ({ name: `t${i}`, inputSchema: { type: "object" } })) },
+      // A server the turn's manifest no longer declares.
+      { name: "gone", tools: [] },
+    ],
+  };
 
-  it("defers past a tenth of the window, at 4 characters a token", () => {
-    // 10 tools of about 1,050 characters: 10,500, against 10% of 4 × 25,000 = 10,000.
-    const deferred = (window: number) =>
-      pinDeferral(snapshot(10, 1_000), manifest, window).mcpTools.filter((tool) => tool.deferred).length;
-    expect(deferred(25_000)).toBe(10);
-    expect(deferred(30_000)).toBe(0);
+  it("says which tools the turn leaves enabled, and the manifest's deferral, of the servers it declares", () => {
+    expect(mcpFactsOf(snapshot, manifest)).toEqual({
+      servers: [
+        {
+          name: "s",
+          instructions: "Hi.",
+          tools: [
+            { name: "t0", inputSchema: { type: "object" }, enabled: true, deferred: true },
+            { name: "t1", inputSchema: { type: "object" }, enabled: false, deferred: true },
+          ],
+        },
+      ],
+    });
   });
+});
 
-  it("gives an agent with deferred tools tool_search and tool_call as session tools", () => {
-    const pinned = pinDeferral(snapshot(10, 1_000), manifest, 1_024);
-    expect(pinned.mcpTools.every((tool) => tool.deferred)).toBe(true);
-    const tools = sessionToolsOf(pinned, manifest)!;
-    expect(tools.filter((tool) => !tool.deferred).map((tool) => tool.name)).toEqual(["tool_search", "tool_call"]);
-    expect(tools.filter((tool) => tool.deferred)).toHaveLength(10);
-  });
-
+describe("the model descriptor", () => {
   it("knows a catalog model's window, and a custom endpoint's from its settings", () => {
     const provider = hostModelCatalog().providers.find((item) => item.models.length > 0)!;
     const window = hostModelDescriptor({ provider: provider.id, model: provider.models[0]!.id })?.contextWindow;
@@ -466,14 +476,5 @@ describe("deciding deferral (Q21)", () => {
       hostModelDescriptor({ provider: "custom", model: "m", baseUrl: "http://x", settings: { contextWindow: 9_000 } })
         ?.contextWindow,
     ).toBe(9_000);
-  });
-
-  it("ranks by BM25: a description word finds the tool; no shared word finds nothing", () => {
-    const tools = snapshot(3, 0).mcpTools.map((tool, i) => ({
-      ...tool,
-      description: ["Create a pull request.", "List open issues by label.", "Close an issue."][i],
-    }));
-    expect(rank(tools, "label issues").map((tool) => tool.name)).toEqual(["s__t1", "s__t2"]);
-    expect(rank(tools, "deploy")).toEqual([]);
   });
 });

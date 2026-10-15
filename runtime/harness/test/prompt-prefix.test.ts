@@ -5,7 +5,7 @@ import { Agent, type AgentManifest, type ModelConfigurationSnapshot } from "@nyl
 import { createDurableCheckpoint, runDurable, type DurableHost } from "../src/run/index.js";
 import { engineToolsFor } from "../src/tools/engine-tools.js";
 import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
-import { testAgent, model, tool, toolCalls, turn } from "./fixtures.js";
+import { testAgent, model, tool, toolCalls, toolSet, turn } from "./fixtures.js";
 
 /**
  * The first model call of an agent with skills, with and without a sandbox, as the Runtime's
@@ -63,16 +63,20 @@ async function firstCall(sandboxed: boolean): Promise<unknown> {
         sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS,
         skillReadBytes: 1024,
       }),
-    sessionTools: [
-      { name: "github__get_issue", inputSchema: { type: "object" }, target: { kind: "mcp" } },
+    mcp: toolSet([
+      {
+        name: "github__get_issue",
+        inputSchema: { type: "object" },
+        target: { kind: "mcp", server: "github", tool: "get_issue" },
+      },
       {
         name: "tool_search",
         description: "Search.",
         inputSchema: { type: "object" },
         instructions: ["MCP note."],
-        target: { kind: "platform" },
+        target: { kind: "harness" },
       },
-    ],
+    ]),
   });
   return first;
 }

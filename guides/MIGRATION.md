@@ -33,6 +33,48 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   `tool_search` or `read_artifact`: the manifest takes it. Our harness then fails a turn whose
   tools would share a name with one of its own (`agent.build-failed`, naming the tool): an author
   tool named `bash` runs in a session without a sandbox, and fails the turn in one with.
+- **Tool policy rules name an MCP tool by `server` and `tool`.** A rule's `tool` is the tool's
+  identity: an MCP tool's own name on its server, or an HTTP tool's declared name; the name the
+  model knows it by never matches. Rewrite each rule that named a model-facing name:
+
+  ```json
+  { "effect": "ask", "tool": "github__create_issue" }
+  ```
+
+  becomes
+
+  ```json
+  { "effect": "ask", "server": "github", "tool": "create_issue" }
+  ```
+
+  A `tool` with `__` in it is `400` at `PUT /v1/tenant/tool-policy`. A policy stored before the
+  upgrade with such a rule fails closed: every MCP and HTTP tool call is denied (`tool.denied`,
+  naming the rule), and `GET /v1/tenant/tool-policy` answers `409 request_rejected`, until you
+  `PUT` the policy again.
+- **Approvals name the MCP tool.** An approval interaction for an MCP call carries `tool` (the
+  server's own name) beside `server`, and its prompt reads `Approve <server> / <tool>?` (it was
+  `Approve <toolName>?`, the model's `server__tool`); `toolName` stays the name the model used.
+  Studio's tool and approval cards show `server / tool`, with "as `<toolName>`".
+- **Tool calls carry their identity.** `tool.completed` and each row of
+  `GET /v1/sessions/{id}/calls/tool` carry `tool`: an MCP tool's own name on `server`, or an HTTP
+  tool's declared name (null on the read for a call with none); `toolName` is still the model's
+  name. Traces add `nylorun.tool.identity`, and `gen_ai.tool.name` stays the model's name.
+- **The harness names and defers MCP tools.** The session pins what its MCP servers listed, raw
+  (`McpSnapshotSchema`, `snapshotSchemaVersion: 2`: each tool by its server's own name, disabled
+  ones included, and the server's instructions uncut). Our harness names the tools for the model
+  as before (`server__tool`, within 64 characters), decides which to defer, and runs
+  `tool_search` itself: a `tool.completed` of it says `kind: "harness"`. The model sees the same
+  tools. `mcp.discovered` no longer carries `renamed` or `deferred`, and its `tools` counts the
+  tools the manifest leaves enabled. `POST /v1/tenant/mcp/preview` still gives `modelName` and
+  `renamed`, as our harness names the tools, and no longer cuts `instructions`.
+- **Sessions pinned with the old MCP snapshot are closed.** Migration 0031 closes each open
+  session whose snapshot is version 1 (`closedReason: "protocol_15"`); a message to one is
+  `409 session_closed`. Its history stays readable: open a new session.
+- **Large tool results are the harness's to fit.** Core no longer shapes tool results: it
+  refuses an outcome past `limits.recordEntryBytes` with `limit_exceeded`. Our harness stores
+  what does not fit as file artifacts of the session, as core did, and the model sees the same
+  previews. The Tool Gate still scrubs credentials and refuses an answer past `toolAnswerBytes`
+  (`mcp.too-large`, `http.too-large`).
 - **Any file may be sent.** A message naming a file the model does not read is accepted: no more
   `422 attachment_unsupported` (the error code is gone; A2A clients get no
   `CONTENT_TYPE_NOT_SUPPORTED` for one, and AG-UI no `RUN_ERROR`). Files are still held to the
@@ -66,12 +108,28 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   `writeArtifactBytes` in `@nylorun/core/harness-api`), in chunks of at most
   `turn.start.limits.chunkBytes`: see [HARNESS_API.md §4b](./HARNESS_API.md#4b-artifacts). The
   new Harness API error code is `not_found`. And:
-  - **every tool call names its `target`** (`EffectTargetSchema`): `{kind: "mcp" | "http" |
-    "sandbox" | "harness" | "platform"}`. Core routes it by that kind, never by its name; a call
-    without one is answered `tool.unavailable` and runs nothing, and a `sandbox` call needs a
+  - **every tool call names its `target`** (`EffectTargetSchema`), its identity:
+    `{kind: "mcp", server, tool}` (`tool` the server's own name), `{kind: "http", tool}` (the
+    declared name), `{kind: "sandbox"}` or `{kind: "harness"}`; `platform` is gone. Core routes
+    it by the target, never by its name, and the target is in the request hash. A call without
+    one is answered `tool.unavailable` and runs nothing; an MCP tool the session did not
+    discover is `tool.unknown`, one the turn disables `tool.disabled`; a `sandbox` call needs a
     session with a sandbox and one of the six operations as its `toolName`. A tool the harness
     runs in its own process is `harness`. An intent may name the `skill` it ran. See
     [HARNESS_API.md §4](./HARNESS_API.md#4-record-intent-outcome-hash-effect-ids);
+  - **`turn.start.mcp` replaces `sessionTools` and `routing.mcpSnapshot`.** It states the
+    session's MCP servers and their tools as listed, each with `enabled` and the manifest's
+    `deferred` hint (`McpFactsSchema`); `session.mcp` answers `{mcp?}`. Build the model's tools
+    from it: name each within 64 characters, skip `enabled: false`, and treat `deferred` as a
+    hint. Our engine's are exported from `@nylorun/harness` (`mcpToolName`, `mcpToolNames`,
+    `mcpToolSet`, `deferredToolsTools`, `runToolSearch`). See
+    [HARNESS_API.md §3](./HARNESS_API.md#3-input-turnstart);
+  - **an MCP gate call names the raw tool:** `tool-calls` takes
+    `{server: {agentId?, serverName}, effectId, name, arguments}`, with `name` the target's
+    `tool`;
+  - **keep each outcome and transcript entry under `limits.recordEntryBytes`:** store the rest
+    with `artifact.write`, keyed per effect, or reuse `shapeToolOutcome`, `StepBudget` and
+    `spillKey` from `@nylorun/harness`. See [HARNESS_API.md §5b](./HARNESS_API.md#5b-tool-results);
   - **`hello.features.tools` is removed**, and `NativeToolSchema` with it: a harness declares no
     tools;
   - **`turn.start.environment`** states the Environment, `{id, kind, sandbox?: {workspace}}`, and
@@ -86,16 +144,22 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   moved from `@nylorun/core/define` to `@nylorun/harness`: it names our tool. `READ_ARTIFACT_TOOL`, `SAVE_ARTIFACT_TOOL` and
   `READ_ARTIFACT_MAX_BYTES` stay in `@nylorun/core/define`. `@nylorun/harness`'s `createHarness`
   takes `artifactPageBytes` (the most one `read_artifact` page holds, 32 KiB by default),
-  `sandboxTools` (the sandbox tools' limits, `DEFAULT_SANDBOX_TOOL_LIMITS`) and `skillReadBytes`;
-  `runDurable` takes `engineTools` (`engineToolsFor`: an agent's tools and their text), and
-  `apiHost` takes the engine's configuration.
+  `sandboxTools` (the sandbox tools' limits, `DEFAULT_SANDBOX_TOOL_LIMITS`), `skillReadBytes`,
+  `mcpTools` (when to defer MCP tools and `tool_search`'s limits, `DEFAULT_MCP_TOOL_CONFIG`) and
+  `toolResults` (how results are shaped, `DEFAULT_TOOL_RESULT_CONFIG`); `runDurable` takes
+  `engineTools` (`engineToolsFor`: an agent's tools and their text) and `mcp` (`mcpToolSet`, in
+  place of `sessionTools`), and `apiHost` takes the engine's configuration.
 - **Removed from `@nylorun/core/define`:** `runtimeManifestFor`, `runtimeToolOf`,
   `RuntimeManifest`, `RUNTIME_PART_ID` (now `SESSION_PART_ID`, `"session"`), `RUNTIME_TOOL_NAMES`,
   `isRuntimeToolName`, `createSandboxTools`, `SANDBOX_INSTRUCTIONS`, `LOAD_SKILL_TOOL`,
   `READ_SKILL_RESOURCE_TOOL`, `SKILL_TOOL_NAMES`, `isSkillTool`, `SKILLS_USAGE`,
   `formatSkillCatalog` and `skillOfToolCall`; the skill and sandbox ones are in
   `@nylorun/harness`. `@nylorun/agents` no longer re-exports `formatSkillCatalog` and
-  `SKILLS_USAGE`. `agentFrom` takes `sessionInstructions`.
+  `SKILLS_USAGE`. `agentFrom` takes `sessionInstructions`. The deferred tools moved to
+  `@nylorun/harness` too: `TOOL_SEARCH_TOOL`, `TOOL_CALL_TOOL` and `deferredToolsTools` (now
+  taking the harness's `McpToolConfig`); `deferredToolsInstructions` is `deferredToolsNote`, and
+  `SERVER_INSTRUCTIONS_MAX_CHARS`, `TOOL_SEARCH_DEFAULT_LIMIT` and `TOOL_SEARCH_MAX_LIMIT` are
+  `McpToolConfig` fields.
 
 # Runtime limits are a Tenant setting
 

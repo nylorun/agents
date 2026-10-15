@@ -106,6 +106,10 @@ const schema = z
     status: z.enum(["ready", "active", "completed", "paused", "cancelled", "failed"]),
     cancelledCalls: z.array(call).optional(),
     state: z.record(z.string(), json).optional(),
+    mcpLayout: z
+      .object({ factsHash: z.string(), deferred: z.array(z.string()) })
+      .strict()
+      .optional(),
     turn: z.object({ turnId: id }).strict().optional(),
     plan: z
       .object({

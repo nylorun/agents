@@ -56,10 +56,11 @@ function turnRows() {
         callId: "toolu_01",
         invocationId: "inv_7",
         effectId: `${TURN}:0:tool:inv_7`,
-        toolName: "search",
+        toolName: "linear__search",
         status: "completed",
         kind: "mcp",
         server: "linear",
+        tool: "search",
         attempts: 1,
         durationMs: 812,
         gate: { startedAt: "2026-10-11T09:14:02.900Z", endedAt: "2026-10-11T09:14:03.710Z" },
@@ -159,13 +160,16 @@ describe("spanOf", () => {
       "nylorun.evidence": "claimed",
     });
 
-    expect(mcp).toMatchObject({ name: "execute_tool search", kind: SPAN_KIND.internal, status: { code: STATUS.ok } });
+    // The span is named by the model's name; the tool's identity rides beside it (protocol 15).
+    expect(mcp).toMatchObject({ name: "execute_tool linear__search", kind: SPAN_KIND.internal, status: { code: STATUS.ok } });
     expect(ms(mcp!.endTimeUnixNano) - ms(mcp!.startTimeUnixNano)).toBe(810);
     expect(attrs(mcp)).toMatchObject({
       "gen_ai.tool.call.id": "toolu_01",
       "gen_ai.tool.type": "extension",
       "nylorun.tool.kind": "mcp",
       "nylorun.tool.server": "linear",
+      "nylorun.tool.identity": "search",
+      "gen_ai.tool.name": "linear__search",
       "nylorun.tool.attempts": "1",
       "nylorun.policy.decision": "ask",
       "nylorun.policy.reason": "writes",

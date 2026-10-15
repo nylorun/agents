@@ -1,46 +1,66 @@
 /**
- * A session's MCP snapshot (R4.5): the tools its remote MCP servers listed, recorded once per
- * session (`session.mcp`, the first recorded wins) and handed to every run in
- * `TurnStart.routing.mcpSnapshot`. A harness offers the model exactly these tools (those not
- * `deferred`) and calls one through the Tool Gate by its server and `serverToolName`.
+ * A session's MCP discovery (protocol 15), in two shapes:
+ *
+ * - the **snapshot** (`McpSnapshotSchema`): what the session's remote MCP servers said at
+ *   discovery, as they said it (raw tool names, schemas and instructions, credential values
+ *   scrubbed). A harness records it once per session (`session.mcp`, the first recorded wins), and
+ *   the Runtime keeps it pinned on the session;
+ * - the **facts** (`McpFactsSchema`): the snapshot as one turn sees it, in `turn.start.mcp` and the
+ *   `session.mcp` answer. Each tool says whether the turn's manifest leaves it `enabled` (the
+ *   record refuses a call of one it does not, `tool.disabled`) and whether the manifest asks for it
+ *   to be `deferred` (a hint; absent, the harness decides).
+ *
+ * The harness names each tool for the model (Nylorun's engine: `server__tool`, within 64
+ * characters), decides which to defer, and calls one by its identity: an effect's target
+ * `{kind: "mcp", server, tool}`, and the Tool Gate's body `{server: {agentId?, serverName}, name}`.
  */
 import { z } from "zod";
 
 const jsonObject = z.record(z.string(), z.unknown());
 
+/** One tool a server listed, as it listed it. */
 export const McpToolRecordSchema = z.object({
-  /** The agent used as a tool that declares the server; absent for the session's root agent. */
-  agentId: z.string().optional(),
-  serverName: z.string(),
-  /** The tool's name on its server, which the call sends. */
-  serverToolName: z.string(),
-  /** The name the model knows it by. */
-  name: z.string(),
+  /** The tool's name on its server: what the call sends, and its identity. */
+  name: z.string().min(1),
   description: z.string().optional(),
   inputSchema: jsonObject,
   outputSchema: jsonObject.optional(),
-  /** The server's hints that calling the tool again is safe. */
-  annotations: z
-    .object({ readOnlyHint: z.boolean().optional(), idempotentHint: z.boolean().optional() })
-    .optional(),
-  /** Out of the model's tool list for the session's life; found through the deferred-tools tool. */
-  deferred: z.literal(true).optional(),
+  /** The server's annotations of the tool (`readOnlyHint`, `idempotentHint`, `title`, …). */
+  annotations: jsonObject.optional(),
 });
 
-/** A server's own instructions (MCP `initialize`), for the note on its deferred tools. */
-export const McpServerNoteSchema = z.object({
+/** One server that connected at discovery, with what it said. */
+export const McpServerRecordSchema = z.object({
+  /** The agent used as a tool that declares the server; absent for the session's root agent. */
   agentId: z.string().optional(),
-  serverName: z.string(),
-  instructions: z.string(),
+  name: z.string().min(1),
+  /** The server's own instructions (MCP `initialize`), scrubbed and uncut. */
+  instructions: z.string().optional(),
+  tools: z.array(McpToolRecordSchema).readonly(),
 });
 
 export const McpSnapshotSchema = z.object({
-  snapshotSchemaVersion: z.literal(1),
+  snapshotSchemaVersion: z.literal(2),
   manifestHash: z.string(),
-  mcpTools: z.array(McpToolRecordSchema).readonly(),
-  /** The servers that gave instructions; absent when none did. */
-  servers: z.array(McpServerNoteSchema).readonly().optional(),
+  servers: z.array(McpServerRecordSchema).readonly(),
 });
+
+/** One tool of a server, as a turn sees it. */
+export const McpToolFactSchema = McpToolRecordSchema.extend({
+  /** False when the turn's manifest disables it (R2b C9): the record refuses its calls. */
+  enabled: z.boolean(),
+  /** The manifest's `deferred` setting of the tool; absent, the harness decides. */
+  deferred: z.boolean().optional(),
+});
+
+export const McpServerFactSchema = z.object({
+  agentId: z.string().optional(),
+  name: z.string().min(1),
+  instructions: z.string().optional(),
+  tools: z.array(McpToolFactSchema).readonly(),
+});
+
+export const McpFactsSchema = z.object({ servers: z.array(McpServerFactSchema).readonly() });
 
 type DeepReadonly<T> = T extends readonly (infer U)[]
   ? readonly DeepReadonly<U>[]
@@ -49,5 +69,8 @@ type DeepReadonly<T> = T extends readonly (infer U)[]
     : T;
 
 export type McpToolRecord = DeepReadonly<z.infer<typeof McpToolRecordSchema>>;
-export type McpServerNote = DeepReadonly<z.infer<typeof McpServerNoteSchema>>;
+export type McpServerRecord = DeepReadonly<z.infer<typeof McpServerRecordSchema>>;
 export type McpSnapshot = DeepReadonly<z.infer<typeof McpSnapshotSchema>>;
+export type McpToolFact = DeepReadonly<z.infer<typeof McpToolFactSchema>>;
+export type McpServerFact = DeepReadonly<z.infer<typeof McpServerFactSchema>>;
+export type McpFacts = DeepReadonly<z.infer<typeof McpFactsSchema>>;

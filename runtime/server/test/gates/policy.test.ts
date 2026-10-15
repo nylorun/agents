@@ -1,10 +1,24 @@
 /**
  * R5 step 2: the Tenant's tool policy. The strictest matching rule decides, a call no rule
- * matches runs, and every selector a rule sets must match.
+ * matches runs, and every selector a rule sets must match. Protocol 15: a rule names a tool by
+ * its identity (an MCP tool's own name on its server, an HTTP tool's declared name), never by the
+ * name a harness gave the model; a stored rule that does refuses every call.
  */
 import { describe, expect, it } from "vitest";
 import { PutToolPolicyRequestSchema, type ToolRule } from "@nylorun/core/contracts";
-import { decide, type PolicyCall } from "../../src/gates/policy.js";
+import { Agent } from "@nylorun/core/define";
+import type { HostEffect } from "@nylorun/harness/run";
+import {
+  decide,
+  pinnedApproval,
+  policyCallOf,
+  readToolPolicy,
+  toolCallDecision,
+  TOOL_POLICY_SETTING,
+  ToolPolicyUnreadable,
+  type PolicyCall,
+} from "../../src/gates/policy.js";
+import type { Session } from "../../src/tenant/context.js";
 
 const refund: PolicyCall = {
   kind: "http",
@@ -14,10 +28,11 @@ const refund: PolicyCall = {
 };
 const issue: PolicyCall = {
   kind: "mcp",
-  tool: "github__create_issue",
+  tool: "create.issue",
   server: "github",
   agent: "support",
   input: { title: "Login fails" },
+  name: "github__create_issue",
 };
 
 describe("the tool policy", () => {
@@ -38,7 +53,8 @@ describe("the tool policy", () => {
   });
 
   it("matches tool and server globs, kind and agent", () => {
-    expect(decide([{ effect: "ask", tool: "github__*" }], issue).effect).toBe("ask");
+    expect(decide([{ effect: "ask", tool: "create.*" }], issue).effect).toBe("ask");
+    expect(decide([{ effect: "ask", server: "github", tool: "create.issue" }], issue).effect).toBe("ask");
     expect(decide([{ effect: "ask", server: "git*" }], issue).effect).toBe("ask");
     // A server selector never matches an HTTP tool, which has no server.
     expect(decide([{ effect: "ask", server: "*" }], refund).effect).toBe("allow");
@@ -73,11 +89,72 @@ describe("the tool policy", () => {
     });
   });
 
+  it("never matches the name the model called a tool by", () => {
+    expect(decide([{ effect: "deny", tool: "github_create_issue" }], issue).effect).toBe("allow");
+    expect(decide([{ effect: "deny", tool: "github*" }], issue).effect).toBe("allow");
+  });
+
+  it("refuses a rule whose tool has __ in it: it names an MCP tool by its model-facing name", () => {
+    const put = PutToolPolicyRequestSchema.safeParse({ rules: [{ effect: "deny", tool: "github__create_issue" }] });
+    expect(put.success).toBe(false);
+    expect(JSON.stringify(put.error?.issues)).toContain("Name an MCP tool by `server` and `tool`");
+    expect(PutToolPolicyRequestSchema.safeParse({ rules: [{ effect: "deny", server: "github", tool: "create_issue" }] }).success).toBe(true);
+  });
+
   it("refuses a rule with an empty condition or a bad regular expression", () => {
     expect(PutToolPolicyRequestSchema.safeParse({ rules: [{ effect: "ask", when: { amount: {} } }] }).success).toBe(false);
     expect(
       PutToolPolicyRequestSchema.safeParse({ rules: [{ effect: "ask", when: { id: { matches: "(" } } }] }).success,
     ).toBe(false);
     expect(PutToolPolicyRequestSchema.safeParse({ rules: [{ effect: "maybe" }] }).success).toBe(false);
+  });
+});
+
+describe("a call as the policy reads it (protocol 15)", () => {
+  const session = { agentId: "support" } as Session;
+  const effect = (fields: Partial<HostEffect>): HostEffect =>
+    ({ kind: "tool", effectId: "e1", sessionId: "s", turnId: "t", input: {}, context: {}, ...fields }) as HostEffect;
+
+  it("keys an MCP call on its server and the server's own tool name, an HTTP call on its declared name", () => {
+    expect(
+      policyCallOf(session, effect({ toolName: "github__create_issue", target: { kind: "mcp", server: "github", tool: "create.issue" } }), "mcp"),
+    ).toEqual({ kind: "mcp", tool: "create.issue", server: "github", agent: "support", input: {}, name: "github__create_issue" });
+    expect(policyCallOf(session, effect({ toolName: "pay", target: { kind: "http", tool: "refund" } }), "http")).toMatchObject({
+      tool: "refund",
+      name: "pay",
+    });
+    expect(policyCallOf(session, effect({ key: "stage" }), "http")).toMatchObject({ tool: "stage" });
+  });
+
+  it("finds a pinned approval by the tool's identity", () => {
+    // A manifest saved before R5 step 2, as a pinned session keeps it.
+    const manifest = {
+      manifestSchemaVersion: 7,
+      id: "support",
+      mcpServers: {
+        github: {
+          name: "github",
+          type: "streamable-http",
+          url: "https://mcp.example.invalid",
+          tools: { "create.issue": { approval: "always" } },
+        },
+      },
+    } as never;
+    const mcp = effect({ toolName: "github__create_issue", target: { kind: "mcp", server: "github", tool: "create.issue" } });
+    expect(pinnedApproval(manifest, mcp)).toBe(true);
+    expect(pinnedApproval(manifest, effect({ target: { kind: "mcp", server: "github", tool: "other" } }))).toBe(false);
+  });
+
+  it("refuses every call while a stored rule names a tool by a model-facing name", async () => {
+    const stored = JSON.stringify({ rules: [{ effect: "allow", tool: "github__create_issue" }], updatedAt: "2026-10-01T00:00:00Z" });
+    const t = { getSetting: async (key: string) => (key === TOOL_POLICY_SETTING ? stored : undefined) };
+    await expect(readToolPolicy(t)).rejects.toBeInstanceOf(ToolPolicyUnreadable);
+    const decision = await toolCallDecision(
+      t,
+      { agentId: "support", manifest: Agent({ id: "support" }).build().manifest } as Session,
+      effect({ toolName: "x", target: { kind: "http", tool: "x" } }),
+      "http",
+    );
+    expect(decision).toEqual({ effect: "deny", reason: expect.stringContaining("Rule 1 of the Tenant's tool policy names a tool by a model-facing name") });
   });
 });

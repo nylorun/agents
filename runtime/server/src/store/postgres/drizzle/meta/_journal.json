@@ -218,6 +218,13 @@
       "when": 1792091020175,
       "tag": "0030_protocol_15_runtime_block",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792094620175,
+      "tag": "0031_protocol_15_mcp_snapshot",
+      "breakpoints": true
     }
   ]
 }

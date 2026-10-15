@@ -33,7 +33,8 @@ import {
 import { usesFixtureModel } from "../tenant/model-setting.js";
 import { currentModelDescriptor } from "../model/descriptor.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
-import { sessionToolsOf, turnManifestOf } from "../tenant/session.js";
+import { turnManifestOf } from "../tenant/session.js";
+import { mcpFactsOf } from "../mcp/snapshot.js";
 import { bulkOutcomes } from "./record.js";
 import { traceKey } from "../traces/key.js";
 import {
@@ -171,8 +172,8 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
       !flow && (cp as DurableCheckpoint).state && harnessOf(current) === HARNESS_ID
         ? { ...cp, state: withTranscript((cp as DurableCheckpoint).state, []) }
         : cp,
-    // The turn's manifest: a variant may have disabled MCP tools or required their approval.
-    ...(flow ? {} : { sessionTools: sessionToolsOf(current.mcpSnapshot, turnManifestOf(current)) ?? [] }),
+    // The session's MCP discovery as the turn's manifest sees it: a variant may disable tools.
+    ...(!flow && current.mcpSnapshot ? { mcp: mcpFactsOf(current.mcpSnapshot, turnManifestOf(current)) } : {}),
     outcomes: segment.outcomes,
     transcript: { cursor: segment.cursor },
     options: {
@@ -183,7 +184,6 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     },
     routing: {
       rootManifest: current.manifest,
-      ...(current.mcpSnapshot ? { mcpSnapshot: current.mcpSnapshot } : {}),
       sandbox: segment.sandbox,
     },
     ...(segment.trace ? { trace: segment.trace } : {}),

@@ -3,7 +3,9 @@
  * journaled: its `Idempotency-Key` (the effect id) names an `invoking` tool row of the token's
  * session and turn, for the same tool, with the same input. Anything else is refused before it
  * is sent, so a harness that skips the journal, ours or another (R4), gets nothing run, and
- * every call that runs has its row (`/calls/tool`) and its `tool.completed`.
+ * every call that runs has its row (`/calls/tool`) and its `tool.completed`. An MCP call is the
+ * same tool when the row's target names the same agent, server and tool (protocol 15): the
+ * record checked at the intent that the session discovered it and the turn leaves it enabled.
  *
  * Core's own credential (previews, calls outside a run) is not checked: it names no run.
  *
@@ -11,11 +13,9 @@
  * the intent: the gate sends it on to the tool without ever holding the trace key.
  */
 import type { HostEffect } from "@nylorun/harness/run";
-import { mcpToolOf } from "../mcp/snapshot.js";
 import type { McpServerRef } from "../mcp/pool.js";
 import { canonical } from "../store/canonical.js";
 import type { EffectDoc } from "../store/types.js";
-import type { Session } from "../tenant/context.js";
 import type { RunClaims } from "../tenant/run-token.js";
 import { httpToolRefOf, type HttpToolRef } from "./http-tool.js";
 import type { TenantVaults } from "./tenant-vaults.js";
@@ -64,13 +64,12 @@ export function journalCheck(vaults: TenantVaults): JournalCheck {
             return `Effect '${key}' was journaled with other input`;
           return held(row);
         }
-        const session = await t.get<Session>("sessions", request.sessionId);
-        const tool = mcpToolOf(session?.mcpSnapshot, request);
+        const target = request.target;
         if (
-          !tool ||
-          tool.serverName !== call.server.serverName ||
-          (tool.agentId ?? null) !== (call.server.agentId ?? null) ||
-          tool.serverToolName !== call.name
+          target?.kind !== "mcp" ||
+          target.server !== call.server.serverName ||
+          target.tool !== call.name ||
+          (request.agent?.id ?? null) !== (call.server.agentId ?? null)
         )
           return `Effect '${key}' calls another tool`;
         if (canonical(argumentsOf(request.input)) !== canonical(call.arguments))

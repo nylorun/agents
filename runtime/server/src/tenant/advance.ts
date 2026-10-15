@@ -713,6 +713,10 @@ async function heldCalls(t: Tx, effectIds: readonly string[]) {
     const request = row.request;
     const context = (request.context ?? {}) as { callId?: unknown; invocationId?: unknown };
     const toolName = request.toolName ?? request.key ?? effectId;
+    // A person approves the tool by its identity (protocol 15): an MCP tool by server and tool.
+    const what = row.server !== undefined && row.tool !== undefined && row.toolKind === "mcp"
+      ? `${row.server} / ${row.tool}`
+      : (row.tool ?? toolName);
     const reason = row.hold?.reason ?? "The Tenant's tool policy asks a person about this call";
     held.push({
       invocationId: typeof context.invocationId === "string" ? context.invocationId : effectId,
@@ -720,9 +724,10 @@ async function heldCalls(t: Tx, effectIds: readonly string[]) {
       interaction: {
         id: effectId,
         kind: "approval",
-        prompt: `Approve ${toolName}?`,
+        prompt: `Approve ${what}?`,
         reason,
         ...(row.server === undefined ? {} : { server: row.server }),
+        ...(row.tool === undefined ? {} : { tool: row.tool }),
         input: request.input ?? null,
       },
       status: "interaction",

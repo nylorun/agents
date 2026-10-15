@@ -1,19 +1,16 @@
 /**
- * R2b C6: MCP tool names every model accepts. MCP allows `.` and 128 characters; OpenAI, Bedrock
- * and Gemini on Vertex take `[A-Za-z0-9_-]` up to 64. The model knows a tool by a normalized
- * name, `mcp.discovered` lists the renamed ones, and the server is still called by its own name.
+ * Protocol 15: the Runtime lists a server's tools as the server names them. MCP allows `.` and 128
+ * characters; the harness names each tool for the model (Nylorun's engine: `mcpToolName` in
+ * `@nylorun/harness`), and every call names the tool by its server and its own name.
  */
 import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { listMcpTools, type McpClient } from "../src/mcp/connect.js";
 import { McpPool } from "../src/mcp/pool.js";
-import { mcpDiscovered, normalizeToolName } from "../src/mcp/snapshot.js";
+import { mcpDiscovered } from "../src/mcp/snapshot.js";
 
-const hash = (raw: string) => createHash("sha256").update(raw).digest("hex").slice(0, 8);
 const LONG = "a".repeat(100);
-const MODEL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** A client listing `names`, which keeps the names it is called with. */
 function client(names: readonly string[]): McpClient & { called: string[] } {
@@ -28,75 +25,34 @@ function client(names: readonly string[]): McpClient & { called: string[] } {
   };
 }
 
-describe("normalizeToolName", () => {
-  it("keeps a name every provider accepts", () => {
-    expect(normalizeToolName("github", "get_issue")).toBe("github__get_issue");
-  });
-
-  it("replaces a dot and every other character outside [A-Za-z0-9_-]", () => {
-    expect(normalizeToolName("files", "read.v2")).toBe("files__read_v2");
-    expect(normalizeToolName("files", "read file/now")).toBe("files__read_file_now");
-  });
-
-  it("shortens a 100-character name to 55 characters, _ and 8 hex of the raw name's hash", () => {
-    const name = normalizeToolName("docs", LONG);
-    expect(name).toHaveLength(64);
-    expect(name).toBe(`${`docs__${LONG}`.slice(0, 55)}_${hash(`docs/${LONG}`)}`);
-    expect(name).toMatch(MODEL_NAME);
-  });
-
-  it("suffixes a name that collides, from the raw name", () => {
-    expect(normalizeToolName("files", "read.v2", { suffixed: true })).toBe(
-      `files__read_v2_${hash("files/read.v2")}`,
-    );
-  });
-});
-
 describe("listing a server's tools", () => {
-  it("renames a dotted name, keeps the server's name for the call, and lists the rename", async () => {
-    const listed = await listMcpTools(client(["read.v2", "write"]), {
-      serverName: "files",
-      taken: new Set(),
-    });
-    expect(listed.tools.map((tool) => [tool.name, tool.serverToolName])).toEqual([
-      ["files__read_v2", "read.v2"],
-      ["files__write", "write"],
-    ]);
-    expect(listed.renamed).toEqual([{ serverToolName: "read.v2", name: "files__read_v2" }]);
+  it("keeps each name as the server gives it, dotted and long ones too", async () => {
+    const listed = await listMcpTools(client(["read.v2", "write", LONG]), { serverName: "files" });
+    expect(listed.tools.map((tool) => tool.name)).toEqual(["read.v2", "write", LONG]);
     expect(listed.omitted).toEqual([]);
   });
 
-  it("shortens a 100-character name", async () => {
-    const listed = await listMcpTools(client([LONG]), { serverName: "docs", taken: new Set() });
-    expect(listed.tools).toHaveLength(1);
-    expect(listed.tools[0]!.name).toMatch(MODEL_NAME);
-    expect(listed.tools[0]!.serverToolName).toBe(LONG);
-    expect(listed.renamed).toEqual([{ serverToolName: LONG, name: listed.tools[0]!.name }]);
+  it("lists the tools its settings disable, and counts them", async () => {
+    const server = {
+      name: "files",
+      type: "streamable-http",
+      url: "https://files.example.invalid/mcp",
+      tools: { write: { enabled: false }, gone: { enabled: false } },
+    } as const;
+    const listed = await listMcpTools(client(["read", "write"]), { serverName: "files", server });
+    expect(listed.tools.map((tool) => tool.name)).toEqual(["read", "write"]);
+    expect(listed.disabled).toBe(1);
+    expect(listed.unknownTools).toEqual(["gone"]);
   });
 
-  it("gives a renamed tool the hash when its name collides, whichever the server lists first", async () => {
-    for (const names of [
-      ["read.v2", "read_v2"],
-      ["read_v2", "read.v2"],
-    ]) {
-      const listed = await listMcpTools(client(names), { serverName: "files", taken: new Set() });
-      const byServerName = Object.fromEntries(listed.tools.map((tool) => [tool.serverToolName, tool.name]));
-      // The server's own `read_v2` keeps its name; the dotted one, renamed onto it, is suffixed.
-      expect(byServerName).toEqual({
-        read_v2: "files__read_v2",
-        "read.v2": `files__read_v2_${hash("files/read.v2")}`,
-      });
-      expect(listed.tools.map((tool) => tool.serverToolName)).toEqual(names);
-      expect(listed.renamed).toEqual([{ serverToolName: "read.v2", name: byServerName["read.v2"] }]);
-    }
-  });
-
-  it("gives a renamed tool the hash when a declared tool has its name", async () => {
-    const listed = await listMcpTools(client(["read.v2"]), {
-      serverName: "files",
-      taken: new Set(["files__read_v2"]),
-    });
-    expect(listed.tools.map((tool) => tool.name)).toEqual([`files__read_v2_${hash("files/read.v2")}`]);
+  it("leaves out a tool whose input schema is not an object", async () => {
+    const odd: McpClient = {
+      listTools: async () => ({ tools: [{ name: "a", inputSchema: { type: "object" } }, { name: "b" }] }),
+      callTool: async () => ({ result: {} }),
+    };
+    const listed = await listMcpTools(odd, { serverName: "files" });
+    expect(listed.tools.map((tool) => tool.name)).toEqual(["a"]);
+    expect(listed.omitted).toEqual(["b"]);
   });
 });
 
@@ -105,36 +61,52 @@ describe("the pool", () => {
     .mcp({ files: { type: "streamable-http", url: "https://files.example.invalid/mcp" } })
     .build();
 
-  it("reports renamed tools in mcp.discovered and calls the server by its own name", async () => {
+  it("pins the raw names, says nothing of renaming in mcp.discovered, and calls the server by its own name", async () => {
     const remote = client(["read.v2", LONG]);
     const pool = new McpPool({
       authorize: async () => ({ status: "none" }) as never,
       open: async () => ({ client: remote, close: async () => {} }),
     });
-    const found = await pool.discover({ sessionId: "s1", manifest: agent.manifest, manifestHash: "h" });
-    const names = found.snapshot.mcpTools.map((tool) => tool.name);
-    for (const name of names) expect(name).toMatch(MODEL_NAME);
-    expect(mcpDiscovered(found.snapshot, found.diagnostics).servers).toEqual([
-      expect.objectContaining({
-        serverName: "files",
-        outcome: "connected",
-        tools: 2,
-        renamed: [
-          { serverToolName: "read.v2", name: "files__read_v2" },
-          { serverToolName: LONG, name: names[1] },
-        ],
-      }),
-    ]);
+    const found = await pool.discover({
+      sessionId: "s1",
+      manifest: agent.manifest,
+      manifestHash: "h",
+      maxInstructionBytes: RUNTIME_LIMIT_DEFAULTS.recordEntryBytes,
+    });
+    expect(found.snapshot).toMatchObject({
+      snapshotSchemaVersion: 2,
+      servers: [{ name: "files", tools: [{ name: "read.v2" }, { name: LONG }] }],
+    });
+    const [server] = mcpDiscovered(found.snapshot, found.diagnostics, agent.manifest).servers;
+    expect(server).toMatchObject({ serverName: "files", outcome: "connected", tools: 2 });
+    expect(server).not.toHaveProperty("renamed");
+    expect(server).not.toHaveProperty("deferred");
     const outcome = await pool.call({
       maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
       sessionId: "s1",
       serverName: "files",
-      serverToolName: found.snapshot.mcpTools[0]!.serverToolName,
+      serverToolName: "read.v2",
       args: {},
       manifest: agent.manifest,
     });
     expect(outcome).toEqual({ kind: "completed", output: "ok" });
     expect(remote.called).toEqual(["read.v2"]);
+    await pool.close();
+  });
+
+  it("leaves out instructions past a record entry, and says so", async () => {
+    const pool = new McpPool({
+      authorize: async () => ({ status: "none" }) as never,
+      open: async () => ({ client: client(["read"]), instructions: "x".repeat(100), close: async () => {} }),
+    });
+    const found = await pool.discover({
+      sessionId: "s1",
+      manifest: agent.manifest,
+      manifestHash: "h",
+      maxInstructionBytes: 50,
+    });
+    expect(found.snapshot.servers[0]).not.toHaveProperty("instructions");
+    expect(found.diagnostics[0]!.message).toContain("Its instructions are 100 bytes");
     await pool.close();
   });
 });

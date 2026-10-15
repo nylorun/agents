@@ -126,17 +126,18 @@ it("routes by kind in a session without a sandbox: only the harness's own runs",
   });
   // No target: an author's code tool, which the Runtime does not run.
   expect(await intent("lookup")).toMatchObject(unavailable);
-  // A target the session lacks: no such MCP tool, HTTP tool or deferred tools.
-  expect(await intent("github__get_issue", { kind: "mcp" })).toMatchObject(unavailable);
-  expect(await intent("refund", { kind: "http" })).toMatchObject(unavailable);
-  expect(await intent("tool_search", { kind: "platform" })).toMatchObject(unavailable);
+  // A target the session lacks: an MCP tool it never discovered, an HTTP tool it does not declare.
+  expect(await intent("github__get_issue", { kind: "mcp", server: "github", tool: "get_issue" })).toMatchObject({
+    status: "completed",
+    outcome: { value: { code: "tool.unknown", message: expect.stringContaining("not discovered") } },
+  });
+  expect(await intent("refund", { kind: "http", tool: "refund" })).toMatchObject(unavailable);
   const completed = await finish();
-  expect(completed.map((item) => [item.toolName, item.kind ?? null])).toEqual([
-    ["bash", "sandbox"],
-    ["lookup", null],
-    ["github__get_issue", "mcp"],
-    ["refund", "http"],
-    ["tool_search", "platform"],
+  expect(completed.map((item) => [item.toolName, item.kind ?? null, item.tool ?? null])).toEqual([
+    ["bash", "sandbox", null],
+    ["lookup", null, null],
+    ["github__get_issue", "mcp", "get_issue"],
+    ["refund", "http", "refund"],
   ]);
 });
 

@@ -51,13 +51,12 @@ import { definitionFilesOf, limitExceededMessage, type EventWriter } from "@nylo
 import { isOwnershipLost } from "../store/ownership.js";
 import { harnessOf, ownedSession, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import {
+  isSnapshot,
   mcpDiscovered,
-  pinDeferral,
-  sessionToolsOf,
+  mcpFactsOf,
   type McpDiagnostic,
   type McpSnapshot,
 } from "../mcp/snapshot.js";
-import { currentContextWindow } from "../model/descriptor.js";
 import { turnManifestOf } from "../tenant/session.js";
 import { sandboxWorkspaceKey, workspacePrefix } from "../sandbox/records.js";
 import type { RunOf } from "../tenant/run-grants.js";
@@ -447,22 +446,19 @@ export function createHarnessApiServer(
 
   /**
    * What a harness found readying the run's MCP servers: the first snapshot recorded for the
-   * session wins, with `mcp.discovered` in its log; diagnostics replace those of the same server.
-   * Answers the session's snapshot and the tools the engine advertises.
+   * session wins, pinned as it is, with `mcp.discovered` in its log; diagnostics replace those of
+   * the same server. Answers the session's facts as the run's turn sees them (protocol 15).
    */
   const recordMcp = async (run: Run, params: ParamsOf<"session.mcp">) => {
     const snapshot = params.snapshot as McpSnapshot | undefined;
     if (snapshot !== undefined && !isSnapshot(snapshot))
       throw new HarnessApiError("invalid", "The MCP snapshot is malformed");
-    // Which MCP tools the model reaches through tool_search, decided once for the session from
-    // the Tenant's model's context window (R2b C10, Q21).
-    const contextWindow = snapshot ? await currentContextWindow(ctx) : 0;
     return ctx.store.tx(async (t) => {
       const { lease } = run.offer;
       const current = await ownedSession(t, lease, lease.sessionId);
       const diagnostics = params.diagnostics as McpDiagnostic[];
       if (snapshot && !current.mcpSnapshot) {
-        current.mcpSnapshot = pinDeferral(snapshot, current.manifest, contextWindow);
+        current.mcpSnapshot = snapshot;
         current.mcpDiagnostics = diagnostics;
         await t.put("sessions", current.id, current);
         await t.event(
@@ -485,11 +481,8 @@ export function createHarnessApiServer(
         current.mcpDiagnostics = prior;
         await t.put("sessions", current.id, current);
       }
-      return {
-        ...(current.mcpSnapshot ? { snapshot: current.mcpSnapshot } : {}),
-        // The turn's manifest: a variant may have disabled tools or required their approval.
-        sessionTools: [...(sessionToolsOf(current.mcpSnapshot, turnManifestOf(current)) ?? [])],
-      } as { snapshot: unknown; sessionTools: unknown[] };
+      // The turn's manifest: a variant may have disabled tools.
+      return current.mcpSnapshot ? { mcp: mcpFactsOf(current.mcpSnapshot, turnManifestOf(current)) } : {};
     });
   };
 
@@ -727,15 +720,4 @@ export function createHarnessApiServer(
       for (const run of queued.splice(0)) run.end({ kind: "unavailable" });
     },
   };
-}
-
-function isSnapshot(value: unknown): value is McpSnapshot {
-  const snapshot = value as Partial<McpSnapshot> | null;
-  return (
-    typeof snapshot === "object" &&
-    snapshot !== null &&
-    snapshot.snapshotSchemaVersion === 1 &&
-    typeof snapshot.manifestHash === "string" &&
-    Array.isArray(snapshot.mcpTools)
-  );
 }

@@ -24,7 +24,6 @@ function start(fields: Partial<TurnStart> & { checkpoint?: unknown } = {}): Turn
     engine: "agent",
     manifest,
     checkpoint: createDurableCheckpoint({ manifest, sessionId: "s1", turnId: "t1", input: "go" }),
-    sessionTools: [],
     outcomes: [],
     transcript: { cursor: -1 },
     options: { fixtureModel: false },

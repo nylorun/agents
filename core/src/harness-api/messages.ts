@@ -2,11 +2,12 @@
  * Harness API v4 (blueprint D37–D42; the harness boundary, protocol 15): the messages between
  * core and a harness. A run is a lease on one session's segment; core records, the harness runs
  * the engine. Who executes what: the harness runs model, MCP, HTTP and sandbox calls and its own
- * tools (our engine's skill and artifact tools among them, over the `definition.file` and artifact
- * seams), and writes the model's instructions; core runs flow work, linked sessions, delegation
- * journaling, `tool_search`, settle and takeover, and routes each tool call by its target's kind
- * (`EffectTarget`). Each message's type is inferred from its schema (`schema.ts`), which a socket
- * validates it with.
+ * tools (our engine's skill, artifact and deferred-tool tools among them, over the
+ * `definition.file` and artifact seams), writes the model's instructions, names the session's MCP
+ * tools and shapes tool results; core runs flow work, linked sessions, delegation journaling,
+ * settle and takeover, and routes each tool call by its target (`EffectTarget`: its kind, and an
+ * MCP or HTTP tool's identity). Each message's type is inferred from its schema (`schema.ts`),
+ * which a socket validates it with.
  */
 import type { z } from "zod";
 import type {

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { PendingApproval } from "@/approvals";
+import { approvalTitle, calledAs, type PendingApproval } from "@/approvals";
 
 /**
- * A tool call the Tool Gate holds for a person (R5 step 2): its tool, why it is held, and its
- * input, with Approve and Deny. Approving sends the exact call shown; denying fails it to the
+ * A tool call the Tool Gate holds for a person (R5 step 2): its tool by identity (`server / tool`
+ * for an MCP tool, with the name the model called it by when that differs), why it is held, and
+ * its input, with Approve and Deny. Approving sends the exact call shown; denying fails it to the
  * model as `tool.denied`, unsent.
  */
 export function ApprovalCard(props: {
@@ -26,7 +27,7 @@ export function ApprovalCard(props: {
   }
   return (
     <section
-      aria-label={`Approve ${approval.toolName ?? "tool call"}`}
+      aria-label={`Approve ${approvalTitle(approval)}`}
       className="space-y-3 rounded-xl border border-amber-500/60 bg-amber-50/40 p-4 dark:bg-amber-950/20"
     >
       <div>
@@ -34,9 +35,16 @@ export function ApprovalCard(props: {
           Waiting for approval
         </p>
         <p className="mt-1 font-medium">
-          {approval.toolName ?? "A tool call"}
-          {approval.server ? <span className="text-muted-foreground"> · {approval.server}</span> : null}
+          {approvalTitle(approval)}
+          {approval.server && !approval.tool ? (
+            <span className="text-muted-foreground"> · {approval.server}</span>
+          ) : null}
         </p>
+        {calledAs(approval) ? (
+          <p className="text-xs text-muted-foreground">
+            The model called it <code className="font-mono">{calledAs(approval)}</code>
+          </p>
+        ) : null}
         {approval.reason ? <p className="text-sm text-muted-foreground">{approval.reason}</p> : null}
       </div>
       {approval.input !== undefined ? (

@@ -32,13 +32,86 @@ _Avoid_: "Action endpoint" and "executor" (removed in protocols 8 and 3).
 hosted tool. The engine never asks for approval of an HTTP or MCP call: the host's tool policy
 does, as it journals the effect (a `pending` intent while a person decides).
 
-**Deferred session tool**: A session tool marked `deferred` (R2b C10): out of the model's tool
-list, and run by `tool_call` (a session tool of the session part), which checks the arguments
-against the tool's `inputSchema` and makes the call as the tool's own effect (its `target`
-included), which the host's tool policy decides as it would a direct call. A session tool may
-carry `instructions`, which the model reads after our engine's while it is advertised
-(`tool_search`'s note of the servers), and names its calls' **effect target** (`mcp`, or
-`platform` for `tool_search`).
+**MCP tools**: The session's remote MCP tools as our engine offers them (protocol 15,
+`mcpToolSet` in `tools/mcp.ts`), made from the facts the Runtime states (`turn.start.mcp`: each
+server's tools by their raw names and schemas, with `enabled` and the manifest's `deferred` hint).
+Our engine skips a tool the turn disables (`enabled: false`; the record would refuse it as
+`tool.disabled`) and one whose input schema does not compile, names the rest (**MCP tool name**),
+and makes each call an effect of the tool's identity (`target: {kind: "mcp", server, tool}`,
+`tool` the raw name). They come after the agent's own tools and our **engine tools**: the listed
+ones in the servers' order, then per agent with deferred tools `tool_search` (with its note),
+`tool_call` and the deferred tools. `runDurable({ mcp })` takes the set (it replaced
+`sessionTools`); not hashed.
+_Avoid_: "session tools" for them; the Runtime states facts, our engine makes the tools.
+
+**MCP tool name**: What the model calls an MCP tool: ours to choose, since the Runtime never names
+one (`mcpToolName`, `mcpToolNames`; R2b C6). `server__tool` with each character outside
+`[A-Za-z0-9_-]` replaced by `_`; a name over `MODEL_TOOL_NAME_MAX` (64, a provider ceiling), or a
+renamed one that collides, keeps 55 characters and adds `_` and 8 hex characters of the SHA-256
+of `server/tool`. Names that need no change go first, so a renamed tool never takes another's;
+a name the agent's own tools, our engine's or an earlier server's already took leaves the tool
+out. The Management API's MCP tool preview shows these names (`modelName`, `renamed`).
+
+**Deferred session tool**: An MCP tool out of the model's tool list (R2b C10): the model finds it
+with **tool search** and runs it with `tool_call`, which checks the arguments against the tool's
+`inputSchema` and makes the call as the tool's own effect (its identity `target` included), so
+the host's tool policy, the record's routing and the result's shaping are a direct call's
+(`deferredToolCall`, `run/durable.ts`). Ours to decide (protocol 15): the manifest's `deferred`
+setting when it says (`McpToolFact.deferred`, a hint), else every tool of an agent whose listed
+MCP tools (their name, description and `inputSchema` as JSON) pass `deferShare` of the model's
+context window at `charsPerToken` characters a token (the window is `turn.start.model`'s, else
+`fallbackContextWindow`). Decided once per facts and kept (**MCP layout**).
+
+**Tool search**: `tool_search { query, limit? }` (`tools/tool-search.ts`, `TOOL_SEARCH_TOOL`):
+our engine's tool, a `harness` effect the API host runs itself over the run's MCP tools
+(`runToolSearch`, `api/host.ts`), never core. It ranks an agent's deferred tools with BM25 over
+their name tokens and the server's own tool name and description (`tokens`, `rank`), returns
+each match's name, description and `inputSchema` (`toolSearchDefaultLimit` 8, at most
+`toolSearchMaxLimit` 20), and reads only the layout's deferred tools, so the same query finds the
+same tools while it stands; a tool the turn disables is never there. Its note
+(`deferredToolsNote`) names each server with deferred tools, how many, and its instructions cut
+to `serverInstructionsMaxChars` with `…`. `deferredToolsTools(config)` gives both tools'
+definitions to a harness of your own.
+_Avoid_: "platform tool" (core ran it before protocol 15).
+
+**MCP layout**: Which of the session's MCP tools our engine defers (`McpLayout`,
+`ExecutionState.mcpLayout = {factsHash, deferred}`, `deferred` the identity keys
+`mcpToolKey(agentId, server, tool)`): decided the first time the facts are seen, written into the
+state the segment ends with, and followed while the facts' hash matches, so every model call of
+the session lists the same tools (a stable prompt prefix) and a switch of the Tenant's model
+neither changes the list nor drifts a replayed model call. New facts (a turn variant that
+disables a tool, a rediscovery) decide it again.
+
+**Spilled tool result**: A tool result our engine stored as file artifacts of the session so its
+outcome fits the record (R2b C11, protocol 15; `tools/results.ts`, exported for a harness of
+your own). The API host shapes every `mcp`, `http` and `sandbox` outcome before `effect.outcome`
+(`shapeToolOutcome`; not our `harness` tools, which size their own; a cancel skips it), since the
+record refuses an entry past `limits.recordEntryBytes` and a step's results are one transcript
+entry. One step's results (`[agent, stepId]`) share a **step budget** (`StepBudget`):
+`max(stubBytes, min(stepBudgetBytes, recordEntryBytes − entryEnvelopeBytes))`; each result's cap
+is what its step has left, at most `resultInlineBytes` for an MCP or HTTP tool and at least
+`stubBytes`; shaping is serialized per step, and replayed and completed answers count. Text or
+JSON past the cap is stored and the model gets `{truncated: true, artifactId, size, preview}`
+(`previewHeadBytes` and `previewTailBytes`); each part of an MCP result is shaped alone, the
+largest text first. An `image`, `audio` or blob `resource` part always becomes an artifact; an
+image also goes to the model as a file when the turn's model reads it (`fileView`). Each store is
+`writeArtifactBytes` under the **spill key** `spillKey(effectId, index | "whole", bytes)` =
+`tr:` + SHA-256 of `${effectId}\n${index}\n${sha256(bytes)}`, named `${toolName}-result[-n].ext`,
+in `limits.chunkBytes` chunks, linked to the call (`effectId`): a call the gate answers again with
+the same bytes after a crash writes nothing new. A store refusal keeps the preview with `dropped`;
+a result still past the budget becomes `{kind: "failed", code: "tool.result-too-large"}`.
+_Avoid_: "stored tool result" (core no longer shapes results).
+
+**Engine tool config**: The harness's configuration of our engine's tools (`EngineToolOptions`,
+from `createHarness`): `artifactPageBytes`, `sandboxTools` (**sandbox tool limits**),
+`skillReadBytes`, `mcpTools` (`McpToolConfig`, `DEFAULT_MCP_TOOL_CONFIG`: `deferShare` 0.1,
+`charsPerToken` 4, `fallbackContextWindow` 32,768, `serverInstructionsMaxChars` 2,000,
+`toolSearchDefaultLimit` 8, `toolSearchMaxLimit` 20) and `toolResults` (`ToolResultConfig`,
+`DEFAULT_TOOL_RESULT_CONFIG`: `resultInlineBytes` 32 KiB, `previewHeadBytes` 4 KiB,
+`previewTailBytes` 1 KiB, `stepBudgetBytes` 256 KiB, `stubBytes` 512, `smallBytes` 1 KiB,
+`entryEnvelopeBytes` 4 KiB). `createHarness({ mcpTools?, toolResults? })` takes partial ones over
+the defaults. Not Runtime limits: those the run states (`turn.start.limits`), and these stay under
+them.
 
 **Engine tool**: A tool our engine adds to each agent of a session's tree (protocol 15),
 with the text that goes with it (`engineToolsFor`, `tools/engine-tools.ts`), from the facts
@@ -48,15 +121,19 @@ instructions are the skills' usage and catalog, the sandbox note, the skills' fo
 the artifact notes; tools are the six sandbox tools (`tools/sandbox.ts`), `load_skill` and
 `read_skill_resource` (`tools/skills.ts`), `save_artifact` and `read_artifact`
 (`tools/artifacts.ts`). Their names, descriptions, schemas and text are ours; they are offered
-like session tools (`runDurable({ engineTools })`: after the agent's own tools, before the
-session's, with their text before the session tools' own, not hashed). Each names its calls'
+like the MCP tools (`runDurable({ engineTools })`: after the agent's own tools, before the
+session's MCP tools, with their text before the MCP tools' own, not hashed). Each names its calls'
 **effect target**: a sandbox tool `sandbox` (the host runs it in the session's sandbox, through
 `executors.tool`), the skill and artifact tools `harness` (the API host runs them itself,
 `api/host.ts`: the skill tools over `definition.file`, the artifact tools over the artifact
-seam). An author tool of the same name fails the turn (`agentFrom`, `agent.build-failed`).
+seam; `tool_search` over the run's MCP tools). An author tool of the same name fails the turn
+(`agentFrom`, `agent.build-failed`).
 
-**Effect target**: What runs a tool effect (`HostEffect.target`, `{kind}`): `mcp`, `http`,
-`sandbox`, `harness` or `platform`. Core routes the call by it, never by the tool's name; an
+**Effect target**: What runs a tool effect, by identity (`HostEffect.target`, protocol 15):
+`{kind: "mcp", server, tool}` (`tool` the server's own name), `{kind: "http", tool}` (the
+declared name), `{kind: "sandbox"}` or `{kind: "harness"}`; `platform` is gone. Core routes,
+decides policy and journals the call by it, never by the name the model used (`toolName`, for
+display); it is in the request hash, so a replay with another identity is `effect_drift`. An
 author's code tool names none, and the record fails it to the model. A tool effect also names
 the `skill` it ran (`skillOfToolCall`, `tools/trace.ts`: a skill tool's, or a sandbox call whose
 input names a skill's folder), which the record keeps when the agent has that skill.

@@ -85,3 +85,45 @@ it("closes the sessions that still pinned a runtime block, on the root or an age
     await current.store.close();
   }
 });
+
+it("closes the sessions that pinned the former MCP snapshot, which named tools for the model", async () => {
+  const db = await emptyTestDatabase();
+  const create = { tenantId: newTenantId(), name: "upgrade", principals: () => [] };
+  const at = shippedMigrations().findIndex((migration) => migration.tag === "0031_protocol_15_mcp_snapshot");
+  expect(at).toBeGreaterThan(0);
+  const old = await openTenantDatabase({ sql: db.sql, create, migrations: shippedMigrations().slice(0, at) });
+  const session = (body: object) => ({
+    agentId: "bot",
+    status: "completed",
+    manifest: { manifestSchemaVersion: 7, id: "bot" },
+    ...body,
+  });
+  await old.store.tx(async (t) => {
+    await t.put("sessions", "v1", session({ mcpSnapshot: { snapshotSchemaVersion: 1, manifestHash: "h", mcpTools: [] } }));
+    await t.put("sessions", "v2", session({ mcpSnapshot: { snapshotSchemaVersion: 2, manifestHash: "h", servers: [] } }));
+    await t.put("sessions", "none", session({}));
+    await t.put(
+      "sessions",
+      "older",
+      session({ closedReason: "protocol_13", mcpSnapshot: { snapshotSchemaVersion: 1, manifestHash: "h", mcpTools: [] } }),
+    );
+  });
+  await old.store.close();
+
+  const current = await openTenantDatabase({ sql: db.sql, create });
+  try {
+    const reasons = await current.store.tx(async (t) =>
+      Object.fromEntries(
+        await Promise.all(
+          ["v1", "v2", "none", "older"].map(async (id) => [
+            id,
+            (await t.get<{ closedReason?: string }>("sessions", id))?.closedReason ?? null,
+          ]),
+        ),
+      ),
+    );
+    expect(reasons).toEqual({ v1: "protocol_15", v2: null, none: null, older: "protocol_13" });
+  } finally {
+    await current.store.close();
+  }
+});

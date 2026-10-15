@@ -12,6 +12,13 @@ import { startTestTenant } from "./support/tenant.js";
 const APP = "server-token-value-aaaaaaaa";
 import type { ModelProvider } from "../src/core/provider.js";
 
+/** The tools a session pinned, as `server__tool` (protocol 15: the snapshot keeps raw names). */
+function pinnedNames(snapshot: any): string[] {
+  return (snapshot?.servers ?? []).flatMap((server: any) =>
+    server.tools.map((tool: { name: string }) => `${server.name}__${tool.name}`),
+  );
+}
+
 const KEK = Buffer.alloc(32, 9).toString("base64");
 const TOKEN = "ada-mcp-plaintext-token-7f3c9a2e";
 const serverHeaders = {
@@ -265,12 +272,8 @@ it("discovers a remote MCP server with a bearer and calls it from the Runtime", 
     await say(runtime, "s1", "read the issue");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
     expect(session.status).toBe("completed");
-    expect(session.mcpSnapshot.mcpTools).toEqual([
-      expect.objectContaining({
-        serverName: "github",
-        serverToolName: "get_issue",
-        name: "github__get_issue",
-      }),
+    expect(session.mcpSnapshot.servers).toEqual([
+      expect.objectContaining({ name: "github", tools: [expect.objectContaining({ name: "get_issue" })] }),
     ]);
     expect(JSON.stringify(session)).not.toContain(TOKEN);
     expect(seen[0]).toContain("github__get_issue");
@@ -405,7 +408,7 @@ it("refuses a second credential for one server at the write, and connects with t
     expect(github.requests.length).toBeGreaterThan(0);
     expect(github.requests.every((item) => item.authorization === `Bearer ${TOKEN}`)).toBe(true);
     expect(docs.requests.every((item) => item.authorization == null)).toBe(true);
-    expect(session.mcpSnapshot.mcpTools.map((tool: { name: string }) => tool.name).sort()).toEqual([
+    expect(pinnedNames(session.mcpSnapshot).sort()).toEqual([
       "docs__search",
       "github__get_issue",
     ]);
@@ -494,7 +497,7 @@ it("connects without Authorization when no credential matches", async () => {
     expect(session.status).toBe("completed");
     expect(remote.requests.some((item) => item.method === "tools/list")).toBe(true);
     expect(remote.requests.every((item) => item.authorization == null)).toBe(true);
-    expect(session.mcpSnapshot.mcpTools[0].name).toBe("github__get_issue");
+    expect(pinnedNames(session.mcpSnapshot)[0]).toBe("github__get_issue");
   } finally {
     await runtime.close();
     await remote.close();
@@ -521,7 +524,7 @@ it("pins the discovery snapshot and lets a new session discover again", async ()
     await openSession(runtime, "s1");
     await say(runtime, "s1", "first");
     const first = await until(runtime, "s1", ["completed", "failed"]);
-    expect(first.mcpSnapshot.mcpTools.map((tool: { name: string }) => tool.name)).toEqual([
+    expect(pinnedNames(first.mcpSnapshot)).toEqual([
       "github__get_issue",
     ]);
     const listed = () => remote.requests.filter((item) => item.method === "tools/list").length;
@@ -529,14 +532,14 @@ it("pins the discovery snapshot and lets a new session discover again", async ()
     remote.addTool("added");
     await say(runtime, "s1", "second");
     const again = await until(runtime, "s1", ["completed", "failed"]);
-    expect(again.mcpSnapshot.mcpTools.map((tool: { name: string }) => tool.name)).toEqual([
+    expect(pinnedNames(again.mcpSnapshot)).toEqual([
       "github__get_issue",
     ]);
     expect(listed()).toBe(1);
     await openSession(runtime, "s2");
     await say(runtime, "s2", "fresh");
     const next = await until(runtime, "s2", ["completed", "failed"]);
-    expect(next.mcpSnapshot.mcpTools.map((tool: { name: string }) => tool.name).sort()).toEqual([
+    expect(pinnedNames(next.mcpSnapshot).sort()).toEqual([
       "github__added",
       "github__get_issue",
     ]);

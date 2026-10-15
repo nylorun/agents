@@ -509,11 +509,18 @@ describe("the R2b exit", () => {
     expect(result.completed.map((item) => item.toolName)).toEqual(
       expect.arrayContaining(["tool_search", "catalog__reconcile", "keyed__issues_create"]),
     );
-    expect(serverOf(result.discovered, "keyed")).toMatchObject({
-      disabled: 1,
-      renamed: [{ serverToolName: "issues.create", name: "keyed__issues_create" }],
+    expect(serverOf(result.discovered, "keyed")).toMatchObject({ disabled: 1 });
+    // Our engine names and defers the tools (protocol 15): the discovery says neither.
+    for (const name of ["keyed", "catalog"]) {
+      expect(serverOf(result.discovered, name)).not.toHaveProperty("renamed");
+      expect(serverOf(result.discovered, name)).not.toHaveProperty("deferred");
+    }
+    // The dotted tool's identity is the server's own name for it.
+    expect(result.completed.find((item) => item.toolName === "keyed__issues_create")).toMatchObject({
+      kind: "mcp",
+      server: "keyed",
+      tool: "issues.create",
     });
-    expect(serverOf(result.discovered, "catalog")).toMatchObject({ deferred: 2 });
   });
 
   it("a server that is down is a retryable mcp.unreachable", async () => {

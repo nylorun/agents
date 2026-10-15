@@ -102,6 +102,7 @@ interface ToolRowBody {
   readonly error?: string;
   readonly toolKind?: ToolCall["kind"];
   readonly server?: string;
+  readonly tool?: string;
   readonly skill?: string;
   readonly plugin?: ToolCall["plugin"];
   readonly attempts?: number;
@@ -125,6 +126,7 @@ function publicToolCall(body: ToolRowBody): ToolCall {
     toolName: request.toolName ?? null,
     kind: body.toolKind ?? null,
     server: body.server ?? null,
+    tool: body.tool ?? null,
     skill: body.skill ?? null,
     plugin: body.plugin ?? null,
     status,

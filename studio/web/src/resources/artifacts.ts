@@ -85,7 +85,14 @@ export function artifactHref(
   return `/artifacts?${query}`;
 }
 
-/** Only public artifact references; never infer a version/turn from timestamps. */
+/** How deep `artifactReferences` looks into a tool result for the artifacts it was spilled to. */
+const TOOL_OUTPUT_DEPTH = 6;
+
+/**
+ * Only public artifact references; never infer a version/turn from timestamps. A `tool.completed`
+ * links the artifacts its harness spilled the result to (protocol 15): each `{artifactId,
+ * version, size}` its output names, as a whole or in its parts, and its files' `reference`.
+ */
 export function artifactReferences(event: Pick<LiveEvent, "type" | "payload">) {
   if (!event.payload || typeof event.payload !== "object") return [];
   const payload = event.payload as Record<string, unknown>;
@@ -93,16 +100,34 @@ export function artifactReferences(event: Pick<LiveEvent, "type" | "payload">) {
   const add = (id: unknown, version: unknown, name: unknown) => {
     if (
       typeof id === "string" &&
+      id !== "" &&
       typeof version === "number" &&
       Number.isSafeInteger(version) &&
-      version > 0
+      version > 0 &&
+      !refs.some((ref) => ref.artifactId === id && ref.version === version)
     )
       refs.push({
         artifactId: id,
         version,
-        name: typeof name === "string" ? name : id,
+        name: typeof name === "string" && name !== "" ? name : id,
       });
   };
+  const walk = (value: unknown, depth: number) => {
+    if (depth > TOOL_OUTPUT_DEPTH || !value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, depth + 1);
+      return;
+    }
+    const entry = value as Record<string, unknown>;
+    // A stored result names its size beside its artifact; other ids in a result are the tool's own.
+    if (typeof entry.size === "number") add(entry.artifactId, entry.version, entry.name);
+    for (const child of Object.values(entry)) walk(child, depth + 1);
+  };
+  if (event.type === "tool.completed") {
+    walk(payload.output, 0);
+    if (Array.isArray(payload.files))
+      for (const file of payload.files) walk(file, 0);
+  }
   if (["artifact.created", "artifact.version.created"].includes(event.type))
     add(payload.artifactId, payload.version, payload.name);
   if (Array.isArray(payload.parts)) {

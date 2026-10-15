@@ -8,6 +8,10 @@
  * It never calls a tool, and sends no identity header: no person asked. A server that answers
  * `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any,
  * read under the same policy. No credential value sent is in the answer (`scrubValues`, C8).
+ *
+ * Each tool's `modelName` is the name Nylorun's engine would give it (`mcpToolNames` of
+ * `@nylorun/harness`, protocol 15): the Runtime itself names no tool, and a harness of your own
+ * names them its way.
  */
 import {
   McpPreviewRequestSchema,
@@ -15,7 +19,8 @@ import {
   type McpPreviewRequest,
   type McpPreviewTool,
 } from "@nylorun/core/contracts";
-import type { McpServerManifest } from "@nylorun/core/define";
+import { schemaFromJSON, type McpServerManifest } from "@nylorun/core/define";
+import { mcpToolNames } from "@nylorun/harness";
 import { scrubValues } from "../redact.js";
 import { HttpError } from "../tenant/http.js";
 import { guardedFetch, OutboundRefused, type OutboundPolicy } from "../tenant/outbound.js";
@@ -103,12 +108,14 @@ export async function previewMcpServer(
       },
       callTool: () => Promise.reject(new Error("A preview never calls a tool")),
     };
-    const listed = await listMcpTools(listing, {
-      serverName: name,
-      taken: new Set(),
-      signal,
-    });
-    const modelNames = new Map(listed.tools.map((tool) => [tool.serverToolName, tool.name]));
+    const listed = await listMcpTools(listing, { serverName: name, signal });
+    // The names Nylorun's engine gives the tools whose schemas it can use.
+    const named = mcpToolNames(
+      name,
+      listed.tools.filter((tool) => compiles(tool.inputSchema)).map((tool) => tool.name),
+      new Set(),
+    );
+    const modelNames = named.names;
     const tools: McpPreviewTool[] = pages
       .flatMap((page) => page.tools)
       .filter((tool) => typeof tool.name === "string" && tool.name.length > 0)
@@ -131,7 +138,7 @@ export async function previewMcpServer(
       ...(connection.serverInfo === undefined ? {} : { serverInfo: { ...connection.serverInfo } }),
       ...(connection.instructions === undefined ? {} : { instructions: connection.instructions }),
       tools,
-      renamed: listed.renamed.map(({ serverToolName, name: renamedTo }) => ({
+      renamed: named.renamed.map(({ serverToolName, name: renamedTo }) => ({
         serverToolName,
         name: renamedTo,
       })),
@@ -248,6 +255,16 @@ function resourceMetadataParam(challenge: string): string | undefined {
   const match = /resource_metadata\s*=\s*(?:"([^"]*)"|([^\s,]+))/i.exec(challenge);
   const value = match?.[1] ?? match?.[2];
   return value ? value : undefined;
+}
+
+/** True when Nylorun's engine can check calls against `schema`. */
+function compiles(schema: Record<string, unknown>): boolean {
+  try {
+    schemaFromJSON(schema as never);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

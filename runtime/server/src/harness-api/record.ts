@@ -1,15 +1,16 @@
 /**
  * The Record seam of the Harness API: core's journal for the effects of a run. `recordIntent`
  * journals an effect before anything runs it, and either answers it from the journal, hands it
- * to core's own executors (flow work, delegation, `tool_search`), tells the harness to `execute`
- * it (model calls; a flow's HTTP stages and HTTP verifiers; an agent's tool call whose target the
- * session has, protocol 15: an `mcp` tool it discovered, an `http` tool it declares, a `sandbox`
- * operation when it has a sandbox, a `harness` tool), or fails a tool call it cannot run (no
- * target, as an author's code tool has, R2 M6, or one the session lacks). A tool call is routed
- * by its target's kind, never by its name. `recordOutcome` records what the harness's call
- * returned, an agent's MCP or HTTP tool result first shaped to fit (R2b C11). Both run under the
- * advance's lease: every write is epoch-checked (`ownedSession`), and a lost epoch writes
- * nothing.
+ * to core's own executors (flow work, delegation), tells the harness to `execute` it (model calls;
+ * a flow's HTTP stages and HTTP verifiers; an agent's tool call whose target the session has,
+ * protocol 15: an `mcp` tool it discovered and the turn leaves enabled, by `{server, tool}`; an
+ * `http` tool it declares; a `sandbox` operation when it has a sandbox; a `harness` tool), or
+ * fails a tool call it cannot run (no target, as an author's code tool has, R2 M6, or one the
+ * session lacks). A tool call is routed by its target, never by its name. `recordOutcome`
+ * records what the harness's call returned, as the harness reported it: one record entry, refused
+ * past the Runtime limit `recordEntryBytes` (`limit_exceeded`), since the harness shapes tool
+ * results, not core. Both run under the advance's lease: every write is epoch-checked
+ * (`ownedSession`), and a lost epoch writes nothing.
  *
  * Rows store the request's hash (`requestHash`) and, for a model call, the request without its
  * prompt: drift is a hash compare. Rows written before carry their full request, hashed on read.
@@ -40,21 +41,11 @@ import {
   type FlowEffect,
 } from "../core/flow-host.js";
 import { sessionSandboxSpec } from "../sandbox/share.js";
-import { abortOn } from "../harness/calls.js";
-import {
-  mayNeedShaping,
-  resultBytes,
-  resultLimit,
-  shapeToolOutcome,
-  stepResultsBudget,
-  type ShapedCall,
-} from "../tenant/tool-results.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { checkEntry } from "../record/index.js";
-import { callToolSearch, isToolSearchCall } from "../tenant/tool-search.js";
 import { turnManifestOf } from "../tenant/session.js";
-import { isOwnershipLost } from "../store/ownership.js";
-import { manifestFor, mcpToolOf } from "../mcp/snapshot.js";
+import { isEnabledIn, manifestFor, mcpToolIn } from "../mcp/snapshot.js";
+import { findServer } from "../mcp/pool.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
 import { ownedSession, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import {
@@ -97,11 +88,7 @@ export interface RecordScope {
   readonly writer?: EventWriter;
 }
 
-type StoredEffect = ToolRow & {
-  agentSessionId?: string;
-  /** A tool result's share of its step's budget, reserved before it is shaped (R2b C11). */
-  resultBytes?: number;
-};
+type StoredEffect = ToolRow & { agentSessionId?: string };
 
 const TURN_CANCELLED = () => new HarnessApiError("turn_cancelled", "Turn cancelled");
 
@@ -135,7 +122,7 @@ export async function recordIntent(
   const request = effect as HostEffect;
   // Read before the transaction: the first read of the Tenant may create the key.
   const key = await traceKey(ctx.store);
-  const answer = await ctx.store.tx(async (t): Promise<IntentAnswer | "flow" | "search"> => {
+  const answer = await ctx.store.tx(async (t): Promise<IntentAnswer | "flow"> => {
     const s = await ownedSession(t, lease, request.sessionId);
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId) throw TURN_CANCELLED();
     // A tool call's span context (R7.4), kept on its row.
@@ -219,12 +206,12 @@ export async function recordIntent(
     }
     const agentManifest = manifestFor(s.manifest, request.agent);
     if (!agentManifest) throw new Error(`Agent '${request.agent?.id ?? ""}' is not used as a tool`);
-    const executed = request.kind === "model" || (request.kind === "tool" && runnable(s, request));
-    if (!executed) {
+    const refused = request.kind === "tool" ? refusal(s, request) : undefined;
+    if (refused) {
       // A call with no target (an author's code tool, refused at save, so a backstop), or one
-      // whose target the session lacks: an MCP tool the turn disabled, which the model was never
-      // offered, or a sandbox call without a sandbox. The model sees the failure; nothing runs.
-      const disabled = request.kind === "tool" && mcpToolOf(s.mcpSnapshot, request) !== undefined;
+      // whose target the session lacks: an MCP tool it never discovered or the turn disables, an
+      // HTTP tool its agent does not declare, a sandbox call without a sandbox. The model sees
+      // the failure; nothing runs.
       const row: StoredEffect = {
         request,
         requestHash,
@@ -232,13 +219,7 @@ export async function recordIntent(
         ...toolKindOf(s, agentManifest, request),
         attempts: 0,
       };
-      const outcome = await settleToolRow(
-        t,
-        s,
-        row,
-        disabled ? disabledTool(request) : unrunnableTool(request),
-        { writer: coreIn(scope) }
-      );
+      const outcome = await settleToolRow(t, s, row, refused, { writer: coreIn(scope) });
       return { status: "completed", outcome };
     }
     const row: StoredEffect = {
@@ -256,69 +237,64 @@ export async function recordIntent(
       if (decided) return decided;
     }
     await t.put("effects", request.effectId, row);
-    if (request.target?.kind === "platform") return "search";
     return { status: "execute", ...(row.traceparent ? { traceparent: row.traceparent } : {}) };
   });
-  if (answer === "search") return runInCore(scope, request, () => callToolSearch(scope.ctx, request));
   if (answer !== "flow") return answer;
   if (!isFlowEffect(request)) return { status: "pending" };
   return resolveNewFlowEffect(ctx, request, signal, lease);
 }
 
 /**
- * Whether the session has what an agent's tool call names as its target (protocol 15), by kind:
+ * Why an agent's tool call cannot run, by what it names as its target (protocol 15), or
+ * undefined when it can:
  *
- * - `mcp`: a tool of the session's MCP snapshot the turn's manifest leaves enabled (R2b C9);
- * - `http`: an HTTP tool the agent declares (R2 M3), which crosses the Tool Gate;
+ * - `mcp`: the tool `{server, tool}` of an MCP server its agent declares, as the session
+ *   discovered it (`tool.unknown` otherwise), left enabled by the turn's manifest (R2b C9,
+ *   `tool.disabled`);
+ * - `http`: an HTTP tool its agent declares under that name (R2 M3), which crosses the Tool Gate;
  * - `sandbox`: one of the sandbox operations, in a session with a sandbox;
- * - `harness`: a tool the harness runs in its own process; its egress gate is its only control;
- * - `platform`: `tool_search` (R2b C10), which core runs over the session's MCP snapshot.
+ * - `harness`: a tool the harness runs in its own process; its egress gate is its only control.
  *
- * No target, and anything else, runs nothing.
+ * No target, and anything else, runs nothing (`tool.unavailable`).
  */
-function runnable(s: Session, request: HostEffect): boolean {
-  switch (request.target?.kind) {
-    case "mcp":
-      return mcpToolOf(s.mcpSnapshot, request, turnManifestOf(s)) !== undefined;
+function refusal(s: Session, request: HostEffect): ToolRefusal | undefined {
+  const target = request.target;
+  switch (target?.kind) {
+    case "mcp": {
+      const agentId = request.agent?.id;
+      if (!findServer(s.manifest, agentId, target.server) || !mcpToolIn(s.mcpSnapshot, agentId, target.server, target.tool))
+        return {
+          kind: "failed",
+          code: "tool.unknown",
+          message: `Tool '${target.tool}' of MCP server '${target.server}' was not discovered for this session.`,
+        };
+      if (!isEnabledIn(turnManifestOf(s), agentId, target.server, target.tool))
+        return {
+          kind: "failed",
+          code: "tool.disabled",
+          message: `Tool '${target.tool}' is disabled by its MCP server's tools settings.`,
+        };
+      return undefined;
+    }
     case "http":
-      return isHttpToolCall(s.manifest, request);
+      return isHttpToolCall(s.manifest, request) ? undefined : unrunnableTool(request);
     case "sandbox":
-      return (
-        sessionSandboxSpec(s) !== undefined &&
+      return sessionSandboxSpec(s) !== undefined &&
         request.toolName !== undefined &&
         isSandboxToolName(request.toolName)
-      );
+        ? undefined
+        : unrunnableTool(request);
     case "harness":
-      return true;
-    case "platform":
-      return isToolSearchCall(s.mcpSnapshot, request);
+      return undefined;
     default:
-      return false;
+      return unrunnableTool(request);
   }
 }
 
-/**
- * Runs a tool core serves (`tool_search`, R2b C10) for the run and records its outcome, as a
- * harness would record a call it ran: the run gets the outcome as the intent's answer.
- */
-async function runInCore(
-  scope: RecordScope,
-  request: HostEffect,
-  call: () => Promise<unknown>
-): Promise<IntentAnswer> {
-  // Core ran the call: its outcome is what core saw, not the harness's claim (R4.9).
-  const writer = coreIn(scope);
-  const core: RecordScope = { ctx: scope.ctx, lease: scope.lease, signal: scope.signal, ...(writer ? { writer } : {}) };
-  let value: unknown;
-  try {
-    value = await call();
-  } catch (error) {
-    if (isOwnershipLost(error)) throw error;
-    return recordOutcome(core, request.effectId, {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-  return recordOutcome(core, request.effectId, { value });
+interface ToolRefusal {
+  readonly kind: "failed";
+  readonly code: string;
+  readonly message: string;
 }
 
 /** Core's own write during the scope's run (R4.9): core saw it, in that run. */
@@ -403,21 +379,12 @@ async function bypolicy(
   return { status: "pending" };
 }
 
-/** The failed outcome of an MCP tool the turn's manifest disables (R2b C9). */
-function disabledTool(request: HostEffect) {
-  return {
-    kind: "failed",
-    code: "tool.disabled",
-    message: `Tool '${request.toolName ?? ""}' is disabled by its MCP server's tools settings.`,
-  };
-}
-
 /**
  * The failed outcome of a tool call the Runtime cannot run: one that names no target (an author's
  * code tool: the Runtime runs agents from their manifests alone), or one whose target the session
  * lacks (a sandbox call without a sandbox).
  */
-function unrunnableTool(request: HostEffect) {
+function unrunnableTool(request: HostEffect): ToolRefusal {
   if (request.target?.kind === "sandbox")
     return {
       kind: "failed",
@@ -480,20 +447,26 @@ export async function recordOutcome(
     });
   }
   // What a harness reports never carries the Runtime's own tokens into the record (R4).
-  const value = await shaped(scope, effectId, redactTokens(result.value));
+  const value = redactTokens(result.value);
   return ctx.store.tx(async (t) => {
     const s = await t.assertEpoch<Session>(lease.sessionId, lease.epoch);
     const effect = await t.get<StoredEffect>("effects", effectId);
     if (!effect) throw new HarnessApiError("invalid", `Effect ${effectId} was never journaled`);
-    // An entry of the record (S0): past the Tenant's `recordEntryBytes`, `limit_exceeded`.
-    checkEntry(`The outcome of effect ${effectId}`, value, (await readRuntimeLimits(t)).recordEntryBytes);
+    // An entry of the record (S0): past the Tenant's `recordEntryBytes`, `limit_exceeded`. The
+    // harness shapes what it reports to fit, storing the rest with `artifact.write`; the row
+    // stays as it was.
+    checkEntry(
+      `The outcome of effect ${effectId} (store the rest with artifact.write)`,
+      value,
+      (await readRuntimeLimits(t)).recordEntryBytes
+    );
     const { request } = effect;
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId || abortKind(signal) === "cancel")
       throw TURN_CANCELLED();
     if (request.kind === "tool") {
       // Settled already: a re-send after a lost hop collected what the first send recorded.
       if (effect.status === "completed") return { status: "completed" as const, outcome: effect.outcome! };
-      // What the call returned is the harness's claim, or, for a tool core ran, core's (R4.9).
+      // What the call returned is the harness's claim (R4.9).
       const outcome = await settleToolRow(t, s, effect, value, { writer: scope.writer });
       if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
       return { status: "completed" as const, outcome };
@@ -528,64 +501,6 @@ export async function recordOutcome(
       );
     return { status: "completed" as const, outcome: effect.outcome };
   });
-}
-
-/**
- * The outcome of an agent's remote MCP or HTTP tool call, shaped to fit before anything records
- * it (R2b C11, `tenant/tool-results.ts`): what does not fit becomes the session's artifacts. Any
- * other outcome, and one a cancel will discard, as it is. Only a cancel stops the upload: after a
- * shutdown or a deadline the outcome is still recorded, so the next advance replays it.
- *
- * Its cap is what its step's budget has left (`resultLimit`): a step's results are one transcript
- * entry. Parallel results are counted under the session lock, each reserving its share on its
- * row (`resultBytes`) before it is shaped, so two never spend the same room.
- */
-async function shaped(scope: RecordScope, effectId: string, value: unknown): Promise<unknown> {
-  const { ctx, lease, signal } = scope;
-  if (abortKind(signal) === "cancel" || !mayNeedShaping(value)) return value;
-  const call = await ctx.store.tx(async (t): Promise<ShapedCall | undefined> => {
-    const s = await t.lockSession<Session>(lease.sessionId);
-    const effect = await t.get<StoredEffect>("effects", effectId);
-    if (!s || !effect || effect.status === "completed") return undefined;
-    const request = effect.request as HostEffect;
-    // An agent's tool; a flow's HTTP stage or verifier names no tool, and its output is data.
-    if (request.kind !== "tool" || request.toolName === undefined) return undefined;
-    // What the call ran is its row's kind, from its target (protocol 15).
-    const mcp = effect.toolKind === "mcp";
-    if (!mcp && effect.toolKind !== "http") return undefined;
-    const step = stepOf(request);
-    let used = 0;
-    if (step !== undefined)
-      for (const other of await t.effectsForTurn<StoredEffect>(s.id, request.turnId, [
-        "invoking",
-        "completed",
-      ])) {
-        if (other.request.effectId === effectId || stepOf(other.request as HostEffect) !== step)
-          continue;
-        used +=
-          other.resultBytes ??
-          (other.status === "completed" ? resultBytes(other.outcome?.value) : 0);
-      }
-    const limits = await readRuntimeLimits(t);
-    const limit = resultLimit(used, stepResultsBudget(limits.recordEntryBytes));
-    effect.resultBytes = Math.min(resultBytes(value), limit);
-    await t.put("effects", effectId, effect);
-    return {
-      request,
-      session: { id: s.id, ownerUserId: s.ownerUserId },
-      mcp,
-      limit,
-      modelFileBytes: limits.modelFileBytes,
-    };
-  });
-  return call ? shapeToolOutcome(ctx, call, value, abortOn(signal, ["cancel"])) : value;
-}
-
-/** The model step a tool call answers, and whose agent: its results share one transcript entry. */
-function stepOf(request: HostEffect): string | undefined {
-  if (request.kind !== "tool") return undefined;
-  const stepId = (request.context as { stepId?: unknown } | undefined)?.stepId;
-  return typeof stepId === "string" ? JSON.stringify([request.agent?.id ?? null, stepId]) : undefined;
 }
 
 /** What a journal row keeps of a request: a model call without its prompt. */

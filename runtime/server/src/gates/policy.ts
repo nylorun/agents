@@ -10,11 +10,18 @@
  * (`deny`, then `ask`, then `allow`), and a call no rule matches runs. A session pinned to a
  * manifest saved before R5 step 2 keeps its `approval: "always"` as an ask: no session loses
  * the approval it was opened with. A policy that cannot be read refuses every call.
+ *
+ * A rule's `tool` matches the tool's identity (protocol 15): an MCP tool's own name on its
+ * server (`server` names the server), an HTTP tool's declared name, a flow stage's key. The name
+ * a harness gave the model never matches. A stored rule whose `tool` has `__` in it (an MCP tool
+ * named by its old model-facing `server__tool` name) makes the policy unreadable, so every call
+ * is refused until the policy names it by `server` and `tool`: a rule never silently stops
+ * matching.
  */
 import { ToolPolicySchema, type ToolInputCondition, type ToolPolicy, type ToolRule } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
-import { mcpToolOf, mcpToolSettingsIn, type McpSnapshot } from "../mcp/snapshot.js";
+import { mcpToolSettingsIn } from "../mcp/snapshot.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
 import type { Session } from "../tenant/context.js";
@@ -27,13 +34,18 @@ export const TOOL_POLICY_SETTING = "tool-policy";
 /** A call as the policy reads it. */
 export interface PolicyCall {
   readonly kind: "mcp" | "http";
-  /** The name the model calls the tool by; a flow stage's key. */
+  /**
+   * The tool's identity: an MCP tool's own name on its server, an HTTP tool's declared name, a
+   * flow stage's key.
+   */
   readonly tool: string;
   /** The MCP server's name. */
   readonly server?: string;
   /** The agent that calls it. */
   readonly agent: string;
   readonly input: unknown;
+  /** The name the model called it by, for display only: no rule matches it. */
+  readonly name?: string;
 }
 
 export type PolicyDecision =
@@ -42,11 +54,29 @@ export type PolicyDecision =
 
 const STRICTNESS = { allow: 0, ask: 1, deny: 2 } as const;
 
-/** The Tenant's policy; an empty one when none was set. Throws when it cannot be read. */
+/** A stored policy this Runtime cannot apply: every call is refused, with `message` as why. */
+export class ToolPolicyUnreadable extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ToolPolicyUnreadable";
+  }
+}
+
+/**
+ * The Tenant's policy; an empty one when none was set. Throws when it cannot be read, a
+ * `ToolPolicyUnreadable` saying which rule when one names an MCP tool by a model-facing name.
+ */
 export async function readToolPolicy(t: Pick<Tx, "getSetting">): Promise<ToolPolicy> {
   const raw = await t.getSetting(TOOL_POLICY_SETTING);
   if (raw === undefined) return { rules: [], updatedAt: null };
-  return ToolPolicySchema.parse(JSON.parse(raw));
+  const parsed = ToolPolicySchema.safeParse(JSON.parse(raw));
+  if (parsed.success) return parsed.data;
+  const issue = parsed.error.issues[0];
+  throw new ToolPolicyUnreadable(
+    issue?.path.at(-1) === "tool"
+      ? `Rule ${Number(issue.path[1]) + 1} of the Tenant's tool policy names a tool by a model-facing name: ${issue.message}. Set the policy again (PUT /v1/tenant/tool-policy)`
+      : `The Tenant's tool policy could not be read: ${issue?.message ?? "malformed"}`
+  );
 }
 
 /**
@@ -62,27 +92,41 @@ export async function toolCallDecision(
   let rules: readonly ToolRule[];
   try {
     rules = (await readToolPolicy(t)).rules;
-  } catch {
-    return { effect: "deny", reason: "The Tenant's tool policy could not be read, so no tool call runs" };
+  } catch (error) {
+    return {
+      effect: "deny",
+      reason:
+        error instanceof ToolPolicyUnreadable
+          ? `${error.message}, so no tool call runs`
+          : "The Tenant's tool policy could not be read, so no tool call runs",
+    };
   }
-  const mcp = mcpToolOf(s.mcpSnapshot, request);
-  return decide(
-    rules,
-    {
-      kind,
-      tool: request.toolName ?? request.key ?? request.effectId,
-      ...(mcp ? { server: mcp.serverName } : {}),
-      agent: request.agent?.id ?? s.agentId,
-      input: request.input,
-    },
-    pinnedApproval(turnManifestOf(s), s.mcpSnapshot, request),
-  );
+  return decide(rules, policyCallOf(s, request, kind), pinnedApproval(turnManifestOf(s), request));
+}
+
+/** `request` as the policy reads it: by its target's identity (protocol 15). */
+export function policyCallOf(s: Pick<Session, "agentId">, request: HostEffect, kind: "mcp" | "http"): PolicyCall {
+  const target = request.target;
+  return {
+    kind,
+    tool:
+      target?.kind === "mcp" || target?.kind === "http"
+        ? target.tool
+        : (request.key ?? request.effectId),
+    ...(target?.kind === "mcp" ? { server: target.server } : {}),
+    agent: request.agent?.id ?? s.agentId,
+    input: request.input,
+    ...(request.toolName === undefined ? {} : { name: request.toolName }),
+  };
 }
 
 /** Decides `call` by `rules`; `pinnedAsk` adds the ask of a manifest saved before R5 step 2. */
 export function decide(rules: readonly ToolRule[], call: PolicyCall, pinnedAsk = false): PolicyDecision {
   let strictest: { effect: "allow" | "ask" | "deny"; reason?: string } | undefined = pinnedAsk
-    ? { effect: "ask", reason: `The agent's manifest asks for approval of '${call.tool}'` }
+    ? {
+        effect: "ask",
+        reason: `The agent's manifest asks for approval of '${call.server === undefined ? call.tool : `${call.server} / ${call.tool}`}'`,
+      }
     : undefined;
   for (const rule of rules) {
     if (!matches(rule, call)) continue;
@@ -93,15 +137,17 @@ export function decide(rules: readonly ToolRule[], call: PolicyCall, pinnedAsk =
   return { effect: strictest.effect, reason: strictest.reason! };
 }
 
-/** The pinned `approval: "always"` of the call's tool, in a manifest saved before R5 step 2. */
-export function pinnedApproval(
-  manifest: AgentManifest,
-  snapshot: McpSnapshot | undefined,
-  request: HostEffect,
-): boolean {
-  const mcp = mcpToolOf(snapshot, request);
-  if (mcp) return mcpToolSettingsIn(manifest, mcp).approval === "always";
-  return declaredHttpTool(manifest, request.agent?.id, request.toolName)?.approval === "always";
+/**
+ * The pinned `approval: "always"` of the call's tool, in a manifest saved before R5 step 2: an
+ * MCP tool's settings by its own name, an HTTP tool's declaration by its declared name.
+ */
+export function pinnedApproval(manifest: AgentManifest, request: HostEffect): boolean {
+  const target = request.target;
+  if (target?.kind === "mcp")
+    return mcpToolSettingsIn(manifest, request.agent?.id, target.server, target.tool).approval === "always";
+  if (target?.kind === "http")
+    return declaredHttpTool(manifest, request.agent?.id, target.tool)?.approval === "always";
+  return false;
 }
 
 function matches(rule: ToolRule, call: PolicyCall): boolean {

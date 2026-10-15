@@ -85,11 +85,8 @@ it("reaches a localhost server on the Docker host in the local stack, and stream
   const port = await serveMcp();
   const connection = await open(`http://localhost:${port}/mcp`, { loopback: "docker-host" });
   try {
-    const listed = await listMcpTools(connection.client, {
-      serverName: "local",
-      taken: new Set(),
-    });
-    expect(listed.tools.map((tool) => tool.name)).toEqual(["local__echo"]);
+    const listed = await listMcpTools(connection.client, { serverName: "local" });
+    expect(listed.tools.map((tool) => tool.name)).toEqual(["echo"]);
     expect(await callMcpTool(connection.client, "echo", { text: "hi" }, { maxResultBytes: RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes })).toEqual({
       kind: "completed",
       output: "hi",
@@ -142,7 +139,7 @@ describe("a call that never reached its server (R2b C7)", () => {
   async function connected(host: string) {
     const port = await serveMcp();
     const connection = await open(`http://${host}:${port}/mcp`, {});
-    await listMcpTools(connection.client, { serverName: "local", taken: new Set() });
+    await listMcpTools(connection.client, { serverName: "local" });
     const server = servers.at(-1)!;
     server.closeAllConnections();
     await new Promise((resolve) => setTimeout(resolve, 50));

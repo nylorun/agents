@@ -294,11 +294,8 @@ it("gives an agent used as a tool its own MCP servers and the session's sandbox"
     await start(runtime, bot.manifest, { kind: "virtual" });
     const done = await until(runtime, ["completed", "failed", "uncertain"]);
     expect(done.status).toBe("completed");
-    expect(done.mcpSnapshot.mcpTools).toEqual([
-      expect.objectContaining({
-        agentId: "coder",
-        name: "local__echo",
-      }),
+    expect(done.mcpSnapshot.servers).toEqual([
+      expect.objectContaining({ agentId: "coder", name: "local", tools: [expect.objectContaining({ name: "echo" })] }),
     ]);
     // The root never saw the child's MCP tool; the child did.
     const rootTools = JSON.stringify(

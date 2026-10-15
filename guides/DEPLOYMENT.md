@@ -935,9 +935,9 @@ nylorun tenant mcp inspect https://mcp.linear.app/mcp --server linear --environm
 the URL (its headers and `via`, never an identity header), or with none when you name no
 Environment, lists the server's tools within 15 s, and calls none. So do
 `admin.mcp.preview({ url, environmentId })`, `POST /v1/tenant/mcp/preview` with
-`{ url, environmentId }` and **Preview tools** on an Environment's Secrets tab in Studio. It shows each tool's model name (as a manifest naming the server
-`--server` would give it), its hints and the size of its input schema, and the tools renamed for
-the model. A server that answers `401` needs a credential: the preview says so and shows the
+`{ url, environmentId }` and **Preview tools** on an Environment's Secrets tab in Studio. It shows each tool's model name (as our harness names it for a manifest
+naming the server `--server`; a custom harness names its own), its hints and the size of its
+input schema, the tools renamed for the model, and the server's instructions. A server that answers `401` needs a credential: the preview says so and shows the
 server's sign-in metadata (RFC 9728), so you know to add a key or reach it through a gateway. Use
 it to choose which tools to enable, and whether a server is large enough to defer.
 
@@ -965,18 +965,21 @@ Agent({ id: "triage" }).mcp({
 - **Approval.** Not a manifest setting: the Tenant's [tool policy](#tool-policy) decides which
   calls wait for a person.
 - **Deferred.** When an agent's MCP tools would take more than a tenth of the model's context
-  window, the Runtime leaves them out of the model's tool list and gives it `tool_search` and
+  window, our harness leaves them out of the model's tool list and gives it `tool_search` and
   `tool_call`, with a note naming each server. `deferred: true` or `false` on a tool, on `"*"` or
-  on the server decides instead. The choice is made once per session, so the tool list is the same
-  at every step.
-- **Names.** The model knows a tool as `server__tool`, with characters outside `[A-Za-z0-9_-]`
-  replaced by `_` (a dotted `issues.create` is `github__issues_create`). The server is still
-  called by its own name.
-- **Results.** A result past 32 KiB, and every image, audio or file part of one, becomes a file
-  artifact of the session, and the model gets a preview and the artifact's id. It reads on with
-  our harness's `read_artifact`, 32 KiB a call. These artifacts count toward the Tenant's artifact
+  on the server decides instead (a hint the session's harness follows). Our harness makes the
+  choice once per session, so the tool list is the same at every step, even after the Tenant's
+  model changes.
+- **Names.** Our harness gives the model a tool as `server__tool`, with characters outside
+  `[A-Za-z0-9_-]` replaced by `_` (a dotted `issues.create` is `github__issues_create`). The
+  server is still called by its own name, and the tool policy, approvals and the tool call log
+  name it by `server` and its own name.
+- **Results.** Our harness stores a result past 32 KiB, and every image, audio or file part of
+  one, as a file artifact of the session, and the model gets a preview and the artifact's id. It
+  reads on with `read_artifact`, 32 KiB a call. These artifacts count toward the Tenant's artifact
   limits (`PUT /v1/tenant/artifacts`). An answer past the Runtime limit `toolAnswerBytes`
-  (8 MiB by default, [Runtime limits](#runtime-limits)) is not kept.
+  (8 MiB by default, [Runtime limits](#runtime-limits)) is not kept, and the Runtime records no
+  outcome past `recordEntryBytes`.
 - **Secrets.** A credential value a server echoes back is replaced with `[redacted]` before the
   model, an event or the Tool Gate's record sees it.
 
@@ -1009,22 +1012,31 @@ policy: yours to set, with a management key, for every agent and every harness a
 curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/tool-policy" \
   -H "Authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "Content-Type: application/json" \
   -d '{"rules": [
-        {"effect": "ask", "tool": "github__create_issue", "reason": "A person files issues"},
+        {"effect": "ask", "server": "github", "tool": "create_issue", "reason": "A person files issues"},
         {"effect": "deny", "kind": "http", "tool": "refund_*", "when": {"amount": {"gt": 10000}}},
         {"effect": "ask", "agent": "triage", "server": "github"}
       ]}'
 ```
 
 `admin.toolPolicy.get()` and `.put({ rules })` do the same from `@nylorun/admin`. A rule matches
-a call when every selector it sets matches: `tool` (the name the model calls it by, such as
-`github__create_issue`; `*` matches any run of characters), `server` (an MCP server's name),
-`kind` (`mcp` or `http`), `agent` (the agent that calls it), and `when` (fields of the input by
-dotted path, each tested with `equals`, `in`, `gt`, `gte`, `lt`, `lte` or `matches`). The
-strictest rule that matches decides, whatever their order; a call no rule matches runs.
+a call when every selector it sets matches: `tool` (the tool's own name: an MCP tool's name on
+its server, such as `create_issue`, or an HTTP tool's declared name; `*` matches any run of
+characters), `server` (an MCP server's name), `kind` (`mcp` or `http`), `agent` (the agent that
+calls it), and `when` (fields of the input by dotted path, each tested with `equals`, `in`, `gt`,
+`gte`, `lt`, `lte` or `matches`). The strictest rule that matches decides, whatever their order;
+a call no rule matches runs.
+
+Name an MCP tool by `server` and `tool`, never by the name the model knows it by: a harness
+chooses that name, and the policy never matches it. A `tool` with `__` in it (a model-facing
+`server__tool` name) is refused with `400`. A policy stored before protocol 15 with such a rule
+fails closed: every MCP and HTTP tool call is denied with a reason naming the rule, and
+`GET /v1/tenant/tool-policy` answers `409 request_rejected`, until you `PUT` the policy again
+with `{"server": "github", "tool": "create_issue"}` in place of `{"tool": "github__create_issue"}`.
 
 - **`deny`**: the call is never sent; the model gets `tool.denied`, with the rule's `reason`.
-- **`ask`**: the turn pauses with the call's tool, input and reason (`turn.paused`, and
-  `GET /v1/sessions/{id}/calls/tool` shows it `held`). An `approve` command on the session sends
+- **`ask`**: the turn pauses with the call's tool (an MCP call's `server` and `tool`, shown as
+  `server / tool`), input and reason (`turn.paused`, and `GET /v1/sessions/{id}/calls/tool`
+  shows it `held`). An `approve` command on the session sends
   that exact call; a refusal fails it to the model as `tool.denied`, unsent. Nothing holds a
   process while it waits: an approval can come a day later, or after a Runtime restart. Studio
   shows an approval card on the session.

@@ -5,6 +5,8 @@ import {
   eventSummary,
   mergeStudioEvents,
   pluginLabel,
+  toolLabel,
+  toolName,
   toolTrace,
   toolTraceText,
 } from "../web/src/event-presentation.ts";
@@ -202,4 +204,30 @@ test("names the plugin that brought each discovered MCP server", () => {
     }),
     "docs (plugin acme-tools 1.2.0): 1 tool · own: 3 tools",
   );
+});
+
+test("names an MCP tool by its identity, server / tool, and the name the model called it by", () => {
+  assert.equal(
+    toolLabel({ toolName: "github__create_issue", kind: "mcp", server: "github", tool: "create_issue" }),
+    "Tool · github / create_issue (as github__create_issue)",
+  );
+  assert.equal(
+    toolLabel({ toolName: "create_issue", kind: "mcp", server: "github", tool: "create_issue" }),
+    "Tool · github / create_issue",
+  );
+  assert.equal(
+    eventSummary({
+      type: "tool.completed",
+      payload: { toolName: "docs__search", kind: "mcp", server: "docs", tool: "search", output: 1 },
+    }),
+    "Tool · docs / search (as docs__search) (MCP docs): 1",
+  );
+  // Without an identity, or for another kind, the model's name stands.
+  assert.equal(toolName({ toolName: "docs__search", kind: "mcp", server: "docs", tool: null }), "docs__search");
+  assert.equal(toolName({ toolName: "refund", kind: "http", server: "api.example.com", tool: "refund" }), "refund");
+});
+
+test("has no platform kind: tool_search runs in the harness", () => {
+  assert.deepEqual(toolTrace({ toolName: "tool_search", kind: "harness" }), { kind: "Harness" });
+  assert.deepEqual(toolTrace({ toolName: "old", kind: "platform" }), { kind: "platform" });
 });

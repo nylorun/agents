@@ -6,6 +6,12 @@
  * `effect.outcome` after, so a run that starts over replays what already happened instead of
  * doing it again. It declares no workspace and uses no MCP.
  *
+ * Each outcome it reports is one entry of the record, which refuses one past the Runtime limit
+ * `turn.start.limits.recordEntryBytes` (`limit_exceeded`). So a command whose output would not fit
+ * a share of that limit is stored whole as an artifact of the session (`artifact.write`, linked to
+ * the call), and the outcome reported instead says it was cut and carries the artifact's id,
+ * version and size with a preview: the output's head and tail.
+ *
  * What the model reads is the harness's to decide (protocol 15). The instructions are the agent's
  * own, then a one-line note on the sandbox when the session has one (`turn.start.environment`),
  * with its `bash` tool. Each file the turn's model reads (`turn.start.model`) goes as its media
@@ -51,6 +57,7 @@ import {
   type TranscriptEntry,
   type TurnOutput,
   type TurnStart,
+  writeArtifactBytes,
 } from "@nylorun/core/harness-api";
 import { isModelImage, modelInputOf } from "@nylorun/core/contracts";
 import { mediaReferenceOf } from "@nylorun/core/define";
@@ -70,8 +77,14 @@ export interface HarnessOptions {
 
 /** A model may take this many steps in one turn. */
 const MAX_STEPS = 16;
-/** The longest stdout or stderr a command returns; the middle of longer output is dropped. */
-const OUTPUT_LIMIT = 32 * 1024;
+/**
+ * A step's tool results are one transcript entry, held to `limits.recordEntryBytes` like each
+ * outcome: this harness gives them a quarter of it, shared by the step's calls (its own choice),
+ * which leaves room for the entry's envelope and the call ids.
+ */
+const STEP_SHARE_OF_RECORD_ENTRY = 4;
+/** The most characters each of a stored output's head and tail previewed (its own choice). */
+const PREVIEW_CHARS = 2 * 1024;
 
 /** The parts of an agent manifest (v7) this harness reads: the agent's id and instructions. */
 interface Manifest {
@@ -354,9 +367,14 @@ async function segment(
         });
         continue;
       }
+      const effectId = effectIdOf(turnId, segmentNo, "tool", `${step}:${toolCall.id}`);
+      // What one outcome may weigh: its share of the step's tool results.
+      const budget = Math.floor(
+        run.start.limits.recordEntryBytes / STEP_SHARE_OF_RECORD_ENTRY / calls.length,
+      );
       const tool = await journal(
         {
-          effectId: effectIdOf(turnId, segmentNo, "tool", `${step}:${toolCall.id}`),
+          effectId,
           kind: "tool",
           toolName: bash.name,
           // It runs the command in its own process: the record keeps it as the harness's.
@@ -364,7 +382,11 @@ async function segment(
           input: toolCall.args,
           context: { callId: toolCall.id, invocationId: `${stepId}:${toolCall.id}`, stepId },
         },
-        () => runBash(toolCall.args, run, options),
+        // Fitted before it is reported, so a replay answers the outcome as recorded.
+        async () => {
+          const ran = await runBash(toolCall.args, run, options);
+          return fitted(channel, run, { effectId, callId: toolCall.id }, ran, budget);
+        },
       );
       if (tool.status !== "completed") return suspended(runId, tool);
       results.push(toolResultOf(identity, tool.value));
@@ -487,12 +509,20 @@ function workdir(): string {
   return (scratch ??= mkdtempSync(join(tmpdir(), "harness-minimal-")));
 }
 
-/** Runs one `bash` call here, as the sandbox's `bash` tool answers: exit code, stdout, stderr. */
+/** A `bash` call's outcome: a command that ran, or one that could not start. */
+type BashOutcome =
+  | { kind: "completed"; output: { exitCode: number; stdout: string; stderr: string } }
+  | { kind: "failed"; code: string; message: string };
+
+/**
+ * Runs one `bash` call here, as the sandbox's `bash` tool answers: exit code, stdout, stderr.
+ * The output is kept whole; `fitted` decides what of it is reported.
+ */
 function runBash(
   args: Record<string, unknown>,
   run: Run,
   options: HarnessOptions,
-): Promise<unknown> {
+): Promise<BashOutcome> {
   const command = String(args.command ?? "");
   const timeoutS = typeof args.timeout === "number" ? args.timeout : 120;
   const env: Record<string, string> = {
@@ -530,16 +560,94 @@ function runBash(
       const note = timedOut ? `\nCommand timed out after ${timeoutS}s and was killed.` : "";
       resolve({
         kind: "completed",
-        output: { exitCode: code ?? 137, stdout: middle(stdout), stderr: middle(stderr) + note },
+        output: { exitCode: code ?? 137, stdout, stderr: stderr + note },
       });
     });
   });
 }
 
-const middle = (text: string) =>
-  text.length <= OUTPUT_LIMIT
+/** What a stored output's outcome says instead of the output. */
+interface StoredOutput {
+  readonly exitCode: number;
+  readonly truncated: true;
+  readonly note: string;
+  /** The artifact holding the whole output, stdout then stderr; absent if it was not stored. */
+  readonly artifactId?: string;
+  readonly version?: number;
+  /** The whole output's size in bytes. */
+  readonly size: number;
+  /** The output's head and tail, its middle dropped. */
+  readonly preview: string;
+}
+
+const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+
+/**
+ * The outcome to report for a `bash` call: as it ran when it fits `budget` bytes as JSON. Else
+ * the whole output is stored as an artifact of the session, keyed by the effect (a repeat stores
+ * nothing twice) and linked to it, and the outcome carries the artifact and a preview cut to fit.
+ */
+async function fitted(
+  channel: HarnessChannel,
+  run: Run,
+  call: { readonly effectId: string; readonly callId: string },
+  outcome: BashOutcome,
+  budget: number,
+): Promise<BashOutcome | { kind: "completed"; output: StoredOutput }> {
+  if (outcome.kind !== "completed" || jsonBytes(outcome) <= budget) return outcome;
+  const { exitCode, stdout, stderr } = outcome.output;
+  const text = stderr ? `${stdout}\n--- stderr ---\n${stderr}` : stdout;
+  const bytes = new TextEncoder().encode(text);
+  let stored: { artifactId: string; version: number } | undefined;
+  let note: string;
+  try {
+    const { artifact } = await writeArtifactBytes(
+      channel,
+      {
+        runId: run.grant.runId,
+        key: `bash:${call.effectId}`,
+        effectId: call.effectId,
+        name: `bash-${call.callId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 200)}.txt`,
+        contentType: "text/plain",
+        chunkBytes: run.start.limits.chunkBytes,
+        signal: run.controller.signal,
+      },
+      bytes,
+    );
+    stored = { artifactId: artifact.artifactId, version: artifact.version };
+    note =
+      `The output is ${bytes.byteLength} bytes, too long to show: it is saved whole (stdout, ` +
+      `then stderr) as artifact ${artifact.artifactId}, version ${artifact.version}. Only its ` +
+      `head and tail are shown.`;
+  } catch (error) {
+    if (run.controller.signal.aborted) throw error;
+    note =
+      `The output is ${bytes.byteLength} bytes, too long to show, and could not be saved ` +
+      `(${messageOf(error)}). Only its head and tail are shown.`;
+  }
+  // The preview starts at PREVIEW_CHARS each side, or less for a small budget, and halves until
+  // the outcome fits (escapes and multibyte characters weigh more than one byte).
+  let chars = Math.min(PREVIEW_CHARS, Math.floor(budget / 8));
+  for (;; chars = Math.floor(chars / 2)) {
+    const output: StoredOutput = {
+      exitCode,
+      truncated: true,
+      note,
+      ...stored,
+      size: bytes.byteLength,
+      preview: middle(text, chars),
+    };
+    const reported = { kind: "completed" as const, output };
+    if (chars === 0 || jsonBytes(reported) <= budget) return reported;
+  }
+}
+
+/** `text` with at most `chars` characters each of its head and tail, the rest dropped. */
+const middle = (text: string, chars: number) =>
+  text.length <= 2 * chars
     ? text
-    : `${text.slice(0, OUTPUT_LIMIT / 2)}\n… [${text.length - OUTPUT_LIMIT} characters omitted] …\n${text.slice(-OUTPUT_LIMIT / 2)}`;
+    : `${text.slice(0, chars)}\n… [${text.length - 2 * chars} characters omitted] …\n` +
+      (chars > 0 ? text.slice(-chars) : "");
 
 /** A tool outcome as the model sees it next. */
 function toolResultOf(identity: { callId: string; toolName: string }, value: unknown): ToolResult {

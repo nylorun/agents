@@ -10,7 +10,9 @@ import type { AgentRef, ModelAdapter } from "@nylorun/core/define";
 import type { DelegationHost } from "../loop/delegation.js";
 import type { AgentDefinition } from "../definition/agent-definition.js";
 import { AgentManifestSchema } from "@nylorun/core/contracts";
-import { TOOL_CALL_TOOL, agentFrom, withHttpTarget } from "@nylorun/core/define";
+import { agentFrom, withHttpTarget } from "@nylorun/core/define";
+import { TOOL_CALL_TOOL } from "../tools/tool-search.js";
+import type { McpToolSet } from "../tools/mcp.js";
 import { definitionFor } from "../definition/agent-definition.js";
 import { schemaFromJSON } from "@nylorun/core/define";
 import { hashManifest } from "@nylorun/core/define";
@@ -51,9 +53,10 @@ export interface HostEffect {
   /** The name the model called a tool by, for display; the record routes by `target`. */
   readonly toolName?: string;
   /**
-   * What runs a tool call (protocol 15): an `mcp` or `http` tool the agent declares, a `sandbox`
-   * operation, a `harness` tool (ours, run here) or `platform` (`tool_search`). An author's code
-   * tool has none: the record fails it to the model.
+   * What runs a tool call (protocol 15): an `mcp` tool by its identity (`server`, and `tool`, its
+   * name on the server), an `http` tool by its declared name, a `sandbox` operation, or a
+   * `harness` tool (ours, run here). An author's code tool has none: the record fails it to the
+   * model.
    */
   readonly target?: EffectTarget;
   /** The skill the call ran, which the record keeps when the agent has that skill. */
@@ -88,7 +91,10 @@ export type DurableResult =
       readonly checkpoint: DurableCheckpoint;
       readonly result: RunResult<unknown>;
     };
-/** Discovered tool advertised for this execution. It is not part of the hashed manifest. */
+/**
+ * A tool our engine adds to an agent for this execution (an MCP tool of the session, one of our
+ * engine's own). It is not part of the hashed manifest.
+ */
 export interface DurableSessionTool {
   /** The agent used as a tool that owns this tool; absent for the root agent. */
   readonly agentId?: string;
@@ -103,7 +109,7 @@ export interface DurableSessionTool {
   readonly deferred?: boolean;
   /** Text the model reads, after the engine's, while this tool is advertised. */
   readonly instructions?: readonly string[];
-  /** What runs its calls: their effects' `target` (an MCP tool's `mcp`, `tool_search`'s `platform`). */
+  /** What runs its calls: their effects' `target` (an MCP tool's identity, our engine's `harness`). */
   readonly target?: EffectTarget;
 }
 export function createDurableCheckpoint(input: {
@@ -137,11 +143,17 @@ export async function runDurable(options: {
   checkpoint: DurableCheckpoint;
   host: DurableHost;
   signal?: AbortSignal;
-  sessionTools?: readonly DurableSessionTool[];
+  /**
+   * The session's MCP tools as our engine offers them (`mcpToolSet`, from `turn.start.mcp`),
+   * after the agent's own and our engine's: every call an effect of the tool's identity. Their
+   * layout goes into the state the segment ends with (`mcpLayout`). Not hashed.
+   */
+  mcp?: McpToolSet;
   /**
    * What our engine adds to each agent of the tree (root and agents used as tools,
-   * `engineToolsFor`): its tools, offered after the agent's own and before the session's, and the
-   * text that goes with them, before the session tools' own. Run as host effects; not hashed.
+   * `engineToolsFor`): its tools, offered after the agent's own and before the session's MCP
+   * tools, and the text that goes with them, before the MCP tools' own. Run as host effects; not
+   * hashed.
    */
   engineTools?: (agent: AgentManifest) => EngineTools;
   /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
@@ -266,7 +278,7 @@ export async function runDurable(options: {
       },
     });
   };
-  const sessionTools = options.sessionTools ?? [];
+  const sessionTools = options.mcp?.tools ?? [];
   /** Rebuild one agent from its manifest with every tool routed through host effects. */
   const hostedDefinition = (agent: AgentManifest, ref?: AgentRef): AgentDefinition => {
     const hostedTool = hostedTools(agent, ref);
@@ -285,10 +297,13 @@ export async function runDurable(options: {
     for (const tool of agent.tools ?? [])
       if (tool.http)
         // A pinned `approval` stays for the definition's hash; the Tool Gate holds the call.
-        tools[tool.name] = withHttpTarget(hostedTool({ ...tool, target: HTTP }), {
-          http: tool.http,
-          ...(tool.approval === undefined ? {} : { approval: tool.approval }),
-        });
+        tools[tool.name] = withHttpTarget(
+          hostedTool({ ...tool, target: { kind: "http", tool: tool.name } }),
+          {
+            http: tool.http,
+            ...(tool.approval === undefined ? {} : { approval: tool.approval }),
+          },
+        );
       else if (!tool.agent) tools[tool.name] = hostedTool(tool);
     // Our engine's own tools and the session's run as host effects too.
     for (const tool of owned)
@@ -355,9 +370,11 @@ export async function runDurable(options: {
       execute(
         hosted,
         {
-          state:
+          state: withLayout(
             checkpoint.state ??
-            initializeExecutionState(hosted, { executionId: checkpoint.sessionId }),
+              initializeExecutionState(hosted, { executionId: checkpoint.sessionId }),
+            options.mcp,
+          ),
           input: checkpoint.input,
           info: checkpoint.info,
           signal: options.signal,
@@ -381,7 +398,12 @@ export async function runDurable(options: {
   }
 }
 
-const HTTP: EffectTarget = Object.freeze({ kind: "http" });
+/** The state with the MCP tools' layout our engine follows (`mcpLayout`), when it has MCP tools. */
+function withLayout(state: ExecutionState, mcp: McpToolSet | undefined): ExecutionState {
+  if (mcp === undefined) return state;
+  const { factsHash, deferred } = mcp.layout;
+  return { ...state, mcpLayout: { factsHash, deferred: [...deferred] } };
+}
 
 /** What a tool effect names beside its input: the tool, what runs it, its skill and its agent. */
 function identityOf(
@@ -411,9 +433,9 @@ type HostedTool = (tool: DurableSessionTool) => {
 /**
  * `tool_call` (R2b C10): runs a deferred tool by name, as that tool's own call. It checks the
  * arguments against the tool's `inputSchema` first, so a mistake comes back to the model as a
- * failed result it can fix. The effect then names the tool, so the host routes it, shapes its
- * result and records `tool.completed` as for a direct call, and the Tool Gate holds it as it
- * would a direct call.
+ * failed result it can fix. The effect then names the tool and its identity (`target`), so the
+ * record routes it and records `tool.completed` as for a direct call, the host shapes its result,
+ * and the Tool Gate holds it as it would a direct call.
  */
 function deferredToolCall(
   tool: DurableSessionTool,

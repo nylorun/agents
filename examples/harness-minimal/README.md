@@ -13,7 +13,7 @@ The harness says `hello` with its harness id, `minimal` (or `HARNESS_ID`), and n
 1. `lease` hands it a run: the run token (`RunGrant.token`) and the turn (`TurnStart`). It renews the lease every `renewEveryMs` from the `hello` answer, and takes a new run token when a renewal brings one.
 2. `transcript.read`, once: the session's transcript so far.
 3. It builds the prompt from the agent's `instructions`, then a one-line note of its own on the sandbox when the session has one (`turn.start.environment.sandbox`, with its `workspace`), the transcript and the turn's message, and calls the Model Gate (`POST $NYLORUN_GATES_URL/nylorun/v1/model-calls`) with `Authorization: Bearer <run token>` and `Idempotency-Key: <effect id>`. The model is offered one tool, its own `bash`, only then. How a message's files reach the model is the harness's to decide: it sends each file the turn's model reads natively (`turn.start.model.inputs`; text and images without a descriptor) as its media part, which the gate fetches, and a line `[File "name" (type) not shown]` for the rest, text files included, since it reads none in. The gate refuses a part the model cannot take (`unsupported_input`).
-4. When the model calls `bash`, the harness runs the command itself with `bash -c`, in `/workspace` when it exists, journaled as a `harness` call (`target: {kind: "harness"}`): it runs in the harness's own process, so the record keeps it as the harness's.
+4. When the model calls `bash`, the harness runs the command itself with `bash -c`, in `/workspace` when it exists, journaled as a `harness` call (`target: {kind: "harness"}`): it runs in the harness's own process, so the record keeps it as the harness's. (A tool effect's `target` is one of `{kind: "mcp", server, tool}`, `{kind: "http", tool}`, `{kind: "sandbox"}` or `{kind: "harness"}`: what runs it, beside the name the model used.) The outcome it reports is one record entry, which the record refuses past `turn.start.limits.recordEntryBytes` (`limit_exceeded`): a step's results get a quarter of that limit, shared by its calls, and an output that does not fit is stored whole as an artifact of the session (`artifact.write`, keyed `bash:<effect id>` and linked to the call by `effectId`). The outcome then says it was cut and carries `{exitCode, truncated: true, note, artifactId, version, size, preview}`, the preview being the output's head and tail.
 5. It repeats until the model answers with text, then settles with `turn.completed`: the text as `output`, the transcript entries it added (`input`, `candidate`, `tool-results`, `final`) as edits, and `state: {steps}`, which core keeps and hands back with the next turn without reading it.
 
 Every model and tool call is an effect, journaled with `effect.intent` before it runs and `effect.outcome` after. Effect ids are built with `effectIdOf` from stable names, never from timing: `<turnId>:<segment>:model:<n>` and `<turnId>:<segment>:tool:<n>:<callId>`. A run that starts over (after a crash or a lost connection) asks for the same ids, so core answers what already happened (`completed`, with the recorded outcome) and nothing runs twice. A call core answers `uncertain` or `pending` ends the turn with `turn.waiting`. Core's `cancel` aborts the run: the model call is cancelled at the gate, a running command is killed, and the turn ends with `turn.failed` and status `cancelled`. A shutdown gives the run back with `lease.release`.
@@ -104,6 +104,61 @@ const opened = await readArtifact(channel, { runId: run.runId, artifactId: saved
 for await (const chunk of opened.chunks()) process.stdout.write(chunk);
 ```
 
+Keep every outcome you report under `turn.start.limits.recordEntryBytes`, and a step's results too, since they are one transcript entry: store a large result with `artifact.write` as above and report a preview, as this harness does for `bash`.
+
+## MCP tools
+
+This harness offers no MCP tools, but a harness of your own may offer the session's remote MCP servers. `turn.start.mcp` lists them as facts: each server's `name` (and `agentId` for an agent used as a tool), `instructions`, and its `tools`, each with `name`, `description`, `inputSchema`, `enabled` and `deferred`. Name the tools for the model yourself, within 64 characters, and skip a tool that is not `enabled`: the record refuses its calls (`tool.disabled`). `deferred` is a hint: offer the tool later, behind a search of your own, or now.
+
+```ts
+import { TOOL_CALLS_PATH, type ModelCallTool, type ToolCallBody } from "@nylorun/core/harness-api";
+
+type McpTool = { agentId?: string; server: string; tool: string };
+const mcpTools = new Map<string, McpTool>(); // the model's name -> the tool's identity
+const tools: ModelCallTool[] = [];
+for (const server of run.start.mcp?.servers ?? [])
+  for (const tool of server.tools) {
+    if (!tool.enabled) continue;
+    const name = `${server.name}__${tool.name}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+    if (mcpTools.has(name)) continue; // or make the name unique your own way
+    mcpTools.set(name, { ...(server.agentId ? { agentId: server.agentId } : {}), server: server.name, tool: tool.name });
+    tools.push({ name, description: tool.description ?? "", inputSchema: tool.inputSchema });
+  }
+```
+
+When the model calls one, journal it with its identity as the target (the raw tool name from the facts, not the model's), and when core answers `execute`, call the Tool Gate with the run token, keyed by the effect id:
+
+```ts
+const mcp = mcpTools.get(toolCall.name)!;
+const effect = {
+  effectId,
+  kind: "tool",
+  toolName: toolCall.name,
+  target: { kind: "mcp", server: mcp.server, tool: mcp.tool },
+  input: toolCall.args,
+  context: { callId: toolCall.id, invocationId, stepId },
+};
+// ... effect.intent answered `execute`:
+const body: ToolCallBody = {
+  server: { ...(mcp.agentId ? { agentId: mcp.agentId } : {}), serverName: mcp.server },
+  effectId,
+  name: mcp.tool,
+  arguments: toolCall.args,
+};
+const response = await fetch(new URL(TOOL_CALLS_PATH, gatesUrl), {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "idempotency-key": effectId,
+    authorization: `Bearer ${run.grant.token}`,
+  },
+  body: JSON.stringify(body),
+});
+const answer = await response.json(); // {ok: true, result} or {ok: false, error}
+```
+
+The gate refuses an answer past `limits.toolAnswerBytes` (`mcp.too-large`, and `http.too-large` for an HTTP tool), and the answer it keeps may still be larger than a record entry holds: shape it to fit `limits.recordEntryBytes` before you report it with `effect.outcome`, spilling the rest with `artifact.write`.
+
 ## Tests
 
 ```sh
@@ -111,7 +166,7 @@ npm install
 npm test
 ```
 
-The unit tests run the loop against a fake core and a fake Model Gate: a text turn, a `bash` turn journaled intent first, a replay that runs nothing twice, and a cancel. In the Runtime's tests, [`example-harness.test.ts`](../../runtime/server/test/harness-api/example-harness.test.ts) runs it against a real Runtime over the WebSocket with its own token, beside our harness, on the fixture model: routing, metering, journaling, one run per turn, cancels, a restart mid-command, a tool the turn does not offer, a budget refusal and token redaction.
+The unit tests run the loop against a fake core and a fake Model Gate: a text turn, a `bash` turn journaled intent first, a replay that runs nothing twice, a `bash` output too large to report stored as an artifact with a preview reported instead, and a cancel. In the Runtime's tests, [`example-harness.test.ts`](../../runtime/server/test/harness-api/example-harness.test.ts) runs it against a real Runtime over the WebSocket with its own token, beside our harness, on the fixture model: routing, metering, journaling, one run per turn, cancels, a restart mid-command, a tool the turn does not offer, a budget refusal and token redaction.
 
 ## What it leaves out
 
@@ -119,7 +174,8 @@ This harness stays small. In this first version:
 
 - No workspace: it declares no `features.workspace` and serves no `workspace.*` requests, so the turn-end export of outputs and the session sandbox routes find no workspace.
 - No artifact tools: it offers no `read_artifact` or `save_artifact` (they are our harness's own since protocol 15). A harness reads and writes its run's artifacts over the artifact seam; see [Artifacts](#artifacts).
-- One tool: its own `bash`, with a sandbox. It offers no `read`, `write`, `edit`, `grep` or `glob`, no skill tools, no remote MCP servers, no HTTP tools and no agents used as tools. A tool it does not run is answered `tool.unknown` to the model.
+- One tool: its own `bash`, with a sandbox. It offers no `read`, `write`, `edit`, `grep` or `glob`, no skill tools, no remote MCP servers (see [MCP tools](#mcp-tools) for how yours would), no HTTP tools and no agents used as tools. A tool it does not run is answered `tool.unknown` to the model.
+- It holds a command's whole output in memory until it has stored or reported it.
 - No approvals or pauses, no flows, and no segment rollover: a turn that starts from an approval, a flow or a `continue` fails with `harness.unsupported`. A turn is at most 16 model steps.
 - One run at a time. As a container, every session's commands share one working directory.
 - No streaming: the Model Gate answers once a call has finished.

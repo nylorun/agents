@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   eventLabel,
   pluginLabel,
+  toolName,
   toolTrace,
   type StudioEvent,
 } from "@/event-presentation";
@@ -103,7 +104,7 @@ function ToolTraceSection({ payload }: Readonly<{ payload: unknown }>) {
       <h3 className="text-sm font-medium">Tool call</h3>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <span className="font-mono text-xs">
-          {typeof call.toolName === "string" ? call.toolName : "tool"}
+          {toolName(call)}
         </span>
         <ToolTraceBadges trace={trace} />
       </div>

@@ -18,7 +18,7 @@ import {
 } from "@nylorun/core/harness-api";
 import type { WorkflowManifest } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
-import { runDurable, type DurableCheckpoint, type DurableSessionTool } from "../run/durable.js";
+import { runDurable, type DurableCheckpoint } from "../run/durable.js";
 import { runFlowDurable } from "../flow/engine.js";
 import type { FlowCheckpoint } from "../flow/checkpoint.js";
 import type { FlowOperatorLimits } from "../flow/limits.js";
@@ -26,6 +26,7 @@ import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { apiHost, type EngineToolConfig } from "./host.js";
 import { engineToolsFor } from "../tools/engine-tools.js";
+import { mcpToolSet } from "../tools/mcp.js";
 import type { TranscriptCache } from "./transcript-cache.js";
 import type { FileContext } from "../loop/model/files.js";
 
@@ -63,16 +64,9 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
       const prepared = await ctx.executors.prepare(run, (params) =>
         ctx.channel.request("session.mcp", { runId, ...params }),
       );
-      if (prepared) {
-        start = {
-          ...start,
-          sessionTools: prepared.sessionTools,
-          routing: {
-            ...start.routing,
-            ...(prepared.mcpSnapshot === undefined ? {} : { mcpSnapshot: prepared.mcpSnapshot }),
-          },
-        };
-        // The executors route this run's MCP calls by the snapshot it now has.
+      if (prepared?.mcp) {
+        start = { ...start, mcp: prepared.mcp };
+        // The executors and our engine's tools read the run's facts as they now are.
         (run as { start: HarnessRun["start"] }).start = start;
       }
     }
@@ -92,7 +86,20 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
       transcript = ctx.cache.get(sessionId, cursor) ?? (await read(ctx, run));
       checkpoint = { ...checkpoint, state: withTranscript(checkpoint.state, transcript) };
     }
-    const host = apiHost(ctx.channel, ctx.executors, run, ctx.engine);
+    // The session's MCP tools as our engine offers them (protocol 15): named, and laid out as our
+    // state pinned them while the facts stay the same.
+    const engineTools = (agent: AgentManifest) =>
+      engineToolsFor(agent, start.environment, ctx.engine);
+    const mcp =
+      start.engine === "agent" && start.mcp
+        ? mcpToolSet(start.mcp, start.manifest as AgentManifest, {
+            config: ctx.engine.mcpTools,
+            ...(start.model ? { model: start.model } : {}),
+            ...(checkpoint.state?.mcpLayout ? { layout: checkpoint.state.mcpLayout } : {}),
+            taken: (agent) => engineTools(agent).tools.map((tool) => tool.name),
+          })
+        : undefined;
+    const host = apiHost(ctx.channel, ctx.executors, run, ctx.engine, mcp);
     const result: EngineResult =
       start.engine === "flow"
         ? await runFlowDurable({
@@ -107,9 +114,9 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             checkpoint,
             signal,
             host,
-            sessionTools: start.sessionTools as readonly DurableSessionTool[] | undefined,
+            ...(mcp ? { mcp } : {}),
             // Our engine's own tools and text, from the turn's facts (protocol 15).
-            engineTools: (agent) => engineToolsFor(agent, start.environment, ctx.engine),
+            engineTools,
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
             ...(start.model ? { model: start.model } : {}),
             files: filesOf(ctx, run, start),

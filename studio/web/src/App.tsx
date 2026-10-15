@@ -1197,6 +1197,8 @@ function SessionView({
                       <pre className="mt-2 overflow-auto whitespace-pre-wrap text-xs">
                         {pretty(payload.error ?? payload.output)}
                       </pre>
+                      {/* The artifacts the harness stored the result in (protocol 15). */}
+                      {referenceLinks.length ? <div className="mt-2">{referenceLinks}</div> : null}
                     </details>
                   );
                 if (

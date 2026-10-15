@@ -133,21 +133,24 @@ export function declaredFlowHttp(manifest: unknown, stage: string | undefined) {
  */
 export function isHttpToolCall(manifest: unknown, request: HostEffect): boolean {
   if (request.kind !== "tool") return false;
-  if (request.toolName === undefined) return declaredFlowHttp(manifest, request.key) !== undefined;
-  // An agent's call names what runs it (protocol 15): only an `http` call is an HTTP tool's.
-  return (
-    request.target?.kind === "http" &&
-    declaredHttpTool(manifest, request.agent?.id, request.toolName) !== undefined
-  );
+  // An agent's call names what runs it (protocol 15): an `http` call names its declared tool.
+  if (request.target?.kind === "http")
+    return declaredHttpTool(manifest, request.agent?.id, request.target.tool) !== undefined;
+  if (request.target === undefined && request.toolName === undefined)
+    return declaredFlowHttp(manifest, request.key) !== undefined;
+  return false;
 }
 
-/** The ref a `tool` effect calls the Tool Gate with: its agent's HTTP tool, or its flow stage. */
+/**
+ * The ref a `tool` effect calls the Tool Gate with: its agent's HTTP tool, by the declared name
+ * its target names, or its flow stage.
+ */
 export function httpToolRefOf(request: HostEffect): HttpToolRef {
-  if (request.toolName === undefined) return { sessionId: request.sessionId, stage: request.key! };
+  if (request.target?.kind !== "http") return { sessionId: request.sessionId, stage: request.key! };
   return {
     sessionId: request.sessionId,
     ...(request.agent ? { agentId: request.agent.id } : {}),
-    toolName: request.toolName,
+    toolName: request.target.tool,
   };
 }
 

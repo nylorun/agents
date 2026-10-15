@@ -184,10 +184,29 @@ describe("Harness API 4", () => {
     const tool = effect({ kind: "tool", toolName: "bash", effectId: "t1:0:tool:c1", input: {} });
     expect(EffectIntentSchema.safeParse(tool).success).toBe(true);
     expect(EffectIntentSchema.safeParse({ ...tool, capabilityId: "nylorun.sandbox" }).success).toBe(false);
-    for (const kind of ["mcp", "http", "sandbox", "harness", "platform"])
-      expect(EffectIntentSchema.safeParse({ ...tool, target: { kind } }).success, kind).toBe(true);
-    expect(EffectIntentSchema.safeParse({ ...tool, target: { kind: "code" } }).success).toBe(false);
-    expect(EffectIntentSchema.safeParse({ ...tool, target: { kind: "mcp", extra: 1 } }).success).toBe(false);
+    for (const target of [
+      { kind: "mcp", server: "github", tool: "create.issue" },
+      { kind: "http", tool: "fetch_page" },
+      { kind: "sandbox" },
+      { kind: "harness" },
+    ])
+      expect(EffectIntentSchema.safeParse({ ...tool, target }).success, target.kind).toBe(true);
+    // An MCP call names its tool's identity, an HTTP call its declared tool; `platform` is gone.
+    for (const target of [
+      { kind: "code" },
+      { kind: "platform" },
+      { kind: "mcp" },
+      { kind: "mcp", server: "github" },
+      { kind: "mcp", server: "", tool: "x" },
+      { kind: "http" },
+      { kind: "mcp", server: "github", tool: "x", extra: 1 },
+    ])
+      expect(EffectIntentSchema.safeParse({ ...tool, target }).success, JSON.stringify(target)).toBe(false);
+    // The identity is part of the request: a replay that names another tool is drift.
+    const mcp = { ...tool, target: { kind: "mcp", server: "github", tool: "a" } };
+    expect(effectRequestHash(mcp as never)).not.toBe(
+      effectRequestHash({ ...mcp, target: { kind: "mcp", server: "github", tool: "b" } } as never)
+    );
     const ran = { ...tool, target: { kind: "sandbox" }, skill: "pdf" };
     expect(EffectIntentSchema.safeParse(ran).success).toBe(true);
     expect(EffectIntentSchema.safeParse({ ...ran, skill: "" }).success).toBe(false);
@@ -288,6 +307,46 @@ describe("published contract (R4.5)", () => {
     expect(TurnEnvironmentSchema.safeParse({ ...environment, sandbox: { workspace: "work" } }).success).toBe(false);
   });
 
+  it("states the session's MCP discovery as facts on turn.start, raw names and enabled (protocol 15)", async () => {
+    const { TurnStartSchema, McpFactsSchema, McpSnapshotSchema, validateParams, validateResult } = await import(
+      "../src/harness-api/index.js"
+    );
+    const start = {
+      type: "turn.start",
+      engine: "agent",
+      manifest: {},
+      checkpoint: {},
+      outcomes: [],
+      transcript: { cursor: 0 },
+      options: { fixtureModel: false },
+      routing: { rootManifest: {} },
+      limits: RUNTIME_LIMIT_DEFAULTS,
+    };
+    const tool = { name: "read.v2", description: "Read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } };
+    const mcp = {
+      servers: [
+        { name: "files", instructions: "Read first.", tools: [{ ...tool, enabled: true }, { ...tool, name: "drop", enabled: false, deferred: true }] },
+        { agentId: "helper", name: "docs", tools: [] },
+      ],
+    };
+    expect(McpFactsSchema.safeParse(mcp).success).toBe(true);
+    expect(TurnStartSchema.safeParse({ ...start, mcp }).success).toBe(true);
+    // A fact says whether the turn leaves the tool enabled.
+    expect(McpFactsSchema.safeParse({ servers: [{ name: "files", tools: [tool] }] }).success).toBe(false);
+    // The model-facing tools and the snapshot no longer cross on turn.start.
+    expect(TurnStartSchema.safeParse({ ...start, sessionTools: [] }).success).toBe(false);
+    expect(
+      TurnStartSchema.safeParse({ ...start, routing: { rootManifest: {}, mcpSnapshot: { snapshotSchemaVersion: 2 } } }).success
+    ).toBe(false);
+    const snapshot = { snapshotSchemaVersion: 2, manifestHash: "h", servers: [{ name: "files", tools: [tool] }] };
+    expect(McpSnapshotSchema.safeParse(snapshot).success).toBe(true);
+    expect(McpSnapshotSchema.safeParse({ ...snapshot, snapshotSchemaVersion: 1 }).success).toBe(false);
+    expect(() => validateParams("session.mcp", { runId: "r", snapshot, diagnostics: [] })).not.toThrow();
+    expect(() => validateResult("session.mcp", { mcp })).not.toThrow();
+    expect(() => validateResult("session.mcp", {})).not.toThrow();
+    expect(() => validateResult("session.mcp", { snapshot, sessionTools: [] })).toThrow();
+  });
+
   it("checks gate bodies and the pod join with the published schemas", async () => {
     const { HostJoinRequestSchema, ModelCallBodySchema, ToolCallBodySchema } = await import(
       "../src/harness-api/index.js"
@@ -332,6 +391,10 @@ describe("published contract (R4.5)", () => {
       "ToolCallBody",
       "HttpCallBody",
       "McpSnapshot",
+      "McpFacts",
+      "McpServerFact",
+      "McpToolFact",
+      "session.mcp.result",
       "TranscriptEntry",
       "HostJoinRequest",
       "HostJoinAnswer",

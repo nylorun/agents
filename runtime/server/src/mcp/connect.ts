@@ -5,12 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerManifest } from "@nylorun/core/define";
 import type { JsonObject } from "@nylorun/core/define";
-import {
-  MCP_TOOL_DEFAULTS,
-  SERVER_INSTRUCTIONS_MAX_CHARS,
-  mcpToolSettings,
-  schemaFromJSON,
-} from "@nylorun/core/define";
+import { MCP_TOOL_DEFAULTS, mcpToolSettings } from "@nylorun/core/define";
 import { scrub, scrubValues } from "../redact.js";
 import {
   guardedFetch,
@@ -20,12 +15,7 @@ import {
 } from "../tenant/outbound.js";
 import { credentialSecrets } from "../vault/headers.js";
 import type { AuthorizeResult } from "../vault/service.js";
-import {
-  normalizeToolName,
-  type McpDiagnostic,
-  type McpRenamedTool,
-  type McpToolRecord,
-} from "./snapshot.js";
+import type { McpDiagnostic, McpToolRecord } from "./snapshot.js";
 
 /** How much of a failed answer's body the model sees. */
 export const MCP_ERROR_BODY_CHARS = 2_000;
@@ -97,7 +87,7 @@ export interface McpClient {
 
 export interface LiveConnection {
   readonly client: McpClient;
-  /** The server's instructions from `initialize`, cut (`serverInstructions`); absent when none. */
+  /** The server's instructions from `initialize`, scrubbed (`serverInstructions`); absent when none. */
   readonly instructions?: string;
   /**
    * The server's `serverInfo` from `initialize` (name, version, title), without a credential
@@ -393,36 +383,32 @@ export async function openMcpServer(input: {
 }
 
 /**
- * What a server's `initialize` said to do with its tools, for the note on its deferred tools
- * (R2b C10): cut to `SERVER_INSTRUCTIONS_MAX_CHARS`, without a credential value sent (C8).
+ * What a server's `initialize` said to do with its tools, as it said it, without a credential
+ * value sent (C8). The harness decides how much of it the model reads.
  */
 export function serverInstructions(text: unknown, secrets: readonly string[]): string | undefined {
   if (typeof text !== "string" || text.trim().length === 0) return undefined;
-  return scrubValues(text.trim().slice(0, SERVER_INSTRUCTIONS_MAX_CHARS), secrets).value;
+  return scrubValues(text.trim(), secrets).value;
 }
 
 /**
- * Lists a server's tools under the names the model knows them by (R2b C6): `server__tool` where
- * that is a name every provider accepts, else `normalizeToolName`'s, listed in `renamed`. A name
- * taken by a declared tool or an earlier server's tool omits the tool; a renamed tool that
- * collides gets the hash suffix first.
+ * Lists a server's tools as it names them (protocol 15): every tool whose input schema is a JSON
+ * object, the ones its `tools` settings disable included, since a turn's manifest decides
+ * `enabled` (`mcpFactsOf`). The harness names them for the model. A tool with no input schema
+ * object is in `omitted`; `disabled` counts the tools the declaration's settings disable, and
+ * `unknownTools` the settings' keys that name no listed tool.
  */
 export async function listMcpTools(
   client: McpClient,
   input: {
     serverName: string;
-    taken: Set<string>;
     signal?: AbortSignal;
-    /**
-     * The server's declaration: a tool its `tools` settings disable is left out before it takes
-     * a name (R2b C9), and a key that names no listed tool is in `unknownTools`.
-     */
+    /** The server's declaration, whose `tools` settings the diagnostics count against. */
     server?: McpServerManifest;
   },
 ): Promise<{
   tools: McpToolRecord[];
   omitted: string[];
-  renamed: McpRenamedTool[];
   disabled: number;
   unknownTools: string[];
 }> {
@@ -445,62 +431,30 @@ export async function listMcpTools(
   );
   let disabled = 0;
   const omitted: string[] = [];
-  const candidates: { tool: McpToolPage["tools"][number]; inputSchema: JsonObject }[] = [];
-  for (const tool of listed) {
-    if (typeof tool.name !== "string" || tool.name.length === 0) continue;
-    if (server && !mcpToolSettings(server, tool.name).enabled) {
-      disabled += 1;
-      continue;
-    }
-    const inputSchema = usableSchema(tool.inputSchema);
-    if (inputSchema) candidates.push({ tool, inputSchema });
-    else omitted.push(normalizeToolName(input.serverName, tool.name));
-  }
-  // Names that need no change first, so a renamed tool never takes the name of another of the
-  // server's tools.
-  const names = new Map<(typeof candidates)[number], string>();
-  const renamed: McpRenamedTool[] = [];
-  for (const candidate of candidates) {
-    const name = normalizeToolName(input.serverName, candidate.tool.name);
-    if (name !== `${input.serverName}__${candidate.tool.name}`) continue;
-    if (input.taken.has(name)) omitted.push(name);
-    else {
-      input.taken.add(name);
-      names.set(candidate, name);
-    }
-  }
-  for (const candidate of candidates) {
-    const raw = `${input.serverName}__${candidate.tool.name}`;
-    let name = normalizeToolName(input.serverName, candidate.tool.name);
-    if (name === raw) continue;
-    if (input.taken.has(name))
-      name = normalizeToolName(input.serverName, candidate.tool.name, { suffixed: true });
-    if (input.taken.has(name)) {
-      omitted.push(name);
-      continue;
-    }
-    input.taken.add(name);
-    names.set(candidate, name);
-    renamed.push({ serverToolName: candidate.tool.name, name });
-  }
   const tools: McpToolRecord[] = [];
-  for (const candidate of candidates) {
-    const name = names.get(candidate);
-    if (name === undefined) continue;
-    const { tool, inputSchema } = candidate;
-    const outputSchema = tool.outputSchema ? usableSchema(tool.outputSchema) : undefined;
+  const seen = new Set<string>();
+  for (const tool of listed) {
+    if (typeof tool.name !== "string" || tool.name.length === 0 || seen.has(tool.name)) continue;
+    seen.add(tool.name);
+    if (server && !mcpToolSettings(server, tool.name).enabled) disabled += 1;
+    const inputSchema = jsonObjectOf(tool.inputSchema);
+    if (!inputSchema) {
+      omitted.push(tool.name);
+      continue;
+    }
+    const outputSchema = jsonObjectOf(tool.outputSchema);
+    const annotations = jsonObjectOf(tool.annotations);
     tools.push({
-      serverName: input.serverName,
-      serverToolName: tool.name,
-      name,
+      name: tool.name,
       ...(typeof tool.description === "string" && tool.description.length > 0
         ? { description: tool.description }
         : {}),
       inputSchema,
       ...(outputSchema === undefined ? {} : { outputSchema }),
+      ...(annotations === undefined || Object.keys(annotations).length === 0 ? {} : { annotations }),
     });
   }
-  return { tools, omitted, renamed, disabled, unknownTools };
+  return { tools, omitted, disabled, unknownTools };
 }
 
 /**
@@ -550,8 +504,8 @@ export async function callMcpTool(
   }
   if ("structuredContent" in result && result.structuredContent !== undefined)
     return { kind: "completed", output: result.structuredContent, ...redacted };
-  // Text alone is the text. With an image, audio or a resource in it, every part stays, and core
-  // stores the bytes as artifacts before anything records them (R2b C11, `tenant/tool-results.ts`).
+  // Text alone is the text. With an image, audio or a resource in it, every part stays, and the
+  // harness stores the bytes as artifacts before it reports the outcome (R2b C11).
   const text =
     "content" in result && onlyText(result.content) ? textContent(result.content) : undefined;
   if (text !== undefined) return { kind: "completed", output: text, ...redacted };
@@ -865,15 +819,10 @@ function sameOrigin(requestUrl: string, serverUrl: string): boolean {
   }
 }
 
-function usableSchema(value: unknown): JsonObject | undefined {
+/** `value` as a JSON object (a copy), or undefined when it is not one. */
+function jsonObjectOf(value: unknown): JsonObject | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const schema = JSON.parse(JSON.stringify(value)) as JsonObject;
-  try {
-    schemaFromJSON(schema);
-  } catch {
-    return undefined;
-  }
-  return schema;
+  return JSON.parse(JSON.stringify(value)) as JsonObject;
 }
 
 function textContent(content: unknown): string | undefined {
