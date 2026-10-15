@@ -170,10 +170,10 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
       const address = studio.address();
       assert.ok(address && typeof address === "object");
       const base = `http://127.0.0.1:${address.port}/_studio/runtime`;
-      const send = (method: string, path: string, body?: unknown, from = origin) =>
+      const send = (method: string, path: string, body?: unknown, from = origin, extra: Record<string, string> = {}) =>
         fetch(base + path, {
           method,
-          headers: { origin: from, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+          headers: { origin: from, ...extra, ...(body === undefined ? {} : { "content-type": "application/json" }) },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
       try {
@@ -188,6 +188,10 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
         assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild/versions/2")).status, 200);
         assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild/secrets/github")).status, 200);
         assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild")).status, 200);
+        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/fork", { requestId: "r", id: "team/next" })).status, 200);
+        const manifest = { requestId: "r", name: "analyst-box", kind: "virtual" };
+        assert.equal((await send("PUT", "/v1/environment-manifests/analyst-box?dryRun=true", manifest, origin, { "if-match": "2" })).status, 200);
+        assert.equal((await send("PUT", "/v1/environment-manifests/analyst-box", manifest, origin, { "if-match": "2" })).status, 200);
         for (const path of [
           "/v1/environments?limit=50&label=project%3Dbuild",
           "/v1/environments/team%2Fbuild",
@@ -195,6 +199,10 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
           "/v1/environments/team%2Fbuild/versions",
           "/v1/environments/team%2Fbuild/secrets",
           "/v1/environments/team%2Fbuild/secrets/github",
+          "/v1/environment-manifests",
+          "/v1/environment-manifests/analyst-box",
+          "/v1/environment-manifests/analyst-box/versions",
+          "/v1/environment-manifests/analyst-box/versions/2",
         ])
           assert.equal((await fetch(base + path)).status, 200, path);
         assert.deepEqual(
@@ -209,14 +217,24 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
             "DELETE /v1/environments/team%2Fbuild/versions/2",
             "DELETE /v1/environments/team%2Fbuild/secrets/github",
             "DELETE /v1/environments/team%2Fbuild",
+            "POST /v1/environments/team%2Fbuild/fork",
+            "PUT /v1/environment-manifests/analyst-box?dryRun=true",
+            "PUT /v1/environment-manifests/analyst-box",
             "GET /v1/environments?limit=50&label=project%3Dbuild",
             "GET /v1/environments/team%2Fbuild",
             "GET /v1/environments/team%2Fbuild/events?from=2",
             "GET /v1/environments/team%2Fbuild/versions",
             "GET /v1/environments/team%2Fbuild/secrets",
             "GET /v1/environments/team%2Fbuild/secrets/github",
+            "GET /v1/environment-manifests",
+            "GET /v1/environment-manifests/analyst-box",
+            "GET /v1/environment-manifests/analyst-box/versions",
+            "GET /v1/environment-manifests/analyst-box/versions/2",
           ],
         );
+        // A manifest save names the version it was made over.
+        assert.equal(seen[10]!.headers["if-match"], "2");
+        assert.equal(seen[11]!.headers["if-match"], "2");
         // The owner guard is the operator's: an Environment write is not a session's owner.
         assert.deepEqual(JSON.parse(seen[0]!.body), recipe);
         assert.deepEqual(JSON.parse(seen[1]!.body), secret);
@@ -230,6 +248,8 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
         assert.equal((await send("PUT", "/v1/environments/a", { kind: "virtual" }, "https://evil.example")).status, 403);
         assert.equal((await send("DELETE", "/v1/environments/a", undefined, "https://evil.example")).status, 403);
         assert.equal((await send("POST", "/v1/environments/a/restore", { version: 1 }, "https://evil.example")).status, 403);
+        assert.equal((await send("POST", "/v1/environments/a/fork", { id: "b" }, "https://evil.example")).status, 403);
+        assert.equal((await send("PUT", "/v1/environment-manifests/m", { name: "m" }, "https://evil.example")).status, 403);
         // Nothing else under an Environment, and no protocol-10 sandbox or vault route.
         for (const [method, path] of [
           ["POST", "/v1/environments/a"],
@@ -240,6 +260,10 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
           ["DELETE", "/v1/environments/a/versions"],
           ["DELETE", "/v1/environments/a/versions/latest"],
           ["POST", "/v1/environments/a/versions"],
+          // A manifest is saved, never deleted, from Studio.
+          ["DELETE", "/v1/environment-manifests/m"],
+          ["POST", "/v1/environment-manifests/m"],
+          ["GET", "/v1/environment-manifests/m/versions/latest"],
           ["GET", "/v1/sandboxes"],
           ["GET", "/v1/sandboxes/a"],
           ["GET", "/v1/tenant/vaults"],

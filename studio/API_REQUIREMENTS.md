@@ -23,7 +23,7 @@ and inspector link it to that Environment.
 
 | Studio view | Public API / SDK |
 | --- | --- |
-| Environment table and labels | `environments.page()` → `GET /v1/environments?limit=50&label=…&cursor=…` |
+| Environment table, sidebar groups, manifest and label filters | `environments.list()` → `GET /v1/environments` and `environments.manifests.list()` → `GET /v1/environment-manifests`, grouped and filtered in the browser as sessions are |
 | Environment metadata and manifest | `environments.get()` → `GET /v1/environments/{id}` |
 | New Environment, from inline fields or a manifest version | `environments.put(id, fields)` or `environments.put(id, { manifest: "name@n" })` → `PUT /v1/environments/{id}` |
 | Edit labels and owner | `environments.put(id, …)` → `PUT /v1/environments/{id}` (what it runs is unchanged) |

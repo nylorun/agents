@@ -66,7 +66,7 @@ async function withStudio(
   }
 }
 
-test("Environments work before agent registration: server paging, label navigation, an Environment's page, its secrets, events and sessions", async () => {
+test("Environments work before agent registration: grouped by manifest, label navigation, an Environment's page, its secrets, events and sessions", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
     // No agent is registered; the session list still lists the Tenant's sessions.
@@ -77,16 +77,41 @@ test("Environments work before agent registration: server paging, label navigati
     assert.equal(await page.getByRole("link", { name: "Credentials", exact: true }).count(), 0);
     await page.getByRole("link", { name: "Environments", exact: true }).click();
     await page.getByRole("link", { name: ENVIRONMENT, exact: true }).waitFor();
-    await page.getByRole("button", { name: "Load more Environments" }).click();
     await page.getByRole("link", { name: "z-last", exact: true }).waitFor();
-    assert.ok(
-      requests.some((r) => r.path === "/v1/environments?limit=50&cursor=page2"),
-    );
+    // The whole list, as the session list: no pages to load.
+    assert.ok(requests.some((r) => r.path === "/v1/environments"));
+    assert.equal(requests.filter((r) => r.path.startsWith("/v1/environments?")).length, 0);
+    // The sidebar groups them by manifest, as Sessions does by agent.
+    const sidebar = page.locator("[data-sidebar=sidebar]");
+    await sidebar.getByRole("link", { name: "analyst-box 1" }).click();
+    await page.waitForURL(/\/environments\?manifest=analyst-box$/);
+    await page.getByText("1 total", { exact: true }).waitFor();
+    await page.getByRole("link", { name: ENVIRONMENT, exact: true }).waitFor({ state: "detached" });
+    // The manifest's latest version, and its JSON in a side panel.
+    await page.getByRole("button", { name: "View manifest" }).click();
+    const panel = page.getByRole("dialog", { name: "analyst-box v3" });
+    await panel.getByText('"kind": "virtual"', { exact: false }).waitFor();
+    await page.keyboard.press("Escape");
+    await panel.waitFor({ state: "hidden" });
+    // The menu filters to inline fields, then back to every manifest.
+    await page.getByRole("button", { name: "Filter by manifest" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Inline fields 1" }).click();
+    await page.waitForURL(/\/environments\?manifest=-$/);
+    await page.getByRole("link", { name: ENVIRONMENT, exact: true }).waitFor();
+    await page.getByRole("link", { name: "z-last", exact: true }).waitFor({ state: "detached" });
+    await page.getByRole("button", { name: "Filter by manifest" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "All manifests 2" }).click();
+    await page.waitForURL((url) => url.pathname.endsWith("/environments") && url.search === "");
+    // A label in the table filters on it; its chip removes it.
     await page
-      .getByRole("textbox", { name: "Environment labels" })
-      .fill("project=build");
-    await page.getByRole("button", { name: "Apply labels" }).click();
+      .getByRole("row", { name: new RegExp(ENVIRONMENT) })
+      .getByRole("button", { name: "project=build" })
+      .click();
     await page.waitForURL(/label=project%3Dbuild/);
+    await page.getByRole("link", { name: "z-last", exact: true }).waitFor({ state: "detached" });
+    await page.getByRole("button", { name: "Remove label filter project=build" }).click();
+    await page.getByRole("link", { name: "z-last", exact: true }).waitFor();
+    await page.goto(base + "/environments?label=project%3Dbuild");
     await page.getByRole("link", { name: ENVIRONMENT, exact: true }).click();
     await page.waitForURL(/\/environments\/team%2Fbuild$/);
     await page.getByRole("heading", { name: ENVIRONMENT, exact: true }).waitFor();
@@ -158,11 +183,23 @@ test("a session's Environment tab shows where it runs: the version it opened on,
   });
 });
 
-test("an Environment is created from the form, its labels and owner edited, and it is deleted", async () => {
+test("an Environment is created from a manifest and from the form, its labels and owner edited, and it is deleted", async () => {
   await withStudio(
     async (page, base, requests) => {
+      // Filtered to a manifest, New Environment makes one from its latest version.
+      await page.goto(base + "/environments?manifest=analyst-box");
+      await page.getByRole("button", { name: "New Environment" }).click();
+      const pinned = page.getByRole("dialog", { name: "New Environment from analyst-box v3" });
+      await pinned.getByRole("textbox", { name: "Environment id" }).fill("data/one");
+      await pinned.getByRole("button", { name: "Create Environment" }).click();
+      await page.waitForURL(/\/environments\/data%2Fone$/);
+      const made = requests.find((r) => r.method === "PUT" && r.path === "/v1/environments/data%2Fone");
+      assert.equal((made?.body as { manifest?: string } | undefined)?.manifest, "analyst-box@3");
+
+      // Unfiltered, it asks which manifest, or inline fields.
       await page.goto(base + "/environments");
       await page.getByRole("button", { name: "New Environment" }).click();
+      await page.getByRole("menuitem", { name: "From inline fields" }).click();
       const sheet = page.getByRole("dialog", { name: "New Environment" });
       await sheet.getByRole("textbox", { name: "ID", exact: true }).fill("users/alice/web");
       await sheet.getByRole("combobox", { name: "Kind" }).selectOption("virtual");

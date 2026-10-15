@@ -1,9 +1,13 @@
-import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import type { EnvironmentManifestPlan, EnvironmentManifestView } from "@nylorun/agents";
-import { Plus } from "lucide-react";
+import type {
+  EnvironmentManifestPlan,
+  EnvironmentManifestView,
+  EnvironmentView,
+} from "@nylorun/agents";
+import { Check, Copy, FileJson } from "lucide-react";
 import { createTenantClient } from "@/proxy-client";
-import { messageOf, useRead } from "@/resources/reads";
+import { messageOf } from "@/resources/reads";
 import { isEnvironmentIdText } from "@/environment-form";
 import { environmentPath } from "@/environment-path";
 import { Button } from "@/components/ui/button";
@@ -17,15 +21,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ReadState } from "@/components/resource-layout";
 import { date } from "@/components/environments";
 
 const STARTER = `{
@@ -52,7 +47,7 @@ function parsed(text: string): Record<string, unknown> {
  * Saves an environment manifest's next version (D63), from any client with a credential that
  * may write Environments (Q12). Check shows the plan; a save changes no Environment.
  */
-function ManifestSheet({
+export function ManifestSheet({
   tenantId,
   from,
   onClose,
@@ -159,14 +154,16 @@ function ManifestSheet({
 }
 
 /** Makes an Environment from a manifest version (`PUT /v1/environments/{id}` with `manifest`). */
-function NewFromManifest({
+export function NewFromManifest({
   tenantId,
   manifest,
   onClose,
+  onCreated,
 }: {
   tenantId: string;
   manifest: EnvironmentManifestView;
   onClose: () => void;
+  onCreated?: (environment: EnvironmentView) => void;
 }) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
   const navigate = useNavigate();
@@ -181,6 +178,7 @@ function NewFromManifest({
     setPending(true);
     try {
       const made = await sdk.environments.put(next, { manifest: `${manifest.name}@${manifest.version}` });
+      onCreated?.(made);
       navigate(environmentPath(made.id));
     } catch (cause) {
       setError(messageOf(cause));
@@ -220,98 +218,96 @@ function NewFromManifest({
   );
 }
 
-/** The Tenant's environment manifests: each one's latest version, a JSON view, and saving. */
-export function EnvironmentManifests({ tenantId }: { tenantId: string }) {
-  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
-  const load = useCallback((signal: AbortSignal) => sdk.environments.manifests.list({ signal }), [sdk]);
-  const read = useRead(load);
-  const [editing, setEditing] = useState<EnvironmentManifestView | "new" | undefined>();
-  const [making, setMaking] = useState<EnvironmentManifestView | undefined>();
-  const [open, setOpen] = useState<string | undefined>();
-  const manifests = read.data ?? [];
+/**
+ * The manifest the Environments list is filtered on, in one line: its latest version and who
+ * saved it, its JSON in a side panel (a manifest can be long), and saving its next version.
+ */
+export function ManifestBar({
+  manifest,
+  onNewVersion,
+}: {
+  manifest: EnvironmentManifestView;
+  onNewVersion: () => void;
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Environment manifests</h2>
-        <Button variant="outline" onClick={() => setEditing("new")}>
-          <Plus />
-          New manifest
+    <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b bg-muted/30 px-4 py-2 text-sm">
+      <FileJson className="size-4 shrink-0 text-muted-foreground" />
+      <span className="font-medium">{manifest.name}</span>
+      <span className="tabular-nums text-muted-foreground">v{manifest.version}</span>
+      <Badge variant="outline">{manifest.manifest.kind ?? "virtual"}</Badge>
+      <span className="text-xs text-muted-foreground">
+        Saved {date(manifest.createdAt)} by {manifest.savedBy.actor}
+      </span>
+      <div className="ml-auto flex gap-2">
+        <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+          View manifest
+        </Button>
+        <Button size="sm" variant="outline" onClick={onNewVersion}>
+          New version
         </Button>
       </div>
-      <p className="max-w-3xl text-sm text-muted-foreground">
-        A manifest defines a kind of Environment as JSON, versioned like an agent. Environments are
-        made from one version and never change; a new version reaches one through a fork.
-      </p>
-      {manifests.length ? (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead>Environments</TableHead>
-              <TableHead>Saved</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {manifests.map((manifest) => (
-              <TableRow key={manifest.name}>
-                <TableCell className="whitespace-normal break-all align-top">
-                  <button
-                    type="button"
-                    className="font-medium underline-offset-4 hover:underline"
-                    onClick={() => setOpen(open === manifest.name ? undefined : manifest.name)}
-                  >
-                    {manifest.name}
-                  </button>
-                  {open === manifest.name ? (
-                    <pre className="mt-2 max-w-xl whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
-                      {JSON.stringify(manifest.manifest, null, 2)}
-                    </pre>
-                  ) : null}
-                </TableCell>
-                <TableCell className="align-top">v{manifest.version}</TableCell>
-                <TableCell className="align-top">
-                  <Badge variant="outline">{manifest.manifest.kind ?? "virtual"}</Badge>
-                </TableCell>
-                <TableCell className="align-top">{manifest.environments}</TableCell>
-                <TableCell className="align-top text-xs">
-                  {date(manifest.createdAt)}
-                  <p className="text-muted-foreground">{manifest.savedBy.actor}</p>
-                </TableCell>
-                <TableCell className="align-top">
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setEditing(manifest)}>
-                      New version
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setMaking(manifest)}>
-                      New Environment
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      ) : null}
-      <ReadState
-        {...read}
-        onRetry={read.reload}
-        empty={manifests.length || read.pending ? undefined : "No environment manifests yet."}
-      />
-      {editing ? (
-        <ManifestSheet
-          tenantId={tenantId}
-          {...(editing === "new" ? {} : { from: editing })}
-          onClose={() => setEditing(undefined)}
-          onSaved={() => {
-            setEditing(undefined);
-            read.reload();
+      {open ? (
+        <ManifestPanel
+          manifest={manifest}
+          onClose={() => setOpen(false)}
+          onNewVersion={() => {
+            setOpen(false);
+            onNewVersion();
           }}
         />
       ) : null}
-      {making ? <NewFromManifest tenantId={tenantId} manifest={making} onClose={() => setMaking(undefined)} /> : null}
     </div>
+  );
+}
+
+/** A manifest version's JSON in a side panel, read only, to copy or to save a next version from. */
+function ManifestPanel({
+  manifest,
+  onClose,
+  onNewVersion,
+}: {
+  manifest: EnvironmentManifestView;
+  onClose: () => void;
+  onNewVersion: () => void;
+}) {
+  const json = JSON.stringify(manifest.manifest, null, 2);
+  const [copied, setCopied] = useState(false);
+  return (
+    <Sheet open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <SheetContent className="w-full sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle>
+            {manifest.name} v{manifest.version}
+          </SheetTitle>
+          <SheetDescription>
+            {manifest.manifest.kind ?? "virtual"} · {manifest.environments}{" "}
+            {manifest.environments === 1 ? "Environment" : "Environments"} made from it · saved{" "}
+            {date(manifest.createdAt)} by {manifest.savedBy.actor}
+          </SheetDescription>
+        </SheetHeader>
+        <pre
+          aria-label={`${manifest.name} manifest JSON`}
+          className="mx-4 min-h-0 flex-1 overflow-auto whitespace-pre rounded-md border bg-muted/40 p-3 font-mono text-xs"
+        >
+          {json}
+        </pre>
+        <SheetFooter className="flex-row justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() =>
+              void navigator.clipboard?.writeText(json).then(
+                () => setCopied(true),
+                () => setCopied(false),
+              )
+            }
+          >
+            {copied ? <Check /> : <Copy />}
+            {copied ? "Copied" : "Copy JSON"}
+          </Button>
+          <Button onClick={onNewVersion}>New version</Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

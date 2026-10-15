@@ -1,16 +1,18 @@
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import type { EnvironmentManifestView, EnvironmentView } from "@nylorun/agents";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import type { EnvironmentView } from "@nylorun/agents";
-import { Plus, Trash2 } from "lucide-react";
+  Box,
+  ChevronDown,
+  FileJson,
+  LoaderCircle,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { createTenantClient } from "@/proxy-client";
-import { messageOf, usePages } from "@/resources/reads";
+import { messageOf } from "@/resources/reads";
+import type { EnvironmentCatalog } from "@/resources/environments";
 import {
   EMPTY_ENVIRONMENT_FORM,
   EMPTY_FILE_ROW,
@@ -26,9 +28,27 @@ import {
   type SetupRow,
 } from "@/environment-form";
 import { environmentPath } from "@/environment-path";
+import {
+  INLINE_MANIFEST,
+  environmentGroups,
+  environmentsPath,
+  filterEnvironments,
+  labelsOf,
+  type EnvironmentFilter,
+} from "@/environment-list";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
   SheetContent,
@@ -45,8 +65,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ReadState } from "@/components/resource-layout";
-import { EnvironmentManifests } from "@/components/environment-manifests";
+import {
+  ManifestBar,
+  ManifestSheet,
+  NewFromManifest,
+} from "@/components/environment-manifests";
 
 export const date = (value?: string) =>
   value ? new Date(value).toLocaleString() : "—";
@@ -73,185 +96,393 @@ export function otherSessionsNote(
 }
 
 /**
- * Environments (protocol 11, D55): each is one sandbox (kind `virtual`, `pod` or `none`) with a
- * recipe that can change, one vault of secrets, and versions of its disk. Sessions name one by
- * id. Each opens on its own page (`environment-page`).
+ * Environments (protocol 11, D55): each is one sandbox (kind `virtual`, `pod` or `none`) with
+ * one vault of secrets and versions of its disk, made from an environment manifest's version or
+ * from inline fields. Sessions name one by id. One table of every Environment, filtered to a
+ * manifest from the table, the menu or the manifests listed under Environments in the sidebar,
+ * as the session list is to an agent. Each opens on its own page (`environment-page`).
  */
-export function Environments({ tenantId }: { tenantId: string }) {
-  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
+export function Environments({
+  tenantId,
+  catalog,
+  filter,
+}: Readonly<{
+  tenantId: string;
+  catalog: EnvironmentCatalog;
+  filter: EnvironmentFilter;
+}>) {
   const navigate = useNavigate();
-  const [query, setQuery] = useSearchParams();
-  const labelValues = query.getAll("label");
-  const labelKey = JSON.stringify(labelValues);
-  const [labelInput, setLabelInput] = useState(labelValues.join("\n"));
-  const [labelError, setLabelError] = useState("");
-  const [creating, setCreating] = useState(false);
-  useEffect(() => {
-    setLabelInput((JSON.parse(labelKey) as string[]).join("\n"));
-    setLabelError("");
-  }, [labelKey]);
-  const load = useCallback(
-    async (signal: AbortSignal, cursor?: string) => {
-      const labels: Record<string, string> = {};
-      for (const value of JSON.parse(labelKey) as string[]) {
-        const at = value.indexOf("=");
-        if (at <= 0) throw new Error("Labels must use key=value.");
-        labels[value.slice(0, at)] = value.slice(at + 1);
-      }
-      const page = await sdk.environments
-        .page({ labels, limit: 50, cursor, signal })
-        .catch((cause: unknown) => {
-          // A body without the list (`{}`) fails the page's schema: say what is missing.
-          if (cause instanceof Error && cause.name === "ZodError")
-            throw new Error("The Runtime did not return the Tenant's Environments.");
-          throw cause;
-        });
-      return { items: page.environments, nextCursor: page.nextCursor };
-    },
-    [sdk, labelKey],
+  const groups = environmentGroups(catalog.manifests, catalog.environments);
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const environments = filterEnvironments(catalog.environments, filter);
+  const active = filter.manifest === undefined ? undefined : byId.get(filter.manifest);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [creating, setCreating] = useState<EnvironmentManifestView | "inline">();
+  const [editing, setEditing] = useState<EnvironmentManifestView | "new">();
+  // One manifest at a time: picking one closes the menu; the labels stay.
+  const filterOn = (manifest?: string): void => {
+    setFilterOpen(false);
+    void navigate(environmentsPath({ manifest, labels: filter.labels }));
+  };
+  const withLabels = (labels: readonly string[]) =>
+    void navigate(environmentsPath({ manifest: filter.manifest, labels }));
+  const filterLabel =
+    filter.manifest === undefined
+      ? "All manifests"
+      : (active?.name ?? filter.manifest);
+  const columns = 8;
+  const message = (text: ReactNode) => (
+    <TableRow>
+      <TableCell colSpan={columns} className="h-28 text-center whitespace-normal text-muted-foreground">
+        {text}
+      </TableCell>
+    </TableRow>
   );
-  const page = usePages(load);
-  function filter(event: FormEvent) {
-    event.preventDefault();
-    const labels = labelInput
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (labels.some((s) => s.indexOf("=") <= 0))
-      return setLabelError("Use one key=value label per line.");
-    setLabelError("");
-    const next = new URLSearchParams(query);
-    next.delete("label");
-    for (const label of labels) next.append("label", label);
-    setQuery(next);
-  }
   return (
-    <section className="min-h-0 flex-1 overflow-auto">
-      <div className="space-y-4 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold">Environments</h1>
-          <div className="flex flex-wrap gap-2">
+    <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-4">
+        <h1 className="text-sm font-medium">Environments</h1>
+        <span className="text-xs text-muted-foreground">
+          {environments.length} total
+        </span>
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+          {filter.labels.map((label) => (
+            <Badge key={label} variant="secondary" className="max-w-48 gap-1 font-mono">
+              <span className="truncate">{label}</span>
+              <button
+                type="button"
+                className="-mr-1 rounded-sm opacity-60 hover:opacity-100"
+                aria-label={`Remove label filter ${label}`}
+                onClick={() => withLabels(filter.labels.filter((l) => l !== label))}
+              >
+                <X className="size-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+        <DropdownMenu open={filterOpen} onOpenChange={setFilterOpen}>
+          <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
-              onClick={page.reload}
-              disabled={page.pending}
+              size="sm"
+              className="ml-auto w-44 justify-between font-normal"
+              aria-label="Filter by manifest"
             >
-              Refresh Environments
+              <span className="truncate">{filterLabel}</span>
+              <ChevronDown className="size-4 opacity-50" />
             </Button>
-            <Button onClick={() => setCreating(true)}>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuCheckboxItem
+              checked={filter.manifest === undefined}
+              onCheckedChange={() => filterOn()}
+            >
+              All manifests
+              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                {catalog.environments.length}
+              </span>
+            </DropdownMenuCheckboxItem>
+            {groups.map((group) => (
+              <DropdownMenuCheckboxItem
+                key={group.id}
+                checked={group.id === filter.manifest}
+                onCheckedChange={() => filterOn(group.id)}
+              >
+                <span className="truncate">{group.name}</span>
+                <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                  {group.count}
+                </span>
+              </DropdownMenuCheckboxItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem inset onSelect={() => setEditing("new")}>
               <Plus />
-              New Environment
-            </Button>
-          </div>
-        </div>
-        <p className="max-w-3xl text-sm text-muted-foreground">
-          An Environment is where sessions run: one sandbox, one vault of secrets, and
-          versions of its disk. A session that names it runs in its sandbox and sends its
-          credentials; a session without one has neither. Who shares an Environment is
-          the app's choice: one per session, per person or per project.
+              New manifest
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <NewEnvironmentButton
+          manifests={catalog.manifests}
+          filtered={filter.manifest}
+          onPick={setCreating}
+        />
+      </div>
+      {active?.manifest ? (
+        <ManifestBar
+          manifest={active.manifest}
+          onNewVersion={() => setEditing(active.manifest)}
+        />
+      ) : null}
+      {catalog.manifestsError ? (
+        <p role="status" className="shrink-0 border-b px-4 py-2 text-xs text-muted-foreground">
+          Environment manifests unavailable: {catalog.manifestsError}
         </p>
-        <form className="flex flex-wrap items-end gap-2" onSubmit={filter}>
-          <label className="flex flex-1 flex-col gap-1 text-sm">
-            Labels
-            <textarea
-              aria-label="Environment labels"
-              className="min-h-10 rounded-md border bg-background p-2"
-              placeholder="project=build"
-              value={labelInput}
-              onChange={(e) => setLabelInput(e.target.value)}
-            />
-          </label>
-          <Button type="submit" variant="outline">
-            Apply labels
-          </Button>
-        </form>
-        {labelError ? (
-          <p role="alert" className="text-sm">
-            {labelError}
-          </p>
-        ) : null}
+      ) : null}
+      <ScrollArea className="min-h-0 flex-1">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-background">
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Kind / state</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Owner</TableHead>
-              <TableHead>Labels</TableHead>
-              <TableHead>Sessions</TableHead>
-              <TableHead>Last used</TableHead>
+              <TableHead>Environment</TableHead>
+              <TableHead className="w-56">Manifest</TableHead>
+              <TableHead className="w-24">Kind</TableHead>
+              <TableHead className="w-32">State</TableHead>
+              <TableHead className="w-40">Owner</TableHead>
+              <TableHead className="w-56">Labels</TableHead>
+              <TableHead className="w-24 text-right">Sessions</TableHead>
+              <TableHead className="w-48">Last used</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {page.items.map((s) => (
-              <TableRow
-                key={s.id}
-                className="cursor-pointer"
-                onClick={() => navigate(environmentPath(s.id))}
-              >
-                <TableCell className="whitespace-normal break-all">
-                  <Link
-                    className="font-medium underline-offset-4 hover:underline"
-                    to={environmentPath(s.id)}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {s.id}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">{s.kind}</Badge>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {stateOf(s)}
-                  </p>
-                </TableCell>
-                <TableCell>{versionOf(s)}</TableCell>
-                <TableCell className="whitespace-normal break-all">
-                  {s.ownerUserId ?? "—"}
-                </TableCell>
-                <TableCell className="whitespace-normal break-all text-xs">
-                  {Object.entries(s.labels)
-                    .map(([key, value]) => `${key}=${value}`)
-                    .join(", ") || "—"}
-                </TableCell>
-                <TableCell>{s.sessions.length}</TableCell>
-                <TableCell>{date(s.lastUsedAt)}</TableCell>
-              </TableRow>
-            ))}
+            {catalog.status === "Loading"
+              ? message("Loading Environments…")
+              : catalog.status === "Failed" && catalog.environments.length === 0
+                ? message(
+                    <span role="alert" className="inline-flex flex-col items-center gap-3">
+                      {catalog.error}
+                      <Button variant="outline" size="sm" onClick={catalog.reload} disabled={catalog.pending}>
+                        Retry
+                      </Button>
+                    </span>,
+                  )
+                : environments.length === 0
+                  ? message(
+                      catalog.environments.length === 0
+                        ? "No Environments yet. An Environment is where sessions run: one sandbox, one vault of secrets and versions of its disk. Create one, then name it when you start a session."
+                        : filter.labels.length
+                          ? "No Environments match these filters."
+                          : `No Environments from ${filterLabel}.`,
+                    )
+                  : environments.map((environment) => {
+                      const href = environmentPath(environment.id);
+                      return (
+                        <TableRow
+                          key={environment.id}
+                          className="cursor-pointer"
+                          onClick={() => void navigate(href)}
+                        >
+                          <TableCell className="max-w-0 truncate font-mono text-xs">
+                            <Link
+                              to={href}
+                              title={environment.id}
+                              className="underline-offset-4 hover:underline"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {environment.id}
+                            </Link>
+                          </TableCell>
+                          <TableCell className="max-w-0 truncate">
+                            <ManifestName
+                              environment={environment}
+                              onFilter={(manifest) => filterOn(manifest)}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{environment.kind}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <EnvironmentState state={stateOf(environment)} />
+                          </TableCell>
+                          <TableCell className="max-w-0 truncate text-xs text-muted-foreground">
+                            {environment.ownerUserId ?? "—"}
+                          </TableCell>
+                          <TableCell className="max-w-0">
+                            <EnvironmentLabels
+                              labels={labelsOf(environment)}
+                              active={filter.labels}
+                              onFilter={(label) => withLabels([...filter.labels, label])}
+                            />
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {environment.sessions.length}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {date(environment.lastUsedAt)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
           </TableBody>
         </Table>
-        <ReadState
-          {...page}
-          onRetry={page.reload}
-          empty={
-            page.items.length
-              ? undefined
-              : labelValues.length
-                ? "No Environments match these labels."
-                : "No Environments yet. Create one, then name it when you start a session."
-          }
-        />
-        {page.more ? (
-          <Button
-            variant="outline"
-            disabled={page.pending}
-            onClick={page.loadMore}
-          >
-            Load more Environments
-          </Button>
-        ) : null}
-        <EnvironmentManifests tenantId={tenantId} />
-      </div>
-      {creating ? (
+      </ScrollArea>
+      {creating === "inline" ? (
         <EnvironmentSheet
           tenantId={tenantId}
-          onClose={() => setCreating(false)}
+          onClose={() => setCreating(undefined)}
           onSaved={(environment) => {
-            setCreating(false);
-            navigate(environmentPath(environment.id));
+            setCreating(undefined);
+            catalog.reload();
+            void navigate(environmentPath(environment.id));
+          }}
+        />
+      ) : creating ? (
+        <NewFromManifest
+          tenantId={tenantId}
+          manifest={creating}
+          onClose={() => setCreating(undefined)}
+          onCreated={() => catalog.reload()}
+        />
+      ) : null}
+      {editing ? (
+        <ManifestSheet
+          tenantId={tenantId}
+          {...(editing === "new" ? {} : { from: editing })}
+          onClose={() => setEditing(undefined)}
+          onSaved={() => {
+            setEditing(undefined);
+            catalog.reload();
           }}
         />
       ) : null}
     </section>
+  );
+}
+
+/** The manifest and version an Environment was made from, which filters the list to it. */
+function ManifestName({
+  environment,
+  onFilter,
+}: Readonly<{ environment: EnvironmentView; onFilter: (manifest: string) => void }>) {
+  if (environment.manifestName === undefined)
+    return <span className="text-xs text-muted-foreground">Inline fields</span>;
+  const name = environment.manifestName;
+  return (
+    <button
+      type="button"
+      title={`Only Environments from ${name}`}
+      className="inline-flex max-w-full min-w-0 items-center gap-2 underline-offset-4 hover:underline"
+      onClick={(event) => {
+        event.stopPropagation();
+        onFilter(name);
+      }}
+    >
+      <FileJson className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{name}</span>
+      {environment.manifestVersion === undefined ? null : (
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          v{environment.manifestVersion}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** An Environment's labels; one not filtered on yet adds itself to the filter. */
+function EnvironmentLabels({
+  labels,
+  active,
+  onFilter,
+}: Readonly<{
+  labels: readonly string[];
+  active: readonly string[];
+  onFilter: (label: string) => void;
+}>) {
+  if (labels.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <span className="flex min-w-0 flex-wrap gap-1">
+      {labels.map((label) =>
+        active.includes(label) ? (
+          <Badge key={label} variant="secondary" className="max-w-full font-mono">
+            <span className="truncate">{label}</span>
+          </Badge>
+        ) : (
+          <button
+            key={label}
+            type="button"
+            title={`Only Environments labelled ${label}`}
+            className="max-w-full"
+            onClick={(event) => {
+              event.stopPropagation();
+              onFilter(label);
+            }}
+          >
+            <Badge variant="outline" className="max-w-full font-mono hover:bg-accent">
+              <span className="truncate">{label}</span>
+            </Badge>
+          </button>
+        ),
+      )}
+    </span>
+  );
+}
+
+/** An Environment's state with a dot, or a spinner while it changes. */
+function EnvironmentState({ state }: Readonly<{ state: string }>) {
+  const label = state.charAt(0).toUpperCase() + state.slice(1);
+  if (state === "creating" || state === "starting" || state === "stopping")
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <LoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
+        {label}
+      </span>
+    );
+  const dot =
+    state === "failed"
+      ? "bg-red-500"
+      : state === "running" || state === "ready"
+        ? "bg-emerald-500"
+        : state === "stopped" || state === "suspended" || state === "deleted"
+          ? "bg-muted-foreground"
+          : "bg-amber-500";
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={"size-1.5 shrink-0 rounded-full " + dot} />
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Makes an Environment from the filtered manifest (or inline fields), or from the manifest
+ * picked from a menu.
+ */
+function NewEnvironmentButton({
+  manifests,
+  filtered,
+  onPick,
+}: Readonly<{
+  manifests: readonly EnvironmentManifestView[];
+  filtered?: string;
+  onPick: (from: EnvironmentManifestView | "inline") => void;
+}>) {
+  const manifest = manifests.find((m) => m.name === filtered);
+  if (manifest || filtered === INLINE_MANIFEST || manifests.length === 0)
+    return (
+      <Button size="sm" onClick={() => onPick(manifest ?? "inline")}>
+        <Plus />
+        New Environment
+      </Button>
+    );
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm">
+          <Plus />
+          New Environment
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+          From a manifest
+        </DropdownMenuLabel>
+        {[...manifests]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((m) => (
+            <DropdownMenuItem key={m.name} onSelect={() => onPick(m)}>
+              <FileJson />
+              <span className="truncate">{m.name}</span>
+              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                v{m.version}
+              </span>
+            </DropdownMenuItem>
+          ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onPick("inline")}>
+          <Box />
+          From inline fields
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
