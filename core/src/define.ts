@@ -28,13 +28,17 @@ export {
   HTTP_TOOL_DEFAULT_TIMEOUT_MS,
   HTTP_TOOL_MAX_TIMEOUT_MS,
   HTTP_TOOL_METHODS,
+  HTTP_BODY_METHODS,
   http,
+  httpPathParameters,
   httpToolOf,
+  httpToolRequest,
   isHttpTarget,
   withHttpTarget,
   type HttpTarget,
   type HttpTool,
   type HttpToolOptions,
+  type HttpToolRequest,
 } from "./definition/http-tool.js";
 export {
   READ_ARTIFACT_MAX_BYTES,

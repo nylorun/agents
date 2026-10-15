@@ -3,7 +3,8 @@
  * the gates service with `NYLORUN_TEST_MODEL_GATE=http`, `gates/tool-gate-http.test.ts`): the
  * input as JSON, the identity headers, the run-once key as `Idempotency-Key` and the credential
  * of the session's Environment; the answer, a failure status, a timeout or a refused address is what the model
- * sees. The Tenant's tool policy (R5 step 2) holds a call an `ask` rule matches, an HTTP tool's
+ * sees. A `GET` or `DELETE` tool sends no body: its URL parameters fill the path and the rest
+ * of its input is the query string. The Tenant's tool policy (R5 step 2) holds a call an `ask` rule matches, an HTTP tool's
  * or a remote MCP server's, until the session's `approve`.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -23,6 +24,7 @@ const TOKEN = "billing-secret-token-7f3c9a2e";
 interface Seen {
   readonly method: string;
   readonly path: string;
+  readonly query: string;
   readonly headers: IncomingMessage["headers"];
   readonly body: unknown;
 }
@@ -34,9 +36,13 @@ async function service(): Promise<{ url: string; seen: Seen[]; server: Server }>
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const raw = Buffer.concat(chunks).toString();
-    const path = new URL(req.url ?? "/", "http://x").pathname;
-    seen.push({ method: req.method ?? "", path, headers: req.headers, body: raw ? JSON.parse(raw) : undefined });
+    const { pathname: path, search: query } = new URL(req.url ?? "/", "http://x");
+    seen.push({ method: req.method ?? "", path, query, headers: req.headers, body: raw ? JSON.parse(raw) : undefined });
     const body = raw ? (JSON.parse(raw) as { orderId?: string }) : {};
+    if (path.startsWith("/orders/")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return void res.end(JSON.stringify({ method: req.method, path, query }));
+    }
     if (path === "/refunds") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
       return void res.end(JSON.stringify({ refundId: `r-${body.orderId}` }));
@@ -122,6 +128,18 @@ beforeAll(async () => {
       http({ name: "slow", input, url: `${target.url}/slow`, timeoutMs: 200 }),
       http({ name: "billed", input, url: `${target.url}/refunds`, credential: "billing" }),
       http({ name: "approved", input, output, url: `${target.url}/refunds` }),
+      http({
+        name: "get_order",
+        input: z.object({ orderId: z.string(), expand: z.array(z.string()).optional(), page: z.number().optional() }),
+        url: `${target.url}/orders/{orderId}?v=2`,
+        method: "GET",
+      }),
+      http({
+        name: "cancel_order",
+        input: z.object({ orderId: z.string(), reason: z.string() }),
+        url: `${target.url}/orders/{orderId}`,
+        method: "DELETE",
+      }),
     )
     .mcp({ shop: { type: "streamable-http", url: orders.url } })
     .build();
@@ -273,6 +291,42 @@ describe("an HTTP tool call", () => {
       ]);
     }
     expect(target.seen.length).toBe(before + 1);
+  });
+});
+
+describe("a GET or DELETE HTTP tool call", () => {
+  it("fills the path, sends the rest as the query string after the URL's own, and sends no body", async () => {
+    const before = target.seen.length;
+    const session = await call("get_order", { orderId: "A/1 b", expand: ["items", "refunds"], page: 2 });
+    expect((await settled(session)).status).toBe("completed");
+    const query = "?v=2&expand=items&expand=refunds&page=2";
+    expect(await completed(session)).toEqual([
+      expect.objectContaining({ output: { method: "GET", path: "/orders/A%2F1%20b", query } }),
+    ]);
+    const [request] = target.seen.slice(before);
+    expect(request).toMatchObject({ method: "GET", path: "/orders/A%2F1%20b", query, body: undefined });
+    expect(request!.headers["content-type"]).toBeUndefined();
+    expect(request!.headers["content-length"]).toBeUndefined();
+    expect(request!.headers["idempotency-key"]).toMatch(/\S/);
+    expect(request!.headers["nylorun-session-id"]).toBe(session.id);
+  });
+
+  it("sends a DELETE the same way", async () => {
+    const session = await call("cancel_order", { orderId: "A-9", reason: "duplicate order" });
+    expect((await settled(session)).status).toBe("completed");
+    expect(await completed(session)).toEqual([
+      expect.objectContaining({ output: { method: "DELETE", path: "/orders/A-9", query: "?reason=duplicate%20order" } }),
+    ]);
+  });
+
+  it("never sends a call whose URL parameter would move it to another path", async () => {
+    const before = target.seen.length;
+    const session = await call("get_order", { orderId: ".." });
+    expect((await settled(session)).status).toBe("completed");
+    expect(await completed(session)).toEqual([
+      expect.objectContaining({ error: expect.objectContaining({ code: "tool.invalid-input" }) }),
+    ]);
+    expect(target.seen.length).toBe(before);
   });
 });
 

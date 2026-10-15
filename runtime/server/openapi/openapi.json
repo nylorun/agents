@@ -6508,9 +6508,11 @@
                             "method": {
                               "type": "string",
                               "enum": [
+                                "GET",
                                 "POST",
                                 "PUT",
-                                "PATCH"
+                                "PATCH",
+                                "DELETE"
                               ]
                             },
                             "credential": {
@@ -6791,9 +6793,11 @@
                                 "method": {
                                   "type": "string",
                                   "enum": [
+                                    "GET",
                                     "POST",
                                     "PUT",
-                                    "PATCH"
+                                    "PATCH",
+                                    "DELETE"
                                   ]
                                 },
                                 "credential": {
@@ -6948,9 +6952,11 @@
                             "method": {
                               "type": "string",
                               "enum": [
+                                "GET",
                                 "POST",
                                 "PUT",
-                                "PATCH"
+                                "PATCH",
+                                "DELETE"
                               ]
                             },
                             "credential": {
@@ -7231,9 +7237,11 @@
                                 "method": {
                                   "type": "string",
                                   "enum": [
+                                    "GET",
                                     "POST",
                                     "PUT",
-                                    "PATCH"
+                                    "PATCH",
+                                    "DELETE"
                                   ]
                                 },
                                 "credential": {
@@ -7387,9 +7395,11 @@
                             "method": {
                               "type": "string",
                               "enum": [
+                                "GET",
                                 "POST",
                                 "PUT",
-                                "PATCH"
+                                "PATCH",
+                                "DELETE"
                               ]
                             },
                             "credential": {
@@ -7670,9 +7680,11 @@
                                 "method": {
                                   "type": "string",
                                   "enum": [
+                                    "GET",
                                     "POST",
                                     "PUT",
-                                    "PATCH"
+                                    "PATCH",
+                                    "DELETE"
                                   ]
                                 },
                                 "credential": {
@@ -7961,9 +7973,11 @@
                         "method": {
                           "type": "string",
                           "enum": [
+                            "GET",
                             "POST",
                             "PUT",
-                            "PATCH"
+                            "PATCH",
+                            "DELETE"
                           ]
                         },
                         "credential": {
@@ -8244,9 +8258,11 @@
                             "method": {
                               "type": "string",
                               "enum": [
+                                "GET",
                                 "POST",
                                 "PUT",
-                                "PATCH"
+                                "PATCH",
+                                "DELETE"
                               ]
                             },
                             "credential": {
@@ -8467,9 +8483,11 @@
                               "method": {
                                 "type": "string",
                                 "enum": [
+                                  "GET",
                                   "POST",
                                   "PUT",
-                                  "PATCH"
+                                  "PATCH",
+                                  "DELETE"
                                 ]
                               },
                               "credential": {
@@ -8750,9 +8768,11 @@
                                   "method": {
                                     "type": "string",
                                     "enum": [
+                                      "GET",
                                       "POST",
                                       "PUT",
-                                      "PATCH"
+                                      "PATCH",
+                                      "DELETE"
                                     ]
                                   },
                                   "credential": {
@@ -8872,9 +8892,11 @@
                       "method": {
                         "type": "string",
                         "enum": [
+                          "GET",
                           "POST",
                           "PUT",
-                          "PATCH"
+                          "PATCH",
+                          "DELETE"
                         ]
                       },
                       "credential": {
@@ -9055,9 +9077,11 @@
               "method": {
                 "type": "string",
                 "enum": [
+                  "GET",
                   "POST",
                   "PUT",
-                  "PATCH"
+                  "PATCH",
+                  "DELETE"
                 ]
               },
               "credential": {
@@ -9331,9 +9355,11 @@
                             "method": {
                               "type": "string",
                               "enum": [
+                                "GET",
                                 "POST",
                                 "PUT",
-                                "PATCH"
+                                "PATCH",
+                                "DELETE"
                               ]
                             },
                             "credential": {
@@ -9614,9 +9640,11 @@
                                 "method": {
                                   "type": "string",
                                   "enum": [
+                                    "GET",
                                     "POST",
                                     "PUT",
-                                    "PATCH"
+                                    "PATCH",
+                                    "DELETE"
                                   ]
                                 },
                                 "credential": {

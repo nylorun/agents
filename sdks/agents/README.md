@@ -46,7 +46,7 @@ const refundOrder = http({
   input: z.object({ orderId: z.string(), amount: z.number() }), // or a JSON Schema object
   output: z.object({ refundId: z.string() }), // optional
   url: "https://billing.example.com/refunds",
-  method: "POST", // default; or PUT, PATCH
+  method: "POST", // default; or GET, PUT, PATCH, DELETE
   credential: "billing", // optional: the session's Environment holds a credential for this URL
   timeoutMs: 20_000, // default 60000, at most 300000
 });
@@ -54,9 +54,51 @@ const refundOrder = http({
 export const support = Agent({ id: "support" }).tools(refundOrder);
 ```
 
-The tool goes into the manifest as `http`, and the Runtime's
-Tool Gate sends the model's input as the JSON body, under the Host's address
-policy (`NYLORUN_ENDPOINT_*`), with `content-type: application/json`,
+The method decides where the input goes:
+
+| Method                           | Request                                                        |
+| -------------------------------- | -------------------------------------------------------------- |
+| `POST` (default), `PUT`, `PATCH` | The input as the JSON body (`content-type: application/json`) |
+| `GET`, `DELETE`                  | No body: the input as the query string                         |
+
+The URL's path may name input fields as `{field}`. Each one must be a required string,
+number or boolean field of `input`. Its value goes into the path percent-encoded (so `/`,
+`?` and `#` cannot change the request), and it is not sent again in the body or query
+string. A query string written in the URL is kept, and the input's fields come after it.
+In the query string an array repeats its name (`tag=a&tag=b`) and a `null` is left out.
+
+`http()`, and the Runtime when it saves a manifest, refuse a tool whose URL names a field
+the input does not require. For `GET` and `DELETE` they also refuse a field that is an object (a query string cannot hold one), and a
+field that repeats a query parameter the URL already sets. A call is refused before it is
+sent (`tool.invalid-input`) when a URL value is empty, `.` or `..`, or not a string, number
+or boolean.
+
+```ts
+// GET https://api.open-meteo.com/v1/forecast?current=…&latitude=22.57&longitude=88.36
+const forecast = http({
+  name: "get_forecast",
+  description: "Current weather at a latitude and longitude.",
+  input: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+    temperature_unit: z.enum(["celsius", "fahrenheit"]).optional(),
+  }),
+  url: "https://api.open-meteo.com/v1/forecast?current=temperature_2m,relative_humidity_2m,wind_speed_10m&timezone=auto",
+  method: "GET",
+});
+
+// DELETE https://billing.example.com/orders/A-17?reason=duplicate
+const cancelOrder = http({
+  name: "cancel_order",
+  input: z.object({ orderId: z.string(), reason: z.string() }),
+  url: "https://billing.example.com/orders/{orderId}",
+  method: "DELETE",
+  credential: "billing",
+});
+```
+
+The tool goes into the manifest as `http`, and the Runtime's Tool Gate sends
+the request under the Host's address policy (`NYLORUN_ENDPOINT_*`), with
 `Nylorun-Session-Id`, `Nylorun-Turn-Id`, `Nylorun-Agent-Id` and an
 `Idempotency-Key` that is the same when the Runtime re-sends the call after a
 restart, so your service can drop duplicates. A `2xx` JSON answer is the output
@@ -81,10 +123,11 @@ turn say, that is a new call with a new key: put a business key (an order or
 charge id) in the tool's input schema to refuse it too.
 
 `credential` works as for a remote MCP server: the vault of the session's
-Environment must hold a credential bound to the tool's exact URL, else the call
-fails before it is sent (`http.credential`). A credential with `via`
-sends the call there instead, such as a gateway, with the session owner in its
-identity header, and a `401` is `credential_rejected` to the model, not retried.
+Environment must hold a credential bound to the tool's exact URL (as written,
+`{field}` parameters included), else the call fails before it is sent
+(`http.credential`). A credential with `via` sends the call there instead, such
+as a gateway, with the session owner in its identity header (a gateway has one
+URL, so a tool with `{field}` parameters fails with `http.credential`), and a `401` is `credential_rejected` to the model, not retried.
 Whether a call waits for a person is not the tool's to say: it is the Tenant's
 [tool policy](#tool-policy). An HTTP tool is also a flow stage (see [Flow agents](#flow-agents)), and runs
 only on the Runtime (a local `run()` reports `http.runtime-only`).
@@ -398,7 +441,8 @@ an answer that does not match `output` fails the stage with its code (`http.stat
 is retried with the Loop's input, not the feedback.
 
 A Loop may be judged by your service instead of an agent: `http({ url, method?,
-credential?, timeoutMs? })`, with no name or input, is an HTTP verifier. The Runtime
+credential?, timeoutMs? })`, with no name or input, is an HTTP verifier. Its method is
+`POST`, `PUT` or `PATCH` and its URL has no `{field}` parameters, because the Runtime
 sends `{ input, output, iteration }` (the Loop's input, the attempt's output, its
 number) and reads a verdict, `{ pass, feedback? }`, from the answer; anything else, or a
 failed request, fails the Loop (`loop.verify-failed`). Its verdicts are recorded as

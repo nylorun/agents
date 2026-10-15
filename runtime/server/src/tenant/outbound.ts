@@ -111,18 +111,19 @@ function guardedLookup(policy: OutboundPolicy) {
 }
 
 /**
- * POSTs (or, with `method`, PUTs or PATCHes) the JSON `body` to `url` under `policy`. Never
+ * Sends one request to `url` under `policy`: with `method` (default `POST`) and the JSON `body`,
+ * or with no body (and no `content-type`) when `body` is undefined, as for a `GET`. Never
  * throws; `signal` aborts the request.
  */
-export async function post(
+export async function send(
   target: string,
-  body: string,
+  body: string | undefined,
   headers: Record<string, string>,
   options: {
     policy: OutboundPolicy;
     signal: AbortSignal;
     maxResponseBytes?: number;
-    method?: "POST" | "PUT" | "PATCH";
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   },
 ): Promise<OutboundResult> {
   const { policy, signal } = options;
@@ -154,8 +155,9 @@ export async function post(
         headers: {
           ...headers,
           host: originalHost,
-          "content-type": "application/json",
-          "content-length": String(Buffer.byteLength(body)),
+          ...(body === undefined
+            ? {}
+            : { "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) }),
         },
         lookup: lookup as never,
         signal,
@@ -208,7 +210,7 @@ export class OutboundFailed extends Error {
     message: string,
     readonly code: string,
     /**
-     * The request was sent in full before it failed, as `post()`'s `lost` (R2b C7): the server
+     * The request was sent in full before it failed, as `send()`'s `lost` (R2b C7): the server
      * may have acted on it. False for a failure to resolve or connect.
      */
     readonly sent = false,
@@ -271,7 +273,7 @@ export function guardedFetch(
     if (body) outgoing["content-length"] = String(body.byteLength);
     return await new Promise<Response>((resolve, reject) => {
       let settled = false;
-      // Set when the request is fully sent, as `post()` does: a failure after it may follow
+      // Set when the request is fully sent, as `send()` does: a failure after it may follow
       // the server acting on the request.
       let delivered = false;
       const settle = (fn: () => void) => {

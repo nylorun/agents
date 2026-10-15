@@ -5,6 +5,11 @@
  * a person is the Tenant's tool policy, decided at the Tool Gate (R5 step 2), never the tool's.
  * An HTTP tool is also a flow stage. `http({ url })` without a name and an input is a bare
  * target, a Loop's HTTP verifier: its manifest form is itself, `{ http: { url, … } }`.
+ *
+ * How a call's input becomes the request (`httpToolRequest`) is decided here, so every Runtime
+ * and every check agree: the fields the URL's path names as `{field}` fill it, percent-encoded;
+ * the rest are the JSON body for `POST`, `PUT` and `PATCH`, and the query string for `GET` and
+ * `DELETE`, which send no body.
  */
 import type { ApprovalMode, HttpToolMethod, HttpToolTarget, ToolManifest } from "../types/manifest.js";
 import { APPROVAL_REMOVED } from "./approval.js";
@@ -12,7 +17,7 @@ import type { JsonObject } from "../types/shared.js";
 import type { ToolDefinition, ToolInputSchema, ToolOutputSchema, ToolSchemaSource } from "../types/tool.js";
 import { HarnessError } from "../errors.js";
 import { ToolError } from "./tool-error.js";
-import { prepareTool } from "./schema.js";
+import { normalizedSchemasFor, prepareTool } from "./schema.js";
 import { schemaFromJSON } from "./schema-json.js";
 
 type AnyTool = ToolDefinition<any, any, any>;
@@ -21,7 +26,9 @@ type AnyTool = ToolDefinition<any, any, any>;
 const HTTP = Symbol.for("@nylorun/core/http-tool");
 const TARGET = Symbol.for("@nylorun/core/http-target");
 
-export const HTTP_TOOL_METHODS = ["POST", "PUT", "PATCH"] as const satisfies readonly HttpToolMethod[];
+export const HTTP_TOOL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const satisfies readonly HttpToolMethod[];
+/** The methods that send the input as a JSON body; the others send it as the query string. */
+export const HTTP_BODY_METHODS = ["POST", "PUT", "PATCH"] as const satisfies readonly HttpToolMethod[];
 export const APPROVAL_MODES = ["never", "always"] as const satisfies readonly ApprovalMode[];
 /** How long a service may take to answer when the tool sets no `timeoutMs`. */
 export const HTTP_TOOL_DEFAULT_TIMEOUT_MS = 60_000;
@@ -57,9 +64,10 @@ export interface HttpTarget {
 }
 
 /**
- * A tool the Runtime runs as an HTTP request: it sends the input as JSON to `url` and gives
- * the model the answer. Use it in `.tools(...)` like any tool, or as a flow stage; it has no
- * implementation.
+ * A tool the Runtime runs as an HTTP request to `url` with `method` (default `POST`): the input
+ * fields the URL's path names as `{field}` fill it, and the rest are the JSON body (`POST`, `PUT`,
+ * `PATCH`) or the query string (`GET`, `DELETE`). The model gets the answer. Use it in
+ * `.tools(...)` like any tool, or as a flow stage; it has no implementation.
  */
 export function http<
   InputSchema extends ToolInputSchema | JsonObject,
@@ -79,7 +87,7 @@ export function http(options: HttpToolOptions<any, any> | HttpToolTarget): AnyTo
     httpTargetIssue(target) ??
     ("approval" in options ? APPROVAL_REMOVED : undefined);
   if (issue) throw new HarnessError("tool.invalid", `HTTP tool '${name}': ${issue}`);
-  return prepareTool(
+  const tool = prepareTool(
     withHttpTarget(
       {
         name,
@@ -90,6 +98,9 @@ export function http(options: HttpToolOptions<any, any> | HttpToolTarget): AnyTo
       { http: target },
     ),
   );
+  const parameters = httpInputIssue(target, normalizedSchemasFor(tool).inputSchema.jsonSchema);
+  if (parameters) throw new HarnessError("tool.invalid", `HTTP tool '${name}': ${parameters}`);
+  return tool;
 }
 
 function targetOf({ url, method, credential, timeoutMs }: HttpToolTarget): HttpToolTarget {
@@ -110,7 +121,7 @@ function httpTarget(options: HttpToolTarget): HttpTarget {
       `HTTP verifier: unknown option${unknown.length === 1 ? "" : "s"} ${unknown.join(", ")}; an HTTP tool needs a name and an input`,
     );
   const target = targetOf(options);
-  const issue = httpTargetIssue(target);
+  const issue = httpTargetIssue(target) ?? httpVerifierIssue(target);
   if (issue) throw new HarnessError("configuration.invalid", `HTTP verifier: ${issue}`);
   const value = { http: Object.freeze(target) };
   Object.defineProperty(value, TARGET, { value: true, enumerable: false });
@@ -163,7 +174,7 @@ export function httpToolOf(tool: unknown): HttpTool | undefined {
 
 /** Why `target` is not a valid HTTP tool target, or undefined. */
 export function httpTargetIssue(target: HttpToolTarget): string | undefined {
-  const url = httpUrlIssue(target.url);
+  const url = httpUrlIssue(target.url) ?? httpUrlTemplateIssue(target.url);
   if (url) return url;
   if (target.method !== undefined && !(HTTP_TOOL_METHODS as readonly string[]).includes(target.method))
     return `method must be one of ${HTTP_TOOL_METHODS.join(", ")}`;
@@ -191,6 +202,162 @@ export function httpUrlIssue(url: unknown): string | undefined {
     return "url must not carry credentials; name a vault credential with `credential`";
   if (parsed.hash !== "") return "url must not have a fragment";
   return undefined;
+}
+
+const PLACEHOLDER = /\{([^{}]*)\}/g;
+const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** The input fields an HTTP target's URL names in its path as `{field}`, in order. */
+export function httpPathParameters(url: string): string[] {
+  return [...url.matchAll(PLACEHOLDER)].map((match) => match[1]!);
+}
+
+/**
+ * Why the `{field}` parameters of an absolute http(s) `url` are malformed, or undefined: each is
+ * a field name, named once, in the path (never the host or the query string).
+ */
+export function httpUrlTemplateIssue(url: string): string | undefined {
+  if (!/[{}]/.test(url)) return undefined;
+  if (/[{}]/.test(url.replace(PLACEHOLDER, ""))) return "url has an unmatched { or }";
+  const scheme = url.indexOf("://");
+  if (scheme === -1) return "url must be an absolute http or https URL";
+  const authority = scheme + 3;
+  const query = url.indexOf("?", authority);
+  const end = query === -1 ? url.length : query;
+  const path = url.indexOf("/", authority);
+  const seen = new Set<string>();
+  for (const match of url.matchAll(PLACEHOLDER)) {
+    const name = match[1]!;
+    if (path === -1 || match.index < path || match.index >= end)
+      return "url may name input fields as {field} only in its path";
+    if (!FIELD_NAME.test(name)) return `url parameter {${name}} must be an input field name`;
+    if (seen.has(name)) return `url names {${name}} twice`;
+    seen.add(name);
+  }
+  return undefined;
+}
+
+/**
+ * Why `target` cannot be a Loop's HTTP verifier, or undefined: the Runtime sends a verifier
+ * `{ input, output, iteration }` as a JSON body, so it takes a body method and no URL parameters.
+ */
+export function httpVerifierIssue(target: HttpToolTarget): string | undefined {
+  if (target.method !== undefined && !(HTTP_BODY_METHODS as readonly string[]).includes(target.method))
+    return `an HTTP verifier is sent a JSON body: method must be one of ${HTTP_BODY_METHODS.join(", ")}`;
+  if (httpPathParameters(target.url).length > 0) return "an HTTP verifier's url takes no {field} parameters";
+  return undefined;
+}
+
+/**
+ * Why an HTTP tool's `inputSchema` does not fit its target, or undefined. Each `{field}` its URL
+ * names is a required property of the input, and not an object or an array, so the model always
+ * has one value to put there. For `GET` and `DELETE`, which send the other fields as the query
+ * string, no field is an object, and none is a query parameter the URL already fixes.
+ */
+export function httpInputIssue(target: HttpToolTarget, inputSchema: JsonObject | undefined): string | undefined {
+  // A malformed URL reports its own issue.
+  if (inputSchema === undefined || httpUrlTemplateIssue(target.url)) return undefined;
+  const properties = (
+    inputSchema.properties && typeof inputSchema.properties === "object" ? inputSchema.properties : {}
+  ) as Record<string, unknown>;
+  const required = Array.isArray(inputSchema.required) ? inputSchema.required : [];
+  const names = httpPathParameters(target.url);
+  for (const name of names) {
+    if (!Object.hasOwn(properties, name))
+      return `url names {${name}}, which is not a property of the input schema`;
+    if (!required.includes(name)) return `url names {${name}}, which the input schema must list as required`;
+    if (typesOf(properties[name]).some((type) => type === "object" || type === "array"))
+      return `url names {${name}}, which must be a string, a number or a boolean`;
+  }
+  if ((HTTP_BODY_METHODS as readonly string[]).includes(target.method ?? "POST")) return undefined;
+  let fixed: URLSearchParams;
+  try {
+    fixed = new URL(target.url.replace(PLACEHOLDER, "x")).searchParams;
+  } catch {
+    return undefined; // the URL's own issue is reported
+  }
+  for (const [name, property] of Object.entries(properties)) {
+    if (names.includes(name)) continue;
+    if (fixed.has(name)) return `'${name}' is both an input field and a query parameter the url fixes`;
+    const types = typesOf(property);
+    const items = types.includes("array") ? typesOf((property as { items?: unknown }).items) : [];
+    if (types.includes("object") || items.includes("object") || items.includes("array"))
+      return `'${name}' is sent in the query string by ${target.method}, so it must not be an object or hold objects`;
+  }
+  return undefined;
+}
+
+/** The JSON Schema `type`s a property declares, if any. */
+function typesOf(schema: unknown): string[] {
+  const type = schema && typeof schema === "object" ? (schema as { type?: unknown }).type : undefined;
+  return typeof type === "string" ? [type] : Array.isArray(type) ? type.filter((t) => typeof t === "string") : [];
+}
+
+/** The request one call of an HTTP target makes, or why its input cannot make one. */
+export type HttpToolRequest =
+  | {
+      readonly url: string;
+      readonly method: HttpToolMethod;
+      /** The JSON body, for `POST`, `PUT` and `PATCH`; `GET` and `DELETE` send none. */
+      readonly body?: string;
+    }
+  | { readonly issue: string };
+
+/**
+ * The request a call of `target` with `input` makes. The fields the URL's path names fill it,
+ * each percent-encoded as one path segment; the other fields are the JSON body for a body
+ * method, and the query string, after the URL's own, for `GET` and `DELETE`. In the query
+ * string an array repeats its name (`tag=a&tag=b`), a `null` is left out, and an object is
+ * refused. A body-method target without URL parameters sends the input as it is.
+ */
+export function httpToolRequest(target: HttpToolTarget, input: unknown): HttpToolRequest {
+  const method = target.method ?? "POST";
+  const hasBody = (HTTP_BODY_METHODS as readonly string[]).includes(method);
+  const names = httpPathParameters(target.url);
+  if (hasBody && names.length === 0) return { url: target.url, method, body: JSON.stringify(input ?? {}) };
+  const fields = input ?? {};
+  if (typeof fields !== "object" || Array.isArray(fields)) return { issue: "The tool input must be an object" };
+  const rest: Record<string, unknown> = { ...fields };
+  let url = target.url;
+  for (const name of names) {
+    const segment = pathSegment(rest[name]);
+    if (segment === undefined)
+      return {
+        issue: `'${name}' must be a non-empty string, a number or a boolean, and not . or ..: it fills {${name}} in the URL`,
+      };
+    delete rest[name];
+    url = url.replace(`{${name}}`, () => segment);
+  }
+  if (hasBody) return { url, method, body: JSON.stringify(rest) };
+  const query = queryString(rest);
+  if (typeof query !== "string") return query;
+  if (query === "") return { url, method };
+  const joiner = !url.includes("?") ? "?" : url.endsWith("?") || url.endsWith("&") ? "" : "&";
+  return { url: `${url}${joiner}${query}`, method };
+}
+
+/** `value` as one percent-encoded path segment, or undefined when it cannot be one. */
+function pathSegment(value: unknown): string | undefined {
+  if (typeof value === "number" && !Number.isFinite(value)) return undefined;
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return undefined;
+  const text = String(value);
+  // `.` and `..` are not encoded, and would move the request to another path. Side by side,
+  // `{a}{b}` or `.{a}`, a `..` segment needs one value to be `.`, so this check covers them too.
+  if (text === "" || text === "." || text === "..") return undefined;
+  return encodeURIComponent(text);
+}
+
+/** `fields` as a query string, in their order, without a leading `?`; an object cannot be one. */
+function queryString(fields: Readonly<Record<string, unknown>>): string | { readonly issue: string } {
+  const pairs: string[] = [];
+  for (const [name, value] of Object.entries(fields))
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item === null || item === undefined) continue;
+      if (typeof item === "object")
+        return { issue: `'${name}' is sent in the query string, so it must not be an object or hold objects` };
+      pairs.push(`${encodeURIComponent(name)}=${encodeURIComponent(String(item))}`);
+    }
+  return pairs.join("&");
 }
 
 async function runtimeOnly(): Promise<never> {
