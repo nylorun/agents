@@ -1,14 +1,26 @@
 /**
  * Request bodies of Tenant routes, read as the router they replace read them
- * (`tenant/http.ts`): at most 1 MiB unless a route allows more (an endpoint that takes files
- * inline), UTF-8, and a missing or malformed JSON body is `400 Invalid JSON`.
+ * (`tenant/http.ts`): at most the Tenant's Runtime limit `requestBodyBytes`, or for an endpoint
+ * that takes files inline `inlineBodyBytes` of its limits (one file at `inlineFileBytes` in
+ * base64, and the rest), UTF-8, and a missing or malformed JSON body is `400 Invalid JSON`. The
+ * limits are read for each request.
  */
+import { inlineBodyBytes } from "@nylorun/core/contracts";
+import type { TenantContext } from "../../tenant/context.js";
 import { fail } from "../../tenant/http.js";
+import { readRuntimeLimits } from "../../tenant/runtime-limits.js";
 
-const MAX_BODY_BYTES = 1024 * 1024;
+/** What a body is: a JSON request (`requestBodyBytes`), or a message that may carry files inline. */
+export type BodyKind = "json" | "inline";
+
+/** The most bytes the Tenant's route reads of a body of `kind`. */
+export async function bodyLimit(tenant: TenantContext, kind: BodyKind = "json"): Promise<number> {
+  const limits = await tenant.store.tx((t) => readRuntimeLimits(t));
+  return kind === "inline" ? inlineBodyBytes(limits) : limits.requestBodyBytes;
+}
 
 /** The body as text; past `maxBytes`, `413 Request too large`. */
-export async function readText(request: Request, maxBytes = MAX_BODY_BYTES): Promise<string> {
+export async function readText(request: Request, maxBytes: number): Promise<string> {
   if (request.body === null) return "";
   const chunks: Uint8Array[] = [];
   let bytes = 0;
@@ -26,9 +38,12 @@ export async function readText(request: Request, maxBytes = MAX_BODY_BYTES): Pro
   return Buffer.concat(chunks).toString("utf8");
 }
 
-/** The body as JSON, before any schema. */
-export async function readJson(request: Request, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
-  const text = await readText(request, maxBytes);
+/** The body of a Tenant route's request as JSON, before any schema. */
+export async function readJson(
+  c: { readonly req: { readonly raw: Request }; readonly env: { readonly tenant: TenantContext } },
+  kind: BodyKind = "json",
+): Promise<unknown> {
+  const text = await readText(c.req.raw, await bodyLimit(c.env.tenant, kind));
   try {
     return JSON.parse(text);
   } catch {

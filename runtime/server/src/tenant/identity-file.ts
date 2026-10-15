@@ -18,6 +18,12 @@
  *     allowedScopes: [agents:read, sessions:own, environments:write]   # add studio to grant it
  *     agents: [support]                          # absent reaches every agent
  *     environments: ["{org_id}/*"]               # absent reaches no Environment
+ *     jwksFetch:                                 # how the JWKS is fetched and cached
+ *       timeoutMs: 5000                          # one fetch
+ *       maxBytes: 262144                         # the largest JWKS read
+ *       maxKeys: 64                              # keys read from it, in order
+ *       refetchMs: 60000                         # the least time between two fetches for a new kid
+ *       maxAgeMs: 600000                         # cached keys' age before a background refresh
  * ```
  */
 import { createPublicKey, type KeyObject } from "node:crypto";
@@ -26,7 +32,7 @@ import { z } from "zod";
 import {
   ISSUER_SCOPES,
   isEnvironmentGrant,
-  TOKEN_ENVIRONMENT_GRANTS_MAX,
+  TIMER_MAX_MS,
   TOKEN_SCOPES,
   type IssuerScope,
 } from "@nylorun/core/contracts";
@@ -39,11 +45,32 @@ export type IssuerAlgorithm = (typeof ISSUER_ALGORITHMS)[number];
 const DEFAULT_SUBJECT = "{sub}";
 const DEFAULT_SCOPES = { claim: "scope" } as const;
 const DEFAULT_ALLOWED_SCOPES: readonly IssuerScope[] = TOKEN_SCOPES;
-/** At most this many static `keys` per issuer. */
-const MAX_STATIC_KEYS = 16;
 const ISSUER_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 /** A claim reference in a template: `{claim}`, a top-level claim name without braces. */
 const CLAIM_REFERENCE = /\{([^{}]+)\}/g;
+
+/** How an issuer's JWKS is fetched and cached (`jwksFetch`), each setting with its default. */
+export interface JwksFetchSettings {
+  /** How long one fetch may take. */
+  readonly timeoutMs: number;
+  /** The largest JWKS read; a larger one is a failed fetch. */
+  readonly maxBytes: number;
+  /** The keys read from it, in order; the rest are ignored. */
+  readonly maxKeys: number;
+  /** The least time between two fetches for a `kid` the cache has not seen. */
+  readonly refetchMs: number;
+  /** How old cached keys get before a background refresh. */
+  readonly maxAgeMs: number;
+}
+
+/** The `jwksFetch` an entry that sets none fetches with. */
+export const JWKS_FETCH_DEFAULTS: JwksFetchSettings = Object.freeze({
+  timeoutMs: 5_000,
+  maxBytes: 256 * 1024,
+  maxKeys: 64,
+  refetchMs: 60_000,
+  maxAgeMs: 10 * 60_000,
+});
 
 /** A public key an issuer signs with, and the one algorithm it verifies. */
 export interface IssuerKey {
@@ -74,6 +101,8 @@ export interface TrustedIssuerConfig {
   readonly agents?: readonly string[];
   /** Environment grant templates, such as `{org_id}/*`; absent reaches no Environment. */
   readonly environments?: readonly string[];
+  /** How its JWKS is fetched; each setting left out is its default (`JWKS_FETCH_DEFAULTS`). */
+  readonly jwksFetch?: Partial<JwksFetchSettings>;
 }
 
 /** A malformed identity file: the message names the issuer and the field. */
@@ -160,7 +189,8 @@ const IssuerEntrySchema = z
         }
       }, "must be an http(s) URL without credentials")
       .optional(),
-    keys: z.array(z.string().min(1)).min(1).max(MAX_STATIC_KEYS).optional(),
+    // The file's author writes every key: no count of them is a limit (B15).
+    keys: z.array(z.string().min(1)).min(1).optional(),
     subject: template("subject")
       .refine(
         (value) => claimReferences(value).length > 0,
@@ -183,7 +213,17 @@ const IssuerEntrySchema = z
           "must render to an Environment id or a prefix ending in /*, as {org_id}/*",
         ),
       )
-      .max(TOKEN_ENVIRONMENT_GRANTS_MAX)
+      .optional(),
+    jwksFetch: z
+      .object({
+        // A fetch is timed with a JavaScript timer.
+        timeoutMs: z.number().int().positive().max(TIMER_MAX_MS).optional(),
+        maxBytes: z.number().int().positive().optional(),
+        maxKeys: z.number().int().positive().optional(),
+        refetchMs: z.number().int().nonnegative().optional(),
+        maxAgeMs: z.number().int().nonnegative().optional(),
+      })
+      .strict()
       .optional(),
   });
 
@@ -286,6 +326,7 @@ export function parseIdentityFile(
       issuer: value.issuer,
       audience: value.audience,
       ...(value.jwks ? { jwks: value.jwks } : {}),
+      ...(value.jwksFetch ? { jwksFetch: value.jwksFetch } : {}),
       ...(keys ? { keys } : {}),
       subject: value.subject,
       scopes: value.scopes,

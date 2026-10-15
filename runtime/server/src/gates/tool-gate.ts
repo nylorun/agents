@@ -63,6 +63,7 @@ export function inProcessToolGate(
       return open({
         server: declared.server,
         policy,
+        errorExcerptChars: (await tenant.limits()).errorExcerptChars,
         authorize: (url) =>
           tenant.authorize(server.sessionId, {
             url,

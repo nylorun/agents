@@ -128,6 +128,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
               ...(server.agentId === undefined ? {} : { agentId: server.agentId }),
             }),
           policy: options.delivery ?? {},
+          errorExcerptChars: (await vault.store.tx((t) => readRuntimeLimits(t))).errorExcerptChars,
         });
         const entry: Live = { connection, lastUsedAt: now(), active: 0 };
         live.set(key, entry);
@@ -170,7 +171,11 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
       // The call was never sent, so the model may try again (R2b C7). A gate that cannot serve
       // the session is not the server's failure, and stays as it was.
       if (!call || error instanceof GateRefusal || error instanceof NotDeclared) throw error;
-      throw unreachable(server.serverName, error);
+      const limits = await vaults
+        .open(tenantId)
+        .then((vault) => vault.store.tx((t) => readRuntimeLimits(t)))
+        .catch(() => undefined);
+      throw unreachable(server.serverName, error, limits?.errorExcerptChars);
     }
   }
 
@@ -215,8 +220,11 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
     },
     signal: AbortSignal,
   ) {
-    // The Tenant's Runtime limit, read for this call: the largest answer the gate keeps.
-    const { toolAnswerBytes } = await (await vaults.open(tenantId)).store.tx((t) => readRuntimeLimits(t));
+    // The Tenant's Runtime limits, read for this call: the largest answer the gate keeps, and how
+    // much of a failed one its error quotes.
+    const { toolAnswerBytes, errorExcerptChars } = await (await vaults.open(tenantId)).store.tx((t) =>
+      readRuntimeLimits(t),
+    );
     for (let attempt = 0; ; attempt += 1) {
       try {
         return await use(
@@ -228,6 +236,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
               {
                 signal,
                 maxResultBytes: toolAnswerBytes,
+                errorExcerptChars,
                 ...(request.key === undefined ? {} : { key: request.key }),
                 ...(request.traceparent === undefined ? {} : { traceparent: request.traceparent }),
               },

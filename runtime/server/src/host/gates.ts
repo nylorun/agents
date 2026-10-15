@@ -25,7 +25,6 @@ import { existsSync } from "node:fs";
 import { tenantPaths } from "../tenant/paths.js";
 import { staleRun, verifyRunToken, type RunTokenKeyCache } from "../tenant/run-token.js";
 import { createFsBlobStore, type BlobStore } from "../blob/index.js";
-import type { ModelCallSettings } from "../gates/model-gate.js";
 import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
 import { journalCheck } from "../gates/journal.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
@@ -56,8 +55,6 @@ export interface StartGatesOptions {
   readonly database?: PostgresClient;
   /** Replaces the Postgres-backed Tenant vault (tests). */
   readonly vaults?: TenantVaults;
-  /** Retries and timeouts of model calls (tests). */
-  readonly settings?: ModelCallSettings;
   /** How long `close` lets running calls finish. Default 10 s. */
   readonly drainMs?: number;
   /** How long keyed outcomes are kept, and how many (tests). */
@@ -141,7 +138,6 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     modelGate: createModelCallHandler({
       vaults,
       logger,
-      ...(options.settings ? { settings: options.settings } : {}),
       ...(blobs ? { blobs } : {}),
     }),
     ready: async () => {

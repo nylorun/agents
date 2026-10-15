@@ -151,7 +151,7 @@ export interface ManagementSettings {
     put(request: Body<PutTenantSkillsRequest>): Promise<TenantSkillsView>;
   };
   readonly limits: {
-    /** The Runtime limits in force: record entry, model call, model file, tool answer, harness state and chunk bytes. */
+    /** The Runtime limits in force: sizes, counts and deadlines, each the Tenant's or its default. */
     get(): Promise<TenantLimitsView>;
     /** Replaces them; a limit left out takes its default, one above its ceiling is refused (`400`). */
     put(request: Body<PutTenantLimitsRequest>): Promise<TenantLimitsView>;

@@ -14,7 +14,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent, createClient, http, type AgentsClient } from "@nylorun/agents";
-import type { LiveEvent } from "@nylorun/core/contracts";
+import { RUNTIME_LIMIT_DEFAULTS, type LiveEvent } from "@nylorun/core/contracts";
 import type { ModelCall, PromptContentPart } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
@@ -206,9 +206,18 @@ async function run(agentId = "reader") {
   throw new Error("timeout waiting for the turn to settle");
 }
 
-/** The largest event of a session's record, in bytes. */
+/**
+ * The largest entry of a session's record, in bytes: a transcript edit's largest entry (an edit
+ * fills its event up to the record entry limit, B15), else the event.
+ */
 const largest = (recorded: readonly LiveEvent[]) =>
-  Math.max(...recorded.map((event) => Buffer.byteLength(JSON.stringify(event))));
+  Math.max(
+    ...recorded.flatMap((event) =>
+      event.type === "transcript.updated"
+        ? (event.payload as { entries: unknown[] }).entries.map((entry) => Buffer.byteLength(JSON.stringify(entry)))
+        : [Buffer.byteLength(JSON.stringify(event))],
+    ),
+  );
 
 async function download(artifactId: string): Promise<Buffer> {
   const response = await fetch(`${runtime.url}/v1/artifacts/${artifactId}/versions/latest/content`, {
@@ -597,15 +606,16 @@ describe("one step's results share a budget", () => {
     const n = Number(/^chunk (\d+)/u.exec(await download(last.artifactId).then(String))![1]);
     expect((await download(last.artifactId)).toString("utf8")).toBe(chunk(n));
 
-    // No event near 1 MiB; only the event holding the step's results passes 64 KiB.
-    const sized = result.recorded.map((event) => ({ event, bytes: Buffer.byteLength(JSON.stringify(event)) }));
-    for (const { bytes } of sized) expect(bytes).toBeLessThan(320 * KiB);
-    const large = sized.filter((item) => item.bytes >= EVENT_MAX);
-    expect(large.length).toBeLessThanOrEqual(1);
-    for (const { event } of large) {
-      expect(event.type).toBe("transcript.updated");
-      expect((event.payload as { entries: unknown[] }).entries).toHaveLength(1);
-    }
+    // No entry near 1 MiB; only the entry holding the step's results passes 64 KiB, and every
+    // event fits the record entry limit (a transcript edit fills events up to it, B15).
+    const entries = result.recorded.flatMap((event) =>
+      event.type === "transcript.updated" ? (event.payload as { entries: unknown[] }).entries : [event],
+    );
+    const sized = entries.map((entry) => Buffer.byteLength(JSON.stringify(entry)));
+    for (const bytes of sized) expect(bytes).toBeLessThan(320 * KiB);
+    expect(sized.filter((bytes) => bytes >= EVENT_MAX).length).toBeLessThanOrEqual(1);
+    for (const event of result.recorded)
+      expect(Buffer.byteLength(JSON.stringify(event.payload))).toBeLessThanOrEqual(RUNTIME_LIMIT_DEFAULTS.recordEntryBytes);
   });
 });
 

@@ -3,10 +3,16 @@
  * the Tenant's ES256 JWTs, recognised by shape, told apart by their `typ`, and refused before
  * any key is read when the header is not one the Runtime issues.
  */
+import { maxHeaderSize } from "node:http";
 import { decodeProtectedHeader } from "jose";
 import { SIGNING_KEY_ID_PATTERN } from "@nylorun/core/compatibility";
 
-export const MAX_TOKEN_BYTES = 4096;
+/**
+ * The longest token read: a token arrives in a request's headers (a bearer) or its URL (a
+ * capability link), which Node refuses past `http.maxHeaderSize` (16 KiB unless
+ * `--max-http-header-size` says otherwise). A dependency's constant, not a limit (B15).
+ */
+export const MAX_TOKEN_BYTES = maxHeaderSize;
 export const CLOCK_TOLERANCE_SECONDS = 30;
 const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const FORBIDDEN_HEADERS = ["jku", "jwk", "x5u", "x5c", "x5t", "crit"];

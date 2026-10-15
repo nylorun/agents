@@ -88,6 +88,7 @@ async function exported(tenantId: string, root: string, content: ReadonlySet<"to
   const posted: OtlpSpan[] = [];
   let handlers: Parameters<ChangeSource["start"]>[0] | undefined;
   const projector = createTraceProjector({
+    contentBytes: async () => 8 * 1024,
     source: {
       start: (h) => void (handlers = h),
       acknowledge: () => {},

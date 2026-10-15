@@ -48,8 +48,25 @@ describe("transcript edits", () => {
   it("round-trip through applyUpdates", () => {
     const before = [{ n: 1 }, { n: 2 }];
     const after = [{ n: 1 }, { n: 3 }, { n: 4 }];
-    expect(applyUpdates(before, transcriptUpdates(before, after))).toEqual(after);
-    expect(transcriptUpdates(after, after)).toEqual([]);
+    expect(applyUpdates(before, transcriptUpdates(before, after, RUNTIME_LIMIT_DEFAULTS.recordEntryBytes))).toEqual(after);
+    expect(transcriptUpdates(after, after, RUNTIME_LIMIT_DEFAULTS.recordEntryBytes)).toEqual([]);
+  });
+
+  it("fill each event up to the record entry limit, and no further", () => {
+    const entry = (n: number) => ({ n, text: "é".repeat(100) });
+    const after = Array.from({ length: 50 }, (_, n) => entry(n));
+    const recordEntryBytes = 2_000;
+    const updates = transcriptUpdates([], after, recordEntryBytes);
+    expect(updates.length).toBeGreaterThan(1);
+    // Each event's payload, measured as the record measures it (UTF-8 JSON), fits the limit.
+    for (const update of updates)
+      expect(Buffer.byteLength(JSON.stringify(update))).toBeLessThanOrEqual(recordEntryBytes);
+    // And holds as many entries as fit: one more would not.
+    const [first, second] = updates;
+    expect(
+      Buffer.byteLength(JSON.stringify({ ...first, entries: [...first!.entries, second!.entries[0]] })),
+    ).toBeGreaterThan(recordEntryBytes - 64);
+    expect(applyUpdates([], updates)).toEqual(after);
   });
 });
 

@@ -638,7 +638,7 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const ctx = c.env.tenant;
-      const request = CreateArtifactLinkRequestSchema.parse(await readJson(c.req.raw));
+      const request = CreateArtifactLinkRequestSchema.parse(await readJson(c));
       const id = c.req.param("artifactId")!;
       const { artifact, version } = await ctx.store.tx(async (t) => {
         const artifact = await readableArtifact(t, id, accessOf(c.get("scope")));
@@ -741,7 +741,7 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const ctx = c.env.tenant;
       const { requestId: _requestId, ...config } = PutTenantArtifactsRequestSchema.parse(
-        await readJson(c.req.raw),
+        await readJson(c),
       );
       await ctx.store.tx((t) => writeArtifactsConfig(t, config));
       return jsonResponse(200, await artifactsView(ctx));

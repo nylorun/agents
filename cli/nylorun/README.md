@@ -529,10 +529,12 @@ nylorun tenant tool-policy put tool-policy.json
 `settings sandbox get` prints the effective settings and what the Host offers;
 its `put` takes the settings alone (`limits`, `lifecycle`, `placement`).
 
-`settings limits` is the Tenant's Runtime limits, in bytes: `recordEntryBytes`,
-`modelCallBytes`, `modelFileBytes`, `toolAnswerBytes`, `harnessStateBytes` and
-`chunkBytes`, and `folderEntries` (a count of files). A limit left out of a `put` takes its default; one above its
-ceiling (S2's 1 MiB record, the Harness API's 64 MiB frame) is refused, and the
+`settings limits` is the Tenant's Runtime limits: the sizes, counts and
+deadlines the Runtime holds what crosses it to, such as `recordEntryBytes`,
+`requestBodyBytes`, `environmentLabels`, `modelRequestMs` and `httpToolTimeoutMs`
+(each one, with its default and ceiling, in DEPLOYMENT.md's Runtime limits). A
+limit left out of a `put` takes its default; one above its ceiling (S2's 1 MiB
+record, the Harness API's 64 MiB frame, a JavaScript timer) is refused, and the
 error names the ceiling.
 
 `nylorun tenant calls` prints each recorded model call as one JSON line, page

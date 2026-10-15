@@ -6,8 +6,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import type { TenantEnv } from "../http/app.js";
-import { readText } from "../http/body.js";
-import { INLINE_BODY_MAX_BYTES } from "../inbound-files.js";
+import { bodyLimit, readText } from "../http/body.js";
 import { TraceHeaders, tenantRoute } from "../http/define.js";
 import { traceContextOf } from "../../traces/ids.js";
 import { jsonResponse } from "../http/respond.js";
@@ -106,7 +105,7 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
           c.req.param("agentId")!,
           {
             // A message may carry files inline.
-            body: () => readText(c.req.raw, INLINE_BODY_MAX_BYTES),
+            body: async () => readText(c.req.raw, await bodyLimit(c.env.tenant, "inline")),
             version: typeof version === "string" ? version : (c.req.query("A2A-Version") ?? null),
             ...(trace ? { trace } : {}),
           },

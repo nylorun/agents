@@ -34,7 +34,7 @@ import {
   isText,
   normalizeContentType,
 } from "@nylorun/core/contracts";
-import { READ_ARTIFACT_MAX_BYTES, type ToolResultFile } from "@nylorun/core/define";
+import type { ToolResultFile } from "@nylorun/core/define";
 import { fromBase64, type ModelDescriptor, type RuntimeLimits } from "@nylorun/core/harness-api";
 import type { HostEffect } from "../run/durable.js";
 import { fileView } from "../loop/model/files.js";
@@ -64,7 +64,7 @@ export interface ToolResultConfig {
 }
 
 export const DEFAULT_TOOL_RESULT_CONFIG: ToolResultConfig = Object.freeze({
-  resultInlineBytes: READ_ARTIFACT_MAX_BYTES,
+  resultInlineBytes: 32 * 1024,
   previewHeadBytes: 4 * 1024,
   previewTailBytes: 1024,
   stepBudgetBytes: 256 * 1024,

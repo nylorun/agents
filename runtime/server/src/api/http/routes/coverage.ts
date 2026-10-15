@@ -42,7 +42,7 @@ export function coverageRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      const request = CredentialCoverageRequestSchema.parse(await readJson(c.req.raw));
+      const request = CredentialCoverageRequestSchema.parse(await readJson(c));
       const tenant = c.env.tenant;
       const definition =
         (await tenant.store.tx((t) =>

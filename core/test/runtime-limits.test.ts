@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  HARNESS_LIMIT_DEFAULTS,
+  HarnessLimitsSchema,
+  JS_STRING_MAX_LENGTH,
   PutTenantLimitsRequestSchema,
   RUNTIME_LIMIT_CEILINGS,
   RUNTIME_LIMIT_DEFAULTS,
+  RuntimeLimitsSchema,
+  TIMER_MAX_MS,
+  harnessLimitsOf,
+  inlineBodyBytes,
   S2_RECORD_MAX_BYTES,
   TenantLimitsViewSchema,
   runtimeLimitIssues,
@@ -11,8 +18,8 @@ import {
 import { HARNESS_MAX_PAYLOAD, TurnStartSchema } from "../src/harness-api/index.js";
 
 describe("Runtime limits", () => {
-  it("defaults to today's sizes, each within its ceiling", () => {
-    expect(RUNTIME_LIMIT_DEFAULTS).toEqual({
+  it("defaults to today's sizes and times, each within its ceiling", () => {
+    expect(HARNESS_LIMIT_DEFAULTS).toEqual({
       recordEntryBytes: 960 * 1024,
       modelCallBytes: 32 * 1024 * 1024,
       modelFileBytes: 8 * 1024 * 1024,
@@ -21,7 +28,57 @@ describe("Runtime limits", () => {
       chunkBytes: 16 * 1024 * 1024,
       folderEntries: 10_000,
     });
+    // The values the literals they replace held (B15).
+    expect(RUNTIME_LIMIT_DEFAULTS).toMatchObject({
+      requestBodyBytes: 1024 * 1024,
+      inlineFileBytes: 20 * 1024 * 1024,
+      a2aWaitMs: 5 * 60_000,
+      errorExcerptChars: 2_000,
+      traceContentBytes: 8 * 1024,
+      environmentLabels: 32,
+      environmentSetupCommands: 16,
+      environmentFiles: 16,
+      environmentFilesPerEntry: 1_000,
+      environmentSecretSlots: 64,
+      setupCommandMs: 30 * 60_000,
+      setupOutputChars: 4 * 1024,
+      diskVersionEntries: 200_000,
+      diskVersionBytes: 10 * 1024 ** 3,
+      diskLeaseMs: 2 * 60_000,
+      diskPodWaitMs: 60_000,
+      modelRequestMs: 600_000,
+      modelIdleMs: 300_000,
+      modelAttempts: 3,
+      modelRetryDelayMs: 2_000,
+      modelProviderRetries: 2,
+      modelRetryDelayMaxMs: 60_000,
+      toolAttempts: 3,
+      httpToolTimeoutMs: 300_000,
+      mcpSnapshotBytes: 4 * 1024 * 1024,
+      mcpPreviewMs: 15_000,
+      mcpMetadataBytes: 64 * 1024,
+    });
+    // Every limit has a default and a ceiling, and the defaults are within them.
+    expect(Object.keys(RUNTIME_LIMIT_DEFAULTS).sort()).toEqual(Object.keys(RUNTIME_LIMIT_CEILINGS).sort());
+    expect(Object.keys(RuntimeLimitsSchema.shape).sort()).toEqual(Object.keys(RUNTIME_LIMIT_CEILINGS).sort());
     expect(runtimeLimitIssues(RUNTIME_LIMIT_DEFAULTS)).toEqual([]);
+    for (const ceiling of Object.values(RUNTIME_LIMIT_CEILINGS)) expect(ceiling.why.length).toBeGreaterThan(20);
+  });
+
+  it("sends a harness only its own limits, and a harness drops one it does not know", () => {
+    expect(harnessLimitsOf(RUNTIME_LIMIT_DEFAULTS)).toEqual(HARNESS_LIMIT_DEFAULTS);
+    expect(HarnessLimitsSchema.parse({ ...HARNESS_LIMIT_DEFAULTS, newLimitBytes: 1 })).toEqual(HARNESS_LIMIT_DEFAULTS);
+  });
+
+  it("times with JavaScript timers, and reads an inline body of one file in base64 and the rest", () => {
+    expect(RUNTIME_LIMIT_CEILINGS.a2aWaitMs).toMatchObject({ value: TIMER_MAX_MS, unit: "milliseconds" });
+    expect(runtimeLimitIssues({ modelRequestMs: TIMER_MAX_MS + 1 })[0]).toContain("JavaScript timer");
+    expect(inlineBodyBytes({ inlineFileBytes: 3 * 1024, requestBodyBytes: 1024 })).toBe(5 * 1024);
+    // About the 28 MiB the endpoints read before (B15).
+    expect(inlineBodyBytes(RUNTIME_LIMIT_DEFAULTS)).toBe(Math.ceil((20 * 1024 * 1024) / 3) * 4 + 1024 * 1024);
+    expect(inlineBodyBytes({ inlineFileBytes: RUNTIME_LIMIT_CEILINGS.inlineFileBytes.value, requestBodyBytes: 1 })).toBe(
+      JS_STRING_MAX_LENGTH,
+    );
   });
 
   it("takes its ceilings from the dependencies", () => {

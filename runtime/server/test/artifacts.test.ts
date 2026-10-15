@@ -6,6 +6,7 @@
  */
 import { afterEach, expect, it, vi } from "vitest";
 import { Agent } from "@nylorun/core/define";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { createClient } from "@nylorun/agents";
 import { createFsBlobStore } from "../src/blob/index.js";
 import { artifactFiles, FileUnavailableError } from "../src/artifacts/files.js";
@@ -300,6 +301,10 @@ it("holds an Environment's artifacts to its manifest's limits, within the Tenant
   expect(((await small.json()) as { limits: unknown }).limits).toEqual({
     artifacts: { fileBytes: 600, totalBytes: 1000 },
     skills: { totalBytes: 2 * 1024 ** 3 },
+    disk: {
+      versionBytes: RUNTIME_LIMIT_DEFAULTS.diskVersionBytes,
+      versionEntries: RUNTIME_LIMIT_DEFAULTS.diskVersionEntries,
+    },
   });
   await openSession(runtime, "s1", "ada", { environment: "small" });
   await openSession(runtime, "s2", "ada", { environment: "plain" });
@@ -333,7 +338,7 @@ it("holds an Environment's artifacts to its manifest's limits, within the Tenant
     limits: unknown;
     manifest: { limits?: unknown };
   };
-  expect(viewed.limits).toEqual({ artifacts: { fileBytes: 100, totalBytes: 1000 }, skills: { totalBytes: 2 * 1024 ** 3 } });
+  expect(viewed.limits).toMatchObject({ artifacts: { fileBytes: 100, totalBytes: 1000 }, skills: { totalBytes: 2 * 1024 ** 3 } });
   expect(viewed.manifest.limits).toEqual({ artifacts: { fileBytes: 600, totalBytes: 1000 } });
   // Get-or-create still finds it, though its manifest now asks for more than the Tenant allows.
   const again = await putEnvironment("small", { limits: { artifacts: { fileBytes: 600, totalBytes: 1000 } } });

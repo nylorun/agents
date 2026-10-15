@@ -137,7 +137,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
         config: ctx.engine.outputs,
         signal,
       });
-    ({ output, after } = outputOf(runId, result, transcript));
+    ({ output, after } = outputOf(runId, result, transcript, start.limits.recordEntryBytes));
   } catch (error) {
     output = {
       runId,
@@ -228,6 +228,7 @@ function outputOf(
   runId: string,
   result: EngineResult,
   start: readonly unknown[],
+  recordEntryBytes: number,
 ): { output: TurnOutput; after?: readonly unknown[] } {
   if (result.status === "waiting" || result.status === "uncertain")
     return { output: { runId, status: result.status, effectIds: [...result.effectIds] } };
@@ -253,7 +254,7 @@ function outputOf(
       runId,
       status: result.status,
       state: withTranscript(outcome.state, []),
-      transcript: transcriptUpdates(start, after, undefined, compaction),
+      transcript: transcriptUpdates(start, after, recordEntryBytes, compaction),
       ...fields,
     },
     after,

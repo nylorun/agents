@@ -70,7 +70,8 @@ import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
 import { deleteDiskArtifact, forkSeedOf, runPendingSeed, snapshotEnvironment } from "../artifacts/disk.js";
 import { manifestChanges, manifestRecipeRequest } from "./environment-manifests.js";
-import { limitIssues, limitsInForce, readTenantLimits } from "./limits.js";
+import { labelIssues, limitIssues, limitsInForce, manifestShapeIssues, readTenantLimits } from "./limits.js";
+import { readRuntimeLimits } from "./runtime-limits.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 import type { SealedSecretCopies } from "../vault/service.js";
@@ -384,13 +385,17 @@ export async function putEnvironment(
     const now = new Date().toISOString();
     const config = effectiveSandboxConfig(await readSandboxConfig(t));
     const tenantLimits = await readTenantLimits(t);
-    // `limits` are checked against the Tenant's only when an Environment is made: a get-or-create
-    // on one made before the Tenant lowered a limit still answers, and the lower limit applies.
+    const runtimeLimits = await readRuntimeLimits(t);
+    // `limits` and the manifest's shape are checked against the Tenant's only when an Environment
+    // is made: a get-or-create on one made before the Tenant lowered a limit still answers, and
+    // the lower limit applies. Labels are checked whenever they are set.
+    const labels = labelIssues(body.labels, runtimeLimits);
+    if (labels.length > 0) fail(400, labels.join(" "));
     const resolve = (kind: EnvironmentKind, request: RecipeRequest, creating: boolean) => {
       const resolved = resolveRecipe(kind, request, config);
       const errors = [
         ...(resolved.kind === "error" ? resolved.errors : []),
-        ...(creating ? limitIssues(request.limits, tenantLimits) : []),
+        ...(creating ? [...limitIssues(request.limits, tenantLimits), ...manifestShapeIssues(request, runtimeLimits)] : []),
       ];
       return resolved.kind === "error" || errors.length > 0 ? fail(400, errors.join(" ")) : resolved.recipe;
     };
@@ -663,6 +668,8 @@ export async function forkEnvironment(
     const errors = [
       ...(resolved.kind === "error" ? resolved.errors : []),
       ...limitIssues(manifest.body.limits, await readTenantLimits(t)),
+      ...manifestShapeIssues(manifest.body, await readRuntimeLimits(t)),
+      ...labelIssues(body.labels, await readRuntimeLimits(t)),
     ];
     if (resolved.kind === "error" || errors.length > 0) return fail(400, errors.join(" "));
     const recipe = resolved.recipe;

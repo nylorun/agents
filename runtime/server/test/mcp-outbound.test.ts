@@ -80,6 +80,7 @@ const open = (url: string, policy: Parameters<typeof openMcpServer>[0]["policy"]
     server: { name: "local", type: "streamable-http", url },
     authorize: async (url) => ({ status: "unauthenticated", url, headers: {} }),
     policy,
+    errorExcerptChars: RUNTIME_LIMIT_DEFAULTS.errorExcerptChars,
   });
 
 it("reaches a localhost server on the Docker host in the local stack, and streams its answers", async () => {
@@ -188,7 +189,7 @@ describe("a call that never reached its server (R2b C7)", () => {
       {
         session: async () => ({ manifest: agent.manifest }),
         authorize: async (_session, { url }) => ({ status: "unauthenticated", url, headers: {} }),
-        toolAnswerBytes: async () => RUNTIME_LIMIT_DEFAULTS.toolAnswerBytes,
+        limits: async () => RUNTIME_LIMIT_DEFAULTS,
       }
     );
     const pool = new McpPool({ openRemote: gate.openMcp! });

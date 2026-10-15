@@ -17,7 +17,8 @@ import type { ModelDescriptor } from "@nylorun/core/harness-api";
 import type { SessionStore } from "../store/types.js";
 import { readAddedInputs, usesFixtureModel } from "../tenant/model-setting.js";
 import { capabilitiesOf } from "./capabilities.js";
-import { CUSTOM_CONTEXT_WINDOW, CUSTOM_MAX_TOKENS, modelsFor, type Selection } from "./models.js";
+import { CUSTOM_MODEL_SETTING_DEFAULTS } from "@nylorun/core/contracts";
+import { modelsFor, type Selection } from "./models.js";
 
 /** A configured model: its provider and model, and a custom endpoint's address and settings. */
 export interface ModelBindingView {
@@ -67,8 +68,8 @@ export const FIXTURE_DESCRIPTOR: ModelDescriptor = Object.freeze({
   provider: "fixture",
   id: "fixture",
   inputs: [...MODEL_INPUTS],
-  contextWindow: CUSTOM_CONTEXT_WINDOW,
-  maxOutputTokens: CUSTOM_MAX_TOKENS,
+  contextWindow: CUSTOM_MODEL_SETTING_DEFAULTS.contextWindow,
+  maxOutputTokens: CUSTOM_MODEL_SETTING_DEFAULTS.maxTokens,
 });
 
 const emptyStore: CredentialStore = {
@@ -119,10 +120,10 @@ export async function currentModelDescriptor(ctx: {
 
 /**
  * The context window, in tokens, of the Tenant's model now; without one, or one the catalog does
- * not know, it is assumed small (`CUSTOM_CONTEXT_WINDOW`), as for a custom endpoint.
+ * not know, it is assumed small (`CUSTOM_MODEL_SETTING_DEFAULTS`), as for a custom endpoint.
  */
 export async function currentContextWindow(
   ctx: Parameters<typeof currentModelDescriptor>[0],
 ): Promise<number> {
-  return (await currentModelDescriptor(ctx))?.contextWindow ?? CUSTOM_CONTEXT_WINDOW;
+  return (await currentModelDescriptor(ctx))?.contextWindow ?? CUSTOM_MODEL_SETTING_DEFAULTS.contextWindow;
 }

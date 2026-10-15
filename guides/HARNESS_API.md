@@ -127,9 +127,10 @@ Which token:
 - `trace`: optional W3C trace context (`{traceparent, tracestate?}`).
   - Send it as `traceparent` on your gate calls, and as `TRACEPARENT` to processes you start.
   - The Runtime never ingests a harness's spans; send them to your own collector.
-- `limits` (`RuntimeLimitsSchema`): the Tenant's Runtime limits when the segment started, in
-  bytes. The operator sets them (`PUT /v1/tenant/limits`); keep within them, or core refuses
-  what passes one with `limit_exceeded`:
+- `limits` (`HarnessLimitsSchema`): the Tenant's Runtime limits a harness must respect, when the
+  segment started (the Runtime's other limits are its own, and a limit a harness does not know is
+  dropped when it parses them). The operator sets them (`PUT /v1/tenant/limits`); keep within
+  them, or core refuses what passes one with `limit_exceeded`:
   - `recordEntryBytes`: one entry of the record, as JSON: an `effect.outcome` value, a
     transcript update (§6), a claimed event. Default 960 KiB, its ceiling (S2's 1 MiB record
     less room for the event's envelope).
@@ -384,7 +385,9 @@ A tool's answer can be far larger than one record entry. Fitting it is the harne
 ## §6 Transcript
 
 The session's transcript is shared by every turn. A segment reads it once and reports its edits
-as `TranscriptUpdate`s, `{keep, entries, length}`, made with `transcriptUpdates(before, after)`.
+as `TranscriptUpdate`s, `{keep, entries, length}`, made with
+`transcriptUpdates(before, after, limits.recordEntryBytes)`: an edit fills each event up to the
+record entry limit, and an entry larger than it is an event of its own, which core refuses.
 Entries are one of five kinds (`TranscriptEntrySchema`):
 
 - `input`: the turn's input event;
@@ -402,7 +405,7 @@ only.
   records no `message.assistant` for it;
 - mark the edit that replaced the history `kind: "compaction"`, with `compaction: {trigger,
   tokensBefore, tokensAfter, summaryEffectIds}` (`CompactionFactsSchema`; `transcriptUpdates(before,
-  after, chunkBytes, compaction)` puts it on the edit's first chunk). `summaryEffectIds` are the
+  after, recordEntryBytes, compaction)` puts it on the edit's first event). `summaryEffectIds` are the
   completed summary calls of this turn that wrote it, in order;
 - core checks those calls (a call that is not one is `invalid`, and the turn fails) and writes one
   `context.compacted` with your facts and the last call's step and timing.

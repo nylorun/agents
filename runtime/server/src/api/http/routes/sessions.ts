@@ -116,7 +116,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
         await command(
           c.env.tenant,
           c.req.param("sessionId")!,
-          SessionCommandSchema.parse(await readJson(c.req.raw)),
+          SessionCommandSchema.parse(await readJson(c)),
           c.get("scope"),
           trace ? { trace } : {},
         ),
@@ -184,7 +184,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
         await putDefinition(
           c.env.tenant,
           c.req.param("agentId")!,
-          PutAgentRequestSchema.parse(await readJson(c.req.raw)),
+          PutAgentRequestSchema.parse(await readJson(c)),
           { dryRun: c.req.query("dryRun") === "true" },
         ),
       );
@@ -232,7 +232,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const scope = c.get("scope");
       const ctx = c.env.tenant;
-      const request = PutSessionRequestSchema.parse(await readJson(c.req.raw));
+      const request = PutSessionRequestSchema.parse(await readJson(c));
       // Agent code may trust `info`: only an app server sets it.
       if (scope.kind === "token" && request.info !== undefined)
         fail(403, "A token caller cannot set session info", { code: "scope_required" });
@@ -371,7 +371,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
             sandboxRouteDeps(ctx),
             id,
             c.req.param("tool")!,
-            await readJson(c.req.raw),
+            await readJson(c),
             c.req.raw.signal,
           ),
         );

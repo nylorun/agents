@@ -9,6 +9,7 @@ import {
   streamSimple,
 } from "@earendil-works/pi-ai/api/openai-completions";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
+import { CUSTOM_MODEL_SETTING_DEFAULTS } from "@nylorun/core/contracts";
 
 export type Selection = Readonly<{
   provider: string;
@@ -25,9 +26,6 @@ export type Selection = Readonly<{
   }>;
 }>;
 
-/** A custom endpoint whose window is unknown is assumed small: an early compaction beats a failed call. */
-export const CUSTOM_CONTEXT_WINDOW = 32_768;
-export const CUSTOM_MAX_TOKENS = 8_192;
 
 /**
  * Build the pi-ai model registry from explicit credentials only.
@@ -57,8 +55,8 @@ export function modelsFor(
     reasoning: selection.custom.reasoning ?? false,
     input: selection.custom.inputs?.includes("image") ? ["text", "image"] : ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: selection.custom.contextWindow ?? CUSTOM_CONTEXT_WINDOW,
-    maxTokens: selection.custom.maxTokens ?? CUSTOM_MAX_TOKENS,
+    contextWindow: selection.custom.contextWindow ?? CUSTOM_MODEL_SETTING_DEFAULTS.contextWindow,
+    maxTokens: selection.custom.maxTokens ?? CUSTOM_MODEL_SETTING_DEFAULTS.maxTokens,
     ...(selection.custom.compat
       ? { compat: { ...selection.custom.compat } as Model<"openai-completions">["compat"] }
       : {}),

@@ -9,7 +9,8 @@ import type { ResolvedNetwork } from "./types.js";
 export const DEFAULT_SANDBOX_IMAGE = "python:3.13-slim";
 export const DEFAULT_SANDBOX_CPUS = 2;
 export const DEFAULT_SANDBOX_MEMORY_MIB = 1024;
-export const DEFAULT_SANDBOX_IDLE_MS = 15 * 60_000;
+/** The default of the Tenant's Environment setting `limits.idle` (`environments.config`, D36). */
+export const DEFAULT_SANDBOX_IDLE = "15m";
 
 /** Package registries and code hosts. Concrete names so every backend can express them. */
 export const DEV_PRESET_HOSTS: readonly string[] = Object.freeze([
@@ -57,8 +58,13 @@ export function resolveNetwork(manifest: SandboxManifest | undefined): ResolvedN
   });
 }
 
+/**
+ * How long the sandbox may sit idle: its spec's `idle`, which `sandboxSpecOf` sets from the
+ * Environment's `lifecycle.idle` within the Tenant's `limits.idle`; else that setting's default
+ * (`DEFAULT_SANDBOX_IDLE`, D36).
+ */
 export function idleMsOf(manifest: SandboxManifest | undefined): number {
-  return (manifest?.idle && parseSandboxDuration(manifest.idle)) || DEFAULT_SANDBOX_IDLE_MS;
+  return parseSandboxDuration(manifest?.idle ?? DEFAULT_SANDBOX_IDLE) ?? parseSandboxDuration(DEFAULT_SANDBOX_IDLE)!;
 }
 
 export function memoryMiBOf(manifest: SandboxManifest | undefined): number {

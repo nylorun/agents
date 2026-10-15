@@ -113,7 +113,7 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
     },
     async (c) => {
       const ctx = c.env.tenant;
-      const request = RotateSigningKeysRequestSchema.parse(await readJson(c.req.raw));
+      const request = RotateSigningKeysRequestSchema.parse(await readJson(c));
       // The longest any token the Runtime signs lives (capability links, run tokens).
       const keys = await ctx.keys.rotateSigningKeys({
         maxTtlSeconds: TOKEN_TTL_MAX_SECONDS,
@@ -140,7 +140,7 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
     },
     async (c) => {
       const ctx = c.env.tenant;
-      RevokeSigningKeyRequestSchema.parse(await readJson(c.req.raw));
+      RevokeSigningKeyRequestSchema.parse(await readJson(c));
       const row = await ctx.store.tx((t) => ctx.signingKeys.revoke(t, c.req.param("kid")!));
       ctx.config.logger.info("signing key revoked", { kid: row.id });
       return jsonResponse(200, signingKeyView(row));
