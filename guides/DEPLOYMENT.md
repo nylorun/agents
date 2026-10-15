@@ -624,8 +624,10 @@ a model credential.
 - The gateway reads the files a call names from the Object store, and sends a model only what it
   reads (protocol 12): its catalog's inputs plus those you add with `PUT /v1/tenant/models/inputs`
   (`admin.models.setInputs`), or a custom endpoint's `settings.inputs`, text only by default. A
-  message naming a file the model does not read is refused when it is sent (`422
-  attachment_unsupported`). A file goes to the model as bytes only in the turn that brought it;
+  message may name any file (protocol 15): the harness learns what the model reads in
+  `turn.start.model`, inlines text, and tells the model about a file it does not read; the gate
+  refuses a part the model cannot take (`unsupported_input`). A file goes to the model only in the
+  turn that brought it;
   later turns name it by a reference line, and the model reads it again with `read_artifact`.
 - A Compose file you write yourself must run both containers: in a container,
   a Runtime that runs `loop` refuses to start without `NYLORUN_GATES_URL` and

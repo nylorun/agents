@@ -246,19 +246,7 @@ async function fakeRuntime(environments = false) {
     if (req.method === "POST" && commandMatch) {
       const body = JSON.parse(raw) as Record<string, any>;
       commands.push({ sessionId: decodeURIComponent(commandMatch[1]!), body });
-      // Like a model that reads text and images: a video is refused at accept.
-      const refused = (body.parts ?? [])
-        .filter((part: any) => part.type === "file" && artifacts.get(part.artifactId)?.contentType.startsWith("video/"))
-        .map((part: any) => {
-          const stored = artifacts.get(part.artifactId)!;
-          return { artifactId: stored.id, name: stored.name, mediaType: stored.contentType, reason: "this model does not read video" };
-        });
-      if (refused.length)
-        return send(422, {
-          code: "attachment_unsupported",
-          message: "The model does not read one of the message's files.",
-          details: { parts: refused },
-        });
+      // Any file is accepted (protocol 15): the agent's harness decides how its model sees it.
       return send(202, { accepted: true, eventId: `ev_${seq++}` });
     }
     const match = /^\/v1\/sessions\/([^/]+)(\/items|\/events)?$/u.exec(path);
@@ -506,11 +494,8 @@ test("files attached to a message are uploaded into the session, then sent as it
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
     await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
     const picker = page.locator('input[type="file"]');
-    // The model reads text, images and PDFs.
-    assert.equal(
-      await picker.getAttribute("accept"),
-      "text/*,.md,.json,.csv,.txt,image/*,application/pdf",
-    );
+    // Any file goes, whatever the model reads (protocol 15).
+    assert.equal(await picker.getAttribute("accept"), null);
     await picker.setInputFiles([
       { name: "chart.png", mimeType: "image/png", buffer: PNG },
       { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("ship by Friday") },
@@ -553,6 +538,8 @@ test("the message box keeps focus while a turn runs, so a paste into the focused
     await message.fill("Where is order 42?");
     await message.press("Enter");
     await page.getByPlaceholder(`${AGENT} is working…`).waitFor();
+    // The box turns read-only as the message leaves; the command lands just after.
+    for (let i = 0; i < 100 && commands.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(commands.length, 1);
     // Read-only, not disabled: focus stays in the box for the next message.
     assert.equal(await message.getAttribute("aria-disabled"), "true");
@@ -569,7 +556,7 @@ test("the message box keeps focus while a turn runs, so a paste into the focused
   });
 });
 
-test("a file the model does not read keeps the draft, says why, and is not uploaded again on resend", async () => {
+test("a file the model does not read is sent like any other: the harness tells the model (protocol 15)", async () => {
   await withStudio(async ({ page, studioUrl, uploads, commands }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
     await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
@@ -581,24 +568,15 @@ test("a file the model does not read keeps the draft, says why, and is not uploa
     const message = page.getByRole("textbox", { name: "Message" });
     await message.fill("What happens here?");
     await page.getByRole("button", { name: "Send" }).click();
-    await page.getByRole("alert").filter({ hasText: "The model does not read one of the message's files." }).waitFor();
-    const chips = page.locator('[data-slot="attachment"]');
-    await chips.filter({ hasText: "clip.mp4" }).getByText("this model does not read video").waitFor();
-    assert.equal(await chips.filter({ hasText: "notes.txt" }).getByText("14 B").count(), 1);
-    assert.equal(await message.inputValue(), "What happens here?");
+    await page.waitForFunction(() => document.querySelectorAll('[data-slot="attachment"]').length === 0);
+    assert.equal(await message.inputValue(), "");
     assert.equal(uploads.length, 2);
     assert.equal(commands.length, 1);
-    // Without the video, the same draft goes; the text file is not uploaded twice.
-    await page.getByRole("button", { name: "Remove clip.mp4" }).click();
-    await page.getByRole("button", { name: "Send" }).click();
-    await page.waitForFunction(() => document.querySelectorAll('[data-slot="attachment"]').length === 0);
-    assert.equal(uploads.length, 2);
-    assert.equal(commands.length, 2);
-    assert.deepEqual(commands[1]!.body.parts, [
+    assert.deepEqual(commands[0]!.body.parts, [
       { type: "text", text: "What happens here?" },
+      { type: "file", artifactId: "art_1", version: 1 },
       { type: "file", artifactId: "art_2", version: 1 },
     ]);
-    assert.notEqual(commands[1]!.body.idempotencyKey, commands[0]!.body.idempotencyKey);
   });
 });
 

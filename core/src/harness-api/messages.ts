@@ -12,6 +12,7 @@ import type {
   ArtifactMetaSchema,
   EffectIntentSchema,
   IntentAnswerSchema,
+  ModelDescriptorSchema,
   OutcomeAnswerSchema,
   RecordedOutcomeSchema,
   ReleaseReasonSchema,
@@ -95,6 +96,9 @@ export type RunRouting = z.infer<typeof RunRoutingSchema>;
 
 /** W3C trace context a turn carries (R4.10). */
 export type TraceContext = z.infer<typeof TraceContextSchema>;
+
+/** The model a turn's calls use when they name none (`turn.start.model`, protocol 15). */
+export type ModelDescriptor = z.infer<typeof ModelDescriptorSchema>;
 
 /** What a run starts from: `turn.start` (message, continue, resume) or `approval.answer`. */
 export type TurnStart = z.infer<typeof TurnStartSchema>;

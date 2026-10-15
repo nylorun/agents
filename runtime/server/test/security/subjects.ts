@@ -40,13 +40,17 @@ export function subjectHeaders(as: As): Record<string, string> {
 }
 
 export async function startSubjectTenant(
-  options: { issuers?: StartTestTenantOptions["issuers"] } = {}
+  options: {
+    issuers?: StartTestTenantOptions["issuers"];
+    /** The scripted model; default one that answers "ok". */
+    modelProvider?: StartTestTenantOptions["modelProvider"];
+  } = {}
 ) {
   const runtime = await startTestTenant({
     ...(options.issuers ? { issuers: options.issuers } : {}),
     applicationKey: APP,
     vaultKek: KEK,
-    modelProvider: async () => ({ output: [{ type: "text", text: "ok" }] }),
+    modelProvider: options.modelProvider ?? (async () => ({ output: [{ type: "text", text: "ok" }] })),
   });
   async function call(
     method: string,

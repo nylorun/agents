@@ -2,8 +2,9 @@
  * Media types of file artifacts: what an upload may declare, what a name's extension implies,
  * and which model input a file is (`modelInputOf`, protocol 12): text, an image, a PDF, an Office
  * document, audio or video. A model reads a file only when its inputs include that one. The
- * Runtime types what it stores with these, and a harness what it reads and writes over the
- * Harness API's artifact seam (protocol 15), so both agree.
+ * Runtime types what it stores with these, a harness what it reads and writes over the Harness
+ * API's artifact seam and how it shows a file to the model, and the Model Gate what it refuses
+ * (protocol 15), so all three agree.
  */
 import type { ModelInput } from "../contracts.js";
 
@@ -103,7 +104,8 @@ export function extensionFor(contentType: string): string | undefined {
 }
 
 /** Word, Excel and PowerPoint documents, old and Open XML. */
-function isOffice(type: string): boolean {
+export function isOffice(contentType: string): boolean {
+  const type = essence(contentType);
   return (
     type === "application/msword" ||
     type === "application/vnd.ms-excel" ||
@@ -136,20 +138,4 @@ const LABELS: Readonly<Record<ModelInput, string>> = {
 /** An input, in a sentence: "PDFs", "Office documents"; "files of this type" for none. */
 export function inputLabel(input: ModelInput | undefined): string {
   return input === undefined ? "files of this type" : LABELS[input];
-}
-
-/**
- * Why a model that reads `inputs` cannot read a file of `contentType`, or undefined when it can.
- * An image must also be PNG, JPEG, GIF or WebP.
- */
-export function unreadableReason(
-  contentType: string,
-  inputs: readonly ModelInput[],
-): string | undefined {
-  const input = modelInputOf(contentType);
-  if (input === undefined) return `no model reads ${essence(contentType)} files`;
-  if (!inputs.includes(input)) return `this model does not read ${LABELS[input]}`;
-  if (input === "image" && !isModelImage(contentType))
-    return "the model reads PNG, JPEG, GIF and WebP images only";
-  return undefined;
 }

@@ -96,8 +96,6 @@ export function SessionComposer({
   attachments,
   onAttach,
   onRemove,
-  accept,
-  onModelInputs,
 }: Readonly<{
   tenantId: string;
   agentName: string;
@@ -115,10 +113,6 @@ export function SessionComposer({
   attachments: readonly ComposerAttachment[];
   onAttach: (files: readonly File[]) => void;
   onRemove: (id: string) => void;
-  /** The file picker's `accept`: what the active model reads. */
-  accept: string;
-  /** The active model's inputs, as the model picker reads them. */
-  onModelInputs?: (inputs: readonly string[]) => void;
 }>) {
   const form = useRef<HTMLFormElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -241,7 +235,6 @@ export function SessionComposer({
             ref={picker}
             type="file"
             multiple
-            accept={accept}
             hidden
             onChange={(event) => {
               attach(event.target.files);
@@ -294,7 +287,6 @@ export function SessionComposer({
         tenantId={tenantId}
         disabled={disabled}
         className="mt-1"
-        {...(onModelInputs ? { onInputs: onModelInputs } : {})}
       />
     </form>
   );

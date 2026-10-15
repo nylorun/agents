@@ -7,13 +7,13 @@ import {
   DEFAULT_CONTENT_TYPE,
   contentTypeFor,
   extensionFor,
+  isOffice,
   isText,
   modelInputOf,
   normalizeContentType,
-  unreadableReason,
 } from "../src/contracts.js";
 
-it("tells which input a file is, and why a model cannot read one", () => {
+it("tells which input a file is", () => {
   expect(modelInputOf("text/csv; charset=utf-8")).toBe("text");
   expect(modelInputOf("application/json")).toBe("text");
   // SVG is XML: the model reads it as text.
@@ -25,13 +25,8 @@ it("tells which input a file is, and why a model cannot read one", () => {
   expect(modelInputOf("video/mp4")).toBe("video");
   expect(modelInputOf("application/zip")).toBeUndefined();
 
-  const inputs = ["text", "image"] as const;
-  expect(unreadableReason("text/plain", ["text"])).toBeUndefined();
-  expect(unreadableReason("image/png", inputs)).toBeUndefined();
-  expect(unreadableReason("image/png", ["text"])).toBe("this model does not read images");
-  expect(unreadableReason("image/bmp", inputs)).toBe("the model reads PNG, JPEG, GIF and WebP images only");
-  expect(unreadableReason("application/pdf", inputs)).toBe("this model does not read PDFs");
-  expect(unreadableReason("application/zip", inputs)).toBe("no model reads application/zip files");
+  expect(isOffice("application/vnd.ms-excel; x=1")).toBe(true);
+  expect(isOffice("application/pdf")).toBe(false);
 });
 
 it("types a file by its name, and checks a declared media type", () => {

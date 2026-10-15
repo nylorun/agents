@@ -189,6 +189,91 @@ describe("a harness", () => {
     expect(output.output).toBe("hi");
   });
 
+  it("shows the turn's files by turn.start.model and limits, reading text over the seam (protocol 15)", async () => {
+    const csv = Buffer.from("a,b\n1,2");
+    const core = fakeCore({
+      answer: (method, params) =>
+        method === "artifact.read"
+          ? {
+              artifact: {
+                artifactId: params.artifactId,
+                kind: "file",
+                name: "data.csv",
+                version: params.version,
+                contentType: "text/csv",
+                size: csv.byteLength,
+                sha256: "0".repeat(64),
+                tenantWide: false,
+              },
+              offset: params.offset,
+              base64: csv.subarray(params.offset, params.offset + params.length).toString("base64"),
+              eof: params.offset + params.length >= csv.byteLength,
+            }
+          : undefined,
+    });
+    const prompts: any[] = [];
+    await harnessFor(
+      core,
+      executors(async (effect) => {
+        prompts.push(effect.input);
+        return { output: [{ type: "text", text: "read" }] };
+      }),
+    );
+    const input = {
+      content: [
+        { type: "text", text: "look" },
+        {
+          type: "media",
+          mediaType: "text/csv",
+          reference: { artifactId: "af_c", version: 1, name: "data.csv", size: 7 },
+        },
+        {
+          type: "media",
+          mediaType: "image/png",
+          reference: { artifactId: "af_p", version: 2, name: "a.png", size: 9 },
+        },
+      ],
+    };
+    await core.offer(
+      start({
+        checkpoint: createDurableCheckpoint({
+          manifest,
+          sessionId: "s1",
+          turnId: "t1",
+          input: input as never,
+        }),
+        model: {
+          provider: "groq",
+          id: "llama",
+          inputs: ["text"],
+          contextWindow: 8_192,
+          maxOutputTokens: 1_024,
+        },
+        limits: { ...RUNTIME_LIMIT_DEFAULTS, chunkBytes: 4 },
+      }),
+    );
+    // The text file is read a chunk of `limits.chunkBytes` at a time; the image is not read.
+    const reads = core.calls
+      .filter(([method]) => method === "artifact.read")
+      .map(([, params]) => params);
+    expect(reads).toEqual([
+      { runId: "r1", artifactId: "af_c", version: 1, offset: 0, length: 4 },
+      { runId: "r1", artifactId: "af_c", version: 1, offset: 4, length: 4 },
+    ]);
+    const files = prompts[0].prompt.at(-1);
+    expect(files.content).toEqual([
+      { type: "text", text: "Files for this turn:" },
+      { type: "text", text: '[Uploaded artifact "data.csv" · af_c v1 · read_artifact to view]' },
+      { type: "text", text: '<file name="data.csv" type="text/csv">\na,b\n1,2\n</file>' },
+      { type: "text", text: '[Uploaded artifact "a.png" · af_p v2 · read_artifact to view]' },
+      {
+        type: "text",
+        text: '(File "a.png", image/png, is not shown: this model does not read images.)',
+      },
+    ]);
+    expect(core.outputs[0]![0]).toBe("turn.completed");
+  });
+
   it("resumes from its cached transcript at the settled cursor, and reads it otherwise", async () => {
     const core = fakeCore({});
     await harnessFor(

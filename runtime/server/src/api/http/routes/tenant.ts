@@ -270,7 +270,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Tenant"],
       summary: "Set what a catalog model reads",
       description:
-        "Replaces the inputs the operator added to one catalog model (Tenant setting `model.inputs`): only those in its `addableInputs`, which its provider API carries. Its catalog's own inputs always stay; an empty list removes the additions. A message naming a file the Tenant's model does not read is refused with `422 attachment_unsupported`. A custom endpoint sets `settings.inputs` on `PUT /v1/tenant/model` instead.",
+        "Replaces the inputs the operator added to one catalog model (Tenant setting `model.inputs`): only those in its `addableInputs`, which its provider API carries. Its catalog's own inputs always stay; an empty list removes the additions. The agent's harness learns them in `turn.start.model` and decides how each file reaches the model. A custom endpoint sets `settings.inputs` on `PUT /v1/tenant/model` instead.",
       request: { body: body(PutModelInputsRequest) },
       responses: { 200: json(ModelInputsView, "What the model reads now") },
     },

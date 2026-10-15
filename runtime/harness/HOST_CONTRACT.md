@@ -16,9 +16,10 @@ unsupported protocol → `426` with
 authentication, except that a request with neither `Nylorun-Protocol` nor
 `Authorization` gets the route's `401` challenge (protocol 9). The Host serves
 protocol 15 only (protocol 15 moved `read_artifact` and `save_artifact` to the harness, a fresh start for
-agent sessions, and protocol 13 changed the agent manifest to v7, the flat manifest, so an older
-client is answered `426`; protocol 12 added model inputs and refuses a message naming a
-file the Tenant's model does not read with `422 attachment_unsupported`). A `Nylorun-Tenant` header naming the Host's Tenant is
+agent sessions, and the choice of how each file reaches the model: a message may name any file,
+`turn.start.model` describes the model, and the Model Gate only fetches and translates; protocol
+13 changed the agent manifest to v7, the flat manifest, so an older client is answered `426`;
+protocol 12 added model inputs). A `Nylorun-Tenant` header naming the Host's Tenant is
 accepted, one naming another Tenant (or a malformed one) is the opaque `404`. A Tenant id in the query string or body is ignored. A
 Tenant that could not be opened and an unknown Tenant share the opaque `404`
 body. A missing or rejected credential is `401` (`credential_required`,

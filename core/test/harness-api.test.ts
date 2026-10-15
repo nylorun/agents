@@ -226,6 +226,35 @@ describe("published contract (R4.5)", () => {
     expect(TurnStartSchema.safeParse({ ...start, trace: { traceparent: "nope" } }).success).toBe(false);
   });
 
+  it("carries the turn's model descriptor on turn.start, or none (protocol 15)", async () => {
+    const { TurnStartSchema, ModelDescriptorSchema } = await import("../src/harness-api/index.js");
+    const start = {
+      type: "turn.start",
+      engine: "agent",
+      manifest: {},
+      checkpoint: {},
+      outcomes: [],
+      transcript: { cursor: 0 },
+      options: { fixtureModel: false },
+      routing: { rootManifest: {} },
+      limits: RUNTIME_LIMIT_DEFAULTS,
+    };
+    const model = {
+      provider: "openai",
+      id: "gpt-5",
+      inputs: ["text", "image", "pdf"],
+      contextWindow: 400_000,
+      maxOutputTokens: 128_000,
+      reasoning: true,
+    };
+    expect(TurnStartSchema.safeParse(start).success).toBe(true);
+    expect(TurnStartSchema.safeParse({ ...start, model }).success).toBe(true);
+    expect(ModelDescriptorSchema.safeParse({ ...model, inputs: ["text", "svg"] }).success).toBe(false);
+    expect(ModelDescriptorSchema.safeParse({ ...model, inputs: [] }).success).toBe(false);
+    expect(ModelDescriptorSchema.safeParse({ ...model, contextWindow: 0 }).success).toBe(false);
+    expect(ModelDescriptorSchema.safeParse({ ...model, extra: 1 }).success).toBe(false);
+  });
+
   it("checks gate bodies and the pod join with the published schemas", async () => {
     const { HostJoinRequestSchema, ModelCallBodySchema, ToolCallBodySchema } = await import(
       "../src/harness-api/index.js"
@@ -261,6 +290,7 @@ describe("published contract (R4.5)", () => {
     expect(document.title).toBe(`Nylorun Harness API ${HARNESS_API_VERSION}`);
     for (const name of [
       "TurnStart",
+      "ModelDescriptor",
       "TurnOutput",
       "EffectIntent",
       "ModelCallBody",

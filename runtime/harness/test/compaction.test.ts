@@ -305,6 +305,38 @@ describe("compaction and files (protocol 12)", () => {
     // In turn t1 the reported usage already counts them.
     expect(estimateTokens(transcript.slice(0, 3), "t1")).toBe(20_000);
   });
+
+  it("counts this turn's files as the model gets them (protocol 15)", () => {
+    const image = upload("t1", "af_i", "image/png", 1_000);
+    const csv = upload("t1", "af_c", "text/csv", 4_000);
+    const pdf = upload("t1", "af_p", "application/pdf", 80_000);
+    const base = estimateTokens([image, csv, pdf]);
+    const limits = { modelFileBytes: 1_000_000 };
+    const reads = (inputs: ("text" | "image" | "pdf")[]) => ({
+      model: { provider: "p", id: "m", inputs, contextWindow: 100_000, maxOutputTokens: 4_000 },
+      limits,
+    });
+    // A model that reads everything: an image 1,600, text a quarter, a PDF an eighth.
+    expect(estimateTokens([image, csv, pdf], "t1", reads(["text", "image", "pdf"]))).toBe(
+      base + 1_600 + 1_000 + 10_000,
+    );
+    // A text-only model gets notes for the image and the PDF: their lines are text already.
+    expect(estimateTokens([image, csv, pdf], "t1", reads(["text"]))).toBe(base + 1_000);
+    // A file past modelFileBytes is a note too.
+    expect(
+      estimateTokens([csv], "t1", { ...reads(["text"]), limits: { modelFileBytes: 100 } }),
+    ).toBe(estimateTokens([csv]));
+  });
+
+  it("budgets by the model descriptor before any answer reports a window", () => {
+    expect(contextBudget([input("t1", "go")])).toBeUndefined();
+    expect(
+      contextBudget([input("t1", "go")], { contextWindow: 32_768, maxOutputTokens: 64_000 }),
+    ).toEqual({ contextWindow: 32_768, reserve: 8_192 });
+    expect(
+      contextBudget([input("t1", "go")], { contextWindow: 200_000, maxOutputTokens: 4_000 }),
+    ).toEqual({ contextWindow: 200_000, reserve: 4_000 });
+  });
 });
 
 describe("compaction in the turn loop", () => {

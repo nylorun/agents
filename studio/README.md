@@ -117,15 +117,14 @@ tool, why it is held and its input, with **Approve** and **Deny**. Token streami
 
 The message card's paperclip, a paste or a drop attaches files; each shows as a chip
 (an image's thumbnail, else a file icon, with its name and size) until the message is
-sent. The picker offers what the active model reads, from its provider's `inputs`
-(text and images when the Runtime does not say). Studio sends files as they are: it
-resizes and converts nothing. On **Send** each new file is uploaded into the session
+sent. Any file goes, whatever the active model reads (protocol 15): the agent's
+harness decides how its model sees each one, and tells the model when it cannot read
+one. Studio sends files as they are: it resizes and converts nothing. On **Send** each new file is uploaded into the session
 (`POST /v1/artifacts?name=…&sessionId=…` through the proxy, which checks the session
 exists, needs a `Content-Length` and streams the bytes, refusing a file over
 `maxUploadBytes`, 32 MiB by default), then the message goes as text and file parts
-(`session.inputParts`). When the Runtime refuses a file the model does not read
-(`422 attachment_unsupported`), the draft and its chips stay, the refused chips say
-why, and a resend reuses the files already uploaded. In the chat, a message's files
+(`session.inputParts`). When the message fails, the draft and its chips stay, and a
+resend reuses the files already uploaded. In the chat, a message's files
 show their name, type and an image's thumbnail, and open the artifact.
 
 **Models** shows each connected provider's model's **Inputs** (protocol 12): what its

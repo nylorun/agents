@@ -5,7 +5,8 @@
  * - `read_artifact` (every agent) reads an artifact the session may read in pages: a tool result
  *   the Runtime stored because it was too large to show, a file of an earlier turn. A text file
  *   comes back a page of at most `artifactPageBytes` at a time (escaped as JSON); any other file
- *   goes to the model as a file of the result, and the Model Gate shows it or writes a note. With
+ *   goes to the model as a file of the result when the turn's model reads it (`fileView`), and is
+ *   `artifact.unsupported` when it does not. With
  *   a sandbox, `path` copies the artifact into the sandbox instead.
  * - `save_artifact` (with a sandbox) saves a sandbox file, or text the model passes, as an
  *   artifact of the session. Its effect id is the write's key, so a write the harness repeats
@@ -26,6 +27,7 @@ import {
 import {
   DEFAULT_CONTENT_TYPE,
   contentTypeFor,
+  essence,
   isText,
   normalizeContentType,
 } from "@nylorun/core/contracts";
@@ -42,6 +44,7 @@ import {
 import type { DurableSessionTool, HostEffect } from "../run/durable.js";
 import type { FailedFileOutcome, HarnessFiles, HarnessRun } from "../api/executors.js";
 import { textPage } from "./text-page.js";
+import { fileView } from "../loop/model/files.js";
 
 const ARTIFACTS_INSTRUCTIONS =
   "Use save_artifact to hand the user a file you made: a path in the sandbox, or text you pass as content. " +
@@ -314,24 +317,26 @@ async function read(effect: HostEffect, context: ArtifactToolContext): Promise<O
   const { artifact } = answer;
   if (artifact.kind !== "file")
     return failed("artifact.not_text", `${artifact.name} is a folder; read_artifact reads a file.`);
-  if (!isText(artifact.contentType))
-    // A file the model reads goes to it beside the result (protocol 12); the Model Gate writes a
-    // note for a type the Tenant's model does not read.
-    return {
-      kind: "completed",
-      output: about(artifact),
-      files: [
-        {
-          mediaType: artifact.contentType,
-          reference: {
-            artifactId: artifact.artifactId,
-            version: artifact.version,
-            name: artifact.name,
-            size: artifact.size,
-          },
-        },
-      ],
+  if (!isText(artifact.contentType)) {
+    // A file the turn's model reads goes to it beside the result (protocol 12); for one it does
+    // not, the model is told why (protocol 15).
+    const file = {
+      mediaType: artifact.contentType,
+      reference: {
+        artifactId: artifact.artifactId,
+        version: artifact.version,
+        name: artifact.name,
+        size: artifact.size,
+      },
     };
+    const view = fileView(file, run.start.model, run.start.limits);
+    if (view.kind === "note")
+      return failed(
+        "artifact.unsupported",
+        `${artifact.name} is ${essence(artifact.contentType)}: ${view.why}.`,
+      );
+    return { kind: "completed", output: about(artifact), files: [file] };
+  }
   if (offset > artifact.size || (offset === artifact.size && artifact.size > 0))
     return failed(
       "artifact.invalid_input",

@@ -12,7 +12,7 @@ import {
   HARNESS_ERROR_CODES,
 } from "./messages.js";
 import { HarnessApiError } from "./errors.js";
-import { ARTIFACT_NAME_MAX, EffectOutcomeSchema } from "../contracts.js";
+import { ARTIFACT_NAME_MAX, EffectOutcomeSchema, ModelInputSchema } from "../contracts.js";
 import { RUNTIME_LIMIT_CEILINGS, RuntimeLimitsSchema } from "../utils/runtime-limits.js";
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
 import { McpSnapshotSchema } from "./mcp.js";
@@ -280,6 +280,25 @@ export const NativeToolSchema = z
   })
   .strict();
 
+/**
+ * The model a turn's calls use when they name none (protocol 15): the Tenant's model, as the
+ * Model Gate resolves it. `provider` and `id` name it (`fixture` for the fixture model); `inputs`
+ * is what it reads, text first, in `MODEL_INPUTS` order (its catalog's inputs and the operator's
+ * additions); `contextWindow` and `maxOutputTokens` are in tokens. A harness decides from it how
+ * each file reaches the model; the gate refuses a part the model cannot take
+ * (`unsupported_input`).
+ */
+export const ModelDescriptorSchema = z
+  .object({
+    provider: z.string().min(1),
+    id: z.string().min(1),
+    inputs: z.array(ModelInputSchema).min(1),
+    contextWindow: z.number().int().positive(),
+    maxOutputTokens: z.number().int().positive(),
+    reasoning: z.boolean().optional(),
+  })
+  .strict();
+
 /** What a run starts from: `turn.start` (message, continue, resume) or `approval.answer`. */
 export const TurnStartSchema = z
   .object({
@@ -319,6 +338,11 @@ export const TurnStartSchema = z
      * range may hold. Past one, core refuses the request with `limit_exceeded`.
      */
     limits: RuntimeLimitsSchema,
+    /**
+     * The model the turn's calls use when they name none (protocol 15): what it reads and its
+     * window, as the segment started. Absent for a flow, and when the Tenant has no model.
+     */
+    model: ModelDescriptorSchema.optional(),
   })
   .strict();
 

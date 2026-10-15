@@ -1,4 +1,6 @@
 import type { ModelAdapter } from "@nylorun/core/define";
+import type { ModelDescriptor } from "@nylorun/core/harness-api";
+import type { FileContext } from "../loop/model/files.js";
 import type { InputEvent, MessageInput, TranscriptEntry } from "@nylorun/core/define";
 import type { ObserveEvent } from "@nylorun/core/define";
 import type { JsonObject, JsonValue, Tripwire } from "@nylorun/core/define";
@@ -122,6 +124,16 @@ export interface RunOptions<Info = unknown> {
   readonly signal?: AbortSignal;
   readonly onEvent?: (event: ExecutionEvent) => void | Promise<void>;
   readonly record?: (state: ExecutionState) => void | Promise<void>;
+  /**
+   * The model the calls use (`turn.start.model`, protocol 15): its window budgets the prompt
+   * before any answer reports one.
+   */
+  readonly model?: ModelDescriptor;
+  /**
+   * How the turn's files reach the model (`representFiles`): the model, the Runtime limits and
+   * the run's artifact reads. Without it every file goes as its media part.
+   */
+  readonly files?: FileContext;
 }
 
 export type RunResult<Output = string> =

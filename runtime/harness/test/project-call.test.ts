@@ -6,7 +6,9 @@ import {
   type ModelRequest,
   type ModelConfigurationSnapshot,
 } from "@nylorun/core/define";
-import { projectModelCall } from "../src/loop/model/project.js";
+import { liveFilesOf, projectModelCall } from "../src/loop/model/project.js";
+import { representFiles, type FileContext } from "../src/loop/model/files.js";
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/harness-api";
 import { testAgent, execution, model, tool, toolCalls, turn } from "./fixtures.js";
 
 function configuration(
@@ -333,6 +335,102 @@ describe("projectModelCall", () => {
     // In a later turn the result projects the same, and its file is a line only.
     const later = projectModelCall(request({ turnId: "next", transcript: [results("turn")] }));
     expect(later.prompt).toEqual([call.prompt[0]]);
+  });
+
+  it("ends with what the engine made of each file: media, a <file> block or a note (protocol 15)", async () => {
+    const media = (artifactId: string, mediaType: string, name: string) => ({
+      type: "media" as const,
+      mediaType,
+      reference: { artifactId, version: 1, name, size: 4 },
+    });
+    const message = (turnId: string) => ({
+      kind: "input" as const,
+      turnId,
+      event: {
+        kind: "user-message" as const,
+        content: [
+          { type: "text" as const, text: "Look." },
+          media("af_png", "image/png", "a.png"),
+          media("af_csv", "text/csv", "b.csv"),
+          media("af_zip", "application/zip", "c.zip"),
+        ],
+      },
+    });
+    const context: FileContext = {
+      model: {
+        provider: "p",
+        id: "m",
+        inputs: ["text", "image"],
+        contextWindow: 1_000,
+        maxOutputTokens: 100,
+      },
+      limits: RUNTIME_LIMIT_DEFAULTS,
+      async read(reference) {
+        return {
+          artifact: {
+            artifactId: reference.artifactId,
+            kind: "file",
+            name: "b.csv",
+            version: 1,
+            contentType: "text/csv",
+            size: 4,
+            sha256: "0".repeat(64),
+            tenantWide: false,
+          },
+          bytes: new TextEncoder().encode("x,y\n"),
+          eof: true,
+        };
+      },
+    };
+    const now = request({ transcript: [message("earlier"), message("turn")] });
+    const call = projectModelCall(now, await representFiles(liveFilesOf(now), context));
+    // An earlier turn's files are reference lines only; this turn's come after the conversation.
+    expect(call.prompt).toHaveLength(3);
+    expect(call.prompt[2]).toEqual({
+      kind: "message",
+      role: "user",
+      content: [
+        { type: "text", text: "Files for this turn:" },
+        { type: "text", text: '[Uploaded artifact "a.png" · af_png v1 · read_artifact to view]' },
+        {
+          type: "media",
+          mediaType: "image/png",
+          reference: { artifactId: "af_png", version: 1, name: "a.png", size: 4 },
+        },
+        { type: "text", text: '[Uploaded artifact "b.csv" · af_csv v1 · read_artifact to view]' },
+        { type: "text", text: '<file name="b.csv" type="text/csv">\nx,y\n\n</file>' },
+        { type: "text", text: '[Uploaded artifact "c.zip" · af_zip v1 · read_artifact to view]' },
+        {
+          type: "text",
+          text: '(File "c.zip", application/zip, is not shown: no model reads application/zip files.)',
+        },
+      ],
+    });
+    expect(JSON.stringify(call.prompt[0])).not.toContain("<file");
+  });
+
+  it("appends the JSON instruction for an output schema, and sends no schema itself (protocol 15)", () => {
+    const schema = { type: "object", properties: { count: { type: "number" } } };
+    const call = projectModelCall(
+      request({ instructions: ["Be brief.", "Count."], outputSchema: schema }),
+    );
+    expect(call).not.toHaveProperty("outputSchema");
+    expect(call.prompt).toEqual([
+      {
+        kind: "instructions",
+        role: "system",
+        content: [
+          {
+            type: "text",
+            text: `Be brief.\n\nCount.\nReturn the final answer as JSON matching this schema: ${JSON.stringify(schema)}. Use tools when needed before returning the final JSON.`,
+          },
+        ],
+      },
+    ]);
+    // With no instructions, the JSON instruction is the system text.
+    expect(projectModelCall(request({ outputSchema: schema })).prompt[0]).toMatchObject({
+      content: [{ text: expect.stringMatching(/^Return the final answer as JSON/) }],
+    });
   });
 
   it("names a message's files by reference lines, the same in every turn (protocol 12)", () => {

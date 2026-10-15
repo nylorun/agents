@@ -63,7 +63,7 @@ import {
   type McpDiagnostic,
   type McpSnapshot,
 } from "../mcp/snapshot.js";
-import { contextWindowOf } from "../model/catalog.js";
+import { currentContextWindow } from "../model/descriptor.js";
 import { turnManifestOf } from "../tenant/session.js";
 import { sandboxWorkspaceKey, workspacePrefix } from "../sandbox/records.js";
 import type { RunOf } from "../tenant/run-grants.js";
@@ -480,7 +480,7 @@ export function createHarnessApiServer(
       throw new HarnessApiError("invalid", "The MCP snapshot is malformed");
     // Which MCP tools the model reaches through tool_search, decided once for the session from
     // the Tenant's model's context window (R2b C10, Q21).
-    const contextWindow = snapshot ? contextWindowOf(await ctx.vault.getHostModel()) : 0;
+    const contextWindow = snapshot ? await currentContextWindow(ctx) : 0;
     return ctx.store.tx(async (t) => {
       const { lease } = run.offer;
       const current = await ownedSession(t, lease, lease.sessionId);

@@ -72,6 +72,11 @@ export type ModelFailureCode =
   | "auth"
   | "invalid_request"
   | "invalid_output"
+  /**
+   * The call holds a part the model or its provider API cannot take (protocol 15): a file kind
+   * the model does not read, or a text file sent as a media part. Nothing was sent; never retried.
+   */
+  | "unsupported_input"
   /** A model budget's cap is reached (`PUT /v1/tenant/budgets`); never retried. */
   | "budget_exhausted";
 
@@ -238,8 +243,6 @@ export interface ModelCall {
   readonly model?: ModelDirective;
   readonly prompt: readonly PromptItem[];
   readonly tools: readonly ModelCallTool[];
-  /** Optional portable contract for this turn's terminal JSON result. */
-  readonly outputSchema?: JsonObject;
   readonly executionId: string;
 }
 

@@ -52,7 +52,7 @@ import {
   pendingInteraction,
   taskIdOf,
 } from "./tasks.js";
-import { currentModelInputs } from "../../model/catalog.js";
+import { currentModelDescriptor } from "../../model/descriptor.js";
 import { accessOf } from "../../tenant/auth.js";
 import { command } from "../../tenant/commands.js";
 import {
@@ -94,7 +94,8 @@ interface OwnedTask {
 
 /**
  * `GET /v1/a2a/agents/:agent/card`: the agent's card, for a caller who may use the agent. Its
- * input modes name the files the Tenant's model reads.
+ * input modes name the files the Tenant's model reads natively: a hint, since any file is
+ * accepted and the agent's harness decides how its model sees it (protocol 15).
  */
 export async function a2aCard(
   ctx: TenantContext,
@@ -102,8 +103,8 @@ export async function a2aCard(
   agentId: string
 ): Promise<unknown> {
   const definition = await definitionFor(ctx, agentId, accessOf(scope));
-  // The files a caller may send: those the Tenant's model reads now.
-  return agentCard(agentId, definition, inputModesFor(await currentModelInputs(ctx)));
+  // The files the Tenant's model reads now.
+  return agentCard(agentId, definition, inputModesFor((await currentModelDescriptor(ctx))?.inputs));
 }
 
 /**
@@ -259,11 +260,6 @@ async function run(
     return { turnId: accepted.turnId!, cursor: accepted.cursor };
   } catch (error) {
     if (!(error instanceof HttpError)) throw error;
-    // A file the agent's model does not read (`attachment_unsupported`).
-    if (error.status === 422)
-      return a2aFail("contentTypeNotSupported", error.message, {
-        reason: error.rejection.code ?? "request_rejected",
-      });
     if (error.status !== 409) throw error;
     if (error.message.startsWith("Idempotency key"))
       return a2aFail(

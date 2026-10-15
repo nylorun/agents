@@ -15,6 +15,8 @@ const acceptedOptions = new Set([
   "signal",
   "onEvent",
   "record",
+  "model",
+  "files",
 ]);
 
 export function validateRunOptions(options: RunOptions<any>): void {

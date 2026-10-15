@@ -6,7 +6,7 @@
  * harness holds at the fold's cursor or reads once.
  */
 import type { LiveEvent } from "@nylorun/core/contracts";
-import type { RecordedOutcome, RuntimeLimits, TurnStart } from "@nylorun/core/harness-api";
+import type { ModelDescriptor, RecordedOutcome, RuntimeLimits, TurnStart } from "@nylorun/core/harness-api";
 import type { DurableCheckpoint, FlowCheckpoint } from "@nylorun/harness/run";
 import { isWorkflowManifest } from "../core/flow-host.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
@@ -24,6 +24,7 @@ import {
   type TranscriptUpdate,
 } from "../tenant/history.js";
 import { usesFixtureModel } from "../tenant/model-setting.js";
+import { currentModelDescriptor } from "../model/descriptor.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { sessionToolsOf, turnManifestOf } from "../tenant/session.js";
 import { bulkOutcomes } from "./record.js";
@@ -65,6 +66,11 @@ export interface SegmentStart {
   readonly pod?: { readonly id: string; readonly pod: SandboxPodState; readonly seeding?: boolean };
   /** The turn's span context (R7.4): what `TurnStart.trace` hands the harness. */
   readonly trace?: TraceContext;
+  /**
+   * The model the turn's calls use (protocol 15), as the segment starts: what `TurnStart.model`
+   * hands an agent's harness. Absent for a flow, and when the Tenant has no model.
+   */
+  readonly model?: ModelDescriptor;
 }
 
 /** The segment's starting transaction and fold. */
@@ -77,7 +83,7 @@ export async function startSegment(
   const id = lease.sessionId;
   // Read before the transaction: the first read of the Tenant may create the key.
   const key = options.harness ? await traceKey(ctx.store) : undefined;
-  const started = await ownedTx<Omit<SegmentStart, "transcript" | "cursor">, Session>(
+  const opened = await ownedTx<Omit<SegmentStart, "transcript" | "cursor" | "model">, Session>(
     ctx.store,
     id,
     lease.epoch,
@@ -111,6 +117,12 @@ export async function startSegment(
       };
     }
   );
+  // The model an agent's harness decides files by, read outside the session's transaction.
+  const model =
+    options.harness && !isWorkflowManifest(opened.current.manifest)
+      ? await currentModelDescriptor(ctx)
+      : undefined;
+  const started = model ? { ...opened, model } : opened;
   // One history (P0.3): the engine resumes from the transcript folded from the record.
   const { current } = started;
   const cp = current.checkpoint as DurableCheckpoint | undefined;
@@ -157,6 +169,7 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     },
     ...(segment.trace ? { trace: segment.trace } : {}),
     limits: segment.limits,
+    ...(segment.model && !flow ? { model: segment.model } : {}),
   };
 }
 

@@ -4,12 +4,15 @@ import type { InputEvent, TranscriptEntry } from "@nylorun/core/define";
 import type { ToolResult } from "@nylorun/core/define";
 import type { DefinitionPart } from "@nylorun/core/define";
 import type { JsonValue } from "@nylorun/core/define";
+import type { FileContext } from "../model/files.js";
 
 /** Compiled definition pieces plus the per-run model adapter for one step. */
 export interface StepRuntime {
   readonly parts: readonly DefinitionPart[];
   readonly invoke: ModelAdapter;
   readonly registry: ToolRegistry;
+  /** How the step reads and represents the turn's files (`representFiles`); none in a local run. */
+  readonly files?: FileContext;
   /** Mutable session memory bag shared with tools. */
   sessionState?: Record<string, JsonValue>;
 }

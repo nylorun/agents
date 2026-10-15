@@ -231,17 +231,22 @@ describe("the gates service", () => {
         },
       });
 
-      // Session A's token naming session B's artifact: its bytes are never read, and the model
-      // gets a note in its place (protocol 12: no file fails a call).
+      // Session A's token naming session B's artifact: its bytes are never read, and the call
+      // fails before anything is sent (protocol 15: the gate refuses, it writes no note).
       const refused = await post(server, sessionA, {
         body: naming(theirs, "turn-1:0:model:theirs"),
         keyed: false,
       });
       expect(refused.status).toBe(200);
-      expect(await refused.json()).toMatchObject({ outcome: { output: [{ type: "text", text: "seen" }] } });
-      expect(providerBodies).toHaveLength(1);
-      expect(providerBodies[0]).toContain(`Artifact ${theirs} version 1 is not available`);
-      expect(providerBodies[0]).not.toContain(Buffer.from([0x89, 0x50, 0x4e, 0x47, 2]).toString("base64"));
+      expect(await refused.json()).toMatchObject({
+        outcome: {
+          kind: "failed",
+          code: "invalid_request",
+          retryable: false,
+          message: `Artifact ${theirs} version 1 is not available.`,
+        },
+      });
+      expect(providerBodies).toHaveLength(0);
 
       // Its own artifact reaches the provider as image input.
       const served = await post(server, sessionA, {
@@ -249,8 +254,9 @@ describe("the gates service", () => {
         keyed: false,
       });
       expect(await served.json()).toMatchObject({ outcome: { output: [{ type: "text", text: "seen" }] } });
-      expect(providerBodies).toHaveLength(2);
-      expect(providerBodies[1]).toContain(
+      expect(providerBodies).toHaveLength(1);
+      expect(providerBodies[0]).not.toContain(Buffer.from([0x89, 0x50, 0x4e, 0x47, 2]).toString("base64"));
+      expect(providerBodies[0]).toContain(
         `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 1]).toString("base64")}`,
       );
     } finally {

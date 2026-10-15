@@ -449,36 +449,46 @@ for (const gate of ["in-process", "http"] as const)
     expect(requests[1]).not.toContain(PNG.toString("base64"));
     expect(requests[1]).toContain(`[Uploaded artifact \\"room.png\\" · ${artifact.artifactId} v1 · read_artifact to view]`);
 
-    // A file the model does not read is refused at accept, and no turn starts.
+    // Any file is accepted (protocol 15): the harness reads text into the call, and writes a
+    // note for a file the model does not read. The gate is sent neither as a media part.
     const { artifact: pdf } = await uploaded(
       await upload(runtime, "name=spec.pdf&sessionId=s1", "%PDF-1.4", auth, "application/pdf"),
     );
-    const refused = await realFetch(`${runtime.url}/v1/sessions/s1/commands`, {
+    const { artifact: zip } = await uploaded(
+      await upload(runtime, "name=bundle.zip&sessionId=s1", "PK", auth, "application/zip"),
+    );
+    const { artifact: csv } = await uploaded(
+      await upload(runtime, "name=data.csv&sessionId=s1", "a,b\n1,2", auth, "text/csv"),
+    );
+    const accepted = await realFetch(`${runtime.url}/v1/sessions/s1/commands`, {
       method: "POST",
       headers: json,
       body: JSON.stringify({
         type: "message",
         requestId: "m3",
         idempotencyKey: "m3",
-        parts: [{ type: "text", text: "Read this." }, { type: "file", artifactId: pdf.artifactId }],
+        parts: [
+          { type: "text", text: "Read these." },
+          { type: "file", artifactId: pdf.artifactId },
+          { type: "file", artifactId: zip.artifactId },
+          { type: "file", artifactId: csv.artifactId },
+        ],
       }),
     });
-    expect(refused.status).toBe(422);
-    expect(await refused.json()).toMatchObject({
-      code: "attachment_unsupported",
-      details: {
-        parts: [
-          {
-            artifactId: pdf.artifactId,
-            name: "spec.pdf",
-            mediaType: "application/pdf",
-            reason: "this model does not read PDFs",
-          },
-        ],
-      },
-    });
-    expect(requests).toHaveLength(2);
-    expect((await items(runtime, "s1")).filter((item) => item.type === "command.message")).toHaveLength(2);
+    expect(accepted.status, await accepted.clone().text()).toBe(200);
+    expect(await settle(runtime, "s1")).toBe("completed");
+    expect(requests).toHaveLength(3);
+    expect(requests[2]).toContain('(File \\"spec.pdf\\", application/pdf, is not shown: this model does not read PDFs.)');
+    expect(requests[2]).toContain(
+      '(File \\"bundle.zip\\", application/zip, is not shown: no model reads application/zip files.)',
+    );
+    expect(requests[2]).toContain('<file name=\\"data.csv\\" type=\\"text/csv\\">\\na,b\\n1,2\\n</file>');
+    expect(requests[2]).not.toContain("%PDF");
+    const store = (runtime.handle as unknown as { ctx: { store: SessionStore } }).ctx.store;
+    const session = (await store.tx((t) => t.get("sessions", "s1"))) as { fileArtifacts?: string[] };
+    expect(session.fileArtifacts).toEqual(
+      expect.arrayContaining([artifact.artifactId, pdf.artifactId, zip.artifactId, csv.artifactId]),
+    );
   });
 
 it("works through the @nylorun/agents client: upload, list, Range, link, delete", async () => {

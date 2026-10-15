@@ -184,7 +184,8 @@ in no session log or trace; protocol 13 makes the
 manifest flat, manifest 7: no `capabilities`, tools known by name, the Runtime's own tools in the
 pinned manifest's `runtime` block and no `capabilityId` on events, tool call rows or the Harness
 API, now 3; it closes every session opened before it; protocol 12 adds
-model inputs, the `422 attachment_unsupported` accept check and `read_artifact` for every agent,
+model inputs and `read_artifact` for every agent (its accept check, `422
+attachment_unsupported`, left with protocol 15: the harness decides how the model sees a file),
 and changes nothing a protocol 11 client sends; protocol 11 replaces
 sandbox resources, the Tenant's default sandbox, inline sandboxes and user and installation
 vaults with Environments, each one sandbox and one vault, under `/v1/environments`, and
@@ -319,7 +320,7 @@ the Project link (outside a project it runs the Tenant `default`); the project's
 | `database-layout-old` | The database holds `tenant_<id>` schemas of an older Runtime, or the `schema_version` tables of a pre-release one: point the Runtime at a new database (locally, a new Tenant: `nylorun start --tenant <new name>`); the old one is left as it is |
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
 | `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, send a trusted issuer's token, never a key |
-| `422 attachment_unsupported` | A message names a file the Tenant's model does not read (`details.parts` says which and why): choose a model that reads it, add the input with `PUT /v1/tenant/models/inputs` (or a custom endpoint's `settings.inputs`), or send it as another type |
+| A turn fails `model.unsupported_input` | A custom harness sent the Model Gate a part the model cannot take (a text file as media, or a kind the model does not read): it should decide by `turn.start.model`. With our harness, the model was switched mid-turn: send the message again |
 | `403 key_role_mismatch` | The key belongs to the other API: use a management key on `/v1/tenant/*` (`@nylorun/admin`) and an application key everywhere else (`@nylorun/agents`) |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
 | Port in use | Change `NYLORUN_PORT` in `~/.nylorun/tenants/<name>/docker/.env` and run `nylorun start` |

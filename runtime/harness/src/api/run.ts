@@ -7,6 +7,7 @@
  * settles nothing for it, as it never did for an advance it stopped.
  */
 import {
+  fromBase64,
   transcriptOf,
   transcriptUpdates,
   withTranscript,
@@ -26,6 +27,7 @@ import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { apiHost, type EngineToolConfig } from "./host.js";
 import { artifactToolsFor } from "../tools/artifacts.js";
 import type { TranscriptCache } from "./transcript-cache.js";
+import type { FileContext } from "../loop/model/files.js";
 
 export interface RunContext {
   readonly channel: HarnessChannel;
@@ -110,6 +112,8 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             engineTools: (agent) =>
               artifactToolsFor(agent, { pageBytes: ctx.engine.artifactPageBytes }),
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
+            ...(start.model ? { model: start.model } : {}),
+            files: filesOf(ctx, run, start),
           });
     ({ output, after } = outputOf(runId, result, transcript));
   } catch (error) {
@@ -144,6 +148,31 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
       estimate(ctx.cache, sessionId, transcript, output),
     );
   else ctx.cache.delete(sessionId);
+}
+
+/**
+ * How the run's engine reads the turn's files (protocol 15): it decides from the model
+ * descriptor and the Runtime limits, and reads text over the artifact seam.
+ */
+function filesOf(ctx: RunContext, run: HarnessRun, start: HarnessRun["start"]): FileContext {
+  return {
+    ...(start.model ? { model: start.model } : {}),
+    limits: start.limits,
+    async read(reference, offset, length, signal) {
+      const answer = await ctx.channel.request(
+        "artifact.read",
+        {
+          runId: run.runId,
+          artifactId: reference.artifactId,
+          version: reference.version,
+          offset,
+          length,
+        },
+        signal ?? run.signal,
+      );
+      return { artifact: answer.artifact, bytes: fromBase64(answer.base64), eof: answer.eof };
+    },
+  };
 }
 
 /** The edited transcript's size from the cached one's and the edits, without serializing it. */

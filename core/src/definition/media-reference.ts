@@ -2,7 +2,8 @@ import type { JsonValue } from "../types/shared.js";
 
 /**
  * What a media part's `reference` holds when the Runtime made it (protocol 6, 12): the artifact
- * version, by id, with the file's name and size in bytes when known.
+ * version, by id, with the file's name and size in bytes when known. The Model Gate fetches it,
+ * and a harness reads it to decide how the model sees the file (protocol 15).
  */
 export interface MediaReference {
   readonly artifactId: string;
@@ -23,19 +24,4 @@ export function mediaReferenceOf(value: JsonValue | undefined): MediaReference |
     ...(typeof name === "string" ? { name } : {}),
     ...(typeof size === "number" ? { size } : {}),
   };
-}
-
-/**
- * The line a file stands for in a prompt once its turn is over (protocol 12): its name, artifact
- * id and version, and how the model reads it again. A file a tool returned names the tool.
- */
-export function mediaReferenceLine(
-  part: { readonly mediaType: string; readonly reference: JsonValue },
-  origin: "uploaded" | { readonly tool: string },
-): string {
-  const reference = mediaReferenceOf(part.reference);
-  const what = origin === "uploaded" ? "Uploaded artifact" : `Tool ${origin.tool} returned artifact`;
-  if (!reference) return `[${what} (${part.mediaType})]`;
-  const name = JSON.stringify(reference.name ?? reference.artifactId);
-  return `[${what} ${name} · ${reference.artifactId} v${reference.version} · read_artifact to view]`;
 }

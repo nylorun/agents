@@ -1,5 +1,6 @@
 import { HarnessError } from "@nylorun/core/define";
-import { effectIdOf } from "@nylorun/core/harness-api";
+import { effectIdOf, type ModelDescriptor } from "@nylorun/core/harness-api";
+import type { FileContext } from "../loop/model/files.js";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { ExecutionInput, ExecutionState, RunResult } from "../types/execution.js";
 import type { JsonObject, JsonValue } from "@nylorun/core/define";
@@ -132,6 +133,10 @@ export async function runDurable(options: {
   engineTools?: (agent: AgentManifest) => readonly DurableSessionTool[];
   /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
   yieldAfter?: { readonly steps?: number; readonly ms?: number };
+  /** The model the turn's calls use (`turn.start.model`), for the root and every child. */
+  model?: ModelDescriptor;
+  /** How the turn's files reach the model (`representFiles`), for the root and every child. */
+  files?: FileContext;
 }): Promise<DurableResult> {
   // `hostedDefinition` checks the manifest against AgentManifestSchema (`agentFrom`).
   const { manifest, checkpoint, host } = options;
@@ -348,6 +353,8 @@ export async function runDurable(options: {
           info: checkpoint.info,
           signal: options.signal,
           onModelCall: modelCall(),
+          ...(options.model === undefined ? {} : { model: options.model }),
+          ...(options.files === undefined ? {} : { files: options.files }),
         },
         { delegation, ...(options.yieldAfter ? { yieldAfter: options.yieldAfter } : {}) },
       ),

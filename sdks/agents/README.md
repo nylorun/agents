@@ -638,8 +638,8 @@ What the Runtime answers (Host feature `a2a-endpoint`):
 - Text parts, a single data part, or text and `raw` file parts in (at most
   20 MiB each, stored as artifacts of the context's session); the turn's
   output as the artifact `output` (text, or JSON as a data part). A file by
-  `url`, or one the Tenant's model does not read, is
-  `ContentTypeNotSupportedError`.
+  `url` is `ContentTypeNotSupportedError`; a file of any type is accepted, and
+  the agent's harness decides how its model sees it.
 - Clients must send `A2A-Version: 1.0` (header or `?A2A-Version=`).
 - Not yet: `ListTasks`, streaming and `SubscribeToTask`
   (`UnsupportedOperationError`; the card says `streaming: false`), push

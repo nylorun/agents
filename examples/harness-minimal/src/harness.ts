@@ -6,7 +6,12 @@
  * `effect.outcome` after, so a run that starts over replays what already happened instead of
  * doing it again. It declares no workspace and uses no MCP.
  *
- * Written only against `@nylorun/core/harness-api`; it does not use our engine.
+ * How a message's files reach the model is the harness's to decide (protocol 15): this one
+ * sends each file the turn's model reads (`turn.start.model`) as its media part, and a line
+ * saying it is not shown for the rest. The Model Gate refuses a part the model cannot take.
+ *
+ * Written only against `@nylorun/core` (its Harness API and media types); it does not use our
+ * engine.
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync } from "node:fs";
@@ -36,6 +41,7 @@ import {
   type ModelCandidate,
   type ModelFailureOutcome,
   type OutputMethod,
+  type PromptContentPart,
   type PromptItem,
   type RecordedOutcome,
   type RunGrant,
@@ -44,6 +50,8 @@ import {
   type TurnOutput,
   type TurnStart,
 } from "@nylorun/core/harness-api";
+import { isModelImage, modelInputOf } from "@nylorun/core/contracts";
+import { mediaReferenceOf } from "@nylorun/core/define";
 
 export interface HarnessOptions {
   /** The harness id core knows this harness by (`hello.name`). */
@@ -292,7 +300,7 @@ async function segment(
     const stepId = `${turnId}:${segmentNo}:${step}`;
     const call: ModelCall = {
       executionId: sessionId,
-      prompt: promptOf(instructions, [...(before as TranscriptEntry[]), ...added]),
+      prompt: promptOf(instructions, [...(before as TranscriptEntry[]), ...added], run.start.model),
       tools,
     };
     const modelId = effectIdOf(turnId, segmentNo, "model", String(step));
@@ -548,11 +556,24 @@ function inputEventOf(input: unknown): InputEvent | undefined {
 }
 
 /** The prompt: the instructions, then the transcript projected to messages and tool results. */
-function promptOf(
+export function promptOf(
   instructions: readonly string[],
   transcript: readonly TranscriptEntry[],
+  model?: TurnStart["model"],
 ): PromptItem[] {
   const text = (value: string) => ({ type: "text" as const, text: value });
+  // What the model reads; text and images when the Runtime sends no descriptor.
+  const inputs: readonly string[] = model?.inputs ?? ["text", "image"];
+  // A file goes as its media part when the model reads its kind natively; any other (text
+  // included, which this harness does not read in) is a line saying it is not shown.
+  const shown = (part: PromptContentPart): PromptContentPart => {
+    if (part.type !== "media") return part;
+    const kind = modelInputOf(part.mediaType);
+    if (kind && kind !== "text" && inputs.includes(kind) && (kind !== "image" || isModelImage(part.mediaType)))
+      return part;
+    const reference = mediaReferenceOf(part.reference);
+    return text(`[File ${JSON.stringify(reference?.name ?? reference?.artifactId ?? "file")} (${part.mediaType}) not shown]`);
+  };
   const prompt: PromptItem[] = instructions.length
     ? [{ kind: "instructions", role: "system", content: [text(instructions.join("\n\n"))] }]
     : [];
@@ -563,7 +584,7 @@ function promptOf(
       prompt.push({
         kind: "message",
         role: "user",
-        content: "content" in event ? event.content : [text(event.text)],
+        content: "content" in event ? event.content.map(shown) : [text(event.text)],
       });
     } else if (entry.kind === "candidate") {
       const content = entry.candidate.output.flatMap((block) =>

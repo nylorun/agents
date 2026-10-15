@@ -464,21 +464,28 @@ the caller may read, of the session or Tenant-wide, at a version or its latest. 
 service pins each file to a version and gives the engine an opaque media part whose reference is
 `{ artifactId, version, name, size }`; model-gate reads the bytes (`artifacts/files.ts`) only for the call's
 session, the run token's on the gate's route, and only by the **read rule**, and reads none for a call without one, so the
-transcript and the record hold only the reference. An agent session's message naming a file its
-model does not read is refused at accept (`422 attachment_unsupported`, the type only, never the
-size; skipped with no model in the vault), and the files a session's messages named are kept on
-it (`Session.fileArtifacts`) for the read rule. At the gate (`buildContext` in
-`model/pi-model.ts`) an image the model reads becomes image input, a text file a `<file>` block,
-a PDF, Office document, audio or video the model reads a **native block**, and anything else, or
-a file it cannot read, a note: no file fails the call there.
+transcript and the record hold only the reference. Accept checks only that the caller may read
+the file, that it is not another session's, that it is a file and that its version exists: any
+type is accepted, whatever the model reads (protocol 15), and its size was held to the artifact
+limits at upload. The files a session's messages named are kept on it (`Session.fileArtifacts`)
+for the read rule. How the model sees each file is the harness's decision (its **file view**,
+from the **model descriptor**). The gate (`buildContext` in `model/pi-model.ts`) decides nothing:
+it fetches the artifact a media part names and translates it, an image to image input and a PDF,
+Office document, audio or video to a **native block**, and refuses what the provider cannot take
+before anything is sent: a text file as a media part (the harness inlines text), or a kind the
+model or its API does not read, is `unsupported_input`; a reference it cannot fetch (not the
+session's, missing, a folder, past `limits.modelFileBytes`) is `invalid_request`. Neither is
+retried, and the gate writes no notes, schema instructions or JSON repair: a structured answer
+passes through as the model's text.
 
 **Native block**: A PDF, Office document, audio or video carried to the provider in its API's own
 block (`model/native-blocks.ts`): Anthropic `document`, OpenAI Responses `input_file`, OpenAI
 completions `file`, `input_audio` (WAV and MP3 only) or `video_url`, Google `inlineData`. pi-ai's
 messages hold only text and images, so `buildContext` puts a marker text part in the file's place
 (`NativeBlocks.add`) and the call's `onPayload` swaps each marker for its block in the request
-pi-ai built (`rewrite`). A file the request cannot carry stops it before it is sent, and the call
-fails `invalid_request`, never retried. The kinds each API carries (`NATIVE_FILE_KINDS`) are
+pi-ai built (`rewrite`). A kind the API does not carry is refused before the request is built
+(`unsupported_input`); a file the request cannot carry (an audio format the API lacks) stops it
+before it is sent, and the call fails `invalid_request`. Neither is retried. The kinds each API carries (`NATIVE_FILE_KINDS`) are
 `NATIVE_INPUTS` without images. The bytes are only in the provider request, never in the
 reported call or the transcript.
 _Avoid_: converting a file to text or images; a marker reaching a model.
@@ -490,19 +497,26 @@ natively (`NATIVE_INPUTS`): images everywhere, PDFs on the Anthropic, OpenAI, Az
 APIs, Office documents on the OpenAI Responses APIs, audio and video on Google's and
 OpenAI-compatible completions. Added inputs are the Tenant setting `model.inputs` (`PUT
 /v1/tenant/models/inputs`, `tenant/model-setting.ts`) for catalog models, and a custom
-endpoint's `settings.inputs` (text only by default). One function serves the catalog, the accept
-check (`currentModelInputs` in `model/catalog.ts`) and the Model Gate (which gives pi-ai a model
-with an added image, so it is not dropped). A file's input is `modelInputOf(mediaType)`
+endpoint's `settings.inputs` (text only by default). One resolution serves the catalog, the
+provider list, `turn.start.model` and the Model Gate (which gives pi-ai a model with an added
+image, so it is not dropped): `selectionOf` and `describeModel` (`model/descriptor.ts`), so what a
+harness is told and what the gate takes cannot disagree. A file's input is `modelInputOf(mediaType)`
 (`core/src/utils/media-types.ts`, in `@nylorun/core/contracts` since protocol 15, so the Runtime
 and a harness type a file alike).
 
-**Reference line**: How a file stands in a prompt once its turn is over (protocol 12,
-`mediaReferenceLine` in `@nylorun/core/define`): `[Uploaded artifact "name" · <artifactId> v<n> ·
-read_artifact to view]`, or `[Tool <name> returned artifact …]` for a tool result's file. Our
-harness projects every media part of the transcript as its line, and the media of the turn in
-progress once more, in one trailing user message after the conversation and the context, so a
-message projects the same in every later call and bytes reach a model only in their own turn
-(`loop/model/project.ts`). Compaction keeps the summarized part's lines on its entry (`files`).
+**Model descriptor**: The model a turn's calls use when they name none (protocol 15,
+`turn.start.model`, `ModelDescriptorSchema`): `{provider, id, inputs, contextWindow,
+maxOutputTokens, reasoning?}`. `currentModelDescriptor` (`model/descriptor.ts`) reads the
+Tenant's active vault model with its added inputs, through `modelsFor` as the gate does (a custom
+endpoint's settings apply), or the fixture model's (`provider: "fixture"`, every input, the small
+custom window) when the Tenant uses it; none when no model is configured. `startSegment` reads it
+outside the session's transaction for an agent's turn, never a flow's; it is a snapshot, so a
+model switched mid-turn may refuse a part the harness chose for the old one (`unsupported_input`).
+The A2A card's input modes and MCP deferral's window read it too.
+_Avoid_: a harness guessing what the model reads.
+
+The **reference line**, the **file view** and the structured answer are the harness's
+(`runtime/harness/src/CONTEXT.md`).
 
 **Read rule**: What a session may read of the Tenant's artifacts (`sessionMayRead`,
 `artifacts/files.ts`): its own, and the Tenant-wide ones its messages named
@@ -605,7 +619,10 @@ Protocol 15 began the harness boundary (`harness-boundary`, Harness API 4): mode
 belongs to the harness. `read_artifact` and `save_artifact` are our harness's tools, run over the
 **artifact seam**, so the pinned `runtime` block no longer holds them and their names are no
 longer reserved (our harness refuses a turn whose agent has a tool of either name). A fresh
-start for agent sessions: each that pinned them is closed (`protocol_15`, migration 0029).
+start for agent sessions: each that pinned them is closed (`protocol_15`, migration 0029). Inputs
+went to the harness too: a message may name any file (no `422 attachment_unsupported`),
+`turn.start.model` is the **model descriptor**, the gate only fetches and translates
+(`unsupported_input`), and `ModelCall` has no `outputSchema`.
 Protocol 14 added environment manifests (D63 to D65, `environment-manifests`): named, versioned
 definitions under `/v1/environment-manifests/{name}`, saved like agents (`If-Match`,
 `?dryRun=true`); an Environment is made from one version (or inline fields) and never changes
@@ -749,7 +766,7 @@ One line each; the module named is where the term lives in code.
 - **HTTP tool**: A tool whose manifest entry has `http` (`url`, `method` GET/POST/PUT/PATCH/DELETE, `credential`, `timeoutMs`; a sibling of `agent`, with `fn` and `command` reserved), built with `http()`: the Tool Gate sends the input as core's `httpToolRequest` maps it (the fields the URL's path names as `{field}` fill it, percent-encoded, and the rest are a JSON body for POST/PUT/PATCH or the query string for GET/DELETE, which send no body; a value that cannot fill its place is `tool.invalid-input`, never sent) with `Nylorun-Session-Id`, `Nylorun-Turn-Id`, `Nylorun-Agent-Id` and the effect id as `Idempotency-Key`, adding the vault credential bound to the URL that the `credential` selection names, sent to the credential's `via` when it has one, with its identity header (`gates/http-tool.ts`, `runHttpTool`; the request and answer alone are `callHttpTarget`). Its outcome is the answer, shaped as a stored tool result, or a failed outcome the model sees (`credential_rejected` on a `401`, `http.status`, `http.timeout`, `http.refused`, `http.unreachable`, `http.lost`, `http.too-large`, `http.credential`, `tool.invalid-output`). An HTTP tool is also a flow stage (a tool node with `http`), and `http({ url })` a Loop's HTTP verifier (`loop.verify: { http }`, POSTed `{ input, output, iteration }`, answering a verdict): their `tool` effects are journaled `invoking` and executed like an agent's (`harness-api/record.ts`), the gate finds the target in the pinned workflow manifest by stage key (`{ sessionId, stage }`, `flowHttpTarget`) and sends the flow agent's id as `Nylorun-Agent-Id`, and a failed outcome fails the stage (or the Loop, `loop.verify-failed`). An HTTP verifier's verdict is recorded as `loop.verified` (`recordVerdict`, `core/flow-host.ts`). _Avoid_: "webhook tool".
 - **Tool policy** (R5 step 2): The Tenant's rules for every MCP and HTTP tool call of every harness (`GET`/`PUT /v1/tenant/tool-policy`, a management key; the `tool-policy` setting): each `{effect: allow|ask|deny, tool?, server?, kind?, agent?, when?, reason?}`, and the strictest matching rule decides; no match runs (`gates/policy.ts`). Core decides as it journals the call (`recordIntent`, `bypolicy` in `harness-api/record.ts`): `deny` settles it `tool.denied`, unsent; `ask` keeps the row `held`, the segment ends waiting, and settle pauses the turn with one `approval` interaction per held call (its id the effect id); `approve` makes the row `invoking` with its `approval` (the replay sends it) or settles it `tool.denied`. The Tool Gate runs only `invoking` rows, so no harness skips it. A pinned manifest's `approval: "always"` (saved before; new definitions are refused, `approvalRefusal`) is an ask. _Avoid_: "static approval".
 - **MCP tool settings**: An MCP server's `tools` map (R2b C9), keyed by the server's own tool names with `"*"` for the rest, each `{enabled?, deferred?}` (and a pinned `approval`), beside the server's own `deferred`; a tool's settings resolve from its entry, then `"*"`, then the server, then the default (`mcpToolSettings`, core). Discovery leaves out a disabled tool before it takes a name, and `mcp.discovered` counts them (`disabled`) and names keys no listed tool has (`unknownTools`). A turn variant may only tighten them: `enabled: false` or `approval: "always"` (`isVariantOf`); `sessionToolsOf` and `mcpToolOf` read the turn's manifest. _Avoid_: "allowlist" for the map itself; `"*": {enabled: false}` makes one.
-- **Deferred tool**: A remote MCP tool out of the model's tool list (R2b C10): the model finds it with `tool_search` and runs it with `tool_call`, session tools the run gives an agent with deferred tools (`sessionToolsOf`, `mcp/snapshot.ts`; never in the pinned manifest, and no tool of the agent's own may take their names), with a note naming each server, its deferred tools and its instructions. Core decides it once, when it records the session's MCP snapshot (`pinDeferral` in `mcp/snapshot.ts`): a tool's `deferred` setting, else whether the agent's listed MCP tools pass a tenth of the Tenant's model's context window at 4 characters a token (`contextWindowOf`, `model/catalog.ts`). `tool_search` is core's (BM25 over names and descriptions, `tenant/tool-search.ts`); `tool_call` is the engine's: it checks the arguments against the tool's `inputSchema`, asks for approval as a direct call would, and makes the tool's own effect, so routing, `tool.completed`, scrubbing and stored results are a direct call's (`deferredToolCall`, `harness/run/durable.ts`). _Avoid_: "lazy tools" or "tool RAG".
+- **Deferred tool**: A remote MCP tool out of the model's tool list (R2b C10): the model finds it with `tool_search` and runs it with `tool_call`, session tools the run gives an agent with deferred tools (`sessionToolsOf`, `mcp/snapshot.ts`; never in the pinned manifest, and no tool of the agent's own may take their names), with a note naming each server, its deferred tools and its instructions. Core decides it once, when it records the session's MCP snapshot (`pinDeferral` in `mcp/snapshot.ts`): a tool's `deferred` setting, else whether the agent's listed MCP tools pass a tenth of the Tenant's model's context window at 4 characters a token (the **model descriptor**'s, `currentContextWindow` in `model/descriptor.ts`). `tool_search` is core's (BM25 over names and descriptions, `tenant/tool-search.ts`); `tool_call` is the engine's: it checks the arguments against the tool's `inputSchema`, asks for approval as a direct call would, and makes the tool's own effect, so routing, `tool.completed`, scrubbing and stored results are a direct call's (`deferredToolCall`, `harness/run/durable.ts`). _Avoid_: "lazy tools" or "tool RAG".
 - **egress-gate**: The `egress` service (F7.2, D42), run in the gateway's process on 4200 (`NYLORUN_EGRESS_LISTEN_*`): pod Environments' only way out, a CONNECT proxy that verifies an egress token, checks its Environment's host epoch, and tunnels only to a host name in its applied recipe's `network.allowedHosts` (exact or `*.suffix`) on 443 or 80 that resolves to a public address, 64 tunnels per sandbox (`gates/egress.ts`). The one exception is a host an `environment_secret` is bound to (R2c, see **Shell credential**); every other connection is an opaque tunnel. Each connection is one event (see **Egress event**); refusals are also logged.
 - **Egress event**: One connection through egress-gate on the record (track R7, Q6, Q7; `gates/egress.ts`): host, port, outcome (`allowed`, or `refused` with the gate's `reason` and `status`), `mode` (`tunnel`, or `credential` with the request count and the credential ids set), bytes up and down from the client socket, and `startedAt` (the gate's clock at CONNECT) with `durationMs`; never a header value, a path or a body. Written once, when the connection closes or at once when it is refused, by `egress-gate`, as `environment.egress` on the Environment's own stream (D67): the connection is the Environment's, since its egress token names the pod and turns run in parallel. `runningTurns` lists the turns active on the Environment as the connection opened (sessions on it with an `activeTurnId`, at most 16) as context, never as the owner: one read, started as the name resolves and never waited for, so a turn that moves while it is in flight may show either way; no session log and no turn trace holds it. A refusal before the Environment is known (no token, a stale one) stays a log line. A write never holds the tunnel up; a failed one is logged (`egress_record_failed`). _Avoid_: "egress log" for the gateway's log lines.
 - **Shell credential**: An Environment's secret a skill's CLI uses in its pod (R2c, D50, D56): `environment_secret` (the variable is the secret's name; sealed value, `allowedHosts`, `inject` header and format) or `environment_variable` (a visible name and value). The lease's `routing.sandbox.environment` gives every command each secret's name with the sentinel `nylorun_managed` and each variable's value (`VaultService.environmentVariables`, `harness-api/start.ts`). For CONNECT to 443 of a bound host, egress-gate terminates TLS with a fresh leaf the egress CA signs (`keys/egress-ca.ts`, `keys/x509.ts`; the CA in the Tenant setting `egress.ca`, its key sealed) and sets the header on every request from the Environment's vault, uncached (`releaseEnvironmentSecret`, `gates/egress-credentials.ts`). A second secret for a host is refused at the write (`409 credential_conflict`). _Avoid_: "placeholder", "injection" for the variable itself.

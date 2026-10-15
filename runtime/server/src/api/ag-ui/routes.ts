@@ -13,8 +13,8 @@
  *
  * Each thread maps to one session per subject, agent and thread. The message id is the
  * idempotency key, a message's media parts become file parts (bytes sent inline are stored as
- * artifacts of the session, `../inbound-files.ts`; a file the model does not read is a
- * `RUN_ERROR`), approvals become interrupts resumed through `resume`, and the last AG-UI
+ * artifacts of the session, `../inbound-files.ts`; any type goes, and the harness decides how
+ * the model sees it), approvals become interrupts resumed through `resume`, and the last AG-UI
  * event made from each Runtime event carries its cursor as the SSE id. A run's session is
  * created on its first run with the options in `forwardedProps.nylorun.session` and never
  * changed afterwards. A stream opened with an issuer token ends at the token's expiry with

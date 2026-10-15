@@ -26,6 +26,7 @@ import {
   ReadyResponseSchema,
   RejectedResponseSchema,
 } from "../src/contracts.js";
+import { MODEL_FAILURE_CODES } from "../src/define.js";
 
 const CROCKFORD = /^[0-9a-hjkmnp-tv-z]+$/;
 
@@ -184,7 +185,9 @@ describe("checkCompatibility", () => {
     expect(HOST_PROTOCOL).toMatchObject({ min: 15, max: 15 });
     expect(HOST_PROTOCOL.features).toContain("flat-manifest");
     expect(checkCompatibility({ version: 15, required: ["environment-manifests", "harness-boundary"] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
-    expect(ERROR_CODES).toContain("attachment_unsupported");
+    // Protocol 15: a message may name any file; the harness decides how the model sees it.
+    expect(ERROR_CODES).not.toContain("attachment_unsupported");
+    expect(MODEL_FAILURE_CODES).toContain("unsupported_input");
     for (const code of ["environment_immutable", "secret_not_in_manifest", "environment_unsuitable", "manifest_changed"])
       expect(ERROR_CODES).toContain(code);
     // Protocol 11 removed sandbox resources (R2d): no `sandboxes` Host feature.

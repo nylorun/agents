@@ -5,24 +5,15 @@ import {
   MODEL_INPUTS,
   PutModelInputsRequestSchema,
 } from "../src/contracts.js";
-import { mediaReferenceLine, mediaReferenceOf } from "../src/define.js";
+import { mediaReferenceOf } from "../src/define.js";
 
-it("names a file by its reference line (protocol 12)", () => {
-  const part = {
-    mediaType: "image/png",
-    reference: { artifactId: "af_1", version: 2, name: 'a "b".png', size: 10 },
-  };
-  expect(mediaReferenceLine(part, "uploaded")).toBe(
-    '[Uploaded artifact "a \\"b\\".png" · af_1 v2 · read_artifact to view]',
-  );
-  expect(mediaReferenceLine(part, { tool: "screenshot" })).toBe(
-    '[Tool screenshot returned artifact "a \\"b\\".png" · af_1 v2 · read_artifact to view]',
-  );
-  expect(mediaReferenceOf(part.reference)).toEqual(part.reference);
-  // Another host's reference has no line of ours.
-  expect(mediaReferenceLine({ mediaType: "image/png", reference: "blob:1" }, "uploaded")).toBe(
-    "[Uploaded artifact (image/png)]",
-  );
+it("reads the reference of a media part the Runtime made (protocol 12)", () => {
+  const reference = { artifactId: "af_1", version: 2, name: 'a "b".png', size: 10 };
+  expect(mediaReferenceOf(reference)).toEqual(reference);
+  expect(mediaReferenceOf({ artifactId: "af_1", version: 2, name: 3 })).toEqual({ artifactId: "af_1", version: 2 });
+  // Another host's reference is not ours.
+  expect(mediaReferenceOf("blob:1")).toBeUndefined();
+  expect(mediaReferenceOf({ artifactId: "af_1", version: 1.5 })).toBeUndefined();
 });
 
 it("takes model inputs in the catalog, settings and the inputs request", () => {

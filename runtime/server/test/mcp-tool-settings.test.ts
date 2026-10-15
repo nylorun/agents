@@ -17,7 +17,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
 import { type AgentManifest, type ModelCall } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
-import { contextWindowOf, hostModelCatalog } from "../src/model/catalog.js";
+import { hostModelCatalog } from "../src/model/catalog.js";
+import { hostModelDescriptor } from "../src/model/descriptor.js";
 import { pinDeferral, sessionToolsOf, type McpSnapshot } from "../src/mcp/snapshot.js";
 import { rank } from "../src/tenant/tool-search.js";
 import { startTestTenant } from "./support/tenant.js";
@@ -456,12 +457,15 @@ describe("deciding deferral (Q21)", () => {
     expect(tools.filter((tool) => tool.deferred)).toHaveLength(10);
   });
 
-  it("knows a catalog model's window, and assumes a small one otherwise", () => {
+  it("knows a catalog model's window, and a custom endpoint's from its settings", () => {
     const provider = hostModelCatalog().providers.find((item) => item.models.length > 0)!;
-    const window = contextWindowOf({ configured: true, provider: provider.id, model: provider.models[0]!.id });
+    const window = hostModelDescriptor({ provider: provider.id, model: provider.models[0]!.id })?.contextWindow;
     expect(window).toBeGreaterThan(1_024);
-    expect(contextWindowOf({ configured: false })).toBe(32_768);
-    expect(contextWindowOf({ configured: true, provider: "custom", model: "m", baseUrl: "http://x", settings: { contextWindow: 9_000 } })).toBe(9_000);
+    expect(hostModelDescriptor({ provider: "groq", model: "no-such-model" })).toBeUndefined();
+    expect(
+      hostModelDescriptor({ provider: "custom", model: "m", baseUrl: "http://x", settings: { contextWindow: 9_000 } })
+        ?.contextWindow,
+    ).toBe(9_000);
   });
 
   it("ranks by BM25: a description word finds the tool; no shared word finds nothing", () => {
