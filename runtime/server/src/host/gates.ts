@@ -16,7 +16,7 @@ import { getRequestListener } from "@hono/node-server";
 import { createGatesApp } from "../api/gate/routes.js";
 import { createModelCallHandler } from "../gates/handler.js";
 import { createInflightCalls, type InflightCallsOptions } from "../gates/inflight.js";
-import { createMcpHandler, GATE_MCP_IDLE_MS } from "../gates/mcp-handler.js";
+import { createMcpHandler } from "../gates/mcp-handler.js";
 import { createToolCalls } from "../gates/tool-calls.js";
 import { gateHttpTools } from "../gates/http-tool.js";
 import type { openMcpServer } from "../mcp/connect.js";
@@ -43,9 +43,7 @@ import {
 } from "../gates/egress.js";
 import { verifyEgressToken, type EgressTokenKeyCache } from "../sandbox/egress-token.js";
 import { leafKeyPair } from "../keys/x509.js";
-
-/** Above the gate's 600 s provider request timeout and the loop's 630 s client timeout. */
-export const GATES_REQUEST_TIMEOUT_MS = 660_000;
+import { hostTuning } from "../tuning.js";
 
 export interface StartGatesOptions {
   readonly gates: GatesConfig;
@@ -58,7 +56,7 @@ export interface StartGatesOptions {
   readonly vaults?: TenantVaults;
   /** Retries and timeouts of model calls (tests). */
   readonly settings?: ModelCallSettings;
-  /** How long `close` lets running calls finish. Default 10 s. */
+  /** How long `close` lets running calls finish. Default `gates.drainMs` (Host tuning, 10 s). */
   readonly drainMs?: number;
   /** How long keyed outcomes are kept, and how many (tests). */
   readonly inflight?: InflightCallsOptions;
@@ -67,7 +65,7 @@ export interface StartGatesOptions {
    * Default: no limits.
    */
   readonly delivery?: OutboundPolicy;
-  /** How long an MCP connection may sit unused. Default `GATE_MCP_IDLE_MS`. */
+  /** How long an MCP connection may sit unused. Default `gates.mcpIdleMs` (Host tuning, 15 min). */
   readonly mcpIdleMs?: number;
   /** Tests replace how a remote MCP server is opened. */
   readonly openMcp?: typeof openMcpServer;
@@ -107,8 +105,9 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     (options.hostRoot !== undefined
       ? createFsBlobStore({ root: tenantPaths(options.hostRoot).blobs })
       : undefined);
+  const tuning = hostTuning().gates;
   const inflight = createInflightCalls(options.inflight);
-  const mcpIdleMs = options.mcpIdleMs ?? GATE_MCP_IDLE_MS;
+  const mcpIdleMs = options.mcpIdleMs ?? tuning.mcpIdleMs;
   const mcp = createMcpHandler({
     vaults,
     logger,
@@ -121,9 +120,12 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     logger,
     ...(options.inflight ? { inflight: options.inflight } : {}),
   });
-  const sweep = setInterval(() => void mcp.sweep(), Math.max(1_000, Math.min(mcpIdleMs, 60_000)));
+  const sweep = setInterval(
+    () => void mcp.sweep(),
+    Math.max(tuning.mcpSweepMinMs, Math.min(mcpIdleMs, tuning.mcpSweepMaxMs)),
+  );
   sweep.unref();
-  const prune = setInterval(() => void toolCalls.prune(), 60 * 60_000);
+  const prune = setInterval(() => void toolCalls.prune(), tuning.toolCrossingPruneMs);
   prune.unref();
   // Run tokens verify against the Tenant's public keys and session rows (F5): the same
   // database the ledger and `tool_crossings` use.
@@ -150,7 +152,7 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
         return false;
       if (!database) return true;
       try {
-        await probeDatabase(database, AbortSignal.timeout(2000));
+        await probeDatabase(database, AbortSignal.timeout(tuning.probeTimeoutMs));
         return true;
       } catch {
         return false;
@@ -183,7 +185,9 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     res.once("close", () => inFlight.delete(res));
     void listener(req, res);
   });
-  server.requestTimeout = GATES_REQUEST_TIMEOUT_MS;
+  // Above the gate's 600 s provider request timeout and the loop's client timeout
+  // (`gates.clientTimeoutMs`): the tuning refuses one at or below the other.
+  server.requestTimeout = tuning.requestTimeoutMs;
   await bindListener(server, gates.listen.port, gates.listen.host, (error) =>
     logger.error("listener_error", { error: error.message }),
   );
@@ -201,9 +205,9 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       closing ??= (async () => {
         const closed = new Promise<void>((resolve) => server.close(() => resolve()));
         server.closeIdleConnections();
-        const deadline = Date.now() + (options.drainMs ?? 10_000);
+        const deadline = Date.now() + (options.drainMs ?? tuning.drainMs);
         while (inFlight.size > 0 && Date.now() < deadline)
-          await new Promise((resolve) => setTimeout(resolve, 50));
+          await new Promise((resolve) => setTimeout(resolve, tuning.drainPollMs));
         // Closing a running call's connection aborts an unkeyed one; keyed calls stop here.
         server.closeAllConnections();
         inflight.close();

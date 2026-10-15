@@ -77,6 +77,7 @@ import { readJson } from "../body.js";
 import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
 import { rearmPodTimers } from "../../../tenant/environments.js";
+import { hostTuning } from "../../../tuning.js";
 
 /** Every Management API route (`/v1/tenant/*`): a management key, acting as itself (protocol 8). */
 const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
@@ -200,7 +201,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const ctx = c.env.tenant;
       const request = ResetTenantRequestSchema.parse(await readJson(c.req.raw));
-      await drain(ctx, request.activeWork, 30_000);
+      await drain(ctx, request.activeWork, hostTuning().tenant.drainTimeoutMs);
       // A sessions reset moves the Tenant to a new basin generation, so a session created
       // again with the same id, during or after the reset, starts in an empty basin at 0.
       const sessionsReset = request.scope !== "environments";

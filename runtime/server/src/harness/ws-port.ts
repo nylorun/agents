@@ -1,11 +1,13 @@
 /**
  * The Harness API over a WebSocket (F6.2): one JSON text message per frame. Either end watches
- * the connection: core pings every `pingMs` (30 s), the harness answers (`ws` does it), and an
- * end that hears nothing from the other for `silenceMs` (90 s) drops the connection. A message
+ * the connection: core pings every `pingMs` (Host tuning `harness.pingMs`, 30 s), the harness
+ * answers (`ws` does it), and an end that hears nothing from the other for `silenceMs`
+ * (`harness.silenceMs`, 90 s) drops the connection. A message
  * that is not JSON closes it (1007); `createChannel({ validate: true })` checks the rest.
  */
 import type { Frame, Port } from "@nylorun/core/harness-api";
 import { WebSocket } from "ws";
+import { hostTuning } from "../tuning.js";
 
 export {
   HARNESS_API_HEADER,
@@ -13,9 +15,6 @@ export {
   HARNESS_API_TRANSPORT,
   HARNESS_MAX_PAYLOAD,
 } from "@nylorun/core/harness-api";
-
-export const DEFAULT_PING_MS = 30_000;
-export const DEFAULT_SILENCE_MS = 90_000;
 
 export interface WsPortOptions {
   /** Send pings (core's end). */
@@ -27,7 +26,7 @@ export interface WsPortOptions {
 export function wsPort(socket: WebSocket, options: WsPortOptions = {}): Port {
   const frames: ((frame: Frame) => void)[] = [];
   const closes: ((reason: string) => void)[] = [];
-  const silenceMs = options.silenceMs ?? DEFAULT_SILENCE_MS;
+  const silenceMs = options.silenceMs ?? hostTuning().harness.silenceMs;
   let lastHeard = Date.now();
   let closed = false;
   let reason = "closed";
@@ -39,7 +38,7 @@ export function wsPort(socket: WebSocket, options: WsPortOptions = {}): Port {
       reason = `nothing heard for ${Math.round(silenceMs / 1000)} s`;
       socket.terminate();
     } else if (options.ping && socket.readyState === WebSocket.OPEN) socket.ping();
-  }, Math.min(options.pingMs ?? DEFAULT_PING_MS, silenceMs));
+  }, Math.min(options.pingMs ?? hostTuning().harness.pingMs, silenceMs));
   watch.unref();
 
   socket.on("ping", heard);

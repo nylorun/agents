@@ -8,6 +8,7 @@ import { HarnessError } from "@nylorun/core/define";
 import { copyJson } from "@nylorun/core/define";
 import { createId } from "../utils/ids.js";
 import { createObservationSink, type ExecutionOutcomeEvent, type ObserveEmit } from "./observe.js";
+import { DEFAULT_LOOP_CONFIG, type LoopConfig } from "./config.js";
 
 export interface Invocation {
   readonly agent: AgentDefinition;
@@ -18,6 +19,8 @@ export interface Invocation {
   readonly delegation?: DelegationHost;
   /** Set when this invocation is itself an agent used as a tool. */
   readonly delegated?: AgentRef;
+  /** The engine's loop settings, handed to the agents it uses as tools. */
+  readonly loop: LoopConfig;
   state: ExecutionState;
   /** Mutable durable session memory for this invocation. */
   sessionBag: Record<string, JsonValue>;
@@ -40,6 +43,7 @@ export function createInvocation(input: {
     definitions: input.definitions,
     ...(input.internals?.delegation ? { delegation: input.internals.delegation } : {}),
     ...(input.internals?.delegated ? { delegated: input.internals.delegated } : {}),
+    loop: input.internals?.loop ?? DEFAULT_LOOP_CONFIG,
     state: input.state,
     sessionBag: { ...((input.state.state ?? {}) as Record<string, JsonValue>) },
   } as Invocation;

@@ -15,6 +15,7 @@ import { initializeExecutionState } from "./initial-state.js";
 import type { Invocation } from "./invocation.js";
 import { textFromOutput } from "./model/normalize.js";
 import { HostSuspension } from "./host-suspension.js";
+import type { LoopConfig } from "./config.js";
 
 /** How one agent used as a tool is built and journaled. Durable hosts supply their own. */
 export interface DelegationHost {
@@ -50,13 +51,13 @@ export interface ExecuteInternals {
    * boundary once this many steps ran, or this much time passed, in this invocation.
    */
   readonly yieldAfter?: { readonly steps?: number; readonly ms?: number };
+  /** The loop's settings (compaction, a failed child's partial output). Default `DEFAULT_LOOP_CONFIG`. */
+  readonly loop?: LoopConfig;
 }
 
 /** Codes are curated: a child's provider error bodies never reach the parent's context. */
 export const INTERACTION_UNSUPPORTED =
   "Agents used as tools can't ask for input, approval or a wait yet; do this work on the parent agent.";
-
-const PARTIAL_LIMIT = 4_000;
 
 /** In-process children, built from the authored agent and sharing the parent's model callable. */
 export function localDelegation(onModelCall: ModelAdapter): DelegationHost {
@@ -117,7 +118,10 @@ export async function runDelegation(
           "execution.invalid-input",
           `Agent '${ref.id}' is a flow agent; flow agents used as tools run on the Runtime`,
         );
-      outcome = settleFlow(await host.flow(delegate, ref, task));
+      outcome = settleFlow(
+        await host.flow(delegate, ref, task),
+        invocation.loop.partialOutputChars,
+      );
       status = outcome.kind === "completed" ? "completed" : "failed";
     } else {
       const child = host.child(delegate, ref);
@@ -138,11 +142,12 @@ export async function runDelegation(
             }),
             ...(listener ? { onEvent: (event) => listener({ ...event, agent: ref }) } : {}),
           },
-          { delegated: ref },
+          // A child runs with its parent's loop settings.
+          { delegated: ref, loop: invocation.loop },
         ),
       );
       status = result.status;
-      outcome = settle(result);
+      outcome = settle(result, invocation.loop.partialOutputChars);
     }
   } catch (cause) {
     // Durable hosts suspend children mid-flight; that must escape to the parent journal.
@@ -185,7 +190,7 @@ export async function runDelegation(
 }
 
 /** "Done" means settled with real output; empty or unfinished work is a failure with evidence. */
-function settle(result: RunResult<JsonValue>): ToolOutcome {
+function settle(result: RunResult<JsonValue>, partialChars: number): ToolOutcome {
   if (result.status === "completed") {
     const output = result.output;
     if (output === null || (typeof output === "string" && output.trim() === ""))
@@ -209,7 +214,7 @@ function settle(result: RunResult<JsonValue>): ToolOutcome {
     return { kind: "failed", code: "delegation.failed", message: "The agent stopped early." };
   const reason = result.error.code;
   const curated = reason.startsWith("execution.") ? reason : `${reason}: ${result.error.message}`;
-  const partial = lastText(result);
+  const partial = lastText(result, partialChars);
   return {
     kind: "failed",
     code: "delegation.failed",
@@ -219,18 +224,18 @@ function settle(result: RunResult<JsonValue>): ToolOutcome {
   };
 }
 
-function lastText(result: RunResult<JsonValue>): string | undefined {
+function lastText(result: RunResult<JsonValue>, limit: number): string | undefined {
   for (let index = result.state.transcript.length - 1; index >= 0; index--) {
     const entry = result.state.transcript[index]!;
     if (entry.kind !== "candidate") continue;
     const text = textFromOutput(entry.candidate.output).trim();
-    if (text) return text.length > PARTIAL_LIMIT ? `${text.slice(0, PARTIAL_LIMIT)}…` : text;
+    if (text) return text.length > limit ? `${text.slice(0, limit)}…` : text;
   }
   return undefined;
 }
 
 /** A flow's settled value: its output, or the `{ kind: "failed" }` value the host records. */
-function settleFlow(value: JsonValue): ToolOutcome {
+function settleFlow(value: JsonValue, partialChars: number): ToolOutcome {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as Record<string, JsonValue>;
     if (record.kind === "failed" && typeof record.code === "string")
@@ -240,5 +245,5 @@ function settleFlow(value: JsonValue): ToolOutcome {
         message: `The agent failed (${record.code}: ${typeof record.message === "string" ? record.message : record.code}).`,
       };
   }
-  return settle({ status: "completed", output: value } as RunResult<JsonValue>);
+  return settle({ status: "completed", output: value } as RunResult<JsonValue>, partialChars);
 }

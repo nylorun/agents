@@ -6,8 +6,8 @@
  * An upgrade is accepted only on `/nylorun/harness/v1`, with a `Host` in the allowlist (421),
  * `Authorization: Bearer <token>` (compared in constant time; 401) and `Nylorun-Harness-Api: 1`
  * (426), while the Tenant is open (503). Frames are at most 64 MiB and every one is validated
- * (`createChannel({ validate: true })`). Core pings every 30 s and drops a harness silent for
- * 90 s; the connection then counts as lost (`connection.lost`).
+ * (`createChannel({ validate: true })`). Core pings every `harness.pingMs` (Host tuning, 30 s) and
+ * drops a harness silent for `harness.silenceMs` (90 s); the connection then counts as lost (`connection.lost`).
  *
  * Sandbox pods (F7.2, D42) reach this listener too, on the Docker host's published port, and hold
  * no harness token. A pod's engine exchanges its join token for a host token with `POST
@@ -39,16 +39,13 @@ import { HOST_TOKEN_TYP } from "../tenant/host-token.js";
 import { HostAuthError, type HostAuthority, type HostJoinRequest } from "../sandbox/join.js";
 import { parseSetupReport } from "../sandbox/setup.js";
 import type { HarnessPeer } from "./server.js";
+import { hostTuning } from "../tuning.js";
 
 export { HOST_JOIN_PATH, HOST_RENEW_PATH };
 /** Where a pod's engine reads its setup and reports it (R2d step 2, `sandbox/setup.ts`). */
 export const HOST_SETUP_PATH = `${HARNESS_API_PATH}/host/setup`;
 /** Where it reads its input files: `/{index}`, and a folder's file `/{index}/{path}`. */
 export const HOST_FILES_PATH = `${HARNESS_API_PATH}/host/files`;
-/** A join's body is small. */
-const MAX_JOIN_BODY = 8 * 1024;
-/** A setup report carries the end of a command's output. */
-const MAX_REPORT_BODY = 64 * 1024;
 
 /** Attaches a harness's channel to the open Tenant; returns a function that detaches it. */
 export type HarnessAttach = (channel: HarnessChannel, peer: HarnessPeer) => () => void;
@@ -132,7 +129,9 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
     });
     response.end(text);
   };
-  const readBody = (request: IncomingMessage, max = MAX_JOIN_BODY) =>
+  // A join's body is small (`harnessApi.joinBodyBytes`); a setup report carries the end of a
+  // command's output (`harnessApi.reportBodyBytes`).
+  const readBody = (request: IncomingMessage, max = hostTuning().harnessApi.joinBodyBytes) =>
     new Promise<string>((resolve, reject) => {
       let size = 0;
       const chunks: Buffer[] = [];
@@ -184,7 +183,7 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
       if (path === HOST_SETUP_PATH) {
         if (request.method === "GET") return reply(response, 200, await authority.setup(token));
         if (request.method !== "POST") return reply(response, 405, undefined, { allow: "GET, POST" });
-        const report = parseSetupReport(JSON.parse(await readBody(request, MAX_REPORT_BODY)));
+        const report = parseSetupReport(JSON.parse(await readBody(request, hostTuning().harnessApi.reportBodyBytes)));
         if (!report) throw new HostAuthError(400, "The report is malformed");
         await authority.reportSetup(token, report);
         return reply(response, 200, {});
@@ -322,7 +321,7 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
       server.closeAllConnections();
       setTimeout(() => {
         for (const client of wss.clients) client.terminate();
-      }, 1_000).unref();
+      }, hostTuning().harnessApi.closeGraceMs).unref();
       await closed;
       wss.close();
     },

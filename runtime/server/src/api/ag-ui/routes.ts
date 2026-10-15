@@ -66,8 +66,8 @@ import { putSession, sessionView } from "../../tenant/sessions.js";
 import { mayUseAgent } from "../../tenant/auth.js";
 import { environmentGrantsOf } from "../../tenant/environments.js";
 import type { TraceContext } from "../../traces/ids.js";
+import { hostTuning } from "../../tuning.js";
 
-const HEARTBEAT_MS = 15_000;
 const TERMINAL = new Set([
   "turn.completed",
   "turn.paused",
@@ -307,7 +307,7 @@ async function stream(
   const write = (text: string) => {
     if (!response.writableEnded && !response.write(text)) response.destroy();
   };
-  const heartbeat = setInterval(() => write(SSE_HEARTBEAT), HEARTBEAT_MS);
+  const heartbeat = setInterval(() => write(SSE_HEARTBEAT), hostTuning().api.agUiHeartbeatMs);
   heartbeat.unref();
   try {
     write(sseFrame(translator.started()));

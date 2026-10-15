@@ -14,6 +14,7 @@
  * a takeover, G4), and a cancel stops it only for the same session.
  */
 import type { ModelGateOutcome } from "./model-gate.js";
+import { hostTuning } from "../tuning.js";
 
 /** A re-send whose request differs from the call already running under its key. */
 export class InflightConflict extends Error {
@@ -68,9 +69,9 @@ interface Entry<T> {
 }
 
 export interface InflightCallsOptions {
-  /** How long a settled outcome is kept. Default 30 minutes. */
+  /** How long a settled outcome is kept. Default `gates.inflightTtlMs` (Host tuning, 30 min). */
   readonly ttlMs?: number;
-  /** Most entries; the oldest settled ones go first. Default 10,000. */
+  /** Most entries; the oldest settled ones go first. Default `gates.inflightMax` (10,000). */
   readonly max?: number;
   readonly now?: () => number;
 }
@@ -78,8 +79,8 @@ export interface InflightCallsOptions {
 export function createInflightCalls<T = ModelGateOutcome>(
   options: InflightCallsOptions = {},
 ): InflightCalls<T> {
-  const ttlMs = options.ttlMs ?? 30 * 60_000;
-  const max = options.max ?? 10_000;
+  const ttlMs = options.ttlMs ?? hostTuning().gates.inflightTtlMs;
+  const max = options.max ?? hostTuning().gates.inflightMax;
   const now = options.now ?? Date.now;
   const entries = new Map<string, Entry<T>>();
 

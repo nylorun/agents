@@ -7,6 +7,7 @@
  * reconciles (`GET /v1/pods/{name}`, optionally blocking with `?wait=`), and every change it
  * asks for carries an operation id, so a retried `PUT` is a no-op.
  */
+import { hostTuning, SANDBOXES_MAX_WAIT_MS } from "../../tuning.js";
 
 /** `PUT /v1/pods/{name}`: the Sandbox the service applies (`driver.Spec` in Go). */
 export interface PodSpec {
@@ -99,7 +100,7 @@ export function httpSandboxesClient(options: {
   readonly url: string;
   readonly token: string;
   readonly fetch?: typeof fetch;
-  /** Per request, unless the request waits longer. Default 20 s. */
+  /** Per request, unless the request waits longer. Default `pods.requestTimeoutMs` (Host tuning, 20 s). */
   readonly timeoutMs?: number;
 }): SandboxesClient {
   const base = options.url.replace(/\/+$/, "");
@@ -109,7 +110,7 @@ export function httpSandboxesClient(options: {
     path: string,
     init: { body?: unknown; signal?: AbortSignal; timeoutMs?: number; auth?: boolean } = {},
   ): Promise<T> => {
-    const timeout = AbortSignal.timeout(init.timeoutMs ?? options.timeoutMs ?? 20_000);
+    const timeout = AbortSignal.timeout(init.timeoutMs ?? options.timeoutMs ?? hostTuning().pods.requestTimeoutMs);
     const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
     let response: Response;
     try {
@@ -150,7 +151,7 @@ export function httpSandboxesClient(options: {
   return {
     async ready(signal) {
       try {
-        await request("GET", "/ready", { auth: false, timeoutMs: 3_000, ...(signal ? { signal } : {}) });
+        await request("GET", "/ready", { auth: false, timeoutMs: hostTuning().pods.readyProbeTimeoutMs, ...(signal ? { signal } : {}) });
         return true;
       } catch {
         return false;
@@ -159,10 +160,13 @@ export function httpSandboxesClient(options: {
     info: (signal) => request("GET", "/v1/info", signal ? { signal } : {}),
     put: (name, spec, signal) => request("PUT", pod(name), { body: spec, ...(signal ? { signal } : {}) }),
     status(name, { wait, timeoutMs, signal } = {}) {
-      const query = wait ? `?wait=${wait}&timeoutMs=${Math.min(timeoutMs ?? 30_000, 30_000)}` : "";
+      const tuning = hostTuning().pods;
+      // The service waits at most `SANDBOXES_MAX_WAIT_MS`; the answer has `waitSlackMs` to arrive.
+      const waitMs = Math.min(timeoutMs ?? tuning.waitMs, SANDBOXES_MAX_WAIT_MS);
+      const query = wait ? `?wait=${wait}&timeoutMs=${waitMs}` : "";
       return request("GET", `${pod(name)}${query}`, {
         ...(signal ? { signal } : {}),
-        ...(wait ? { timeoutMs: Math.min(timeoutMs ?? 30_000, 30_000) + 10_000 } : {}),
+        ...(wait ? { timeoutMs: waitMs + tuning.waitSlackMs } : {}),
       });
     },
     delete: (name, opId, signal) =>

@@ -9,7 +9,8 @@ import { bodyLimit } from "hono/body-limit";
 import { HttpError } from "../../tenant/http.js";
 import type { Logger } from "../../tenant/types.js";
 import { VaultError } from "../../vault/error.js";
-import { KEYS_PATH, MAX_KEYS_BODY_BYTES, type KeysAnswer, type KeysError } from "../../keys/contract.js";
+import { KEYS_PATH, type KeysAnswer, type KeysError } from "../../keys/contract.js";
+import { hostTuning } from "../../tuning.js";
 import { KEYS_OPERATIONS, type Keys, type KeysOperation } from "../../keys/keys.js";
 
 export function mountKeysRoutes<E extends Env>(
@@ -25,10 +26,12 @@ export function mountKeysRoutes<E extends Env>(
   app.post(
     `${KEYS_PATH}/:operation`,
     options.authorized,
-    bodyLimit({
-      maxSize: MAX_KEYS_BODY_BYTES,
-      onError: (c) => c.json({ error: { code: "invalid_request", message: "The body is too large" } }, 400),
-    }),
+    // The largest request body: a credential with its secret, or a token's claims (`keys.bodyBytes`).
+    (c, next) =>
+      bodyLimit({
+        maxSize: hostTuning().keys.bodyBytes,
+        onError: (c) => c.json({ error: { code: "invalid_request", message: "The body is too large" } }, 400),
+      })(c, next),
     async (c) => {
       const operation = c.req.param("operation");
       if (!(KEYS_OPERATIONS as readonly string[]).includes(operation))

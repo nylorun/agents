@@ -67,6 +67,7 @@ import {
 } from "@s2-dev/streamstore";
 import { parseBasin, tenantBasinName, validateBasinPrefix } from "../../streams/basin.js";
 import { sleep } from "../../retry.js";
+import { hostTuning, S2_BATCH_MAX_RECORDS } from "../../tuning.js";
 import {
   type AppendOptions,
   type AppendResult,
@@ -87,17 +88,17 @@ export interface S2StreamsOptions {
   basinPrefix?: string;
   /**
    * How long `ensureTenant` waits for a previous deletion of the same basin to
-   * finish. Defaults to two minutes.
+   * finish. Default `streams.s2BasinDeletionWaitMs` (Host tuning, two minutes).
    */
   basinDeletionWaitMs?: number;
 }
 
-/** Records per unary read while reading history. */
-const HISTORY_PAGE = 1000;
-const RETRY_MIN_MS = 100;
-const RETRY_MAX_MS = 2000;
-/** Attempts for an append that loses a `transaction_conflict` race. */
-const CONFLICT_ATTEMPTS = 6;
+/**
+ * Records per unary read while reading history: the most one S2 read returns. Retries are the Host
+ * tuning's `streams.s2Retry`, `s2ConflictAttempts` (an append that loses a `transaction_conflict`
+ * race), `s2ConflictRetryMs` and `s2BasinRetryMs`.
+ */
+const HISTORY_PAGE = S2_BATCH_MAX_RECORDS;
 
 export function createS2Streams(options: S2StreamsOptions = {}): DurableStreams {
   return new S2Streams(options);
@@ -112,7 +113,7 @@ class S2Streams implements DurableStreams {
 
   constructor(options: S2StreamsOptions) {
     this.prefix = validateBasinPrefix(options.basinPrefix ?? "");
-    this.deletionWaitMs = options.basinDeletionWaitMs ?? 120_000;
+    this.deletionWaitMs = options.basinDeletionWaitMs ?? hostTuning().streams.s2BasinDeletionWaitMs;
     this.s2 = new S2({
       accessToken: options.token ?? "s2-lite",
       ...(options.endpoint
@@ -141,7 +142,8 @@ class S2Streams implements DurableStreams {
       },
     );
     const handle = this.handle(tenantId, stream);
-    let delay = RETRY_MIN_MS / 4;
+    const { s2ConflictRetryMs, s2ConflictAttempts } = hostTuning().streams;
+    let delay = s2ConflictRetryMs;
     for (let attempt = 1; ; attempt += 1) {
       try {
         const ack = await handle.append(input, { signal: this.closing.signal });
@@ -151,7 +153,7 @@ class S2Streams implements DurableStreams {
           return { status: "seq_mismatch", tail: error.expectedSeqNum };
         // Concurrent appends to one stream can abort each other; the aborted
         // one wrote nothing, so it is retried.
-        if (!isTransactionConflict(error) || attempt >= CONFLICT_ATTEMPTS) throw error;
+        if (!isTransactionConflict(error) || attempt >= s2ConflictAttempts) throw error;
         await sleep(delay * (1 + Math.random()), this.closing.signal);
         this.checkOpen();
         delay *= 2;
@@ -189,7 +191,8 @@ class S2Streams implements DurableStreams {
     this.checkOpen();
     const basin = this.basinName(tenantId);
     const deadline = Date.now() + this.deletionWaitMs;
-    let delay = RETRY_MIN_MS * 5;
+    const tuning = hostTuning().streams;
+    let delay = tuning.s2BasinRetryMs;
     for (;;) {
       try {
         await this.s2.basins.ensure(
@@ -212,7 +215,7 @@ class S2Streams implements DurableStreams {
         if (Date.now() + delay > deadline) throw error;
         await sleep(delay, this.closing.signal);
         this.checkOpen();
-        delay = Math.min(delay * 2, RETRY_MAX_MS);
+        delay = Math.min(delay * 2, tuning.s2Retry.maxMs);
       }
     }
   }
@@ -335,7 +338,8 @@ class S2Streams implements DurableStreams {
     const aborted = anySignal(signal, this.closing.signal);
     const handle = this.handle(tenantId, stream);
     let next = fromSeq;
-    let delay = RETRY_MIN_MS;
+    const { minMs: retryMinMs, maxMs: retryMaxMs } = hostTuning().streams.s2Retry;
+    let delay = retryMinMs;
     try {
       while (!aborted.aborted) {
         try {
@@ -348,7 +352,7 @@ class S2Streams implements DurableStreams {
           for await (const record of session) {
             if (record.seqNum < next) continue;
             next = record.seqNum + 1;
-            delay = RETRY_MIN_MS;
+            delay = retryMinMs;
             yield toRecord<T>(record);
             if (aborted.aborted) return;
           }
@@ -364,7 +368,7 @@ class S2Streams implements DurableStreams {
           // S2 unreachable, or a stream being deleted: retry below.
         }
         await sleep(delay, aborted);
-        delay = Math.min(delay * 2, RETRY_MAX_MS);
+        delay = Math.min(delay * 2, retryMaxMs);
       }
     } finally {
       await handle.close().catch(() => {});

@@ -17,7 +17,8 @@ import {
 } from "@nylorun/core/contracts";
 import type { TenantSandboxConfig } from "./tenant-config.js";
 import type { TenantPods } from "../tenant/context.js";
-import { fail } from "../tenant/http.js";
+import { fail, failRetryLater } from "../tenant/http.js";
+import { hostTuning } from "../tuning.js";
 
 /** Our harness's id (blueprint D38): what a session runs unless its Environment names another. */
 export const HARNESS_ID = DEFAULT_HARNESS;
@@ -57,13 +58,12 @@ export function checkPlacement(
   );
 }
 
-const READY_CACHE_MS = 5_000;
 const ready = new WeakMap<TenantPods, { at: number; ready: boolean }>();
 
-/** Whether the sandboxes service is up, cached for a few seconds. */
+/** Whether the sandboxes service is up, the answer reused for `pods.readyCacheMs` (Host tuning). */
 export async function podsReady(pods: TenantPods): Promise<boolean> {
   const cached = ready.get(pods);
-  if (cached && Date.now() - cached.at < READY_CACHE_MS) return cached.ready;
+  if (cached && Date.now() - cached.at < hostTuning().pods.readyCacheMs) return cached.ready;
   const answer = await pods.client.ready();
   ready.set(pods, { at: Date.now(), ready: answer });
   return answer;
@@ -76,9 +76,9 @@ export async function requirePods(pods: TenantPods | undefined, what: string): P
       code: "environment_unavailable",
     });
   if (!(await podsReady(pods)))
-    fail(409, `${what} needs sandbox pods, and the sandboxes service is not ready. Check \`nylorun local sandbox status\`.`, {
-      code: "environment_unavailable",
-      details: { retryAfterSeconds: 5 },
-    }, { "retry-after": "5" });
+    failRetryLater(
+      `${what} needs sandbox pods, and the sandboxes service is not ready. Check \`nylorun local sandbox status\`.`,
+      "environment_unavailable",
+    );
   return pods;
 }

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { AwsClient } from "aws4fetch";
+import { hostTuning, S3_MIN_PART_BYTES } from "../tuning.js";
 import { DEFAULT_CONTENT_TYPE } from "@nylorun/core/contracts";
 import {
   BlobRangeError,
@@ -36,10 +37,14 @@ export interface S3BlobStoreOptions {
   forcePathStyle?: boolean;
   /**
    * A body longer than this is uploaded in parts of about this size (multipart upload); a
-   * shorter one in one request. At least 5 MiB, the S3 minimum. Default 8 MiB.
+   * shorter one in one request. At least 5 MiB, the S3 minimum (`S3_MIN_PART_BYTES`). Default
+   * `objectStore.partSizeBytes` (Host tuning, 8 MiB).
    */
   partSize?: number;
-  /** Attempts for a request that fails with a network error, 429 or 5xx. Default 3. */
+  /**
+   * Attempts for a request that fails with a network error, 429 or 5xx. Default
+   * `objectStore.attempts` (3); the wait after a failed one is `objectStore.retryBaseMs`, doubled.
+   */
   attempts?: number;
   /** Replaces the global `fetch` (tests). */
   fetch?: typeof fetch;
@@ -51,9 +56,6 @@ export interface S3BlobStore extends BlobStore {
   /** Create the bucket unless it exists. The local stack's runtime calls it at boot. */
   ensureBucket(): Promise<void>;
 }
-
-const MIN_PART_SIZE = 5 * 1024 * 1024;
-const DEFAULT_PART_SIZE = 8 * 1024 * 1024;
 
 function sha256Hex(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -114,8 +116,11 @@ export function createS3BlobStore(options: S3BlobStoreOptions): S3BlobStore {
   const bucketUrl = pathStyle
     ? `${base}/${options.bucket}`
     : `${endpoint.protocol}//${options.bucket}.${endpoint.host}${endpoint.pathname.replace(/\/+$/, "")}`;
-  const partSize = Math.max(options.partSize ?? DEFAULT_PART_SIZE, MIN_PART_SIZE);
-  const attempts = Math.max(1, options.attempts ?? 3);
+  const tuning = hostTuning().objectStore;
+  const partSize = Math.max(options.partSize ?? tuning.partSizeBytes, S3_MIN_PART_BYTES);
+  const attempts = Math.max(1, options.attempts ?? tuning.attempts);
+  const pause = (attempt: number) =>
+    new Promise((resolve) => setTimeout(resolve, tuning.retryBaseMs * 2 ** (attempt - 1)));
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const client = new AwsClient({
     accessKeyId: options.accessKeyId,
@@ -143,7 +148,7 @@ export function createS3BlobStore(options: S3BlobStoreOptions): S3BlobStore {
         const response = await fetchImpl(await client.sign(url, init));
         if ((response.status >= 500 || response.status === 429) && attempt < attempts && !once) {
           await response.body?.cancel();
-          await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
+          await pause(attempt);
           continue;
         }
         return response;
@@ -151,7 +156,7 @@ export function createS3BlobStore(options: S3BlobStoreOptions): S3BlobStore {
         if (init.signal?.aborted) throw error;
         lastError = error;
         if (attempt < (once ? 1 : attempts))
-          await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
+          await pause(attempt);
       }
     }
     throw new BlobStoreError(

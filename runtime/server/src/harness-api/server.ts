@@ -68,6 +68,7 @@ import { createArtifactSeam, type ArtifactScope } from "./artifacts.js";
 import { RecordEntryTooLargeError } from "../record/index.js";
 import { redactTokens } from "./redact.js";
 import { beat, renewEveryMs, tokenOf } from "./renew.js";
+import { hostTuning } from "../tuning.js";
 
 /** Who is on the other end of a connection. */
 export interface HarnessPeer {
@@ -216,6 +217,7 @@ const OUTPUTS: readonly string[] = [
 ];
 
 export interface HarnessApiServerOptions {
+  /** How long an offered run waits for a harness. Default `harnessApi.offerWaitMs` (Host tuning). */
   offerWaitMs?: number;
   /** The sandbox backend preference a harness that serves workspaces selects with. */
   sandboxPreference?: string;
@@ -225,7 +227,7 @@ export function createHarnessApiServer(
   ctx: TenantContext,
   options: HarnessApiServerOptions = {}
 ): HarnessApiServer {
-  const offerWaitMs = options.offerWaitMs ?? 10_000;
+  const offerWaitMs = options.offerWaitMs ?? hostTuning().harnessApi.offerWaitMs;
   const connections = new Set<Connection>();
   const waiting: Waiting[] = [];
   const queued: Run[] = [];

@@ -113,6 +113,17 @@ from `createHarness`): `artifactPageBytes`, `sandboxTools` (**sandbox tool limit
 the defaults. Not Runtime limits: those the run states (`turn.start.limits`), and these stay under
 them.
 
+**Engine config**: Everything a harness sets of our engine (`EngineConfig`, `createHarness`; B15):
+the engine tool config, the **loop config** (`LoopConfig`: `compaction`, a `CompactionConfig` over
+`DEFAULT_COMPACTION_CONFIG`, and `partialOutputChars`, how much of a failed agent-as-tool's last
+output its parent sees, 4,000 by default), and `resendDelaysMs` (the waits before each resend of
+a tool call whose gate hop lost its answer, `DEFAULT_RESEND_DELAYS_MS` 1, 2 and 4 s, the last
+repeated). `createHarness` also takes `transcriptCacheMb` (256 MiB) and `leaseRetryMs` (100 ms).
+The loop config reaches the engine through `runDurable({ loop })` (`ExecuteInternals.loop`), and an
+invocation hands its own to each agent it uses as a tool; a local `run()` uses the defaults. The
+Runtime's harness host passes the Host tuning's `engine` group (`NYLORUN_TUNING`) here.
+_Avoid_: hard-coding any of them in the loop.
+
 **Engine tool**: A tool our engine adds to each agent of a session's tree (protocol 15),
 with the text that goes with it (`engineToolsFor`, `tools/engine-tools.ts`), from the facts
 `turn.start` states: the Environment (`environment.sandbox.workspace`) and the agent's `skills`.
@@ -202,7 +213,11 @@ state, not the session's transcript, and writes no event. The window and reply r
 are the latest candidate's (`evidence.extras`), or, before any answer, the **model descriptor**'s
 (`contextBudget(transcript, model)`). The estimate counts the turn's files as the model gets
 them (`fileView`): a note nothing, inlined text a quarter of its bytes, an image 1 600 tokens,
-another file an eighth of its bytes up to a cap.
+another file an eighth of its bytes up to a cap. Every figure here is `CompactionConfig`: `keepTokens`
+20,000 and `keepShare` 0.3 of the kept tail, `reserveTokens` 8,192 without a reported output limit,
+`maxReserveTokens` 16,384 and `maxReserveShare` 0.25, `clipChars` 2,000, `summaryOverheadTokens`
+1,024, `imageTokens` 1,600, `fileBytesPerToken` 8, `fileTokensMax` 100,000, `minChunkTokens` 1,000,
+`minSummaryTokens` 256 and `summaryShare` 0.8 of the reserve, `charsPerToken` 4.
 
 **Model descriptor**: The model a turn's calls use when they name none (`turn.start.model`,
 protocol 15): provider, id, what it reads (`inputs`), its context window and output limit.

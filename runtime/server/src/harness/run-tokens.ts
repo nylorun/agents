@@ -8,6 +8,7 @@
  * gateway's own idle timeout closes the rest. A harness never holds `NYLORUN_GATES_TOKEN`.
  */
 import type { RunGrant } from "@nylorun/core/harness-api";
+import { hostTuning } from "../tuning.js";
 
 export interface HarnessRunTokens {
   /** The latest run token of `sessionId`, if a run of it was ever leased here. */
@@ -16,8 +17,11 @@ export interface HarnessRunTokens {
   grant(grant: RunGrant): void;
 }
 
-/** Remembers the last token of at most `limit` sessions (least recently granted dropped first). */
-export function harnessRunTokens(limit = 10_000): HarnessRunTokens {
+/**
+ * Remembers the last token of at most `limit` sessions (least recently granted dropped first).
+ * Default `harness.runTokensMax` (Host tuning, 10,000).
+ */
+export function harnessRunTokens(limit = hostTuning().harness.runTokensMax): HarnessRunTokens {
   const tokens = new Map<string, string>();
   return {
     token: (sessionId) => tokens.get(sessionId),

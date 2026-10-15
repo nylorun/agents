@@ -74,6 +74,7 @@ import { runHarness } from "../harness/main.js";
 import { startHarnessListener, type HarnessListener } from "../harness-api/ws-server.js";
 import { httpSandboxesClient } from "../sandbox/pods/client.js";
 import { retry } from "../retry.js";
+import { hostTuning, useHostTuning } from "../tuning.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -158,7 +159,8 @@ async function ensureBucket(
   logger: ReturnType<typeof createHostLogger>,
 ): Promise<void> {
   try {
-    await retry(() => store.ensureBucket(), { minMs: 1000, maxMs: 5000, attempts: 10 });
+    const { bucketRetry, bucketAttempts } = hostTuning().objectStore;
+    await retry(() => store.ensureBucket(), { ...bucketRetry, attempts: bucketAttempts });
     logger.info("object_store_ready", { bucket });
   } catch (error) {
     logger.error("object_store_unavailable", {
@@ -223,7 +225,7 @@ async function runGates(stack: StackConfig): Promise<void> {
     }
   } catch (error) {
     await Promise.all(servers.map((server) => server.close()));
-    await database.end({ timeout: 5 });
+    await database.end({ timeout: hostTuning().postgres.closeTimeoutSeconds });
     if (error instanceof HostListenError) {
       logger.error("listen_failed", { message: error.message, exitCode: error.exitCode });
       process.exitCode = error.exitCode;
@@ -237,13 +239,15 @@ async function runGates(stack: StackConfig): Promise<void> {
       if (stopping) return;
       stopping = true;
       void Promise.all(servers.map((server) => server.close()))
-        .then(() => database.end({ timeout: 5 }))
+        .then(() => database.end({ timeout: hostTuning().postgres.closeTimeoutSeconds }))
         .finally(() => process.exit(0));
     });
 }
 
 export async function main(): Promise<void> {
   const stack = parseStackConfig(process.env, process.argv.slice(2));
+  // Read once, before any service starts: each reads the parts it uses where it uses them.
+  if (stack.tuning) useHostTuning(stack.tuning.values, stack.tuning.overrides);
   if (stack.services.has("gates") || stack.services.has("keys") || stack.services.has("egress"))
     return runGates(stack);
   if (stack.services.has("harness")) return runHarness(stack, baselineEnvironment(process.env));

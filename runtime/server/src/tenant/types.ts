@@ -51,7 +51,8 @@ export interface TenantConfig {
   /**
    * Segment rollover (Model Calls §10): a turn ends its segment at a step boundary after this
    * many steps or milliseconds and continues in a new one, so no advance reaches its
-   * deadline. Default 50 steps or 20 minutes.
+   * deadline. Default the Host tuning's `harnessApi.rolloverSteps` and `rolloverMs` (50 steps,
+   * 20 minutes).
    */
   rollover?: { steps?: number; ms?: number };
   /** Retries and timeouts for model calls (Model Calls §5, §6). Defaults in `piModel`. */
@@ -61,13 +62,17 @@ export interface TenantConfig {
    * private addresses allowed.
    */
   delivery?: OutboundPolicy;
-  /** Bounds the default Tenant sweep interval (`sweepIntervalMs`). Default 30 s. */
+  /** Bounds the default Tenant sweep interval (`sweepIntervalMs`). Default: no bound. */
   leaseMs?: number;
-  /** Ownership lease of an advance (§10.6); renewed every third while it runs. Default 30 s. */
+  /**
+   * Ownership lease of an advance (§10.6); renewed every third while it runs. Default the Host
+   * tuning's `tenant.ownerLeaseMs` (30 s).
+   */
   ownerLeaseMs?: number;
   /**
    * Delay between Tenant sweep passes when the Tenant runs its own in-process execution.
-   * Default `min(leaseMs, 5 s)`. A Host-level execution sets its own.
+   * Default `min(leaseMs, sweep.intervalMs)` (Host tuning, 5 s). A Host-level execution sets its
+   * own.
    */
   sweepIntervalMs?: number;
   /** Operator flow limits (`RuntimeOptions.flow` / `workflows.md` §13). */

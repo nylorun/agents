@@ -9,8 +9,8 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
+import { hostTuning } from "../../src/tuning.js";
 import {
-  SEND_RETRY_MS,
   createRestateExecution,
   listStuckInvocations,
   type RestateExecution,
@@ -315,8 +315,8 @@ describe.skipIf(!STACK_ENABLED)("Restate execution", () => {
         return { status: "done" };
       },
     });
-    // Registration takes well under the send's retry window (`SEND_RETRY_MS`).
-    expect(Date.now() - registering).toBeLessThan(SEND_RETRY_MS - 1000);
+    // Registration takes well under the send's retry window (`restate.sendRetryMs`).
+    expect(Date.now() - registering).toBeLessThan(hostTuning().restate.sendRetryMs - 1000);
     await sending;
     await eventually(() => expect(advanced).toEqual([sessionId]));
   });

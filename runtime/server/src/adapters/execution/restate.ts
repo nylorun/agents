@@ -39,8 +39,8 @@ import { createServer, type Http2Server, type ServerHttp2Session } from "node:ht
 import * as restate from "@restatedev/restate-sdk";
 import * as clients from "@restatedev/restate-sdk-clients";
 import { retry } from "../../retry.js";
+import { DEDUPE_RETENTION_MIN_MS, hostTuning } from "../../tuning.js";
 import {
-  DEFAULT_STOP_GRACE_MS,
   WAKE_REASONS,
   parseSessionKey,
   sessionKey,
@@ -56,22 +56,15 @@ import {
   type WorkerHandlers,
 } from "../../execution/types.js";
 
-const HOUR_MS = 60 * 60 * 1000;
-/**
- * How long one send through the ingress keeps retrying while the ingress is unreachable,
- * overloaded, or answers 404 because a just-registered service has not reached it yet. The
- * outbox's grace (`OUTBOX_GRACE_MS` in `tenant/sweep.ts`) is longer.
- */
-export const SEND_RETRY_MS = 10_000;
 
 export interface RestateTimeouts {
   /**
    * How long an invocation may run without journal progress before Restate
    * asks it to suspend. An advance makes no journal entries while it runs, so
-   * this must exceed the longest segment. Default one hour.
+   * this must exceed the longest segment. Default `restate.inactivityMs` (Host tuning, one hour).
    */
   inactivityMs?: number;
-  /** How long after the inactivity timeout Restate aborts the attempt. Default one hour. */
+  /** How long after the inactivity timeout Restate aborts the attempt. Default `restate.abortMs`. */
   abortMs?: number;
 }
 
@@ -81,13 +74,13 @@ export interface RestateTimeouts {
  * `listStuckInvocations` until an operator resumes it.
  */
 export interface RestateRetry {
-  /** Default 100. */
+  /** Default `restate.handlerRetry.minMs` (Host tuning, 100 ms). */
   initialIntervalMs?: number;
-  /** Default 30000. */
+  /** Default `restate.handlerRetry.maxMs` (30 s). */
   maxIntervalMs?: number;
-  /** Default 2. */
+  /** Default 2: the wait doubles, as every backoff of the Runtime does. */
   exponentiationFactor?: number;
-  /** Attempts, including the first, before pausing. Default 70. */
+  /** Attempts, including the first, before pausing. Default `restate.handlerAttempts` (70). */
   maxAttempts?: number;
 }
 
@@ -114,11 +107,11 @@ export interface RestateExecutionOptions {
   identityKeys?: string[];
   timeouts?: RestateTimeouts;
   retry?: RestateRetry;
-  /** Delay between sweep passes of one Tenant. Default 5000. */
+  /** Delay between sweep passes of one Tenant. Default `sweep.intervalMs` (Host tuning, 5 s). */
   sweepIntervalMs?: number;
   /**
-   * How long wakes with a `dedupeKey` are remembered. Default and minimum
-   * 24 hours (§12.3).
+   * How long wakes with a `dedupeKey` are remembered. Default `execution.dedupeRetentionMs`;
+   * at least 24 hours (§12.3, `DEDUPE_RETENTION_MIN_MS`).
    */
   dedupeRetentionMs?: number;
   /**
@@ -128,12 +121,15 @@ export interface RestateExecutionOptions {
    * versioned URL without it (`workerDeployment` in `infra/execution.ts`, §14.6).
    */
   forceRegistration?: boolean;
-  /** How long `start` keeps retrying registration while Restate comes up. Default 60000. */
+  /**
+   * How long `start` keeps retrying registration while Restate comes up. Default
+   * `restate.registrationDeadlineMs` (Host tuning, 60 s).
+   */
   registrationTimeoutMs?: number;
   /**
    * How long `stop` waits for running handlers after aborting them; the ones still running
    * then are abandoned and their attempts end with the dropped connections, so Restate
-   * retries them. Default `DEFAULT_STOP_GRACE_MS`.
+   * retries them. Default `execution.stopGraceMs` (Host tuning, 30 s).
    */
   stopGraceMs?: number;
   /** Replaces the SDK's console logging. */
@@ -200,13 +196,17 @@ export class RestateExecution implements DurableExecution {
       sandbox: `${prefix}NylorunSandbox`,
     };
     this.ingressUrl = options.ingressUrl.replace(/\/+$/, "");
+    const tuning = hostTuning().restate;
     this.ingress = clients.connect({
       url: this.ingressUrl,
+      // One send keeps retrying for `restate.sendRetryMs` while the ingress is unreachable,
+      // overloaded, or answers 404 because a just-registered service has not reached it yet;
+      // the outbox's grace (`sweep.outboxGraceMs`) is longer.
       retry: {
         maxAttempts: false,
-        maxDuration: SEND_RETRY_MS,
-        initialInterval: 100,
-        maxInterval: 2000,
+        maxDuration: tuning.sendRetryMs,
+        initialInterval: tuning.sendBackoff.minMs,
+        maxInterval: tuning.sendBackoff.maxMs,
         // A just-registered service can take a moment to reach the ingress.
         shouldRetry: (failure) =>
           clients.defaultShouldRetry(failure) ||
@@ -214,7 +214,7 @@ export class RestateExecution implements DurableExecution {
       },
     });
     this.adminUrl = options.adminUrl.replace(/\/+$/, "");
-    this.sweepIntervalMs = options.sweepIntervalMs ?? 5000;
+    this.sweepIntervalMs = options.sweepIntervalMs ?? hostTuning().sweep.intervalMs;
   }
 
   /** Service names this execution registers, for diagnostics and tests. */
@@ -343,7 +343,7 @@ export class RestateExecution implements DurableExecution {
       controller.abort(new Error("Worker stopping"));
     const abandoned = await settleWithin(
       this.inflight,
-      this.options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS,
+      this.options.stopGraceMs ?? hostTuning().execution.stopGraceMs,
     );
     if (abandoned > 0)
       this.options.logger?.(
@@ -360,7 +360,7 @@ export class RestateExecution implements DurableExecution {
     for (const session of this.sessions) session.close();
     const timeout = setTimeout(() => {
       for (const session of this.sessions) session.destroy();
-    }, 2000);
+    }, hostTuning().restate.closeGraceMs);
     await closed;
     clearTimeout(timeout);
   }
@@ -390,8 +390,8 @@ export class RestateExecution implements DurableExecution {
       options: {
         ...serviceOptions,
         idempotencyRetention: Math.max(
-          this.options.dedupeRetentionMs ?? 24 * HOUR_MS,
-          24 * HOUR_MS,
+          this.options.dedupeRetentionMs ?? hostTuning().execution.dedupeRetentionMs,
+          DEDUPE_RETENTION_MIN_MS,
         ),
       },
     });
@@ -546,20 +546,21 @@ export class RestateExecution implements DurableExecution {
   }
 
   private staleSweepMs(): number {
-    return Math.max(this.sweepIntervalMs * 3, 60_000);
+    return Math.max(this.sweepIntervalMs * 3, hostTuning().restate.staleSweepMinMs);
   }
 
   private serviceOptions(): restate.ObjectOptions {
     const timeouts = this.options.timeouts ?? {};
     const retry = this.options.retry ?? {};
+    const tuning = hostTuning().restate;
     return {
-      inactivityTimeout: timeouts.inactivityMs ?? HOUR_MS,
-      abortTimeout: timeouts.abortMs ?? HOUR_MS,
+      inactivityTimeout: timeouts.inactivityMs ?? tuning.inactivityMs,
+      abortTimeout: timeouts.abortMs ?? tuning.abortMs,
       retryPolicy: {
-        initialInterval: retry.initialIntervalMs ?? 100,
-        maxInterval: retry.maxIntervalMs ?? 30_000,
+        initialInterval: retry.initialIntervalMs ?? tuning.handlerRetry.minMs,
+        maxInterval: retry.maxIntervalMs ?? tuning.handlerRetry.maxMs,
         exponentiationFactor: retry.exponentiationFactor ?? 2,
-        maxAttempts: retry.maxAttempts ?? 70,
+        maxAttempts: retry.maxAttempts ?? tuning.handlerAttempts,
         onMaxAttempts: "pause",
       },
     };
@@ -567,7 +568,7 @@ export class RestateExecution implements DurableExecution {
 
   /**
    * One-way send through the ingress (`@restatedev/restate-sdk-clients`). Every send carries
-   * an idempotency key, so the client's retries (`SEND_RETRY_MS`), and a send repeated after
+   * an idempotency key, so the client's retries (`restate.sendRetryMs`), and a send repeated after
    * its answer was lost, start one invocation: the request's own key where it has one (an
    * outbox row's, a timer's time), or one made for this call.
    */
@@ -584,7 +585,7 @@ export class RestateExecution implements DurableExecution {
         handler,
         key,
         parameter: body,
-        opts: clients.SendOpts.from({ idempotencyKey, timeout: 10_000 }),
+        opts: clients.SendOpts.from({ idempotencyKey, timeout: hostTuning().restate.sendTimeoutMs }),
       });
     } catch (error) {
       const message =
@@ -606,7 +607,7 @@ export class RestateExecution implements DurableExecution {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ uri, force }),
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(hostTuning().restate.registrationRequestTimeoutMs),
         });
         if (response.ok)
           return ((await response.json().catch(() => ({}))) as { services?: { name?: string }[] })
@@ -617,7 +618,10 @@ export class RestateExecution implements DurableExecution {
         // as 4xx/5xx; keep trying until the deadline.
         throw new Error(message);
       },
-      { minMs: 100, maxMs: 2000, deadlineMs: this.options.registrationTimeoutMs ?? 60_000 },
+      {
+        ...hostTuning().restate.registrationBackoff,
+        deadlineMs: this.options.registrationTimeoutMs ?? hostTuning().restate.registrationDeadlineMs,
+      },
     ).catch((error: unknown) => {
       throw new Error(`Restate deployment registration failed: ${(error as Error).message}`, {
         cause: error,
@@ -672,7 +676,8 @@ export async function listStuckInvocations(options: {
       `(target_service_key = ${tenant} OR starts_with(target_service_key, ${sqlString(`${options.tenantId}:`)}))`,
     );
   }
-  const limit = Math.max(1, Math.min(options.limit ?? 100, 1000));
+  const { stuckListDefault, stuckListMax } = hostTuning().restate;
+  const limit = Math.max(1, Math.min(options.limit ?? stuckListDefault, stuckListMax));
   const rows = await query(
     options.adminUrl,
     "SELECT id, status, target_service_name, target_handler_name, target_service_key, " +
@@ -721,7 +726,7 @@ async function query(adminUrl: string, sql: string): Promise<Record<string, unkn
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ query: sql }),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(hostTuning().restate.queryTimeoutMs),
   });
   if (!response.ok)
     throw new Error(

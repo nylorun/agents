@@ -15,6 +15,7 @@ import type { StreamsStatus } from "./streams.js";
 import { FIXTURE_MODEL_SETTING, seedFixtureModel } from "./model-setting.js";
 import { ENVIRONMENTS_CONFIG_SETTING, writeSandboxConfig } from "../sandbox/tenant-config.js";
 import type { Keys } from "../keys/keys.js";
+import { hostTuning } from "../tuning.js";
 
 export interface TenantStatusContext {
   envelope: TenantEnvelope;
@@ -40,9 +41,6 @@ export function harnessStatusOf(ctx: Pick<TenantContext, "mcp" | "harness">): Ha
   return { mode: ctx.mcp ? "in-process" : "remote", ...ctx.harness.status() };
 }
 
-/** How long status waits for the execution to list stuck invocations. */
-const STUCK_TIMEOUT_MS = 5000;
-
 /** `TenantStatus.execution`: paused and backing-off invocations, or why they are unknown. */
 async function executionStatus(
   stuckInvocations: () => Promise<StuckInvocation[]>,
@@ -54,7 +52,8 @@ async function executionStatus(
       new Promise<never>((_, reject) => {
         timer = setTimeout(
           () => reject(new Error("Timed out listing stuck invocations")),
-          STUCK_TIMEOUT_MS,
+          // How long status waits for the execution to list stuck invocations.
+          hostTuning().tenant.statusTimeoutMs,
         );
       }),
     ]);

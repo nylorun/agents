@@ -18,13 +18,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, posix } from "node:path";
 import type { ExecRequest, ExecResult } from "../sandbox/types.js";
 import type { DiskSetup, DiskSetupReport, PodHost } from "./pod.js";
-
-/** How often a failed setup asks whether to run again. */
-export const SETUP_RETRY_POLL_MS = 5_000;
-/** How often a fork's setup asks whether its disk version is written (Q17). */
-const AFTER_SEED_POLL_MS = 1_000;
-/** The end of a failed command's output kept in its report. */
-const REPORT_TAIL = 4 * 1024;
+import { hostTuning } from "../tuning.js";
 
 export interface DiskSetupOptions {
   readonly host: Pick<PodHost, "setup" | "setupState" | "reportSetup" | "setupFile"> & {
@@ -116,7 +110,7 @@ async function runOnce(options: DiskSetupOptions, setup: DiskSetup): Promise<Dis
     }
     if (result.exitCode !== 0) {
       const output = `${result.stdout}${result.stderr ? `\n${result.stderr}` : ""}${result.timedOut ? "\n[timed out]" : ""}`;
-      return { status: "failed", index, exitCode: result.exitCode, output: output.slice(-REPORT_TAIL) };
+      return { status: "failed", index, exitCode: result.exitCode, output: output.slice(-hostTuning().harness.setupReportTailChars) };
     }
   }
   return { status: "ok" };
@@ -138,7 +132,7 @@ export async function prepareDisk(options: DiskSetupOptions): Promise<void> {
         setup = state.setup;
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, options.pollMs ?? AFTER_SEED_POLL_MS));
+      await new Promise((resolve) => setTimeout(resolve, options.pollMs ?? hostTuning().harness.setupAfterSeedPollMs));
     }
     if (!setup) {
       // Nothing to run: say so, so the fork's turns may start.
@@ -190,7 +184,7 @@ export async function prepareDisk(options: DiskSetupOptions): Promise<void> {
           () => true,
           () => false,
         );
-      await new Promise((resolve) => setTimeout(resolve, options.pollMs ?? SETUP_RETRY_POLL_MS));
+      await new Promise((resolve) => setTimeout(resolve, options.pollMs ?? hostTuning().harness.setupRetryPollMs));
       if (options.signal?.aborted) return;
       if (!reported) continue;
       const state = await options.host.setupState().catch(() => undefined);

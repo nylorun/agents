@@ -21,6 +21,7 @@ import type { LookupFunction, Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import { createSecureContext, TLSSocket } from "node:tls";
 import type { Logger } from "../tenant/types.js";
+import { hostTuning } from "../tuning.js";
 
 /** What the vault answers for one request to a host a credential may be bound to. */
 export type EgressCredentialRelease =
@@ -123,7 +124,7 @@ export function credentialTerminator(options: {
     });
   });
   http.keepAliveTimeout = options.idleMs;
-  http.headersTimeout = 60_000;
+  http.headersTimeout = hostTuning().egress.credentialsHeadersTimeoutMs;
   // Uploads may be long; the client socket's idle timeout still applies.
   http.requestTimeout = 0;
   http.on("upgrade", (req: IncomingMessage, socket: Duplex) => {

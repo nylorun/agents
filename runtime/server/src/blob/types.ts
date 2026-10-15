@@ -117,6 +117,7 @@ export class BlobRangeError extends Error {
   }
 }
 
+/** The longest object key S3 takes: 1024 bytes of UTF-8. A constant of the S3 API, not a setting. */
 export const MAX_KEY_BYTES = 1024;
 
 const SEGMENT = /^[A-Za-z0-9._-]+$/;

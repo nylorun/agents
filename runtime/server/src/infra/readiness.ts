@@ -12,6 +12,7 @@
 import type { DurableExecution } from "../execution/types.js";
 import { probeDatabase, type PostgresClient } from "./database.js";
 import { probeExecution } from "./execution.js";
+import { hostTuning } from "../tuning.js";
 
 /** Resolves when the dependency answers; rejects otherwise. Must honour `signal`. */
 export type Probe = (signal: AbortSignal) => Promise<void>;
@@ -26,14 +27,13 @@ export interface ReadinessReport {
 
 export type Readiness = () => Promise<ReadinessReport>;
 
-/** Default bound on one readiness pass. Compose probes `/ready` every 2 s with a 5 s timeout. */
-export const READINESS_TIMEOUT_MS = 2000;
-
 export function createReadiness(
   probes: Readonly<Record<string, Probe>>,
   options: { timeoutMs?: number } = {},
 ): Readiness {
-  const timeoutMs = options.timeoutMs ?? READINESS_TIMEOUT_MS;
+  // The bound on one pass: `host.readinessTimeoutMs` (Host tuning). Compose probes `/ready` every
+  // 2 s with a 5 s timeout.
+  const timeoutMs = options.timeoutMs ?? hostTuning().host.readinessTimeoutMs;
   return async () => {
     const entries = Object.entries(probes);
     const results = await Promise.all(

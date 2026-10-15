@@ -6,13 +6,19 @@
 import { parseSandboxDuration, parseSandboxSize, type SandboxManifest } from "@nylorun/core/define";
 import { DEFAULT_HARNESS, type EnvironmentRecipe } from "@nylorun/core/contracts";
 import type { TenantSandboxConfig } from "../tenant-config.js";
-import { memoryMiBOf } from "../policy.js";
+import { DEFAULT_SANDBOX_IDLE_MS, memoryMiBOf } from "../policy.js";
+import { podTuningEnv } from "../../tuning.js";
 import type { SandboxPodState } from "../../store/types.js";
 import type { PodSpec } from "./client.js";
 import { opIdOf, type PodLifecycleConfig } from "./lifecycle.js";
 
 /** The pod's grace period to stop when the Tenant sets none (D34). */
 export const DEFAULT_STOP_GRACE_SECONDS = 10;
+/**
+ * The longest grace the sandboxes service gives a pod to stop (its spec takes 1 to 30 seconds), as
+ * `lifecycle.stopGrace` allows: a dependency's ceiling, not a setting.
+ */
+const STOP_GRACE_MAX_SECONDS = 30;
 /** The volume's size when the sandbox asks for none. */
 export const DEFAULT_STORAGE_GIB = 5;
 /** Where the engine in the pod keeps its records, plugin data and home (on the volume). */
@@ -32,14 +38,22 @@ export function podLifecycleConfig(
   readonly stopGraceSeconds: number;
 } {
   const stopGrace = config.lifecycle?.stopGrace;
-  const tenantIdle = parseSandboxDuration(config.limits?.idle ?? "15m") ?? 15 * 60_000;
+  const tenantIdle =
+    (config.limits?.idle === undefined ? undefined : parseSandboxDuration(config.limits.idle)) ??
+    DEFAULT_SANDBOX_IDLE_MS;
   const own = recipe?.lifecycle.idle === undefined ? undefined : parseSandboxDuration(recipe.lifecycle.idle);
   return {
     idleMs: own === undefined ? tenantIdle : Math.min(own, tenantIdle),
     stopGraceSeconds:
       stopGrace === undefined
         ? DEFAULT_STOP_GRACE_SECONDS
-        : Math.max(1, Math.min(30, Math.round((parseSandboxDuration(stopGrace) ?? 10_000) / 1000))),
+        : Math.max(
+            1,
+            Math.min(
+              STOP_GRACE_MAX_SECONDS,
+              Math.round((parseSandboxDuration(stopGrace) ?? DEFAULT_STOP_GRACE_SECONDS * 1000) / 1000),
+            ),
+          ),
   };
 }
 
@@ -86,6 +100,8 @@ export function podSpecOf(input: PodSpecInput): PodSpec {
     env: {
       NYLORUN_SANDBOX_ID: input.environmentId,
       NYLORUN_HARNESS_ROOT: POD_HARNESS_ROOT,
+      // The `harness` and `engine` tuning the operator set: the pod's engine runs with them.
+      ...podTuningEnv(),
     },
     ...(input.joinToken ? { joinToken: input.joinToken } : {}),
   };

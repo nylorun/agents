@@ -103,6 +103,7 @@ import { harnessOfToken } from "./harness-tokens.js";
 import { reconcileSandbox } from "../sandbox/pods/reconcile.js";
 import type { TenantPods } from "./context.js";
 import type { TraceOptions } from "../traces/options.js";
+import { hostTuning } from "../tuning.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -176,9 +177,6 @@ export type TenantOpenHooks = {
   /** How the trace route makes spans (R7.5): the Host's `OTEL_*` resource and content opt-ins. */
   traces?: TraceOptions;
 } & OpenedTenant;
-
-/** Default ownership lease of an advance; the heartbeat renews it every third. */
-const DEFAULT_OWNER_LEASE_MS = 30_000;
 
 function validateConfig(config: TenantConfig): FlowLimits {
   for (const key of ["leaseMs", "ownerLeaseMs", "sweepIntervalMs"] as const) {
@@ -383,7 +381,8 @@ export class TenantRuntime implements TenantHandle {
         ? undefined
         : new MemoryExecution({
             sweepIntervalMs:
-              config.sweepIntervalMs ?? Math.min(config.leaseMs ?? 30_000, 5000),
+              config.sweepIntervalMs ??
+              Math.min(config.leaseMs ?? Infinity, hostTuning().sweep.intervalMs),
             // Close's `detach` step waits no longer for running work than for its advances.
             stopGraceMs: workers.graceMs,
             onError: (error) =>
@@ -418,7 +417,7 @@ export class TenantRuntime implements TenantHandle {
         ...(hooks.traces ? { traces: hooks.traces } : {}),
         ...(hooks.runGrants ? { runGrants: hooks.runGrants } : {}),
         workerId: hooks.workerId ?? WORKER_ID,
-        ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
+        ownerLeaseMs: config.ownerLeaseMs ?? hostTuning().tenant.ownerLeaseMs,
         wake: async (sessionId, wake) => {
           if (ctx.closing || ctx.closed) return false;
           await execution.wake(config.tenantId, sessionId, wake);
@@ -544,7 +543,10 @@ export class TenantRuntime implements TenantHandle {
     };
   }
 
-  drain(activeWork: "drain" | "cancel", timeoutMs = 30_000): Promise<void> {
+  drain(
+    activeWork: "drain" | "cancel",
+    timeoutMs = hostTuning().tenant.drainTimeoutMs
+  ): Promise<void> {
     return drain(this.ctx, activeWork, timeoutMs);
   }
 

@@ -56,6 +56,22 @@ the Harness API error code to a harness), or a tool answer is `mcp.too-large`/`h
 Dependency ceilings and constants a standard fixes are not settings.
 _Avoid_: "quota" for them (quotas are the artifact and skill totals), "max sizes".
 
+**Host tuning** (B15): The Runtime processes' own timings, retries, poll intervals and internal
+sizes, one typed schema with a default each (`HostTuningSchema`, `tuning.ts`), grouped by
+area: `keys`, `harnessApi`, `api`, `host`, `objectStore`, `tenant`, `sweep`, `execution`,
+`restate`, `postgres`, `streams`, `gates`, `egress`, `pods`, `harness`, `traces`, and `engine`
+(our harness's `createHarness` options, defaults in `@nylorun/harness`). An operator sets any part
+in `NYLORUN_TUNING` (JSON), parsed with the stack configuration (`StackConfig.tuning`) and set
+once at start (`useHostTuning` in `host/main.ts`); code reads `hostTuning()` where a value is used,
+and an option a test passes still wins. Defaults are the values the Runtime used before; an
+unknown key or a value past its ceiling stops the process naming the key. Core hands a pod's
+engine the `harness` and `engine` groups the operator set (`podTuningEnv`, in the pod's
+`NYLORUN_TUNING`). Ceilings fixed by a standard or a dependency stay constants checked against:
+`MAX_TIMER_MS`, `S3_MIN_PART_BYTES`/`S3_MAX_PART_BYTES`, `S2_BATCH_MAX_RECORDS`/`_BYTES`,
+`SANDBOXES_MAX_WAIT_MS`, `DEDUPE_RETENTION_MIN_MS`. Not Tenant-facing: those are Runtime limits
+and Tenant settings. Listed whole in `guides/DEPLOYMENT.md` (a test checks).
+_Avoid_: "config" alone, which means a Tenant's settings or an agent's manifest.
+
 **Client package**: `@nylorun/agents` (the Runtime API) or `@nylorun/admin` (the
 Management API) — a library a client imports to call one API. Each depends only on
 `@nylorun/core`.
@@ -808,7 +824,7 @@ One line each; the module named is where the term lives in code.
 - **Run**: A lease on one session's segment, offered by an advance to the first waiting harness (`harness-api/server.ts`): a `runId` bound to the connection that leased it (any other gets `run_not_held`), the turn, the epoch and, from F5, a run token. Its `turn.start` carries the segment's checkpoint without the transcript, its completed outcomes and the transcript's cursor.
 - **Transcript cursor**: The record `seq` of the last event that changed a session's transcript fold (`transcript.updated`, `turn.cancelled`, `turn.failed`). A harness that holds the transcript at the run's cursor resumes from its cache; otherwise it reads it once (`transcript.read`).
 - **Wake**: A request, delivered at least once, that a session advance (`WakeReason` in `execution/types.ts`). A transaction asks for one with `Tx.wake`, which writes it to the outbox.
-- **Outbox**: The Session Store's rows for what committed transactions asked of Durable Session Execution and it has not yet accepted: wakes (`nylorun.wakes`, `Tx.wake`) and pod sandbox reconciles and timers (`nylorun.sandbox_signals`, `Tx.signalSandbox`; a table of their own, so a Runtime that delivers only wakes never reads one). A row is written in the transaction that causes it, sent after commit with its idempotency key (a wake's `dedupeKey` or `wake:<row id>`, a reconcile's `signal:<row id>`) without the caller waiting for the send (`SessionStore.deliverTo`), and deleted once accepted. A row whose send failed is sent again by the Tenant sweep's next pass, and one that a crash cut off once it is older than `OUTBOX_GRACE_MS` on the database's clock, under the same key, so no commit loses its request and none runs twice. The sweep delivers each row on its own: one whose delivery fails is retried with backoff, and after ten failures it is parked (`parked_at`), logged once at error and kept for an operator, who sends it again by clearing `parked_at` (and `retry_at`) or deletes it. Nothing else runs after commit: there is no `afterCommit`. _Avoid_: "wake outbox" for the whole of it.
+- **Outbox**: The Session Store's rows for what committed transactions asked of Durable Session Execution and it has not yet accepted: wakes (`nylorun.wakes`, `Tx.wake`) and pod sandbox reconciles and timers (`nylorun.sandbox_signals`, `Tx.signalSandbox`; a table of their own, so a Runtime that delivers only wakes never reads one). A row is written in the transaction that causes it, sent after commit with its idempotency key (a wake's `dedupeKey` or `wake:<row id>`, a reconcile's `signal:<row id>`) without the caller waiting for the send (`SessionStore.deliverTo`), and deleted once accepted. A row whose send failed is sent again by the Tenant sweep's next pass, and one that a crash cut off once it is older than `sweep.outboxGraceMs` (Host tuning) on the database's clock, under the same key, so no commit loses its request and none runs twice. The sweep delivers each row on its own: one whose delivery fails is retried with backoff, and after `sweep.outboxAttempts` failures (ten) it is parked (`parked_at`), logged once at error and kept for an operator, who sends it again by clearing `parked_at` (and `retry_at`) or deletes it. Nothing else runs after commit: there is no `afterCommit`. _Avoid_: "wake outbox" for the whole of it.
 - **Ownership epoch**: The counter an advance takes with a session's lease; every write the advance makes checks it (`store/ownership.ts`).
 - **Engine host**: The `DurableHost` the engine resolves effects through: over the Harness API (`@nylorun/harness/api` `apiHost`), which replays a run's recorded outcomes and asks core for the rest; core's journal is `harness-api/record.ts`, which journals each effect's intent (its request hash, a model call without its prompt) and outcome, runs flow work and its own built-in tools itself, tells the harness to execute model, MCP, HTTP and sandbox calls, and fails a tool that would run the developer's code (`tool.unavailable`).
 - **Record**: Every session event, written in its state transaction to Postgres `nylorun_streams.session_events` (keyed by session and seq: the database holds one Tenant), with each session's log head; Durable Streams are fed from it (`Tx.event`, `store/postgres/schema.ts`, `store/postgres/record.ts`).

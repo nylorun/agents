@@ -8,6 +8,7 @@ import { getRequestListener, RequestError } from "@hono/node-server";
 import type { ResourceServerConfig } from "../tenant/resource-server.js";
 import type { Logger, TenantModule } from "../tenant/types.js";
 import { createHostApp } from "./app.js";
+import { hostTuning } from "../tuning.js";
 import type { HostConfigFile } from "./config.js";
 import { isLoopbackHost, type ContainerListen } from "./stack-config.js";
 import {
@@ -227,7 +228,7 @@ export function createHost(options: CreateHostOptions): HostServer {
       const graceful = await Promise.race([
         stopped.then(() => true),
         new Promise<false>((resolve) => {
-          grace = setTimeout(() => resolve(false), SHUTDOWN_GRACE_MS);
+          grace = setTimeout(() => resolve(false), hostTuning().host.shutdownGraceMs);
           grace.unref();
         }),
       ]);
@@ -269,9 +270,6 @@ const SENT = {
 function alreadySent(response: Response): Response {
   return response.headers.has("x-hono-already-sent") ? SENT : response;
 }
-
-/** How long shutdown waits for requests in progress before closing their connections. */
-const SHUTDOWN_GRACE_MS = 10_000;
 
 /**
  * A response that has started and not ended is a stream: JSON answers are written and ended

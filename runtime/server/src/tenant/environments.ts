@@ -72,7 +72,7 @@ import { deleteDiskArtifact, forkSeedOf, runPendingSeed, snapshotEnvironment } f
 import { manifestChanges, manifestRecipeRequest } from "./environment-manifests.js";
 import { limitIssues, limitsInForce, readTenantLimits } from "./limits.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
-import { fail } from "./http.js";
+import { fail, failRetryLater } from "./http.js";
 import type { SealedSecretCopies } from "../vault/service.js";
 
 /** The Environment grants that limit `scope`, or undefined when it reaches every Environment. */
@@ -396,10 +396,7 @@ export async function putEnvironment(
     };
     const deleting = (row: Environment | undefined) => {
       if (row && !live(row))
-        fail(409, `Environment ${id} is being deleted. Try again once it is gone.`, {
-          code: "environment_busy",
-          details: { retryAfterSeconds: 5 },
-        }, { "retry-after": "5" });
+        failRetryLater(`Environment ${id} is being deleted. Try again once it is gone.`, "environment_busy");
     };
     const found = async (existing: Environment): Promise<EnvironmentView> => {
       if (fork !== undefined) fail(409, `Environment ${id} exists: a fork makes a new Environment, so name another id.`);
@@ -809,10 +806,7 @@ export function diskHeld(environment: Environment, now = Date.now()): boolean {
 /** Refused while a snapshot or restore copies the disk (a pending seed does not count). */
 export function refuseDiskCopy(environment: Environment): void {
   if (diskHeld(environment) && environment.diskOp!.kind !== "seed")
-    fail(409, `Environment ${environment.id}'s disk is being copied (${environment.diskOp!.kind}). Try again shortly.`, {
-      code: "environment_busy",
-      details: { retryAfterSeconds: 5 },
-    }, { "retry-after": "5" });
+    failRetryLater(`Environment ${environment.id}'s disk is being copied (${environment.diskOp!.kind}). Try again shortly.`, "environment_busy");
 }
 
 /** Refused while a session that names Environment `id` has a turn running. */
@@ -821,10 +815,7 @@ async function refuseBusy(t: Tx, id: string): Promise<void> {
     (session) => session.activeTurnId !== null,
   );
   if (busy)
-    fail(409, `Environment ${id} has a turn running. Cancel it, or wait for it to end.`, {
-      code: "environment_busy",
-      details: { retryAfterSeconds: 5 },
-    }, { "retry-after": "5" });
+    failRetryLater(`Environment ${id} has a turn running. Cancel it, or wait for it to end.`, "environment_busy");
 }
 
 /**
@@ -983,10 +974,7 @@ export async function resetEnvironment(
     refuseDiskCopy(environment);
     const pod = environment.pod;
     if (pod.retiring !== undefined)
-      fail(409, `Environment ${id} is still deleting its previous volume. Try again shortly.`, {
-        code: "environment_busy",
-        details: { retryAfterSeconds: 5 },
-      }, { "retry-after": "5" });
+      failRetryLater(`Environment ${id} is still deleting its previous volume. Try again shortly.`, "environment_busy");
     await newVolume(ctx, t, environment);
     return viewOf(ctx, t, (await t.environment(id)) ?? environment, subjectOf(scope));
   });

@@ -32,11 +32,9 @@ import type { SigningKeyRow, Tx } from "../store/types.js";
 import { TOKEN_TTL_MAX_SECONDS } from "@nylorun/core/contracts";
 import { decryptSecret, encryptSecret } from "../vault/crypto.js";
 import { fail } from "./http.js";
+import { hostTuning } from "../tuning.js";
 
 const ALG = "ES256";
-/** Grace added to the longest token lifetime before a previous key may be revoked. */
-const ROTATION_GRACE_MS = 60_000;
-
 type KeyLike = Awaited<ReturnType<typeof importJWK>>;
 
 export interface SigningKeysOptions {
@@ -170,7 +168,8 @@ export class SigningKeys {
     if (previous && !force) {
       const retired = Date.parse(previous.retiredAt ?? previous.createdAt);
       const longest = Math.max(maxTtlSeconds, TOKEN_TTL_MAX_SECONDS);
-      const until = retired + longest * 1000 + ROTATION_GRACE_MS;
+      // The grace added to the longest token lifetime before a previous key may be revoked.
+      const until = retired + longest * 1000 + hostTuning().tenant.signingKeyRotationGraceMs;
       if (until > now.getTime())
         fail(409, "The previous key may still verify live tokens", {
           code: "request_rejected",

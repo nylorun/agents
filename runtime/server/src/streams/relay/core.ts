@@ -23,6 +23,7 @@
  * The relay never writes the record and never deletes from S2.
  */
 import { sleep } from "../../retry.js";
+import { hostTuning } from "../../tuning.js";
 import { basinOf } from "../basin.js";
 import { sessionStream, type DurableStreams } from "../types.js";
 import type { ChangeSource, CommittedTx, LogHead, RecordReader, RecordRow } from "./types.js";
@@ -33,11 +34,11 @@ export interface StreamRelayOptions {
   streams: DurableStreams;
   /** Relay events: lag, errors, reconciliations. */
   log?: (message: string, fields?: Record<string, unknown>) => void;
-  /** Records per append (S2 allows 1000). */
+  /** Records per append (S2 allows 1000). Default `streams.relayBatchRecords` (Host tuning, 500). */
   maxBatchRecords?: number;
-  /** Bytes per append (S2 allows 1 MiB). */
+  /** Bytes per append (S2 allows 1 MiB). Default `streams.relayBatchBytes` (768 KiB). */
   maxBatchBytes?: number;
-  /** Sessions reconciled at once. */
+  /** Sessions reconciled at once. Default `streams.relayReconcileConcurrency` (8). */
   reconcileConcurrency?: number;
 }
 
@@ -62,9 +63,6 @@ export interface StreamRelay {
   idle(): Promise<void>;
 }
 
-const RETRY_MIN_MS = 50;
-const RETRY_MAX_MS = 2000;
-const HEADS_PAGE = 500;
 
 interface PendingTx {
   readonly endLsn: string | undefined;
@@ -86,9 +84,10 @@ interface SessionQueue {
 export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
   const { source, record, streams } = options;
   const log = options.log ?? (() => {});
-  const maxRecords = options.maxBatchRecords ?? 500;
-  const maxBytes = options.maxBatchBytes ?? 768 * 1024;
-  const concurrency = options.reconcileConcurrency ?? 8;
+  const tuning = hostTuning().streams;
+  const maxRecords = options.maxBatchRecords ?? tuning.relayBatchRecords;
+  const maxBytes = options.maxBatchBytes ?? tuning.relayBatchBytes;
+  const concurrency = options.reconcileConcurrency ?? tuning.relayReconcileConcurrency;
 
   /** Committed transactions not yet fully in S2, in commit order. */
   const txs: PendingTx[] = [];
@@ -159,7 +158,7 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
 
   async function pump(queue: SessionQueue): Promise<void> {
     queue.running = true;
-    let delay = RETRY_MIN_MS;
+    let delay = tuning.relayRetry.minMs;
     try {
       while (queue.rows.length > 0 && !stopped) {
         // Duplicates (a replay overlapping a refill) and stale rows sort out here.
@@ -186,7 +185,7 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
             // S2 is behind the record: re-send the gap first.
             await refill(queue, first.generation, result.tail, first.seq);
           }
-          delay = RETRY_MIN_MS;
+          delay = tuning.relayRetry.minMs;
           lastError = null;
         } catch (error) {
           if (stopped) return;
@@ -205,7 +204,7 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
           // The basin may be missing (S2 lost it, or it was never created).
           await streams.ensureTenant(basin).catch(() => undefined);
           await sleep(delay, stopping.signal);
-          delay = Math.min(delay * 2, RETRY_MAX_MS);
+          delay = Math.min(delay * 2, tuning.relayRetry.maxMs);
         }
       }
     } finally {
@@ -308,7 +307,7 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
     let after: { tenantId: string; sessionId: string } | undefined;
     for (;;) {
       if (!current()) return false;
-      const page = await record.heads(after, HEADS_PAGE);
+      const page = await record.heads(after, tuning.relayHeadsPage);
       if (page.length === 0) break;
       let next = 0;
       await Promise.all(

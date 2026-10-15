@@ -8,19 +8,19 @@
  *    a delivery after commit that failed, or that a crash between the commit and the send cut
  *    off. The first pass on this process takes every row, so a previous process's are not
  *    left waiting; later passes take those whose delivery after commit failed and those older
- *    than `OUTBOX_GRACE_MS` (the database's clock), batch after batch within
- *    `DRAIN_BUDGET_MS`. Each row carries the idempotency key it was first sent with, so a
+ *    than `sweep.outboxGraceMs` (Host tuning) (the database's clock), batch after batch within
+ *    `sweep.drainBudgetMs`. Each row carries the idempotency key it was first sent with, so a
  *    request the execution did accept before the crash, or one still being sent after its
  *    commit, runs once. Rows are delivered one by one: a row that fails is retried with
- *    backoff and parked after `MAX_OUTBOX_ATTEMPTS` (`deliverOutbox`), and no delivery fails
+ *    backoff and parked after `sweep.outboxAttempts` (`deliverOutbox`), and no delivery fails
  *    the step.
  * 2. **Linked agents.** Pending workflow `agent` effects whose linked turn already settled
  *    are completed and the workflow is woken. A linked turn's settle does both in its own
  *    transaction; this is the backstop for one that settle left pending, such as an effect
  *    an older Runtime wrote.
  * 3. **Orphaned sessions.** On this process's first pass for the Tenant, then at most every
- *    `ORPHAN_SCAN_MS`: `running` or `runnable` sessions with no owner, or an owner whose lease
- *    expired, are woken with reason `recover`, page by page within `DRAIN_BUDGET_MS`; a scan
+ *    `sweep.orphanScanMs`: `running` or `runnable` sessions with no owner, or an owner whose lease
+ *    expired, are woken with reason `recover`, page by page within `sweep.drainBudgetMs`; a scan
  *    the budget cut short goes on at the next pass. Neither a lost wake (step 1) nor a Worker
  *    that died mid-advance (the execution retries that advance, which takes over, §11.4)
  *    needs it: it is the backstop for what the execution itself lost or ended without an
@@ -34,7 +34,7 @@
  *    orphan scan, pod Environments whose change stalled get a reconcile (`reconcileStalePods`).
  *    Environments unused for their `lifecycle.deleteAfter` are deleted
  *    (`sweepUnusedEnvironments`).
- * 5. **Control signals.** Signals on the control bus older than `SIGNAL_RETENTION_MS` are
+ * 5. **Control signals.** Signals on the control bus older than `sweep.signalRetentionMs` are
  *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
  * 6. **Hooks.** Callbacks registered with `ctx.onSweep`.
  *
@@ -51,28 +51,21 @@ import {
 } from "../core/flow-host.js";
 import type { PendingRequest } from "../store/types.js";
 import type { TenantContext } from "./context.js";
+import { hostTuning } from "../tuning.js";
 
-const BATCH = 100;
-/** How long a control signal is kept after it was written. */
-const SIGNAL_RETENTION_MS = 60 * 60 * 1000;
-/**
- * How old an outbox row is before the sweep delivers it, unless its delivery after commit
- * already failed (then it is due at once): longer than that delivery can take with its
- * retries, so the sweep does not send again, and double the load on, an execution that is
- * only slow. Sending one twice is harmless either way (the idempotency key).
+/*
+ * The sweep's timings are the Host tuning's `sweep` group (`tuning.ts`):
+ * - `outboxGraceMs`: how old an outbox row is before the sweep delivers it, unless its delivery
+ *   after commit already failed (then it is due at once): longer than that delivery can take with
+ *   its retries, so the sweep does not send again, and double the load on, an execution that is
+ *   only slow. Sending one twice is harmless either way (the idempotency key).
+ * - `orphanScanMs`: how often the orphan scan, and the stale pod sandbox check, run after the
+ *   first pass of a Tenant opened on this process.
+ * - `drainBudgetMs`: how long one pass may spend draining the outbox, and paging through
+ *   orphaned sessions. A backlog is worked off over several passes rather than holding one (and
+ *   with it the Tenant's sweep object in the execution) for long.
+ * - `batchSize`, `signalRetentionMs`, `outboxAttempts`, `outboxRetry`, `stalePodMs`.
  */
-export const OUTBOX_GRACE_MS = 30_000;
-/**
- * How often the orphan scan, and the stale pod sandbox check, run after the first pass of a
- * Tenant opened on this process.
- */
-export const ORPHAN_SCAN_MS = 60_000;
-/**
- * How long one pass may spend draining the outbox, and paging through orphaned sessions.
- * A backlog is worked off over several passes rather than holding one (and with it the
- * Tenant's sweep object in the execution) for long.
- */
-export const DRAIN_BUDGET_MS = 2000;
 
 /**
  * Each open Tenant's sweep state on this process: when its last orphan scan finished, the
@@ -95,10 +88,10 @@ export async function sweep(ctx: TenantContext): Promise<void> {
   const scanOrphans =
     pass.orphansAt === undefined ||
     pass.orphansAfter !== undefined ||
-    now.getTime() - pass.orphansAt >= ORPHAN_SCAN_MS;
-  const checkPods = pass.podsAt === undefined || now.getTime() - pass.podsAt >= ORPHAN_SCAN_MS;
+    now.getTime() - pass.orphansAt >= hostTuning().sweep.orphanScanMs;
+  const checkPods = pass.podsAt === undefined || now.getTime() - pass.podsAt >= hostTuning().sweep.orphanScanMs;
   const steps: Step[] = [
-    ["outbox", () => deliverOutbox(ctx, first ? 0 : OUTBOX_GRACE_MS)],
+    ["outbox", () => deliverOutbox(ctx, first ? 0 : hostTuning().sweep.outboxGraceMs)],
     ["linked", () => reconcileLinkedAgents(ctx)],
     ...(scanOrphans
       ? [
@@ -143,7 +136,7 @@ export async function sweep(ctx: TenantContext): Promise<void> {
     [
       "signals",
       () =>
-        ctx.store.tx((t) => t.pruneSignals(new Date(now.getTime() - SIGNAL_RETENTION_MS))),
+        ctx.store.tx((t) => t.pruneSignals(new Date(now.getTime() - hostTuning().sweep.signalRetentionMs))),
     ],
     ...[...ctx.sweepHooks].map((hook): Step => ["hook", hook]),
   ];
@@ -163,18 +156,12 @@ export async function sweep(ctx: TenantContext): Promise<void> {
   if (failure) throw failure.error;
 }
 
-/** Failed deliveries after which the sweep parks an outbox row (`Tx.failOutbox`). */
-export const MAX_OUTBOX_ATTEMPTS = 10;
-/** How long after its first failed delivery the sweep tries a row again; doubled each time. */
-const RETRY_MS = 5000;
-const RETRY_MAX_MS = 10 * 60_000;
-
 /**
  * Deliver the outbox rows that are due (`Tx.pendingOutbox`: older than `graceMs`, or whose
  * delivery failed), oldest first, batch after batch until none is left or `budgetMs` is
  * spent, and delete the delivered ones. Each row is delivered on its own: one that fails
  * (Restate refuses it, or a Runtime that does not know a wake's reason) is tried again later,
- * with backoff, so it never holds back the rows behind it, and after `MAX_OUTBOX_ATTEMPTS`
+ * with backoff, so it never holds back the rows behind it, and after `sweep.outboxAttempts`
  * failures it is parked: logged once, at error, and kept in the outbox for an operator. A
  * parked wake's session is still re-woken by the orphan scan while it is runnable, and a
  * parked sandbox signal's pod by the stale pod check. A row the Tenant declines (it is
@@ -184,14 +171,15 @@ const RETRY_MAX_MS = 10 * 60_000;
 export async function deliverOutbox(
   ctx: Pick<TenantContext, "store" | "send" | "config">,
   graceMs = 0,
-  budgetMs = DRAIN_BUDGET_MS
+  budgetMs = hostTuning().sweep.drainBudgetMs
 ): Promise<PendingRequest[]> {
   const deadline = Date.now() + budgetMs;
   const delivered: PendingRequest[] = [];
+  const batchSize = hostTuning().sweep.batchSize;
   for (;;) {
-    const pending = await ctx.store.tx((t) => t.pendingOutbox(graceMs, BATCH));
+    const pending = await ctx.store.tx((t) => t.pendingOutbox(graceMs, batchSize));
     const batch: PendingRequest[] = [];
-    let done = pending.length < BATCH;
+    let done = pending.length < batchSize;
     try {
       for (const row of pending) {
         if (Date.now() >= deadline) {
@@ -224,8 +212,11 @@ async function failed(
   error: unknown
 ): Promise<void> {
   const attempts = row.attempts + 1;
-  const park = attempts >= MAX_OUTBOX_ATTEMPTS;
-  const retryInMs = Math.min(RETRY_MS * 2 ** (attempts - 1), RETRY_MAX_MS);
+  // Parked after `sweep.outboxAttempts` failed deliveries (`Tx.failOutbox`); tried again after
+  // `outboxRetry.minMs`, doubled each time.
+  const { outboxAttempts, outboxRetry } = hostTuning().sweep;
+  const park = attempts >= outboxAttempts;
+  const retryInMs = Math.min(outboxRetry.minMs * 2 ** (attempts - 1), outboxRetry.maxMs);
   await ctx.store.tx((t) => t.failOutbox(row, { retryInMs, park }));
   const { request } = row;
   const fields = {
@@ -261,30 +252,28 @@ export async function wakeOrphanedSessions(
   ctx: Pick<TenantContext, "store" | "wake">,
   now = new Date(),
   after?: string,
-  budgetMs = DRAIN_BUDGET_MS
+  budgetMs = hostTuning().sweep.drainBudgetMs
 ): Promise<{ woken: string[]; next?: string }> {
   const deadline = Date.now() + budgetMs;
   const woken: string[] = [];
+  const batchSize = hostTuning().sweep.batchSize;
   let cursor = after;
   for (;;) {
-    const page = await ctx.store.tx((t) => t.orphanedSessions(now, BATCH, cursor));
+    const page = await ctx.store.tx((t) => t.orphanedSessions(now, batchSize, cursor));
     for (const session of page) {
       await ctx.wake(session.id, { reason: "recover" });
       woken.push(session.id);
       cursor = session.id;
     }
-    if (page.length < BATCH) return { woken };
+    if (page.length < batchSize) return { woken };
     if (Date.now() >= deadline) return { woken, next: cursor! };
   }
 }
 
-/** A pod sandbox in a change this long without a reconcile gets one from the sweep. */
-const STALE_POD_MS = 60_000;
-
 /**
  * Pod sandboxes (F7.2) whose change has not finished (creating, deleting, an old volume still
  * to delete, an expiry not yet recorded), or that should run but whose engine is not connected,
- * and whose row has not moved for a minute, get a reconcile: a pod or volume deleted outside
+ * and whose row has not moved for `sweep.stalePodMs` (a minute), get a reconcile: a pod or volume deleted outside
  * the Runtime is found, and a change goes on whose reconcile the execution itself lost (its
  * retry timer, an invocation an operator killed, Restate's state wiped) or whose outbox row
  * was parked. A reconcile a commit asked for is never lost: it is in the outbox.
@@ -294,7 +283,7 @@ async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> 
   const stale = await ctx.store.tx(async (t) =>
     (await t.listEnvironments()).filter((row) => {
       const pod = row.pod;
-      if (!pod || now.getTime() - Date.parse(row.updatedAt) < STALE_POD_MS) return false;
+      if (!pod || now.getTime() - Date.parse(row.updatedAt) < hostTuning().sweep.stalePodMs) return false;
       return (
         pod.desired === "deleted" ||
         pod.retiring !== undefined ||

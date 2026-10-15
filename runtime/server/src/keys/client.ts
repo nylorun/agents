@@ -10,15 +10,14 @@ import { HttpError } from "../tenant/http.js";
 import { VaultError } from "../vault/error.js";
 import { KEYS_PATH, type KeysAnswer } from "./contract.js";
 import { KEYS_OPERATIONS, type Keys, type KeysOperation } from "./keys.js";
-
-/** Signing and vault writes are short; anything slower is a gateway in trouble. */
-const KEYS_TIMEOUT_MS = 30_000;
+import { hostTuning } from "../tuning.js";
 
 export interface HttpKeysOptions {
   /** The gateway, e.g. `http://gateway:4100` (`NYLORUN_KEYS_URL`). */
   readonly url: string;
   /** `NYLORUN_GATES_TOKEN`. */
   readonly token: string;
+  /** Default `keys.timeoutMs` (Host tuning): signing and vault writes are short. */
   readonly timeoutMs?: number;
 }
 
@@ -26,7 +25,7 @@ export function httpKeys(options: HttpKeysOptions): Keys {
   const where = new URL(options.url).origin;
 
   function call(operation: KeysOperation, args: readonly unknown[]): Promise<unknown> {
-    const timeoutMs = options.timeoutMs ?? KEYS_TIMEOUT_MS;
+    const timeoutMs = options.timeoutMs ?? hostTuning().keys.timeoutMs;
     const url = new URL(`${KEYS_PATH}/${operation}`, options.url);
     const send = url.protocol === "https:" ? httpsRequest : httpRequest;
     const payload = Buffer.from(JSON.stringify({ args }), "utf8");

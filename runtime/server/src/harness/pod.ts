@@ -16,9 +16,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { rootCertificates } from "node:tls";
 import { dirname } from "node:path";
 import type { PodHostConfig } from "../host/stack-config.js";
-
-/** How often the host and egress tokens are renewed. */
-export const RENEW_MS = 5 * 60_000;
+import { hostTuning } from "../tuning.js";
 
 interface Held {
   readonly hostToken: string;
@@ -109,7 +107,7 @@ export function podHost(
         ...(init.bearer ? { authorization: `Bearer ${init.bearer}` } : {}),
       },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(hostTuning().harness.podJoinTimeoutMs),
     });
     const text = await response.text();
     if (response.status === 401 || response.status === 400) throw new Refused(`host/${path} refused: ${response.status}`);
@@ -182,11 +180,13 @@ export function podHost(
   /** A request with a current host token: the held one, renewed near expiry, or a new join. */
   const authorized = async (path: string, init: RequestInit): Promise<Response> => {
     const current =
-      held && held.expiresAt - Date.now() > 60_000 ? held : ((await renew()) ?? (await join()));
+      held && held.expiresAt - Date.now() > hostTuning().harness.podRenewEarlyMs
+        ? held
+        : ((await renew()) ?? (await join()));
     return call(`${config.httpUrl}/nylorun/harness/v1/host/${path}`, {
       ...init,
       headers: { ...(init.headers as Record<string, string> | undefined), authorization: `Bearer ${current.hostToken}` },
-      signal: AbortSignal.timeout(5 * 60_000),
+      signal: AbortSignal.timeout(hostTuning().harness.podRequestTimeoutMs),
     });
   };
 
@@ -209,7 +209,7 @@ export function podHost(
     void renew().catch((error: unknown) =>
       logger.warn("sandbox_host_renew_failed", { message: error instanceof Error ? error.message : String(error) }),
     );
-  }, options.renewMs ?? RENEW_MS);
+  }, options.renewMs ?? hostTuning().harness.podRenewMs);
   timer.unref();
 
   return {

@@ -10,11 +10,8 @@ import type { OutboxRequest, PendingRequest, SessionStore, Tx } from "../../src/
 import { advance } from "../../src/tenant/advance.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import { createWorkState } from "../../src/tenant/scheduler.js";
+import { hostTuning } from "../../src/tuning.js";
 import {
-  DRAIN_BUDGET_MS,
-  MAX_OUTBOX_ATTEMPTS,
-  ORPHAN_SCAN_MS,
-  OUTBOX_GRACE_MS,
   deliverOutbox,
   reconcileLinkedAgents,
   sweep,
@@ -23,6 +20,13 @@ import {
 import { TenantWorkers } from "../../src/tenant/worker.js";
 import { createTestSessionStore, dropTestTenant, testTenantPool } from "../support/store.js";
 import { inProcessToolGate } from "../../src/gates/tool-gate.js";
+
+const {
+  drainBudgetMs: DRAIN_BUDGET_MS,
+  outboxAttempts: MAX_OUTBOX_ATTEMPTS,
+  orphanScanMs: ORPHAN_SCAN_MS,
+  outboxGraceMs: OUTBOX_GRACE_MS,
+} = hostTuning().sweep;
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {

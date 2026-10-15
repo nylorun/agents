@@ -447,6 +447,14 @@ server's metadata cannot point the gateway at your internal network. If the serv
 call live on a private network, keep `allow` and limit the gateway's egress with your firewall instead.
 The identity file's `jwks` URLs are yours, so they are not subject to these settings.
 
+## Timeouts and retries
+
+Every timeout, retry, poll interval and internal size of the Runtime's processes has a default
+and can be set in `NYLORUN_TUNING`, one JSON object such as
+`{"tenant":{"openTimeoutMs":60000}}`. Give every container the same value: each reads the parts
+it uses, and core passes the harness's part to sandbox pods. The settings, their defaults and
+their ceilings are in [Host tuning](./DEPLOYMENT.md#host-tuning).
+
 ## Backups
 
 Back up two things together, and keep them apart from each other:

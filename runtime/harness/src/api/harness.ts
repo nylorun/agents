@@ -24,6 +24,18 @@ import { ABORT_MESSAGES, RunAbort } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { runTurn } from "./run.js";
 import { TranscriptCache } from "./transcript-cache.js";
+import { loopConfigOf } from "../loop/config.js";
+import type { CompactionConfig } from "../loop/compaction/config.js";
+
+/** The transcript cache's budget when the harness sets none, in MiB. */
+export const DEFAULT_TRANSCRIPT_CACHE_MB = 256;
+/** How soon a `lease` request that failed is sent again, by default. */
+export const DEFAULT_LEASE_RETRY_MS = 100;
+/**
+ * The waits before each resend of a tool call whose gate hop lost its answer (R5.3), by default;
+ * the last repeats.
+ */
+export const DEFAULT_RESEND_DELAYS_MS: readonly number[] = Object.freeze([1_000, 2_000, 4_000]);
 
 export interface HarnessLogger {
   warn(message: string, fields?: Record<string, unknown>): void;
@@ -35,8 +47,25 @@ export interface HarnessOptions {
   readonly logger?: HarnessLogger;
   /** Runs held at once. Default: no limit. */
   readonly maxRuns?: number;
-  /** Byte budget of the transcript cache. Default 256 MiB. */
+  /** Byte budget of the transcript cache, in MiB. Default `DEFAULT_TRANSCRIPT_CACHE_MB` (256). */
   readonly transcriptCacheMb?: number;
+  /** How soon a `lease` request that failed is sent again. Default `DEFAULT_LEASE_RETRY_MS` (100 ms). */
+  readonly leaseRetryMs?: number;
+  /**
+   * The waits before each resend of a tool call whose gate hop lost its answer (R5.3); the last
+   * repeats. Default `DEFAULT_RESEND_DELAYS_MS` (1, 2, then 4 s).
+   */
+  readonly resendDelaysMs?: readonly number[];
+  /**
+   * Compaction (Model Calls §8): the kept tail, the reply's reserve, the estimate. Each left out
+   * is its default (`DEFAULT_COMPACTION_CONFIG`).
+   */
+  readonly compaction?: Partial<CompactionConfig>;
+  /**
+   * How many characters of a failed agent-as-tool's last output its parent sees. Default
+   * `DEFAULT_PARTIAL_OUTPUT_CHARS` (4,000).
+   */
+  readonly partialOutputChars?: number;
   /**
    * The most bytes one `read_artifact` page holds, escaped as JSON: what one call shows the model
    * of a text artifact. Default `READ_ARTIFACT_MAX_BYTES` (32 KiB). A page is also held to the
@@ -111,7 +140,10 @@ interface Live extends HarnessRun {
 export function createHarness(options: HarnessOptions): Harness {
   const { channel, executors } = options;
   const maxRuns = options.maxRuns ?? Infinity;
-  const cache = new TranscriptCache((options.transcriptCacheMb ?? 256) * 1024 * 1024);
+  const cache = new TranscriptCache(
+    (options.transcriptCacheMb ?? DEFAULT_TRANSCRIPT_CACHE_MB) * 1024 * 1024,
+  );
+  const leaseRetryMs = options.leaseRetryMs ?? DEFAULT_LEASE_RETRY_MS;
   const engine = {
     artifactPageBytes: options.artifactPageBytes ?? READ_ARTIFACT_MAX_BYTES,
     sandboxTools: sandboxToolLimitsOf(options.sandboxTools),
@@ -119,11 +151,21 @@ export function createHarness(options: HarnessOptions): Harness {
     mcpTools: mcpToolConfigOf(options.mcpTools),
     toolResults: toolResultConfigOf(options.toolResults),
     outputs: outputsConfigOf(options.outputs),
+    loop: loopConfigOf({
+      ...(options.compaction ? { compaction: options.compaction } : {}),
+      ...(options.partialOutputChars === undefined
+        ? {}
+        : { partialOutputChars: options.partialOutputChars }),
+    }),
+    resendDelaysMs: options.resendDelaysMs?.length
+      ? options.resendDelaysMs
+      : DEFAULT_RESEND_DELAYS_MS,
   };
   const live = new Map<string, Live>();
   const finished = new Set<Promise<void>>();
   const leasing = new AbortController();
-  let renewEveryMs = 10_000;
+  // Core says how often to renew in its answer to `hello`; no run is leased before it.
+  let renewEveryMs: number | undefined;
   let stopped = false;
   let waiting = false;
 
@@ -219,7 +261,7 @@ export function createHarness(options: HarnessOptions): Harness {
         options.logger?.warn("harness lease failed", {
           message: error instanceof Error ? error.message : String(error),
         });
-        setTimeout(lease, 100).unref?.();
+        setTimeout(lease, leaseRetryMs).unref?.();
       },
     );
   };

@@ -20,6 +20,7 @@ import type { ChangeSource, CommittedTx } from "../streams/relay/types.js";
 import type { TraceKey } from "./ids.js";
 import { spanOf, turnTraceOf, type OtlpSpan, type TraceContent, type TurnTrace } from "./map.js";
 import type { OtlpPoster } from "./otlp.js";
+import { hostTuning } from "../tuning.js";
 
 /** The projector's replication slot. */
 export const TRACE_SLOT = "nylorun_trace_export";
@@ -32,13 +33,16 @@ export interface TraceProjectorOptions {
   /** The `command.message` that started turn `turnId`, or undefined when the log has none. */
   readonly turnMessage: (sessionId: string, turnId: string) => Promise<LiveEvent | undefined>;
   readonly content: TraceContent;
-  /** Spans per post. Default 512. */
+  /** Spans per post. Default `traces.batchSpans` (Host tuning, 512). */
   readonly maxBatch?: number;
-  /** How long a span waits for its batch to fill. Default 2 s. */
+  /** How long a span waits for its batch to fill. Default `traces.batchDelayMs` (2 s). */
   readonly maxDelayMs?: number;
-  /** Spans waiting while a post is out, past which the waiting ones are dropped. Default 8192. */
+  /**
+   * Spans waiting while a post is out, past which the waiting ones are dropped. Default
+   * `traces.queuedSpansMax` (8192).
+   */
   readonly maxQueuedSpans?: number;
-  /** Turns whose trace is kept. Default 1024. */
+  /** Turns whose trace is kept. Default `traces.turnCacheSize` (1024). */
   readonly turnCacheSize?: number;
   readonly log?: (message: string, fields?: Record<string, unknown>) => void;
 }
@@ -62,10 +66,11 @@ interface PendingTx {
 export function createTraceProjector(options: TraceProjectorOptions): TraceProjector {
   const { source, post } = options;
   const log = options.log ?? (() => {});
-  const maxBatch = options.maxBatch ?? 512;
-  const maxDelayMs = options.maxDelayMs ?? 2000;
-  const maxQueued = options.maxQueuedSpans ?? 8192;
-  const cacheSize = options.turnCacheSize ?? 1024;
+  const tuning = hostTuning().traces;
+  const maxBatch = options.maxBatch ?? tuning.batchSpans;
+  const maxDelayMs = options.maxDelayMs ?? tuning.batchDelayMs;
+  const maxQueued = options.maxQueuedSpans ?? tuning.queuedSpansMax;
+  const cacheSize = options.turnCacheSize ?? tuning.turnCacheSize;
   const turns = new Map<string, TurnTrace>();
   const stopping = new AbortController();
 
@@ -130,7 +135,7 @@ export function createTraceProjector(options: TraceProjectorOptions): TraceProje
             // The key or a turn's message could not be read (Postgres away): try again, in order.
             if (of !== activation || stopping.signal.aborted) return;
             log("trace_projector_retry", { message: error instanceof Error ? error.message : String(error) });
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            await new Promise((resolve) => setTimeout(resolve, tuning.retryMs));
           }
         }
         if (of !== activation) return;

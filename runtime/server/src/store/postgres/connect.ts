@@ -1,24 +1,26 @@
 import postgres, { type Sql } from "postgres";
+import { hostTuning } from "../../tuning.js";
 
 export type PostgresClient = Sql;
 
 export interface PostgresClientOptions {
-  /** Pool size. Default 10. */
+  /** Pool size. Default `postgres.poolSize` (Host tuning, 10). */
   max?: number;
-  /** Seconds before an idle connection closes. Default 30. */
+  /** Seconds before an idle connection closes. Default `postgres.idleTimeoutSeconds` (30). */
   idleTimeoutSeconds?: number;
-  /** Seconds to wait for a connection. Default 10. */
+  /** Seconds to wait for a connection. Default `postgres.connectTimeoutSeconds` (10). */
   connectTimeoutSeconds?: number;
   /** `application_name` on every connection. Default `nylorun-runtime`. */
   applicationName?: string;
   /**
    * `statement_timeout`: a statement running or waiting for a lock longer fails. Default
-   * 60 s; 0 turns it off. Migrations lift it (`lockMigrations` in `migrate.ts`).
+   * `postgres.statementTimeoutMs` (60 s); 0 turns it off. Migrations lift it (`lockMigrations` in `migrate.ts`).
    */
   statementTimeoutMs?: number;
   /**
    * `idle_in_transaction_session_timeout`: a transaction left idle this long is ended and its
-   * connection closed, releasing its locks. Default 60 s; 0 turns it off.
+   * connection closed, releasing its locks. Default `postgres.idleInTransactionTimeoutMs` (60 s); 0
+   * turns it off.
    */
   idleInTransactionTimeoutMs?: number;
 }
@@ -40,15 +42,17 @@ export function createPostgresClient(
   url: string,
   options: PostgresClientOptions = {},
 ): PostgresClient {
+  const tuning = hostTuning().postgres;
   return postgres(url, {
-    max: options.max ?? 10,
-    idle_timeout: options.idleTimeoutSeconds ?? 30,
-    connect_timeout: options.connectTimeoutSeconds ?? 10,
+    max: options.max ?? tuning.poolSize,
+    idle_timeout: options.idleTimeoutSeconds ?? tuning.idleTimeoutSeconds,
+    connect_timeout: options.connectTimeoutSeconds ?? tuning.connectTimeoutSeconds,
     onnotice: () => {},
     connection: {
       application_name: options.applicationName ?? "nylorun-runtime",
-      statement_timeout: options.statementTimeoutMs ?? 60_000,
-      idle_in_transaction_session_timeout: options.idleInTransactionTimeoutMs ?? 60_000,
+      statement_timeout: options.statementTimeoutMs ?? tuning.statementTimeoutMs,
+      idle_in_transaction_session_timeout:
+        options.idleInTransactionTimeoutMs ?? tuning.idleInTransactionTimeoutMs,
     },
   });
 }
@@ -93,17 +97,18 @@ function connectionOf(source: PostgresClient): postgres.Options<{}> {
 
 /** Separate, bounded pool for read projections; inherits the Tenant connection credentials. */
 export function createPostgresReadClient(source: PostgresClient): PostgresClient {
+  const tuning = hostTuning().postgres;
   const options: postgres.Options<{}> = {
     ...connectionOf(source),
-    max: 4,
-    idle_timeout: 30,
-    connect_timeout: 2,
+    max: tuning.readPoolSize,
+    idle_timeout: tuning.idleTimeoutSeconds,
+    connect_timeout: tuning.readConnectTimeoutSeconds,
     onnotice() {},
     connection: {
       ...source.options.connection,
       application_name: "nylorun-reads",
-      statement_timeout: 2000,
-      idle_in_transaction_session_timeout: 2000,
+      statement_timeout: tuning.readStatementTimeoutMs,
+      idle_in_transaction_session_timeout: tuning.readStatementTimeoutMs,
       default_transaction_read_only: true,
     },
   };
@@ -130,7 +135,7 @@ export function createPostgresListenClient(
     max: 1,
     idle_timeout: 0,
     max_lifetime: null,
-    connect_timeout: 10,
+    connect_timeout: hostTuning().postgres.connectTimeoutSeconds,
     fetch_types: false,
     onnotice() {},
     onnotify: handlers.onNotify,

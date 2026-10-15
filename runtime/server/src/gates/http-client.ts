@@ -27,26 +27,25 @@ import {
 } from "./contract.js";
 import type { ModelGate, ModelGateOutcome } from "./model-gate.js";
 import type { RunTokens } from "../tenant/run-grants.js";
+import { hostTuning } from "../tuning.js";
 
-/** How long a cancel may take; the call it stops ends with the provider timeout anyway. */
-const CANCEL_TIMEOUT_MS = 2_000;
-
-/** Above the gate's 600 s provider request timeout. */
-export const GATE_CLIENT_TIMEOUT_MS = 630_000;
 
 export interface HttpModelGateOptions {
   /** The gates service, e.g. `http://gateway:4100` (`NYLORUN_GATES_URL`). */
   readonly url: string;
   /** The run token of each session an advance of this process owns: a call's credential. */
   readonly runTokens: RunTokens;
-  /** How long the connection may stay silent. Default `GATE_CLIENT_TIMEOUT_MS`. */
+  /**
+   * How long the connection may stay silent. Default `gates.clientTimeoutMs` (Host tuning, 630 s),
+   * above the gate's 600 s provider request timeout.
+   */
   readonly timeoutMs?: number;
 }
 
 export function httpModelGate(options: HttpModelGateOptions): ModelGate {
   const endpoint = new URL(MODEL_CALLS_PATH, options.url);
   const send = endpoint.protocol === "https:" ? httpsRequest : httpRequest;
-  const timeoutMs = options.timeoutMs ?? GATE_CLIENT_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? hostTuning().gates.clientTimeoutMs;
   const where = new URL(options.url).origin;
 
   return {
@@ -69,7 +68,8 @@ export function httpModelGate(options: HttpModelGateOptions): ModelGate {
               [TENANT_HEADER]: request.tenantId,
               "content-length": 0,
             },
-            timeout: CANCEL_TIMEOUT_MS,
+            // A cancel is short; the call it stops ends with the provider timeout anyway.
+            timeout: hostTuning().gates.shortTimeoutMs,
           },
           (response) => {
             response.resume();
@@ -155,7 +155,7 @@ export function httpModelGate(options: HttpModelGateOptions): ModelGate {
             );
           },
         );
-        outgoing.on("socket", (socket) => socket.setKeepAlive(true, 30_000));
+        outgoing.on("socket", (socket) => socket.setKeepAlive(true, hostTuning().gates.keepAliveMs));
         outgoing.on("finish", () => {
           sent = true;
         });

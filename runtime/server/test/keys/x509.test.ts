@@ -28,7 +28,7 @@ describe("egress CA and leaf certificates (R2c)", () => {
 
   it("is short-lived", () => {
     const now = new Date("2026-10-09T12:00:00Z");
-    const leaf = new X509Certificate(issueLeafCertificate({ authority, host: "example.com", publicKey: leafKeyPair().publicKey, minutes: 10, now }));
+    const leaf = new X509Certificate(issueLeafCertificate({ authority, host: "example.com", publicKey: leafKeyPair().publicKey, lifetimeMs: 10 * 60_000, now }));
     expect(Date.parse(leaf.validTo) - now.getTime()).toBe(10 * 60_000);
   });
 

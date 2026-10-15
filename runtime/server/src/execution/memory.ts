@@ -1,5 +1,4 @@
 import {
-  DEFAULT_STOP_GRACE_MS,
   WAKE_REASONS,
   sessionKey,
   settleWithin,
@@ -9,19 +8,23 @@ import {
   type Wake,
   type WorkerHandlers,
 } from "./types.js";
+import { hostTuning } from "../tuning.js";
 
 export interface MemoryExecutionOptions {
-  /** Delay between sweep passes of one Tenant. Default 5000. */
+  /** Delay between sweep passes of one Tenant. Default `sweep.intervalMs` (Host tuning, 5 s). */
   sweepIntervalMs?: number;
-  /** First retry delay after `advance` throws; doubles per attempt. Default 50. */
+  /**
+   * First retry delay after `advance` throws; doubles per attempt. Default
+   * `execution.memoryRetryMs` (50 ms).
+   */
   retryDelayMs?: number;
-  /** Attempts before giving up on a throwing handler and reporting it. Default 5. */
+  /** Attempts before giving up on a throwing handler and reporting it. Default `execution.memoryAttempts` (5). */
   maxAttempts?: number;
-  /** How long a dedupe key merges repeated wakes. Default 24 hours. */
+  /** How long a dedupe key merges repeated wakes. Default `execution.dedupeRetentionMs` (24 hours). */
   dedupeRetentionMs?: number;
   /**
    * How long `stop` waits for running handlers after aborting them; the ones still running
-   * then are abandoned. Default `DEFAULT_STOP_GRACE_MS`.
+   * then are abandoned. Default `execution.stopGraceMs` (30 s).
    */
   stopGraceMs?: number;
   /** Receives handler failures that are not retried. */
@@ -85,11 +88,12 @@ export class MemoryExecution implements DurableExecution {
   private readonly onError: (error: unknown) => void;
 
   constructor(options: MemoryExecutionOptions = {}) {
-    this.sweepIntervalMs = options.sweepIntervalMs ?? 5000;
-    this.retryDelayMs = options.retryDelayMs ?? 50;
-    this.maxAttempts = options.maxAttempts ?? 5;
-    this.dedupeRetentionMs = options.dedupeRetentionMs ?? 24 * 60 * 60_000;
-    this.stopGraceMs = options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS;
+    const tuning = hostTuning();
+    this.sweepIntervalMs = options.sweepIntervalMs ?? tuning.sweep.intervalMs;
+    this.retryDelayMs = options.retryDelayMs ?? tuning.execution.memoryRetryMs;
+    this.maxAttempts = options.maxAttempts ?? tuning.execution.memoryAttempts;
+    this.dedupeRetentionMs = options.dedupeRetentionMs ?? tuning.execution.dedupeRetentionMs;
+    this.stopGraceMs = options.stopGraceMs ?? tuning.execution.stopGraceMs;
     this.onError =
       options.onError ??
       ((error) =>

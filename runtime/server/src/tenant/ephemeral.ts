@@ -31,6 +31,7 @@ import { openTenantRuntime } from "./runtime.js";
 import type { TrustedIssuerConfig } from "./identity-file.js";
 import { createTrustedIssuers, type TrustedIssuers } from "./issuers.js";
 import type { Logger, TenantConfig, TenantModelConfig } from "./types.js";
+import { hostTuning } from "../tuning.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -210,7 +211,7 @@ export async function startEphemeralRuntime(
     await host?.close();
     await module.close();
     await streams.close();
-    await ownPool?.end({ timeout: 5 });
+    await ownPool?.end({ timeout: hostTuning().postgres.closeTimeoutSeconds });
     if (!options.retainRoot) rmSync(hostRoot, { recursive: true, force: true });
   };
 

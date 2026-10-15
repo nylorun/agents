@@ -154,7 +154,7 @@ export interface DurableExecution {
   start(handlers: WorkerHandlers): Promise<void>;
   /**
    * Stops delivering, aborts running advances' signals and waits for them, up to the
-   * implementation's stop grace (`DEFAULT_STOP_GRACE_MS`). Handlers still running then are
+   * implementation's stop grace (Host tuning `execution.stopGraceMs`). Handlers still running then are
    * abandoned: their sessions' leases lapse and the next advance takes over (§11.4).
    */
   stop(): Promise<void>;
@@ -205,12 +205,6 @@ export function parseSessionKey(key: string): {
     throw new Error(`Invalid session key: ${key}`);
   return { tenantId: key.slice(0, at), sessionId: key.slice(at + 1) };
 }
-
-/**
- * Default time `DurableExecution.stop` waits for running handlers after aborting them: the
- * advance grace period (`DEFAULT_ADVANCE_GRACE_MS` in `tenant/worker.ts`).
- */
-export const DEFAULT_STOP_GRACE_MS = 30_000;
 
 /**
  * Waits until `inflight` is empty (it shrinks as its promises settle and may grow meanwhile),

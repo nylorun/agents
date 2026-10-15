@@ -12,16 +12,17 @@
  */
 import { randomBytes } from "node:crypto";
 import { DEFAULT_HARNESS, memoryChannels, type MemoryPortsOptions } from "@nylorun/core/harness-api";
-import { DEFAULT_SANDBOX_TOOL_LIMITS } from "@nylorun/harness";
+import { sandboxToolLimitsOf } from "@nylorun/harness";
 import { createHarness } from "@nylorun/harness/api";
 import type { ModelRoute } from "../harness/calls.js";
 import { harnessExecutors } from "../harness/executors.js";
-import { startHarnessService } from "../harness/service.js";
+import { engineOptionsOf, startHarnessService } from "../harness/service.js";
 import type { McpPool } from "../mcp/pool.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { SandboxBackend } from "../sandbox/types.js";
 import type { TenantContext } from "../tenant/context.js";
 import { startHarnessListener } from "./ws-server.js";
+import { hostTuning } from "../tuning.js";
 
 /** Where the Tenant's model calls go. */
 export function modelRouteOf(ctx: TenantContext): ModelRoute {
@@ -43,9 +44,12 @@ export async function startInProcessHarness(
 ): Promise<InProcessHarness> {
   const channels = memoryChannels(options);
   const detach = ctx.harness.attach(channels.core, { name: "in-process" });
-  // One configuration of the sandbox tools: what our engine's schemas name, and what runs them.
-  const sandboxTools = DEFAULT_SANDBOX_TOOL_LIMITS;
+  // Our engine's settings from the Host tuning (`engine`), and one configuration of the sandbox
+  // tools: what our engine's schemas name, and what runs them.
+  const engine = engineOptionsOf(hostTuning().engine);
+  const sandboxTools = sandboxToolLimitsOf(engine.sandboxTools);
   const harness = createHarness({
+    ...engine,
     channel: channels.harness,
     executors: harnessExecutors({
       model: modelRouteOf(ctx),
@@ -97,14 +101,17 @@ export async function startLoopbackHarness(
     ...(options.sandboxBackends ? { sandboxBackends: options.sandboxBackends } : {}),
     logger: quietLogger(ctx),
     ephemeral: ctx.config.mode === "ephemeral",
-    backoff: { minMs: 50, maxMs: 500 },
+    backoff: hostTuning().harnessApi.loopbackBackoff,
   });
   let timer: NodeJS.Timeout | undefined;
   try {
     await Promise.race([
       service.client.ready,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("The loopback harness did not connect")), 10_000);
+        timer = setTimeout(
+          () => reject(new Error("The loopback harness did not connect")),
+          hostTuning().harnessApi.loopbackConnectTimeoutMs,
+        );
       }),
     ]);
   } catch (error) {

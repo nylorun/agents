@@ -37,6 +37,7 @@ import { turnManifestOf } from "../tenant/session.js";
 import { mcpFactsOf } from "../mcp/snapshot.js";
 import { bulkOutcomes } from "./record.js";
 import { traceKey } from "../traces/key.js";
+import { hostTuning } from "../tuning.js";
 import {
   traceparentOf,
   turnSpanOf,
@@ -44,10 +45,6 @@ import {
   type TraceContext,
   type TraceKey,
 } from "../traces/ids.js";
-
-/** Segment rollover defaults (Model Calls §10), well inside the advance deadline. */
-const ROLLOVER_STEPS = 50;
-const ROLLOVER_MS = 20 * 60_000;
 
 /** A segment ready to run: the session as it starts, and its transcript folded from the record. */
 export interface SegmentStart {
@@ -226,11 +223,14 @@ function turnContextOf(
   };
 }
 
-/** The engine's yield budget for a segment. */
+/**
+ * The engine's yield budget for a segment: the Tenant's `rollover`, else the Host tuning's
+ * (`harnessApi.rolloverSteps`, `rolloverMs`), well inside the advance deadline.
+ */
 export function yieldAfterOf(ctx: TenantContext): { steps: number; ms: number } {
   return {
-    steps: ctx.config.rollover?.steps ?? ROLLOVER_STEPS,
-    ms: ctx.config.rollover?.ms ?? ROLLOVER_MS,
+    steps: ctx.config.rollover?.steps ?? hostTuning().harnessApi.rolloverSteps,
+    ms: ctx.config.rollover?.ms ?? hostTuning().harnessApi.rolloverMs,
   };
 }
 

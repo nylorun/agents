@@ -59,7 +59,11 @@ export function parseTraceparent(value: string): { traceId: string; spanId: stri
   return { traceId: traceId!, spanId: spanId! };
 }
 
-/** The most `tracestate` the Runtime keeps (W3C: 32 members, 512 characters is enough). */
+/**
+ * The most `tracestate` the Runtime keeps: W3C Trace Context asks vendors to propagate
+ * at least 512 characters, and a longer header may be cut there. A constant of the standard, not a
+ * setting.
+ */
 const TRACESTATE_MAX = 512;
 
 /**

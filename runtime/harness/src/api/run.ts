@@ -25,7 +25,7 @@ import type { FlowCheckpoint } from "../flow/checkpoint.js";
 import type { FlowOperatorLimits } from "../flow/limits.js";
 import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
-import { apiHost, type EngineToolConfig } from "./host.js";
+import { apiHost, type EngineConfig } from "./host.js";
 import { engineToolsFor } from "../tools/engine-tools.js";
 import { mcpToolSet } from "../tools/mcp.js";
 import { saveOutputs } from "../tools/outputs.js";
@@ -37,7 +37,7 @@ export interface RunContext {
   readonly executors: HarnessExecutors;
   readonly cache: TranscriptCache;
   /** The harness's configuration of our engine's own tools. */
-  readonly engine: EngineToolConfig;
+  readonly engine: EngineConfig;
 }
 
 type EngineResult =
@@ -122,6 +122,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
             ...(start.model ? { model: start.model } : {}),
             files: filesOf(ctx, run, start),
+            loop: ctx.engine.loop,
           });
     // Our engine's outputs folder (Q5): saved before the turn ends, while the run is held.
     if (

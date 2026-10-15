@@ -30,8 +30,9 @@ that file.
   (`FrameSchema`): `{t: "req", id, m, p}`, `{t: "res", id, ok: true, r}`,
   `{t: "res", id, ok: false, e: {code, message}}`, `{t: "msg", m, p}`, `{t: "abort", id}` and
   `{t: "ping"}`. Either end may send requests; ids are per sender.
-- Core pings every 30 s and drops a harness it has not heard from for 90 s. Its runs then end
-  as `connection.lost`, and the next advance offers them again.
+- Core pings every 30 s and drops a harness it has not heard from for 90 s (the operator's
+  `harness.pingMs` and `harness.silenceMs`, [Host tuning](./DEPLOYMENT.md#host-tuning)). Its runs
+  then end as `connection.lost`, and the next advance offers them again.
 - Error codes (`HARNESS_ERROR_CODES`): `run_not_held`, `turn_cancelled`, `ownership_lost`,
   `effect_drift`, `invalid`, `unavailable`, `internal`, `not_found` (an artifact that is not
   there for your run, §4b) and `limit_exceeded` (what you sent passes a Runtime limit of

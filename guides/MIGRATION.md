@@ -200,6 +200,17 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   taking the harness's `McpToolConfig`); `deferredToolsInstructions` is `deferredToolsNote`, and
   `SERVER_INSTRUCTIONS_MAX_CHARS`, `TOOL_SEARCH_DEFAULT_LIMIT` and `TOOL_SEARCH_MAX_LIMIT` are
   `McpToolConfig` fields.
+- **Host timings are configuration.** The Runtime's timeouts, retries, poll intervals and internal
+  sizes are the Host tuning, set in `NYLORUN_TUNING` (one JSON object; `nylorun start` passes it to
+  every container) and read once at start. Every default is the value before, so nothing changes
+  until you set one; an unknown key or a value past its ceiling stops the process naming it. See
+  [Host tuning](./DEPLOYMENT.md#host-tuning). A failed pod's reason now says `The pod was not
+  ready within 300 s` (it said `5 minutes`).
+- **Our engine's loop is configuration too.** `createHarness` takes `compaction`
+  (`CompactionConfig`, `DEFAULT_COMPACTION_CONFIG`), `partialOutputChars`, `resendDelaysMs` and
+  `leaseRetryMs`, beside `transcriptCacheMb`; `runDurable` takes `loop` (`LoopConfig`), and the
+  compaction functions take a `CompactionConfig`. `EngineToolConfig` is `EngineConfig` (the tool
+  config with `loop` and `resendDelaysMs`), and `apiHost` takes it.
 
 # Runtime limits are a Tenant setting
 

@@ -185,7 +185,9 @@ ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # MCP servers and HTTP tools on this machine: \`localhost\` in their URLs means the Docker host.
-      NYLORUN_ENDPOINT_LOOPBACK: docker-host${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host
+      # Host tuning (timings, retries, internal sizes; JSON): from the shell that runs \`nylorun start\`.
+      NYLORUN_TUNING: \${NYLORUN_TUNING:-}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and HTTP tools on this machine
     volumes:
@@ -257,7 +259,10 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       OTEL_SERVICE_NAME: \${OTEL_SERVICE_NAME:-}
       OTEL_RESOURCE_ATTRIBUTES: \${OTEL_RESOURCE_ATTRIBUTES:-}
       OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: \${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT:-}
-      NYLORUN_TRACE_CONTENT: \${NYLORUN_TRACE_CONTENT:-}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}${identity ? IDENTITY_RUNTIME_ENV : ""}
+      NYLORUN_TRACE_CONTENT: \${NYLORUN_TRACE_CONTENT:-}
+      # Host tuning (timings, retries, internal sizes; JSON): from the shell that runs \`nylorun start\`.
+      # Sandbox pods get its harness and engine groups from the runtime.
+      NYLORUN_TUNING: \${NYLORUN_TUNING:-}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}${identity ? IDENTITY_RUNTIME_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
@@ -370,6 +375,7 @@ function harnessService(project: string): string {
       NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}
       NYLORUN_GATES_URL: http://gateway:4100
       NYLORUN_HARNESS_ROOT: /harness
+      NYLORUN_TUNING: \${NYLORUN_TUNING:-} # Host tuning, as the runtime has it
     volumes:
       # The Tenant's workspaces; nothing else.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/sandboxes:/harness/sandboxes
