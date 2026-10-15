@@ -186,7 +186,7 @@ export async function publicCreatorSmoke(versions, pins) {
             check: false,
           });
           assert.equal(deprecated.code, 2);
-          assert.match(deprecated.stderr ?? "", /nylorun status is nylorun status\./);
+          assert.match(deprecated.stderr ?? "", /nylo status is nylorun status\./);
 
           // The published nylorun reports the Tenant (nylorun-operate status in the runtime container).
           const { tenant } = JSON.parse(
