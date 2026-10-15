@@ -134,7 +134,11 @@ export function declaredFlowHttp(manifest: unknown, stage: string | undefined) {
 export function isHttpToolCall(manifest: unknown, request: HostEffect): boolean {
   if (request.kind !== "tool") return false;
   if (request.toolName === undefined) return declaredFlowHttp(manifest, request.key) !== undefined;
-  return declaredHttpTool(manifest, request.agent?.id, request.toolName) !== undefined;
+  // An agent's call names what runs it (protocol 15): only an `http` call is an HTTP tool's.
+  return (
+    request.target?.kind === "http" &&
+    declaredHttpTool(manifest, request.agent?.id, request.toolName) !== undefined
+  );
 }
 
 /** The ref a `tool` effect calls the Tool Gate with: its agent's HTTP tool, or its flow stage. */

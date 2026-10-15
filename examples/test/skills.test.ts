@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { runtimeManifestFor } from "@nylorun/core/define";
+import { DEFAULT_SANDBOX_TOOL_LIMITS, engineToolsFor } from "@nylorun/harness";
 import { describe, expect, it } from "vitest";
 import { createSkills, SKILLS_CATALOG } from "../agents/skills/agent.js";
 
@@ -24,11 +24,15 @@ describe("the Skills agent", () => {
       },
     });
     expect(JSON.stringify(agent.manifest)).not.toContain("## Claim");
-    // The Runtime adds the catalog and load_skill when it pins the agent; with no file besides
-    // SKILL.md there is no read_skill_resource.
-    const runtime = runtimeManifestFor(agent.manifest);
-    expect(runtime?.instructions?.join("\n")).toContain("<name>structured-summary</name>");
-    expect(runtime?.tools?.map((tool) => tool.name)).toEqual(["load_skill"]);
+    // Our harness adds the catalog and load_skill when it runs a turn (protocol 15); with no file
+    // besides SKILL.md there is no read_skill_resource.
+    const engine = engineToolsFor(agent.manifest, undefined, {
+      artifactPageBytes: 1024,
+      sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS,
+      skillReadBytes: 1024,
+    });
+    expect(engine.instructions.join("\n")).toContain("<name>structured-summary</name>");
+    expect(engine.tools.map((tool) => tool.name)).toEqual(["load_skill", "read_artifact"]);
     // `.skills(dir)` names its part after the folder.
     const declaration = agent.getBinding().parts.find((item) => item.id === "skills:catalog");
     expect(Object.keys(declaration?.skillFiles ?? {}).sort()).toEqual(

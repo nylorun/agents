@@ -3,7 +3,7 @@
 Shared portable agent definitions and runtime protocol contracts. No engine,
 HTTP client, Node host or SDK dependencies.
 
-- `/define`: `Agent`, `tool`, the manifest and its `runtime` block (`runtimeManifestFor`), schemas and explicit local bindings.
+- `/define`: `Agent`, `tool`, the manifest, schemas and explicit local bindings.
 - `/contracts`: runtime request, event, action and response schemas.
 - `/compatibility`: protocol/definition versions and canonical manifest hashing.
 - `/transport`: what every Runtime client does on the wire: the `/health`

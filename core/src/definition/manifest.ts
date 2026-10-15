@@ -3,7 +3,6 @@ import type {
   AgentManifest,
   AgentRequirements,
   McpServerManifest,
-  RuntimeManifest,
   SkillManifest,
   ToolManifest,
 } from "../types/manifest.js";
@@ -16,13 +15,15 @@ import { httpToolOf } from "./http-tool.js";
 
 import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
 
-/** The id of the part an agent rebuilt from a pinned manifest gets for its `runtime` block. */
-export const RUNTIME_PART_ID = "runtime";
+/**
+ * The id of the part an agent rebuilt from its manifest gets for what one run adds to it: the
+ * session's tools and the text that goes with them (`agentFrom` `sessionTools`). Not hashed.
+ */
+export const SESSION_PART_ID = "session";
 
 /**
  * The agent's manifest (v7): its parts merged in order, the instructions and tools concatenated,
- * the skills and servers keyed by name. The `runtime` part is not projected: `runtime` comes as
- * it was pinned.
+ * the skills and servers keyed by name. The session part is not projected.
  */
 export function createManifest(input: {
   id: string;
@@ -31,10 +32,9 @@ export function createManifest(input: {
   metadata?: JsonObject;
   outputSchema?: ToolSchemaSource;
   requires?: AgentRequirements;
-  runtime?: RuntimeManifest;
   parts: readonly DefinitionPart[];
 }): AgentManifest {
-  const authored = input.parts.filter((part) => part.id !== RUNTIME_PART_ID);
+  const authored = input.parts.filter((part) => part.id !== SESSION_PART_ID);
   const instructions = authored.flatMap((part) => part.instructions ?? []);
   const tools = authored.flatMap((part) => (part.tools ?? []).map((tool) => projectTool(tool)));
   const skills: Record<string, SkillManifest> = {};
@@ -64,7 +64,6 @@ export function createManifest(input: {
     ...(Object.keys(skills).length === 0 ? {} : { skills }),
     ...(Object.keys(mcpServers).length === 0 ? {} : { mcpServers }),
     ...(input.requires === undefined ? {} : { requires: copyRequirements(input.requires) }),
-    ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
   });
 }
 

@@ -5,7 +5,6 @@ import type { JsonObject, JsonValue } from "./types/shared.js";
 import type { WorkflowLoopVerify, WorkflowManifest, WorkflowNode } from "./types/workflow.js";
 import {
   SANDBOX_NETWORK_PRESETS,
-  SANDBOX_TOOL_NAMES,
   isSandboxHostPattern,
   parseSandboxDuration,
   parseSandboxSize,
@@ -15,7 +14,6 @@ import {
   manifestVersionIssue,
   workflowVersionIssue,
 } from "./definition/removed.js";
-import { RUNTIME_TOOL_NAMES } from "./utils/runtime-tools.js";
 import { DELEGATE_INPUT_SCHEMA, DELEGATE_NAME_PATTERN } from "./definition/delegate.js";
 import { stdioMcpRefusal } from "./definition/mcp.js";
 import {
@@ -262,14 +260,6 @@ const removedFieldError =
     const removed = issue.keys?.find((key) => removedFields[key] !== undefined);
     return removed === undefined ? undefined : removedFields[removed];
   };
-/** What the Runtime adds to a session's agent; only the Runtime writes it. */
-const runtimeManifestSchema = z
-  .object({
-    sandbox: sandboxManifestSchema.optional(),
-    tools: z.array(toolManifestSchema).optional(),
-    instructions: z.array(z.string()).optional(),
-  })
-  .strict();
 /**
  * What an agent needs of the Environment its session opens on (protocol 14, D65), checked when a
  * session opens (`409 environment_unsuitable`). `sandbox`: `any` needs kind `virtual` or `pod`,
@@ -298,7 +288,6 @@ const agentManifestSchema = z
       skills: z.record(z.string(), skillManifestSchema).optional(),
       mcpServers: z.record(z.string(), mcpServerSchema).optional(),
       requires: agentRequirementsSchema.optional(),
-      runtime: runtimeManifestSchema.optional(),
       // Reserved for Functions, which are deferred: developer code the Runtime will run from
       // uploaded definition files (a `functions/` folder). Any value is refused below.
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
@@ -313,36 +302,16 @@ const agentManifestSchema = z
     );
     const names = new Set<string>();
     for (const tool of manifest.tools ?? []) {
-      if (RUNTIME_TOOL_NAMES.has(tool.name))
-        ctx.addIssue({
-          code: "custom",
-          message: `Tool '${tool.name}' takes the name of a tool the Runtime serves; rename it`,
-        });
       if (tool.name.includes("__"))
         ctx.addIssue({
           code: "custom",
           message: `Tool '${tool.name}' must not contain '__', which names an MCP server's tools`,
         });
     }
-    for (const tool of [...(manifest.tools ?? []), ...(manifest.runtime?.tools ?? [])]) {
+    for (const tool of manifest.tools ?? []) {
       if (names.has(tool.name))
         ctx.addIssue({ code: "custom", message: "Tool names must be unique" });
       names.add(tool.name);
-    }
-    for (const tool of manifest.runtime?.tools ?? [])
-      if (!RUNTIME_TOOL_NAMES.has(tool.name))
-        ctx.addIssue({
-          code: "custom",
-          message: `runtime.tools holds only the tools the Runtime serves, not '${tool.name}'`,
-        });
-    if (manifest.runtime?.sandbox !== undefined) {
-      const pinned = new Set((manifest.runtime.tools ?? []).map((tool) => tool.name));
-      for (const name of SANDBOX_TOOL_NAMES)
-        if (!pinned.has(name))
-          ctx.addIssue({
-            code: "custom",
-            message: `runtime.sandbox comes with the sandbox tools; runtime.tools has no '${name}'`,
-          });
     }
     if (manifest.skills && Object.keys(manifest.skills).length === 0)
       ctx.addIssue({ code: "custom", message: "skills must be omitted when the agent has no skills" });
@@ -360,13 +329,8 @@ const agentManifestSchema = z
  * (`ManifestDrift`): the hand-written type keeps its read-only fields and its docs.
  */
 export const AgentManifestSchema: z.ZodType<AgentManifest> = agentManifestSchema;
-/** Agents used as tools: one level deep, `{ task }` input, one shared sandbox spec. */
+/** Agents used as tools: one level deep, `{ task }` input. */
 function delegationIssues(manifest: AgentManifest, issue: (message: string) => void): void {
-  const sandboxes = new Set<string>();
-  const addSandbox = (agent: AgentManifest) => {
-    if (agent.runtime?.sandbox) sandboxes.add(canonical(agent.runtime.sandbox));
-  };
-  addSandbox(manifest);
   for (const tool of manifest.tools ?? []) {
     const child = tool.agent;
     if (!child) continue;
@@ -378,18 +342,11 @@ function delegationIssues(manifest: AgentManifest, issue: (message: string) => v
       issue(`Agent tool '${tool.name}' must take the standard { task } input`);
     if (tool.outputSchema !== undefined)
       issue(`Agent tool '${tool.name}' must not declare outputSchema; the agent's outputSchema applies`);
-    if ("kind" in child) {
-      // A flow agent runs in its own linked session; its leaves may delegate in turn.
-      if (child.sandbox !== undefined && Object.keys(child.sandbox).length > 0)
-        sandboxes.add(canonical(child.sandbox));
-      continue;
-    }
+    // A flow agent runs in its own linked session; its leaves may delegate in turn.
+    if ("kind" in child) continue;
     if (child.tools?.some((item) => item.agent !== undefined))
       issue(`'${child.id}' delegates to another agent; nested delegation is not supported yet`);
-    addSandbox(child);
   }
-  if (sandboxes.size > 1)
-    issue("An agent and the agents it uses as tools must declare identical sandboxes");
 }
 // Workflow manifest v3 (flow agents): `id` on any node, embedded agents, no functions.
 const workflowNodeOptions = { id: z.string().min(1).optional() };
@@ -2440,11 +2397,11 @@ export const ContextCompactedPayloadSchema = z
   .passthrough();
 /** How a tool call ended (R5.1): the tool answered, the Runtime ended it, or a cancel did. */
 export const TOOL_CALL_STATUSES = ["completed", "failed", "cancelled"] as const;
-/** Where a tool call ran (R5.1): a remote MCP server, an HTTP tool, the sandbox, or core. */
 /**
- * Where a tool call runs: an MCP server, an HTTP tool's URL, the session's sandbox, the Runtime
- * itself (`platform`: the artifact, skill and deferred-tool tools), or the harness that runs the
- * turn (`harness`: a tool it declared in `hello.features.tools`).
+ * Where a tool call ran (R5.1), its effect's target kind (protocol 15): an MCP server, an HTTP
+ * tool's URL, the session's sandbox, the Runtime itself (`platform`: `tool_search`), or the
+ * harness that runs the turn (`harness`: a tool it runs in its own process, such as our engine's
+ * skill and artifact tools).
  */
 export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "platform", "harness"] as const;
 /**
@@ -3648,10 +3605,9 @@ export const SessionViewSchema = z
     ownerUserId: z.string(),
     manifestHash: z.string(),
     /**
-     * The hash of the definition the session was opened from (R2b C11). `manifestHash` differs
-     * from it when the Runtime pinned its `runtime` block on the definition: a sandbox's tools,
-     * the artifact tools and the skill tools. Compare this one with the registered
-     * definition's hash. Absent for a session opened before this release.
+     * The hash of the definition the session was opened from (R2b C11). Since protocol 15 the
+     * session pins its definition as registered, so it equals `manifestHash`. Absent for a
+     * session opened before R2b C11.
      */
     definitionHash: z.string().optional(),
     implementationVersion: z.string(),

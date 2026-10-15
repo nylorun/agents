@@ -1,6 +1,9 @@
 /** Portable sandbox constants and parsers shared by the SDK, wire schema and Runtime. */
 
-/** The sandbox tools the Runtime adds to a session with a sandbox, and runs. */
+/**
+ * The sandbox operations a harness runs in a session's sandbox: a `sandbox` call names one as its
+ * tool (protocol 15). Our engine offers a tool of each name.
+ */
 export const SANDBOX_TOOL_NAMES = Object.freeze([
   "bash",
   "read",

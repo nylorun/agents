@@ -13,6 +13,8 @@ export const REMOVED_MANIFEST_FIELDS: Readonly<Record<string, string>> = Object.
     "hooks were removed: the Runtime runs agents from their manifests alone. Use an HTTP tool, the Tenant's tool policy, or a loop verifier instead (see MIGRATION.md)",
   capabilities:
     "Manifest v7 has no capabilities: the agent's instructions, tools, skills and mcpServers are top-level fields. Rebuild the agent with the current SDK (see MIGRATION.md)",
+  runtime:
+    "Manifest field runtime was removed: since protocol 15 the harness writes the model's instructions and defines the sandbox and skill tools. Register the manifest your builder makes (see MIGRATION.md)",
 });
 
 /** Why a manifest with this `manifestSchemaVersion` is refused, or undefined for version 7. */

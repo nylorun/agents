@@ -8,12 +8,13 @@
  * (`--service harness`, `main.ts`) its own, whose sandbox events it claims from core.
  */
 import { hashManifest, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
+import { sandboxToolLimitsOf, type SandboxToolLimits } from "@nylorun/harness";
 import type { HarnessExecutors, HarnessRun, McpRecorder, PreparedRun } from "@nylorun/harness/api";
 import type { DurableSessionTool } from "@nylorun/harness/run";
 import type { ToolGate } from "../gates/tool-gate.js";
 import { GateCallLost } from "../gates/tool-client.js";
 import { serversOf, type McpPool } from "../mcp/pool.js";
-import { mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
+import type { McpSnapshot } from "../mcp/snapshot.js";
 import type { SandboxManager, SandboxSessionRef } from "../sandbox/manager.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
 import {
@@ -34,10 +35,16 @@ export interface HarnessExecutorsOptions {
   readonly mcp: McpPool;
   /** The SandboxManager; a harness process creates it once `hello` names the Tenant. */
   readonly sandbox: () => SandboxManager;
+  /**
+   * The sandbox tools' limits the calls run with: the harness's configuration, the same it gives
+   * `createHarness({ sandboxTools })`. Each left out is its default.
+   */
+  readonly sandboxTools?: Partial<SandboxToolLimits>;
 }
 
 export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecutors {
   const recoversTools = options.toolGate.recovers === true;
+  const sandboxTools = sandboxToolLimitsOf(options.sandboxTools);
   const atGate = (effect: Parameters<HarnessExecutors["tool"]>[0], run: HarnessRun) => {
     const routing = routingOf(run);
     return isRemoteMcpCall(routing, effect) || isHttpToolCall(routing.rootManifest, effect);
@@ -53,16 +60,21 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
       const traceparent = call?.traceparent;
       // A call at the Tool Gate outlives a shutdown there; a local one finishes and is recorded.
       const kinds = recovered(effect, run) ? (["cancel", "shutdown"] as const) : (["cancel"] as const);
+      // A call is routed by what it names as its target (protocol 15); a flow's HTTP stage names
+      // its stage.
       if (isHttpToolCall(routing.rootManifest, effect))
         return callHttpTool(options.toolGate, effect, abortOn(signal, kinds), traceparent);
       // A sandbox command joins its call's span (R7.4): a CLI that reads TRACEPARENT traces under it.
-      if (!mcpToolOf(routing.mcpSnapshot, effect))
+      if (effect.target?.kind === "sandbox")
         return callSandboxTool(
           options.sandbox(),
           traceparent ? { ...routing, environment: { ...routing.environment, TRACEPARENT: traceparent } } : routing,
           effect,
-          signal
+          signal,
+          sandboxTools
         );
+      if (effect.target?.kind !== "mcp")
+        throw new Error(`This harness runs no ${effect.target?.kind ?? "untargeted"} call of '${effect.toolName ?? ""}'`);
       return callMcpTool(
         options.mcp,
         routing,
@@ -106,7 +118,7 @@ async function withSandbox<T>(
   use: (session: SandboxSessionRef, spec: SandboxManifest) => Promise<T>
 ): Promise<T | { kind: "failed"; code: string; message: string }> {
   const routing = routingOf(run);
-  const spec = routing.rootManifest.runtime?.sandbox;
+  const { spec } = routing;
   if (spec === undefined)
     return { kind: "failed", code: "artifact.no_sandbox", message: "This session has no sandbox." };
   return use(
@@ -167,6 +179,7 @@ export function routingOf(run: HarnessRun): ToolRouting {
     rootManifest: routing.rootManifest as AgentManifest,
     ...(routing.mcpSnapshot ? { mcpSnapshot: routing.mcpSnapshot as McpSnapshot } : {}),
     sandboxOwnerId: routing.sandbox?.ownerId ?? run.grant.sessionId,
+    ...(routing.sandbox?.spec === undefined ? {} : { spec: routing.sandbox.spec as SandboxManifest }),
     ...(routing.sandbox?.environmentId === undefined ? {} : { environmentId: routing.sandbox.environmentId }),
     ...(routing.sandbox?.environment === undefined ? {} : { environment: routing.sandbox.environment }),
     activeTurnId: run.grant.turnId,

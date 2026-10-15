@@ -501,11 +501,11 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     });
     // From the log alone: each call names the skill it ran and the plugin that brought it.
     const plugin = { name: "ops", version: "1.2.0" };
-    expect(loaded).toMatchObject({ kind: "platform", skill: "triage", plugin });
+    expect(loaded).toMatchObject({ kind: "harness", skill: "triage", plugin });
     expect(ran).toMatchObject({ toolName: "bash", kind: "sandbox", skill: "triage", plugin });
     expect(logo).toMatchObject({ skill: "triage", plugin });
+    // The session pins the definition as registered: our harness words the skills' folders.
     const { manifest } = await session.manifest();
-    const runtimeBlock = (manifest as { runtime?: { instructions?: string[] } }).runtime;
-    expect(runtimeBlock?.instructions?.join("\n")).toContain(`${folder}/`);
+    expect(manifest).not.toHaveProperty("runtime");
   });
 });

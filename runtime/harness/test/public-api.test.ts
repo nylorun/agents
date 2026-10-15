@@ -12,6 +12,10 @@ describe("public API", () => {
         "createDurableCheckpoint",
         "createExecutionState",
         "checkCompatibility",
+        // A harness of your own words the same facts with our helpers (protocol 15).
+        "engineToolsFor",
+        "sandboxTools",
+        "skillCatalogText",
       ]),
     );
     expect(api).not.toHaveProperty("Agent");
@@ -34,18 +38,36 @@ describe("public API", () => {
 
   it("exports the Harness API client from ./api", async () => {
     const harnessApi = await import("../src/api/index.js");
-    expect(Object.keys(harnessApi).sort()).toEqual([
-      "ABORT_MESSAGES",
-      "RunAbort",
-      "TranscriptCache",
-      "apiHost",
-      "artifactToolDeclarations",
-      "artifactToolsFor",
-      "createHarness",
-      "isArtifactTool",
-      "runAbortKind",
-      "runArtifactTool",
-      "runTurn",
-    ]);
+    expect(Object.keys(harnessApi).sort()).toEqual(
+      [
+        "ABORT_MESSAGES",
+        "DEFAULT_SANDBOX_TOOL_LIMITS",
+        "DEFAULT_SKILL_READ_BYTES",
+        "LOAD_SKILL_TOOL",
+        "READ_SKILL_RESOURCE_TOOL",
+        "RunAbort",
+        "SKILLS_USAGE",
+        "TranscriptCache",
+        "apiHost",
+        "artifactInstructions",
+        "artifactToolsFor",
+        "createHarness",
+        "engineToolsFor",
+        "formatSkillCatalog",
+        "isArtifactTool",
+        "isSkillTool",
+        "runAbortKind",
+        "runArtifactTool",
+        "runSkillTool",
+        "runTurn",
+        "sandboxInstructions",
+        "sandboxToolLimitsOf",
+        "sandboxTools",
+        "skillCatalogText",
+        "skillFolderNote",
+        "skillOfToolCall",
+        "skillTools",
+      ].sort(),
+    );
   });
 });

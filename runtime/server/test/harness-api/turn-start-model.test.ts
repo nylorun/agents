@@ -42,7 +42,7 @@ async function firstTurn(setup: (runtime: Started) => Promise<void> = async () =
   cleanups.push(() => runtime.close());
   await setup(runtime);
   const acme = attach(runtime);
-  await acme.request("hello", { api: HARNESS_API_VERSION, name: "acme-mini", version: "0", features: { tools: [] } });
+  await acme.request("hello", { api: HARNESS_API_VERSION, name: "acme-mini", version: "0", features: {} });
   expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "none", harness: "acme-mini" })).status).toBe(200);
   await openSession(runtime, "seed");
   expect(

@@ -3,8 +3,9 @@
  * Tenant's provider), the Tool Gate, the MCP pool, the SandboxManager. No store, no record: the
  * session's routing comes with the run (`TurnStart.routing`).
  */
-import type { AgentManifest } from "@nylorun/core/define";
+import { isSandboxToolName, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
+import type { SandboxToolLimits } from "@nylorun/harness";
 import { runAbortKind } from "@nylorun/harness/api";
 import type { AbortReason } from "@nylorun/core/harness-api";
 import type { RuntimeModelCall } from "../contracts.js";
@@ -14,8 +15,7 @@ import type { ToolGate } from "../gates/tool-gate.js";
 import { httpToolRefOf } from "../gates/http-tool.js";
 import { classifyThrown } from "../model/classify.js";
 import { findServer, type McpPool } from "../mcp/pool.js";
-import { manifestFor, mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
-import { sandboxToolSpec } from "../sandbox/runtime-tools.js";
+import { mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 
 /** Where a Tenant's model calls go. */
@@ -33,6 +33,8 @@ export interface ToolRouting {
   readonly mcpSnapshot?: McpSnapshot;
   /** The session that owns the tree's sandbox, and the sandbox resource it is attached to. */
   readonly sandboxOwnerId: string;
+  /** The sandbox spec the session pinned (`routing.sandbox.spec`); absent without a sandbox. */
+  readonly spec?: SandboxManifest;
   readonly environmentId?: string;
   /** Variables every sandbox command gets (R2c): secret names set to the sentinel, plain values. */
   readonly environment?: Readonly<Record<string, string>>;
@@ -164,15 +166,21 @@ export async function callHttpTool(
   );
 }
 
+/**
+ * Runs a `sandbox` call: the operation it names, in the session's sandbox (the one its agents
+ * used as tools share), held to the harness's sandbox tool limits.
+ */
 export async function callSandboxTool(
   sandbox: SandboxManager,
   routing: ToolRouting,
   request: HostEffect,
-  signal: AbortSignal
+  signal: AbortSignal,
+  limits?: SandboxToolLimits
 ): Promise<unknown> {
-  const spec = sandboxToolSpec(manifestFor(routing.rootManifest, request.agent), request.toolName);
-  if (!spec) throw new Error(`'${request.toolName ?? ""}' is not a sandbox tool`);
-  // Agents used as tools share the session's sandbox; the tree declares one sandbox spec.
+  const { spec } = routing;
+  if (!spec) throw new Error(`This session has no sandbox to run '${request.toolName ?? ""}' in`);
+  if (request.toolName === undefined || !isSandboxToolName(request.toolName))
+    throw new Error(`'${request.toolName ?? ""}' is not a sandbox operation`);
   return sandbox.run(
     {
       id: routing.sandboxOwnerId,
@@ -183,8 +191,9 @@ export async function callSandboxTool(
       ...(routing.claim === undefined ? {} : { claim: routing.claim }),
     },
     spec,
-    request.toolName as never,
+    request.toolName,
     request.input,
-    signal
+    signal,
+    limits
   );
 }

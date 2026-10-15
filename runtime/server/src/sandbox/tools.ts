@@ -1,10 +1,13 @@
 /**
- * The six built-in sandbox tools, implemented once over `SandboxHandle` so every backend behaves
- * the same. Expected problems are returned as failed outcomes; only infrastructure errors throw.
+ * The six sandbox operations, implemented once over `SandboxHandle` so every backend behaves the
+ * same, held to the harness's sandbox tool limits (`SandboxToolLimits`, the numbers its tools'
+ * schemas name). Expected problems are returned as failed outcomes; only infrastructure errors
+ * throw.
  */
 import { posix } from "node:path";
 import type { SandboxToolOutcome } from "@nylorun/core/contracts";
 import { SANDBOX_WORKSPACE, type SandboxToolName } from "@nylorun/core/define";
+import { DEFAULT_SANDBOX_TOOL_LIMITS, type SandboxToolLimits } from "@nylorun/harness";
 import type { ExecResult, SandboxHandle } from "./types.js";
 
 export type { SandboxToolOutcome };
@@ -17,13 +20,6 @@ export interface SandboxToolReport {
   readonly killed?: boolean;
 }
 
-const OUTPUT_LIMIT = 30_000;
-const DEFAULT_TIMEOUT_S = 120;
-const DEFAULT_READ_LINES = 2000;
-const LINE_LIMIT = 2000;
-const DEFAULT_GREP_RESULTS = 200;
-const GLOB_LIMIT = 500;
-const GLOB_SCAN_LIMIT = 20_000;
 /**
  * How long a command the Runtime runs for itself in a sandbox may take (making a file's folder,
  * mounting a skill, a tool's own helper command). Becomes configuration with the other sandbox
@@ -46,7 +42,10 @@ export function resolveSandboxPath(path: string, workspace: string = SANDBOX_WOR
 }
 
 /** Keep the head and tail of long output so the model sees both the start and the error. */
-export function truncateMiddle(value: string, limit = OUTPUT_LIMIT): { text: string; truncated: boolean } {
+export function truncateMiddle(
+  value: string,
+  limit = DEFAULT_SANDBOX_TOOL_LIMITS.outputChars
+): { text: string; truncated: boolean } {
   if (value.length <= limit) return { text: value, truncated: false };
   const half = Math.floor(limit / 2);
   const omitted = value.length - half * 2;
@@ -68,9 +67,11 @@ export async function runSandboxTool(
   input: Record<string, any>,
   signal: AbortSignal,
   report: (value: SandboxToolReport) => void,
+  limits: SandboxToolLimits = DEFAULT_SANDBOX_TOOL_LIMITS,
   /** Variables every command gets (R2c): secret names set to the sentinel, plain values. */
   environment?: Readonly<Record<string, string>>
 ): Promise<SandboxToolOutcome> {
+  const lineOf = (line: string) => (line.length > limits.lineChars ? `${line.slice(0, limits.lineChars)}…` : line);
   const workspace = handle.workspace ?? SANDBOX_WORKSPACE;
   const resolvePath = (path: string) => resolveSandboxPath(path, workspace);
   const exec = (command: string, timeoutMs = HELPER_COMMAND_TIMEOUT_MS): Promise<ExecResult> =>
@@ -78,11 +79,11 @@ export async function runSandboxTool(
   switch (name) {
     case "bash": {
       const command = String(input.command);
-      const timeout = (input.timeout ?? DEFAULT_TIMEOUT_S) * 1000;
+      const timeout = Math.min(input.timeout ?? limits.defaultTimeoutS, limits.maxTimeoutS) * 1000;
       const result = await exec(command, timeout);
       report({ command, exitCode: result.exitCode, killed: result.killed });
-      const stdout = truncateMiddle(result.stdout);
-      const stderr = truncateMiddle(result.stderr);
+      const stdout = truncateMiddle(result.stdout, limits.outputChars);
+      const stderr = truncateMiddle(result.stderr, limits.outputChars);
       return {
         kind: "completed",
         output: {
@@ -104,14 +105,11 @@ export async function runSandboxTool(
       const lines = content.split("\n");
       if (lines.at(-1) === "") lines.pop();
       const start = (input.offset ?? 1) - 1;
-      const limit = input.limit ?? DEFAULT_READ_LINES;
+      const limit = Math.min(input.limit ?? limits.readLines, limits.maxReadLines);
       const slice = lines.slice(start, start + limit);
       const width = String(start + slice.length).length;
       const text = slice
-        .map((line: string, index: number) => {
-          const clipped = line.length > LINE_LIMIT ? `${line.slice(0, LINE_LIMIT)}…` : line;
-          return `${String(start + index + 1).padStart(width, " ")}\t${clipped}`;
-        })
+        .map((line: string, index: number) => `${String(start + index + 1).padStart(width, " ")}\t${lineOf(line)}`)
         .join("\n");
       const remaining = lines.length - (start + slice.length);
       return {
@@ -155,7 +153,7 @@ export async function runSandboxTool(
       return { kind: "completed", output: { path, replacements: input.replace_all === true ? count : 1 } };
     }
     case "grep": {
-      const max = input.max_results ?? DEFAULT_GREP_RESULTS;
+      const max = Math.min(input.max_results ?? limits.grepResults, limits.maxGrepResults);
       const target = input.path ? String(input.path) : ".";
       const flags = ["-rnE", ...(input.ignore_case ? ["-i"] : [])];
       const include = input.glob ? ` --include=${quote(String(input.glob))}` : "";
@@ -168,7 +166,7 @@ export async function runSandboxTool(
         return result.stderr.trim()
           ? failed("sandbox.grep_failed", result.stderr.trim())
           : { kind: "completed", output: "No matches." };
-      const shown = lines.slice(0, max).map((line) => (line.length > LINE_LIMIT ? `${line.slice(0, LINE_LIMIT)}…` : line));
+      const shown = lines.slice(0, max).map(lineOf);
       return {
         kind: "completed",
         output: lines.length > max ? `${shown.join("\n")}\n… more matches omitted; narrow the search.` : shown.join("\n"),
@@ -177,7 +175,7 @@ export async function runSandboxTool(
     case "glob": {
       const root = resolvePath(input.path ? String(input.path) : ".");
       const pattern = String(input.pattern);
-      const command = `find ${quote(root)} -type f -not -path '*/.git/*' 2>/dev/null | head -n ${GLOB_SCAN_LIMIT}`;
+      const command = `find ${quote(root)} -type f -not -path '*/.git/*' 2>/dev/null | head -n ${limits.globScan}`;
       report({ command });
       const result = await exec(command);
       const byBasename = !pattern.includes("/");
@@ -187,7 +185,7 @@ export async function runSandboxTool(
         const relative = posix.relative(root, file);
         if (posix.matchesGlob(byBasename ? posix.basename(relative) : relative, pattern)) {
           matches.push(file);
-          if (matches.length > GLOB_LIMIT) break;
+          if (matches.length > limits.globResults) break;
         }
       }
       if (matches.length === 0) return { kind: "completed", output: "No files matched." };
@@ -195,8 +193,8 @@ export async function runSandboxTool(
       return {
         kind: "completed",
         output:
-          matches.length > GLOB_LIMIT
-            ? `${matches.slice(0, GLOB_LIMIT).join("\n")}\n… more files omitted; narrow the pattern.`
+          matches.length > limits.globResults
+            ? `${matches.slice(0, limits.globResults).join("\n")}\n… more files omitted; narrow the pattern.`
             : matches.join("\n"),
       };
     }

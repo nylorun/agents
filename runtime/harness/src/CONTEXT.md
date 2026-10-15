@@ -6,8 +6,8 @@ persists progress and connects it to external systems.
 ## Language
 
 **Manifest**: The serializable description of an agent: its instructions, tools, skills and MCP
-servers, and in a session's pin the Runtime's `runtime` block. Its canonical hash identifies the
-definition used by an execution.
+servers. A session pins it as registered (protocol 15: no `runtime` block), and its canonical hash
+identifies the definition used by an execution.
 
 **Binding**: The local pairing of a manifest with its ordered parts, executable
 tool snapshots and live schema validators. Functions in a binding stay local.
@@ -33,19 +33,44 @@ hosted tool. The engine never asks for approval of an HTTP or MCP call: the host
 does, as it journals the effect (a `pending` intent while a person decides).
 
 **Deferred session tool**: A session tool marked `deferred` (R2b C10): out of the model's tool
-list, and run by `tool_call` (a session tool of the `runtime` part), which checks the arguments
-against the tool's `inputSchema` and makes the call as the tool's own effect, which the host's
-tool policy decides as it would a direct call. A session tool may carry `instructions`, which the model reads with the
-Runtime's while it is advertised (`tool_search`'s note of the servers).
+list, and run by `tool_call` (a session tool of the session part), which checks the arguments
+against the tool's `inputSchema` and makes the call as the tool's own effect (its `target`
+included), which the host's tool policy decides as it would a direct call. A session tool may
+carry `instructions`, which the model reads after our engine's while it is advertised
+(`tool_search`'s note of the servers), and names its calls' **effect target** (`mcp`, or
+`platform` for `tool_search`).
 
-**Engine tool**: A tool our engine adds to each agent of a session's tree and runs in the
-harness itself, not in the host (protocol 15): today `read_artifact` and `save_artifact`
-(`tools/artifacts.ts`). Its name, description, schema and instructions are ours; it is offered
-like a session tool (`runDurable({ engineTools })`: after the Runtime's tools, before the
-session's, with its instructions first among theirs, not hashed) and journaled as a `tool`
-effect our harness declares in `hello` (`features.tools`), which core records as kind `harness`.
-The API host runs it instead of `executors.tool` (`api/host.ts`). An author tool of the same name
-fails the turn.
+**Engine tool**: A tool our engine adds to each agent of a session's tree (protocol 15),
+with the text that goes with it (`engineToolsFor`, `tools/engine-tools.ts`), from the facts
+`turn.start` states: the Environment (`environment.sandbox.workspace`) and the agent's `skills`.
+In one order, which keeps the prompt's prefix stable (`test/prompt-prefix.test.ts`):
+instructions are the skills' usage and catalog, the sandbox note, the skills' folder note, then
+the artifact notes; tools are the six sandbox tools (`tools/sandbox.ts`), `load_skill` and
+`read_skill_resource` (`tools/skills.ts`), `save_artifact` and `read_artifact`
+(`tools/artifacts.ts`). Their names, descriptions, schemas and text are ours; they are offered
+like session tools (`runDurable({ engineTools })`: after the agent's own tools, before the
+session's, with their text before the session tools' own, not hashed). Each names its calls'
+**effect target**: a sandbox tool `sandbox` (the host runs it in the session's sandbox, through
+`executors.tool`), the skill and artifact tools `harness` (the API host runs them itself,
+`api/host.ts`: the skill tools over `definition.file`, the artifact tools over the artifact
+seam). An author tool of the same name fails the turn (`agentFrom`, `agent.build-failed`).
+
+**Effect target**: What runs a tool effect (`HostEffect.target`, `{kind}`): `mcp`, `http`,
+`sandbox`, `harness` or `platform`. Core routes the call by it, never by the tool's name; an
+author's code tool names none, and the record fails it to the model. A tool effect also names
+the `skill` it ran (`skillOfToolCall`, `tools/trace.ts`: a skill tool's, or a sandbox call whose
+input names a skill's folder), which the record keeps when the agent has that skill.
+
+**Sandbox tool limits**: The harness's configuration of its sandbox tools (`SandboxToolLimits`,
+`DEFAULT_SANDBOX_TOOL_LIMITS`; `createHarness({ sandboxTools })`): the `bash` timeouts, the `read`
+line counts, the `grep` and `glob` counts and the characters of output and of a line. Our engine
+writes the schema maxima and defaults from it, and the host runs the calls with the same
+(`harnessExecutors({ sandboxTools })`). Not Runtime limits: the Runtime holds what crosses it.
+
+**Skill read bytes**: The most bytes of one skill file the skill tools read into the model's
+context (`createHarness({ skillReadBytes })`, 10 MiB by default), held also to the run's
+`limits.recordEntryBytes`, since an answer is one record entry; a larger file is
+`skill.resource_too_large`, used in the sandbox when there is one.
 
 **Artifact seam**: How the harness reads and writes the artifacts of the run it holds
 (`artifact.read`, `artifact.write`; the client helpers `readArtifact`, `openArtifactWrite`,

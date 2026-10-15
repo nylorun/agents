@@ -21,7 +21,6 @@ import {
   READ_ARTIFACT_TOOL,
   SANDBOX_WORKSPACE,
   SAVE_ARTIFACT_TOOL,
-  type AgentManifest,
   type JsonObject,
 } from "@nylorun/core/define";
 import {
@@ -40,6 +39,7 @@ import {
   type ArtifactMeta,
   type ArtifactRequester,
   type ArtifactWriteOptions,
+  type EffectTarget,
 } from "@nylorun/core/harness-api";
 import type { DurableSessionTool, HostEffect } from "../run/durable.js";
 import type { FailedFileOutcome, HarnessFiles, HarnessRun } from "../api/executors.js";
@@ -150,15 +150,16 @@ export function isArtifactTool(name: string | undefined): boolean {
   return name === READ_ARTIFACT_TOOL || name === SAVE_ARTIFACT_TOOL;
 }
 
+const HARNESS: EffectTarget = Object.freeze({ kind: "harness" });
+
 /**
- * The artifact tools our engine offers `agent`, with their instructions: `save_artifact` when it
- * has a sandbox, and `read_artifact`, which takes `path` only then.
+ * The artifact tools our engine offers an agent: `save_artifact` when the session has a sandbox,
+ * and `read_artifact`, which takes `path` only then. Each runs here (`harness`).
  */
 export function artifactToolsFor(
-  agent: Pick<AgentManifest, "runtime">,
+  sandboxed: boolean,
   options: ArtifactToolOptions,
 ): DurableSessionTool[] {
-  const sandboxed = agent.runtime?.sandbox !== undefined;
   return [
     ...(sandboxed
       ? [
@@ -166,7 +167,7 @@ export function artifactToolsFor(
             name: SAVE_ARTIFACT_TOOL,
             description: SAVE_DESCRIPTION,
             inputSchema: SAVE_SCHEMA,
-            instructions: [ARTIFACTS_INSTRUCTIONS],
+            target: HARNESS,
           },
         ]
       : []),
@@ -174,26 +175,14 @@ export function artifactToolsFor(
       name: READ_ARTIFACT_TOOL,
       description: readDescription(options.pageBytes, sandboxed),
       inputSchema: readSchema(options.pageBytes, sandboxed),
-      instructions: [READ_ARTIFACT_INSTRUCTIONS],
+      target: HARNESS,
     },
   ];
 }
 
-/**
- * The artifact tools as `hello.features.tools` declares them (R4.2): their widest form, so core
- * journals their calls as tools this harness runs (`harness`).
- */
-export function artifactToolDeclarations(
-  options: ArtifactToolOptions,
-): { name: string; description: string; inputSchema: JsonObject }[] {
-  return [
-    { name: SAVE_ARTIFACT_TOOL, description: SAVE_DESCRIPTION, inputSchema: SAVE_SCHEMA },
-    {
-      name: READ_ARTIFACT_TOOL,
-      description: readDescription(options.pageBytes, true),
-      inputSchema: readSchema(options.pageBytes, true),
-    },
-  ];
+/** What the model reads with the artifact tools, in their order. */
+export function artifactInstructions(sandboxed: boolean): string[] {
+  return [...(sandboxed ? [ARTIFACTS_INSTRUCTIONS] : []), READ_ARTIFACT_INSTRUCTIONS];
 }
 
 /** What an artifact tool runs with. */
@@ -239,13 +228,9 @@ export async function runArtifactTool(
   }
 }
 
-/** Whether the run's session has a sandbox: its agents share the root's. */
+/** Whether the run's session has a sandbox (`turn.start.environment.sandbox`): its agents share it. */
 function sandboxed(context: ArtifactToolContext): boolean {
-  return (
-    context.files !== undefined &&
-    (context.run.start.routing.rootManifest as Pick<AgentManifest, "runtime">).runtime?.sandbox !==
-      undefined
-  );
+  return context.files !== undefined && context.run.start.environment?.sandbox !== undefined;
 }
 
 function about(artifact: ArtifactMeta) {

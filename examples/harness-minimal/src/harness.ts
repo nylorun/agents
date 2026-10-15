@@ -6,9 +6,11 @@
  * `effect.outcome` after, so a run that starts over replays what already happened instead of
  * doing it again. It declares no workspace and uses no MCP.
  *
- * How a message's files reach the model is the harness's to decide (protocol 15): this one
- * sends each file the turn's model reads (`turn.start.model`) as its media part, and a line
- * saying it is not shown for the rest. The Model Gate refuses a part the model cannot take.
+ * What the model reads is the harness's to decide (protocol 15). The instructions are the agent's
+ * own, then a one-line note on the sandbox when the session has one (`turn.start.environment`),
+ * with its `bash` tool. Each file the turn's model reads (`turn.start.model`) goes as its media
+ * part, and a line saying it is not shown for the rest. The Model Gate refuses a part the model
+ * cannot take.
  *
  * Written only against `@nylorun/core` (its Harness API and media types); it does not use our
  * engine.
@@ -71,20 +73,26 @@ const MAX_STEPS = 16;
 /** The longest stdout or stderr a command returns; the middle of longer output is dropped. */
 const OUTPUT_LIMIT = 32 * 1024;
 
-/**
- * The parts of an agent manifest (v7) this harness reads: the agent's instructions, and the
- * `runtime` block the Runtime pinned, with the session's sandbox, its tools and their text.
- */
+/** The parts of an agent manifest (v7) this harness reads: the agent's id and instructions. */
 interface Manifest {
   readonly id: string;
   readonly instructions?: readonly string[];
-  readonly tools?: readonly ModelCallTool[];
-  readonly runtime?: {
-    readonly sandbox?: unknown;
-    readonly tools?: readonly ModelCallTool[];
-    readonly instructions?: readonly string[];
-  };
 }
+
+/** This harness's one tool: `bash`, which it runs itself. */
+const BASH: ModelCallTool = {
+  name: "bash",
+  description: "Run a bash command. Returns exitCode, stdout and stderr.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      command: { type: "string", minLength: 1 },
+      timeout: { type: "integer", minimum: 1, maximum: 600, description: "Seconds. Default 120." },
+    },
+    required: ["command"],
+    additionalProperties: false,
+  },
+};
 
 /** The parts of a checkpoint this harness reads. `state` is what it settled the last turn with. */
 interface Checkpoint {
@@ -276,14 +284,15 @@ async function segment(
   const manifest = run.start.manifest as Manifest;
   const segmentNo = checkpoint.segment ?? 0;
   const recorded = new Map(run.start.outcomes.map((outcome) => [outcome.effectId, outcome]));
-  // The sandbox's bash, from the Runtime's block, is the one tool offered. The instructions are the
-  // agent's own, then the Runtime's.
-  const bash =
-    manifest.runtime?.sandbox === undefined
-      ? undefined
-      : manifest.runtime.tools?.find((tool) => tool.name === "bash");
+  // With a sandbox, bash is the one tool offered, with a note of ours. The instructions are the
+  // agent's own, then ours.
+  const sandbox = run.start.environment?.sandbox;
+  const bash = sandbox === undefined ? undefined : BASH;
   const tools: ModelCallTool[] = bash ? [bash] : [];
-  const instructions = [...(manifest.instructions ?? []), ...(manifest.runtime?.instructions ?? [])];
+  const instructions = [
+    ...(manifest.instructions ?? []),
+    ...(sandbox ? [`You can run commands with bash; the working directory is ${sandbox.workspace}.`] : []),
+  ];
 
   const { entries: before } = await channel.request("transcript.read", { runId });
   const added: TranscriptEntry[] = [{ kind: "input", turnId, event }];
@@ -350,6 +359,8 @@ async function segment(
           effectId: effectIdOf(turnId, segmentNo, "tool", `${step}:${toolCall.id}`),
           kind: "tool",
           toolName: bash.name,
+          // It runs the command in its own process: the record keeps it as the harness's.
+          target: { kind: "harness" },
           input: toolCall.args,
           context: { callId: toolCall.id, invocationId: `${stepId}:${toolCall.id}`, stepId },
         },
@@ -363,7 +374,7 @@ async function segment(
   return failed("harness.max_steps", `The model took more than ${MAX_STEPS} steps`);
 }
 
-type Effect = Pick<EffectIntent, "effectId" | "kind" | "toolName" | "context"> & {
+type Effect = Pick<EffectIntent, "effectId" | "kind" | "toolName" | "target" | "context"> & {
   input: unknown;
 };
 type Resolved =

@@ -51,6 +51,7 @@ import {
   type SandboxSelectionReport,
 } from "./select.js";
 import { mountSkill, sandboxSkillsOf } from "./skills.js";
+import { DEFAULT_SANDBOX_TOOL_LIMITS, type SandboxToolLimits } from "@nylorun/harness";
 import { runDiskOp, type DiskAnswer, type DiskOp } from "./disk-fs.js";
 import {
   HELPER_COMMAND_TIMEOUT_MS,
@@ -69,7 +70,6 @@ import {
   type SandboxSpec,
 } from "./types.js";
 
-export { sandboxToolSpec } from "./runtime-tools.js";
 export type { SandboxRecord, SandboxRecords, SandboxState } from "./records.js";
 
 export interface SandboxSessionRef {
@@ -263,17 +263,24 @@ export class SandboxManager {
     return { ...reportSelection(await this.ready), defaultImage: DEFAULT_SANDBOX_IMAGE };
   }
 
+  /**
+   * Runs sandbox operation `toolName` in the session's sandbox, held to `limits`: the harness's
+   * sandbox tool limits (`DEFAULT_SANDBOX_TOOL_LIMITS` when it names none).
+   */
   async run(
     session: SandboxSessionRef,
     sandbox: SandboxManifest | undefined,
     toolName: SandboxToolName,
     input: unknown,
-    signal: AbortSignal
+    signal: AbortSignal,
+    limits: SandboxToolLimits = DEFAULT_SANDBOX_TOOL_LIMITS
   ): Promise<SandboxToolOutcome> {
     const prepared = await this.prepare(session, sandbox);
     if ("kind" in prepared) return prepared;
     const { live: entry, spec } = prepared;
-    return this.inLane(entry, session.id, () => this.execute(entry, session, spec, toolName, input, signal));
+    return this.inLane(entry, session.id, () =>
+      this.execute(entry, session, spec, toolName, input, signal, limits)
+    );
   }
 
   /**
@@ -544,11 +551,12 @@ export class SandboxManager {
     spec: SandboxSpec,
     toolName: SandboxToolName,
     input: unknown,
-    signal: AbortSignal
+    signal: AbortSignal,
+    limits: SandboxToolLimits
   ): Promise<SandboxToolOutcome> {
     if (signal.aborted) throw new Error("Turn cancelled");
     if (this.closing) throw new Error("Runtime is shutting down");
-    return this.executeOpen(live, session, spec, toolName, input, signal);
+    return this.executeOpen(live, session, spec, toolName, input, signal, limits);
   }
 
   private async executeOpen(
@@ -557,7 +565,8 @@ export class SandboxManager {
     spec: SandboxSpec,
     toolName: SandboxToolName,
     input: unknown,
-    signal: AbortSignal
+    signal: AbortSignal,
+    limits: SandboxToolLimits
   ): Promise<SandboxToolOutcome> {
     let handle: SandboxHandle;
     try {
@@ -592,6 +601,7 @@ export class SandboxManager {
         (value) => {
           report = value;
         },
+        limits,
         session.environment
       );
       await this.options.emit(

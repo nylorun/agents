@@ -44,7 +44,7 @@ JSON.stringify(supportAgent); // manifest v7: { manifestSchemaVersion: 7, id, na
 Agent.from(supportAgent.toJSON(), { tools: { lookup_order: lookup } });
 ```
 
-The manifest is flat: the agent's `instructions`, `tools`, `skills` and `mcpServers` are top-level, and a skill or server from an Agent Plugin carries its `plugin` label. A tool is known by its name alone, so an agent's tool may not take a name the Runtime serves (the sandbox, artifact and skill tools, `tool_search`, `tool_call`) or contain `__`. When a session pins the agent, the Runtime adds its `runtime` block (`runtimeManifestFor`): the sandbox and its tools, the artifact tools and the skill tools with the skill catalog.
+The manifest is flat: the agent's `instructions`, `tools`, `skills` and `mcpServers` are top-level, and a skill or server from an Agent Plugin carries its `plugin` label. A tool's name may not contain `__` (an MCP server's tools). A session pins the manifest as registered; when our harness runs a turn it adds the model-facing text and tools from the facts the Runtime states (`engineToolsFor`): the sandbox tools and note with a sandbox, the skill tools with the skill catalog, and the artifact tools. Each tool call names what runs it (its effect `target`), so no name is reserved: a name two of the model's tools share fails the turn.
 
 Each builder call (`.instructions()`, `.tools()`, `.subagents()`, `.mcp()`, `.output()`) returns a **new** agent; the engine offers the agent's instructions and tools to the model on every step. Do **not** put `model` on `Agent({})` — Runtime resolves and calls the model.
 

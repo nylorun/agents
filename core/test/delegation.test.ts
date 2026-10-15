@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, AgentBuildError, runtimeManifestFor, tool } from "../src/define.js";
+import { Agent, AgentBuildError, tool } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
 import { DELEGATE_INPUT_SCHEMA, delegateOf } from "../src/definition/delegate.js";
 import { implementationsFor } from "../src/definition/binding.js";
@@ -155,20 +155,16 @@ describe("agents used as tools", () => {
     expect(AgentManifestSchema.safeParse(nested).success).toBe(false);
   });
 
-  it("reads a child's sandbox from its runtime block, which must match the parent's", () => {
+  it("refuses a runtime block on the agent or an agent it uses as a tool (protocol 15)", () => {
     const parent = Agent({ id: "support", tools: [researcher()] }).build();
     const json = JSON.parse(JSON.stringify(parent.manifest));
-    const pinned = (parentImage: string, childImage: string | undefined) => {
-      const copy = structuredClone(json);
-      copy.runtime = runtimeManifestFor({}, { sandbox: { image: parentImage } });
-      if (childImage !== undefined)
-        copy.tools[0].agent.runtime = runtimeManifestFor({}, { sandbox: { image: childImage } });
-      return AgentManifestSchema.safeParse(copy);
-    };
-    expect(pinned("a", "a").success).toBe(true);
-    expect(pinned("a", undefined).success).toBe(true);
-    expect(pinned("a", "b").error?.issues.map((issue) => issue.message)).toContain(
-      "An agent and the agents it uses as tools must declare identical sandboxes"
-    );
+    expect(AgentManifestSchema.safeParse(json).success).toBe(true);
+    const root = { ...structuredClone(json), runtime: { instructions: ["x"] } };
+    const child = structuredClone(json);
+    child.tools[0].agent.runtime = { instructions: ["x"] };
+    for (const manifest of [root, child])
+      expect(AgentManifestSchema.safeParse(manifest).error?.issues.map((issue) => issue.message).join("; ")).toContain(
+        "Manifest field runtime was removed"
+      );
   });
 });

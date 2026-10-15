@@ -59,8 +59,8 @@ export interface Session {
   manifest: any;
   manifestHash: string;
   /**
-   * The hash of the definition the session was opened from; `manifestHash` differs when the
-   * Runtime pinned its `runtime` block on it (R2b C11). Absent on older sessions.
+   * The hash of the definition the session was opened from (R2b C11); since protocol 15 it equals
+   * `manifestHash`. Absent on older sessions.
    */
   definitionHash?: string;
   /** Validated turn-manifest variants, keyed by hash (loops.md §4.2). */
@@ -126,8 +126,8 @@ export interface Session {
   /**
    * Why the session takes no new turn: `protocol_11` for a session opened before protocol 11
    * (migration 0020), `protocol_13` for one opened before protocol 13 (migration 0024),
-   * `protocol_15` for an agent session that pinned the artifact tools before protocol 15
-   * (migration 0029). Its history stays readable.
+   * `protocol_15` for an agent session that pinned a `runtime` block before protocol 15
+   * (migrations 0029, 0030). Its history stays readable.
    */
   closedReason?: string;
   /**

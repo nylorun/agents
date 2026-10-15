@@ -15,7 +15,8 @@ import {
   type TurnStart,
 } from "@nylorun/core/harness-api";
 import { READ_ARTIFACT_MAX_BYTES } from "@nylorun/core/define";
-import { artifactToolDeclarations } from "../tools/artifacts.js";
+import { sandboxToolLimitsOf, type SandboxToolLimits } from "../tools/sandbox.js";
+import { DEFAULT_SKILL_READ_BYTES } from "../tools/skills.js";
 import { ABORT_MESSAGES, RunAbort } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { runTurn } from "./run.js";
@@ -39,6 +40,18 @@ export interface HarnessOptions {
    * run's `turn.start.limits.chunkBytes`.
    */
   readonly artifactPageBytes?: number;
+  /**
+   * The sandbox tools' limits, which our engine writes into their schemas: the `bash` timeouts,
+   * the `read` and `grep` counts. Each left out is its default (`DEFAULT_SANDBOX_TOOL_LIMITS`).
+   * The executors that run the calls take the same (`harnessExecutors({ sandboxTools })`).
+   */
+  readonly sandboxTools?: Partial<SandboxToolLimits>;
+  /**
+   * The most bytes of one skill file `load_skill` and `read_skill_resource` read into the model's
+   * context. Default `DEFAULT_SKILL_READ_BYTES` (10 MiB); an answer is also held to the run's
+   * `turn.start.limits.recordEntryBytes`, since it is one record entry.
+   */
+  readonly skillReadBytes?: number;
   readonly name?: string;
   readonly version?: string;
   /** What `hello` declares: `workspace` when this harness serves the Tenant's workspaces. */
@@ -76,7 +89,11 @@ export function createHarness(options: HarnessOptions): Harness {
   const { channel, executors } = options;
   const maxRuns = options.maxRuns ?? Infinity;
   const cache = new TranscriptCache((options.transcriptCacheMb ?? 256) * 1024 * 1024);
-  const engine = { artifactPageBytes: options.artifactPageBytes ?? READ_ARTIFACT_MAX_BYTES };
+  const engine = {
+    artifactPageBytes: options.artifactPageBytes ?? READ_ARTIFACT_MAX_BYTES,
+    sandboxTools: sandboxToolLimitsOf(options.sandboxTools),
+    skillReadBytes: options.skillReadBytes ?? DEFAULT_SKILL_READ_BYTES,
+  };
   const live = new Map<string, Live>();
   const finished = new Set<Promise<void>>();
   const leasing = new AbortController();
@@ -190,13 +207,10 @@ export function createHarness(options: HarnessOptions): Harness {
         api: HARNESS_API_VERSION,
         name: options.name ?? DEFAULT_HARNESS,
         version: options.version ?? "0",
-        features: {
-          ...(options.features?.workspace === undefined
+        features:
+          options.features?.workspace === undefined
             ? {}
-            : { workspace: options.features.workspace }),
-          // Our engine's own tools run here (protocol 15): core journals their calls as ours.
-          tools: artifactToolDeclarations({ pageBytes: engine.artifactPageBytes }),
-        },
+            : { workspace: options.features.workspace },
       });
       renewEveryMs = hello.renewEveryMs;
       options.onHello?.(hello);

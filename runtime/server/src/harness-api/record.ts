@@ -1,14 +1,15 @@
 /**
  * The Record seam of the Harness API: core's journal for the effects of a run. `recordIntent`
  * journals an effect before anything runs it, and either answers it from the journal, hands it
- * to core's own executors (flow work, delegation, `tool_search` and the skill tools), tells the
- * harness to `execute` it (model calls; MCP, HTTP and sandbox tools, a deferred MCP tool's
- * `tool_call` among them, whose effect names the tool; the tools the harness runs itself, our
- * harness's `read_artifact` and `save_artifact` among them; a flow's HTTP stages and HTTP
- * verifiers), or fails a tool the Runtime cannot run (one that
- * would run the developer's code, R2 M6). `recordOutcome` records what the harness's call returned, an
- * agent's MCP or HTTP tool result first shaped to fit (R2b C11). Both run under the advance's
- * lease: every write is epoch-checked (`ownedSession`), and a lost epoch writes nothing.
+ * to core's own executors (flow work, delegation, `tool_search`), tells the harness to `execute`
+ * it (model calls; a flow's HTTP stages and HTTP verifiers; an agent's tool call whose target the
+ * session has, protocol 15: an `mcp` tool it discovered, an `http` tool it declares, a `sandbox`
+ * operation when it has a sandbox, a `harness` tool), or fails a tool call it cannot run (no
+ * target, as an author's code tool has, R2 M6, or one the session lacks). A tool call is routed
+ * by its target's kind, never by its name. `recordOutcome` records what the harness's call
+ * returned, an agent's MCP or HTTP tool result first shaped to fit (R2b C11). Both run under the
+ * advance's lease: every write is epoch-checked (`ownedSession`), and a lost epoch writes
+ * nothing.
  *
  * Rows store the request's hash (`requestHash`) and, for a model call, the request without its
  * prompt: drift is a hash compare. Rows written before carry their full request, hashed on read.
@@ -29,7 +30,7 @@ import {
   type RecordedOutcome,
 } from "@nylorun/core/harness-api";
 import type { EventPayload, EventWriter } from "@nylorun/core/contracts";
-import type { AgentManifest } from "@nylorun/core/define";
+import { isSandboxToolName, type AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import {
   isFlowEffect,
@@ -38,7 +39,7 @@ import {
   settleAgentEffect,
   type FlowEffect,
 } from "../core/flow-host.js";
-import { sandboxToolSpec } from "../sandbox/runtime-tools.js";
+import { sessionSandboxSpec } from "../sandbox/share.js";
 import { abortOn } from "../harness/calls.js";
 import {
   mayNeedShaping,
@@ -50,7 +51,6 @@ import {
 } from "../tenant/tool-results.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { checkEntry } from "../record/index.js";
-import { callSkillTool, isSkillToolCall } from "../tenant/skill-tool.js";
 import { callToolSearch, isToolSearchCall } from "../tenant/tool-search.js";
 import { turnManifestOf } from "../tenant/session.js";
 import { isOwnershipLost } from "../store/ownership.js";
@@ -90,8 +90,6 @@ export interface RecordScope {
   readonly ctx: TenantContext;
   readonly lease: Lease;
   readonly signal: AbortSignal;
-  /** The tools the run's harness declared it runs itself (`hello` `features.tools`, R4.2), by name. */
-  readonly nativeTools?: ReadonlySet<string>;
   /**
    * Who reported what this scope records (R4.9): the run's harness, so the events derived from
    * its intents and outcomes are its claim. Absent, core recorded what it saw itself.
@@ -137,9 +135,7 @@ export async function recordIntent(
   const request = effect as HostEffect;
   // Read before the transaction: the first read of the Tenant may create the key.
   const key = await traceKey(ctx.store);
-  const answer = await ctx.store.tx(async (t): Promise<
-    IntentAnswer | "flow" | "search" | { skill: AgentManifest }
-  > => {
+  const answer = await ctx.store.tx(async (t): Promise<IntentAnswer | "flow" | "search"> => {
     const s = await ownedSession(t, lease, request.sessionId);
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId) throw TURN_CANCELLED();
     // A tool call's span context (R7.4), kept on its row.
@@ -223,32 +219,17 @@ export async function recordIntent(
     }
     const agentManifest = manifestFor(s.manifest, request.agent);
     if (!agentManifest) throw new Error(`Agent '${request.agent?.id ?? ""}' is not used as a tool`);
-    const executed =
-      request.kind === "model" ||
-      (request.kind === "tool" &&
-        // An MCP tool the turn's manifest disables is not one (R2b C9).
-        (mcpToolOf(s.mcpSnapshot, request, turnManifestOf(s)) !== undefined ||
-          // HTTP tools (R2 M3) cross the Tool Gate.
-          isHttpToolCall(s.manifest, request) ||
-          sandboxToolSpec(agentManifest, request.toolName) !== undefined ||
-          // The skill tools (R2 M4) read the agent's definition files: core serves them.
-          isSkillToolCall(agentManifest, request) ||
-          // `tool_search` (R2b C10) reads the session's pinned MCP snapshot: core serves it.
-          isToolSearchCall(s.mcpSnapshot, request) ||
-          // A tool the run's harness declared and runs itself (R4.2, Q3), by its name, our
-          // harness's `read_artifact` and `save_artifact` among them (protocol 15): the turn
-          // refuses a native tool whose name another tool of the agent's has (`harness-api/server.ts`).
-          (request.toolName !== undefined && scope.nativeTools?.has(request.toolName) === true)));
+    const executed = request.kind === "model" || (request.kind === "tool" && runnable(s, request));
     if (!executed) {
-      // A tool that would run the developer's code: refused at save (a turn's manifest only
-      // removes tools), so this is a backstop, as is an MCP tool the turn disabled, which the
-      // model was never offered. The model sees the failure; nothing runs.
+      // A call with no target (an author's code tool, refused at save, so a backstop), or one
+      // whose target the session lacks: an MCP tool the turn disabled, which the model was never
+      // offered, or a sandbox call without a sandbox. The model sees the failure; nothing runs.
       const disabled = request.kind === "tool" && mcpToolOf(s.mcpSnapshot, request) !== undefined;
       const row: StoredEffect = {
         request,
         requestHash,
         status: "invoking",
-        ...toolKindOf(s, agentManifest, request, scope.nativeTools),
+        ...toolKindOf(s, agentManifest, request),
         attempts: 0,
       };
       const outcome = await settleToolRow(
@@ -266,7 +247,7 @@ export async function recordIntent(
       requestHash,
       status: "invoking",
       ...(request.kind === "tool"
-        ? { ...firstSend(toolKindOf(s, agentManifest, request, scope.nativeTools)), ...traced() }
+        ? { ...firstSend(toolKindOf(s, agentManifest, request)), ...traced() }
         : { startedAt: new Date().toISOString() }),
     };
     // The Tenant's tool policy decides an MCP or HTTP tool call as it is journaled (R5 step 2).
@@ -275,23 +256,50 @@ export async function recordIntent(
       if (decided) return decided;
     }
     await t.put("effects", request.effectId, row);
-    // The skill tools read the agent's definition files: core serves them.
-    if (isSkillToolCall(agentManifest, request)) return { skill: agentManifest };
-    if (isToolSearchCall(s.mcpSnapshot, request)) return "search";
+    if (request.target?.kind === "platform") return "search";
     return { status: "execute", ...(row.traceparent ? { traceparent: row.traceparent } : {}) };
   });
   if (answer === "search") return runInCore(scope, request, () => callToolSearch(scope.ctx, request));
-  if (typeof answer === "object" && "skill" in answer)
-    return runInCore(scope, request, () => callSkillTool(scope.ctx, answer.skill, request, scope.signal));
   if (answer !== "flow") return answer;
   if (!isFlowEffect(request)) return { status: "pending" };
   return resolveNewFlowEffect(ctx, request, signal, lease);
 }
 
 /**
- * Runs a tool core serves (`tool_search`, R2b C10; the skill tools, R2 M4) for the run and
- * records its outcome, as a harness would record a call it ran: the run gets the outcome as the
- * intent's answer.
+ * Whether the session has what an agent's tool call names as its target (protocol 15), by kind:
+ *
+ * - `mcp`: a tool of the session's MCP snapshot the turn's manifest leaves enabled (R2b C9);
+ * - `http`: an HTTP tool the agent declares (R2 M3), which crosses the Tool Gate;
+ * - `sandbox`: one of the sandbox operations, in a session with a sandbox;
+ * - `harness`: a tool the harness runs in its own process; its egress gate is its only control;
+ * - `platform`: `tool_search` (R2b C10), which core runs over the session's MCP snapshot.
+ *
+ * No target, and anything else, runs nothing.
+ */
+function runnable(s: Session, request: HostEffect): boolean {
+  switch (request.target?.kind) {
+    case "mcp":
+      return mcpToolOf(s.mcpSnapshot, request, turnManifestOf(s)) !== undefined;
+    case "http":
+      return isHttpToolCall(s.manifest, request);
+    case "sandbox":
+      return (
+        sessionSandboxSpec(s) !== undefined &&
+        request.toolName !== undefined &&
+        isSandboxToolName(request.toolName)
+      );
+    case "harness":
+      return true;
+    case "platform":
+      return isToolSearchCall(s.mcpSnapshot, request);
+    default:
+      return false;
+  }
+}
+
+/**
+ * Runs a tool core serves (`tool_search`, R2b C10) for the run and records its outcome, as a
+ * harness would record a call it ran: the run gets the outcome as the intent's answer.
  */
 async function runInCore(
   scope: RecordScope,
@@ -323,8 +331,8 @@ function coreIn(scope: RecordScope): EventWriter | undefined {
  * The answer to a tool row still `invoking` (R5.3, R5.4): a crash, a shutdown or a lost gate
  * hop interrupted its send. An MCP or HTTP call (it crosses the Tool Gate, which hands the tool
  * its key) is sent again, one more attempt, until `MAX_TOOL_ATTEMPTS`; then it fails to the
- * model. Any other call (sandbox, core-served) has no key to dedupe on: it fails to the model
- * now, and is not run again (Q2).
+ * model. Any other call (sandbox, harness, core-served) has no key to dedupe on: it fails to the
+ * model now, and is not run again (Q2).
  */
 async function resend(t: Tx, s: Session, row: StoredEffect, rejoin: boolean): Promise<IntentAnswer> {
   if (!isGateToolEffect(s, row.request)) {
@@ -404,8 +412,24 @@ function disabledTool(request: HostEffect) {
   };
 }
 
-/** The failed outcome of a tool the Runtime cannot run: it would run the developer's code. */
+/**
+ * The failed outcome of a tool call the Runtime cannot run: one that names no target (an author's
+ * code tool: the Runtime runs agents from their manifests alone), or one whose target the session
+ * lacks (a sandbox call without a sandbox).
+ */
 function unrunnableTool(request: HostEffect) {
+  if (request.target?.kind === "sandbox")
+    return {
+      kind: "failed",
+      code: "tool.unavailable",
+      message: `Tool '${request.toolName ?? ""}' runs in a sandbox, and this session has none.`,
+    };
+  if (request.target !== undefined)
+    return {
+      kind: "failed",
+      code: "tool.unavailable",
+      message: `Tool '${request.toolName ?? ""}' is not one this session can run (${request.target.kind}).`,
+    };
   return {
     kind: "failed",
     code: "tool.unavailable",
@@ -526,8 +550,9 @@ async function shaped(scope: RecordScope, effectId: string, value: unknown): Pro
     const request = effect.request as HostEffect;
     // An agent's tool; a flow's HTTP stage or verifier names no tool, and its output is data.
     if (request.kind !== "tool" || request.toolName === undefined) return undefined;
-    const mcp = mcpToolOf(s.mcpSnapshot, request) !== undefined;
-    if (!mcp && !isHttpToolCall(s.manifest, request)) return undefined;
+    // What the call ran is its row's kind, from its target (protocol 15).
+    const mcp = effect.toolKind === "mcp";
+    if (!mcp && effect.toolKind !== "http") return undefined;
     const step = stepOf(request);
     let used = 0;
     if (step !== undefined)

@@ -133,7 +133,7 @@ async function harnessFor(core: ReturnType<typeof fakeCore>, run: HarnessExecuto
 }
 
 describe("a harness", () => {
-  it("says hello with Harness API 4, its features and its own tools, not capabilities", async () => {
+  it("says hello with Harness API 4 and its features, declaring no tools", async () => {
     const plain = fakeCore({});
     await harnessFor(
       plain,
@@ -144,14 +144,8 @@ describe("a harness", () => {
     expect(hello).toMatchObject({ api: HARNESS_API_VERSION });
     expect(HARNESS_API_VERSION).toBe(4);
     expect(hello).not.toHaveProperty("capabilities");
-    // Our engine runs its artifact tools itself (protocol 15): core journals them as ours.
-    const declared = hello.features.tools as {
-      name: string;
-      inputSchema: { properties: object };
-    }[];
-    expect(declared.map((tool) => tool.name)).toEqual(["save_artifact", "read_artifact"]);
-    expect(Object.keys(declared[1]!.inputSchema.properties)).toContain("path");
-    expect(hello.features).not.toHaveProperty("workspace");
+    // A tool call names what runs it (protocol 15): our engine declares no tools by name.
+    expect(hello.features).toEqual({});
 
     const serving = fakeCore({});
     const harness = createHarness({

@@ -48,9 +48,8 @@ Which token:
 
 - `hello {api: 4, name, version, features}` is the first request.
   - `name` is the harness id: `^[a-z][a-z0-9-]{1,62}$`, and the one the credential is for.
-  - `features.tools` declares tools the harness runs itself (§4). Ours declares
-    `read_artifact` and `save_artifact`, which it runs over the artifact seam (§4b).
-  - `features.workspace` declares that it serves workspaces (§10, optional).
+  - `features.workspace` declares that it serves workspaces (§10, optional). A harness declares
+    no tools: each tool call names what runs it (§4).
   - The answer is `{api: 4, tenantId, sandbox: {backend}, renewEveryMs}`.
   - Core refuses another `api` and a name that is not the credential's harness.
 - `lease {}` waits until core offers a run, then answers `{run: RunGrant, input: TurnStart}`.
@@ -70,17 +69,19 @@ Which token:
 
 - `type` and `engine`: `turn.start` or `approval.answer`; `agent` or `flow`. A custom harness
   gets agent turns only: flows run in our harness.
-- `manifest`: the turn's agent manifest (v7: the session's, or a variant a message named). It is
-  flat:
-  - the agent's own `instructions`, `tools`, `skills` and `mcpServers`. A skill or a server that
-    came from an Agent Plugin carries `plugin: {name, version?}`;
-  - `runtime`, which the Runtime wrote when the session pinned the agent: the session's
-    `sandbox` spec, the `tools` the Runtime serves (the sandbox tools, `load_skill` and
-    `read_skill_resource`) and the `instructions` that go with them (the skill catalog, the
-    sandbox's notes). Offer the model the agent's tools and `runtime.tools`, and put
-    `instructions` before `runtime.instructions`. It holds no artifact tools: reading and
-    saving artifacts is yours to offer, over the artifact seam (§4b).
-  - A variant never sets `runtime`: the turn runs with the pin's.
+- `manifest`: the turn's agent manifest (v7: the session's definition as registered, or a variant
+  a message named). It is flat: the agent's own `instructions`, `tools`, `skills` and
+  `mcpServers`. A skill or a server that came from an Agent Plugin carries
+  `plugin: {name, version?}`. It carries nothing of the Runtime's: what the model reads and which
+  tools it is offered are yours to write, from the facts below. Our engine's helpers are in
+  `@nylorun/harness`: `engineToolsFor` (all of it, in our order), `sandboxTools` and
+  `sandboxInstructions`, `skillCatalogText`, `skillFolderNote` and `skillTools`, and
+  `runSkillTool`.
+  - Skills: each skill's `name`, `description` and `files` (path to `sha256:<hex>`). Read a
+    file's bytes with `definition.file {runId, sha256, offset?, length?}`, at most
+    `limits.chunkBytes` a range. With a sandbox, the Runtime mounts each skill's files read-only
+    at `/skills/<name>@<hash>/` (`skillFolderOf`).
+  - Artifacts: reading and saving them is yours to offer, over the artifact seam (§4b).
 - `checkpoint` (`HarnessCheckpointSchema`): `sessionId`, `turnId`, `segment`, `manifestHash`,
   `input` and `state`.
   - `input` is the turn's message: a string, `{text, metadata?}`, `{content, metadata?}`, or
@@ -94,7 +95,13 @@ Which token:
 - `routing`: where tool calls go.
   - `rootManifest`: the session's pinned manifest.
   - `mcpSnapshot`: the session's MCP tools by server (`McpSnapshotSchema`).
-  - `sandbox`: the session's sandbox, and `environment`, the variables every command gets.
+  - `sandbox`: the session's sandbox: `ownerId` and `environmentId`, which key its workspace,
+    `spec`, the sandbox spec the session pinned when it opened (absent without a sandbox), and
+    `environment`, the variables every command gets.
+- `environment` (`TurnEnvironmentSchema`, optional): the Environment the session runs in,
+  `{id, kind, sandbox?: {workspace}}`. `sandbox` is there when the session has a sandbox, and
+  `workspace` is the directory its commands start in (`/workspace`). Offer sandbox tools, and
+  write a note on the sandbox, only then. It is absent when the session names no Environment.
 - `options.fixtureModel`: informational. With the Tenant's fixture model on, the Model Gate
   answers model calls itself, so call it as usual.
 - `trace`: optional W3C trace context (`{traceparent, tracestate?}`).
@@ -145,8 +152,8 @@ Re-sends:
 - Tool calls are delivered at least once. When a gate hop is lost, ask the same intent again.
 - An intent for a row still `invoking` is a re-send. Core counts it, up to 3 attempts, and
   answers `execute`, or `completed` with a `tool.interrupted` failure.
-- A sandbox call, a call core serves, or a tool you run yourself that a crash interrupted gets
-  `tool.interrupted` at once.
+- A `sandbox`, `harness` or `platform` call that a crash interrupted gets `tool.interrupted` at
+  once.
 
 What an intent carries:
 
@@ -163,21 +170,26 @@ What an intent carries:
   - a tool effect may name its `stepId`, which shares one result budget among the step's calls.
 - **Kinds:**
   - `model`;
-  - `tool` with `toolName`. Tools are known by name: a manifest tool (`tools` or
-    `runtime.tools`), an MCP tool from the snapshot (`server__tool`), or a tool you declared in
-    `hello`. Any other tool is answered `completed` with a `tool.unavailable` failure and never
-    runs. A tool you declare may not take a name the agent or the Runtime already uses: the
-    turn fails at its start.
+  - `tool` with `toolName`, the name the model called it by (for display), and `target`, what
+    runs it. Core routes a call by `target.kind`, never by its name, and no name is reserved:
+    | `target.kind` | Runs when | Who runs it |
+    | --- | --- | --- |
+    | `mcp` | the tool is in the session's MCP snapshot and the turn's manifest leaves it enabled | you, through the Tool Gate for a remote server |
+    | `http` | the agent declares an HTTP tool of that name | you, through the Tool Gate |
+    | `sandbox` | the session has a sandbox and `toolName` is one of `bash`, `read`, `write`, `edit`, `grep`, `glob` | you, in the session's sandbox |
+    | `harness` | always: your own process, whose egress gate is its only control | you |
+    | `platform` | `tool_search`, when the session defers MCP tools | core |
+    A call with no target, or one whose target the session lacks, is answered `completed` with a
+    `tool.unavailable` failure and never runs; an MCP tool the turn disabled is `tool.disabled`.
+    A tool of yours may take any name; a name two of the model's tools share is yours to refuse.
+    `skill` (optional) names the skill the call ran.
   - `delegation` and `agent` belong to our engine's subagents and flows.
 - **What the log records of a tool call.** Each one ends in one `tool.completed`, and a row at
-  `GET /v1/sessions/{id}/calls/tool`. Core fills in where it ran from the pinned manifest; a
-  harness sends none of it:
-  - `kind`: `mcp`, `http`, `sandbox`, `platform` (a tool the Runtime serves: the skill and
-    deferred-tool tools) or `harness` (a tool you declared in `hello.features.tools`, our
-    harness's `read_artifact` and `save_artifact` among them);
+  `GET /v1/sessions/{id}/calls/tool`:
+  - `kind`: the target's kind;
   - `server`: the MCP server, or the HTTP tool's URL host;
-  - `skill`: the skill it ran. `load_skill` and `read_skill_resource` name it in their input, and
-    a sandbox tool whose input names its folder, `/skills/<name>@<hash>/`, ran that skill's files;
+  - `skill`: the skill the intent named, when the agent has it. Our engine names a skill tool's
+    and a sandbox call's whose input names its folder, `/skills/<name>@<hash>/`;
   - `plugin`: `{name, version?}`, the Agent Plugin that brought its MCP server or skill.
 
 ## §4b Artifacts
@@ -396,9 +408,13 @@ one version: a harness that says `api: 3` is refused.
 What v4 changed (protocol 15, the harness boundary):
 
 - the artifact seam: `artifact.read` and `artifact.write` (§4b), and the error code `not_found`;
-- the pinned `runtime` block no longer holds `read_artifact` and `save_artifact`, and core no
-  longer runs them: a harness that offered them from `runtime.tools` and relied on core to answer
-  them offers its own over the seam, as ours does;
+- the manifest has no `runtime` block: the harness writes the model's instructions and defines
+  its tools from the facts in `turn.start` (§3): `environment`, `routing.sandbox.spec` and the
+  agent's `skills`. Core runs neither the artifact tools nor the skill tools; ours run in our
+  harness, over the artifact seam and `definition.file`;
+- a tool call names its `target` and may name its `skill` (§4): core routes by the target's
+  kind, and a call without one runs nothing. `hello.features.tools` is gone, and no tool name is
+  reserved;
 - `turn.start.model` (§3), and files are the harness's to show: the Model Gate only fetches and
   translates, refusing what the provider cannot take (`unsupported_input`), and `ModelCall` has no
   `outputSchema` (§5).

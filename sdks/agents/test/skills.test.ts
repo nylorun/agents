@@ -7,7 +7,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runtimeManifestFor } from "@nylorun/core/define";
 import { Agent } from "../src/builder.js";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import { expect, it } from "vitest";
@@ -76,12 +75,10 @@ it("loads an agentskills.io catalog as files named by hash, binary included, wit
   expect(agent.manifest.skills?.triage).not.toHaveProperty("plugin");
   expect(JSON.stringify(agent.manifest)).not.toContain("Body stays stored.");
   expect(JSON.stringify(agent.manifest)).not.toContain("# Labels");
-  // The Runtime adds the skill tools and the catalog when it pins the agent.
+  // The harness adds the skill tools and the catalog when it runs a turn (protocol 15).
   expect(agent.manifest.tools ?? []).toEqual([]);
-  const runtime = runtimeManifestFor(agent.manifest);
-  expect(runtime?.tools?.map((item) => item.name)).toEqual(["load_skill", "read_skill_resource"]);
-  expect(runtime?.instructions?.join("\n")).toContain("<name>triage</name>");
-  expect(runtime?.instructions?.join("\n")).not.toContain("Body stays stored.");
+  expect(agent.manifest.skills?.triage).toMatchObject({ name: "triage", description: expect.any(String) });
+  expect(Object.keys(agent.manifest.skills!.triage!.files)).toContain("references/labels.md");
 });
 
 it("uploads the skill files the Runtime lacks, binary included, before saving the agent", async () => {

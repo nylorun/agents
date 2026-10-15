@@ -1,8 +1,8 @@
 /**
  * Harness-owned state (R4.2): a custom harness's turn state is stored as it sent it, capped, and
- * handed back only to it; it cannot pause for approvals; and the tools it declares in `hello`
- * (`features.tools`) are journaled like built-ins, by name, so the log records what really ran. A
- * declared tool whose name a tool of the turn's agents has fails the turn (R4.2).
+ * handed back only to it; it cannot pause for approvals; and a tool it runs itself is journaled
+ * like ours, as a `harness` call (protocol 15: the call names its target), so the log records
+ * what really ran.
  */
 import { afterEach, expect, it } from "vitest";
 import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
@@ -31,8 +31,6 @@ function attach(runtime: Started): HarnessChannel {
   return channels.harness;
 }
 
-const patch = { name: "apply_patch", description: "Applies a patch", inputSchema: { type: "object" } };
-
 async function call(runtime: Started, method: string, path: string, body?: unknown) {
   const response = await fetch(`${runtime.url}${path}`, {
     method,
@@ -43,11 +41,11 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
 }
 
 /** A Runtime with only a custom harness, `acme-mini`, connected, and session s1 on its Environment. */
-async function start(tools: readonly object[] = [patch]) {
+async function start() {
   const runtime = await boot({ harness: "remote" });
   cleanups.push(() => runtime.close());
   const acme = attach(runtime);
-  await acme.request("hello", { api: HARNESS_API_VERSION, name: "acme-mini", version: "0", features: { tools } });
+  await acme.request("hello", { api: HARNESS_API_VERSION, name: "acme-mini", version: "0", features: {} });
   expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "none", harness: "acme-mini" })).status).toBe(200);
   await openSession(runtime, "seed");
   expect(
@@ -138,6 +136,7 @@ it("refuses an effect outcome past the record entry limit, and records nothing o
     manifestHash: checkpoint.manifestHash,
     kind: "tool",
     toolName: "apply_patch",
+    target: { kind: "harness" },
     input: {},
     context: { callId: "c1", invocationId: "i1" },
   };
@@ -182,7 +181,7 @@ it("refuses a pause from a custom harness", async () => {
   });
 });
 
-it("journals a tool the harness declared, and records an undeclared one as unavailable", async () => {
+it("journals a tool the harness runs itself, and records a call that names no target as unavailable", async () => {
   const { runtime, acme } = await start();
   const leased = acme.request("lease", {});
   await message(runtime, 1);
@@ -191,7 +190,7 @@ it("journals a tool the harness declared, and records an undeclared one as unava
     input: TurnStart;
   };
   const checkpoint = input.checkpoint as { turnId: string; segment: number; manifestHash: string };
-  const intent = (toolName: string, n: number): EffectIntent => ({
+  const intent = (toolName: string, n: number, target?: EffectIntent["target"]): EffectIntent => ({
     effectId: `${checkpoint.turnId}:${checkpoint.segment}:tool:${n}:c${n}`,
     sessionId: run.sessionId,
     turnId: run.turnId,
@@ -199,10 +198,11 @@ it("journals a tool the harness declared, and records an undeclared one as unava
     manifestHash: checkpoint.manifestHash,
     kind: "tool",
     toolName,
+    ...(target ? { target } : {}),
     input: { patch: "--- a\n+++ b" },
     context: { callId: `c${n}`, invocationId: `i${n}` },
   });
-  const declared = intent("apply_patch", 1);
+  const declared = intent("apply_patch", 1, { kind: "harness" });
   // With its span's context (R7.4), which the harness may hand to what it runs.
   await expect(
     acme.request("effect.intent", { runId: run.runId, effect: declared, requestHash: effectRequestHash(declared) })
@@ -230,7 +230,7 @@ it("journals a tool the harness declared, and records an undeclared one as unava
   expect(completed).toEqual([
     expect.objectContaining({
       toolName: "apply_patch",
-      // A tool the harness declared runs in the harness.
+      // A tool the harness runs itself, by its target.
       kind: "harness",
       output: "patched; HTTPS_PROXY=http://nylorun:[nylorun token redacted]@egress:3128",
     }),
@@ -244,7 +244,7 @@ it("says who wrote each event: the client's command, the harness's claims, core'
   await message(runtime, 1);
   const { run, input } = (await leased) as { run: { runId: string; sessionId: string; turnId: string }; input: TurnStart };
   const checkpoint = input.checkpoint as { turnId: string; segment: number; manifestHash: string };
-  const intent = (toolName: string, n: number): EffectIntent => ({
+  const intent = (toolName: string, n: number, target?: EffectIntent["target"]): EffectIntent => ({
     effectId: `${checkpoint.turnId}:${checkpoint.segment}:tool:${n}:c${n}`,
     sessionId: run.sessionId,
     turnId: run.turnId,
@@ -252,10 +252,11 @@ it("says who wrote each event: the client's command, the harness's claims, core'
     manifestHash: checkpoint.manifestHash,
     kind: "tool",
     toolName,
+    ...(target ? { target } : {}),
     input: {},
     context: { callId: `c${n}`, invocationId: `i${n}` },
   });
-  const declared = intent("apply_patch", 1);
+  const declared = intent("apply_patch", 1, { kind: "harness" });
   await acme.request("effect.intent", { runId: run.runId, effect: declared, requestHash: effectRequestHash(declared) });
   await acme.request("effect.outcome", { runId: run.runId, effectId: declared.effectId, value: { kind: "completed", output: "ok" } });
   const other = intent("rm_rf", 2);
@@ -286,56 +287,4 @@ it("says who wrote each event: the client's command, the harness's claims, core'
   expect(by("tool.completed", "rm_rf")).toMatchObject({ source: { kind: "core" }, evidence: "observed", runId: run.runId });
   expect(by("turn.completed")).toMatchObject({ source: { kind: "harness", id: "acme-mini" }, evidence: "claimed" });
   expect(by("environment.attached")).toMatchObject({ source: { kind: "core" }, evidence: "observed" });
-});
-
-it("lets a harness declare read_artifact now the Runtime pins no artifact tools (protocol 15)", async () => {
-  const { runtime, acme } = await start([patch, { name: "read_artifact", inputSchema: { type: "object" } }]);
-  const leased = acme.request("lease", {});
-  await message(runtime, 1);
-  const { run, input } = (await leased) as { run: { runId: string }; input: TurnStart };
-  const manifest = input.manifest as { runtime?: { tools?: { name: string }[] } };
-  expect((manifest.runtime?.tools ?? []).map((tool) => tool.name)).not.toContain("read_artifact");
-  await acme.request("turn.completed", { runId: run.runId, status: "completed", state: {}, output: "done" });
-  await until(() => view(runtime), (v) => v.status === "completed", "turn");
-});
-
-it("fails the turn when a tool the harness declared takes the name of a tool of the agent's", async () => {
-  // An author tool named like our harness's own read_artifact: the manifest takes it, the turn does not.
-  const { runtime, acme } = await start([patch, { name: "read_artifact", inputSchema: { type: "object" } }]);
-  const author = {
-    manifestSchemaVersion: 7,
-    id: "clash",
-    tools: [{ name: "read_artifact", inputSchema: { type: "object" }, http: { url: "https://own.example.invalid/read" } }],
-  };
-  expect(
-    (await call(runtime, "PUT", "/v1/agents/clash", { requestId: "clash", manifest: author, implementationVersion: "dev" }))
-      .status
-  ).toBeLessThan(300);
-  expect(
-    (
-      await call(runtime, "PUT", "/v1/sessions/s2", {
-        requestId: "s2",
-        agentId: "clash",
-        ownerUserId: "u",
-        environment: "env-acme",
-      })
-    ).status
-  ).toBe(200);
-  let leased = false;
-  void acme.request("lease", {}).then(() => (leased = true), () => undefined);
-  const sent = await call(runtime, "POST", "/v1/sessions/s2/commands", {
-    type: "message",
-    requestId: "m1",
-    idempotencyKey: "m1",
-    content: "go",
-  });
-  expect(sent.status).toBeLessThan(300);
-  const s2 = async () => (await call(runtime, "GET", "/v1/sessions/s2")).body;
-  await until(s2, (v) => v.status === "failed" || v.status === "idle", "refused turn");
-  expect(leased).toBe(false);
-  const items = (await call(runtime, "GET", "/v1/sessions/s2/items")).body.items as {
-    type: string;
-    payload: Record<string, unknown>;
-  }[];
-  expect(JSON.stringify(items.find((item) => item.type === "turn.failed")?.payload)).toContain("read_artifact");
 });

@@ -70,6 +70,11 @@ export interface HarnessServiceOptions {
   readonly sandboxBackends?: readonly SandboxBackend[];
   /** Delete the workspaces on stop (an ephemeral Runtime's loopback harness). */
   readonly ephemeral?: boolean;
+  /**
+   * The sandbox tools' limits: what our engine's schemas name and what this harness runs them
+   * with. Each left out is its default (`DEFAULT_SANDBOX_TOOL_LIMITS`).
+   */
+  readonly sandboxTools?: HarnessOptions["sandboxTools"];
   readonly logger: HarnessClientOptions["logger"];
   readonly version?: string;
   readonly onGrant?: HarnessOptions["onGrant"];
@@ -132,6 +137,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     toolGate: options.toolGate,
     mcp: pool,
     sandbox,
+    ...(options.sandboxTools ? { sandboxTools: options.sandboxTools } : {}),
   });
 
   const serve: RequestHandler = async (method, params, signal) => {
@@ -226,6 +232,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     name: DEFAULT_HARNESS,
     ...(options.version ? { version: options.version } : {}),
     features: { workspace: { backends: backends.map((backend) => backend.name) } },
+    ...(options.sandboxTools ? { sandboxTools: options.sandboxTools } : {}),
     onHello(answer) {
       tenantId = answer.tenantId;
       manager ??= new SandboxManager({

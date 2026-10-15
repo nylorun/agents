@@ -6,7 +6,6 @@ import {
   manifestStats,
   manifestView,
   pluginText,
-  sandboxSummary,
   schemaFields,
   schemaType,
   fieldText,
@@ -63,19 +62,6 @@ const concierge = {
   },
 };
 
-const pinned = {
-  ...concierge,
-  runtime: {
-    sandbox: { image: "node:22", network: { preset: "dev", allow: ["api.github.com"] }, resources: { cpus: 2, memory: "2GiB" }, idle: "15m" },
-    tools: [
-      { name: "bash", description: "Run a command.", inputSchema: objectSchema({ command: { type: "string" } }) },
-      { name: "read", inputSchema: objectSchema({}) },
-      { name: "load_skill", inputSchema: objectSchema({ name: { type: "string" } }) },
-    ],
-    instructions: ["Use load_skill.", "Use bash in /workspace."],
-  },
-};
-
 test("a flat manifest keeps its instructions, tools, skills and MCP servers", () => {
   const view = manifestView(concierge);
   assert.equal(view.description, "Customer service concierge.");
@@ -111,22 +97,10 @@ test("plugins are listed once each, and skills and servers filter by plugin", ()
   assert.deepEqual(byPlugin(view.mcpServers, "own").map((s) => s.name), ["inventory"]);
 });
 
-test("a pinned manifest shows the Runtime's block: sandbox, tools and instructions", () => {
-  const view = manifestView(pinned);
-  assert.deepEqual(view.runtime?.sandbox, ["image node:22", "network dev + api.github.com", "2 cpus, 2GiB", "stops after 15m idle"]);
-  assert.deepEqual(
-    view.runtime?.tools.map((t) => [t.name, t.kind]),
-    [["bash", "runtime"], ["read", "runtime"], ["load_skill", "runtime"]],
-  );
-  assert.deepEqual(view.runtime?.instructions, ["Use load_skill.", "Use bash in /workspace."]);
-  // The Runtime's tools are not the author's.
-  assert.deepEqual(manifestStats(view), manifestStats(manifestView(concierge)));
-});
-
-test("a runtime block without a sandbox has none; an empty sandbox is the Runtime's defaults", () => {
-  assert.equal(manifestView({ runtime: { tools: [] } }).runtime?.sandbox, undefined);
-  assert.deepEqual(sandboxSummary({}), ["Runtime defaults"]);
-  assert.deepEqual(sandboxSummary({ resources: { cpus: 1 } }), ["1 cpu"]);
+test("a manifest's runtime block is not shown: the harness adds its tools (protocol 15)", () => {
+  const view = manifestView({ ...concierge, runtime: { tools: [{ name: "bash", inputSchema: objectSchema({}) }] } });
+  assert.equal("runtime" in view, false);
+  assert.deepEqual(view.tools.map((t) => t.name), manifestView(concierge).tools.map((t) => t.name));
 });
 
 test("a load_skill tool at the top level is the author's own", () => {
@@ -158,8 +132,8 @@ test("a session is outdated only when a different manifest is registered", () =>
   assert.equal(isOutdated({ kind: "registered-only", registeredHash: "bbb" }), false);
 });
 
-test("the Runtime's block in a session's pin does not make it outdated (R2b C11)", () => {
-  // A sandbox or skill tools change the pinned hash, not the definition the session opened from.
+test("a session is outdated by the definition it opened from (R2b C11)", () => {
+  // Since protocol 15 the hashes are the same; an older session's pin may still differ.
   const pinned = { kind: "pinned", manifest: {}, manifestHash: "pinned", definitionHash: "aaa" };
   assert.equal(isOutdated({ ...pinned, registeredHash: "aaa" }), false);
   assert.equal(isOutdated({ ...pinned, registeredHash: "bbb" }), true);

@@ -6,7 +6,14 @@
  * harness holds at the fold's cursor or reads once.
  */
 import type { LiveEvent } from "@nylorun/core/contracts";
-import type { ModelDescriptor, RecordedOutcome, RuntimeLimits, TurnStart } from "@nylorun/core/harness-api";
+import type {
+  ModelDescriptor,
+  RecordedOutcome,
+  RuntimeLimits,
+  TurnEnvironment,
+  TurnStart,
+} from "@nylorun/core/harness-api";
+import { SANDBOX_WORKSPACE, type SandboxManifest } from "@nylorun/core/define";
 import type { DurableCheckpoint, FlowCheckpoint } from "@nylorun/harness/run";
 import { isWorkflowManifest } from "../core/flow-host.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
@@ -58,7 +65,14 @@ export interface SegmentStart {
     readonly environmentId?: string;
     /** Variables every sandbox command gets (R2c): secret names set to the sentinel, plain values. */
     readonly environment?: Readonly<Record<string, string>>;
+    /** The sandbox spec the session pinned when it opened; absent without a sandbox. */
+    readonly spec?: SandboxManifest;
   };
+  /**
+   * The Environment the session runs in, as `TurnStart.environment` states it (protocol 15): its
+   * id and kind, and its sandbox's workspace when the session has a sandbox.
+   */
+  readonly environment?: TurnEnvironment;
   /**
    * The Environment is a pod (F7.2): its engine runs the segment. Its lifecycle state, and
    * whether its new volume is still being seeded from a disk version (R2d step 3).
@@ -102,7 +116,11 @@ export async function startSegment(
       const workspace = sandboxWorkspaceOf(current);
       const resource = workspace.environmentId === undefined ? undefined : await t.environment(workspace.environmentId);
       const environment = await ctx.vault.environmentVariables(t, current.environmentId);
-      const sandbox = Object.keys(environment).length > 0 ? { ...workspace, environment } : workspace;
+      const sandbox = {
+        ...workspace,
+        ...(Object.keys(environment).length > 0 ? { environment } : {}),
+        ...(current.sandbox === undefined ? {} : { spec: current.sandbox }),
+      };
       const turnId = current.activeTurnId;
       return {
         current,
@@ -110,6 +128,7 @@ export async function startSegment(
         limits,
         outcomes: current.checkpoint ? await bulkOutcomes(t, current, current.checkpoint) : [],
         sandbox,
+        ...(resource ? { environment: environmentOf(resource, current.sandbox) } : {}),
         ...(key && turnId ? { trace: turnContextOf(key, ctx.store.tenantId, current, turnId) } : {}),
         ...(resource?.pod
           ? { pod: { id: resource.id, pod: resource.pod, ...(resource.diskSeed ? { seeding: true } : {}) } }
@@ -170,6 +189,22 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     ...(segment.trace ? { trace: segment.trace } : {}),
     limits: segment.limits,
     ...(segment.model && !flow ? { model: segment.model } : {}),
+    ...(segment.environment && !flow ? { environment: segment.environment } : {}),
+  };
+}
+
+/**
+ * The facts of the Environment a session runs in (protocol 15): its id and kind, and, with the
+ * session's sandbox, the workspace its commands start in. The harness words them.
+ */
+function environmentOf(
+  resource: { readonly id: string; readonly kind: TurnEnvironment["kind"] },
+  spec: SandboxManifest | undefined,
+): TurnEnvironment {
+  return {
+    id: resource.id,
+    kind: resource.kind,
+    ...(spec === undefined ? {} : { sandbox: { workspace: SANDBOX_WORKSPACE } }),
   };
 }
 

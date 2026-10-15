@@ -6,7 +6,8 @@
  * definition naming a file the Tenant does not hold is refused (`definition_files_missing`), and
  * one whose skill's files hold more than the Tenant's skill limit together (`limit_exceeded`,
  * `skills.config`, default 2 GiB). One file may be as large as a whole skill.
- * The Runtime reads them to serve the skill tools and to give a sandbox the skills' files.
+ * The Runtime serves them to a run's harness (`definition.file`: our engine's skill tools read
+ * them) and gives a sandbox the skills' files.
  *
  * Files are never deleted here: `definition_file_uses` records which definition version names
  * which file, for a later sweep.

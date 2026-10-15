@@ -17,6 +17,7 @@ import {
   type ParamsOf,
 } from "@nylorun/core/harness-api";
 import { runArtifactTool } from "../src/tools/artifacts.js";
+import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
 import { apiHost } from "../src/api/host.js";
 import type { HarnessExecutors, HarnessFiles, HarnessRun } from "../src/api/executors.js";
 import type { HostEffect } from "../src/run/durable.js";
@@ -189,14 +190,20 @@ const run = (
       ...RUNTIME_LIMIT_DEFAULTS,
       chunkBytes: options.chunkBytes ?? RUNTIME_LIMIT_DEFAULTS.chunkBytes,
     },
-    routing: {
-      rootManifest: { id: "bot", ...(options.sandbox ? { runtime: { sandbox: {} } } : {}) },
-    },
+    routing: { rootManifest: { id: "bot" } },
+    ...(options.sandbox
+      ? { environment: { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } } }
+      : {}),
   } as unknown as HarnessRun["start"],
   signal: new AbortController().signal,
 });
 
-const call = (toolName: string, input: unknown, effectId = "t1:0:tool:c1"): HostEffect => ({
+const call = (
+  toolName: string,
+  input: unknown,
+  effectId = "t1:0:tool:c1",
+  target: HostEffect["target"] = { kind: "harness" },
+): HostEffect => ({
   effectId,
   sessionId: "s1",
   turnId: "t1",
@@ -204,6 +211,7 @@ const call = (toolName: string, input: unknown, effectId = "t1:0:tool:c1"): Host
   manifestHash: "h",
   kind: "tool",
   toolName,
+  target,
   input,
   context: { callId: "c1", invocationId: "i1" },
 });
@@ -563,7 +571,7 @@ describe("the API host", () => {
       channel,
       executors,
       { ...run(), start: { ...run().start, outcomes: [] } },
-      { artifactPageBytes: 4 },
+      { artifactPageBytes: 4, sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS, skillReadBytes: 1024 },
     );
     const resolved = await host.resolveEffect(call("read_artifact", { artifactId: "af_t" }));
     expect(resolved).toMatchObject({
@@ -571,7 +579,12 @@ describe("the API host", () => {
       outcome: { value: { kind: "completed", output: { content: "ab", nextOffset: 2 } } },
     });
     expect(toolCalls).toBe(0);
-    await host.resolveEffect(call("bash", { command: "ls" }, "t1:0:tool:c9"));
+    // A sandbox call goes to the executors, by its target, whatever it is named.
+    await host.resolveEffect(call("bash", { command: "ls" }, "t1:0:tool:c9", { kind: "sandbox" }));
     expect(toolCalls).toBe(1);
+    await host.resolveEffect(
+      call("read_artifact", { artifactId: "af_t" }, "t1:0:tool:c8", { kind: "mcp" }),
+    );
+    expect(toolCalls).toBe(2);
   });
 });

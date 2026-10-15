@@ -55,15 +55,16 @@ export interface HarnessFiles {
 
 /**
  * What runs the effects the harness executes: model calls, MCP, HTTP and sandbox tools, and the
- * sandbox files our engine's artifact tools use. Our engine runs its own tools
- * (`read_artifact`, `save_artifact`) over the artifact seam; core runs everything else (flow
- * work, linked sessions, the skill tools, `tool_search`).
+ * sandbox files our engine's artifact tools use. Our engine runs its own tools (`harness` calls:
+ * the skill tools over `definition.file`, the artifact tools over the artifact seam); core runs
+ * flow work, linked sessions and `tool_search`.
  */
 export interface HarnessExecutors {
   /** A model call. A provider failure is a failure outcome; only an abort throws. */
   model(effect: HostEffect, signal: AbortSignal, run: HarnessRun): Promise<unknown>;
   /**
-   * An MCP, HTTP or sandbox tool call, routed by `run.start.routing`. `call.traceparent` is the
+   * An MCP, HTTP or sandbox tool call, routed by its `target` and `run.start.routing` (a
+   * `sandbox` call runs in the sandbox `routing.sandbox.spec` names). `call.traceparent` is the
    * call's span context from core's `execute` answer (R7.4): a sandbox command gets it as
    * `TRACEPARENT`.
    */

@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import {
-  Agent,
-  runtimeManifestFor,
-  tool,
-  type ModelAdapter,
-  type ModelCall,
-} from "@nylorun/core/define";
+import { Agent, tool, type ModelAdapter, type ModelCall } from "@nylorun/core/define";
 import { addPart } from "./fixtures.js";
 import {
   bindingFromAgent,
@@ -18,6 +12,8 @@ import {
   type HostEffect,
 } from "../src/run/index.js";
 import type { ExecutionEvent } from "../src/types/execution.js";
+import { engineToolsFor } from "../src/tools/engine-tools.js";
+import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
 
 type Text = { readonly type: string; readonly text?: string };
 const text = (content: readonly Text[]) => content.map((part) => part.text ?? "").join("");
@@ -285,7 +281,7 @@ describe("agents used as tools, in process", () => {
     expect(started).toBe(2);
   });
 
-  it("advertises a child's own skills where the Runtime pinned them, which only it serves", async () => {
+  it("offers a child its own skill tools, which our engine adds and the harness runs", async () => {
     const authored = addPart(
       Agent({
         id: "researcher",
@@ -303,50 +299,77 @@ describe("agents used as tools, in process", () => {
         },
       },
     ).build();
-    // The builder adds no skill tools; the Runtime pins the child's own `runtime` block.
+    // The builder adds no skill tools: our engine does, for each agent of the tree.
     expect(JSON.stringify(authored.manifest)).not.toContain("load_skill");
-    const researcher = Agent.from(
-      { ...authored.manifest, runtime: runtimeManifestFor(authored.manifest) },
-      {},
-    );
     const parent = Agent({
       id: "support",
       instructions: "Delegate.",
-      tools: [researcher],
+      tools: [Agent.from(authored.manifest, {})],
     }).build();
-    const seen: { tools: string[]; loaded?: string }[] = [];
-    const adapter: ModelAdapter = async (call) => {
-      if (call.tools.some((item) => item.name === "load_skill")) {
-        const done = results(call);
-        if (!done.length) {
-          seen.push({ tools: call.tools.map((item) => item.name) });
-          return {
-            output: [{ type: "tool-call", id: "s1", name: "load_skill", args: { name: "triage" } }],
-          };
-        }
-        seen.push({ tools: call.tools.map((item) => item.name), loaded: done[0]!.text });
-        return "skill used";
-      }
-      if (!results(call).length)
-        return {
-          output: [
-            { type: "tool-call", id: "d1", name: "researcher", args: { task: "triage order" } },
-          ],
-        };
-      return results(call)
-        .map((item) => `${item.status}:${decode(item.text)}`)
-        .join(" | ");
-    };
-    const result = await run({
-      binding: bindingFromAgent(parent),
+    const manifest = parent.manifest;
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "s",
+      turnId: "t",
       input: "help",
-      onModelCall: adapter,
+    });
+    const offered: Record<string, string[]> = {};
+    const skillCalls: HostEffect[] = [];
+    const host: DurableHost = {
+      async resolveEffect(effect) {
+        if (effect.kind === "model") {
+          const call = effect.input as ModelCall;
+          const who = effect.agent?.id ?? "support";
+          offered[who] ??= call.tools.map((item) => item.name);
+          const done = results(call);
+          const output =
+            who === "researcher"
+              ? done.length
+                ? [{ type: "text", text: "skill used" }]
+                : [{ type: "tool-call", id: "s1", name: "load_skill", args: { name: "triage" } }]
+              : done.length
+                ? [{ type: "text", text: done.map((item) => decode(item.text)).join(" | ") }]
+                : [
+                    {
+                      type: "tool-call",
+                      id: "d1",
+                      name: "researcher",
+                      args: { task: "triage order" },
+                    },
+                  ];
+          return { status: "completed", outcome: { value: { output } } };
+        }
+        if (effect.kind === "tool") skillCalls.push(effect);
+        return {
+          status: "completed",
+          outcome: {
+            value: effect.kind === "tool" ? { kind: "completed", output: "SKILL" } : null,
+          },
+        };
+      },
+    };
+    const result = await runDurable({
+      manifest,
+      checkpoint,
+      host,
+      engineTools: (agent) =>
+        engineToolsFor(agent, undefined, {
+          artifactPageBytes: 1024,
+          sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS,
+          skillReadBytes: 1024,
+        }),
     });
     expect(result.status).toBe("completed");
-    if (result.status !== "completed") return;
-    expect(result.output).toBe("completed:skill used");
-    expect(seen[0]!.tools).toContain("load_skill");
-    expect(JSON.stringify(seen[1]!.loaded)).toContain("runs in the Nylorun Runtime");
+    expect(offered.support).toEqual(["researcher", "read_artifact"]);
+    expect(offered.researcher).toEqual(["load_skill", "read_artifact"]);
+    expect(skillCalls).toMatchObject([
+      {
+        toolName: "load_skill",
+        target: { kind: "harness" },
+        skill: "triage",
+        agent: { id: "researcher" },
+      },
+    ]);
   });
 
   it.each(["ask", "approve", "sleep", "waitFor"] as const)(

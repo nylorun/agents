@@ -150,17 +150,6 @@ export interface SandboxManifest {
   readonly idle?: string;
 }
 
-/**
- * What the Runtime adds to a session's agent when it pins it: the session's sandbox, the tools the
- * Runtime serves (the sandbox tools, the artifact tools, the skill tools) and the text that goes
- * with them. Only the Runtime writes it; a definition or a turn variant that sets it is refused.
- */
-export interface RuntimeManifest {
-  readonly sandbox?: SandboxManifest;
-  readonly tools?: readonly ToolManifest[];
-  readonly instructions?: readonly string[];
-}
-
 export interface AgentManifest {
   readonly manifestSchemaVersion: ManifestSchemaVersion;
   readonly id: string;
@@ -174,7 +163,6 @@ export interface AgentManifest {
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
   /** What the agent needs of its session's Environment, checked when a session opens (D65). */
   readonly requires?: AgentRequirements;
-  readonly runtime?: RuntimeManifest;
 }
 
 /** What an agent needs of the Environment its session opens on (protocol 14, D65). */

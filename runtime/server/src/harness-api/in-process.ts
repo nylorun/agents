@@ -10,6 +10,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { DEFAULT_HARNESS, memoryChannels, type MemoryPortsOptions } from "@nylorun/core/harness-api";
+import { DEFAULT_SANDBOX_TOOL_LIMITS } from "@nylorun/harness";
 import { createHarness } from "@nylorun/harness/api";
 import type { ModelRoute } from "../harness/calls.js";
 import { harnessExecutors } from "../harness/executors.js";
@@ -43,6 +44,8 @@ export async function startInProcessHarness(
 ): Promise<InProcessHarness> {
   const channels = memoryChannels(options);
   const detach = ctx.harness.attach(channels.core, { name: "in-process" });
+  // One configuration of the sandbox tools: what our engine's schemas name, and what runs them.
+  const sandboxTools = DEFAULT_SANDBOX_TOOL_LIMITS;
   const harness = createHarness({
     channel: channels.harness,
     executors: harnessExecutors({
@@ -50,7 +53,9 @@ export async function startInProcessHarness(
       toolGate: ctx.toolGate,
       mcp: tools.mcp,
       sandbox: () => tools.sandbox,
+      sandboxTools,
     }),
+    sandboxTools,
     logger: ctx.config.logger,
     // Our harness: its hello names our harness id (R4.1).
     name: DEFAULT_HARNESS,

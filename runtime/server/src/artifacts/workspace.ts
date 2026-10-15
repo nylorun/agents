@@ -9,8 +9,8 @@
  * sandboxes are read through the same seam, so the export never knows which kind of sandbox it
  * reads.
  */
-import type { AgentManifest } from "@nylorun/core/define";
-import { sandboxToolSpec, type SandboxManager } from "../sandbox/manager.js";
+import type { SandboxManifest } from "@nylorun/core/define";
+import type { SandboxManager } from "../sandbox/manager.js";
 
 /** What the reader needs of a workspace: a `SandboxManager`, or the workspace feature. */
 export type WorkspaceFiles = Pick<SandboxManager, "listFiles" | "readBytes">;
@@ -26,8 +26,8 @@ export interface WorkspaceSession {
   readonly ownerId: string;
   /** The sandbox resource the workspace belongs to, when the owner is attached to one. */
   readonly environmentId?: string;
-  /** The session's pinned manifest: its `runtime` block carries the sandbox's spec. */
-  readonly manifest: AgentManifest;
+  /** The sandbox spec the session pinned when it opened (`Session.sandbox`); absent without one. */
+  readonly spec?: SandboxManifest;
 }
 
 /** One regular file under the listed directory. */
@@ -68,14 +68,13 @@ export interface WorkspaceReader {
 /** The reader over the workspaces, in each sandbox's queue of tool calls. */
 export function sandboxWorkspaceReader(sandbox: WorkspaceFiles): WorkspaceReader {
   const target = (session: WorkspaceSession) => {
-    const spec = sandboxToolSpec(session.manifest, "read");
+    const { spec } = session;
     if (!spec) return undefined;
     return {
       spec,
       ref: {
         id: session.ownerId,
         activeTurnId: session.turnId,
-        manifest: session.manifest,
         ...(session.environmentId === undefined ? {} : { environmentId: session.environmentId }),
       },
     };

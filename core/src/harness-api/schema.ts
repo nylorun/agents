@@ -12,7 +12,7 @@ import {
   HARNESS_ERROR_CODES,
 } from "./messages.js";
 import { HarnessApiError } from "./errors.js";
-import { ARTIFACT_NAME_MAX, EffectOutcomeSchema, ModelInputSchema } from "../contracts.js";
+import { ARTIFACT_NAME_MAX, ENVIRONMENT_KINDS, EffectOutcomeSchema, ModelInputSchema } from "../contracts.js";
 import { RUNTIME_LIMIT_CEILINGS, RuntimeLimitsSchema } from "../utils/runtime-limits.js";
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
 import { McpSnapshotSchema } from "./mcp.js";
@@ -44,11 +44,42 @@ export const FrameSchema = z.union([
 ]);
 
 /**
+ * What a tool call runs (protocol 15). The record routes a call by its target's `kind`, never by
+ * the tool's name: the name the model used (`toolName`) is for display, and no name is reserved.
+ *
+ * - `mcp`: a tool of an MCP server the agent declares, discovered for the session (the
+ *   `sessionTools` of `turn.start`); the harness calls it, through the Tool Gate when remote.
+ * - `http`: an HTTP tool the agent declares; the harness calls it through the Tool Gate.
+ * - `sandbox`: one of the sandbox operations (`bash`, `read`, `write`, `edit`, `grep`, `glob`,
+ *   named by `toolName`) in the session's sandbox, which the harness runs. Only a session with a
+ *   sandbox runs one.
+ * - `harness`: a tool the harness runs in its own process over the Harness API's seams, such as
+ *   our engine's `load_skill`, `read_skill_resource`, `read_artifact` and `save_artifact`. Its
+ *   egress gate is its only control.
+ * - `platform`: `tool_search`, which core runs over the session's MCP snapshot.
+ *
+ * A tool call without a target, or with one the session lacks, fails to the model
+ * (`tool.unavailable`), and nothing runs.
+ */
+export const EffectTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("mcp") }).strict(),
+  z.object({ kind: z.literal("http") }).strict(),
+  z.object({ kind: z.literal("sandbox") }).strict(),
+  z.object({ kind: z.literal("harness") }).strict(),
+  z.object({ kind: z.literal("platform") }).strict(),
+]);
+
+/**
  * One effect the engine asks for: a `HostEffect`, by structure. Model intents carry no `input`.
  * `context` carries the ids the record derives its events from: a model effect's
  * `invocationId` (the step), and a tool effect's `callId` (the model's tool call id) and
  * `invocationId`; without them the call is journaled but no `tool.completed` is written. A
  * tool effect may name its step (`stepId`), which shares one result budget among its calls.
+ *
+ * An agent's tool effect names its `target` (what runs it) beside the name the model used
+ * (`toolName`), and may name the `skill` it ran (a skill tool's skill, or a sandbox call in a
+ * skill's folder): the record keeps the skill, and the plugin that brought it, when the agent
+ * has that skill.
  *
  * `requestHash` (`effectRequestHash`) covers the whole request: for a model effect, the intent
  * with `input` set to its `ModelCall`, though the intent is sent without it. A replay that asks
@@ -64,6 +95,8 @@ export const EffectIntentSchema = z
     kind: z.enum(["model", "tool", "delegation", "agent"]),
     agent: z.object({ id: z.string(), path: z.string(), delegationId: z.string().optional() }).strict().optional(),
     toolName: z.string().optional(),
+    target: EffectTargetSchema.optional(),
+    skill: z.string().min(1).optional(),
     path: z.string().optional(),
     key: z.string().optional(),
     iterations: z.string().optional(),
@@ -218,7 +251,11 @@ export const RunRoutingSchema = z
     rootManifest: document,
     /** The session's MCP snapshot, once its first run recorded one (`session.mcp`). */
     mcpSnapshot: McpSnapshotSchema.optional(),
-    /** The session's sandbox: the session, and the Environment whose sandbox it is. */
+    /**
+     * The session's sandbox: the session, and the Environment whose sandbox it is. `spec` is the
+     * sandbox spec the session pinned when it opened (`SandboxManifest`); absent, the session has
+     * no sandbox, and a `sandbox` call fails.
+     */
     sandbox: z
       .object({
         ownerId: id,
@@ -263,24 +300,6 @@ export const TraceContextSchema = z
   .strict();
 
 /**
- * A tool a harness runs itself (R4.2, Q3), declared in `hello`: the model may call it, and the
- * harness journals each call as a `tool` effect with intent and outcome, like a sandbox tool, so
- * the log records what really ran. Its name may not be one the agent or the Runtime already uses. It runs in
- * the harness's own process or pod: the egress gate is its only control.
- */
-export const NativeToolSchema = z
-  .object({
-    // `__` names an MCP server's tools, which are discovered after a turn starts.
-    name: z
-      .string()
-      .regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/)
-      .refine((name) => !name.includes("__"), { message: "A harness's tool name must not contain '__'" }),
-    description: z.string().max(4096).optional(),
-    inputSchema: z.record(z.string(), z.unknown()),
-  })
-  .strict();
-
-/**
  * The model a turn's calls use when they name none (protocol 15): the Tenant's model, as the
  * Model Gate resolves it. `provider` and `id` name it (`fixture` for the fixture model); `inputs`
  * is what it reads, text first, in `MODEL_INPUTS` order (its catalog's inputs and the operator's
@@ -296,6 +315,20 @@ export const ModelDescriptorSchema = z
     contextWindow: z.number().int().positive(),
     maxOutputTokens: z.number().int().positive(),
     reasoning: z.boolean().optional(),
+  })
+  .strict();
+
+/**
+ * The Environment a turn runs in (protocol 15): its id and kind and, when the session has a
+ * sandbox, the workspace its commands start in. A harness writes the model's instructions and
+ * defines its sandbox tools from it; the sandbox's spec is the routing's (`routing.sandbox.spec`).
+ */
+export const TurnEnvironmentSchema = z
+  .object({
+    id,
+    kind: z.enum(ENVIRONMENT_KINDS),
+    /** Present when the session has a sandbox. */
+    sandbox: z.object({ workspace: z.string().regex(/^\//) }).strict().optional(),
   })
   .strict();
 
@@ -343,6 +376,11 @@ export const TurnStartSchema = z
      * window, as the segment started. Absent for a flow, and when the Tenant has no model.
      */
     model: ModelDescriptorSchema.optional(),
+    /**
+     * The Environment the session runs in (protocol 15): what our engine writes the sandbox notes
+     * and defines the sandbox tools from. Absent when the session names none, and for a flow.
+     */
+    environment: TurnEnvironmentSchema.optional(),
   })
   .strict();
 
@@ -420,9 +458,7 @@ export const harnessRequests = {
         api: z.number().int(),
         name: z.string(),
         version: z.string(),
-        features: z
-          .object({ workspace: z.unknown().optional(), tools: z.array(NativeToolSchema).max(64).optional() })
-          .strict(),
+        features: z.object({ workspace: z.unknown().optional() }).strict(),
       })
       .strict(),
     result: z

@@ -10,8 +10,7 @@ import { assertJson, deepFreeze } from "../utils/immutable.js";
 import type { DefinitionPart } from "./bound.js";
 import { delegateFromManifest, delegateOf } from "./delegate.js";
 import { httpToolFromManifest, httpToolOf } from "./http-tool.js";
-import { RUNTIME_PART_ID } from "./manifest.js";
-import { ToolError } from "./tool-error.js";
+import { SESSION_PART_ID } from "./manifest.js";
 import { AgentManifestSchema } from "../contracts.js";
 
 /** A tool that exists for one execution and is not part of the hashed manifest. */
@@ -26,13 +25,17 @@ export interface SessionToolRef {
 
 /**
  * Rebuild an agent from its manifest and the code of its tools, by name (T28). Agents used as
- * tools and HTTP tools need no code; neither do the tools in `runtime`, which the Runtime serves.
- * A session tool (`sessionTools`) is offered with the `runtime` part and needs its code.
+ * tools and HTTP tools need no code. A session tool (`sessionTools`) is offered in the session
+ * part, after the agent's own, with `sessionInstructions` (text not tied to one tool) before its
+ * tools' own; it needs its code, and its name may not be one of the agent's tools.
  */
 export function agentFrom<Info = unknown>(
   json: AgentManifest | JsonObject,
   implementations: Implementations<Info>,
-  options?: { readonly sessionTools?: readonly SessionToolRef[] }
+  options?: {
+    readonly sessionTools?: readonly SessionToolRef[];
+    readonly sessionInstructions?: readonly string[];
+  }
 ): BuiltAgent<Info> {
   const manifest = normalizeManifest(json);
   const sessionTools = options?.sessionTools ?? [];
@@ -55,23 +58,21 @@ export function agentFrom<Info = unknown>(
         ...(manifest.mcpServers === undefined ? {} : { mcpServers: manifest.mcpServers }),
       })
     );
-  const runtime = manifest.runtime;
   const session = sessionTools.map((item) => {
     const live = code[item.name];
     if (!live)
       throw new HarnessError("agent.build-failed", `Missing session tool implementation '${item.name}'`);
     return live;
   });
-  const sessionInstructions = sessionTools.flatMap((item) => item.instructions ?? []);
-  if (runtime !== undefined || session.length > 0)
+  const sessionInstructions = [
+    ...(options?.sessionInstructions ?? []),
+    ...sessionTools.flatMap((item) => item.instructions ?? []),
+  ];
+  if (session.length > 0 || sessionInstructions.length > 0)
     parts.push(
       Object.freeze({
-        id: RUNTIME_PART_ID,
-        ...(runtime?.tools === undefined
-          ? {}
-          : { tools: runtime.tools.map((declared) => code[declared.name] ?? runtimeTool(declared)) }),
+        id: SESSION_PART_ID,
         ...(session.length === 0 ? {} : { sessionTools: session }),
-        ...(runtime?.instructions === undefined ? {} : { instructions: runtime.instructions }),
         ...(sessionInstructions.length === 0 ? {} : { sessionInstructions }),
       })
     );
@@ -87,7 +88,6 @@ export function agentFrom<Info = unknown>(
     metadata: manifest.metadata,
     outputSchema,
     ...(manifest.requires === undefined ? {} : { requires: manifest.requires }),
-    runtime: manifest.runtime,
   });
   if (!result.ok)
     throw new HarnessError(
@@ -98,10 +98,7 @@ export function agentFrom<Info = unknown>(
 }
 
 function assertSessionTools(manifest: AgentManifest, sessionTools: readonly SessionToolRef[]): void {
-  const taken = new Set([
-    ...(manifest.tools ?? []).map((tool) => tool.name),
-    ...(manifest.runtime?.tools ?? []).map((tool) => tool.name),
-  ]);
+  const taken = new Set((manifest.tools ?? []).map((tool) => tool.name));
   const seen = new Set<string>();
   for (const item of sessionTools) {
     if (seen.has(item.name))
@@ -129,22 +126,6 @@ function authoredTool(declared: ToolManifest, live: ToolDefinition | undefined):
     return live && httpToolOf(live) ? live : httpToolFromManifest({ ...declared, http: declared.http });
   if (live) return live;
   throw new HarnessError("agent.build-failed", `Missing tool implementation '${declared.name}'`);
-}
-
-/** A tool the Runtime serves, as a process without a Runtime sees it: calling it says so. */
-function runtimeTool(declared: ToolManifest): ToolDefinition {
-  return Object.freeze({
-    name: declared.name,
-    ...(declared.description === undefined ? {} : { description: declared.description }),
-    inputSchema: schemaFromJSON(declared.inputSchema),
-    ...(declared.outputSchema === undefined ? {} : { outputSchema: schemaFromJSON(declared.outputSchema) }),
-    async execute(): Promise<never> {
-      throw new ToolError(
-        "tool.runtime-only",
-        `'${declared.name}' runs in the Nylorun Runtime. Connect the agent to a Runtime to use it.`
-      );
-    },
-  }) as ToolDefinition;
 }
 
 /**

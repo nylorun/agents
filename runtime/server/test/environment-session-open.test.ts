@@ -4,8 +4,9 @@
  * sandbox spec is pinned for the session's life. The agent definition declares nothing.
  */
 import { expect, it } from "vitest";
-import { Agent, hashManifest, runtimeManifestFor } from "@nylorun/core/define";
+import { Agent, hashManifest } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
+import { withTestSessionStore } from "./support/store.js";
 import type { ModelProvider } from "../src/core/provider.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -62,12 +63,18 @@ async function environment(runtime: { url: string }, id: string, recipe: Record<
   return response;
 }
 
-/** The sandbox spec the session pinned: its pinned manifest's `runtime` block. */
-async function pinnedSandbox(runtime: { url: string }, id: string): Promise<unknown> {
+/** The sandbox spec the session pinned: on its row (`Session.sandbox`), not in its manifest. */
+async function pinnedSandbox(
+  runtime: Parameters<typeof withTestSessionStore>[0] & { url: string },
+  id: string,
+): Promise<unknown> {
   const response = await fetch(`${runtime.url}/v1/sessions/${id}/manifest`, { headers: serverHeaders });
-  expect(response.ok, await response.clone().text()).toBe(true);
-  const view = (await response.json()) as { manifest: { runtime?: { sandbox?: unknown } } };
-  return view.manifest.runtime?.sandbox;
+  expect(response.ok).toBe(true);
+  const view = (await response.json()) as { manifest: Record<string, unknown> };
+  expect(view.manifest).not.toHaveProperty("runtime");
+  return withTestSessionStore(runtime, (store) =>
+    store.tx(async (t) => (await t.get<{ sandbox?: unknown }>("sessions", id))?.sandbox),
+  );
 }
 
 function tool(runtime: { url: string }, id: string, name: string, args: Record<string, unknown>) {
@@ -134,7 +141,8 @@ it("pins the Environment's sandbox and adds the sandbox tools to the session onl
       resources: { cpus: 1, memory: "1024MiB" },
       idle: "15m",
     });
-    expect(view.manifestHash).not.toBe(hashManifest(plain("bot").manifest));
+    // The session pins its definition as registered: the hashes are the same.
+    expect(view.manifestHash).toBe(hashManifest(plain("bot").manifest));
 
     // The registered definition is unchanged.
     const listed = (await (
@@ -266,17 +274,17 @@ it("fixes the Environment for the session's life: a different one is a 409", asy
   }
 });
 
-it("refuses to register a definition that sets runtime, which only the Runtime writes", async () => {
+it("refuses to register a definition that sets runtime, which the manifest no longer has", async () => {
   const runtime = await boot();
   try {
-    const manifest = { ...plain("old").manifest, runtime: runtimeManifestFor({}, { sandbox: {} }) };
+    const manifest = { ...plain("old").manifest, runtime: { sandbox: {} } };
     const refused = await fetch(`${runtime.url}/v1/agents/old`, {
       method: "PUT",
       headers: serverHeaders,
       body: JSON.stringify({ requestId: "put-old", manifest, implementationVersion: "dev" }),
     });
     expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("'old' sets runtime, which only the Runtime writes");
+    expect(await refused.text()).toContain("Manifest field runtime was removed");
   } finally {
     await runtime.close();
   }
@@ -326,20 +334,19 @@ it("gives the agents a session uses as tools the same sandbox", async () => {
     await environment(runtime, "lead/ws");
     const opened = await open(runtime, "s1", { agentId: "lead", environment: "lead/ws" });
     expect(opened.ok, await opened.clone().text()).toBe(true);
+    // One sandbox for the tree, on the session; the child's manifest is its definition's.
+    expect(await pinnedSandbox(runtime, "s1")).toMatchObject({ idle: "15m" });
     const pinned = (await (
       await fetch(`${runtime.url}/v1/sessions/s1/manifest`, { headers: serverHeaders })
-    ).json()) as { manifest: { runtime?: { sandbox?: unknown }; tools?: { name: string; agent?: unknown }[] } };
-    const child = pinned.manifest.tools?.find((item) => item.name === "helper")?.agent as
-      | { runtime?: { sandbox?: unknown; tools?: { name: string }[] } }
-      | undefined;
-    expect(child?.runtime?.sandbox).toEqual(pinned.manifest.runtime?.sandbox);
-    expect(child?.runtime?.tools?.map((item) => item.name)).toContain("bash");
+    ).json()) as { manifest: { tools?: { name: string; agent?: unknown }[] } };
+    const child = pinned.manifest.tools?.find((item) => item.name === "helper")?.agent;
+    expect(child).toEqual(lead.manifest.tools?.find((item) => item.name === "helper")?.agent);
   } finally {
     await runtime.close();
   }
 });
 
-it("refuses to register an agent with a tool named like a sandbox tool", async () => {
+it("registers an agent with a tool named like a sandbox tool: no name is reserved (protocol 15)", async () => {
   const runtime = await boot();
   try {
     const manifest = {
@@ -360,8 +367,7 @@ it("refuses to register an agent with a tool named like a sandbox tool", async (
       headers: serverHeaders,
       body: JSON.stringify({ requestId: "put-clash", manifest, implementationVersion: "dev" }),
     });
-    expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("takes the name of a tool the Runtime serves");
+    expect(refused.status, await refused.clone().text()).toBe(200);
   } finally {
     await runtime.close();
   }

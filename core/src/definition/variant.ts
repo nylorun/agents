@@ -77,7 +77,7 @@ function tightensServers(
  * (`loops.md` §3.4). A variant may remove tools (agents used as tools and HTTP tools included),
  * tighten its MCP servers' tool settings (R2b C9, Q18), and change its instructions, name,
  * description and metadata. Its skills and servers are setup: the sandbox holds the skills from
- * the session's start. It never sets `runtime`; the turn runs with the pin's.
+ * the session's start.
  */
 export function isVariantOf(
   candidate: AgentManifest,
@@ -85,7 +85,6 @@ export function isVariantOf(
 ): boolean {
   if (candidate.id !== pinned.id) return false;
   if (candidate.manifestSchemaVersion !== pinned.manifestSchemaVersion) return false;
-  if (candidate.runtime !== undefined) return false;
   if (!same(candidate.outputSchema, pinned.outputSchema)) return false;
   // What the agent needs of its Environment was checked when the session opened (D65).
   if (!same(candidate.requires, pinned.requires)) return false;

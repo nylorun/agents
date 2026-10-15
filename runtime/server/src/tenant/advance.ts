@@ -360,8 +360,6 @@ async function runRemoteSegment(
     }
     // Aborted before a harness took it: settled as an abort of the engine would be.
     if (end.kind === "aborted") throw signal.reason;
-    // The harness's own tools take names of this turn's tools (Harness API 3): the turn fails.
-    if (end.kind === "refused") throw new Error(end.message);
     // Checked before the abort: whatever core's signal says, the run's effects are unaccounted for.
     if (end.kind === "released" && end.reason === "connection.lost") throw new RunLost();
     stopIfLeaving(signal);

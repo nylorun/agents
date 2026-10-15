@@ -2,15 +2,17 @@
  * Harness API v4 (blueprint D37–D42; the harness boundary, protocol 15): the messages between
  * core and a harness. A run is a lease on one session's segment; core records, the harness runs
  * the engine. Who executes what: the harness runs model, MCP, HTTP and sandbox calls and its own
- * tools (our engine's `read_artifact` and `save_artifact` among them, over the artifact seam:
- * `artifact.read`, `artifact.write`); core runs flow work, linked sessions, delegation
- * journaling, the skill tools, `tool_search`, settle and takeover. Each message's type is
- * inferred from its schema (`schema.ts`), which a socket validates it with.
+ * tools (our engine's skill and artifact tools among them, over the `definition.file` and artifact
+ * seams), and writes the model's instructions; core runs flow work, linked sessions, delegation
+ * journaling, `tool_search`, settle and takeover, and routes each tool call by its target's kind
+ * (`EffectTarget`). Each message's type is inferred from its schema (`schema.ts`), which a socket
+ * validates it with.
  */
 import type { z } from "zod";
 import type {
   ArtifactMetaSchema,
   EffectIntentSchema,
+  EffectTargetSchema,
   IntentAnswerSchema,
   ModelDescriptorSchema,
   OutcomeAnswerSchema,
@@ -20,6 +22,7 @@ import type {
   RunGrantSchema,
   RunRoutingSchema,
   TraceContextSchema,
+  TurnEnvironmentSchema,
   TurnOutputSchema,
   TurnStartSchema,
   WorkspaceBytesCallSchema,
@@ -72,6 +75,12 @@ export type HarnessErrorCode = (typeof HARNESS_ERROR_CODES)[number];
 
 /** One effect the engine asks for: a `HostEffect`, by structure. Model intents carry no `input`. */
 export type EffectIntent = z.infer<typeof EffectIntentSchema>;
+
+/** What a tool call runs: the record routes it by `kind` (protocol 15). */
+export type EffectTarget = z.infer<typeof EffectTargetSchema>;
+
+/** The Environment a turn runs in (`turn.start.environment`, protocol 15). */
+export type TurnEnvironment = z.infer<typeof TurnEnvironmentSchema>;
 
 /** An artifact as the artifact seam shows it to a harness (`artifact.read`, `artifact.write`). */
 export type ArtifactMeta = z.infer<typeof ArtifactMetaSchema>;
