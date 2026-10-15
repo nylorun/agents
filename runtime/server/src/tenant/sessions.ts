@@ -5,6 +5,7 @@
  */
 import {
   DefinitionDocumentSchema,
+  SKILL_MAX_BYTES,
   definitionFilesOf,
   type PutAgentRequest,
   type PutSessionRequest,
@@ -27,7 +28,7 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
-import { missingDefinitionFiles } from "./definition-files.js";
+import { definitionFileIssues } from "./definition-files.js";
 
 /** A session's creation identity: everything but the request id. */
 const sessionIdentity = (value: any): string => {
@@ -114,12 +115,18 @@ export async function putDefinition(
   };
   const files = [...definitionFilesOf(body.manifest)];
   await ctx.store.tx(async (t) => {
-    const missing = await missingDefinitionFiles(t, body.manifest);
+    const { missing, oversized } = await definitionFileIssues(t, body.manifest);
     if (missing.length > 0)
       fail(
         400,
         `The definition names ${missing.length} file(s) the Runtime does not hold; upload each with PUT /v1/files/<sha256> first: ${missing.join(", ")}`,
         { code: "definition_files_missing", details: { missing } }
+      );
+    if (oversized.length > 0)
+      fail(
+        413,
+        `A skill's files may hold at most ${SKILL_MAX_BYTES} bytes together: ${oversized.map((skill) => `'${skill.name}' holds ${skill.bytes}`).join(", ")}`,
+        { code: "limit_exceeded", details: { limitBytes: SKILL_MAX_BYTES, skills: oversized } }
       );
     if (options.dryRun) return;
     await t.put("definitions", agentId, definition);

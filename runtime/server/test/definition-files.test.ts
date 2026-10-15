@@ -5,14 +5,18 @@
  */
 import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent, AgentsClient } from "@nylorun/agents";
-import { DEFINITION_FILE_MAX_BYTES } from "@nylorun/core/contracts";
+import { DEFINITION_FILE_MAX_BYTES, SKILL_MAX_BYTES } from "@nylorun/core/contracts";
 import { DELEGATE_INPUT_SCHEMA, skillFolderOf } from "@nylorun/core/define";
+import { DEFINITION_FILE_CHUNK_BYTES } from "@nylorun/core/harness-api";
+import type { BlobStore } from "../src/blob/index.js";
 import type { ModelProvider } from "../src/core/provider.js";
+import { withTestSessionStore } from "./support/store.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "definition-files-application-key-aaaa";
@@ -45,6 +49,41 @@ function put(runtime: Runtime, file: string, body: BodyInit, headers: Record<str
 
 const head = (runtime: Runtime, file: string, headers: Record<string, string> = auth) =>
   fetch(`${runtime.url}/v1/files/${file}`, { method: "HEAD", headers });
+
+/** A PUT that declares `declared` bytes and sends a few: the Runtime answers before it reads on. */
+function putDeclaring(runtime: Runtime, file: string, declared: number): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const request = httpRequest(
+      `${runtime.url}/v1/files/${file}`,
+      {
+        method: "PUT",
+        headers: { ...auth, "content-type": "application/octet-stream", "content-length": String(declared) },
+      },
+      (response) => {
+        let text = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => (text += chunk));
+        response.on("end", () => {
+          settled = true;
+          request.destroy();
+          resolve({ status: response.statusCode!, body: JSON.parse(text) });
+        });
+      },
+    );
+    request.on("error", (error) => {
+      if (!settled) reject(error);
+    });
+    request.write(new Uint8Array(16));
+  });
+}
+
+/** What the Tenant's Object store holds under `prefix`. */
+async function keysUnder(blobs: BlobStore, prefix: string): Promise<string[]> {
+  const keys: string[] = [];
+  for await (const entry of blobs.list(prefix)) keys.push(entry.key);
+  return keys;
+}
 
 const SKILL_MD = "---\nname: triage\ndescription: Triage an issue.\n---\n\nLabel P0 when the order is lost.\n";
 const LABELS = "# Labels\nP0, P1\n";
@@ -122,8 +161,9 @@ describe("PUT and HEAD /v1/files/{file}", () => {
     expect(await again.json()).toEqual({ sha256: file, size: Buffer.byteLength(LABELS) });
   });
 
-  it("refuses a body of another hash, a malformed name and a body over 10 MiB", async () => {
-    const runtime = await boot();
+  it("refuses a body of another hash, a malformed name and a body declared over 2 GiB, staging nothing", async () => {
+    let blobs!: BlobStore;
+    const runtime = await boot({ wrapBlobs: (store) => (blobs = store) });
     const mismatch = await put(runtime, sha256("other"), LABELS);
     expect(mismatch.status).toBe(400);
     expect(await mismatch.json()).toMatchObject({
@@ -136,23 +176,41 @@ describe("PUT and HEAD /v1/files/{file}", () => {
     expect(malformed.status).toBe(400);
     expect(await malformed.json()).toMatchObject({ code: "invalid_request" });
 
-    const big = new Uint8Array(DEFINITION_FILE_MAX_BYTES + 1);
-    const tooLarge = await put(runtime, sha256(big), big);
+    expect(DEFINITION_FILE_MAX_BYTES).toBe(SKILL_MAX_BYTES);
+    const tooLarge = await putDeclaring(runtime, sha256("big"), DEFINITION_FILE_MAX_BYTES + 1);
     expect(tooLarge.status).toBe(413);
-    expect(await tooLarge.json()).toMatchObject({ code: "limit_exceeded" });
-    // Without a Content-Length, the count stops it too.
+    expect(tooLarge.body).toMatchObject({ code: "limit_exceeded", details: { limitBytes: 2 * 1024 ** 3 } });
+    expect((await head(runtime, sha256("big"))).status).toBe(404);
+    // The refused bodies left nothing behind, at their hash or staged.
+    expect(await keysUnder(blobs, "definitions/")).toEqual([]);
+  });
+
+  it("streams a file over 10 MiB to its hash, without a Content-Length too", async () => {
+    let blobs!: BlobStore;
+    const runtime = await boot({ wrapBlobs: (store) => (blobs = store) });
+    const big = new Uint8Array(10 * 1024 * 1024 + 1).fill(7);
+    const stored = await put(runtime, sha256(big), big);
+    expect(stored.status).toBe(201);
+    expect(await stored.json()).toEqual({ sha256: sha256(big), size: big.byteLength });
+    expect((await head(runtime, sha256(big))).status).toBe(200);
+
+    const streamedBytes = new Uint8Array(11 * 1024 * 1024).fill(9);
     const streamed = await put(
       runtime,
-      sha256(big),
+      sha256(streamedBytes),
       new ReadableStream({
         start(controller) {
-          controller.enqueue(big);
+          controller.enqueue(streamedBytes.subarray(0, 1024));
+          controller.enqueue(streamedBytes.subarray(1024));
           controller.close();
         },
       }),
     );
-    expect(streamed.status).toBe(413);
-    expect((await head(runtime, sha256(big))).status).toBe(404);
+    expect(streamed.status).toBe(201);
+    expect(await keysUnder(blobs, "definitions/uploads/")).toEqual([]);
+    const held = await blobs.get(`definitions/sha256/${sha256(streamedBytes).slice("sha256:".length)}`);
+    // By hash: a deep comparison of 11 MiB is slow.
+    expect(sha256(new Uint8Array(await new Response(held!.body).arrayBuffer()))).toBe(sha256(streamedBytes));
   });
 
   it("takes an application key only", async () => {
@@ -210,6 +268,63 @@ describe("a definition naming definition files", () => {
     await put(runtime, sha256(LABELS), LABELS);
     expect((await putAgent(manifest("bot", skill(files)))).status).toBe(200);
   });
+
+  it("is refused while a skill's files hold more than 2 GiB together, with no limit per file or on their count", async () => {
+    const runtime = await boot();
+    const putAgent = (document: unknown) =>
+      fetch(`${runtime.url}/v1/agents/${(document as { id: string }).id}`, {
+        method: "PUT",
+        headers: json,
+        body: JSON.stringify({ requestId: "r", manifest: document, implementationVersion: "dev" }),
+      });
+    // Files the Tenant holds, by size alone: putting a definition reads their rows, not their bytes.
+    const gib = sha256("a GiB");
+    const almost = sha256("2 GiB less a byte");
+    await withTestSessionStore({ root: runtime.root, tenantId: runtime.tenantId }, (store) =>
+      store.tx(async (t) => {
+        for (const [file, size] of [
+          [gib, 1024 ** 3],
+          [almost, SKILL_MAX_BYTES - Buffer.byteLength(SKILL_MD)],
+        ] as const)
+          await t.insertDefinitionFile({ sha256: file, kind: "skill", size, contentType: null, createdAt: new Date().toISOString() });
+      }),
+    );
+    await put(runtime, sha256(SKILL_MD), SKILL_MD);
+    await put(runtime, sha256(LABELS), LABELS);
+
+    // Exactly 2 GiB: one file holds nearly all of it.
+    const full = { "SKILL.md": sha256(SKILL_MD), "data/model.bin": almost };
+    expect((await putAgent(manifest("full", skill(full)))).status).toBe(200);
+
+    // One file at two paths counts twice: a sandbox holds both.
+    const over = { "SKILL.md": sha256(SKILL_MD), "data/one.bin": gib, "data/two.bin": gib };
+    const refused = await putAgent(manifest("over", skill(over)));
+    expect(refused.status).toBe(413);
+    const bytes = 2 * 1024 ** 3 + Buffer.byteLength(SKILL_MD);
+    expect(await refused.json()).toMatchObject({
+      code: "limit_exceeded",
+      message: expect.stringContaining(`'triage' holds ${bytes}`),
+      details: { limitBytes: SKILL_MAX_BYTES, skills: [{ name: "triage", bytes }] },
+    });
+    // An agent used as a tool is held to it too.
+    const nested = manifest("lead", {
+      tools: [
+        {
+          name: "helper",
+          description: "Helps.",
+          inputSchema: DELEGATE_INPUT_SCHEMA,
+          agent: { ...manifest("helper", skill(over)), description: "Helps." },
+        },
+      ],
+    });
+    expect((await putAgent(nested)).status).toBe(413);
+
+    // More than 500 files.
+    const many: Record<string, string> = { "SKILL.md": sha256(SKILL_MD) };
+    for (let index = 0; index < 600; index += 1) many[`references/${index}.md`] = sha256(LABELS);
+    const stored = await putAgent(manifest("many", skill(many)));
+    expect(stored.status, await stored.clone().text()).toBe(200);
+  });
 });
 
 describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => {
@@ -247,7 +362,12 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
   });
 
   it("puts a plugin skill's files in the sandbox, read-only, names them, and traces each call to the skill and its plugin", async () => {
-    const agent = Agent({ id: "triager", instructions: "Triage." }).plugin(pluginFolder()).build();
+    // A file larger than one harness answer carries, and than the skill tools read: the
+    // sandbox gets it a range at a time.
+    const folderOfPlugin = pluginFolder();
+    const BIG = DEFINITION_FILE_CHUNK_BYTES + 3;
+    writeFileSync(join(folderOfPlugin, "skills/triage/references/big.txt"), "a".repeat(BIG));
+    const agent = Agent({ id: "triager", instructions: "Triage." }).plugin(folderOfPlugin).build();
     // The version's own folder (D66).
     const folder = skillFolderOf(agent.manifest.skills!.triage!);
     expect(folder).toMatch(/^\/skills\/triage@[0-9a-f]{12}$/);
@@ -258,10 +378,11 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
         {
           name: "bash",
           args: {
-            command: `sh ${folder}/scripts/run.sh; wc -c < ${folder}/assets/logo.png; cat ${folder}/references/labels.md`,
+            command: `sh ${folder}/scripts/run.sh; wc -c < ${folder}/assets/logo.png; cat ${folder}/references/labels.md; echo big=$(wc -c < ${folder}/references/big.txt)`,
           },
         },
         { name: "read_skill_resource", args: { name: "triage", path: "assets/logo.png" } },
+        { name: "read_skill_resource", args: { name: "triage", path: "references/big.txt" } },
       ]),
     });
     const client = new AgentsClient({ url: runtime.url, key: APP });
@@ -270,13 +391,18 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     const session = await client.createSession({ agentId: "triager", ownerUserId: "ada", environment: "triage" });
     await session.input("Triage this.", { idempotencyKey: "m1" });
     expect(await settle(runtime, session.id)).toBe("completed");
-    const [loaded, ran, logo] = await toolOutcomes(runtime, session.id);
+    const [loaded, ran, logo, big] = await toolOutcomes(runtime, session.id);
     expect(loaded.output).toMatchObject({ sandboxPath: `${folder}/` });
     expect(ran.output).toMatchObject({ exitCode: 0 });
     expect(ran.output.stdout).toContain("triaged");
     expect(ran.output.stdout).toContain(`${LOGO.length}`);
     expect(ran.output.stdout).toContain("P0, P1");
     expect(logo.error.message).toContain(`${folder}/assets/logo.png`);
+    expect(ran.output.stdout).toMatch(new RegExp(`big=\\s*${BIG}`));
+    expect(big.error).toMatchObject({
+      code: "skill.resource_too_large",
+      message: expect.stringContaining(`${folder}/references/big.txt`),
+    });
     // From the log alone: each call names the skill it ran and the plugin that brought it.
     const plugin = { name: "ops", version: "1.2.0" };
     expect(loaded).toMatchObject({ kind: "platform", skill: "triage", plugin });

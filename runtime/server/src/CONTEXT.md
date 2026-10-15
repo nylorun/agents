@@ -516,11 +516,14 @@ session's.
 
 **Definition file**: A file a definition names by the SHA-256 of its bytes (`sha256:<hex>`), today
 each file of a skill's folder (`SkillManifest.files`, track R2 M4; `tenant/definition-files.ts`).
-A client uploads it once with `PUT /v1/files/sha256:<hex>` (application key, at most 10 MiB, a
-body of another hash is a `400`; `201` stored, `200` held already; `HEAD` says which); its bytes
-go to the Object store at `definitions/sha256/<hex>` and a `definition_files` row says the Tenant
-holds it. `PUT /v1/agents/{id}` refuses a definition naming a file the Tenant lacks
-(`definition_files_missing`) and records each one it names in `definition_file_uses` (agent id,
+A client uploads it once with `PUT /v1/files/sha256:<hex>` (application key, at most 2 GiB, a
+body of another hash is a `400`; `201` stored, `200` held already; `HEAD` says which); the body
+streams to a staging key (`definitions/uploads/<uuid>`), and only bytes of the named hash are
+copied to `definitions/sha256/<hex>`, where a `definition_files` row says the Tenant holds them.
+`PUT /v1/agents/{id}` refuses a definition naming a file the Tenant lacks
+(`definition_files_missing`) or a skill whose files hold more than `SKILL_MAX_BYTES` (2 GiB)
+together, counted by path from the rows' sizes (`413 limit_exceeded`); no file and no count of
+files has a limit of its own. It records each file it names in `definition_file_uses` (agent id,
 manifest hash, file). Nothing deletes them yet: a later sweep removes the unused ones.
 _Avoid_: calling it an artifact; artifacts are a session's or an application's files.
 
@@ -529,9 +532,10 @@ catalog, in the `runtime` block of an agent with skills. Core runs them like `sa
 skill's definition files: nothing reaches the developer's process. A session with a sandbox
 also has each skill's files read-only in a folder per version, `/skills/<name>@<hash>/`
 (`skillFolderOf`, D66), never replaced, so sessions whose agents carry different versions share an
-Environment: the SandboxManager mounts the folders a call needs (`sandbox/skills.ts`), with bytes
-from the Object store, or in a harness from core (`definition.file`, for the run that made the
-call). A stop clears them; the next open mounts what is in use. Each session's calls on a
+Environment: the SandboxManager mounts the folders a call needs (`sandbox/skills.ts`), streaming
+bytes from the Object store, or in a harness from core (`definition.file`, for the run that made
+the call, `DEFINITION_FILE_CHUNK_BYTES` at a time). The skill tools read a file of at most
+`SKILL_READ_MAX_BYTES` (10 MiB) into the context; a larger one is `skill.resource_too_large`. A stop clears them; the next open mounts what is in use. Each session's calls on a
 workspace run in order and different sessions' at once; opening, stopping and removing run
 alone (`sandbox/manager.ts`).
 

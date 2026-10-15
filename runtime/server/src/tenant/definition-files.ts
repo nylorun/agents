@@ -3,23 +3,29 @@
  * today a skill's folder (`SkillManifest.files`). A client uploads each one once
  * (`PUT /v1/files/sha256:<hex>`); its bytes go to the Object store at
  * `definitions/sha256/<hex>`, and a `definition_files` row says the Tenant holds it. A
- * definition naming a file the Tenant does not hold is refused (`definition_files_missing`).
+ * definition naming a file the Tenant does not hold is refused (`definition_files_missing`), and
+ * one whose skill's files hold more than `SKILL_MAX_BYTES` (2 GiB) together (`limit_exceeded`).
  * The Runtime reads them to serve the skill tools and to give a sandbox the skills' files.
  *
  * Files are never deleted here: `definition_file_uses` records which definition version names
  * which file, for a later sweep.
  */
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   DEFINITION_FILE_MAX_BYTES,
+  SKILL_MAX_BYTES,
   definitionFilesOf,
   isDefinitionFileHash,
+  skillsOf,
   type DefinitionFileView,
 } from "@nylorun/core/contracts";
-import type { BlobStore } from "../blob/index.js";
+import { BlobTooLargeError, type BlobPutResult, type BlobStore } from "../blob/index.js";
 import type { Tx } from "../store/types.js";
 import type { TenantContext } from "./context.js";
 import { fail } from "./http.js";
+
+/** Where an upload's bytes wait while their hash is checked; never read as a definition file. */
+const STAGING_PREFIX = "definitions/uploads/";
 
 /** Where a definition file's bytes are in the Object store. */
 export function definitionFileKey(sha256: string): string {
@@ -38,37 +44,19 @@ export async function hasDefinitionFile(ctx: TenantContext, file: string): Promi
   return (await ctx.store.tx((t) => t.definitionFile(sha256))) !== undefined;
 }
 
-/** The body, at most `DEFINITION_FILE_MAX_BYTES`; past it, `413 limit_exceeded`. */
-async function readBody(body: ReadableStream<Uint8Array> | null, declared: number | undefined): Promise<Uint8Array> {
-  const tooLarge = (): never =>
-    fail(413, `A definition file may hold at most ${DEFINITION_FILE_MAX_BYTES} bytes`, {
-      code: "limit_exceeded",
-      details: { limitBytes: DEFINITION_FILE_MAX_BYTES },
-    });
-  if (declared !== undefined && declared > DEFINITION_FILE_MAX_BYTES) {
-    await body?.cancel().catch(() => undefined);
-    tooLarge();
-  }
-  if (body === null) return new Uint8Array();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  const reader = body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > DEFINITION_FILE_MAX_BYTES) {
-      await reader.cancel().catch(() => undefined);
-      tooLarge();
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks);
+function tooLarge(): never {
+  return fail(413, `A definition file may hold at most ${DEFINITION_FILE_MAX_BYTES} bytes`, {
+    code: "limit_exceeded",
+    details: { limitBytes: DEFINITION_FILE_MAX_BYTES },
+  });
 }
 
 /**
  * Stores the bytes of definition file `file`: `201` when they are new, `200` when the Tenant
- * holds them already (the body is not read). Bytes that do not hash to `file` are a `400`.
+ * holds them already (the body is not read). Bytes that do not hash to `file` are a `400`; more
+ * than `DEFINITION_FILE_MAX_BYTES` a `413`. The body streams to a staging key and is copied to
+ * the file's key only once its hash is checked, so no file is held in memory and bytes of
+ * another hash never replace a file at its key.
  */
 export async function putDefinitionFile(
   ctx: TenantContext,
@@ -82,36 +70,84 @@ export async function putDefinitionFile(
     await request.body?.cancel().catch(() => undefined);
     return { status: 200, view: { sha256, size: held.size } };
   }
-  const bytes = await readBody(request.body, request.declaredBytes);
-  const actual = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-  if (actual !== sha256)
-    fail(400, `The body's SHA-256 is ${actual}, not ${sha256}: upload a file at its own hash`, {
-      code: "invalid_request",
-      details: { expected: sha256, actual },
-    });
-  // The key is the content's hash: a concurrent upload of the same file writes the same bytes.
-  await ctx.blobs.put(definitionFileKey(sha256), bytes, {
+  if (request.declaredBytes !== undefined && request.declaredBytes > DEFINITION_FILE_MAX_BYTES) {
+    await request.body?.cancel().catch(() => undefined);
+    tooLarge();
+  }
+  const options = {
     ...(request.contentType === undefined ? {} : { contentType: request.contentType }),
     ...(signal ? { signal } : {}),
-  });
+  };
+  const staging = `${STAGING_PREFIX}${randomUUID()}`;
+  let size: number;
+  try {
+    let staged: BlobPutResult;
+    try {
+      staged = await ctx.blobs.put(staging, request.body ?? new Uint8Array(), {
+        ...options,
+        maxBytes: DEFINITION_FILE_MAX_BYTES,
+      });
+    } catch (error) {
+      if (error instanceof BlobTooLargeError) tooLarge();
+      throw error;
+    }
+    const actual = `sha256:${staged.sha256}`;
+    if (actual !== sha256)
+      fail(400, `The body's SHA-256 is ${actual}, not ${sha256}: upload a file at its own hash`, {
+        code: "invalid_request",
+        details: { expected: sha256, actual },
+      });
+    const got = await ctx.blobs.get(staging, signal ? { signal } : {});
+    if (!got) throw new Error(`The Object store lost the upload of ${sha256} at ${staging}`);
+    // The key is the content's hash: a concurrent upload of the same file writes the same bytes.
+    await ctx.blobs.put(definitionFileKey(sha256), got.body, options);
+    size = staged.size;
+  } finally {
+    await ctx.blobs.delete(staging).catch(() => undefined);
+  }
   const inserted = await ctx.store.tx((t) =>
     t.insertDefinitionFile({
       sha256,
       kind: "skill",
-      size: bytes.byteLength,
+      size,
       contentType: request.contentType ?? null,
       createdAt: new Date().toISOString(),
     }),
   );
-  return { status: inserted ? 201 : 200, view: { sha256, size: bytes.byteLength } };
+  return { status: inserted ? 201 : 200, view: { sha256, size } };
 }
 
-/** The definition files `document` names that the Tenant does not hold, in order. */
-export async function missingDefinitionFiles(t: Tx, document: unknown): Promise<string[]> {
+/**
+ * Why `document` cannot be stored for the files it names: the files the Tenant does not hold
+ * (`missing`), else each skill whose files hold more than `SKILL_MAX_BYTES` together
+ * (`oversized`). A file a skill names at two paths counts twice: a sandbox holds both.
+ */
+export async function definitionFileIssues(
+  t: Tx,
+  document: unknown,
+): Promise<{ missing: string[]; oversized: { name: string; bytes: number }[] }> {
   const named = [...definitionFilesOf(document)].sort();
-  if (named.length === 0) return [];
+  if (named.length === 0) return { missing: [], oversized: [] };
   const held = await t.heldDefinitionFiles(named);
-  return named.filter((sha256) => !held.has(sha256));
+  const missing = named.filter((sha256) => !held.has(sha256));
+  if (missing.length > 0) return { missing, oversized: [] };
+  const oversized: { name: string; bytes: number }[] = [];
+  for (const skill of skillsOf(document)) {
+    let bytes = 0;
+    for (const hash of Object.values(skill.files ?? {}))
+      if (typeof hash === "string") bytes += held.get(hash) ?? 0;
+    if (bytes > SKILL_MAX_BYTES) oversized.push({ name: String(skill.name), bytes });
+  }
+  return { missing, oversized };
+}
+
+/** A definition file's bytes as a stream, or undefined when the Object store does not have them. */
+export async function openDefinitionFile(
+  blobs: BlobStore,
+  sha256: string,
+  options: { range?: { start: number; end?: number }; signal?: AbortSignal } = {},
+): Promise<ReadableStream<Uint8Array> | undefined> {
+  return (await blobs.get(definitionFileKey(sha256), options))?.body;
 }
 
 /** A definition file's bytes, or undefined when the Object store does not have them. */

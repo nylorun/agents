@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -130,11 +131,35 @@ it("uploads the skill files the Runtime lacks, binary included, before saving th
   expect(calls.filter((call) => call.startsWith("HEAD"))).toHaveLength(2);
 });
 
-it("refuses a skill file over 10 MiB", () => {
+it("holds a file over 10 MiB and more than 500 files", async () => {
   const root = catalog();
   write(root, "big/SKILL.md", "---\nname: big\ndescription: Big.\n---\nOk.\n");
-  write(root, "big/data.bin", new Uint8Array(10 * 1024 * 1024 + 1));
-  expect(() => skills(root)).toThrow("Skill 'big' file data.bin is 10485761 bytes");
+  const data = new Uint8Array(10 * 1024 * 1024 + 1).fill(3);
+  write(root, "big/data.bin", data);
+  for (let index = 0; index < 501; index += 1) write(root, `big/notes/${index}.md`, `# ${index}\n`);
+  const declaration = skills(root);
+  const files = declaration.skills!.big!.files;
+  expect(Object.keys(files)).toHaveLength(503);
+  expect(files["data.bin"]).toBe(sha256(data));
+  const source = declaration.skillFiles![sha256(data)]!;
+  expect(source.size).toBe(data.byteLength);
+  expect(sha256(await source.read())).toBe(sha256(data));
+});
+
+it("refuses a skill whose files hold more than 2 GiB together", () => {
+  const root = catalog();
+  write(root, "big/SKILL.md", "---\nname: big\ndescription: Big.\n---\nOk.\n");
+  // Sparse: the size counts before any byte is read.
+  write(root, "big/data.bin", "");
+  truncateSync(join(root, "big/data.bin"), 2 * 1024 ** 3 + 1);
+  expect(() => skills(root)).toThrow(
+    "Skill 'big' holds more than 2147483648 bytes; a skill's files may hold at most 2147483648 (2 GiB) together"
+  );
+  try {
+    skills(root);
+  } catch (error) {
+    expect((error as SkillsError).code).toBe("skills.too-large");
+  }
 });
 
 it("omits tools when the catalog is empty", () => {

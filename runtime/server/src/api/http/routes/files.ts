@@ -49,7 +49,7 @@ export function fileRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/files/{file}",
       tags: ["Definition files"],
       summary: "Upload a definition file",
-      description: `Stores the body, at most ${DEFINITION_FILE_MAX_BYTES} bytes, at the SHA-256 the path names; a body with another hash stores nothing (\`400\`). A file the Tenant holds already is kept as it is (\`200\`).`,
+      description: `Streams the body, at most ${DEFINITION_FILE_MAX_BYTES} bytes (2 GiB, the most one skill's files may hold together), to the SHA-256 the path names; a body with another hash stores nothing (\`400\`). A file the Tenant holds already is kept as it is (\`200\`).`,
       request: {
         params: file,
         body: {

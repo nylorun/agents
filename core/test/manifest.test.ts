@@ -91,7 +91,7 @@ it("carries a plugin label on skills and servers, and refuses a malformed one", 
   expect(withLabel("ops")).toBeDefined();
 });
 
-it("validates a skill's file paths, hashes and count", () => {
+it("validates a skill's file paths and hashes, and takes any number of files", () => {
   const issue = (files: unknown) => issues(skillManifest(files));
   expect(issue({ "SKILL.md": SKILL_MD, "scripts/run.py": LABELS, "assets/logo.png": LABELS })).toBeUndefined();
   expect(issue({ "notes.md": LABELS })).toContain("files must include SKILL.md");
@@ -101,8 +101,8 @@ it("validates a skill's file paths, hashes and count", () => {
   expect(issue({ "SKILL.md": "sha256:ABC" })).toContain("sha256:<64 lowercase hex>");
   expect(issue({ "SKILL.md": "a".repeat(64) })).toContain("sha256:<64 lowercase hex>");
   const many: Record<string, string> = { "SKILL.md": SKILL_MD };
-  for (let index = 0; index < 500; index += 1) many[`f${index}.txt`] = LABELS;
-  expect(issue(many)).toContain("a skill may have at most 500");
+  for (let index = 0; index < 1000; index += 1) many[`f${index}.txt`] = LABELS;
+  expect(issue(many)).toBeUndefined();
   expect(() => Agent.from(skillManifest({ "notes.md": LABELS }), {})).toThrow(
     /Skill 'triage' files must include SKILL.md/,
   );

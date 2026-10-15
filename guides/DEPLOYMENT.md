@@ -443,7 +443,7 @@ before they save):
 - **Files by hash.** A `files` entry may name files by content hash instead
   of an artifact version: `{ "path": "/workspace/kit", "files": { "bin/run.sh":
   "sha256:…" } }` copies each file under `path` before `setup` runs. Upload
-  each one first with `PUT /v1/files/sha256:<hex>` (at most 10 MiB);
+  each one first with `PUT /v1/files/sha256:<hex>` (at most 2 GiB);
   `environmentFiles(path, contents)` in `@nylorun/agents` hashes them and
   `manifests.save(manifest, { files: kit.bytes })` uploads what the Runtime
   lacks. A manifest by hash moves to another installation with its files.

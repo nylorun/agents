@@ -36,9 +36,10 @@ export type { WorkflowManifest } from "./types/workflow.js";
 export { PROTOCOL_VERSION, ERROR_CODES } from "./compatibility.js";
 export {
   DEFINITION_FILE_MAX_BYTES,
-  SKILL_FILES_MAX,
+  SKILL_MAX_BYTES,
   definitionFilesOf,
   isDefinitionFileHash,
+  skillsOf,
 } from "./utils/definition-files.js";
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES, isArtifactId } from "./compatibility.js";
@@ -759,7 +760,7 @@ const relativeFilePath = z
 /**
  * One input file entry (pods only): an artifact version copied to `path` (a file artifact, or a
  * folder's files under it), or (Q6) files by content hash, each `sha256:<hex>` of a definition
- * file the Tenant holds (`PUT /v1/files/sha256:<hex>`, at most 10 MiB each), copied under `path`
+ * file the Tenant holds (`PUT /v1/files/sha256:<hex>`, at most 2 GiB each), copied under `path`
  * at its relative path. A manifest by hash moves to another Tenant with its files.
  */
 export const EnvironmentFileSchema = z.union([

@@ -6,8 +6,8 @@
  * - `load_skill`: the skill's instructions (its `SKILL.md` after the frontmatter), the paths of
  *   its other files, and, when the session has a sandbox, where they are in it
  *   (`/skills/<name>@<hash>/`, read-only, D66).
- * - `read_skill_resource`: one text file of the skill. A binary file is refused: the model reads
- *   it in the sandbox, when there is one.
+ * - `read_skill_resource`: one text file of the skill. A binary file, or one over
+ *   `SKILL_READ_MAX_BYTES`, is refused: the model reads it in the sandbox, when there is one.
  *
  * Expected problems are failed outcomes the model sees; only infrastructure errors throw.
  */
@@ -23,10 +23,16 @@ import {
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { sandboxToolSpec } from "../sandbox/runtime-tools.js";
-import { readDefinitionFile } from "./definition-files.js";
+import { definitionFileKey, readDefinitionFile } from "./definition-files.js";
 import type { TenantContext } from "./context.js";
 
 const failed = (code: string, message: string): SandboxToolOutcome => ({ kind: "failed", code, message });
+
+/**
+ * The largest file the skill tools read into the model's context (10 MiB). A skill's files may
+ * hold up to 2 GiB together: a larger file is used in the sandbox.
+ */
+export const SKILL_READ_MAX_BYTES = 10 * 1024 * 1024;
 
 /** True when `request` calls a skill tool the Runtime serves for `manifest`'s agent. */
 export function isSkillToolCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
@@ -64,14 +70,29 @@ export async function callSkillTool(
       : failed("skill.unknown", `There is no skill '${name}'.`);
   const sandboxed = sandboxToolSpec(manifest, "bash") !== undefined;
   const directory = `${skillFolderOf(skill)}/`;
+  const missing = (path: string) =>
+    new Error(`The bytes of ${skill.files[path]} (${skill.name}/${path}) are missing from the Object store`);
+  /** The file's bytes, or undefined when it is too large to read into the context. */
   const read = async (path: string) => {
+    const meta = await ctx.blobs.head(definitionFileKey(skill.files[path]!));
+    if (!meta) throw missing(path);
+    if (meta.size > SKILL_READ_MAX_BYTES) return undefined;
     const bytes = await readDefinitionFile(ctx.blobs, skill.files[path]!, signal);
-    if (!bytes) throw new Error(`The bytes of ${skill.files[path]} (${skill.name}/${path}) are missing from the Object store`);
+    if (!bytes) throw missing(path);
     return bytes;
   };
+  const tooLarge = (path: string) =>
+    failed(
+      "skill.resource_too_large",
+      sandboxed
+        ? `${path} is larger than ${SKILL_READ_MAX_BYTES} bytes, too large to read here. It is in the sandbox at ${directory}${path}; use it there.`
+        : `${path} is larger than ${SKILL_READ_MAX_BYTES} bytes; only smaller files can be read without a sandbox.`
+    );
 
   if (request.toolName === LOAD_SKILL_TOOL) {
-    const text = textOf(await read(SKILL_ENTRY));
+    const entry = await read(SKILL_ENTRY);
+    if (!entry) return tooLarge(SKILL_ENTRY);
+    const text = textOf(entry);
     if (text === undefined) return failed("skill.binary_resource", `${SKILL_ENTRY} of '${skill.name}' is not text.`);
     const resources = Object.keys(skill.files)
       .filter((path) => path !== SKILL_ENTRY)
@@ -90,7 +111,9 @@ export async function callSkillTool(
   const path = typeof input.path === "string" ? input.path : "";
   if (skill.files[path] === undefined)
     return failed("skill.unknown_resource", `Skill '${skill.name}' has no resource '${path}'.`);
-  const content = textOf(await read(path));
+  const bytes = await read(path);
+  if (!bytes) return tooLarge(path);
+  const content = textOf(bytes);
   if (content === undefined)
     return failed(
       "skill.binary_resource",

@@ -1001,8 +1001,8 @@ export interface Tx {
   definitionFile(sha256: string): Promise<DefinitionFileRow | undefined>;
   /** Records a stored definition file; false when the Tenant held it already. */
   insertDefinitionFile(row: DefinitionFileRow): Promise<boolean>;
-  /** Those of `shas` the Tenant holds. */
-  heldDefinitionFiles(shas: readonly string[]): Promise<Set<string>>;
+  /** Those of `shas` the Tenant holds, with each one's size in bytes. */
+  heldDefinitionFiles(shas: readonly string[]): Promise<Map<string, number>>;
   /** Records that version `manifestHash` of definition `agentId` names each of `shas`. */
   insertDefinitionFileUses(agentId: string, manifestHash: string, shas: readonly string[]): Promise<void>;
 

@@ -15,7 +15,7 @@ import type {
   SandboxProbe,
   SandboxSpec,
 } from "../../sandbox/types.js";
-import { SandboxFileTooLargeError } from "../../sandbox/types.js";
+import { SandboxFileTooLargeError, wholeBytes } from "../../sandbox/types.js";
 
 const ENV = Object.freeze({
   PATH: "/usr/local/bin:/usr/bin:/bin",
@@ -144,7 +144,7 @@ export function virtualBackend(options: { readonly root: string }): SandboxBacke
           return { entries, truncated: !complete };
         },
         async writeFile(path, content) {
-          await (typeof content === "string" ? fs.writeFile(path, content, "utf8") : fs.writeFile(path, content));
+          await (typeof content === "string" ? fs.writeFile(path, content, "utf8") : fs.writeFile(path, await wholeBytes(content)));
         },
         async stop() {},
       };

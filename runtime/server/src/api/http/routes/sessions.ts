@@ -177,7 +177,10 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
         }),
         body: body(PutAgentRequest),
       },
-      responses: { 200: json(PutAgentResponse, "The definition, stored (or checked, with dryRun)") },
+      responses: {
+        200: json(PutAgentResponse, "The definition, stored (or checked, with dryRun)"),
+        413: { description: "A skill's files hold more than 2 GiB together (`limit_exceeded`)" },
+      },
     },
     async (c) => {
       return jsonResponse(

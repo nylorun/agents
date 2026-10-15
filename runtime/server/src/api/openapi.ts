@@ -165,7 +165,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Definition files",
     group: "Agents",
     description:
-      "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`). `saveAgent` in `@nylorun/agents` does both.",
+      "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`) or a skill whose files hold more than 2 GiB together (`limit_exceeded`). No file and no count of files has a limit of its own. `saveAgent` in `@nylorun/agents` does both.",
     operations: ["PUT /v1/files/{file}", "HEAD /v1/files/{file}"],
   },
   {

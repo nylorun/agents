@@ -1759,15 +1759,15 @@ class PostgresTx implements Tx {
     return inserted.length === 1;
   }
 
-  async heldDefinitionFiles(shas: readonly string[]): Promise<Set<string>> {
+  async heldDefinitionFiles(shas: readonly string[]): Promise<Map<string, number>> {
     this.check();
-    const found = new Set<string>();
+    const found = new Map<string, number>();
     for (let at = 0; at < shas.length; at += CONTENT_BATCH) {
       const rows = await this.db
-        .select({ sha256: definitionFiles.sha256 })
+        .select({ sha256: definitionFiles.sha256, size: definitionFiles.size })
         .from(definitionFiles)
         .where(inArray(definitionFiles.sha256, shas.slice(at, at + CONTENT_BATCH)));
-      for (const row of rows) found.add(row.sha256);
+      for (const row of rows) found.set(row.sha256, row.size);
     }
     return found;
   }

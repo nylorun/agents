@@ -1,17 +1,19 @@
 import { createHash } from "node:crypto";
 import {
+  closeSync,
   existsSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   realpathSync,
   statSync,
 } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
-  DEFINITION_FILE_MAX_BYTES,
   SKILL_ENTRY,
-  SKILL_FILES_MAX,
+  SKILL_MAX_BYTES,
   skillFilePathIssue,
   type SkillFileSource,
 } from "@nylorun/core/define";
@@ -77,8 +79,8 @@ export function resolveSkillsRoot(directory: string): string {
 /**
  * Load Agent Skills (agentskills.io) from a catalog directory.
  * Each immediate subdirectory with a valid SKILL.md becomes one skill, with every file of its
- * folder (text or binary) hashed. Throws `SkillsError` for a skill the Runtime cannot hold: a
- * file over 10 MiB, more than 500 files, or a path a manifest cannot name.
+ * folder (text or binary) hashed. Throws `SkillsError` for a skill the Runtime cannot hold: files
+ * over 2 GiB together, or a path a manifest cannot name.
  */
 export function loadSkillsFromDirectory(
   directory: string,
@@ -180,6 +182,7 @@ function readFiles(
   const files: Record<string, string> = {};
   const sources: Record<string, SkillFileSource> = {};
   const visited = new Set<string>();
+  let total = 0;
   // `at` is the folder's path in the skill: symbolic links inside the package are followed.
   const walk = (current: string, at: string) => {
     if (visited.has(current)) return;
@@ -209,26 +212,53 @@ function readFiles(
           `${prefix}.invalid-path`,
           `Skill '${name}' has a file whose path ${issue}: ${path}`
         );
-      if (stats.size > DEFINITION_FILE_MAX_BYTES)
+      total += stats.size;
+      if (total > SKILL_MAX_BYTES)
         throw new SkillsError(
-          `${prefix}.file-too-large`,
-          `Skill '${name}' file ${path} is ${stats.size} bytes; a skill file may be at most ${DEFINITION_FILE_MAX_BYTES} (10 MiB)`
+          `${prefix}.too-large`,
+          `Skill '${name}' holds more than ${SKILL_MAX_BYTES} bytes; a skill's files may hold at most ${SKILL_MAX_BYTES} (2 GiB) together`
         );
-      const hash = `sha256:${createHash("sha256").update(readFileSync(real)).digest("hex")}`;
+      const hash = hashFile(real);
       files[path] = hash;
-      sources[hash] = {
-        size: stats.size,
-        read: async () => new Uint8Array(await readFile(real)),
-      };
-      if (Object.keys(files).length > SKILL_FILES_MAX)
-        throw new SkillsError(
-          `${prefix}.too-many-files`,
-          `Skill '${name}' has more than ${SKILL_FILES_MAX} files; a skill may have at most ${SKILL_FILES_MAX}`
-        );
+      sources[hash] = { size: stats.size, read: () => readWhole(real, stats.size) };
     }
   };
   walk(directory, "");
   return { files: sorted(files), sources };
+}
+
+/** Read in chunks: neither the hash nor the read is bound by `readFile`'s 2 GiB limit. */
+const CHUNK_BYTES = 1024 * 1024;
+
+/** `sha256:<hex>` of the file at `path`, read a chunk at a time. */
+function hashFile(path: string): string {
+  const hash = createHash("sha256");
+  const chunk = Buffer.allocUnsafe(CHUNK_BYTES);
+  const fd = openSync(path, "r");
+  try {
+    for (let read; (read = readSync(fd, chunk, 0, CHUNK_BYTES, null)) > 0; ) hash.update(chunk.subarray(0, read));
+  } finally {
+    closeSync(fd);
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
+
+/** The `size` bytes of the file at `path`. */
+async function readWhole(path: string, size: number): Promise<Uint8Array> {
+  const bytes = new Uint8Array(size);
+  const file = await open(path, "r");
+  try {
+    let at = 0;
+    while (at < size) {
+      const { bytesRead } = await file.read(bytes, at, Math.min(CHUNK_BYTES, size - at), at);
+      if (bytesRead === 0) break;
+      at += bytesRead;
+    }
+    if (at !== size) throw new Error(`${path} changed while it was read: ${at} of ${size} bytes`);
+  } finally {
+    await file.close();
+  }
+  return bytes;
 }
 
 function sorted(files: Record<string, string>): Record<string, string> {

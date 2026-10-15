@@ -60,6 +60,7 @@ import {
 import {
   SandboxFileTooLargeError,
   type SandboxBackend,
+  type SandboxFileBytes,
   type SandboxHandle,
   type SandboxListing,
   type SandboxSpec,
@@ -140,11 +141,12 @@ export interface SandboxManagerOptions {
   /** Delete sandboxes on close (the Runtime's store does not outlive the process). */
   readonly ephemeral: boolean;
   /**
-   * A definition file's bytes by `sha256:<hex>`, for the skills a session's workspace mounts:
-   * the Tenant's Object store in core's process, core's answer in a harness (for the run that
-   * made the call, `session.claim`). Without it no skills are mounted.
+   * A definition file's bytes by `sha256:<hex>`, for the skills a session's workspace mounts,
+   * whole or as chunks (a file may hold up to 2 GiB): the Tenant's Object store in core's
+   * process, core's answers in a harness (for the run that made the call, `session.claim`).
+   * Without it no skills are mounted.
    */
-  readonly definitionFile?: (sha256: string, session: SandboxSessionRef) => Promise<Uint8Array>;
+  readonly definitionFile?: (sha256: string, session: SandboxSessionRef) => Promise<SandboxFileBytes>;
   /** Writes a session event (in core, in its own transaction; in a harness, as a claim). */
   readonly emit: <T extends SandboxEventType>(
     sessionId: string,

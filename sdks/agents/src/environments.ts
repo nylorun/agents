@@ -188,7 +188,7 @@ export type EnvironmentFileBytes = Readonly<Record<string, Uint8Array>>;
 /**
  * A manifest `files` entry by content hash (Q6): `contents` (each file's path under `path` and
  * its bytes or text) hashed, as `entry` for the manifest and `bytes` for `manifests.save`'s
- * `files`, which uploads them. Each file holds at most 10 MiB.
+ * `files`, which uploads them. Each file holds at most 2 GiB.
  */
 export async function environmentFiles(
   path: string,

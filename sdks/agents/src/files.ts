@@ -41,7 +41,7 @@ export class FilesClient {
   }
 
   /**
-   * Uploads one file, at most 10 MiB. The Runtime checks its bytes hash to `sha256` (default:
+   * Uploads one file, at most 2 GiB. The Runtime checks its bytes hash to `sha256` (default:
    * their hash) and keeps a file it already holds as it is.
    */
   async upload(
