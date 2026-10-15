@@ -7,10 +7,12 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { canonical } from "./canonical.js";
 
-/** The most bytes one skill's files may hold together (2 GiB); no file and no count has its own limit. */
-export const SKILL_MAX_BYTES = 2 * 1024 * 1024 * 1024;
-/** The largest definition file the Runtime stores: as large as a whole skill. */
-export const DEFINITION_FILE_MAX_BYTES = SKILL_MAX_BYTES;
+/**
+ * The most bytes one skill's files may hold together when the Tenant sets no limit of its own
+ * (2 GiB, Tenant setting `skills.config`); an Environment's manifest may set a lower one. No file
+ * and no count of files has a limit of its own.
+ */
+export const SKILL_TOTAL_BYTES_DEFAULT = 2 * 1024 * 1024 * 1024;
 /** The longest path of a file in a skill's folder. */
 export const SKILL_FILE_PATH_MAX = 512;
 /** The file every skill has: its frontmatter and instructions. */

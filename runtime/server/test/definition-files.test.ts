@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent, AgentsClient } from "@nylorun/agents";
-import { DEFINITION_FILE_MAX_BYTES, SKILL_MAX_BYTES } from "@nylorun/core/contracts";
+import { SKILL_TOTAL_BYTES_DEFAULT } from "@nylorun/core/contracts";
 import { DELEGATE_INPUT_SCHEMA, skillFolderOf } from "@nylorun/core/define";
 import { DEFINITION_FILE_CHUNK_BYTES } from "@nylorun/core/harness-api";
 import type { BlobStore } from "../src/blob/index.js";
@@ -176,8 +176,8 @@ describe("PUT and HEAD /v1/files/{file}", () => {
     expect(malformed.status).toBe(400);
     expect(await malformed.json()).toMatchObject({ code: "invalid_request" });
 
-    expect(DEFINITION_FILE_MAX_BYTES).toBe(SKILL_MAX_BYTES);
-    const tooLarge = await putDeclaring(runtime, sha256("big"), DEFINITION_FILE_MAX_BYTES + 1);
+    // One file may be as large as the Tenant allows a whole skill: 2 GiB by default.
+    const tooLarge = await putDeclaring(runtime, sha256("big"), SKILL_TOTAL_BYTES_DEFAULT + 1);
     expect(tooLarge.status).toBe(413);
     expect(tooLarge.body).toMatchObject({ code: "limit_exceeded", details: { limitBytes: 2 * 1024 ** 3 } });
     expect((await head(runtime, sha256("big"))).status).toBe(404);
@@ -284,7 +284,7 @@ describe("a definition naming definition files", () => {
       store.tx(async (t) => {
         for (const [file, size] of [
           [gib, 1024 ** 3],
-          [almost, SKILL_MAX_BYTES - Buffer.byteLength(SKILL_MD)],
+          [almost, SKILL_TOTAL_BYTES_DEFAULT - Buffer.byteLength(SKILL_MD)],
         ] as const)
           await t.insertDefinitionFile({ sha256: file, kind: "skill", size, contentType: null, createdAt: new Date().toISOString() });
       }),
@@ -304,7 +304,7 @@ describe("a definition naming definition files", () => {
     expect(await refused.json()).toMatchObject({
       code: "limit_exceeded",
       message: expect.stringContaining(`'triage' holds ${bytes}`),
-      details: { limitBytes: SKILL_MAX_BYTES, skills: [{ name: "triage", bytes }] },
+      details: { limitBytes: SKILL_TOTAL_BYTES_DEFAULT, skills: [{ name: "triage", bytes }] },
     });
     // An agent used as a tool is held to it too.
     const nested = manifest("lead", {
@@ -324,6 +324,102 @@ describe("a definition naming definition files", () => {
     for (let index = 0; index < 600; index += 1) many[`references/${index}.md`] = sha256(LABELS);
     const stored = await putAgent(manifest("many", skill(many)));
     expect(stored.status, await stored.clone().text()).toBe(200);
+  });
+});
+
+describe("skill limits", () => {
+  const skill = (files: Record<string, string>) => ({
+    skills: { triage: { name: "triage", description: "Triage an issue.", files } },
+  });
+  const manifest = (id: string, parts: Record<string, unknown>) => ({ manifestSchemaVersion: 7, id, ...parts });
+
+  it("are the Tenant's for every agent and upload, and an Environment's manifest may set less for its sessions", async () => {
+    const runtime = await boot();
+    const manage = { ...runtime.managementHeaders(), "content-type": "application/json" };
+    const call = (method: string, path: string, body: unknown, headers: Record<string, string> = json) =>
+      fetch(`${runtime.url}${path}`, { method, headers, body: JSON.stringify(body) });
+    const got = await fetch(`${runtime.url}/v1/tenant/skills`, { headers: manage });
+    expect(await got.json()).toEqual({ limits: { totalBytes: SKILL_TOTAL_BYTES_DEFAULT } });
+    // An application key is not the operator's.
+    expect((await fetch(`${runtime.url}/v1/tenant/skills`, { headers: auth })).status).toBe(403);
+    const set = await call("PUT", "/v1/tenant/skills", { limits: { totalBytes: 1000 } }, manage);
+    expect(await set.json()).toEqual({ limits: { totalBytes: 1000 } });
+
+    // An upload past the Tenant's limit, by its declared length or as it streams.
+    const declared = await putDeclaring(runtime, sha256("big"), 1001);
+    expect(declared).toMatchObject({ status: 413, body: { code: "limit_exceeded", details: { limitBytes: 1000 } } });
+    const big = new Uint8Array(1001);
+    const streamed = await put(
+      runtime,
+      sha256(big),
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(big);
+          controller.close();
+        },
+      }),
+    );
+    expect(streamed.status).toBe(413);
+
+    // A skill of 900 bytes and SKILL.md fits; with a second copy of the file it does not.
+    const data = new Uint8Array(900).fill(1);
+    expect((await put(runtime, sha256(SKILL_MD), SKILL_MD)).status).toBe(201);
+    expect((await put(runtime, sha256(data), data)).status).toBe(201);
+    const files = { "SKILL.md": sha256(SKILL_MD), "data.bin": sha256(data) };
+    const agent = { requestId: "r", manifest: manifest("bot", skill(files)), implementationVersion: "dev" };
+    expect((await call("PUT", "/v1/agents/bot", agent)).status).toBe(200);
+    const twice = await call("PUT", "/v1/agents/twice", {
+      ...agent,
+      manifest: manifest("twice", skill({ ...files, "copy.bin": sha256(data) })),
+    });
+    expect(twice.status).toBe(413);
+    expect(await twice.json()).toMatchObject({ details: { limitBytes: 1000, skills: [{ name: "triage" }] } });
+
+    // An Environment may not ask for more than the Tenant allows, inline or in a manifest.
+    const above = await call("PUT", "/v1/environments/roomy", {
+      kind: "virtual",
+      limits: { skills: { totalBytes: 2000 } },
+    });
+    expect(above.status).toBe(400);
+    expect(await above.text()).toContain("limits.skills.totalBytes asks for 2000 bytes; this Tenant allows at most 1000.");
+    const saved = await call("PUT", "/v1/environment-manifests/roomy", {
+      manifestSchemaVersion: 1,
+      name: "roomy",
+      limits: { skills: { totalBytes: 2000 } },
+    });
+    expect(saved.status).toBe(400);
+
+    // A session opens only where its agent's skills fit: a manifest's lower limit refuses it.
+    const tight = await call("PUT", "/v1/environment-manifests/tight", {
+      manifestSchemaVersion: 1,
+      name: "tight",
+      limits: { skills: { totalBytes: 500 } },
+    });
+    expect(tight.status, await tight.clone().text()).toBe(200);
+    const made = await call("PUT", "/v1/environments/tight", { manifest: "tight" });
+    expect(((await made.json()) as { limits: unknown }).limits).toMatchObject({ skills: { totalBytes: 500 } });
+    const refused = await call("PUT", "/v1/sessions/s1", {
+      requestId: "s1",
+      agentId: "bot",
+      ownerUserId: "ada",
+      environment: "tight",
+    });
+    expect(refused.status).toBe(409);
+    const bytes = 900 + Buffer.byteLength(SKILL_MD);
+    expect(await refused.json()).toMatchObject({
+      code: "environment_unsuitable",
+      message: expect.stringContaining(`Environment tight allows a skill's files at most 500 bytes together`),
+      details: { limitBytes: 500, skills: [{ name: "triage", bytes }] },
+    });
+    // Without one, the Environment takes the Tenant's limit.
+    await call("PUT", "/v1/environments/plain", { kind: "virtual" });
+    const opened = await call("PUT", "/v1/sessions/s2", {
+      requestId: "s2",
+      agentId: "bot",
+      ownerUserId: "ada",
+      environment: "plain",
+    });
+    expect(opened.status, await opened.clone().text()).toBe(200);
   });
 });
 

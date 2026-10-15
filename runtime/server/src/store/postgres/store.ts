@@ -1664,21 +1664,41 @@ class PostgresTx implements Tx {
     await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('nylorun.artifacts'))`);
   }
 
-  async artifactBytes(): Promise<number> {
+  /** The artifacts of Environment `environmentId`: its disk versions, and its sessions'. */
+  private artifactsOfEnvironment(environmentId: string): SQL {
+    return or(
+      eq(artifacts.environmentId, environmentId),
+      inArray(
+        artifacts.sessionId,
+        this.db.select({ id: sessions.id }).from(sessions).where(eq(sessions.environmentId, environmentId)),
+      ),
+    )!;
+  }
+
+  async artifactBytes(scope?: { environmentId: string }): Promise<number> {
     this.check();
+    const within = scope === undefined ? undefined : this.artifactsOfEnvironment(scope.environmentId);
     const [files] = await this.db
       .select({
         bytes: sql<number>`coalesce(sum(${artifactVersions.size}), 0)::bigint`.mapWith(Number),
       })
       .from(artifactVersions)
       .innerJoin(artifacts, eq(artifacts.id, artifactVersions.artifactId))
-      .where(eq(artifacts.kind, "file"));
+      .where(within === undefined ? eq(artifacts.kind, "file") : and(eq(artifacts.kind, "file"), within));
     // A folder's files are stored once per distinct hash, however many versions name them.
-    const distinct = this.db
-      .select({ size: sql<number>`max(${artifactContent.size})`.as("size") })
-      .from(artifactContent)
-      .groupBy(artifactContent.sha256)
-      .as("distinct_content");
+    const distinct = (
+      within === undefined
+        ? this.db
+            .select({ size: sql<number>`max(${artifactContent.size})`.as("size") })
+            .from(artifactContent)
+            .groupBy(artifactContent.sha256)
+        : this.db
+            .select({ size: sql<number>`max(${artifactContent.size})`.as("size") })
+            .from(artifactContent)
+            .innerJoin(artifacts, eq(artifacts.id, artifactContent.artifactId))
+            .where(within)
+            .groupBy(artifactContent.sha256)
+    ).as("distinct_content");
     const [content] = await this.db
       .select({ bytes: sql<number>`coalesce(sum(${distinct.size}), 0)::bigint`.mapWith(Number) })
       .from(distinct);
@@ -1702,14 +1722,22 @@ class PostgresTx implements Tx {
         .onConflictDoNothing();
   }
 
-  async referencedArtifactContent(shas: readonly string[]): Promise<Set<string>> {
+  async referencedArtifactContent(
+    shas: readonly string[],
+    scope?: { environmentId: string },
+  ): Promise<Set<string>> {
     this.check();
     const found = new Set<string>();
     for (let at = 0; at < shas.length; at += CONTENT_BATCH) {
-      const rows = await this.db
-        .selectDistinct({ sha256: artifactContent.sha256 })
-        .from(artifactContent)
-        .where(inArray(artifactContent.sha256, shas.slice(at, at + CONTENT_BATCH)));
+      const batch = inArray(artifactContent.sha256, shas.slice(at, at + CONTENT_BATCH));
+      const rows =
+        scope === undefined
+          ? await this.db.selectDistinct({ sha256: artifactContent.sha256 }).from(artifactContent).where(batch)
+          : await this.db
+              .selectDistinct({ sha256: artifactContent.sha256 })
+              .from(artifactContent)
+              .innerJoin(artifacts, eq(artifacts.id, artifactContent.artifactId))
+              .where(and(batch, this.artifactsOfEnvironment(scope.environmentId)));
       for (const row of rows) found.add(row.sha256);
     }
     return found;

@@ -29,6 +29,7 @@ import {
   type PutOperatorKeyResponse,
   type PutTenantArtifactsRequest,
   type PutTenantEnvironmentsRequest,
+  type PutTenantSkillsRequest,
   type ResetTenantRequest,
   type ResetTenantResponse,
   type SeedTenantConfigRequest,
@@ -37,6 +38,7 @@ import {
   type SigningKeyView,
   type TenantArtifactsView,
   type TenantSandboxView,
+  type TenantSkillsView,
   type TenantStatus,
   type ToolPolicy,
 } from "@nylorun/core/contracts";
@@ -140,6 +142,11 @@ export interface ManagementSettings {
   readonly artifacts: {
     get(): Promise<TenantArtifactsView>;
     put(request: Body<PutTenantArtifactsRequest>): Promise<TenantArtifactsView>;
+  };
+  readonly skills: {
+    get(): Promise<TenantSkillsView>;
+    /** The most bytes one skill's files may hold together; an Environment's manifest may set less. */
+    put(request: Body<PutTenantSkillsRequest>): Promise<TenantSkillsView>;
   };
 }
 
@@ -254,6 +261,10 @@ export class ManagementClient {
       artifacts: {
         get: () => call("GET", "/v1/tenant/artifacts"),
         put: (request) => call("PUT", "/v1/tenant/artifacts", withId(request)),
+      },
+      skills: {
+        get: () => call("GET", "/v1/tenant/skills"),
+        put: (request) => call("PUT", "/v1/tenant/skills", withId(request)),
       },
     };
   }

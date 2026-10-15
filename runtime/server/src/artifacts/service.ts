@@ -4,11 +4,12 @@
  * (F8.2) are written by the turn-end export (`./export.ts`, `./folders.ts`) and read here.
  *
  * - **Uploads stream.** The body goes to the store as it arrives, at a fresh random key, counted
- *   against the per-file cap and what is left of the Tenant total (`maxBytes`): nothing is
- *   buffered whole, and a body past either limit stores nothing (`413 limit_exceeded`).
+ *   against the per-file cap and what is left of each total it counts towards (`maxBytes`,
+ *   `./quota.ts`: the Tenant's, and a session's Environment's when its manifest sets one):
+ *   nothing is buffered whole, and a body past a limit stores nothing (`413 limit_exceeded`).
  * - **Postgres is the commit point.** One transaction writes the version row and, for a session's
  *   artifact, its `artifact.created` or `artifact.version.created` event through the record
- *   module, after re-checking the Tenant total under the quota lock. Until it commits the object
+ *   module, after re-checking each total under the quota lock. Until it commits the object
  *   is garbage, and a failed commit deletes it.
  * - **Access mirrors sessions.** An application principal reaches every artifact. A request acting
  *   for a person (a trusted issuer's token or subject headers) reaches only artifacts of that person's
@@ -35,7 +36,15 @@ import {
   type TenantContext,
 } from "../tenant/context.js";
 import { fail } from "../tenant/http.js";
-import { readArtifactLimits, type ArtifactLimits } from "./config.js";
+import {
+  artifactQuota,
+  artifactUsage,
+  environmentOfSession,
+  tightest,
+  totalSubject,
+  type ArtifactQuota,
+  type ArtifactUsage,
+} from "./quota.js";
 import { collectContent, readManifest } from "./folders.js";
 import { contentTypeFor } from "./media-types.js";
 
@@ -72,14 +81,15 @@ function tooLarge(message: string, limit: number): never {
   return fail(413, message, { code: "limit_exceeded", details: { limitBytes: limit } });
 }
 
-/** A body past `maxBytes`: past the per-file cap, or past what is left of the Tenant total. */
-function tooLargeFor(maxBytes: number, limits: ArtifactLimits): never {
-  return maxBytes === limits.fileBytes
-    ? tooLarge(`A file may hold at most ${limits.fileBytes} bytes`, limits.fileBytes)
-    : tooLarge(
-        `The Tenant's artifacts may hold at most ${limits.totalBytes} bytes; this file does not fit`,
-        limits.totalBytes,
-      );
+/** A body past `maxBytes`: past the per-file cap, or past what is left of a total. */
+function tooLargeFor(maxBytes: number, quota: ArtifactQuota, usage: readonly ArtifactUsage[]): never {
+  if (maxBytes === quota.fileBytes)
+    return tooLarge(`A file may hold at most ${quota.fileBytes} bytes`, quota.fileBytes);
+  const { total } = tightest(usage);
+  return tooLarge(
+    `${totalSubject(total)} may hold at most ${total.limitBytes} bytes; this file does not fit`,
+    total.limitBytes,
+  );
 }
 
 export function versionView(row: ArtifactVersionRow): ArtifactVersionView {
@@ -176,7 +186,7 @@ export async function uploadArtifact(
 ): Promise<Uploaded> {
   const name = input.artifactId === undefined ? checkArtifactName(input.name) : undefined;
   // Where it goes and how much room is left, before a byte is stored.
-  const { limits, used, sessionId, fileName } = await ctx.store.tx(async (t) => {
+  const { quota, usage, sessionId, fileName } = await ctx.store.tx(async (t) => {
     let sessionId: string | null;
     let fileName = name;
     if (input.artifactId !== undefined) {
@@ -191,15 +201,19 @@ export async function uploadArtifact(
       if (input.sessionId !== undefined) await sessionOf(t, input.sessionId, access);
       sessionId = input.sessionId ?? null;
     }
-    return { limits: await readArtifactLimits(t), used: await t.artifactBytes(), sessionId, fileName };
+    const quota = await artifactQuota(t, await environmentOfSession(t, sessionId));
+    return { quota, usage: await artifactUsage(t, quota), sessionId, fileName };
   });
   const contentType = input.contentType ?? contentTypeFor(fileName!);
-  const room = limits.totalBytes - used;
-  if (room <= 0)
-    tooLarge(`The Tenant's artifacts hold ${used} of ${limits.totalBytes} bytes; delete some first`, limits.totalBytes);
-  const maxBytes = Math.min(limits.fileBytes, room);
+  const fullest = tightest(usage);
+  if (fullest.roomBytes <= 0)
+    tooLarge(
+      `${totalSubject(fullest.total)} hold ${fullest.usedBytes} of ${fullest.total.limitBytes} bytes; delete some first`,
+      fullest.total.limitBytes,
+    );
+  const maxBytes = Math.min(quota.fileBytes, fullest.roomBytes);
   if (input.declaredBytes !== undefined && input.declaredBytes > maxBytes)
-    tooLargeFor(maxBytes, limits);
+    tooLargeFor(maxBytes, quota, usage);
   const artifactId = input.artifactId ?? newArtifactId();
   const key = `artifacts/${artifactId}/${randomUUID()}`;
   let stored;
@@ -210,7 +224,7 @@ export async function uploadArtifact(
       ...(signal ? { signal } : {}),
     });
   } catch (error) {
-    if (error instanceof BlobTooLargeError) tooLargeFor(maxBytes, limits);
+    if (error instanceof BlobTooLargeError) tooLargeFor(maxBytes, quota, usage);
     throw error;
   }
   const createdAt = new Date().toISOString();
@@ -220,12 +234,12 @@ export async function uploadArtifact(
       let session: Session | undefined;
       if (sessionId !== null) session = await lockedSession(t, sessionId, access);
       await t.lockArtifactQuota();
-      const total = await t.artifactBytes();
-      if (total + stored.size > limits.totalBytes)
-        tooLarge(
-          `The Tenant's artifacts may hold at most ${limits.totalBytes} bytes; this file does not fit`,
-          limits.totalBytes,
-        );
+      for (const { total, usedBytes } of await artifactUsage(t, quota))
+        if (usedBytes + stored.size > total.limitBytes)
+          tooLarge(
+            `${totalSubject(total)} may hold at most ${total.limitBytes} bytes; this file does not fit`,
+            total.limitBytes,
+          );
       let row: ArtifactRow;
       let version: ArtifactVersionRow;
       if (input.artifactId !== undefined) {

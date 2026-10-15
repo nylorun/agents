@@ -27,6 +27,7 @@ import { hashManifest } from "@nylorun/core/compatibility";
 import { canonical } from "../store/canonical.js";
 import type { EnvironmentManifestRow, Tx } from "../store/types.js";
 import { resolveRecipe, type RecipeRequest } from "../sandbox/resolve.js";
+import { limitIssues, readTenantLimits } from "./limits.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import type { AuthScope, TenantContext } from "./context.js";
 import { actorOf, fileErrors } from "./environments.js";
@@ -43,6 +44,7 @@ export function manifestRecipeRequest(manifest: EnvironmentManifest): RecipeRequ
     ...(manifest.lifecycle === undefined ? {} : { lifecycle: manifest.lifecycle }),
     ...(manifest.setup === undefined ? {} : { setup: manifest.setup }),
     ...(manifest.files === undefined ? {} : { files: manifest.files }),
+    ...(manifest.limits === undefined ? {} : { limits: manifest.limits }),
     ...(manifest.secrets === undefined ? {} : { secrets: manifest.secrets }),
   };
 }
@@ -111,7 +113,11 @@ function warningsOf(ctx: TenantContext, manifest: EnvironmentManifest): Environm
 async function errorsOf(t: Tx, manifest: EnvironmentManifest): Promise<string[]> {
   const config = effectiveSandboxConfig(await readSandboxConfig(t));
   const resolved = resolveRecipe(manifest.kind ?? "virtual", manifestRecipeRequest(manifest), config);
-  return [...(resolved.kind === "error" ? resolved.errors : []), ...(await fileErrors(t, manifest.files))];
+  return [
+    ...(resolved.kind === "error" ? resolved.errors : []),
+    ...limitIssues(manifest.limits, await readTenantLimits(t)),
+    ...(await fileErrors(t, manifest.files)),
+  ];
 }
 
 /**

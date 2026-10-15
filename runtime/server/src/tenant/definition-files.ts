@@ -4,7 +4,8 @@
  * (`PUT /v1/files/sha256:<hex>`); its bytes go to the Object store at
  * `definitions/sha256/<hex>`, and a `definition_files` row says the Tenant holds it. A
  * definition naming a file the Tenant does not hold is refused (`definition_files_missing`), and
- * one whose skill's files hold more than `SKILL_MAX_BYTES` (2 GiB) together (`limit_exceeded`).
+ * one whose skill's files hold more than the Tenant's skill limit together (`limit_exceeded`,
+ * `skills.config`, default 2 GiB). One file may be as large as a whole skill.
  * The Runtime reads them to serve the skill tools and to give a sandbox the skills' files.
  *
  * Files are never deleted here: `definition_file_uses` records which definition version names
@@ -12,8 +13,6 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  DEFINITION_FILE_MAX_BYTES,
-  SKILL_MAX_BYTES,
   definitionFilesOf,
   isDefinitionFileHash,
   skillsOf,
@@ -23,6 +22,7 @@ import { BlobTooLargeError, type BlobPutResult, type BlobStore } from "../blob/i
 import type { Tx } from "../store/types.js";
 import type { TenantContext } from "./context.js";
 import { fail } from "./http.js";
+import { readSkillLimits } from "./limits.js";
 
 /** Where an upload's bytes wait while their hash is checked; never read as a definition file. */
 const STAGING_PREFIX = "definitions/uploads/";
@@ -44,17 +44,17 @@ export async function hasDefinitionFile(ctx: TenantContext, file: string): Promi
   return (await ctx.store.tx((t) => t.definitionFile(sha256))) !== undefined;
 }
 
-function tooLarge(): never {
-  return fail(413, `A definition file may hold at most ${DEFINITION_FILE_MAX_BYTES} bytes`, {
+function tooLarge(limitBytes: number): never {
+  return fail(413, `A definition file may hold at most ${limitBytes} bytes, the Tenant's limit for a whole skill`, {
     code: "limit_exceeded",
-    details: { limitBytes: DEFINITION_FILE_MAX_BYTES },
+    details: { limitBytes },
   });
 }
 
 /**
  * Stores the bytes of definition file `file`: `201` when they are new, `200` when the Tenant
  * holds them already (the body is not read). Bytes that do not hash to `file` are a `400`; more
- * than `DEFINITION_FILE_MAX_BYTES` a `413`. The body streams to a staging key and is copied to
+ * than the Tenant's skill limit (`skills.config`) a `413`. The body streams to a staging key and is copied to
  * the file's key only once its hash is checked, so no file is held in memory and bytes of
  * another hash never replace a file at its key.
  */
@@ -65,14 +65,17 @@ export async function putDefinitionFile(
   signal?: AbortSignal,
 ): Promise<{ status: 200 | 201; view: DefinitionFileView }> {
   const sha256 = checkHash(file);
-  const held = await ctx.store.tx((t) => t.definitionFile(sha256));
+  const { held, maxBytes } = await ctx.store.tx(async (t) => ({
+    held: await t.definitionFile(sha256),
+    maxBytes: (await readSkillLimits(t)).totalBytes,
+  }));
   if (held) {
     await request.body?.cancel().catch(() => undefined);
     return { status: 200, view: { sha256, size: held.size } };
   }
-  if (request.declaredBytes !== undefined && request.declaredBytes > DEFINITION_FILE_MAX_BYTES) {
+  if (request.declaredBytes !== undefined && request.declaredBytes > maxBytes) {
     await request.body?.cancel().catch(() => undefined);
-    tooLarge();
+    tooLarge(maxBytes);
   }
   const options = {
     ...(request.contentType === undefined ? {} : { contentType: request.contentType }),
@@ -85,10 +88,10 @@ export async function putDefinitionFile(
     try {
       staged = await ctx.blobs.put(staging, request.body ?? new Uint8Array(), {
         ...options,
-        maxBytes: DEFINITION_FILE_MAX_BYTES,
+        maxBytes,
       });
     } catch (error) {
-      if (error instanceof BlobTooLargeError) tooLarge();
+      if (error instanceof BlobTooLargeError) tooLarge(maxBytes);
       throw error;
     }
     const actual = `sha256:${staged.sha256}`;
@@ -119,12 +122,13 @@ export async function putDefinitionFile(
 
 /**
  * Why `document` cannot be stored for the files it names: the files the Tenant does not hold
- * (`missing`), else each skill whose files hold more than `SKILL_MAX_BYTES` together
- * (`oversized`). A file a skill names at two paths counts twice: a sandbox holds both.
+ * (`missing`), else each skill whose files hold more than `limitBytes` together (`oversized`).
+ * A file a skill names at two paths counts twice: a sandbox holds both.
  */
 export async function definitionFileIssues(
   t: Tx,
   document: unknown,
+  limitBytes: number,
 ): Promise<{ missing: string[]; oversized: { name: string; bytes: number }[] }> {
   const named = [...definitionFilesOf(document)].sort();
   if (named.length === 0) return { missing: [], oversized: [] };
@@ -136,7 +140,7 @@ export async function definitionFileIssues(
     let bytes = 0;
     for (const hash of Object.values(skill.files ?? {}))
       if (typeof hash === "string") bytes += held.get(hash) ?? 0;
-    if (bytes > SKILL_MAX_BYTES) oversized.push({ name: String(skill.name), bytes });
+    if (bytes > limitBytes) oversized.push({ name: String(skill.name), bytes });
   }
   return { missing, oversized };
 }

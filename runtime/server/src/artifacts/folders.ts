@@ -29,6 +29,7 @@ import type { ArtifactRow, ArtifactVersionRow, Tx } from "../store/types.js";
 import { newArtifactId } from "@nylorun/core/compatibility";
 import { lockedSession, type TenantContext } from "../tenant/context.js";
 import { fail } from "../tenant/http.js";
+import { totalSubject, type ArtifactQuota } from "./quota.js";
 
 const CONTENT_EPOCH_SETTING = "artifacts.content_epoch";
 
@@ -144,7 +145,7 @@ export async function collectContent(
 export class FolderCommitRefused extends Error {
   constructor(
     message: string,
-    readonly reason: "tenant_total" | "content_gone" | "artifact_gone",
+    readonly reason: "tenant_total" | "environment_total" | "content_gone" | "artifact_gone",
     readonly limit?: number,
   ) {
     super(message);
@@ -162,15 +163,16 @@ export interface FolderVersionInput {
   readonly entries: readonly FolderEntry[];
   /** The content epoch read before the first `head` of those bytes. */
   readonly epoch: number;
-  /** The Tenant total in force. */
-  readonly totalBytes: number;
+  /** The totals the version counts towards (`./quota.ts`). */
+  readonly quota: ArtifactQuota;
 }
 
 /**
  * Commits a folder version whose files are already stored: its manifest to the Object store,
  * then, in one transaction under the session and quota locks, the version row, its content rows
  * and `artifact.created` or `artifact.version.created` (`claimed: true`, source `export`).
- * Throws `FolderCommitRefused` when the Tenant total would be passed or a file is gone.
+ * Throws `FolderCommitRefused` when a total (the Tenant's, or the session's Environment's) would
+ * be passed or a file is gone.
  */
 export async function commitFolderVersion(
   ctx: TenantContext,
@@ -201,14 +203,19 @@ export async function commitFolderVersion(
               "A file's bytes were removed while the export ran",
               "content_gone",
             );
-      const added = fresh.reduce((sum, sha) => sum + files.get(sha)!, 0);
-      const total = await t.artifactBytes();
-      if (total + added > input.totalBytes)
-        throw new FolderCommitRefused(
-          `The Tenant's artifacts may hold at most ${input.totalBytes} bytes; these outputs add ${added} to ${total}`,
-          "tenant_total",
-          input.totalBytes,
-        );
+      for (const total of input.quota.totals) {
+        // A file adds bytes to a total unless an artifact it counts already holds the file.
+        const scope = total.environmentId === undefined ? undefined : { environmentId: total.environmentId };
+        const held = scope === undefined ? referenced : await t.referencedArtifactContent(shas, scope);
+        const added = shas.filter((sha) => !held.has(sha)).reduce((sum, sha) => sum + files.get(sha)!, 0);
+        const used = await t.artifactBytes(scope);
+        if (used + added > total.limitBytes)
+          throw new FolderCommitRefused(
+            `${totalSubject(total)} may hold at most ${total.limitBytes} bytes; these outputs add ${added} to ${used}`,
+            scope === undefined ? "tenant_total" : "environment_total",
+            total.limitBytes,
+          );
+      }
       let row: ArtifactRow;
       const version: ArtifactVersionRow = {
         artifactId,

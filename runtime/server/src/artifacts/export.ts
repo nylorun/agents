@@ -33,7 +33,7 @@ import { isWorkflowManifest } from "../core/flow-host.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
 import { SandboxFileTooLargeError } from "../sandbox/types.js";
 import type { Session, TenantContext } from "../tenant/context.js";
-import { readArtifactLimits } from "./config.js";
+import { artifactQuota, type ArtifactQuota } from "./quota.js";
 import {
   collectContent,
   commitFolderVersion,
@@ -82,8 +82,9 @@ export async function exportOutputs(
     const skip =
       error instanceof Skip
         ? error
-        : error instanceof FolderCommitRefused && error.reason === "tenant_total"
-          ? new Skip("tenant_total", error.message, error.limit)
+        : error instanceof FolderCommitRefused &&
+            (error.reason === "tenant_total" || error.reason === "environment_total")
+          ? new Skip(error.reason, error.message, error.limit)
           : undefined;
     if (!skip) ctx.config.logger.warn("outputs export failed", { sessionId, message });
     try {
@@ -132,14 +133,14 @@ async function runExport(
         ...(workspace.environmentId === undefined ? {} : { environmentId: workspace.environmentId }),
         manifest: s.manifest as AgentManifest,
       } satisfies WorkspaceSession,
-      limits: await readArtifactLimits(t),
+      quota: await artifactQuota(t, s.environmentId),
       priorId: prior?.id,
       latestSha: latest?.sha256,
       epoch: await contentEpoch(t),
     };
   });
   if (!found) return;
-  const { session, limits } = found;
+  const { session, quota } = found;
   const listing = await ctx.workspaces.list(session, OUTPUTS_DIR, {
     maxEntries: EXPORT_MAX_FILES,
     signal,
@@ -151,9 +152,9 @@ async function runExport(
       `${OUTPUTS_DIR} holds more than ${EXPORT_MAX_FILES} files`,
       EXPORT_MAX_FILES,
     );
-  const large = listing.entries.find((entry) => entry.size > limits.fileBytes);
-  if (large) throw tooLargeFile(large.path, large.size, limits.fileBytes);
-  const maxBytes = Math.min(EXPORT_MAX_BYTES, limits.totalBytes);
+  const large = listing.entries.find((entry) => entry.size > quota.fileBytes);
+  if (large) throw tooLargeFile(large.path, large.size, quota.fileBytes);
+  const maxBytes = Math.min(EXPORT_MAX_BYTES, ...quota.totals.map((total) => total.limitBytes));
   const listed = listing.entries.reduce((sum, entry) => sum + entry.size, 0);
   if (listed > maxBytes) throw tooLarge(listed, maxBytes);
 
@@ -178,7 +179,7 @@ async function storeAndCommit(
   ctx: TenantContext,
   found: {
     session: WorkspaceSession;
-    limits: { fileBytes: number; totalBytes: number };
+    quota: ArtifactQuota;
     priorId: string | undefined;
     latestSha: string | undefined;
     epoch: number;
@@ -188,7 +189,7 @@ async function storeAndCommit(
   put: string[],
   signal: AbortSignal,
 ): Promise<void> {
-  const { session, limits } = found;
+  const { session, quota } = found;
   const { sessionId, turnId } = session;
   const entries: FolderEntry[] = [];
   const stored = new Set<string>();
@@ -197,12 +198,12 @@ async function storeAndCommit(
     let bytes: Uint8Array | undefined;
     try {
       bytes = await ctx.workspaces.readBytes(session, posix.join(OUTPUTS_DIR, entry.path), {
-        maxBytes: limits.fileBytes,
+        maxBytes: quota.fileBytes,
         signal,
       });
     } catch (error) {
       if (error instanceof SandboxFileTooLargeError)
-        throw tooLargeFile(entry.path, error.size, limits.fileBytes);
+        throw tooLargeFile(entry.path, error.size, quota.fileBytes);
       throw error;
     }
     // Gone since the listing: the folder is what is there now.
@@ -231,7 +232,7 @@ async function storeAndCommit(
     name: OUTPUTS_ARTIFACT_NAME,
     entries,
     epoch: found.epoch,
-    totalBytes: limits.totalBytes,
+    quota,
   });
 }
 

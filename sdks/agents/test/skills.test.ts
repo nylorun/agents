@@ -3,7 +3,6 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
-  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -144,22 +143,6 @@ it("holds a file over 10 MiB and more than 500 files", async () => {
   const source = declaration.skillFiles![sha256(data)]!;
   expect(source.size).toBe(data.byteLength);
   expect(sha256(await source.read())).toBe(sha256(data));
-});
-
-it("refuses a skill whose files hold more than 2 GiB together", () => {
-  const root = catalog();
-  write(root, "big/SKILL.md", "---\nname: big\ndescription: Big.\n---\nOk.\n");
-  // Sparse: the size counts before any byte is read.
-  write(root, "big/data.bin", "");
-  truncateSync(join(root, "big/data.bin"), 2 * 1024 ** 3 + 1);
-  expect(() => skills(root)).toThrow(
-    "Skill 'big' holds more than 2147483648 bytes; a skill's files may hold at most 2147483648 (2 GiB) together"
-  );
-  try {
-    skills(root);
-  } catch (error) {
-    expect((error as SkillsError).code).toBe("skills.too-large");
-  }
 });
 
 it("omits tools when the catalog is empty", () => {

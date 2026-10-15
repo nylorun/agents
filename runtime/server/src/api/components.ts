@@ -96,7 +96,9 @@ import {
   CreateArtifactLinkRequestSchema,
   ArtifactLinkSchema,
   PutTenantArtifactsRequestSchema,
+  PutTenantSkillsRequestSchema,
   TenantArtifactsViewSchema,
+  TenantSkillsViewSchema,
   ArtifactTreeSchema,
   ArtifactDiffSchema,
   SessionCommandSchema,
@@ -175,6 +177,8 @@ export const PutTenantArtifactsRequest = named(
   PutTenantArtifactsRequestSchema,
 );
 export const TenantArtifactsView = named("TenantArtifactsView", TenantArtifactsViewSchema);
+export const PutTenantSkillsRequest = named("PutTenantSkillsRequest", PutTenantSkillsRequestSchema);
+export const TenantSkillsView = named("TenantSkillsView", TenantSkillsViewSchema);
 export const ArtifactTree = named("ArtifactTree", ArtifactTreeSchema);
 export const ArtifactDiff = named("ArtifactDiff", ArtifactDiffSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);

@@ -16411,7 +16411,8 @@
                   "too_many_files",
                   "file_too_large",
                   "too_large",
-                  "tenant_total"
+                  "tenant_total",
+                  "environment_total"
                 ]
               },
               "message": {
@@ -16943,8 +16944,7 @@
           },
           "size": {
             "type": "integer",
-            "minimum": 0,
-            "maximum": 2147483648
+            "minimum": 0
           }
         },
         "required": [
@@ -17108,6 +17108,36 @@
                           }
                         ]
                       }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "artifacts": {
+                          "type": "object",
+                          "properties": {
+                            "fileBytes": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "totalBytes": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "skills": {
+                          "type": "object",
+                          "properties": {
+                            "totalBytes": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
                     },
                     "secrets": {
                       "type": "object",
@@ -17289,6 +17319,44 @@
                 },
                 "manifestHash": {
                   "type": "string"
+                },
+                "limits": {
+                  "type": "object",
+                  "properties": {
+                    "artifacts": {
+                      "type": "object",
+                      "properties": {
+                        "fileBytes": {
+                          "type": "integer"
+                        },
+                        "totalBytes": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "fileBytes",
+                        "totalBytes"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "skills": {
+                      "type": "object",
+                      "properties": {
+                        "totalBytes": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "totalBytes"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "artifacts",
+                    "skills"
+                  ],
+                  "additionalProperties": false
                 },
                 "forkedFrom": {
                   "type": "object",
@@ -17478,6 +17546,7 @@
                 "kind",
                 "labels",
                 "manifest",
+                "limits",
                 "version",
                 "appliedVersion",
                 "ownerUserId",
@@ -17669,6 +17738,36 @@
                   ]
                 }
               },
+              "limits": {
+                "type": "object",
+                "properties": {
+                  "artifacts": {
+                    "type": "object",
+                    "properties": {
+                      "fileBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      "totalBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "skills": {
+                    "type": "object",
+                    "properties": {
+                      "totalBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
               "secrets": {
                 "type": "object",
                 "additionalProperties": {
@@ -17849,6 +17948,44 @@
           },
           "manifestHash": {
             "type": "string"
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "artifacts": {
+                "type": "object",
+                "properties": {
+                  "fileBytes": {
+                    "type": "integer"
+                  },
+                  "totalBytes": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "fileBytes",
+                  "totalBytes"
+                ],
+                "additionalProperties": false
+              },
+              "skills": {
+                "type": "object",
+                "properties": {
+                  "totalBytes": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "totalBytes"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "artifacts",
+              "skills"
+            ],
+            "additionalProperties": false
           },
           "forkedFrom": {
             "type": "object",
@@ -18038,6 +18175,7 @@
           "kind",
           "labels",
           "manifest",
+          "limits",
           "version",
           "appliedVersion",
           "ownerUserId",
@@ -18208,6 +18346,36 @@
               ]
             },
             "maxItems": 16
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "artifacts": {
+                "type": "object",
+                "properties": {
+                  "fileBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "totalBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "skills": {
+                "type": "object",
+                "properties": {
+                  "totalBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
           },
           "secrets": {
             "type": "object",
@@ -18893,6 +19061,36 @@
                           ]
                         }
                       },
+                      "limits": {
+                        "type": "object",
+                        "properties": {
+                          "artifacts": {
+                            "type": "object",
+                            "properties": {
+                              "fileBytes": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "totalBytes": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "skills": {
+                            "type": "object",
+                            "properties": {
+                              "totalBytes": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      },
                       "secrets": {
                         "type": "object",
                         "additionalProperties": {
@@ -19073,6 +19271,44 @@
                   },
                   "manifestHash": {
                     "type": "string"
+                  },
+                  "limits": {
+                    "type": "object",
+                    "properties": {
+                      "artifacts": {
+                        "type": "object",
+                        "properties": {
+                          "fileBytes": {
+                            "type": "integer"
+                          },
+                          "totalBytes": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "fileBytes",
+                          "totalBytes"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "skills": {
+                        "type": "object",
+                        "properties": {
+                          "totalBytes": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "totalBytes"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "artifacts",
+                      "skills"
+                    ],
+                    "additionalProperties": false
                   },
                   "forkedFrom": {
                     "type": "object",
@@ -19262,6 +19498,7 @@
                   "kind",
                   "labels",
                   "manifest",
+                  "limits",
                   "version",
                   "appliedVersion",
                   "ownerUserId",
@@ -19907,6 +20144,36 @@
                       },
                       "maxItems": 16
                     },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "artifacts": {
+                          "type": "object",
+                          "properties": {
+                            "fileBytes": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "totalBytes": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "skills": {
+                          "type": "object",
+                          "properties": {
+                            "totalBytes": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
                     "secrets": {
                       "type": "object",
                       "additionalProperties": {
@@ -20283,6 +20550,36 @@
                       ]
                     },
                     "maxItems": 16
+                  },
+                  "limits": {
+                    "type": "object",
+                    "properties": {
+                      "artifacts": {
+                        "type": "object",
+                        "properties": {
+                          "fileBytes": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "totalBytes": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "skills": {
+                        "type": "object",
+                        "properties": {
+                          "totalBytes": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "secrets": {
                     "type": "object",
@@ -20747,6 +21044,36 @@
             },
             "maxItems": 16
           },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "artifacts": {
+                "type": "object",
+                "properties": {
+                  "fileBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "totalBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "skills": {
+                "type": "object",
+                "properties": {
+                  "totalBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
           "secrets": {
             "type": "object",
             "additionalProperties": {
@@ -21086,6 +21413,36 @@
                   ]
                 },
                 "maxItems": 16
+              },
+              "limits": {
+                "type": "object",
+                "properties": {
+                  "artifacts": {
+                    "type": "object",
+                    "properties": {
+                      "fileBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      "totalBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "skills": {
+                    "type": "object",
+                    "properties": {
+                      "totalBytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
               },
               "secrets": {
                 "type": "object",
@@ -23099,7 +23456,7 @@
             }
           },
           "413": {
-            "description": "A skill's files hold more than 2 GiB together (`limit_exceeded`)"
+            "description": "A skill's files hold more than the Tenant's skill limit together (`limit_exceeded`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -23267,7 +23624,7 @@
           "Definition files"
         ],
         "summary": "Upload a definition file",
-        "description": "Streams the body, at most 2147483648 bytes (2 GiB, the most one skill's files may hold together), to the SHA-256 the path names; a body with another hash stores nothing (`400`). A file the Tenant holds already is kept as it is (`200`).",
+        "description": "Streams the body, at most the Tenant's skill limit (`/v1/tenant/skills`, default 2 GiB: one file may be as large as a whole skill), to the SHA-256 the path names; a body with another hash stores nothing (`400`). A file the Tenant holds already is kept as it is (`200`).",
         "security": [
           {
             "applicationKey": []
@@ -23373,7 +23730,7 @@
             }
           },
           "413": {
-            "description": "Larger than 2147483648 bytes (`limit_exceeded`)"
+            "description": "Larger than the Tenant's skill limit (`limit_exceeded`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -32108,7 +32465,7 @@
     },
     {
       "name": "Definition files",
-      "description": "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`) or a skill whose files hold more than 2 GiB together (`limit_exceeded`). No file and no count of files has a limit of its own. `saveAgent` in `@nylorun/agents` does both."
+      "description": "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`) or a skill whose files hold more than the Tenant's skill limit together (`limit_exceeded`; `/v1/tenant/skills`, default 2 GiB). No file and no count of files has a limit of its own. `saveAgent` in `@nylorun/agents` does both."
     },
     {
       "name": "Sessions API",

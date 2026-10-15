@@ -319,7 +319,7 @@ Upgrading from protocol 10, which had sandbox resources and vaults:
   tools.
 - **What it runs** (`manifest` in its view, the fields 0.24 called its recipe):
   `image`, `resources` and `storage` (pods only), `network.allowedHosts`,
-  `harness`, `lifecycle`, `setup`, `files` and `secrets` (slots), resolved
+  `harness`, `lifecycle`, `setup`, `files`, `limits` and `secrets` (slots), resolved
   against the Tenant's limits when it is made, with `manifestName`,
   `manifestVersion` and `manifestHash` saying where it came from. A `PUT` on an
   existing one may change only its labels and owner guard; fields that match
@@ -332,6 +332,14 @@ Upgrading from protocol 10, which had sandbox resources and vaults:
   `GET /v1/environments/{id}/events?types=environment.egress` (host, port,
   outcome, bytes, duration and the turns running when it opened; never headers,
   paths or bodies). Session logs and turn traces hold no egress.
+- **Limits**: `limits.artifacts.fileBytes` and `limits.artifacts.totalBytes`
+  cap the artifacts of the Environment's sessions and its disk versions, and
+  `limits.skills.totalBytes` the files one skill of a session's agent may hold
+  (a session whose agent's skills do not fit is `409 environment_unsuitable`).
+  Each is at most the Tenant's (`PUT /v1/tenant/artifacts`, `PUT
+  /v1/tenant/skills`; a higher one is `400`), and one left out is the Tenant's
+  as it is when checked. The Tenant's own totals still apply to everything; the
+  view's `limits` says what is in force.
 - **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn
   (at most the Tenant's `limits.idle`); `lifecycle.deleteAfter` deletes the
   Environment, its vault and its disk once it has gone that long unused (no
@@ -443,7 +451,8 @@ before they save):
 - **Files by hash.** A `files` entry may name files by content hash instead
   of an artifact version: `{ "path": "/workspace/kit", "files": { "bin/run.sh":
   "sha256:…" } }` copies each file under `path` before `setup` runs. Upload
-  each one first with `PUT /v1/files/sha256:<hex>` (at most 2 GiB);
+  each one first with `PUT /v1/files/sha256:<hex>` (at most the Tenant's skill
+  limit, `PUT /v1/tenant/skills`, default 2 GiB);
   `environmentFiles(path, contents)` in `@nylorun/agents` hashes them and
   `manifests.save(manifest, { files: kit.bytes })` uploads what the Runtime
   lacks. A manifest by hash moves to another installation with its files.

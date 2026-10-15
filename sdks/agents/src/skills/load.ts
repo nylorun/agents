@@ -13,7 +13,6 @@ import { open } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   SKILL_ENTRY,
-  SKILL_MAX_BYTES,
   skillFilePathIssue,
   type SkillFileSource,
 } from "@nylorun/core/define";
@@ -79,8 +78,9 @@ export function resolveSkillsRoot(directory: string): string {
 /**
  * Load Agent Skills (agentskills.io) from a catalog directory.
  * Each immediate subdirectory with a valid SKILL.md becomes one skill, with every file of its
- * folder (text or binary) hashed. Throws `SkillsError` for a skill the Runtime cannot hold: files
- * over 2 GiB together, or a path a manifest cannot name.
+ * folder (text or binary) hashed. Throws `SkillsError` for a path a manifest cannot name. How
+ * much a skill may hold is the Tenant's limit (`/v1/tenant/skills`, default 2 GiB), which the
+ * Runtime checks when the files are uploaded and the agent is saved.
  */
 export function loadSkillsFromDirectory(
   directory: string,
@@ -182,7 +182,6 @@ function readFiles(
   const files: Record<string, string> = {};
   const sources: Record<string, SkillFileSource> = {};
   const visited = new Set<string>();
-  let total = 0;
   // `at` is the folder's path in the skill: symbolic links inside the package are followed.
   const walk = (current: string, at: string) => {
     if (visited.has(current)) return;
@@ -211,12 +210,6 @@ function readFiles(
         throw new SkillsError(
           `${prefix}.invalid-path`,
           `Skill '${name}' has a file whose path ${issue}: ${path}`
-        );
-      total += stats.size;
-      if (total > SKILL_MAX_BYTES)
-        throw new SkillsError(
-          `${prefix}.too-large`,
-          `Skill '${name}' holds more than ${SKILL_MAX_BYTES} bytes; a skill's files may hold at most ${SKILL_MAX_BYTES} (2 GiB) together`
         );
       const hash = hashFile(real);
       files[path] = hash;

@@ -8,6 +8,7 @@ import type {
   EnvironmentFile,
   EnvironmentKind,
   EnvironmentLifecycle,
+  EnvironmentLimits,
   EnvironmentRecipe,
   EnvironmentSecretSlots,
   EnvironmentSetupCommand,
@@ -29,6 +30,11 @@ export interface RecipeRequest {
   readonly files?: readonly EnvironmentFile[];
   /** The secret slots (D64): passed through for every kind. */
   readonly secrets?: EnvironmentSecretSlots;
+  /**
+   * Artifact and skill limits: passed through for every kind, as set. The caller checks them
+   * against the Tenant's (`tenant/limits.ts`), which this module does not read.
+   */
+  readonly limits?: EnvironmentLimits;
 }
 
 export type RecipeResolution =
@@ -57,7 +63,10 @@ export function resolveRecipe(
       if (request[field] !== undefined)
         errors.push(`${field} is for an Environment with a sandbox: kind none has none.`);
     if (errors.length > 0) return { kind: "error", errors };
-    return { kind: "recipe", recipe: { harness, lifecycle: { ...lifecycle }, ...slotsOf(request) } };
+    return {
+      kind: "recipe",
+      recipe: { harness, lifecycle: { ...lifecycle }, ...limitsOf(request), ...slotsOf(request) },
+    };
   }
   if (request.image !== undefined && !pod)
     errors.push("image is for kind pod: a virtual Environment runs no images.");
@@ -98,9 +107,17 @@ export function resolveRecipe(
       lifecycle: { ...lifecycle },
       ...(pod && request.setup?.length ? { setup: request.setup.map((command) => ({ ...command })) } : {}),
       ...(pod && request.files?.length ? { files: request.files.map((file) => ({ ...file })) } : {}),
+      ...limitsOf(request),
       ...slotsOf(request),
     },
   };
+}
+
+/** The request's limits, when it sets any. */
+function limitsOf(request: RecipeRequest): Pick<EnvironmentRecipe, "limits"> {
+  return request.limits !== undefined && Object.keys(request.limits).length > 0
+    ? { limits: structuredClone(request.limits) }
+    : {};
 }
 
 /** The request's secret slots, when it declares any. */

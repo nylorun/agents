@@ -131,9 +131,8 @@ export {
   formatSkillCatalog,
 } from "./definition/skill-tools.js";
 export {
-  DEFINITION_FILE_MAX_BYTES,
   SKILL_ENTRY,
-  SKILL_MAX_BYTES,
+  SKILL_TOTAL_BYTES_DEFAULT,
   SKILL_FILE_PATH_MAX,
   SKILLS_MOUNT,
   definitionFilesOf,

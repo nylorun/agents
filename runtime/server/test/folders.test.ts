@@ -365,6 +365,33 @@ it("skips an export past the per-file limit with artifact.export.skipped, and th
   expect(listed.artifacts).toEqual([]);
 });
 
+it("skips an export past its Environment's own total, which its manifest sets", async () => {
+  const runtime = await boot(
+    turns([
+      [bash("mkdir -p outputs && printf 'first-file!!' > outputs/a.txt")],
+      [bash("rm outputs/a.txt && printf 'second-file!' > outputs/b.txt")],
+    ]),
+  );
+  const made = await fetch(`${runtime.url}/v1/environments/env-s1`, {
+    method: "PUT",
+    headers: json,
+    body: JSON.stringify({ kind: "virtual", limits: { artifacts: { totalBytes: 20 } } }),
+  });
+  expect(made.status, await made.clone().text()).toBe(200);
+  await openSession(runtime, "s1", { environment: "env-s1" });
+  // 12 bytes fit the Environment's 20; 12 more do not, though the Tenant's 10 GiB has room.
+  await turn(runtime, "s1", "first");
+  await eventually(runtime, "s1", "artifact.created");
+  await turn(runtime, "s1", "second");
+  const [skipped] = await eventually(runtime, "s1", "artifact.export.skipped");
+  expect(skipped!.payload).toMatchObject({
+    name: "outputs",
+    reason: "environment_total",
+    limit: 20,
+    message: "Environment env-s1's artifacts may hold at most 20 bytes; these outputs add 12 to 12",
+  });
+});
+
 it("exports the outputs of a sandbox a harness holds over WebSocket (F6.2)", async () => {
   const runtime = await boot(
     turns([[bash("mkdir -p outputs/site && printf '<p>hi</p>' > outputs/site/index.html && printf 'x' > scratch.txt")]]),
