@@ -402,12 +402,19 @@ async function sessionOn(id: string, environmentId: string, turnId: string | nul
   );
 }
 
-/** The gate's record on the test Tenant, counting the writes it finished (or failed). */
+/** The gate's record on the test Tenant, counting the reads and writes it finished (or failed). */
+let turnReads = 0;
 let writes = 0;
 function record(): EgressRecord {
   const inner = storeEgressRecord(runs.store);
   return {
-    runningTurns: (environmentId) => inner.runningTurns(environmentId),
+    async runningTurns(environmentId) {
+      try {
+        return await inner.runningTurns(environmentId);
+      } finally {
+        turnReads += 1;
+      }
+    },
     async write(connection) {
       try {
         await inner.write(connection);
@@ -443,17 +450,21 @@ describe("egress-gate events (R7.3, D67)", () => {
     await sessionOn("egress-held-t", "egress-held", "turn-9");
     await sessionOn("egress-held-u", "egress-held", null);
     const proxy = await gate({ record: record() });
+    turnReads = 0;
     writes = 0;
     const open = await tunnel(proxy, "allowed.test:443", basic(await token("egress-held")));
     expect(open.status).toBe(200);
     expect(await roundTrip(open.socket, "ping")).toBe("ping");
     expect(await roundTrip(open.socket, "hello")).toBe("hello");
+    // The gate never waits for its read of the running turns; the test does, before a turn moves.
+    await until(() => turnReads === 1);
     // A turn ends (another starts) before the tunnel closes: the event keeps the turns read at open.
     await runs.update("egress-held-s", { activeTurnId: "turn-2" });
     open.socket.destroy();
     await until(() => writes === 1);
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(writes).toBe(1);
+    expect(turnReads).toBe(1);
     const events = await egressOf("egress-held");
     expect(events).toHaveLength(1);
     const [event] = events;

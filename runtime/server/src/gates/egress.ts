@@ -27,8 +27,9 @@
  * Every connection to a named host on a live token is recorded once (R7.3, D67), when it closes
  * or at once when the gate refuses it, as `environment.egress` on the Environment's own stream:
  * the connection is the Environment's, since its token names the pod and turns run in parallel
- * (D66). `runningTurns` lists the turns active on the Environment as it opened (read as the name
- * resolves), as context and never as an owner. Host, port, outcome, bytes, duration and, for a
+ * (D66). `runningTurns` lists the turns active on the Environment as it opened, as context and
+ * never as an owner: one read, started as the name resolves and never waited for, so a turn that
+ * moves while it is in flight may show either way. Host, port, outcome, bytes, duration and, for a
  * credential host, the request count and credential ids; never a header value, a path or a body. A refusal
  * before that (no token, a stale one, no `host:port`) stays a log line, and a client that hangs up
  * before the gate answers leaves nothing. A write never holds the tunnel up, and a failed one is
@@ -211,8 +212,8 @@ function answer(socket: Duplex, status: number, message: string, headers: string
 
 /**
  * One connection's record (R7.3): written once, at a refusal or at the close, after the answer
- * and off the tunnel's path. The running turns are read when `opened()` is first called, as the
- * connection opens, and kept for the write.
+ * and off the tunnel's path. The running turns are read once, started when `opened()` is first
+ * called, as the connection opens, and kept for the write; the tunnel never waits for the read.
  */
 interface ConnectionRecord {
   opened(): void;
@@ -351,7 +352,8 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       return refuse(403, "not_a_host_name", { sandboxId }, `${host} is not a host name; IP literals are refused`);
     if (!egressAllows(host, sandbox.allow))
       return refuse(403, "host_not_allowed", { sandboxId }, `${host} is not in this sandbox's network.allow`);
-    // The turns running on the Environment as the connection opens, read while the name resolves.
+    // The turns running on the Environment as the connection opens: the read starts as the
+    // name resolves, and the 200 does not wait for it.
     record.opened();
     let mine = open.get(sandboxId);
     if (!mine) open.set(sandboxId, (mine = new Set()));
