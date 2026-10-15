@@ -516,6 +516,33 @@ it("never skips the session check when model-gate reads a file", async () => {
   await expect(files("")).rejects.toBeInstanceOf(FileUnavailableError);
 });
 
+it("lets model-gate read a Tenant-wide file only once the session's messages named it", async () => {
+  const runtime = await boot();
+  await openSession(runtime, "s1");
+  const { artifact } = await uploaded(await upload(runtime, "name=shared.txt", "tenant-wide"));
+  const files = (sessionId: string) =>
+    artifactFiles({
+      store: (runtime.handle as unknown as { ctx: { store: SessionStore } }).ctx.store,
+      blobs: createFsBlobStore({ root: tenantPaths(runtime.root).blobs }),
+      sessionId,
+    })({ artifactId: artifact.artifactId, version: 1 });
+  await expect(files("s1")).rejects.toBeInstanceOf(FileUnavailableError);
+  const sent = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({
+      type: "message",
+      requestId: "named",
+      idempotencyKey: "named",
+      parts: [{ type: "text", text: "Read this." }, { type: "file", artifactId: artifact.artifactId }],
+    }),
+  });
+  expect(sent.status).toBeLessThan(300);
+  expect(new TextDecoder().decode((await files("s1")).bytes)).toBe("tenant-wide");
+  await openSession(runtime, "s2");
+  await expect(files("s2")).rejects.toBeInstanceOf(FileUnavailableError);
+});
+
 it("refuses a file part naming another session's artifact, or one that does not exist", async () => {
   const runtime = await boot();
   await openSession(runtime, "s1");
