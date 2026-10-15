@@ -1,13 +1,8 @@
 /**
  * Environments (protocol 11, D55, D56): an Environment has its own id, recipe and vault and
-<<<<<<< HEAD
- * outlives the sessions that name it; sessions on one share its workspace; turns are serial per
- * Environment with a sandbox; it never changes what it runs (protocol 14: only labels and the
- * owner guard change, anything else is `409 environment_immutable`);
-=======
  * outlives the sessions that name it; sessions on one share its workspace and run their turns at
- * once (D66); a recipe change bumps its version; kind and storage are fixed;
->>>>>>> 762429d2 (feat(runtime): sessions on one Environment run their turns at once; egress is recorded on the Environment (D66, D67))
+ * once (protocol 14, D66); it never changes what it runs (only labels and the owner guard change,
+ * anything else is `409 environment_immutable`);
  * the owner guard admits only its owner's sessions, at open and at every turn start; a token
  * caller reaches only the Environments its issuer grants, at every turn start;
  * `environments:write` guards changes; the Tenant limits how many there are; and
