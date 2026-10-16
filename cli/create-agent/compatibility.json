@@ -1,7 +1,7 @@
 {
-  "harness": "0.27.1-beta",
-  "runtime": "0.26.0-beta",
-  "agents": "0.22.0-beta",
-  "admin": "0.17.1-beta",
-  "core": "0.22.0-beta"
+  "harness": "0.28.0-beta",
+  "runtime": "0.27.0-beta",
+  "agents": "0.23.0-beta",
+  "admin": "0.18.0-beta",
+  "core": "0.23.0-beta"
 }
