@@ -36,6 +36,12 @@ import {
   type RuntimeLimits,
 } from "@nylorun/core/harness-api";
 
+/**
+ * The first line of the user message that carries the turn's files, last in the prompt
+ * (`projectModelCall`). A model that reads the user's last words (the fixture model) skips it.
+ */
+export const FILES_MESSAGE_HEADER = "Files for this turn:";
+
 /** A media part: its declared type and the reference the Runtime made (`MediaReference`). */
 export interface FilePart {
   readonly mediaType: string;

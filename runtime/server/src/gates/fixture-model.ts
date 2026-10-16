@@ -20,6 +20,7 @@
  *   first one was; otherwise it says hello.
  */
 import type { ModelCandidate, ModelFailureOutcome, PromptItem } from "@nylorun/core/harness-api";
+import { FILES_MESSAGE_HEADER } from "@nylorun/harness";
 import type { RuntimeModelCall } from "../contracts.js";
 
 export const FIXTURE_PROVIDER = "fixture";
@@ -30,8 +31,11 @@ type Answer = ModelCandidate | ModelFailureOutcome;
 
 /** The fixture model's answer to `call`. */
 export async function fixtureAnswer(call: RuntimeModelCall, signal?: AbortSignal): Promise<Answer> {
-  const last = call.prompt.at(-1);
-  const users = call.prompt.filter(
+  // Our harness ends a turn that has files with a user message listing them; the script is in
+  // the message before it, and a tool result before it is still the last thing that happened.
+  const prompt = call.prompt.filter((item) => !isFilesMessage(item));
+  const last = prompt.at(-1);
+  const users = prompt.filter(
     (item): item is Extract<PromptItem, { kind: "message" }> => item.kind === "message" && item.role === "user"
   );
   const marker = MARKER.exec(textOf(users.at(-1)?.content ?? []).trim());
@@ -106,6 +110,13 @@ function candidate(call: RuntimeModelCall, output: string | ModelCandidate["outp
 
 /** About four characters a token, at least one. */
 const tokens = (text: string) => Math.max(1, Math.ceil(text.length / 4));
+
+/** The user message our harness adds for the turn's files (`FILES_MESSAGE_HEADER`). */
+function isFilesMessage(item: PromptItem): boolean {
+  if (item.kind !== "message" || item.role !== "user") return false;
+  const first = item.content[0];
+  return first?.type === "text" && first.text === FILES_MESSAGE_HEADER;
+}
 
 function textOf(content: readonly { type: string; text?: string }[], json = false): string {
   return content
