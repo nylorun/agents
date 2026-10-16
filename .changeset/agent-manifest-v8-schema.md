@@ -1,0 +1,7 @@
+---
+"@nylorun/core": minor
+---
+
+Agent manifest v8, the schema of protocol 16 (track T2), ahead of the Runtime that saves it: `AgentManifestV8Schema`, with a `harness` section (what runs inside the loop: the harness id, instructions, tools, skills with the secret slots they read, MCP servers with the slot they authenticate with, plugins, `loop`) or a flow's, and a `runtime` section (environment manifest v1's fields; `kind` required, `harness` moved to `harness.id`, `triggers` reserved). The authoring files `nylorun apply` will read have their own schemas: `AgentManifestFileSchema`, `HarnessManifestFileSchema` and `RuntimeManifestFileSchema`, published as `@nylorun/core/schemas/agent-manifest-v8.json`, `harness-manifest.json` and `runtime-manifest.json`.
+
+`sectionGaps(manifest)` (from `@nylorun/core/define`) checks the two sections against each other, as the Runtime will when a manifest is saved: a custom harness needs a pod with an image; every credential the harness names is a declared slot of the right type (an MCP server's or HTTP tool's a `bearer` or `headers` slot bound to its URL, a skill's `secrets` an `environment_secret` or `environment_variable` slot); and the runtime's kind gives the loop the sandbox it needs (`sandboxNeedOf`). `loopManifestOf` and `harnessSectionOf` convert between a version's harness section and the loop manifest the engine runs. Nothing calls them yet.

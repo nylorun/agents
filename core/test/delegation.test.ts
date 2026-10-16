@@ -164,7 +164,7 @@ describe("agents used as tools", () => {
     child.tools[0].agent.runtime = { instructions: ["x"] };
     for (const manifest of [root, child])
       expect(AgentManifestSchema.safeParse(manifest).error?.issues.map((issue) => issue.message).join("; ")).toContain(
-        "Manifest field runtime was removed"
+        "This is a pre-v8 runtime block"
       );
   });
 });

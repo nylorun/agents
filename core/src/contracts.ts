@@ -1,6 +1,13 @@
 /** Public wire contracts only. Never import checkpoint or engine modules here. */
 import { z } from "zod";
-import type { AgentManifest, McpServerManifest } from "./types/manifest.js";
+import type {
+  AgentHarnessSection,
+  AgentManifest,
+  HarnessMcpServer,
+  HarnessSkill,
+  McpServerManifest,
+  WorkflowHarnessSection,
+} from "./types/manifest.js";
 import type { JsonObject, JsonValue } from "./types/shared.js";
 import type { WorkflowLoopVerify, WorkflowManifest, WorkflowNode } from "./types/workflow.js";
 import {
@@ -11,6 +18,8 @@ import {
 } from "./utils/sandbox.js";
 import {
   REMOVED_MANIFEST_FIELDS,
+  REMOVED_RUNTIME_SECTION_FIELDS,
+  agentManifestVersionIssue,
   manifestVersionIssue,
   workflowVersionIssue,
 } from "./definition/removed.js";
@@ -1750,6 +1759,271 @@ export const DeleteEnvironmentManifestResponseSchema = z
   .object({ name: z.string(), deleted: z.boolean() })
   .strict();
 export type DeleteEnvironmentManifestResponse = z.infer<typeof DeleteEnvironmentManifestResponseSchema>;
+// --- Agent manifest v8 (protocol 16, track T2) ----------------------------------------------
+
+/** The schema version of an agent manifest the Runtime saves at `/v1/agent-manifests/{name}`. */
+export const AGENT_MANIFEST_V8_SCHEMA_VERSION = 8;
+/**
+ * An agent manifest's name: the key in `/v1/agent-manifests/{name}`, with the environment
+ * manifest's rule. Manifest names and Agent ids are separate namespaces.
+ */
+export const AgentManifestNameSchema = z
+  .string()
+  .refine(isEnvironmentManifestName, {
+    message: "An agent manifest's name is 1-64 letters, digits, '.', '_' and '-', starting with a letter or digit",
+  })
+  .meta({ description: "An agent manifest's name, such as `triage`" });
+/**
+ * Which agent manifest an Agent is made from: `name` (tracking: the latest version when the Agent
+ * is created; T3 moves it on) or `name@n` (pinned to version `n`).
+ */
+export const AgentManifestRefSchema = z
+  .string()
+  .refine((value) => parseEnvironmentManifestRef(value) !== undefined, {
+    message: "manifest is an agent manifest's name, or name@version such as triage@3",
+  })
+  .meta({ description: "`name` (tracking) or `name@n` (pinned)" });
+/** Parses `name` or `name@n`; undefined when it is neither. */
+export const parseAgentManifestRef = parseEnvironmentManifestRef;
+
+/** A skill of the harness section: v7's, and the secret slots its scripts read. */
+const harnessSkillSchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().min(1),
+    files: z.record(z.string(), z.string()),
+    plugin: pluginLabelSchema.optional(),
+    secrets: z
+      .array(z.string().regex(ENVIRONMENT_NAME_PATTERN, "A skill's secrets are environment variable names"))
+      .optional(),
+  })
+  .strict()
+  .superRefine((skill, ctx) => {
+    const issue = skillFilesIssue(skill.files);
+    if (issue) ctx.addIssue({ code: "custom", path: ["files"], message: `Skill '${skill.name}' ${issue}` });
+  });
+const harnessMcpServerFields = {
+  name: modelFacingName("MCP server"),
+  url: z.string().min(1),
+  headers: z.record(z.string(), z.string()).optional(),
+  /** A `runtime.secrets` slot of type `bearer` or `headers` bound to `url`. */
+  credential: z.string().min(1).optional(),
+  ...mcpServerSettings,
+};
+const harnessMcpServerSchema = z.discriminatedUnion(
+  "type",
+  [
+    z.object({ type: z.literal("streamable-http"), ...harnessMcpServerFields }).strict(),
+    z.object({ type: z.literal("sse"), ...harnessMcpServerFields }).strict(),
+  ],
+  { error: (issue) => stdioIssue(issue.input) },
+);
+const harnessIdField = HarnessIdSchema.optional().meta({
+  description: "The harness that runs the loop: `nylorun` (ours, the default) or a custom harness's id",
+});
+const harnessLoopField = definitionJson
+  .optional()
+  .meta({ description: "The harness's own settings, passed to it in turn.start; the Runtime never reads them" });
+/** Fields the harness section refuses with where they went. */
+const REMOVED_HARNESS_FIELDS: Readonly<Record<string, string>> = Object.freeze({
+  requires:
+    "harness.requires left the API in agent manifest v8: the Runtime checks the harness against the runtime section when the manifest is saved. Keep requires in harness.manifest.json, where the CLI checks it",
+  manifestSchemaVersion: "manifestSchemaVersion belongs at the top of the agent manifest, not in harness",
+  name: "name belongs at the top of the agent manifest, not in harness",
+  description: "description belongs at the top of the agent manifest, not in harness",
+  metadata: "metadata belongs at the top of the agent manifest, not in harness",
+  approval: "Tool approvals are the Tenant's tool policy (PUT /v1/tenant/tool-policy)",
+});
+const agentHarnessObject = z
+  .strictObject(
+    {
+      id: harnessIdField,
+      instructions: z.array(z.string()).optional(),
+      tools: z.array(toolManifestSchema).optional(),
+      skills: z.record(z.string(), harnessSkillSchema).optional(),
+      mcpServers: z.record(z.string(), harnessMcpServerSchema).optional(),
+      plugins: z.array(pluginLabelSchema).optional(),
+      outputSchema: definitionJson.optional(),
+      loop: harnessLoopField,
+      functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
+    },
+    { error: removedFieldError(REMOVED_HARNESS_FIELDS) },
+  )
+  .superRefine((harness, ctx) => {
+    if (harness.functions !== undefined)
+      ctx.addIssue({ code: "custom", path: ["functions"], message: "Functions are not available yet" });
+    delegationIssues({ tools: harness.tools } as AgentManifest, (message) => ctx.addIssue({ code: "custom", message }));
+    const names = new Set<string>();
+    for (const tool of harness.tools ?? []) {
+      if (tool.name.includes("__"))
+        ctx.addIssue({
+          code: "custom",
+          message: `Tool '${tool.name}' must not contain '__', which names an MCP server's tools`,
+        });
+      if (names.has(tool.name)) ctx.addIssue({ code: "custom", message: "Tool names must be unique" });
+      names.add(tool.name);
+    }
+    if (harness.skills && Object.keys(harness.skills).length === 0)
+      ctx.addIssue({ code: "custom", message: "harness.skills must be omitted when the agent has no skills" });
+    for (const [key, skill] of Object.entries(harness.skills ?? {}))
+      if (key !== skill.name)
+        ctx.addIssue({ code: "custom", message: `harness.skills key '${key}' must equal the skill name` });
+    if (harness.mcpServers && Object.keys(harness.mcpServers).length === 0)
+      ctx.addIssue({ code: "custom", message: "harness.mcpServers must be omitted when the agent has no servers" });
+    for (const [key, server] of Object.entries(harness.mcpServers ?? {}))
+      if (key !== server.name)
+        ctx.addIssue({ code: "custom", message: `harness.mcpServers key '${key}' must equal the server name` });
+  });
+const workflowHarnessObject = z
+  .object({
+    kind: z.literal("workflow"),
+    id: harnessIdField,
+    inputSchema: definitionJson.optional(),
+    outputSchema: definitionJson.optional(),
+    root: workflowNodeSchema,
+    agents: z.record(z.string().min(1), z.union([workflowManifestSchema, AgentManifestSchema])),
+    plugins: z.array(pluginLabelSchema).optional(),
+    loop: harnessLoopField,
+  })
+  .strict()
+  .superRefine((flow, ctx) => {
+    if (flow.id !== undefined && flow.id !== DEFAULT_HARNESS)
+      ctx.addIssue({ code: "custom", path: ["id"], message: `A flow runs in our harness: harness.id must be ${DEFAULT_HARNESS} or left out` });
+    for (const agentId of referencedAgents(flow.root))
+      if (!(agentId in flow.agents))
+        ctx.addIssue({
+          code: "custom",
+          path: ["agents"],
+          message: `Agent '${agentId}' is used in the flow but not embedded in agents`,
+        });
+    for (const [key, agent] of Object.entries(flow.agents))
+      if (agent.id !== key)
+        ctx.addIssue({ code: "custom", path: ["agents", key], message: `Embedded agent '${agent.id}' must be keyed by its id` });
+  });
+/** What runs inside the loop of an agent: the `harness` section of agent manifest v8. */
+export const AgentHarnessSectionSchema: z.ZodType<AgentHarnessSection> = agentHarnessObject.meta({
+  id: "AgentHarnessSection",
+});
+/** A flow's `harness` section (`kind: "workflow"`). */
+export const WorkflowHarnessSectionSchema: z.ZodType<WorkflowHarnessSection> = workflowHarnessObject.meta({
+  id: "WorkflowHarnessSection",
+});
+/** The `harness` section: an agent's loop, or a flow (`kind: "workflow"`). */
+export const HarnessSectionSchema = z.union([WorkflowHarnessSectionSchema, AgentHarnessSectionSchema]);
+type _AgentHarnessDrift = AssertNoDrift<ManifestDrift<AgentHarnessSection, z.output<typeof agentHarnessObject>>>;
+type _WorkflowHarnessDrift = AssertNoDrift<ManifestDrift<WorkflowHarnessSection, z.output<typeof workflowHarnessObject>>>;
+type _HarnessSkillDrift = AssertNoDrift<ManifestDrift<HarnessSkill, z.output<typeof harnessSkillSchema>>>;
+type _HarnessMcpServerDrift = AssertNoDrift<ManifestDrift<HarnessMcpServer, z.output<typeof harnessMcpServerSchema>>>;
+
+/**
+ * What the Runtime provides around the loop: the `runtime` section of agent manifest v8, with
+ * environment manifest v1's fields but its identity and its `harness` (now `harness.id`).
+ * `triggers` is reserved for track T4 and refused until then.
+ */
+const runtimeSectionObject = z
+  .strictObject(
+    {
+      kind: z.enum(ENVIRONMENT_KINDS, {
+        error: () => `runtime.kind is required: ${ENVIRONMENT_KINDS.join(", ")}`,
+      }),
+      image: environmentFields.image,
+      resources: environmentFields.resources,
+      storage: environmentFields.storage,
+      network: environmentFields.network,
+      lifecycle: environmentFields.lifecycle,
+      setup: environmentFields.setup,
+      files: environmentFields.files,
+      limits: environmentFields.limits,
+      secrets: EnvironmentSecretSlotsSchema.optional(),
+      triggers: z
+        .unknown()
+        .refine((value) => value === undefined, { message: "runtime.triggers are not available yet" })
+        .optional()
+        .meta({ description: "Reserved for triggers (track T4); refused for now" }),
+    },
+    { error: removedFieldError(REMOVED_RUNTIME_SECTION_FIELDS) },
+  )
+  .meta({ id: "RuntimeSection" });
+export const RuntimeSectionSchema = runtimeSectionObject;
+export type RuntimeSection = z.infer<typeof RuntimeSectionSchema>;
+
+/**
+ * Agent manifest v8 (protocol 16, track T2): one versioned document with what runs inside the
+ * agent loop (`harness`) and what the Runtime provides around it (`runtime`), saved at
+ * `PUT /v1/agent-manifests/{name}`. Without `runtime`, an Agent made from it is kind `none`.
+ * The Runtime also checks the two sections against each other when it is saved (`sectionGaps`).
+ */
+export const AgentManifestV8Schema = z
+  .object({
+    manifestSchemaVersion: z.literal(AGENT_MANIFEST_V8_SCHEMA_VERSION, {
+      error: (issue) => agentManifestVersionIssue(issue.input),
+    }),
+    name: AgentManifestNameSchema,
+    /** At most the Tenant's Runtime limit `manifestDescriptionChars`, checked when it is saved. */
+    description: z.string().optional(),
+    metadata: definitionJson.optional(),
+    harness: HarnessSectionSchema,
+    runtime: RuntimeSectionSchema.optional(),
+  })
+  .strict()
+  .meta({ id: "AgentManifestV8" });
+export type AgentManifestV8 = z.infer<typeof AgentManifestV8Schema>;
+
+/**
+ * `harness.manifest.json`, an authoring file `nylorun apply` and the SDK's `composeManifest`
+ * read: the harness section, whose `skills`, `mcpServers` and `plugins` may be paths relative to
+ * the file, with a `credentials` map from MCP server or HTTP tool names to `runtime.secrets`
+ * slots, and `requires`, a portable contract the composer checks against the runtime section.
+ * The API never sees it.
+ */
+export const HARNESS_MANIFEST_FILE_SCHEMA_VERSION = 1;
+const pathField = (what: string) => z.string().min(1).meta({ description: `A path to ${what}, relative to this file` });
+export const HarnessManifestFileSchema = z
+  .object({
+    $schema: z.string().optional(),
+    id: harnessIdField,
+    instructions: z.array(z.string()).optional(),
+    tools: z.array(toolManifestSchema).optional(),
+    skills: z
+      .union([pathField("a folder of skill folders"), z.record(z.string(), harnessSkillSchema)])
+      .optional(),
+    mcpServers: z
+      .union([pathField("an mcp.json file"), z.record(z.string(), harnessMcpServerSchema)])
+      .optional(),
+    plugins: z.array(z.union([pathField("an Agent Plugin folder"), pluginLabelSchema])).optional(),
+    outputSchema: definitionJson.optional(),
+    loop: harnessLoopField,
+    /** MCP server or HTTP tool name → the `runtime.secrets` slot it authenticates with. */
+    credentials: z.record(z.string().min(1), z.string().min(1)).optional(),
+    /** What this harness needs of any runtime it is combined with; checked by the composer only. */
+    requires: agentRequirementsSchema.optional(),
+  })
+  .strict();
+export type HarnessManifestFile = z.infer<typeof HarnessManifestFileSchema>;
+/** `runtime.manifest.json`: the runtime section as a file, often shared by many agents. */
+export const RUNTIME_MANIFEST_FILE_SCHEMA_VERSION = 1;
+export const RuntimeManifestFileSchema = runtimeSectionObject
+  .extend({ $schema: z.string().optional() });
+export type RuntimeManifestFile = z.infer<typeof RuntimeManifestFileSchema>;
+/**
+ * `agent.manifest.json`: an agent manifest v8 whose `harness` and `runtime` may each be a path to
+ * an authoring file (or inline). The composer resolves both and sends one document.
+ */
+export const AgentManifestFileSchema = z
+  .object({
+    $schema: z.string().optional(),
+    manifestSchemaVersion: z.literal(AGENT_MANIFEST_V8_SCHEMA_VERSION, {
+      error: (issue) => agentManifestVersionIssue(issue.input),
+    }),
+    name: AgentManifestNameSchema,
+    description: z.string().optional(),
+    metadata: definitionJson.optional(),
+    harness: z.union([pathField("a harness.manifest.json file"), HarnessManifestFileSchema, WorkflowHarnessSectionSchema]),
+    runtime: z.union([pathField("a runtime.manifest.json file"), RuntimeManifestFileSchema]).optional(),
+  })
+  .strict();
+export type AgentManifestFile = z.infer<typeof AgentManifestFileSchema>;
+
 /**
  * `POST /v1/environments/{id}/fork` (Q15): how an Environment gets a new manifest version. The
  * fork is a new Environment, made from the version, its disk started from a version of the

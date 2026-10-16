@@ -10,9 +10,15 @@
  */
 import { z } from "zod";
 import {
+  AGENT_MANIFEST_V8_SCHEMA_VERSION,
+  AgentManifestFileSchema,
   AgentManifestSchema,
   ENVIRONMENT_MANIFEST_SCHEMA_VERSION,
   EnvironmentManifestSchema,
+  HARNESS_MANIFEST_FILE_SCHEMA_VERSION,
+  HarnessManifestFileSchema,
+  RUNTIME_MANIFEST_FILE_SCHEMA_VERSION,
+  RuntimeManifestFileSchema,
 } from "./contracts.js";
 
 /** The agent manifest version these documents describe. */
@@ -64,5 +70,36 @@ export function agentManifestJsonSchema(): Record<string, unknown> {
     AgentManifestSchema,
     `agent-manifest/v${AGENT_MANIFEST_SCHEMA_VERSION}`,
     `Nylorun agent manifest ${AGENT_MANIFEST_SCHEMA_VERSION}`,
+  );
+}
+
+/**
+ * Agent manifest v8's JSON Schema document (protocol 16): the authoring form, whose `harness`
+ * and `runtime` may each be a path to an authoring file, as `agent.manifest.json` is written.
+ * What the API receives has both sections written out (`AgentManifestV8Schema`).
+ */
+export function agentManifestV8JsonSchema(): Record<string, unknown> {
+  return document(
+    AgentManifestFileSchema,
+    `agent-manifest/v${AGENT_MANIFEST_V8_SCHEMA_VERSION}`,
+    `Nylorun agent manifest ${AGENT_MANIFEST_V8_SCHEMA_VERSION}`,
+  );
+}
+
+/** `harness.manifest.json`'s JSON Schema document: the harness section as an authoring file. */
+export function harnessManifestJsonSchema(): Record<string, unknown> {
+  return document(
+    HarnessManifestFileSchema,
+    `harness-manifest/v${HARNESS_MANIFEST_FILE_SCHEMA_VERSION}`,
+    `Nylorun harness manifest ${HARNESS_MANIFEST_FILE_SCHEMA_VERSION}`,
+  );
+}
+
+/** `runtime.manifest.json`'s JSON Schema document: the runtime section as an authoring file. */
+export function runtimeManifestJsonSchema(): Record<string, unknown> {
+  return document(
+    RuntimeManifestFileSchema,
+    `runtime-manifest/v${RUNTIME_MANIFEST_FILE_SCHEMA_VERSION}`,
+    `Nylorun runtime manifest ${RUNTIME_MANIFEST_FILE_SCHEMA_VERSION}`,
   );
 }

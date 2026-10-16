@@ -143,7 +143,7 @@ it("reserves no tool name, and refuses one containing __ (protocol 15)", () => {
 it("keeps tool names unique, and refuses runtime with what replaces it (protocol 15)", () => {
   expect(issues(manifest({ tools: [plain("search"), plain("search")] }))).toContain("Tool names must be unique");
   for (const runtime of [{ tools: [plain("bash")] }, { sandbox: { image: "node:24" } }, {}])
-    expect(issues(manifest({ runtime }))).toContain("Manifest field runtime was removed");
+    expect(issues(manifest({ runtime }))).toContain("This is a pre-v8 runtime block");
 });
 
 it("keeps names unique within each kind: a tool, a skill and a server may share one", () => {
