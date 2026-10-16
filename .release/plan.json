@@ -2,21 +2,21 @@
   "version": 1,
   "channel": "beta",
   "packages": {
-    "core": "0.22.0-beta",
-    "harness": "0.27.1-beta",
-    "agents": "0.22.0-beta",
-    "admin": "0.17.1-beta",
-    "runtime": "0.26.0-beta",
-    "studio": "0.25.1-beta",
-    "nylorun": "0.15.1-beta",
-    "cli": "0.16.1-beta",
-    "create-agent": "0.15.1-beta"
+    "core": "0.23.0-beta",
+    "harness": "0.28.0-beta",
+    "agents": "0.23.0-beta",
+    "admin": "0.18.0-beta",
+    "runtime": "0.27.0-beta",
+    "studio": "0.26.0-beta",
+    "nylorun": "0.16.0-beta",
+    "cli": "0.16.2-beta",
+    "create-agent": "0.15.2-beta"
   },
   "compatibility": {
-    "harness": "0.27.1-beta",
-    "runtime": "0.26.0-beta",
-    "agents": "0.22.0-beta",
-    "admin": "0.17.1-beta",
-    "core": "0.22.0-beta"
+    "harness": "0.28.0-beta",
+    "runtime": "0.27.0-beta",
+    "agents": "0.23.0-beta",
+    "admin": "0.18.0-beta",
+    "core": "0.23.0-beta"
   }
 }
