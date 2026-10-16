@@ -6,6 +6,7 @@ import {
   composeServices,
   publicCreatorArguments,
   publicCreatorEnvironment,
+  retryUntilServed,
 } from "../release/smoke.mjs";
 import { execFileSync } from "node:child_process";
 import { parse } from "../../cli/create-agent/dist/arguments.js";
@@ -84,4 +85,40 @@ test("the smoke reads the dev banner and the Tenant's Compose services", () => {
   const lines = services.map((service) => JSON.stringify(service)).join("\n") + "\n";
   assert.deepEqual(composeServices(lines), services);
   assert.deepEqual(composeServices(JSON.stringify(services)), services);
+});
+
+/** A clock that sleep advances, and the attempts' answers in order. */
+function scripted(answers) {
+  let time = 0;
+  const seen = [];
+  return {
+    seen,
+    attempt: async () => {
+      seen.push(time);
+      return answers[Math.min(seen.length, answers.length) - 1];
+    },
+    options: { windowMs: 300_000, delayMs: 15_000, now: () => time, sleep: async (ms) => { time += ms; } },
+  };
+}
+
+const notServed = { code: 1, output: "npm error code ETARGET\nnpm error notarget No matching version found for @nylorun/create-agent@0.15.2-beta." };
+
+test("the publication smoke waits minutes for the CDN to serve a fresh version", async () => {
+  const run = scripted([notServed, notServed, notServed, notServed, notServed, { code: 0, output: "" }]);
+  assert.equal(await retryUntilServed(run.attempt, run.options), 0);
+  // Past the 45 seconds the release of 2026-10-16 gave up after.
+  assert.deepEqual(run.seen, [0, 15_000, 30_000, 45_000, 60_000, 75_000]);
+});
+
+test("the publication smoke stops waiting when the window ends", async () => {
+  const run = scripted([notServed]);
+  assert.equal(await retryUntilServed(run.attempt, run.options), 1);
+  assert.equal(run.seen.length, 21);
+  assert.equal(run.seen.at(-1), 300_000);
+});
+
+test("the publication smoke fails at once on anything but a version npm cannot find yet", async () => {
+  const run = scripted([{ code: 1, output: "npm error code E403\nnpm error 403 Forbidden" }]);
+  assert.equal(await retryUntilServed(run.attempt, run.options), 1);
+  assert.equal(run.seen.length, 1);
 });

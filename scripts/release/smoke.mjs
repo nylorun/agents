@@ -48,6 +48,28 @@ export function publicCreatorArguments(version) {
   ];
 }
 
+/** npm's answer for a version its registry CDN does not serve yet. */
+const NOT_SERVED = /\bETARGET\b|\bnotarget\b/;
+
+/**
+ * Runs `attempt` until it exits 0. Only a version npm says it cannot find yet
+ * (ETARGET) is retried, every `delayMs` for up to `windowMs`: CDN edges can
+ * serve a fresh publish minutes after waitForInstall saw it (run 38868179065:
+ * still ETARGET 45 seconds later, installable a few minutes after). Any other
+ * failure returns its exit code at once.
+ */
+export async function retryUntilServed(
+  attempt,
+  { windowMs = 300_000, delayMs = 15_000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now } = {},
+) {
+  const deadline = now() + windowMs;
+  for (;;) {
+    const { code, output } = await attempt();
+    if (code === 0 || !NOT_SERVED.test(output) || now() + delayMs > deadline) return code;
+    await sleep(delayMs);
+  }
+}
+
 /**
  * The environment the public creator (and the npm installs it runs) starts
  * from: no credentials, an empty npm user and global config, and no image
@@ -120,26 +142,25 @@ export async function publicCreatorSmoke(versions, pins) {
             lines.push(line.replace(/^\[[^\]]+\] /, ""));
           },
         });
-        const npm = async (label, args, cwd, { attempts = 1 } = {}) => {
-          let last = 1;
-          for (let attempt = 1; attempt <= attempts; attempt++) {
+        // Both installs read this release's versions, which the CDN may not serve yet.
+        const npm = async (label, args, cwd) => {
+          const code = await retryUntilServed(async () => {
+            const from = lines.length;
             const child = group.start(label, process.execPath, [npmCli(), ...args], {
               cwd,
               env: stack.env,
             });
-            last = await child.exit;
-            if (last === 0) return;
-            // Fresh publish: CDN edges can still ETARGET after waitForInstall.
-            if (attempt < attempts) await new Promise((r) => setTimeout(r, 15_000));
-          }
-          assert.equal(last, 0, `${label} failed`);
+            // exit settles once the child's output is drained into lines.
+            const code = await child.exit;
+            return { code, output: lines.slice(from).join("\n") };
+          });
+          assert.equal(code, 0, `${label} failed`);
         };
         try {
           await npm(
             "public-creator",
             publicCreatorArguments(versions.creator),
             temporary,
-            { attempts: 4 },
           );
           await mkdir(tools);
           await writeFile(join(tools, "package.json"), JSON.stringify({ private: true }));
