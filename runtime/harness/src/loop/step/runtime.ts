@@ -29,6 +29,8 @@ export interface StepInput {
   readonly arrivals: readonly InputEvent[];
   readonly toolResults: readonly ToolResult[];
   readonly transcript: readonly TranscriptEntry[];
+  /** Text kept at the head of the conversation (`ExecutionState.pinned`). */
+  readonly pinned?: readonly string[];
 }
 
 /** Internal view consumed by a single model step. */
@@ -38,4 +40,5 @@ export interface ExecutionSnapshot {
   readonly turnCount: number;
   readonly revision: number;
   readonly transcript: readonly TranscriptEntry[];
+  readonly pinned?: readonly string[];
 }

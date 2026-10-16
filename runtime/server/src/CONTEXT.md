@@ -952,7 +952,10 @@ the same view; it checks each command's parameters, refuses a write from a `read
 sub-agent (`memory.forbidden`), versions a write as `agent:<manifest>@<n>` with the session, turn
 and the trigger run that started the turn (`Session.turnCause`), and records `memory.updated` and
 `agent.memory_updated`. `turn.start.memory` carries the access, the agent's instructions and the
-index, newest first within `memoryIndexLines` and `memoryIndexBytes`. _Avoid_: "memory store" for an Agent's memories (Managed Agents'
+index, newest first within `memoryIndexLines` and `memoryIndexBytes`. Our engine offers the tool
+with Anthropic's schema (`tools/memory.ts` in `@nylorun/harness`), view-only for `read_only` and
+agents used as tools, and pins the index after the instructions as user-role context
+(`ExecutionState.pinned`, kept for the session, re-pinned after a compaction). _Avoid_: "memory store" for an Agent's memories (Managed Agents'
 term for a shared resource); "knowledge base".
 
 ## Runtime architecture

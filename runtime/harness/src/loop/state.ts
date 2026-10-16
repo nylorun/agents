@@ -110,6 +110,7 @@ const schema = z
       .object({ factsHash: z.string(), deferred: z.array(z.string()) })
       .strict()
       .optional(),
+    pinned: z.array(z.string()).optional(),
     turn: z.object({ turnId: id }).strict().optional(),
     plan: z
       .object({

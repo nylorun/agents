@@ -105,6 +105,12 @@ export interface ExecutionState {
    * the facts whose hash it names and kept while they stay the same.
    */
   readonly mcpLayout?: { readonly factsHash: string; readonly deferred: readonly string[] };
+  /**
+   * Text our engine keeps at the head of the conversation, after the instructions: the Agent's
+   * memory index (track T5), pinned at the session's first turn so the prompt's prefix stays
+   * the same. A compaction drops it, and the next segment pins the index of that moment.
+   */
+  readonly pinned?: readonly string[];
 }
 
 export type ExecutionEvent = (

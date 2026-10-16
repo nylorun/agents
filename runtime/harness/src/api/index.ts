@@ -47,6 +47,7 @@ export {
   type ArtifactToolOptions,
 } from "../tools/artifacts.js";
 export { engineToolsFor, type EngineToolOptions, type EngineTools } from "../tools/engine-tools.js";
+export { memoryIndexBlock, memoryTool } from "../tools/memory.js";
 export {
   DEFAULT_SANDBOX_TOOL_LIMITS,
   sandboxInstructions,

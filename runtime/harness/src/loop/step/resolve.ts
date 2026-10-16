@@ -19,6 +19,7 @@ export function resolveModelRequest(input: {
     stepId: ctx.input.stepId,
     configuration,
     instructions: Object.freeze([...ctx.instructions]),
+    ...(ctx.input.pinned?.length ? { pinned: Object.freeze([...ctx.input.pinned]) } : {}),
     context: ctx.contextSnapshot(),
     transcript: Object.freeze([...ctx.input.transcript]),
     arrivals: Object.freeze([...input.arrivals]),

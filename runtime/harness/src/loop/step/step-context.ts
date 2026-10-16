@@ -55,7 +55,10 @@ export class StepContext {
   }
 
   mintFromModel(candidate: Readonly<ModelCandidate>): void {
-    const { output, calls } = canonicalizeOutput(candidate.output);
+    const { output, calls } = canonicalizeOutput(
+      candidate.output,
+      new Set(this.offeredTools.map((tool) => tool.name)),
+    );
     this.#canonical = calls;
     this.#candidate = candidateFromCanonical(candidate, output);
   }

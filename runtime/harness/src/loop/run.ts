@@ -73,7 +73,9 @@ export async function execute(
         config: compaction,
       });
       if (!next) return false;
-      invocation.state = { ...invocation.state, transcript: next };
+      // The pinned text is re-pinned fresh by the next segment (the memory index, track T5).
+      const { pinned: _pinned, ...state } = invocation.state;
+      invocation.state = { ...state, transcript: next };
       await record();
       return true;
     };
@@ -143,6 +145,7 @@ export async function execute(
         revision: invocation.state.revision,
         turnCount: invocation.state.turnCount,
         transcript: invocation.state.transcript,
+        ...(invocation.state.pinned ? { pinned: invocation.state.pinned } : {}),
       };
       const result = await runStep({
         agent: {
