@@ -715,8 +715,8 @@ export interface Tx {
   createEnvironment(row: Environment, limit: number): Promise<"created" | "exists" | "limit">;
   /**
    * Changes an Environment's columns other than its pod's (the caller holds the row's lock):
-   * labels, recipe and version, the applied recipe and its version, the owner guard (`null`
-   * clears it), and when it was last used.
+   * labels, recipe and version, the applied recipe and its version, the manifest version it runs
+   * and how it names it (track T3), the owner guard (`null` clears it), and when it was last used.
    */
   updateEnvironment(
     id: string,
@@ -726,6 +726,9 @@ export interface Tx {
       version?: number;
       applied?: EnvironmentRecipe;
       appliedVersion?: number;
+      manifestVersion?: number;
+      manifestHash?: string;
+      manifestRef?: "tracking" | "pinned";
       ownerUserId?: string | null;
       lastUsedAt?: string;
       diskOp?: DiskOperation | null;

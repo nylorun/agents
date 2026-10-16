@@ -912,6 +912,9 @@ class PostgresTx implements Tx {
       version?: number;
       applied?: Environment["applied"];
       appliedVersion?: number;
+      manifestVersion?: number;
+      manifestHash?: string;
+      manifestRef?: Environment["manifestRef"];
       ownerUserId?: string | null;
       lastUsedAt?: string;
       diskOp?: Environment["diskOp"] | null;

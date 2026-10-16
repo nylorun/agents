@@ -2,7 +2,7 @@ import { runAgent } from "./run-agent.js";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { validateExecutionState } from "../src/run/index.js";
-import { Agent } from "@nylorun/core/define";
+import { Agent, hashManifest } from "@nylorun/core/define";
 import { type ExecutionState } from "../src/index.js";
 
 const candidate = (name: string, id = "call") => ({
@@ -226,6 +226,25 @@ describe("stateless execution", () => {
       }),
     ).rejects.toMatchObject({ code: "execution.incompatible" });
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("takes a new version's output schema at the next turn, once the host aligns the state to it", async () => {
+    const first = await runAgent(Agent({ id: "a", name: "A" }).build(), {
+      input: "go",
+      onModelCall: async () => "plain",
+    });
+    expect(first.status).toBe("completed");
+    // A new version of the agent (track T3) adds an output schema; the host aligns the state's hash.
+    const next = Agent({ id: "a", name: "A" })
+      .output(z.object({ count: z.number() }))
+      .build();
+    const state = { ...roundtrip(first.state), manifestHash: hashManifest(next.manifest) };
+    const result = await runAgent(next, {
+      state,
+      input: "again",
+      onModelCall: async () => ({ output: [{ type: "json", value: { count: 4 } }] }),
+    });
+    expect(result).toMatchObject({ status: "completed", output: { count: 4 } });
   });
 });
 

@@ -60,7 +60,8 @@ export interface Session {
   manifest: any;
   manifestHash: string;
   /**
-   * The agent manifest version the session pinned when it opened (protocol 16): its Agent's.
+   * The agent manifest version the session runs (protocol 16): its Agent's when it opened, and
+   * again at a turn's first segment when its Agent's version changed since (T3, `repinTurn`).
    * Absent on a session opened before protocol 16.
    */
   definition?: { name: string; version: number };
@@ -107,7 +108,7 @@ export interface Session {
    * credentials. It outlives the session.
    */
   environmentId?: string;
-  /** Always 1 since protocol 14 (shown, never enforced). */
+  /** The Agent's recipe version when the session last pinned (shown, never enforced). */
   environmentVersion?: number;
   /**
    * The harness that runs the session's turns (R4.1), pinned when it opened: its manifest's
