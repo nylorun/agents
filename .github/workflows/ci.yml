@@ -336,8 +336,10 @@ jobs:
       fail-fast: false
       matrix:
         # test:t4-exit: track T4's exit test (scripts/t4-exit.mjs), schedules and a webhook on a
-        # Compose Tenant with no client, a restart across due times included.
-        smoke: ["test:stack", "test:failure", "test:acceptance:access", "test:redteam", "test:t4-exit"]
+        # Compose Tenant with no client, a restart across due times included. test:t5-exit: track
+        # T5's (scripts/t5-exit.mjs), a memory written in one fire and read in the next, with an
+        # upgrade in between.
+        smoke: ["test:stack", "test:failure", "test:acceptance:access", "test:redteam", "test:t4-exit", "test:t5-exit"]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

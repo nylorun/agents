@@ -46,6 +46,7 @@
     "test:t2-exit": "node scripts/sandbox/t2-exit.mjs",
     "test:t3-exit": "node scripts/sandbox/t3-exit.mjs",
     "test:t4-exit": "node scripts/t4-exit.mjs",
+    "test:t5-exit": "node scripts/t5-exit.mjs",
     "examples:sync": "npm run examples:sync --workspace @nylorun/create-agent",
     "examples:check": "npm run examples:check --workspace @nylorun/create-agent",
     "changeset": "changeset",
