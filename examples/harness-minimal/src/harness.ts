@@ -290,8 +290,8 @@ async function segment(
     output: { runId, status: "failed" as const, error: { code, message } },
   });
   const checkpoint = run.start.checkpoint as Checkpoint;
-  const event = inputEventOf(checkpoint.input);
-  if (run.start.engine !== "agent" || run.start.type !== "turn.start" || !event)
+  const events = inputEventsOf(checkpoint.input);
+  if (run.start.engine !== "agent" || run.start.type !== "turn.start" || !events)
     return failed("harness.unsupported", "This harness runs agent turns that start from a message");
 
   const manifest = run.start.manifest as Manifest;
@@ -308,7 +308,7 @@ async function segment(
   ];
 
   const { entries: before } = await channel.request("transcript.read", { runId });
-  const added: TranscriptEntry[] = [{ kind: "input", turnId, event }];
+  const added: TranscriptEntry[] = events.map((event) => ({ kind: "input", turnId, event }));
   const journal = (effect: Effect, execute: () => Promise<unknown>) =>
     journaled(
       channel,
@@ -662,7 +662,21 @@ function toolResultOf(identity: { callId: string; toolName: string }, value: unk
   };
 }
 
-/** What started the turn, as a transcript `input` entry's event. */
+/**
+ * What started the turn, as transcript `input` entries' events: one message, or the messages that
+ * waited in the session's queue (`{kind: "messages", messages}`, protocol 17).
+ */
+function inputEventsOf(input: unknown): InputEvent[] | undefined {
+  const value = (input ?? {}) as { kind?: unknown; messages?: unknown };
+  if (value.kind !== "messages") {
+    const event = inputEventOf(input);
+    return event ? [event] : undefined;
+  }
+  if (!Array.isArray(value.messages) || value.messages.length === 0) return undefined;
+  const events = value.messages.map(inputEventOf);
+  return events.every((event) => event !== undefined) ? (events as InputEvent[]) : undefined;
+}
+
 function inputEventOf(input: unknown): InputEvent | undefined {
   if (typeof input === "string") return { kind: "user-message", text: input };
   // A message's content: text, or content parts, with optional metadata.

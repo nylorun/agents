@@ -71,7 +71,7 @@ import {
   withTranscript,
   type TranscriptUpdate,
 } from "./history.js";
-import { command } from "./commands.js";
+import { command, startQueuedTurn } from "./commands.js";
 import { dropRunGrant, grantRun, rootAgentOf, type RunOf } from "./run-grants.js";
 import { startHeartbeat } from "../harness-api/renew.js";
 import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/start.js";
@@ -654,6 +654,8 @@ async function settle(
       await t.event(id, s.activeTurnId, type, payload, writer);
       await t.put("sessions", id, current);
       await wakeWorkflowOf(ctx, t, current, s.activeTurnId, type, payload);
+      // Messages that waited for this turn start the next one (protocol 17).
+      if (await startQueuedTurn(ctx, t, current, id)) await t.put("sessions", id, current);
       return siblings;
     }
   );
@@ -747,6 +749,7 @@ async function settleFailure(
       "turn.failed",
       payload
     );
+    if (await startQueuedTurn(ctx, t, current, id)) await t.put("sessions", id, current);
   });
 }
 

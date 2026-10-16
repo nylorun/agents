@@ -168,8 +168,8 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 16 clients only; they require Agents", () => {
-    expect(PROTOCOL_VERSION).toBe(16);
+  it("serves protocol 16 and 17 clients; they require Agents, and 17 the session queue", () => {
+    expect(PROTOCOL_VERSION).toBe(17);
     // Protocol 8 clients require the Management API (key roles); protocol 9 clients the OAuth
     // resource server's 401 challenges; protocol 12 clients model inputs; protocol 13 clients the
     // flat manifest (v7); protocol 15 clients the harness boundary; protocol 16 clients agent
@@ -183,7 +183,11 @@ describe("checkCompatibility", () => {
     expect(PROTOCOL_FEATURES).not.toContain("environments");
     expect(PROTOCOL_FEATURES).not.toContain("environment-manifests");
     expect(PROTOCOL_FEATURES).toContain("harness-boundary");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 16, max: 16 });
+    expect(HOST_PROTOCOL).toMatchObject({ min: 16, max: 17 });
+    // Protocol 17 is additive: the session queue (D76), whose refusal has a code.
+    expect(PROTOCOL_FEATURES).toContain("session-queue");
+    expect(checkCompatibility({ version: 17, required: [...PROTOCOL_FEATURES] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
+    for (const code of ["session_busy", "queue_full"]) expect(ERROR_CODES).toContain(code);
     expect(HOST_PROTOCOL.features).toContain("flat-manifest");
     expect(checkCompatibility({ version: 16, required: ["agents", "harness-boundary"] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
     // Protocol 15: a message may name any file; the harness decides how the model sees it.

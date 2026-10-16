@@ -121,6 +121,7 @@ import type {
   ModelUsageWrite,
   ModelUsageTotals,
   StoredSession,
+  QueuedMessageRow,
   ToolCrossingRow,
   TakeOwnership,
   Tx,
@@ -160,6 +161,7 @@ import {
   sessionEvents,
   sessionLogHeads,
   sessions,
+  sessionQueue,
   toJson,
   toolCrossings,
   signingKeys,
@@ -478,7 +480,7 @@ const SIGNING_KEY_STAMP: Partial<
 /** The audit columns a row has (`ord` only orders them). */
 const { ord: _ord, ...AUDIT } = getTableColumns(vaultAudit);
 
-const SESSION_TABLES = [sessions, commands, effects, links, wakes];
+const SESSION_TABLES = [sessions, commands, effects, links, wakes, sessionQueue];
 
 /**
  * The outbox's tables, by the kind of request each holds. Their delivery columns (`id`,
@@ -1520,6 +1522,42 @@ class PostgresTx implements Tx {
     this.check();
     await this.db.delete(modelBudgets);
     if (rows.length > 0) await this.db.insert(modelBudgets).values([...rows]);
+  }
+
+  // --- session queues (protocol 17) -------------------------------------------
+
+  async enqueueMessage(row: Omit<QueuedMessageRow, "seq">): Promise<number> {
+    this.check();
+    const [last] = await this.db
+      .select({ seq: sql<number>`max(${sessionQueue.seq})` })
+      .from(sessionQueue)
+      .where(eq(sessionQueue.sessionId, row.sessionId));
+    const seq = Number(last?.seq ?? 0) + 1;
+    await this.db.insert(sessionQueue).values({ ...row, seq });
+    return seq;
+  }
+
+  async queuedMessages(sessionId: string): Promise<QueuedMessageRow[]> {
+    this.check();
+    return this.db
+      .select()
+      .from(sessionQueue)
+      .where(eq(sessionQueue.sessionId, sessionId))
+      .orderBy(sessionQueue.seq);
+  }
+
+  async countQueuedMessages(sessionId: string): Promise<number> {
+    this.check();
+    const [row] = await this.db
+      .select({ n: count() })
+      .from(sessionQueue)
+      .where(eq(sessionQueue.sessionId, sessionId));
+    return Number(row?.n ?? 0);
+  }
+
+  async deleteQueuedMessages(ids: readonly string[]): Promise<void> {
+    this.check();
+    if (ids.length > 0) await this.db.delete(sessionQueue).where(inArray(sessionQueue.id, [...ids]));
   }
 
   // --- tool crossings --------------------------------------------------------

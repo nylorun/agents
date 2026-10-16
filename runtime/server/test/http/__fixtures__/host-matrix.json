@@ -75,7 +75,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -85,6 +85,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -151,7 +152,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -161,6 +162,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -227,7 +229,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -237,6 +239,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -303,7 +306,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -313,6 +316,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -379,7 +383,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -389,6 +393,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -455,7 +460,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -465,6 +470,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -531,7 +537,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -541,6 +547,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -607,7 +614,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -617,6 +624,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -683,7 +691,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -693,6 +701,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -759,7 +768,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -769,6 +778,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -835,7 +845,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -845,6 +855,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -911,7 +922,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -921,6 +932,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1020,7 +1032,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1030,6 +1042,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1096,7 +1109,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1106,6 +1119,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1172,7 +1186,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1182,6 +1196,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1248,7 +1263,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1258,6 +1273,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1324,7 +1340,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1334,6 +1350,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1400,7 +1417,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1410,6 +1427,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",
@@ -1476,7 +1494,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 16,
-        "max": 16,
+        "max": 17,
         "features": [
           "studio-principal",
           "artifacts",
@@ -1486,6 +1504,7 @@
           "flat-manifest",
           "harness-boundary",
           "agents",
+          "session-queue",
           "tenant-fixture-model",
           "transcript-events",
           "subject-headers",

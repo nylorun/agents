@@ -5,7 +5,7 @@
     "version": "0.0.0",
     "x-nylorun-protocol": {
       "min": 16,
-      "max": 16,
+      "max": 17,
       "features": [
         "studio-principal",
         "artifacts",
@@ -15,6 +15,7 @@
         "flat-manifest",
         "harness-boundary",
         "agents",
+        "session-queue",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -6307,6 +6308,40 @@
           "requestId"
         ]
       },
+      "QueuedResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued"
+            ]
+          },
+          "queuedMessageId": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "queuedMessageId",
+          "position",
+          "cursor",
+          "requestId"
+        ]
+      },
       "Rejected": {
         "type": "object",
         "properties": {
@@ -6337,6 +6372,8 @@
               "invalid_request",
               "subject_required",
               "agent_not_granted",
+              "session_busy",
+              "queue_full",
               "agent_busy",
               "agent_unavailable",
               "placement_refused",
@@ -6719,6 +6756,13 @@
                 ],
                 "additionalProperties": false
               },
+              "delivery": {
+                "type": "string",
+                "enum": [
+                  "queue",
+                  "reject"
+                ]
+              },
               "content": {
                 "type": "string",
                 "minLength": 1
@@ -7028,6 +7072,13 @@
                 ],
                 "additionalProperties": false
               },
+              "delivery": {
+                "type": "string",
+                "enum": [
+                  "queue",
+                  "reject"
+                ]
+              },
               "data": {
                 "$ref": "#/components/schemas/JsonValue"
               }
@@ -7335,6 +7386,13 @@
                   "id"
                 ],
                 "additionalProperties": false
+              },
+              "delivery": {
+                "type": "string",
+                "enum": [
+                  "queue",
+                  "reject"
+                ]
               },
               "parts": {
                 "type": "array",
@@ -8706,6 +8764,10 @@
               "null"
             ]
           },
+          "queuedMessages": {
+            "type": "integer",
+            "minimum": 0
+          },
           "harness": {
             "type": "string"
           },
@@ -8763,6 +8825,7 @@
           "manifestHash",
           "status",
           "activeTurnId",
+          "queuedMessages",
           "harness",
           "mcpSnapshot",
           "mcpDiagnostics",
@@ -8842,6 +8905,12 @@
             "$ref": "#/components/schemas/TurnCancelledEvent"
           },
           {
+            "$ref": "#/components/schemas/MessageQueuedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/QueueTakenEvent"
+          },
+          {
             "$ref": "#/components/schemas/MessageAssistantEvent"
           },
           {
@@ -8918,6 +8987,8 @@
             "turn.paused": "#/components/schemas/TurnPausedEvent",
             "turn.failed": "#/components/schemas/TurnFailedEvent",
             "turn.cancelled": "#/components/schemas/TurnCancelledEvent",
+            "message.queued": "#/components/schemas/MessageQueuedEvent",
+            "queue.taken": "#/components/schemas/QueueTakenEvent",
             "message.assistant": "#/components/schemas/MessageAssistantEvent",
             "model.failed": "#/components/schemas/ModelFailedEvent",
             "context.compacted": "#/components/schemas/ContextCompactedEvent",
@@ -9176,6 +9247,16 @@
                 }
               },
               "manifest": {},
+              "delivery": {
+                "type": "string",
+                "enum": [
+                  "queue",
+                  "reject"
+                ]
+              },
+              "queuedMessageId": {
+                "type": "string"
+              },
               "trace": {
                 "type": "object",
                 "properties": {
@@ -10575,6 +10656,405 @@
                 "additionalProperties": {}
               }
             },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "MessageQueuedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "message.queued"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "queuedMessageId": {
+                "type": "string"
+              },
+              "position": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "requestId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "queuedMessageId",
+              "position",
+              "requestId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "QueueTakenEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "queue.taken"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "turnId": {
+                "type": "string"
+              },
+              "queuedMessageIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "turnId",
+              "queuedMessageIds"
+            ],
             "additionalProperties": {}
           }
         },
@@ -22837,10 +23317,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22991,10 +23471,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23124,10 +23604,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23254,10 +23734,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23391,10 +23871,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23537,10 +24017,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23669,10 +24149,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -23804,10 +24284,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -23930,10 +24410,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24082,10 +24562,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24219,10 +24699,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24426,10 +24906,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24614,10 +25094,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24753,10 +25233,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24888,10 +25368,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25023,10 +25503,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25177,10 +25657,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25328,10 +25808,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25475,10 +25955,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25806,10 +26286,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25945,10 +26425,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26083,10 +26563,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26228,10 +26708,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26378,10 +26858,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26525,10 +27005,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26681,10 +27161,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26828,10 +27308,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27019,10 +27499,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27134,7 +27614,7 @@
           "Sessions API"
         ],
         "summary": "Send a command to a session",
-        "description": "A message starts a turn; the others answer what the session waits on, or cancel. Idempotent on the command's `idempotencyKey`.",
+        "description": "A message starts a turn, or waits in the session's queue while a turn runs or waits (protocol 17; `delivery: \"reject\"` is refused with `409 session_busy` instead); the others answer what the session waits on, or cancel. Idempotent on the command's `idempotencyKey`.",
         "security": [
           {
             "applicationKey": []
@@ -27163,10 +27643,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27223,11 +27703,18 @@
         },
         "responses": {
           "200": {
-            "description": "The command, accepted",
+            "description": "The command, accepted; a message may be queued",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AcceptedResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AcceptedResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/QueuedResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -27273,7 +27760,7 @@
             }
           },
           "409": {
-            "description": "A turn is running, or the session does not wait on this"
+            "description": "A turn is running (`session_busy`), or the session does not wait on this"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -27284,6 +27771,9 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "The session's queue is full (`queue_full`)"
           },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
@@ -27343,10 +27833,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27398,6 +27888,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/TurnCancelledEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MessageQueuedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/QueueTakenEvent"
                     },
                     {
                       "$ref": "#/components/schemas/MessageAssistantEvent"
@@ -27601,10 +28097,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27741,10 +28237,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27878,10 +28374,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28014,10 +28510,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28150,10 +28646,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28268,10 +28764,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28394,10 +28890,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28526,10 +29022,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28718,10 +29214,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28864,10 +29360,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29010,10 +29506,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29144,10 +29640,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29294,10 +29790,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29493,10 +29989,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29696,10 +30192,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29840,10 +30336,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29975,10 +30471,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30115,10 +30611,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30277,10 +30773,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30491,10 +30987,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30648,10 +31144,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30872,10 +31368,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31019,10 +31515,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31157,10 +31653,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31303,10 +31799,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": false,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31546,10 +32042,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31702,10 +32198,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `16`"
+              "description": "The protocol version, `17`"
             },
             "required": true,
-            "description": "The protocol version, `16`",
+            "description": "The protocol version, `17`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },

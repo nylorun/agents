@@ -34,7 +34,9 @@ The Tenant's sessions, through the Runtime API with an application key (or NYLOR
                                       open a session on Agent <id>; prints its id
   get <id>                            the session: status, active turn, what it waits for
   send <id> [<text>] [--data <json>] [--file <artifact>[@<version>]]... [--idempotency-key <k>]
-                                      start a turn with text, JSON data or files (artifacts)
+       [--reject-if-busy]             start a turn with text, JSON data or files (artifacts); while
+                                      a turn runs the message waits in the session's queue, or is
+                                      refused with --reject-if-busy
   approve <id> <interaction> [--deny] approve (or deny) a held tool call
   respond <id> <interaction> <json>   answer a question the agent asked
   cancel <id> [--reason <text>]       cancel the running turn
@@ -145,8 +147,12 @@ function filePart(value: string): MessagePart {
 
 async function send(deps: StackDeps, args: readonly string[]): Promise<number> {
   const usage =
-    "nylorun sessions send <id> [<text>] [--data <json>] [--file <artifact>[@<version>]]... [--idempotency-key <k>]";
-  const flags = parseFlags(args, { values: ["--data", "--idempotency-key"], lists: ["--file"] }, usage);
+    "nylorun sessions send <id> [<text>] [--data <json>] [--file <artifact>[@<version>]]... [--idempotency-key <k>] [--reject-if-busy]";
+  const flags = parseFlags(
+    args,
+    { values: ["--data", "--idempotency-key"], lists: ["--file"], booleans: ["--reject-if-busy"] },
+    usage,
+  );
   if (flags.rest.length < 1 || flags.rest.length > 2) throw usageError(`Usage: ${usage}`);
   const [id, text] = flags.rest as [string, string | undefined];
   const data = flags.values.get("--data");
@@ -156,7 +162,10 @@ async function send(deps: StackDeps, args: readonly string[]): Promise<number> {
   if (data === undefined && text === undefined && files.length === 0)
     throw usageError(`Nothing to send. Usage: ${usage}`);
   const parts = files.map(filePart);
-  const options = { idempotencyKey: flags.values.get("--idempotency-key") ?? randomUUID() };
+  const options = {
+    idempotencyKey: flags.values.get("--idempotency-key") ?? randomUUID(),
+    ...(flags.booleans.has("--reject-if-busy") ? { delivery: "reject" as const } : {}),
+  };
   const { client } = await runtimeClient(deps, flags);
   const session = client.session(id);
   const accepted = await runtimeCall(() =>

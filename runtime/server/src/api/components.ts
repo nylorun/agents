@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import {
+  QueuedResponseSchema,
   AgentManifestV8Schema,
   EnvironmentSecretSlotsSchema,
   DeleteAgentManifestResponseSchema,
@@ -184,6 +185,7 @@ export const ArtifactTree = named("ArtifactTree", ArtifactTreeSchema);
 export const ArtifactDiff = named("ArtifactDiff", ArtifactDiffSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
+export const QueuedResponse = named("QueuedResponse", QueuedResponseSchema);
 
 export const ListSessionsResponse = named("ListSessionsResponse", ListSessionsResponseSchema);
 export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSchema);

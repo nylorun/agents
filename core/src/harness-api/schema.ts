@@ -282,8 +282,10 @@ export const RunRoutingSchema = z
 /**
  * The fields of `TurnStart.checkpoint` a harness reads (R4.2); the rest are our engine's. An
  * agent turn's `input` is the turn's message: a string, `{text, metadata?}`, `{content,
- * metadata?}` with user content parts, `{kind: "continue"}` for the next segment of a yielded
- * turn, or an approval or response event. Effect ids are prefixed `<turnId>:<segment>:`
+ * metadata?}` with user content parts, `{kind: "messages", messages}` for messages that waited in
+ * the session's queue (protocol 17: each one of the shapes before, each its own user message, in
+ * order), `{kind: "continue"}` for the next segment of a yielded turn, or an approval or response
+ * event. Effect ids are prefixed `<turnId>:<segment>:`
  * (`effectIdOf`), and every intent carries `manifestHash`. `state` is the harness's own, as its
  * last output left it: core stores it unread (at most `limits.harnessStateBytes` for a harness
  * other than ours) and folds the transcript every segment, whatever the state holds. A model

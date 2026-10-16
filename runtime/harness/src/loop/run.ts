@@ -100,7 +100,8 @@ export async function execute(
     } else {
       turnId = createId("turn");
       stepNumber = 1;
-      if (input.kind !== "continue" && input.kind !== "settle") arrivals = [input];
+      if (input.kind === "messages") arrivals = input.events;
+      else if (input.kind !== "continue" && input.kind !== "settle") arrivals = [input];
       invocation.state = {
         ...invocation.state,
         status: "active",

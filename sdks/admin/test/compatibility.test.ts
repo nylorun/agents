@@ -109,8 +109,8 @@ describe("B3 /health compatibility cache", () => {
               ? healthBody()
               : healthBody({
                   protocol: {
-                    min: 17,
-                    max: 17,
+                    min: 18,
+                    max: 18,
                     features: [...PROTOCOL_FEATURES],
                   },
                 }),
@@ -126,7 +126,7 @@ describe("B3 /health compatibility cache", () => {
             status: "rejected",
             code: "protocol_unsupported",
             message: "upgrade",
-            protocol: { min: 17, max: 17, features: [...PROTOCOL_FEATURES] },
+            protocol: { min: 18, max: 18, features: [...PROTOCOL_FEATURES] },
           }),
         );
         return;

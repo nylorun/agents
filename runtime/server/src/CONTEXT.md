@@ -854,6 +854,23 @@ publishes the Agent Card with its own URL and security schemes. The Runtime
 stays private.
 _Avoid_: "A2A proxy"; parsing A2A messages in the app server.
 
+**Session queue** (protocol 17, track T4, D76): Messages that arrived while a session's turn ran or
+waited (`runnable`, `running`, `waiting`, `paused`, `uncertain`), in order, in the `session_queue`
+table. A `message` command says what a busy session does with it (`delivery`): `queue` stores it in
+the command's transaction (`message.queued {queuedMessageId, position}`, answered
+`{status: "queued"}`), `reject` is `409 session_busy`. With no `delivery`, the route takes `queue`
+for a protocol 17 caller and `reject` for a protocol 16 one (`deliveryFor`); core's own messages
+and the AG-UI and A2A adapters, which stream the run they start, take `reject`. A turn that ends
+(`settle`, `settleFailure`, a `cancel`) starts the next one in the same transaction
+(`startQueuedTurn`): every queued message carrying the same turn manifest as the first (a workflow
+takes one), each its own user message (our engine's input `{kind: "messages", messages}`), with
+each one's `command.message` (its `queuedMessageId`) and `queue.taken`. A client's message and
+queued ones start a turn through one door, `beginMessageTurn`. When the Agent cannot take a turn
+then, the messages wait for the next message, which joins them. At most `sessionQueuedMessages`
+wait (`429 queue_full`); session reads count `queuedMessages`. The queue is per session: sessions
+of one Agent still run their turns side by side (D66).
+_Avoid_: "inbox", "backlog", "pending messages".
+
 ## Runtime architecture
 
 One line each; the module named is where the term lives in code.

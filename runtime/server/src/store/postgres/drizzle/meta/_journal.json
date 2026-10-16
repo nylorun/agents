@@ -239,6 +239,13 @@
       "when": 1792161078177,
       "tag": "0033_agent_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792163689759,
+      "tag": "0034_protocol_17_session_queue",
+      "breakpoints": true
     }
   ]
 }

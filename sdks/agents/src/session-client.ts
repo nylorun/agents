@@ -17,7 +17,8 @@ import {
   parseSessionEvent,
   parseSubjectHeaders,
   type SubjectScope,
-  type AcceptedResponse,
+  type CommandResponse,
+  type MessageDelivery,
   type LiveEvent,
   type MessagePart,
   type SessionCommand,
@@ -185,6 +186,12 @@ export type CommandOptions = {
   requestId?: string;
   signal?: AbortSignal;
 };
+/**
+ * A message's options. `delivery` says what a message to a busy session does (protocol 17):
+ * `queue` (the default) waits for the running turn to end, `reject` is refused with
+ * `409 session_busy`.
+ */
+export type MessageOptions = CommandOptions & { delivery?: MessageDelivery };
 export class SessionClient {
   readonly sandbox: SessionSandbox;
   constructor(private readonly transport: Transport, readonly id: string) {
@@ -206,8 +213,9 @@ export class SessionClient {
     const view = await this.inspect(signal);
     return view.waits ?? [];
   }
+  /** A message answers `queued` when it waits for the running turn (protocol 17). */
   command(command: SessionCommand, signal?: AbortSignal) {
-    return this.transport.json<AcceptedResponse>(
+    return this.transport.json<CommandResponse>(
       `${this.path}/commands`,
       "POST",
       command,
@@ -218,11 +226,12 @@ export class SessionClient {
    * Start a turn. Strings become `message.content`; any other JSON value becomes
    * `message.data` (workflows.md §5).
    */
-  input(value: string | JsonValue, options: CommandOptions) {
+  input(value: string | JsonValue, options: MessageOptions) {
     const base = {
       type: "message" as const,
       requestId: options.requestId ?? id(),
       idempotencyKey: options.idempotencyKey,
+      ...(options.delivery ? { delivery: options.delivery } : {}),
     };
     return this.command(
       typeof value === "string"
@@ -236,13 +245,14 @@ export class SessionClient {
    * it with `client.artifacts.upload`), at a version or its latest, and the model reads it, an
    * image as an image and a text file as text.
    */
-  inputParts(parts: readonly MessagePart[], options: CommandOptions) {
+  inputParts(parts: readonly MessagePart[], options: MessageOptions) {
     return this.command(
       {
         type: "message",
         requestId: options.requestId ?? id(),
         idempotencyKey: options.idempotencyKey,
         parts: [...parts],
+        ...(options.delivery ? { delivery: options.delivery } : {}),
       },
       options.signal
     );
