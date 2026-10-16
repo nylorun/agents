@@ -33,20 +33,16 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * The manifest: a schedule every minute on session inbox, a webhook on session alerts, and a tool
- * held for approval, which keeps a turn waiting (its session busy) for as long as the check needs.
+ * the Tenant's tool policy holds for approval, which keeps a turn waiting (its session busy) for as
+ * long as the check needs.
  */
 const manifest = {
   manifestSchemaVersion: 8,
   name: "wake",
-  harness: { instructions: ["Do what each message asks."] },
-  tools: [
-    {
-      name: "hold",
-      inputSchema: { type: "object", properties: {} },
-      http: { url: "https://example.com/hold", method: "POST" },
-      approval: "always",
-    },
-  ],
+  harness: {
+    instructions: ["Do what each message asks."],
+    tools: [{ name: "hold", inputSchema: { type: "object", properties: {} }, http: { url: "https://example.com/hold", method: "POST" } }],
+  },
   runtime: {
     kind: "none",
     triggers: {
@@ -91,6 +87,9 @@ await withStack({ name: "nylorun-t4-exit", images, startArgs: ["--no-studio"] },
   };
 
   await ok("PUT", "/v1/tenant/config/seed", { requestId: randomUUID(), fixtureModel: true }, tenant.managementKey);
+  // The Tenant's tool policy holds each call of `hold` for a person.
+  const policy = await api("PUT", "/v1/tenant/tool-policy", { rules: [{ effect: "ask", tool: "hold", agent: "wake" }] }, tenant.managementKey);
+  assert.ok(policy.status < 300, `the tool policy: ${policy.status} ${JSON.stringify(policy.body)}`);
 
   step("the agent manifest wake, and the Agent wake made from it: its triggers start active");
   await ok("PUT", "/v1/agent-manifests/wake", { requestId: randomUUID(), ...manifest });
