@@ -544,6 +544,36 @@ in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an o
   An hourly trigger on a hundred Agents is 2,400 turns a day: set model budgets before leaving
   Agents running unattended.
 
+### Agent memory
+
+An Agent keeps memory across sessions, wakes and upgrades (track T5) when its manifest turns it on:
+
+```json
+"harness": {
+  "memory": { "access": "read_write", "instructions": "Keep the team's release conventions." }
+}
+```
+
+- **What it is.** Markdown files under `/memories`, which the agent reads and edits with one
+  `memory` tool (Anthropic's memory tool: `view`, `create`, `str_replace`, `insert`, `delete`,
+  `rename`). Each session starts with an index of them, newest first, with each file's
+  frontmatter `description`. `access: "read_only"` lets the agent view but not change them; an
+  agent used as a tool only views. Memory works the same whoever starts the turn: a person, an
+  app, a trigger or a wake.
+- **Where it lives.** Postgres, with the Agent: every change is a version naming who made it
+  (the manifest version, session, turn and trigger run, or the person or app over the API). A
+  fork copies the memories; deleting the Agent deletes them.
+- **Managing it.** `GET /v1/agents/{id}/memories`, `GET`, `PUT` (with an optional
+  `contentSha256` precondition) and `DELETE /v1/agents/{id}/memories/{path}`, and
+  `GET /v1/agents/{id}/memory_versions[/{versionId}]`; `nylorun agents memories ls|cat|put|rm|versions`.
+- **Keep secrets out.** The engine tells the agent never to keep secrets, but nothing scans what
+  it writes: read an Agent's memory before you share or fork it.
+- **Limits.** `memoryBytes`, `memoriesPerAgent`, `memoryIndexLines` and `memoryIndexBytes`
+  ([Runtime limits](#runtime-limits)).
+
+`npm run test:t5-exit` checks it on a Compose Tenant: a scheduled Agent writes a memory in one
+fire and reads it back in the next, with an upgrade in between.
+
 ## Postgres for session events
 
 Postgres holds the record of every session event (`nylorun_streams.session_events`), and
