@@ -12,7 +12,13 @@ import type { TranscriptEntry } from "@nylorun/core/define";
 import type { ToolResult } from "@nylorun/core/define";
 import { copyJson, freezeGraph } from "@nylorun/core/define";
 import { summaryPrompt } from "../compaction/index.js";
-import { FILES_MESSAGE_HEADER, fileKeyOf, mediaReferenceLine, type FilePart, type LiveFile } from "./files.js";
+import {
+  FILES_MESSAGE_HEADER,
+  fileKeyOf,
+  mediaReferenceLine,
+  type FilePart,
+  type LiveFile,
+} from "./files.js";
 
 /**
  * The model call for `request`. Every file in the transcript is its reference line (protocol 12),
