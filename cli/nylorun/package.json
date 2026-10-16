@@ -35,7 +35,7 @@
     "@nylorun/core": "0.23.0-beta"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.99.1",
+    "@earendil-works/pi-ai": "1.2.0",
     "@nylorun/agents": "file:../../sdks/agents",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "@types/node": "^26.6.5",
