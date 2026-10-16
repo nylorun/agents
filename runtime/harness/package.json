@@ -69,11 +69,11 @@
     "eval:compaction": "vitest run test/compaction-eval.test.ts"
   },
   "devDependencies": {
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "prettier": "^3.9.9",
+    "prettier": "^3.9.10",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^5.0.2",
+    "vitest": "^5.0.4",
     "zod": "^4.6.7"
   },
   "dependencies": {
