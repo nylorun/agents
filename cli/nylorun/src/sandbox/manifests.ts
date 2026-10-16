@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { cliTuning } from "../tuning.js";
 
 /**
  * What `nylorun local sandbox enable` installs into a cluster. The agent-sandbox controller is
@@ -138,7 +139,7 @@ export function probePod(
     spec: {
       automountServiceAccountToken: false,
       enableServiceLinks: false,
-      terminationGracePeriodSeconds: 1,
+      terminationGracePeriodSeconds: cliTuning().sandbox.probeGraceSeconds,
       restartPolicy: options.command ? "Never" : "Always",
       ...(options.nodeName ? { nodeName: options.nodeName } : {}),
       securityContext: { runAsNonRoot: true, runAsUser: 1000, seccompProfile: { type: "RuntimeDefault" } },
@@ -149,7 +150,7 @@ export function probePod(
           imagePullPolicy: "IfNotPresent",
           command,
           securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } },
-          resources: { limits: { cpu: "200m", memory: "64Mi" } },
+          resources: { limits: { cpu: cliTuning().sandbox.probeCpu, memory: cliTuning().sandbox.probeMemory } },
         },
       ],
     },

@@ -6704,9 +6704,8 @@
                         "type": "array",
                         "items": {
                           "type": "string",
-                          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
-                        },
-                        "maxItems": 64
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
                       }
                     },
                     "additionalProperties": false
@@ -7014,9 +7013,8 @@
                         "type": "array",
                         "items": {
                           "type": "string",
-                          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
-                        },
-                        "maxItems": 64
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
                       }
                     },
                     "additionalProperties": false
@@ -7323,9 +7321,8 @@
                         "type": "array",
                         "items": {
                           "type": "string",
-                          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
-                        },
-                        "maxItems": 64
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
                       }
                     },
                     "additionalProperties": false
@@ -7390,8 +7387,7 @@
                     }
                   ]
                 },
-                "minItems": 1,
-                "maxItems": 32
+                "minItems": 1
               }
             },
             "required": [
@@ -7767,9 +7763,8 @@
                     "type": "array",
                     "items": {
                       "type": "string",
-                      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
-                    },
-                    "maxItems": 64
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
                   }
                 },
                 "additionalProperties": false
@@ -7856,8 +7851,7 @@
                 "properties": {
                   "cpus": {
                     "type": "integer",
-                    "minimum": 1,
-                    "maximum": 64
+                    "minimum": 1
                   },
                   "memory": {
                     "type": "string"
@@ -8143,9 +8137,8 @@
                           "type": "array",
                           "items": {
                             "type": "string",
-                            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
-                          },
-                          "maxItems": 64
+                            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                          }
                         }
                       },
                       "additionalProperties": false
@@ -8881,9 +8874,8 @@
                         "type": "array",
                         "items": {
                           "type": "string",
-                          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
-                        },
-                        "maxItems": 64
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
                       }
                     },
                     "additionalProperties": false
@@ -16210,8 +16202,7 @@
                         "properties": {
                           "command": {
                             "type": "string",
-                            "minLength": 1,
-                            "maxLength": 4096
+                            "minLength": 1
                           },
                           "cwd": {
                             "type": "string",
@@ -16341,8 +16332,7 @@
                                 "items": {
                                   "type": "string"
                                 },
-                                "minItems": 1,
-                                "maxItems": 32
+                                "minItems": 1
                               },
                               "inject": {
                                 "type": "object",
@@ -16366,8 +16356,7 @@
                                 "type": "boolean"
                               },
                               "description": {
-                                "type": "string",
-                                "maxLength": 500
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -16389,8 +16378,7 @@
                                 "type": "boolean"
                               },
                               "description": {
-                                "type": "string",
-                                "maxLength": 500
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -16431,8 +16419,7 @@
                                 "type": "boolean"
                               },
                               "description": {
-                                "type": "string",
-                                "maxLength": 500
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -16474,8 +16461,7 @@
                                 "type": "boolean"
                               },
                               "description": {
-                                "type": "string",
-                                "maxLength": 500
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -16870,8 +16856,7 @@
                   "properties": {
                     "command": {
                       "type": "string",
-                      "minLength": 1,
-                      "maxLength": 4096
+                      "minLength": 1
                     },
                     "cwd": {
                       "type": "string",
@@ -17001,8 +16986,7 @@
                           "items": {
                             "type": "string"
                           },
-                          "minItems": 1,
-                          "maxItems": 32
+                          "minItems": 1
                         },
                         "inject": {
                           "type": "object",
@@ -17026,8 +17010,7 @@
                           "type": "boolean"
                         },
                         "description": {
-                          "type": "string",
-                          "maxLength": 500
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -17049,8 +17032,7 @@
                           "type": "boolean"
                         },
                         "description": {
-                          "type": "string",
-                          "maxLength": 500
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -17091,8 +17073,7 @@
                           "type": "boolean"
                         },
                         "description": {
-                          "type": "string",
-                          "maxLength": 500
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -17134,8 +17115,7 @@
                           "type": "boolean"
                         },
                         "description": {
-                          "type": "string",
-                          "maxLength": 500
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -17442,7 +17422,7 @@
             "type": "object",
             "additionalProperties": {
               "type": "string",
-              "pattern": "^[\\x20-\\x7e]{0,256}$"
+              "pattern": "^[\\x20-\\x7e]*$"
             }
           },
           "image": {
@@ -17454,8 +17434,7 @@
             "properties": {
               "cpus": {
                 "type": "integer",
-                "minimum": 1,
-                "maximum": 64
+                "minimum": 1
               },
               "memory": {
                 "type": "string"
@@ -17508,8 +17487,7 @@
               "properties": {
                 "command": {
                   "type": "string",
-                  "minLength": 1,
-                  "maxLength": 4096
+                  "minLength": 1
                 },
                 "cwd": {
                   "type": "string",
@@ -17639,8 +17617,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "minItems": 1,
-                      "maxItems": 32
+                      "minItems": 1
                     },
                     "inject": {
                       "type": "object",
@@ -17664,8 +17641,7 @@
                       "type": "boolean"
                     },
                     "description": {
-                      "type": "string",
-                      "maxLength": 500
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -17687,8 +17663,7 @@
                       "type": "boolean"
                     },
                     "description": {
-                      "type": "string",
-                      "maxLength": 500
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -17729,8 +17704,7 @@
                       "type": "boolean"
                     },
                     "description": {
-                      "type": "string",
-                      "maxLength": 500
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -17772,8 +17746,7 @@
                       "type": "boolean"
                     },
                     "description": {
-                      "type": "string",
-                      "maxLength": 500
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -18236,8 +18209,7 @@
                           "properties": {
                             "command": {
                               "type": "string",
-                              "minLength": 1,
-                              "maxLength": 4096
+                              "minLength": 1
                             },
                             "cwd": {
                               "type": "string",
@@ -18367,8 +18339,7 @@
                                   "items": {
                                     "type": "string"
                                   },
-                                  "minItems": 1,
-                                  "maxItems": 32
+                                  "minItems": 1
                                 },
                                 "inject": {
                                   "type": "object",
@@ -18392,8 +18363,7 @@
                                   "type": "boolean"
                                 },
                                 "description": {
-                                  "type": "string",
-                                  "maxLength": 500
+                                  "type": "string"
                                 }
                               },
                               "required": [
@@ -18415,8 +18385,7 @@
                                   "type": "boolean"
                                 },
                                 "description": {
-                                  "type": "string",
-                                  "maxLength": 500
+                                  "type": "string"
                                 }
                               },
                               "required": [
@@ -18457,8 +18426,7 @@
                                   "type": "boolean"
                                 },
                                 "description": {
-                                  "type": "string",
-                                  "maxLength": 500
+                                  "type": "string"
                                 }
                               },
                               "required": [
@@ -18500,8 +18468,7 @@
                                   "type": "boolean"
                                 },
                                 "description": {
-                                  "type": "string",
-                                  "maxLength": 500
+                                  "type": "string"
                                 }
                               },
                               "required": [
@@ -18961,7 +18928,7 @@
             "type": "object",
             "additionalProperties": {
               "type": "string",
-              "pattern": "^[\\x20-\\x7e]{0,256}$"
+              "pattern": "^[\\x20-\\x7e]*$"
             }
           },
           "ownerUserId": {
@@ -19224,8 +19191,7 @@
           },
           "value": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 8192
+            "minLength": 1
           },
           "headers": {
             "type": "object",
@@ -19281,8 +19247,7 @@
                       "description": "An environment manifest's name, such as `analyst-box`"
                     },
                     "description": {
-                      "type": "string",
-                      "maxLength": 1024
+                      "type": "string"
                     },
                     "kind": {
                       "type": "string",
@@ -19301,8 +19266,7 @@
                       "properties": {
                         "cpus": {
                           "type": "integer",
-                          "minimum": 1,
-                          "maximum": 64
+                          "minimum": 1
                         },
                         "memory": {
                           "type": "string"
@@ -19348,8 +19312,7 @@
                         "properties": {
                           "command": {
                             "type": "string",
-                            "minLength": 1,
-                            "maxLength": 4096
+                            "minLength": 1
                           },
                           "cwd": {
                             "type": "string",
@@ -19479,8 +19442,7 @@
                                 "items": {
                                   "type": "string"
                                 },
-                                "minItems": 1,
-                                "maxItems": 32
+                                "minItems": 1
                               },
                               "inject": {
                                 "type": "object",
@@ -19504,8 +19466,7 @@
                                 "type": "boolean"
                               },
                               "description": {
-                                "type": "string",
-                                "maxLength": 500
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -19527,8 +19488,7 @@
                                 "type": "boolean"
                               },
                               "description": {
-                                "type": "string",
-                                "maxLength": 500
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -19569,8 +19529,7 @@
                                 "type": "boolean"
                               },
                               "description": {
-                                "type": "string",
-                                "maxLength": 500
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -19612,8 +19571,7 @@
                                 "type": "boolean"
                               },
                               "description": {
-                                "type": "string",
-                                "maxLength": 500
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -19700,8 +19658,7 @@
                     "description": "An environment manifest's name, such as `analyst-box`"
                   },
                   "description": {
-                    "type": "string",
-                    "maxLength": 1024
+                    "type": "string"
                   },
                   "kind": {
                     "type": "string",
@@ -19720,8 +19677,7 @@
                     "properties": {
                       "cpus": {
                         "type": "integer",
-                        "minimum": 1,
-                        "maximum": 64
+                        "minimum": 1
                       },
                       "memory": {
                         "type": "string"
@@ -19767,8 +19723,7 @@
                       "properties": {
                         "command": {
                           "type": "string",
-                          "minLength": 1,
-                          "maxLength": 4096
+                          "minLength": 1
                         },
                         "cwd": {
                           "type": "string",
@@ -19898,8 +19853,7 @@
                               "items": {
                                 "type": "string"
                               },
-                              "minItems": 1,
-                              "maxItems": 32
+                              "minItems": 1
                             },
                             "inject": {
                               "type": "object",
@@ -19923,8 +19877,7 @@
                               "type": "boolean"
                             },
                             "description": {
-                              "type": "string",
-                              "maxLength": 500
+                              "type": "string"
                             }
                           },
                           "required": [
@@ -19946,8 +19899,7 @@
                               "type": "boolean"
                             },
                             "description": {
-                              "type": "string",
-                              "maxLength": 500
+                              "type": "string"
                             }
                           },
                           "required": [
@@ -19988,8 +19940,7 @@
                               "type": "boolean"
                             },
                             "description": {
-                              "type": "string",
-                              "maxLength": 500
+                              "type": "string"
                             }
                           },
                           "required": [
@@ -20031,8 +19982,7 @@
                               "type": "boolean"
                             },
                             "description": {
-                              "type": "string",
-                              "maxLength": 500
+                              "type": "string"
                             }
                           },
                           "required": [
@@ -20205,8 +20155,7 @@
             "description": "An environment manifest's name, such as `analyst-box`"
           },
           "description": {
-            "type": "string",
-            "maxLength": 1024
+            "type": "string"
           },
           "kind": {
             "type": "string",
@@ -20225,8 +20174,7 @@
             "properties": {
               "cpus": {
                 "type": "integer",
-                "minimum": 1,
-                "maximum": 64
+                "minimum": 1
               },
               "memory": {
                 "type": "string"
@@ -20272,8 +20220,7 @@
               "properties": {
                 "command": {
                   "type": "string",
-                  "minLength": 1,
-                  "maxLength": 4096
+                  "minLength": 1
                 },
                 "cwd": {
                   "type": "string",
@@ -20403,8 +20350,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "minItems": 1,
-                      "maxItems": 32
+                      "minItems": 1
                     },
                     "inject": {
                       "type": "object",
@@ -20428,8 +20374,7 @@
                       "type": "boolean"
                     },
                     "description": {
-                      "type": "string",
-                      "maxLength": 500
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -20451,8 +20396,7 @@
                       "type": "boolean"
                     },
                     "description": {
-                      "type": "string",
-                      "maxLength": 500
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -20493,8 +20437,7 @@
                       "type": "boolean"
                     },
                     "description": {
-                      "type": "string",
-                      "maxLength": 500
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -20536,8 +20479,7 @@
                       "type": "boolean"
                     },
                     "description": {
-                      "type": "string",
-                      "maxLength": 500
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -20587,8 +20529,7 @@
                 "description": "An environment manifest's name, such as `analyst-box`"
               },
               "description": {
-                "type": "string",
-                "maxLength": 1024
+                "type": "string"
               },
               "kind": {
                 "type": "string",
@@ -20607,8 +20548,7 @@
                 "properties": {
                   "cpus": {
                     "type": "integer",
-                    "minimum": 1,
-                    "maximum": 64
+                    "minimum": 1
                   },
                   "memory": {
                     "type": "string"
@@ -20654,8 +20594,7 @@
                   "properties": {
                     "command": {
                       "type": "string",
-                      "minLength": 1,
-                      "maxLength": 4096
+                      "minLength": 1
                     },
                     "cwd": {
                       "type": "string",
@@ -20785,8 +20724,7 @@
                           "items": {
                             "type": "string"
                           },
-                          "minItems": 1,
-                          "maxItems": 32
+                          "minItems": 1
                         },
                         "inject": {
                           "type": "object",
@@ -20810,8 +20748,7 @@
                           "type": "boolean"
                         },
                         "description": {
-                          "type": "string",
-                          "maxLength": 500
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -20833,8 +20770,7 @@
                           "type": "boolean"
                         },
                         "description": {
-                          "type": "string",
-                          "maxLength": 500
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -20875,8 +20811,7 @@
                           "type": "boolean"
                         },
                         "description": {
-                          "type": "string",
-                          "maxLength": 500
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -20918,8 +20853,7 @@
                           "type": "boolean"
                         },
                         "description": {
-                          "type": "string",
-                          "maxLength": 500
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -21827,8 +21761,7 @@
           },
           "expiresIn": {
             "type": "integer",
-            "minimum": 1,
-            "maximum": 900
+            "minimum": 1
           },
           "file": {
             "type": "string",
@@ -23499,9 +23432,10 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 200
+              "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many"
             },
             "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many",
             "name": "limit",
             "in": "query"
           },
@@ -24121,9 +24055,10 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 200
+              "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many"
             },
             "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many",
             "name": "limit",
             "in": "query"
           },
@@ -24535,10 +24470,10 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 200,
-              "default": 50
+              "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many. Default 50, or that limit when it is lower"
             },
             "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many. Default 50, or that limit when it is lower",
             "name": "limit",
             "in": "query"
           },
@@ -24671,10 +24606,10 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 200,
-              "default": 50
+              "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many. Default 50, or that limit when it is lower"
             },
             "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many. Default 50, or that limit when it is lower",
             "name": "limit",
             "in": "query"
           },
@@ -25791,7 +25726,7 @@
           "A2A"
         ],
         "summary": "Call an agent over A2A",
-        "description": "A2A 1.0 JSON-RPC, for a subject: `SendMessage` (blocking up to 5 minutes, or `returnImmediately`), `GetTask` and `CancelTask`. A message is text, one data part, or text and `raw` files (at most 20 MiB each, stored as artifacts of the context's session); a file `url` is `ContentTypeNotSupportedError`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors.",
+        "description": "A2A 1.0 JSON-RPC, for a subject: `SendMessage` (blocking up to the Runtime limit `a2aWaitMs`, 5 minutes by default, or `returnImmediately`), `GetTask` and `CancelTask`. A message is text, one data part, or text and `raw` files (at most the Runtime limit `inlineFileBytes` each, 20 MiB by default, stored as artifacts of the context's session); a file `url` is `ContentTypeNotSupportedError`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors.",
         "externalDocs": {
           "description": "The A2A specification",
           "url": "https://a2a-protocol.org/latest/specification/"
@@ -26424,9 +26359,10 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 200
+              "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many"
             },
             "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many",
             "name": "limit",
             "in": "query"
           },
@@ -26576,7 +26512,7 @@
           "Environments"
         ],
         "summary": "Read an Environment's events",
-        "description": "`environment.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, and `environment.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most 1000 per call.",
+        "description": "`environment.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, and `environment.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
         "security": [
           {
             "applicationKey": []
@@ -27404,16 +27340,14 @@
                       },
                       "value": {
                         "type": "string",
-                        "minLength": 1,
-                        "maxLength": 8192
+                        "minLength": 1
                       },
                       "allowedHosts": {
                         "type": "array",
                         "items": {
                           "type": "string"
                         },
-                        "minItems": 1,
-                        "maxItems": 32
+                        "minItems": 1
                       },
                       "inject": {
                         "type": "object",
@@ -27456,8 +27390,7 @@
                       },
                       "value": {
                         "type": "string",
-                        "minLength": 1,
-                        "maxLength": 8192
+                        "minLength": 1
                       }
                     },
                     "required": [
@@ -29601,9 +29534,10 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 200
+              "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many"
             },
             "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many",
             "name": "limit",
             "in": "query"
           },

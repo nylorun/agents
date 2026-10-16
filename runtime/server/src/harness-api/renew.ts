@@ -15,9 +15,9 @@ import { AdvanceAbort } from "../tenant/worker.js";
 
 export type Renewal = { ok: true; token?: string; tokenExpiresAt?: string } | { ok: false };
 
-/** How often a lease is renewed: a third of its length. */
+/** How often a lease is renewed: a third of its length, and at least 1 ms, a timer's least delay. */
 export function renewEveryMs(ctx: TenantContext): number {
-  return Math.max(10, Math.floor(ctx.ownerLeaseMs / 3));
+  return Math.max(1, Math.floor(ctx.ownerLeaseMs / 3));
 }
 
 /** The run token the advance of `lease` holds, as a run grant carries it. */

@@ -16,12 +16,13 @@
  * of `createHarness` in `@nylorun/harness`, whose defaults stay there.
  */
 import { z } from "zod";
+import { TIMER_MAX_MS } from "@nylorun/core/contracts";
 
 /**
  * The longest delay Node's timers take (`setTimeout`, `setInterval`): 2^31 - 1 ms, a signed
  * 32-bit integer. A longer one fires at once. Fixed by the platform, so a ceiling, not a setting.
  */
-export const MAX_TIMER_MS = 2 ** 31 - 1;
+export const MAX_TIMER_MS = TIMER_MAX_MS;
 
 /** S3's smallest multipart part but the last (5 MiB), and its largest part (5 GiB). */
 export const S3_MIN_PART_BYTES = 5 * 1024 * 1024;
@@ -36,6 +37,14 @@ export const DEDUPE_RETENTION_MIN_MS = 24 * 60 * 60_000;
 
 /** The longest `?wait=` the sandboxes service takes (`MaxWait` in its API): a dependency's ceiling. */
 export const SANDBOXES_MAX_WAIT_MS = 30_000;
+
+/**
+ * The most bind parameters one Postgres statement takes: the extended protocol's `Bind` message
+ * counts them in a 16-bit integer. A dependency's ceiling.
+ */
+export const POSTGRES_MAX_PARAMETERS = 65_535;
+/** The most columns one batched content row binds (`artifact_content`: id, version, hash, size). */
+const CONTENT_ROW_PARAMETERS = 4;
 
 /** The most records, and bytes, one S2 append takes and one S2 read returns: S2's ceilings. */
 export const S2_BATCH_MAX_RECORDS = 1000;
@@ -86,6 +95,20 @@ export const HostTuningSchema = z
       caBackdateMs: ms(HOUR, 0),
       /** How many days the egress CA is valid. */
       caLifetimeDays: count(3650),
+      /**
+       * The longest life of a token the Runtime signs (a user's access token, a capability link): a
+       * link asked for longer gets this, and a key rotation waits this long for the old key's tokens.
+       */
+      tokenTtlMaxSeconds: count(15 * 60),
+      /** How long a run token lives, and how little of its life is left when the lease re-mints it. */
+      runTokenTtlSeconds: count(15 * 60),
+      runTokenRenewSeconds: count(5 * 60),
+      /** How long a host or an egress token lives; a pod's engine renews them before. */
+      hostTokenTtlSeconds: count(15 * 60),
+      /** How far a token's `exp` may be past its `iat` beyond its lifetime, for clocks that differ. */
+      tokenLifetimeSlackSeconds: count(60, 0),
+      /** The clock skew accepted when a token's times are checked (the Runtime's and an issuer's). */
+      clockToleranceSeconds: count(30, 0),
     }),
     /** Core's Harness API listener and server (F6.2). */
     harnessApi: group({
@@ -123,6 +146,14 @@ export const HostTuningSchema = z
       shutdownGraceMs: ms(10_000, 0),
       /** The bound on one `/ready` pass. Compose probes it every 2 s with a 5 s timeout. */
       readinessTimeoutMs: ms(2_000),
+      /** How long `nylorun-operate status` waits for the running Host's `/ready`. */
+      operateReadyTimeoutMs: ms(5_000),
+      /**
+       * The project credential store (`ProjectCredentialStore`): how often a writer checks its lock,
+       * and how many times before it gives up.
+       */
+      credentialLockPollMs: ms(25),
+      credentialLockAttempts: count(100),
     }),
     /** The Object store (`NYLORUN_OBJECT_STORE_*`). */
     objectStore: group({
@@ -176,6 +207,8 @@ export const HostTuningSchema = z
       orphanScanMs: ms(MINUTE),
       /** How long one pass may spend on the outbox, and on orphaned sessions. */
       drainBudgetMs: ms(2_000),
+      /** Tenant sweeps the Host arms at once when it starts. */
+      armConcurrency: count(16),
       /** Delivery attempts of one outbox row before it is parked. */
       outboxAttempts: count(10),
       /** The wait after an outbox row's failed delivery, doubled after each. */
@@ -185,6 +218,13 @@ export const HostTuningSchema = z
     }),
     /** Durable Session Execution: Restate, or the in-process execution. */
     execution: group({
+      /**
+       * How long one advance may run before its signal aborts; below Restate's inactivity and abort
+       * timeouts (`restate.inactivityMs`), so an advance always ends before Restate gives up on it.
+       */
+      advanceDeadlineMs: ms(50 * MINUTE),
+      /** How long an aborted advance has to settle before it is abandoned. */
+      advanceGraceMs: ms(30_000, 0),
       /** How long stopping waits for running handlers after aborting them. */
       stopGraceMs: ms(30_000, 0),
       /** How long a wake's dedupe key merges repeated wakes. At least 24 hours (§12.3). */
@@ -217,7 +257,8 @@ export const HostTuningSchema = z
       queryTimeoutMs: ms(10_000),
       /** How long stopping lets Restate read answers before it drops the connections. */
       closeGraceMs: ms(2_000, 0),
-      /** A sweep chain is stale past three sweep intervals, and never sooner than this. */
+      /** A sweep chain is stale past this many sweep intervals, and never sooner than `staleSweepMinMs`. */
+      staleSweepIntervals: count(3),
       staleSweepMinMs: ms(MINUTE),
       /** Stuck invocations one status lists by default, and at most. */
       stuckListDefault: count(100),
@@ -237,6 +278,8 @@ export const HostTuningSchema = z
       idleTimeoutSeconds: count(30),
       /** Seconds a connection may take to open. */
       connectTimeoutSeconds: count(10),
+      /** The pool of the replication service (the stream relay, the trace projector). */
+      replicationPoolSize: count(2),
       /** The read pool (`nylorun-reads`): its size and its timeouts. */
       readPoolSize: count(4),
       readConnectTimeoutSeconds: count(2),
@@ -250,6 +293,11 @@ export const HostTuningSchema = z
       controlRetry: backoff(100, 5_000),
       /** How soon the stream relay and the trace projector try again to take their replication slot. */
       replicationRetryMs: ms(5_000),
+      /**
+       * Rows one statement writes or looks up when a folder version or a definition names many
+       * files: Postgres binds at most 65,535 parameters a statement, four a row.
+       */
+      contentBatchRows: count(1_000, 1, Math.floor(POSTGRES_MAX_PARAMETERS / CONTENT_ROW_PARAMETERS)),
     }),
     /** Durable Streams (S2) and the stream relay. */
     streams: group({
@@ -259,6 +307,8 @@ export const HostTuningSchema = z
       basinRetryMaxMs: ms(5_000),
       /** A repair within this long after the last one waits for the next failure. */
       basinRepairCooldownMs: ms(1_000, 0),
+      /** A repair that keeps failing is logged on its first failure and on every this many after. */
+      basinLogEveryFailures: count(10),
       /** How often every session stream is checked against its session. */
       feedCheckMs: ms(30_000),
       /** How long a retired basin stays for readers that have not moved yet. */
@@ -329,6 +379,8 @@ export const HostTuningSchema = z
       requestTimeoutMs: ms(15_000),
       /** The header timeout of a tunnel whose TLS the gate terminates for a bound secret. */
       credentialsHeadersTimeoutMs: ms(MINUTE),
+      /** The upstream sockets one such tunnel opens at once. */
+      credentialsMaxSockets: count(8),
     }),
     /** Sandbox pods through the sandboxes service (F7.2). */
     pods: group({
@@ -342,6 +394,10 @@ export const HostTuningSchema = z
       readyCacheMs: ms(5_000, 0),
       /** How soon a reconcile that could not decide runs again. */
       reconcileRetryMs: ms(5_000),
+      /** How often a disk copy or a seed checks whether a pod's engine has connected. */
+      enginePollMs: ms(250),
+      /** The least memory a sandbox gets, in MiB: a manifest or a Tenant limit asking less rounds up. */
+      memoryFloorMiB: count(128),
       /** The sandboxes service: one request's timeout, and its `/ready` probe's. */
       requestTimeoutMs: ms(20_000),
       readyProbeTimeoutMs: ms(3_000),
@@ -372,6 +428,29 @@ export const HostTuningSchema = z
       /** How often idle MCP connections are swept, and how long one may sit unused. */
       mcpSweepMs: ms(MINUTE),
       mcpIdleMs: ms(15 * MINUTE),
+      /**
+       * The most `tools/list` pages one MCP server's listing reads (discovery, and a preview), so a
+       * server whose cursor never ends cannot hold a turn; the tools on later pages are left out.
+       */
+      mcpListPages: count(100),
+      /** How much of an MCP connection's error message its discovery diagnostic keeps. */
+      mcpDiagnosticChars: count(500),
+      /**
+       * The Runtime's own commands in a sandbox (making folders, mounting skills, the tools'
+       * helpers): how long one may take, and how much of one a failure quotes.
+       */
+      helperCommandTimeoutMs: ms(MINUTE),
+      helperCommandExcerptChars: count(120),
+      /**
+       * The shortest credential value scrubbed from what a tool, a command or a model returns
+       * (every process that scrubs reads it): a shorter one would blank out ordinary text that
+       * happens to contain it.
+       */
+      scrubMinChars: count(8),
+      /** How much of a command an `environment.exec` event keeps. */
+      execCommandChars: count(500),
+      /** The local sandbox backend: the most bytes kept of each of a command's output streams. */
+      commandStreamBytes: bytes(4 * MIB),
       /** A pod's engine: how often it renews its host and egress tokens, and how early. */
       podRenewMs: ms(5 * MINUTE),
       podRenewEarlyMs: ms(MINUTE, 0),
@@ -427,6 +506,8 @@ export const HostTuningSchema = z
         resendDelaysMs: z.array(z.number().int().positive().max(MAX_TIMER_MS)).min(1).optional(),
         /** How much of a failed agent-as-tool's last output its parent sees. */
         partialOutputChars: positiveInt().optional(),
+        /** How much of a value a flow's failure message quotes. */
+        flowValueChars: positiveInt().optional(),
         compaction: enginePart({
           keepTokens: positiveInt(),
           keepShare: positiveShare(),
@@ -469,6 +550,7 @@ export const HostTuningSchema = z
           stepBudgetBytes: positiveInt(),
           stubBytes: positiveInt(),
           smallBytes: positiveInt(),
+          minPreviewBytes: positiveInt(),
           entryEnvelopeBytes: positiveInt(),
         }),
         outputs: enginePart({
@@ -497,6 +579,27 @@ export const HostTuningSchema = z
       tuning.postgres.controlWindowSeconds * 1000 > tuning.postgres.controlPollMs,
       ["postgres", "controlWindowSeconds"],
       "must be longer than postgres.controlPollMs, so a read-back catches a missed notification",
+    );
+    rule(
+      tuning.execution.advanceDeadlineMs < tuning.restate.inactivityMs,
+      ["execution", "advanceDeadlineMs"],
+      "must be below restate.inactivityMs, so an advance ends before Restate suspends it",
+    );
+    for (const key of ["runTokenTtlSeconds", "hostTokenTtlSeconds"] as const)
+      rule(
+        tuning.keys[key] <= tuning.keys.tokenTtlMaxSeconds,
+        ["keys", key],
+        "must be at most keys.tokenTtlMaxSeconds, which a key rotation waits for",
+      );
+    rule(
+      tuning.keys.runTokenRenewSeconds < tuning.keys.runTokenTtlSeconds,
+      ["keys", "runTokenRenewSeconds"],
+      "must be below keys.runTokenTtlSeconds",
+    );
+    rule(
+      tuning.keys.hostTokenTtlSeconds * 1000 > tuning.harness.podRenewMs,
+      ["keys", "hostTokenTtlSeconds"],
+      "must be longer than harness.podRenewMs, so a pod's engine renews its tokens before they end",
     );
     rule(
       tuning.restate.stuckListDefault <= tuning.restate.stuckListMax,

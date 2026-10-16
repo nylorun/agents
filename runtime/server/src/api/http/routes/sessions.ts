@@ -48,7 +48,7 @@ import {
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { TraceHeaders, tenantRoute, type RouteAccess } from "../define.js";
-import { pageQuery, sessionPage, sessionPageQuery, parseQuery } from "./reads.js";
+import { pageQuery, pageSize, sessionPage, sessionPageQuery, parseQuery } from "./reads.js";
 import { jsonResponse } from "../respond.js";
 
 const OWN_SESSIONS: RouteAccess = {
@@ -295,7 +295,8 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       const ctx = c.env.tenant;
       const id = c.req.param("sessionId")!;
       const cursor = await sessionBelow(ctx, c.env.incoming, id, accessOf(scope));
-      const { limit } = parseQuery(pageQuery.pick({ limit: true }), { limit: c.req.query("limit") });
+      const { limit: asked } = parseQuery(pageQuery.pick({ limit: true }), { limit: c.req.query("limit") });
+      const limit = asked === undefined ? undefined : await pageSize(ctx, asked);
       return jsonResponse(200, await readHistory(ctx, id, cursor, c.req.query("agent"), limit));
     },
   );

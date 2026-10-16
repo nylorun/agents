@@ -257,11 +257,18 @@ function SessionConnections({
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
   const load = useCallback(
     async (signal: AbortSignal) => {
-      const events = await sdk.environments.events(environmentId, { types: ["environment.egress"], signal });
+      const types = ["environment.egress"] as const;
+      const events = await sdk.environments.events(environmentId, { types, signal });
       const mine = events
         .map((event) => egressOf(event))
         .filter((egress) => egress?.runningTurns?.some((turn) => turn.sessionId === sessionId));
-      return { rows: mine.slice(-50).reverse(), truncated: events.length >= 1000 };
+      // One read holds at most the Tenant's Runtime limit `environmentEventItems`: the read was
+      // cut short when one more, from after its last event, finds any.
+      const last = events.at(-1);
+      const truncated =
+        last !== undefined &&
+        (await sdk.environments.events(environmentId, { types, from: last.seq + 1, signal })).length > 0;
+      return { rows: mine.slice(-50).reverse(), truncated };
     },
     [sdk, environmentId, sessionId],
   );

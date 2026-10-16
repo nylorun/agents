@@ -223,8 +223,6 @@ export async function startTestTenant(
       : { ownerLeaseMs: options.ownerLeaseMs }),
     // A short sweep so lost wakes are picked up promptly in tests.
     sweepIntervalMs: options.sweepIntervalMs ?? 50,
-    ...(options.flow === undefined ? {} : { flow: options.flow }),
-    ...(options.flowEnv === undefined ? {} : { flowEnv: options.flowEnv }),
     ...(options.issuers === undefined ? {} : { issuers: options.issuers }),
     ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
     ...(options.delivery === undefined ? {} : { delivery: options.delivery }),

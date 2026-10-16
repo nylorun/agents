@@ -27,6 +27,9 @@ import { createInflightCalls } from "../../src/gates/inflight.js";
 import { podSpecOf } from "../../src/sandbox/pods/spec.js";
 import { decide } from "../../src/sandbox/pods/lifecycle.js";
 import { silentLogger } from "../tenant/support.js";
+import { diagnosticFromError, listMcpTools } from "../../src/mcp/connect.js";
+import { memoryMiBOf } from "../../src/sandbox/policy.js";
+import { scrub } from "../../src/redact.js";
 
 /** Sets the process's tuning for one test; `afterEach` puts the defaults back. */
 function tune(input: HostTuningInput): void {
@@ -45,7 +48,16 @@ describe("the Host tuning schema", () => {
       leafLifetimeMs: 3_600_000,
       caBackdateMs: 3_600_000,
       caLifetimeDays: 3650,
+      tokenTtlMaxSeconds: 900,
+      runTokenTtlSeconds: 900,
+      runTokenRenewSeconds: 300,
+      hostTokenTtlSeconds: 900,
+      tokenLifetimeSlackSeconds: 60,
+      clockToleranceSeconds: 30,
     });
+    expect(t.host).toMatchObject({ operateReadyTimeoutMs: 5_000, credentialLockPollMs: 25, credentialLockAttempts: 100 });
+    expect(t.postgres).toMatchObject({ contentBatchRows: 1_000, replicationPoolSize: 2 });
+    expect(t.restate).toMatchObject({ staleSweepIntervals: 3 });
     expect(t.harnessApi).toMatchObject({
       joinBodyBytes: 8 * 1024,
       reportBodyBytes: 64 * 1024,
@@ -75,11 +87,14 @@ describe("the Host tuning schema", () => {
       outboxGraceMs: 30_000,
       orphanScanMs: 60_000,
       drainBudgetMs: 2_000,
+      armConcurrency: 16,
       outboxAttempts: 10,
       outboxRetry: { minMs: 5_000, maxMs: 600_000 },
       stalePodMs: 60_000,
     });
     expect(t.execution).toEqual({
+      advanceDeadlineMs: 50 * 60_000,
+      advanceGraceMs: 30_000,
       stopGraceMs: 30_000,
       dedupeRetentionMs: 24 * 3_600_000,
       memoryRetryMs: 50,
@@ -108,6 +123,7 @@ describe("the Host tuning schema", () => {
       headersTimeoutMs: 10_000,
       requestTimeoutMs: 15_000,
       credentialsHeadersTimeoutMs: 60_000,
+      credentialsMaxSockets: 8,
     });
     expect(t.pods).toMatchObject({
       readyDeadlineMs: 5 * 60_000,
@@ -118,6 +134,8 @@ describe("the Host tuning schema", () => {
       readyProbeTimeoutMs: 3_000,
       waitMs: 30_000,
       waitSlackMs: 10_000,
+      enginePollMs: 250,
+      memoryFloorMiB: 128,
     });
     expect(t.harness).toMatchObject({
       pingMs: 30_000,
@@ -133,9 +151,17 @@ describe("the Host tuning schema", () => {
       networkPolicyTimeoutMs: 120_000,
       networkConfirmations: 3,
       setupReportTailChars: 4 * 1024,
+      mcpListPages: 100,
+      mcpDiagnosticChars: 500,
+      helperCommandTimeoutMs: 60_000,
+      helperCommandExcerptChars: 120,
+      scrubMinChars: 8,
+      execCommandChars: 500,
+      commandStreamBytes: 4 * 1024 * 1024,
     });
     expect(t.streams).toMatchObject({
       retry: { minMs: 100, maxMs: 2_000 },
+      basinLogEveryFailures: 10,
       relayRetry: { minMs: 50, maxMs: 2_000 },
       relayBatchRecords: 500,
       relayBatchBytes: 768 * 1024,
@@ -196,6 +222,14 @@ describe("the Host tuning schema", () => {
     expect(() => hostTuningOf({ postgres: { controlWindowSeconds: 1 } })).toThrow(/controlWindowSeconds/);
     expect(() => hostTuningOf({ engine: { compaction: { keepShare: 2 } } })).toThrow(/engine\.compaction\.keepShare/);
     expect(() => hostTuningOf({ engine: { outputs: { dir: "outputs" } } })).toThrow(/engine\.outputs\.dir/);
+    // B15c: Postgres binds 65,535 parameters a statement, four a content row.
+    expect(() => hostTuningOf({ postgres: { contentBatchRows: 16_384 } })).toThrow(/postgres\.contentBatchRows/);
+    expect(hostTuningOf({ postgres: { contentBatchRows: 16_383 } }).postgres.contentBatchRows).toBe(16_383);
+    // Token lifetimes against each other, and the advance deadline against Restate's.
+    expect(() => hostTuningOf({ keys: { runTokenTtlSeconds: 1_000 } })).toThrow(/keys\.runTokenTtlSeconds: must be at most keys\.tokenTtlMaxSeconds/);
+    expect(() => hostTuningOf({ keys: { runTokenRenewSeconds: 900 } })).toThrow(/keys\.runTokenRenewSeconds/);
+    expect(() => hostTuningOf({ keys: { hostTokenTtlSeconds: 60 } })).toThrow(/keys\.hostTokenTtlSeconds: must be longer than harness\.podRenewMs/);
+    expect(() => hostTuningOf({ execution: { advanceDeadlineMs: 3_600_000 } })).toThrow(/execution\.advanceDeadlineMs/);
   });
 
   it("reads NYLORUN_TUNING as a JSON object, and keeps the overrides as written", () => {
@@ -323,6 +357,30 @@ describe("a value from the Host tuning reaches the code that uses it", () => {
     tokens.grant({ sessionId: "s2", token: "t2" } as never);
     expect(tokens.token("s1")).toBeUndefined();
     expect(tokens.token("s2")).toBe("t2");
+  });
+
+  it("bounds an MCP server's tools/list pages, and its diagnostic (harness host)", async () => {
+    tune({ harness: { mcpListPages: 3, mcpDiagnosticChars: 5 } });
+    let pages = 0;
+    const client = {
+      listTools: async () => {
+        pages += 1;
+        return { tools: [{ name: `t${pages}`, inputSchema: { type: "object" } }], nextCursor: "more" };
+      },
+    };
+    const listed = await listMcpTools(client as never, { serverName: "endless" });
+    expect(pages).toBe(3);
+    expect(listed.tools.map((tool) => tool.name)).toEqual(["t1", "t2", "t3"]);
+    expect(diagnosticFromError("s", new Error("a long failure")).message).toBe("a lon");
+  });
+
+  it("rounds a sandbox's memory up to the floor, and keeps scrubbing values that long (sandbox, gates)", () => {
+    tune({ pods: { memoryFloorMiB: 256 }, harness: { scrubMinChars: 4 } });
+    expect(memoryMiBOf({ resources: { memory: "64MiB" } } as never)).toBe(256);
+    expect(scrub("key abcd here", ["abcd"])).toBe("key [redacted] here");
+    useHostTuning(DEFAULT_HOST_TUNING);
+    expect(memoryMiBOf({ resources: { memory: "64MiB" } } as never)).toBe(128);
+    expect(scrub("key abcd here", ["abcd"])).toBe("key abcd here");
   });
 
   it("passes the engine group to createHarness, only what is set (engine)", () => {

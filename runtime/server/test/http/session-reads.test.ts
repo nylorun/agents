@@ -83,7 +83,8 @@ it("keeps legacy summaries strict and pages ties and legacy nulls without omissi
   ).toBe(403);
   const first = await client.sessions.page({ limit: 1, agentId: "bot" });
   expect((await request(`/v1/sessions?limit=1&cursor=${first.nextCursor}`)).status).toBe(400);
-  expect((await request("/v1/sessions?limit=201")).status).toBe(400);
+  // Past the Tenant's pageItems, a page holds that many (B15c).
+  expect((await request("/v1/sessions?limit=201")).status).toBe(200);
   expect((await request("/v1/sessions?limit=1&cursor=broken")).status).toBe(400);
   expect(
     (await client.sessions.page({ status: "idle", ownerUserId: "bob" })).sessions.map((s) => s.id),

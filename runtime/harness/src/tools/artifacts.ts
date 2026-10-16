@@ -24,6 +24,7 @@ import {
   type JsonObject,
 } from "@nylorun/core/define";
 import {
+  ARTIFACT_NAME_MAX,
   DEFAULT_CONTENT_TYPE,
   contentTypeFor,
   essence,
@@ -70,7 +71,7 @@ const SAVE_SCHEMA: JsonObject = {
       description: "The artifact's name. Default: the file's name.",
       type: "string",
       minLength: 1,
-      maxLength: 255,
+      maxLength: ARTIFACT_NAME_MAX,
     },
     contentType: {
       description: "The media type, e.g. image/png. Default: from the name's extension.",

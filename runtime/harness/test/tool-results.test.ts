@@ -19,6 +19,7 @@ import type { HostEffect } from "../src/run/durable.js";
 import {
   DEFAULT_TOOL_RESULT_CONFIG,
   StepBudget,
+  cutMessage,
   jsonBytes,
   previewOf,
   shapeToolOutcome,
@@ -435,5 +436,16 @@ describe("the API host", () => {
     );
     await host.resolveEffect(effect("c1"));
     expect(intents[0].target).toEqual({ kind: "mcp", server: "files", tool: "read" });
+  });
+});
+
+describe("tool result configuration (B15c)", () => {
+  it("keeps no preview under minPreviewBytes, and a cut message fits its limit as JSON", () => {
+    expect(DEFAULT_TOOL_RESULT_CONFIG.minPreviewBytes).toBe(64);
+    for (const limit of [200, 2_000]) {
+      const cut = cutMessage("a".repeat(10_000), limit, DEFAULT_TOOL_RESULT_CONFIG);
+      expect(jsonBytes(cut)).toBeLessThanOrEqual(limit);
+      expect(cut).toContain("its middle is not shown");
+    }
   });
 });

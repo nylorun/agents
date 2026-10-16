@@ -52,6 +52,8 @@ import type { LoopConfig } from "../loop/config.js";
  */
 export interface EngineConfig extends EngineToolOptions {
   readonly loop: LoopConfig;
+  /** How much of a value a flow's failure message quotes. */
+  readonly flowValueChars: number;
   /** The waits before each resend; the last repeats for every resend after. */
   readonly resendDelaysMs: readonly number[];
 }

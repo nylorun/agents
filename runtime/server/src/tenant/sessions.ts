@@ -30,6 +30,7 @@ import { definitionFileIssues } from "./definition-files.js";
 import { limitsInForce, readSkillLimits, readTenantLimits } from "./limits.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
 import { httpToolTimeoutIssues } from "../gates/http-tool.js";
+import { requiresIssues } from "./limits.js";
 
 /** A session's creation identity: everything but the request id. */
 const sessionIdentity = (value: any): string => {
@@ -110,8 +111,12 @@ export async function putDefinition(
   };
   const files = [...definitionFilesOf(body.manifest)];
   await ctx.store.tx(async (t) => {
-    const timeouts = httpToolTimeoutIssues(body.manifest, (await readRuntimeLimits(t)).httpToolTimeoutMs);
-    if (timeouts.length > 0) fail(400, timeouts.join(" "));
+    const limits = await readRuntimeLimits(t);
+    const issues = [
+      ...httpToolTimeoutIssues(body.manifest, limits.httpToolTimeoutMs),
+      ...requiresIssues((body.manifest as { requires?: { secrets?: string[] } }).requires, limits),
+    ];
+    if (issues.length > 0) fail(400, issues.join(" "));
     const { totalBytes } = await readSkillLimits(t);
     const { missing, oversized } = await definitionFileIssues(t, body.manifest, totalBytes);
     if (missing.length > 0)

@@ -531,8 +531,9 @@ its `put` takes the settings alone (`limits`, `lifecycle`, `placement`).
 
 `settings limits` is the Tenant's Runtime limits: the sizes, counts and
 deadlines the Runtime holds what crosses it to, such as `recordEntryBytes`,
-`requestBodyBytes`, `environmentLabels`, `modelRequestMs` and `httpToolTimeoutMs`
-(each one, with its default and ceiling, in DEPLOYMENT.md's Runtime limits). A
+`requestBodyBytes`, `environmentLabels`, `pageItems`, `modelRequestMs` and
+`httpToolTimeoutMs` (each one, with its default and ceiling, in DEPLOYMENT.md's
+Runtime limits). A
 limit left out of a `put` takes its default; one above its ceiling (S2's 1 MiB
 record, the Harness API's 64 MiB frame, a JavaScript timer) is refused, and the
 error names the ceiling.
@@ -541,6 +542,14 @@ error names the ceiling.
 after page, until it is caught up, then the cursor on stderr: pass it as
 `--after` to read only the newer calls. A call may come twice across runs;
 deduplicate by `id`.
+
+### The CLI's own waits
+
+How long `nylorun start` waits for the stack, how often it polls, the healthchecks
+it writes into the Compose file and the waits of `nylorun local sandbox` are the
+CLI's tuning: a JSON object in `NYLORUN_CLI_TUNING`, each value left out keeping
+its default (`{"stack":{"healthWaitMs":120000}}`). DEPLOYMENT.md ("The CLI") lists
+them. The Runtime's own are `NYLORUN_TUNING`, which `nylorun start` passes on.
 
 ## Exit codes
 

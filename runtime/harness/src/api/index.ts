@@ -25,6 +25,7 @@ export {
   loopConfigOf,
   type LoopConfig,
 } from "../loop/config.js";
+export { DEFAULT_FLOW_VALUE_CHARS } from "../flow/limits.js";
 export { ABORT_MESSAGES, RunAbort, runAbortKind } from "./abort.js";
 export type {
   FailedFileOutcome,

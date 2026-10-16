@@ -103,6 +103,8 @@ describe("public API", () => {
         "sandboxSkillsOf",
         "DEFAULT_OUTPUTS_CONFIG",
         "outputsConfigOf",
+        // Our flow engine's failure text (B15).
+        "DEFAULT_FLOW_VALUE_CHARS",
         "saveOutputs",
         // Our engine's loop and harness settings, each with its default (B15).
         "DEFAULT_COMPACTION_CONFIG",

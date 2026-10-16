@@ -15,6 +15,7 @@ import {
 } from "../project/link.js";
 import type { DockerResult } from "./docker.js";
 import type { FetchLike } from "./studio-login.js";
+import { cliTuning } from "../tuning.js";
 
 /** A local Tenant: `nylorun-operate` in its runtime container, and a fetch to probe keys. */
 export interface OperateEndpoint {
@@ -84,7 +85,7 @@ export async function keyAuthenticates(
         accept: "application/json",
       },
       redirect: "error",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(cliTuning().stack.keyCheckMs),
     });
   } catch (error) {
     throw new CliError(
@@ -98,13 +99,13 @@ export async function keyAuthenticates(
   throw new CliError(`GET ${runtimeUrl}/v1/me returned ${response.status}.`, 7);
 }
 
-const LOCK_TIMEOUT_MS = 30_000;
+const lockTimeoutMs = (): number => cliTuning().stack.lockWaitMs;
 /** A lock older than this was left by a process that died. */
-const LOCK_STALE_MS = 60_000;
+const lockStaleMs = (): number => cliTuning().stack.lockStaleMs;
 
 /** Runs `fn` holding the lock file `path` (created exclusively), so one process puts a key. */
 async function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  const deadline = Date.now() + lockTimeoutMs();
   for (;;) {
     try {
       const handle = await open(path, "wx", 0o600);
@@ -113,13 +114,13 @@ async function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       const held = await stat(path).catch(() => undefined);
-      if (held && Date.now() - held.mtimeMs > LOCK_STALE_MS) {
+      if (held && Date.now() - held.mtimeMs > lockStaleMs()) {
         await rm(path, { force: true });
         continue;
       }
       if (Date.now() > deadline)
         throw new CliError(`Another nylorun command holds ${path}. Remove it if none runs.`, 1);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, cliTuning().stack.lockPollMs));
     }
   }
   try {

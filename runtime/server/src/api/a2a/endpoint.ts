@@ -76,7 +76,7 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: TAGS,
       summary: "Call an agent over A2A",
       description:
-        "A2A 1.0 JSON-RPC, for a subject: `SendMessage` (blocking up to 5 minutes, or `returnImmediately`), `GetTask` and `CancelTask`. A message is text, one data part, or text and `raw` files (at most 20 MiB each, stored as artifacts of the context's session); a file `url` is `ContentTypeNotSupportedError`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors.",
+        "A2A 1.0 JSON-RPC, for a subject: `SendMessage` (blocking up to the Runtime limit `a2aWaitMs`, 5 minutes by default, or `returnImmediately`), `GetTask` and `CancelTask`. A message is text, one data part, or text and `raw` files (at most the Runtime limit `inlineFileBytes` each, 20 MiB by default, stored as artifacts of the context's session); a file `url` is `ContentTypeNotSupportedError`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors.",
       externalDocs: A2A_SPECIFICATION,
       request: {
         params: agentId,

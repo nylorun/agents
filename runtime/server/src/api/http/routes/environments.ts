@@ -197,7 +197,7 @@ export function environmentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Environments"],
       summary: "Read an Environment's events",
       description:
-        "`environment.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, and `environment.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most 1000 per call.",
+        "`environment.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, and `environment.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
       request: {
         params: environmentId,
         query: z.object({

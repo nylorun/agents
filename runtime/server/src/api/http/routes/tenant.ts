@@ -78,6 +78,7 @@ import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
 import { rearmPodTimers } from "../../../tenant/environments.js";
 import { hostTuning } from "../../../tuning.js";
+import { budgetIssues, toolPolicyIssues } from "../../../tenant/limits.js";
 
 /** Every Management API route (`/v1/tenant/*`): a management key, acting as itself (protocol 8). */
 const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
@@ -440,6 +441,8 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const { budgets } = PutModelBudgetsRequestSchema.parse(await readJson(c));
       const updatedAt = new Date().toISOString();
       const rows = await c.env.tenant.store.tx(async (t) => {
+        const issues = budgetIssues(budgets, await readRuntimeLimits(t));
+        if (issues.length > 0) fail(400, issues.join(" "));
         await t.putModelBudgets(budgets.map((budget) => budgetRow(budget, updatedAt)));
         return t.listModelBudgets();
       });
@@ -485,7 +488,11 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const { rules } = PutToolPolicyRequestSchema.parse(await readJson(c));
       const policy = { rules, updatedAt: new Date().toISOString() };
-      await c.env.tenant.store.tx((t) => t.putSetting(TOOL_POLICY_SETTING, JSON.stringify(policy)));
+      await c.env.tenant.store.tx(async (t) => {
+        const issues = toolPolicyIssues(rules, await readRuntimeLimits(t));
+        if (issues.length > 0) fail(400, issues.join(" "));
+        await t.putSetting(TOOL_POLICY_SETTING, JSON.stringify(policy));
+      });
       return jsonResponse(200, policy);
     },
   );

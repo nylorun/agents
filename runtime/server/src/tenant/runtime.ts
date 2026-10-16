@@ -17,7 +17,6 @@
 import type { ServerResponse, IncomingMessage } from "node:http";
 import { mkdirSync } from "node:fs";
 import type { HarnessStatus, TenantEnvelope } from "@nylorun/core/contracts";
-import { resolveFlowLimits, type FlowLimits } from "../core/limits.js";
 import {
   scriptedModel,
   toolFixtureModel,
@@ -178,22 +177,17 @@ export type TenantOpenHooks = {
   traces?: TraceOptions;
 } & OpenedTenant;
 
-function validateConfig(config: TenantConfig): FlowLimits {
+function validateConfig(config: TenantConfig): void {
   for (const key of ["leaseMs", "ownerLeaseMs", "sweepIntervalMs"] as const) {
     const value = config[key];
     if (value !== undefined && (!Number.isFinite(value) || value <= 0))
       throw new Error(`${key} must be finite and positive`);
   }
-  const flowLimits = resolveFlowLimits({
-    flow: config.flow,
-    env: config.flowEnv,
-  });
   if (
     (config.model.kind === "fixture" || config.model.kind === "scripted") &&
     config.mode === "shared"
   )
     throw new Error("fixture/scripted models require ephemeral or test mode");
-  return flowLimits;
 }
 
 export class TenantRuntime implements TenantHandle {
@@ -224,7 +218,7 @@ export class TenantRuntime implements TenantHandle {
     hooks: TenantOpenHooks
   ): Promise<TenantRuntime> {
     const envelope = hooks.envelope;
-    const flowLimits = validateConfig(config);
+    validateConfig(config);
 
     const paths = config.paths;
     mkdirSync(paths.root, { recursive: true });
@@ -399,7 +393,6 @@ export class TenantRuntime implements TenantHandle {
         vault,
         ...(mcp ? { mcp } : {}),
         sandbox,
-        flowLimits,
         scriptedModel: scripted,
         modelGate,
         toolGate,

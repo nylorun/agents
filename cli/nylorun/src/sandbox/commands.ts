@@ -37,6 +37,7 @@ import {
   TOKEN_SECRET,
 } from "./manifests.js";
 import { assertIPv4, runProbe } from "./probe.js";
+import { cliTuning } from "../tuning.js";
 
 export const sandboxUsage = `  sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]
                                       run the Tenant's sandboxes as pods on that kubeconfig context (agent-sandbox ${CONTROLLER_VERSION})
@@ -121,18 +122,19 @@ async function ensureController(k: Kube, fetch: FetchLike, err: (line: string) =
     return;
   }
   err(`Installing agent-sandbox ${CONTROLLER_VERSION} into ${k.context}.`);
-  const response = await fetch(CONTROLLER_URL, { signal: AbortSignal.timeout(60_000) });
+  const response = await fetch(CONTROLLER_URL, { signal: AbortSignal.timeout(cliTuning().sandbox.manifestDownloadMs) });
   if (!response.ok) throw new CliError(`Downloading ${CONTROLLER_URL} failed (HTTP ${response.status}).`, 1);
   const manifest = await response.text();
   const digest = createHash("sha256").update(manifest).digest("hex");
   if (digest !== CONTROLLER_SHA256)
     throw new CliError(`${CONTROLLER_URL} has sha256 ${digest}, not the pinned ${CONTROLLER_SHA256}; not applying it.`, 1);
   await k.check("Installing agent-sandbox", ["apply", "--server-side", "-f", "-"], { input: manifest });
-  await k.check("Waiting for the Sandbox CRD", ["wait", "--for=condition=Established", `crd/${SANDBOX_CRD}`, "--timeout=60s"]);
+  await k.check("Waiting for the Sandbox CRD", ["wait", "--for=condition=Established", `crd/${SANDBOX_CRD}`, `--timeout=${cliTuning().sandbox.crdWaitSeconds}s`]);
+  const tuning = cliTuning().sandbox;
   await k.check(
     "Waiting for the agent-sandbox controller",
-    ["rollout", "status", `deployment/${CONTROLLER_DEPLOYMENT}`, "-n", CONTROLLER_NAMESPACE, "--timeout=180s"],
-    { timeoutMs: 200_000 },
+    ["rollout", "status", `deployment/${CONTROLLER_DEPLOYMENT}`, "-n", CONTROLLER_NAMESPACE, `--timeout=${tuning.rolloutWaitSeconds}s`],
+    { timeoutMs: tuning.rolloutWaitSeconds * 1000 + tuning.kubectlMarginMs },
   );
 }
 
@@ -142,7 +144,7 @@ interface Namespace {
 
 /** The ServiceAccount token the token controller writes into the Secret. */
 async function serviceAccountToken(k: Kube, namespace: string, pollMs: number): Promise<string> {
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + cliTuning().sandbox.tokenWaitMs;
   for (;;) {
     const secret = await k.getJson<{ data?: { token?: string } }>(["secret", TOKEN_SECRET, "-n", namespace]);
     if (secret?.data?.token) return Buffer.from(secret.data.token, "base64").toString("utf8");
@@ -177,7 +179,7 @@ export async function installCluster(
 ): Promise<InstallResult> {
   const { stack } = deps;
   const k = kube(deps.kubectl, input.context);
-  const pollMs = deps.pollMs ?? 1000;
+  const pollMs = deps.pollMs ?? cliTuning().sandbox.pollMs;
   const { server, caData } = await readKubeconfig(k);
   let route: { dial: string; tlsServerName: string };
   try {
@@ -295,7 +297,7 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
   };
   await restartTenant(stack, { name: tenant.name, sandboxes: settings });
   const ready = await stack.docker.stream(
-    tenant.compose("up", "--detach", "--wait", "--wait-timeout", "120", "sandboxes"),
+    tenant.compose("up", "--detach", "--wait", "--wait-timeout", String(cliTuning().sandbox.composeWaitSeconds), "sandboxes"),
   );
   if (ready !== 0)
     throw new CliError(
@@ -339,8 +341,8 @@ async function disable(deps: SandboxDeps, args: readonly string[]): Promise<numb
 }
 
 /** Asks the sandboxes service from inside the runtime container, which holds the token. */
-const INFO_SCRIPT =
-  "fetch(process.env.NYLORUN_SANDBOXES_URL+'/v1/info',{headers:{authorization:'Bearer '+process.env.NYLORUN_SANDBOXES_TOKEN},signal:AbortSignal.timeout(5000)}).then(async r=>{process.stdout.write(await r.text());process.exit(r.ok?0:1)},()=>process.exit(1))";
+const infoScript = (timeoutMs: number) =>
+  `fetch(process.env.NYLORUN_SANDBOXES_URL+'/v1/info',{headers:{authorization:'Bearer '+process.env.NYLORUN_SANDBOXES_TOKEN},signal:AbortSignal.timeout(${timeoutMs})}).then(async r=>{process.stdout.write(await r.text());process.exit(r.ok?0:1)},()=>process.exit(1))`;
 
 async function status(deps: SandboxDeps, args: readonly string[]): Promise<number> {
   const { stack } = deps;
@@ -357,7 +359,7 @@ async function status(deps: SandboxDeps, args: readonly string[]): Promise<numbe
   }
   await dockerPreflight(stack.docker);
   const ready = (await stack.docker.run(tenant.compose("exec", "-T", "sandboxes", "/sandboxes", "healthcheck"))).code === 0;
-  const answer = await stack.docker.run(tenant.compose("exec", "-T", "runtime", "node", "-e", INFO_SCRIPT));
+  const answer = await stack.docker.run(tenant.compose("exec", "-T", "runtime", "node", "-e", infoScript(cliTuning().sandbox.infoRequestMs)));
   let info: unknown;
   try {
     info = answer.code === 0 ? JSON.parse(answer.stdout) : undefined;

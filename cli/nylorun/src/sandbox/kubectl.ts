@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { CliError } from "../errors.js";
+import { cliTuning } from "../tuning.js";
 
 export interface KubectlResult {
   code: number;
@@ -28,7 +29,7 @@ export function spawnKubectl(
         let stdout = "";
         let stderr = "";
         const child = spawn(binary, [...args], { env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
-        const timer = setTimeout(() => child.kill("SIGKILL"), options.timeoutMs ?? 300_000);
+        const timer = setTimeout(() => child.kill("SIGKILL"), options.timeoutMs ?? cliTuning().sandbox.kubectlTimeoutMs);
         child.stdout.on("data", (chunk) => (stdout += chunk));
         child.stderr.on("data", (chunk) => (stderr += chunk));
         child.once("error", (error: NodeJS.ErrnoException) => {

@@ -39,6 +39,7 @@ import { deleteHarnessToken, listHarnessTokens, putHarnessToken } from "../tenan
 import type { SessionStore } from "../store/types.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { DEFAULT_CONTAINER_LISTEN_PORT } from "./stack-config.js";
+import { parseHostTuning, type HostTuning } from "../tuning.js";
 
 export const EXIT_REFUSED = 1;
 export const EXIT_TENANT = 2;
@@ -83,6 +84,15 @@ class Exit extends Error {
   }
 }
 
+/**
+ * The Host tuning this container runs with (`NYLORUN_TUNING`, as the Host reads it): how long
+ * the command waits for the Host's `/ready` (`host.operateReadyTimeoutMs`) and for its pool to
+ * close (`postgres.closeTimeoutSeconds`).
+ */
+function tuningOf(io: OperateIo): HostTuning {
+  return parseHostTuning(io.env.NYLORUN_TUNING).tuning;
+}
+
 /** Runs one command; resolves to the exit code. */
 export async function runOperate(argv: readonly string[], io: OperateIo): Promise<number> {
   try {
@@ -99,7 +109,7 @@ export async function runOperate(argv: readonly string[], io: OperateIo): Promis
       const store = await openStore(sql);
       return await command(operatorKeys(store), io, store);
     } finally {
-      await sql.end({ timeout: 5 });
+      await sql.end({ timeout: tuningOf(io).postgres.closeTimeoutSeconds });
     }
   } catch (error) {
     if (error instanceof Exit) {
@@ -260,13 +270,13 @@ async function tenantStatus(io: OperateIo): Promise<OperateStatus["tenant"]> {
       `The database cannot be read: ${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
-    await sql.end({ timeout: 5 });
+    await sql.end({ timeout: tuningOf(io).postgres.closeTimeoutSeconds });
   }
   const port = io.env.NYLORUN_LISTEN_PORT ?? String(DEFAULT_CONTAINER_LISTEN_PORT);
   const ready = `http://127.0.0.1:${port}/ready`;
   let answer: { checks?: { tenant?: boolean } };
   try {
-    const response = await (io.fetch ?? fetch)(ready, { signal: AbortSignal.timeout(5000) });
+    const response = await (io.fetch ?? fetch)(ready, { signal: AbortSignal.timeout(tuningOf(io).host.operateReadyTimeoutMs) });
     answer = (await response.json()) as typeof answer;
   } catch {
     return unavailable(envelope, `The Runtime is not answering at ${ready}: it is stopped or still starting`);

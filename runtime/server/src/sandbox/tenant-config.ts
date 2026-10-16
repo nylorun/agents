@@ -15,6 +15,7 @@ import {
   DEFAULT_SANDBOX_MEMORY_MIB,
   DEV_PRESET_HOSTS,
 } from "./policy.js";
+import { hostTuning } from "../tuning.js";
 
 export { DEFAULT_SANDBOX_IDLE };
 
@@ -59,7 +60,7 @@ interface SettingsWriter extends SettingsReader {
 
 export function memoryMiB(value: string): number {
   const bytes = parseSandboxSize(value);
-  return bytes === undefined ? 0 : Math.max(128, Math.ceil(bytes / 1024 ** 2));
+  return bytes === undefined ? 0 : Math.max(hostTuning().pods.memoryFloorMiB, Math.ceil(bytes / 1024 ** 2));
 }
 
 function resources(

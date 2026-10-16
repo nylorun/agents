@@ -45,6 +45,10 @@ export type IssuerAlgorithm = (typeof ISSUER_ALGORITHMS)[number];
 const DEFAULT_SUBJECT = "{sub}";
 const DEFAULT_SCOPES = { claim: "scope" } as const;
 const DEFAULT_ALLOWED_SCOPES: readonly IssuerScope[] = TOKEN_SCOPES;
+/**
+ * An issuer's name, 1–32 characters as an application key's id: an identifier's grammar is the
+ * protocol's (it names the issuer in tokens and principals), so its length is a constant.
+ */
 const ISSUER_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 /** A claim reference in a template: `{claim}`, a top-level claim name without braces. */
 const CLAIM_REFERENCE = /\{([^{}]+)\}/g;
@@ -158,11 +162,11 @@ export function issuerKey(key: KeyObject, kid?: string): IssuerKey {
   }
 }
 
+// The identity file's author writes every template; nothing a caller sends adds to one (B15).
 const template = (what: string) =>
   z
     .string()
     .min(1)
-    .max(200)
     .refine(bracesBalanced, `${what} may use braces only around a claim name, as {sub}`);
 
 const IssuerScopeSchema = z.enum(ISSUER_SCOPES, {

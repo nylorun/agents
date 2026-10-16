@@ -131,11 +131,16 @@ or effect outcome in the record), `modelCallBytes`, `modelFileBytes`,
 `toolAnswerBytes`, `harnessStateBytes` (a custom harness's state), `chunkBytes`
 (one chunked Harness API answer) and `folderEntries` (the files of one folder a
 harness writes, a count). The Runtime's own: request bodies and inline files
-(`requestBodyBytes`, `inlineFileBytes`), `a2aWaitMs`, `errorExcerptChars`,
+(`requestBodyBytes`, `inlineFileBytes`), `messageParts`, page sizes (`pageItems`,
+`exportPageItems`, `environmentEventItems`), `a2aWaitMs`, `errorExcerptChars`,
 `traceContentBytes`, an Environment's labels, setup and input files
 (`environmentLabels`, `environmentSetupCommands`, `environmentFiles`,
-`environmentFilesPerEntry`, `environmentSecretSlots`, `setupCommandMs`,
-`setupOutputChars`), disk versions (`diskVersionEntries`, `diskVersionBytes`,
+`environmentFilesPerEntry`, `environmentSecretSlots`, `setupCommandChars`,
+`setupCommandMs`, `setupOutputChars`, `setupReasonChars`, `setupCommandExcerptChars`,
+`manifestDescriptionChars`, `secretDescriptionChars`), labels (`artifactLabels`,
+`labelKeyChars`, `labelValueChars`), secrets (`secretValueChars`, `secretHosts`),
+the tool policy and budgets (`toolRules`, `toolRuleFieldChars`, `toolRuleTextChars`,
+`modelBudgets`), flows (`flowConcurrency`, `flowMapItems`, `flowLoopIterations`), disk versions (`diskVersionEntries`, `diskVersionBytes`,
 `diskLeaseMs`, `diskPodWaitMs`), model calls (`modelRequestMs`, `modelIdleMs`,
 `modelAttempts`, `modelRetryDelayMs`, `modelProviderRetries`,
 `modelRetryDelayMaxMs`) and tools (`toolAttempts`, `httpToolTimeoutMs`,

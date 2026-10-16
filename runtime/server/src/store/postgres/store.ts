@@ -139,6 +139,7 @@ import type {
 import { followControlSignals, pruneSignals, writeSignal } from "./control.js";
 import { database, driverError, type Database, type Transaction } from "./db.js";
 import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
+import { hostTuning } from "../../tuning.js";
 import { createPostgresRecordReader } from "./record.js";
 import { postgresEnvironmentRecordWriter, postgresRecordWriter } from "./record-writer.js";
 import {
@@ -188,8 +189,8 @@ export function createPostgresSessionStore(
 }
 
 const OPEN_SESSION = ["running", "runnable"];
-/** Rows per statement when a folder version names many files. */
-const CONTENT_BATCH = 1000;
+/** Rows per statement when a folder version or a definition names many files (Host tuning). */
+const contentBatch = () => hostTuning().postgres.contentBatchRows;
 
 /** Every document table has `id` and `body`; `sessions` has more. */
 type DocumentTable = typeof definitions;
@@ -1069,7 +1070,7 @@ class PostgresTx implements Tx {
     options: EnvironmentEventsQuery = {},
   ): Promise<EnvironmentEvent[]> {
     this.check();
-    const rows = await this.db
+    const query = this.db
       .select({ body: environmentEvents.body })
       .from(environmentEvents)
       .where(
@@ -1082,7 +1083,8 @@ class PostgresTx implements Tx {
         ),
       )
       .orderBy(environmentEvents.seq)
-      .limit(options.limit ?? 1000);
+      .$dynamic();
+    const rows = await (options.limit === undefined ? query : query.limit(options.limit));
     return rows.map((row) => row.body as EnvironmentEvent);
   }
 
@@ -1725,12 +1727,12 @@ class PostgresTx implements Tx {
     files: readonly { sha256: string; size: number }[],
   ): Promise<void> {
     this.check();
-    for (let at = 0; at < files.length; at += CONTENT_BATCH)
+    for (let at = 0; at < files.length; at += contentBatch())
       await this.db
         .insert(artifactContent)
         .values(
           files
-            .slice(at, at + CONTENT_BATCH)
+            .slice(at, at + contentBatch())
             .map((file) => ({ artifactId, version, sha256: file.sha256, size: file.size })),
         )
         .onConflictDoNothing();
@@ -1742,8 +1744,8 @@ class PostgresTx implements Tx {
   ): Promise<Set<string>> {
     this.check();
     const found = new Set<string>();
-    for (let at = 0; at < shas.length; at += CONTENT_BATCH) {
-      const batch = inArray(artifactContent.sha256, shas.slice(at, at + CONTENT_BATCH));
+    for (let at = 0; at < shas.length; at += contentBatch()) {
+      const batch = inArray(artifactContent.sha256, shas.slice(at, at + contentBatch()));
       const rows =
         scope === undefined
           ? await this.db.selectDistinct({ sha256: artifactContent.sha256 }).from(artifactContent).where(batch)
@@ -1804,11 +1806,11 @@ class PostgresTx implements Tx {
   async heldDefinitionFiles(shas: readonly string[]): Promise<Map<string, number>> {
     this.check();
     const found = new Map<string, number>();
-    for (let at = 0; at < shas.length; at += CONTENT_BATCH) {
+    for (let at = 0; at < shas.length; at += contentBatch()) {
       const rows = await this.db
         .select({ sha256: definitionFiles.sha256, size: definitionFiles.size })
         .from(definitionFiles)
-        .where(inArray(definitionFiles.sha256, shas.slice(at, at + CONTENT_BATCH)));
+        .where(inArray(definitionFiles.sha256, shas.slice(at, at + contentBatch())));
       for (const row of rows) found.set(row.sha256, row.size);
     }
     return found;
@@ -1820,10 +1822,10 @@ class PostgresTx implements Tx {
     shas: readonly string[],
   ): Promise<void> {
     this.check();
-    for (let at = 0; at < shas.length; at += CONTENT_BATCH)
+    for (let at = 0; at < shas.length; at += contentBatch())
       await this.db
         .insert(definitionFileUses)
-        .values(shas.slice(at, at + CONTENT_BATCH).map((sha256) => ({ agentId, manifestHash, sha256 })))
+        .values(shas.slice(at, at + contentBatch()).map((sha256) => ({ agentId, manifestHash, sha256 })))
         .onConflictDoNothing();
   }
 

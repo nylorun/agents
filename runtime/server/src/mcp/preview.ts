@@ -37,6 +37,7 @@ import {
   type McpClient,
   type McpToolPage,
 } from "./connect.js";
+import { MODEL_TOOL_NAME_MAX } from "@nylorun/core/define";
 
 /** Host labels that name a service's role rather than the service. */
 const GENERIC_LABELS = new Set(["mcp", "www", "api"]);
@@ -72,7 +73,7 @@ export function previewServerName(url: string): string {
     while (named.length > 1 && GENERIC_LABELS.has(named[0]!.toLowerCase())) named.shift();
     name = named.at(-1)!;
   }
-  return name.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64) || "server";
+  return name.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, MODEL_TOOL_NAME_MAX) || "server";
 }
 
 /** Lists the server's tools as an agent's session would see them; never calls one. */

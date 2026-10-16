@@ -191,7 +191,7 @@ export function credentialTerminator(options: {
       };
       const agent = new Agent({
         keepAlive: true,
-        maxSockets: 8,
+        maxSockets: hostTuning().egress.credentialsMaxSockets,
         lookup,
         ...(credentials.upstreamCa ? { ca: credentials.upstreamCa } : {}),
       });

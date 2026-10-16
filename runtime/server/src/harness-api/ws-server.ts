@@ -190,7 +190,8 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
       }
       if (request.method !== "GET") return reply(response, 405, undefined, { allow: "GET" });
       const [index, ...rest] = path.slice(HOST_FILES_PATH.length + 1).split("/");
-      if (!/^\d{1,2}$/.test(index ?? "")) return reply(response, 404);
+      // Any entry of the recipe: `setupFile` answers none for an index past its last.
+      if (!/^\d+$/.test(index ?? "") || !Number.isSafeInteger(Number(index))) return reply(response, 404);
       const file = await authority.setupFile(
         token,
         Number(index),

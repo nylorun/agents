@@ -57,6 +57,7 @@ import {
   PROJECT_KEY_ID,
   type OperateEndpoint,
 } from "./operator-keys.js";
+import { cliTuning } from "../tuning.js";
 
 export const STACK_SERVICES = [
   "postgres",
@@ -343,7 +344,7 @@ async function fetchHealth(
 ): Promise<Health | undefined> {
   try {
     const response = await deps.fetch(`${runtimeUrl}/health`, {
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(cliTuning().stack.probeTimeoutMs),
       redirect: "error",
     });
     if (!response.ok) return undefined;
@@ -358,7 +359,7 @@ async function waitForHealth(
   runtimeUrl: string,
   hostId: string,
 ): Promise<Health> {
-  const deadline = Date.now() + (ctx.deps.healthTimeoutMs ?? 60_000);
+  const deadline = Date.now() + (ctx.deps.healthTimeoutMs ?? cliTuning().stack.healthWaitMs);
   for (;;) {
     const health = await fetchHealth(ctx.deps, runtimeUrl);
     if (health?.status === "ok") {
@@ -374,7 +375,7 @@ async function waitForHealth(
         `The Runtime did not answer ${runtimeUrl}/health. See "nylorun local logs runtime".`,
         7,
       );
-    await sleep(ctx.deps.pollMs ?? 500);
+    await sleep(ctx.deps.pollMs ?? cliTuning().stack.pollMs);
   }
 }
 
@@ -401,7 +402,7 @@ async function fetchReady(deps: StackDeps, runtimeUrl: string): Promise<StackRea
   try {
     const response = await deps.fetch(`${runtimeUrl}/ready`, {
       headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(cliTuning().stack.probeTimeoutMs),
       redirect: "error",
     });
     const body = (await response.json()) as {
@@ -469,11 +470,11 @@ async function waitForTenant(
   ctx: Context,
   runtimeUrl: string,
 ): Promise<StackTenant & { id: string }> {
-  const deadline = Date.now() + (ctx.deps.healthTimeoutMs ?? 60_000);
+  const deadline = Date.now() + (ctx.deps.healthTimeoutMs ?? cliTuning().stack.tenantWaitMs);
   for (let poll = 1; ; poll += 1) {
     const open = (await fetchReady(ctx.deps, runtimeUrl))?.tenant === true;
     const late = Date.now() > deadline;
-    if (open || late || poll % 10 === 0) {
+    if (open || late || poll % cliTuning().stack.operateEveryPolls === 0) {
       const tenant = await operateStatus(ctx);
       if (tenant?.state === "open" && tenant.id) return { ...tenant, id: tenant.id };
       if (!open && tenant?.cause) throw new CliError(tenantCauseMessage(ctx, tenant), 7);
@@ -485,7 +486,7 @@ async function waitForTenant(
           7,
         );
     }
-    await sleep(ctx.deps.pollMs ?? 500);
+    await sleep(ctx.deps.pollMs ?? cliTuning().stack.pollMs);
   }
 }
 
@@ -659,7 +660,7 @@ async function bringUp(
       "--detach",
       "--wait",
       "--wait-timeout",
-      "300",
+      String(cliTuning().stack.composeWaitSeconds),
       "--remove-orphans",
       ...coreServices(prepared.env.harness),
     ),
@@ -684,7 +685,7 @@ async function bringUp(
   let studioStarted = false;
   if (options.studio) {
     const studio = await deps.docker.stream(
-      composeArgs(ctx, "up", "--detach", "--wait", "--wait-timeout", "120", "studio"),
+      composeArgs(ctx, "up", "--detach", "--wait", "--wait-timeout", String(cliTuning().stack.studioWaitSeconds), "studio"),
     );
     studioStarted = studio === 0;
     if (!studioStarted)
@@ -715,7 +716,7 @@ async function tryStudioLogin(
 ): Promise<string | undefined> {
   const { deps } = ctx;
   const origin = studioOrigin(studioPort);
-  const deadline = Date.now() + (deps.loginTimeoutMs ?? 15_000);
+  const deadline = Date.now() + (deps.loginTimeoutMs ?? cliTuning().stack.loginWaitMs);
   let lastError = "";
   for (;;) {
     try {
@@ -724,7 +725,7 @@ async function tryStudioLogin(
       lastError = errorText(error);
     }
     if (Date.now() > deadline) break;
-    await sleep(deps.pollMs ?? 500);
+    await sleep(deps.pollMs ?? cliTuning().stack.pollMs);
   }
   deps.err(`Warning: Studio at ${origin} is not reachable for a login (${lastError}).`);
   return undefined;

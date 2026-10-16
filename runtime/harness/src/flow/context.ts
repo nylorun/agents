@@ -2,7 +2,11 @@ import type { WorkflowManifest } from "@nylorun/core/define";
 import type { DurableHost, HostEffect } from "../run/durable.js";
 import { HostSuspension } from "../loop/host-suspension.js";
 import type { FlowCheckpoint } from "./checkpoint.js";
-import { resolveOperatorLimits, type FlowOperatorLimits } from "./limits.js";
+import {
+  DEFAULT_FLOW_VALUE_CHARS,
+  resolveOperatorLimits,
+  type FlowOperatorLimits,
+} from "./limits.js";
 import { flowEffectId, nodeKeyOf } from "./paths.js";
 import {
   failedValueOf,
@@ -22,6 +26,8 @@ export type FlowContext = {
   readonly signal?: AbortSignal;
   /** Operator ceilings (Map items / Loop iterations). */
   readonly limits: FlowOperatorLimits;
+  /** How much of a value a failure message quotes. */
+  readonly valueChars: number;
   readonly pending: Map<string, "pending" | "uncertain">;
   /** Interactions tool nodes wait on, by interaction id. */
   readonly interactions: Map<string, FlowInteraction>;
@@ -49,6 +55,7 @@ export function createFlowContext(options: {
   readonly host: DurableHost;
   readonly signal?: AbortSignal;
   readonly limits?: Partial<FlowOperatorLimits> | null;
+  readonly valueChars?: number;
 }): FlowContext {
   const pending = new Map<string, "pending" | "uncertain">();
   const interactions = new Map<string, FlowInteraction>();
@@ -60,6 +67,7 @@ export function createFlowContext(options: {
     host: options.host,
     signal: options.signal,
     limits: resolveOperatorLimits(options.limits),
+    valueChars: options.valueChars ?? DEFAULT_FLOW_VALUE_CHARS,
     pending,
     interactions,
     inFlight,

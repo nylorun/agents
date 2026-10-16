@@ -8,7 +8,6 @@ import { z } from "zod";
 import {
   RevokeSigningKeyRequestSchema,
   RotateSigningKeysRequestSchema,
-  TOKEN_TTL_MAX_SECONDS,
 } from "@nylorun/core/contracts";
 import {
   Jwks,
@@ -22,6 +21,7 @@ import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
+import { hostTuning } from "../../../tuning.js";
 
 /** The Management API's signing-key routes: a management key. */
 const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
@@ -116,7 +116,7 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
       const request = RotateSigningKeysRequestSchema.parse(await readJson(c));
       // The longest any token the Runtime signs lives (capability links, run tokens).
       const keys = await ctx.keys.rotateSigningKeys({
-        maxTtlSeconds: TOKEN_TTL_MAX_SECONDS,
+        maxTtlSeconds: hostTuning().keys.tokenTtlMaxSeconds,
         force: request.force === true,
       });
       ctx.config.logger.info("signing keys rotated", { force: request.force === true });

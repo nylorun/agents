@@ -27,7 +27,7 @@ import { decodeJwt, decodeProtectedHeader, errors, jwtVerify, type JWTPayload } 
 import { isSubject, type IssuerScope } from "@nylorun/core/contracts";
 import type { AuthScope, TenantContext } from "./context.js";
 import { HttpError } from "./http.js";
-import { CLOCK_TOLERANCE_SECONDS, looksLikeToken } from "./jwt.js";
+import { clockToleranceSeconds, looksLikeToken } from "./jwt.js";
 import { bearerChallenge, failCredential } from "./resource-server.js";
 import {
   ISSUER_ALGORITHMS,
@@ -47,6 +47,11 @@ import {
  */
 export const MAX_ISSUER_TOKEN_BYTES = maxHeaderSize;
 /** Subjects the Runtime keeps for itself: never an issuer token's. */
+/**
+ * The longest token id kept as it is, 200 characters as the Runtime's other ids: an identifier's
+ * grammar is the protocol's, so a constant.
+ */
+const TOKEN_ID_MAX = 200;
 const RESERVED = new Set(["host", "installation"]);
 const FORBIDDEN_HEADERS = ["jku", "jwk", "x5u", "x5c", "crit"];
 /** A grant's claim value: one Environment id segment, so a claim never widens the template. */
@@ -214,12 +219,12 @@ function trustedIssuer(config: TrustedIssuerConfig, options: Required<TrustedIss
             algorithms: [candidate.alg],
             issuer: config.issuer,
             audience: config.audience,
-            clockTolerance: CLOCK_TOLERANCE_SECONDS,
+            clockTolerance: clockToleranceSeconds(),
             requiredClaims: ["exp"],
             currentDate: new Date(options.now()),
           });
           const now = Math.floor(options.now() / 1000);
-          if (payload.iat !== undefined && payload.iat > now + CLOCK_TOLERANCE_SECONDS)
+          if (payload.iat !== undefined && payload.iat > now + clockToleranceSeconds())
             return refuse("invalid", "issuer_token_future");
           return { ok: true, payload, ...(kid !== undefined ? { kid } : {}) };
         } catch (error) {
@@ -342,7 +347,8 @@ export async function verifyIssuerToken(
     // A grant whose claim is missing or not one id segment reaches nothing.
     return rendered === undefined ? [] : [rendered];
   });
-  const jti = typeof payload.jti === "string" && payload.jti.length > 0 && payload.jti.length <= 200
+  // A `jti` longer than an id the Runtime keeps (`TOKEN_ID_MAX`) is replaced by the token's hash.
+  const jti = typeof payload.jti === "string" && payload.jti.length > 0 && payload.jti.length <= TOKEN_ID_MAX
     ? payload.jti
     : createHash("sha256").update(raw).digest("base64url");
   return {

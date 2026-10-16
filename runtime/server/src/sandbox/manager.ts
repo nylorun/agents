@@ -49,7 +49,7 @@ import { mountFolderFiles, type FolderFiles } from "./skills.js";
 import { DEFAULT_SANDBOX_TOOL_LIMITS, type SandboxToolLimits } from "@nylorun/harness";
 import { runDiskOp, type DiskAnswer, type DiskOp } from "./disk-fs.js";
 import {
-  HELPER_COMMAND_TIMEOUT_MS,
+  helperCommandTimeoutMs,
   quote,
   resolveSandboxPath,
   runSandboxTool,
@@ -64,6 +64,7 @@ import {
   type SandboxListing,
   type SandboxSpec,
 } from "./types.js";
+import { hostTuning } from "../tuning.js";
 
 export type { SandboxRecord, SandboxRecords, SandboxState } from "./records.js";
 
@@ -376,7 +377,7 @@ export class SandboxManager {
       const resolved = resolveSandboxPath(path, handle.workspace ?? SANDBOX_WORKSPACE);
       const parent = posix.dirname(resolved);
       const made = await handle.exec(
-        { command: `mkdir -p ${quote(parent)}`, cwd: "/", timeoutMs: HELPER_COMMAND_TIMEOUT_MS },
+        { command: `mkdir -p ${quote(parent)}`, cwd: "/", timeoutMs: helperCommandTimeoutMs() },
         signal
       );
       if (made.exitCode !== 0)
@@ -605,7 +606,7 @@ export class SandboxManager {
         {
           tool: toolName,
           ...report,
-          ...(report.command ? { command: report.command.slice(0, 500) } : {}),
+          ...(report.command ? { command: report.command.slice(0, hostTuning().harness.execCommandChars) } : {}),
           outcome: outcome.kind,
           ...(outcome.kind === "failed" ? { code: outcome.code } : {}),
           durationMs: Date.now() - started,

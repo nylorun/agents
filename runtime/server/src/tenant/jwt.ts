@@ -6,6 +6,7 @@
 import { maxHeaderSize } from "node:http";
 import { decodeProtectedHeader } from "jose";
 import { SIGNING_KEY_ID_PATTERN } from "@nylorun/core/compatibility";
+import { hostTuning } from "../tuning.js";
 
 /**
  * The longest token read: a token arrives in a request's headers (a bearer) or its URL (a
@@ -13,7 +14,8 @@ import { SIGNING_KEY_ID_PATTERN } from "@nylorun/core/compatibility";
  * `--max-http-header-size` says otherwise). A dependency's constant, not a limit (B15).
  */
 export const MAX_TOKEN_BYTES = maxHeaderSize;
-export const CLOCK_TOLERANCE_SECONDS = 30;
+/** The clock skew accepted when a token's times are checked (`keys.clockToleranceSeconds`). */
+export const clockToleranceSeconds = (): number => hostTuning().keys.clockToleranceSeconds;
 const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const FORBIDDEN_HEADERS = ["jku", "jwk", "x5u", "x5c", "x5t", "crit"];
 

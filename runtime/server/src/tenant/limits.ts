@@ -19,6 +19,7 @@ import {
   type EnvironmentSetupCommand,
   type RuntimeLimits,
   type TenantSkillsConfig,
+  type ToolRule,
 } from "@nylorun/core/contracts";
 import { parseSandboxDuration } from "@nylorun/core/define";
 import { readArtifactLimits, type ArtifactLimits } from "../artifacts/config.js";
@@ -111,24 +112,112 @@ export function limitIssues(set: EnvironmentLimits | undefined, tenant: StorageL
   return issues;
 }
 
-/** Why `labels` cannot be set: more than the Tenant's Runtime limit `environmentLabels`. */
-export function labelIssues(labels: Readonly<Record<string, string>> | undefined, limits: RuntimeLimits): string[] {
-  const count = labels === undefined ? 0 : Object.keys(labels).length;
-  return count > limits.environmentLabels
-    ? [`labels has ${count}; the Runtime limit environmentLabels allows at most ${limits.environmentLabels} (PUT /v1/tenant/limits).`]
-    : [];
+/**
+ * Why `labels` cannot be set: more than the Tenant's Runtime limit `count` names
+ * (`environmentLabels` or `artifactLabels`), or a key or a value longer than `labelKeyChars` or
+ * `labelValueChars`.
+ */
+export function labelIssues(
+  labels: Readonly<Record<string, string>> | undefined,
+  limits: RuntimeLimits,
+  count: "environmentLabels" | "artifactLabels" = "environmentLabels",
+): string[] {
+  if (labels === undefined) return [];
+  const issues: string[] = [];
+  const keys = Object.keys(labels);
+  if (keys.length > limits[count])
+    issues.push(`labels has ${keys.length}; the Runtime limit ${count} allows at most ${limits[count]} (PUT /v1/tenant/limits).`);
+  for (const key of keys) {
+    if (key.length > limits.labelKeyChars)
+      issues.push(
+        `Label key ${JSON.stringify(key.slice(0, limits.labelKeyChars))}… has ${key.length} characters; the Runtime limit labelKeyChars allows at most ${limits.labelKeyChars} (PUT /v1/tenant/limits).`,
+      );
+    const value = labels[key]!;
+    if (value.length > limits.labelValueChars)
+      issues.push(
+        `Label ${JSON.stringify(key)}'s value has ${value.length} characters; the Runtime limit labelValueChars allows at most ${limits.labelValueChars} (PUT /v1/tenant/limits).`,
+      );
+  }
+  return issues;
 }
 
 /** The parts of a manifest whose shape the Tenant's Runtime limits set. */
 export interface ManifestShape {
+  readonly description?: string | undefined;
   readonly setup?: readonly EnvironmentSetupCommand[] | undefined;
   readonly files?: readonly EnvironmentFile[] | undefined;
   readonly secrets?: EnvironmentSecretSlots | undefined;
 }
 
+/** `"{what} has {n} characters; the Runtime limit {name} allows at most {limit} …"`, when over. */
+function longer(what: string, text: string | undefined, name: keyof RuntimeLimits, limits: RuntimeLimits): string[] {
+  return text !== undefined && text.length > limits[name]
+    ? [`${what} has ${text.length} characters; the Runtime limit ${name} allows at most ${limits[name]} (PUT /v1/tenant/limits).`]
+    : [];
+}
+/** `"{what} has {n}; the Runtime limit {name} allows at most {limit} …"`, when over. */
+function more(what: string, count: number, name: keyof RuntimeLimits, limits: RuntimeLimits): string[] {
+  return count > limits[name]
+    ? [`${what} has ${count}; the Runtime limit ${name} allows at most ${limits[name]} (PUT /v1/tenant/limits).`]
+    : [];
+}
+
 /**
- * Why a manifest (inline, or saved) does not fit the Tenant's Runtime limits: its setup commands,
- * their timeouts, its input file entries and the files of each, and its secret slots.
+ * Why a secret write does not fit the Tenant's Runtime limits: an `environment_secret`'s or an
+ * `environment_variable`'s value past `secretValueChars`, or more hosts than `secretHosts`.
+ */
+export function secretRequestIssues(
+  request: { readonly type: string; readonly value?: unknown; readonly allowedHosts?: readonly string[] },
+  limits: RuntimeLimits,
+): string[] {
+  const valued = request.type === "environment_secret" || request.type === "environment_variable";
+  return [
+    ...(valued && typeof request.value === "string" ? longer("value", request.value, "secretValueChars", limits) : []),
+    ...more("allowedHosts", request.allowedHosts?.length ?? 0, "secretHosts", limits),
+  ];
+}
+
+/**
+ * Why a tool policy does not fit the Tenant's Runtime limits: more rules than `toolRules`, a
+ * selector or a `when` path past `toolRuleFieldChars`, a `reason` or a `matches` past
+ * `toolRuleTextChars`.
+ */
+export function toolPolicyIssues(rules: readonly ToolRule[], limits: RuntimeLimits): string[] {
+  const issues = more("rules", rules.length, "toolRules", limits);
+  rules.forEach((rule, index) => {
+    const at = `rules[${index}]`;
+    issues.push(
+      ...longer(`${at}.tool`, rule.tool, "toolRuleFieldChars", limits),
+      ...longer(`${at}.server`, rule.server, "toolRuleFieldChars", limits),
+      ...longer(`${at}.agent`, rule.agent, "toolRuleFieldChars", limits),
+      ...longer(`${at}.reason`, rule.reason, "toolRuleTextChars", limits),
+    );
+    for (const [path, condition] of Object.entries(rule.when ?? {}))
+      issues.push(
+        ...longer(`${at}.when path ${JSON.stringify(path.slice(0, limits.toolRuleFieldChars))}`, path, "toolRuleFieldChars", limits),
+        ...longer(`${at}.when[${JSON.stringify(path)}].matches`, condition.matches, "toolRuleTextChars", limits),
+      );
+  });
+  return issues;
+}
+
+/** Why a set of model budgets does not fit: more than the Tenant's Runtime limit `modelBudgets`. */
+export function budgetIssues(budgets: readonly unknown[], limits: RuntimeLimits): string[] {
+  return more("budgets", budgets.length, "modelBudgets", limits);
+}
+
+/**
+ * Why an agent's `requires` does not fit: more secrets than an Environment's manifest may declare
+ * slots for (the Runtime limit `environmentSecretSlots`).
+ */
+export function requiresIssues(requires: { readonly secrets?: readonly string[] } | undefined, limits: RuntimeLimits): string[] {
+  return more("requires.secrets", requires?.secrets?.length ?? 0, "environmentSecretSlots", limits);
+}
+
+/**
+ * Why a manifest (inline, or saved) does not fit the Tenant's Runtime limits: its description,
+ * its setup commands, their lengths and timeouts, its input file entries and the files of each,
+ * and its secret slots, their descriptions and hosts.
  */
 export function manifestShapeIssues(manifest: ManifestShape, limits: RuntimeLimits): string[] {
   const issues: string[] = [];
@@ -139,7 +228,17 @@ export function manifestShapeIssues(manifest: ManifestShape, limits: RuntimeLimi
   over("setup", manifest.setup?.length ?? 0, "environmentSetupCommands");
   over("files", manifest.files?.length ?? 0, "environmentFiles");
   over("secrets", Object.keys(manifest.secrets ?? {}).length, "environmentSecretSlots");
+  issues.push(...longer("description", manifest.description, "manifestDescriptionChars", limits));
+  for (const [name, slot] of Object.entries(manifest.secrets ?? {})) {
+    issues.push(...longer(`secrets.${name}.description`, slot.description, "secretDescriptionChars", limits));
+    if ("allowedHosts" in slot && Array.isArray(slot.allowedHosts))
+      issues.push(...more(`secrets.${name}.allowedHosts`, slot.allowedHosts.length, "secretHosts", limits));
+  }
   manifest.setup?.forEach((command, index) => {
+    if (command.command.length > limits.setupCommandChars)
+      issues.push(
+        `setup[${index}].command has ${command.command.length} characters; the Runtime limit setupCommandChars allows at most ${limits.setupCommandChars} (PUT /v1/tenant/limits).`,
+      );
     const ms = command.timeout === undefined ? undefined : parseSandboxDuration(command.timeout);
     if (ms !== undefined && ms > limits.setupCommandMs)
       issues.push(

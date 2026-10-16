@@ -546,7 +546,8 @@ export class RestateExecution implements DurableExecution {
   }
 
   private staleSweepMs(): number {
-    return Math.max(this.sweepIntervalMs * 3, hostTuning().restate.staleSweepMinMs);
+    const tuning = hostTuning().restate;
+    return Math.max(this.sweepIntervalMs * tuning.staleSweepIntervals, tuning.staleSweepMinMs);
   }
 
   private serviceOptions(): restate.ObjectOptions {

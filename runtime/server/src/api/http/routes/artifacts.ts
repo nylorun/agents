@@ -64,7 +64,9 @@ import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
-import { pageQuery, parseQuery } from "./reads.js";
+import { labelIssues } from "../../../tenant/limits.js";
+import { readRuntimeLimits } from "../../../tenant/runtime-limits.js";
+import { pageQuery, pageSize, parseQuery } from "./reads.js";
 
 /** Reading and writing artifacts: whoever may use sessions, a person only in their own. */
 const OWN: RouteAccess = {
@@ -138,6 +140,17 @@ function labelsOf(values: readonly string[] | undefined): Record<string, string>
   }
   const parsed = ArtifactLabelsSchema.safeParse(labels);
   if (!parsed.success) fail(400, parsed.error.issues[0]?.message ?? "Invalid labels");
+  return labels;
+}
+
+/** `labels` to set on an artifact, within the Tenant's Runtime limits (read for the request). */
+async function settableLabels(
+  ctx: TenantContext,
+  labels: Record<string, string> | undefined,
+): Promise<Record<string, string> | undefined> {
+  if (labels === undefined) return undefined;
+  const issues = labelIssues(labels, await ctx.store.tx((t) => readRuntimeLimits(t)), "artifactLabels");
+  if (issues.length > 0) fail(400, issues.join(" "));
   return labels;
 }
 
@@ -346,7 +359,7 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
       const request = c.req.raw;
       const name = c.req.query("name");
       const sessionId = c.req.query("sessionId");
-      const labels = labelsOf(c.req.queries("label"));
+      const labels = await settableLabels(c.env.tenant, labelsOf(c.req.queries("label")));
       const contentType = declaredType(request);
       const uploaded = await uploadArtifact(
         c.env.tenant,
@@ -424,8 +437,9 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const sessionId = c.req.query("sessionId");
       if (c.req.query("limit") !== undefined) {
-        const { limit, cursor, kind } = parseQuery(artifactPageQuery, c.req.query());
-        if (limit === undefined) return fail(400, "Pagination requires limit");
+        const { limit: asked, cursor, kind } = parseQuery(artifactPageQuery, c.req.query());
+        if (asked === undefined) return fail(400, "Pagination requires limit");
+        const limit = await pageSize(c.env.tenant, asked);
         return jsonResponse(
           200,
           await readStoreOf(c.env.tenant).artifacts(

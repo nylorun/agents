@@ -325,7 +325,6 @@ it("rejects invalid queries and typed, cross-route and cross-Tenant cursors thro
   const { rt, client } = await boot();
   for (const query of [
     "limit=0",
-    "limit=201",
     "limit=-1",
     "limit=1.5",
     "limit=",
@@ -338,6 +337,8 @@ it("rejects invalid queries and typed, cross-route and cross-Tenant cursors thro
   ]) {
     expect((await get(rt, query)).status, query).toBe(400);
   }
+  // Past the Tenant's pageItems (200), a page holds that many (B15c).
+  expect((await get(rt, "limit=201")).status).toBe(200);
   expect((await page(rt, "limit=200")).nextCursor).toBeNull();
   const binding = { sessionId: null, kind: null, labels: [] };
   for (const key of [

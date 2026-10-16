@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
+import { cliTuning } from "../tuning.js";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -83,7 +84,7 @@ async function call(
     },
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
     redirect: "error",
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(cliTuning().stack.seedRequestMs),
   });
   const body = (await response.json().catch(() => ({}))) as { message?: unknown };
   if (!response.ok)

@@ -695,17 +695,31 @@ What only the Runtime checks:
 | Limit | What it holds | Default | Ceiling |
 | --- | --- | --- | --- |
 | `requestBodyBytes` | A Runtime or Management API request's JSON body (`413` past it) | 1 MiB | About 512 MiB: one string |
+| `messageParts` | Parts (text and files) of one user message | 32 | One request body |
+| `pageItems` | Items one page of a listing holds (`limit`); a larger `limit` gets this many, and a page with none the route's default (50, or this when lower) | 200 | About 179 million: one response body |
+| `exportPageItems` | Calls one page of `GET /v1/tenant/calls/model` holds (default page 200, or this when lower) | 1,000 | One response body |
+| `environmentEventItems` | Events one read of an Environment's events returns; `from` reads on | 1,000 | One response body |
 | `inlineFileBytes` | One file a message carries inline (AG-UI, A2A); such an endpoint reads one file's base64 and `requestBodyBytes` more | 20 MiB | About 384 MiB: its base64 in one string |
 | `a2aWaitMs` | How long a blocking A2A `SendMessage` waits before it answers `WORKING` | 5 min | About 24.8 days: a JavaScript timer |
 | `errorExcerptChars` | How much of a failed MCP server's or HTTP tool's answer an error quotes | 2,000 characters | About 160,000: one record entry, escaped |
 | `traceContentBytes` | One content attribute of an exported span | 8 KiB | 960 KiB: one record entry |
 | `environmentLabels` | Labels on one Environment, checked whenever they are set | 32 | One request body |
+| `artifactLabels` | Labels on one artifact, checked when it is uploaded | 32 | One request body |
+| `labelKeyChars` | The longest label key (an Environment's or an artifact's) | 63 characters | One request body |
+| `labelValueChars` | The longest label value | 256 characters | One request body |
 | `environmentSetupCommands` | Setup commands in one manifest | 16 | One request body |
 | `environmentFiles` | Input file entries in one manifest | 16 | One request body |
 | `environmentFilesPerEntry` | Files one input file entry by hash names | 1,000 | One request body |
-| `environmentSecretSlots` | Secret slots one manifest declares | 64 | One request body |
+| `environmentSecretSlots` | Secret slots one manifest declares, and secrets one agent `requires` (checked at deploy) | 64 | One request body |
+| `manifestDescriptionChars` | An environment manifest's `description` | 1,024 characters | One request body |
+| `secretDescriptionChars` | A secret slot's `description` | 500 characters | One request body |
+| `secretValueChars` | The value of an `environment_secret` or `environment_variable`, checked when it is written | 8,192 characters | One request body |
+| `secretHosts` | Hosts one `environment_secret` may be sent to (`allowedHosts`), in a write or a slot | 32 | One request body |
+| `setupCommandChars` | One setup command | 4,096 characters | 43,690: one argument of `/bin/sh -c`, which Linux takes up to 128 KiB (`MAX_ARG_STRLEN`), at 3 UTF-8 bytes a character |
 | `setupCommandMs` | The longest `timeout` a setup command may ask for (a command's default is 10 minutes) | 30 min | A JavaScript timer |
 | `setupOutputChars` | The end of a failed setup command's output its event keeps | 4,096 characters | One record entry, escaped |
+| `setupReasonChars` | The end of that output a failed pod's reason quotes | 500 characters | One record entry, escaped |
+| `setupCommandExcerptChars` | The start of the command the reason quotes | 80 characters | One record entry, escaped |
 | `diskVersionEntries` | Entries in one version of an Environment's disk (a manifest may set less: `limits.disk.versionEntries`) | 200,000 | About 1.9 million: one disk listing in a Harness API frame |
 | `diskVersionBytes` | Bytes of files in one disk version (`limits.disk.versionBytes`) | 10 GiB | A JavaScript number |
 | `diskLeaseMs` | How long a disk copy's lease lasts unrenewed (renewed every quarter of it) | 2 min | A JavaScript timer |
@@ -721,13 +735,21 @@ What only the Runtime checks:
 | `mcpSnapshotBytes` | What a session pins of its MCP servers' tools and instructions, which every `turn.start.mcp` carries; a server past it is left out, with a diagnostic | 4 MiB | 16 MiB: a quarter of a Harness API frame |
 | `mcpPreviewMs` | How long an MCP tool preview may take | 15 s | A JavaScript timer |
 | `mcpMetadataBytes` | The protected-resource metadata document a preview reads | 64 KiB | One string |
+| `toolRules` | Rules in the Tenant's tool policy (`PUT /v1/tenant/tool-policy`) | 200 | One request body |
+| `toolRuleFieldChars` | A rule's `tool`, `server` or `agent` selector, and a `when` path | 200 characters | One request body |
+| `toolRuleTextChars` | A rule's `reason`, and a `matches` expression | 500 characters | One request body |
+| `modelBudgets` | Model budgets the Tenant sets (`PUT /v1/tenant/budgets`) | 100 | One request body |
+| `flowConcurrency` | Effects one flow turn runs at once; the rest wait their turn | 8 | A JavaScript number |
+| `flowMapItems` | Items one map stage fans out to (`map.too-many-items` past it) | 1,000 | A JavaScript number |
+| `flowLoopIterations` | Iterations one loop stage runs (`loop.too-many-iterations` past it) | 100 | A JavaScript number |
 
 A limit above its ceiling is `400`, naming the ceiling and its dependency, and nothing changes.
 Each limit is read where it is checked, so a new value holds for the next request, write, call
 or turn. Past one, a write into the record is `413 limit_exceeded`
 (`details.limit: "recordEntryBytes"`) to an API client, and `limit_exceeded` to a harness; a
 turn whose harness reports more fails. An Environment's labels, setup and input files are
-checked when it is made (or its manifest saved), its labels whenever they are set; an
+checked when it is made (or its manifest saved), its labels whenever they are set, and a
+secret's value and hosts when it is written; an
 Environment made before a limit was lowered keeps running, within the lower limit where one
 applies at run time (a setup command's timeout, a disk version).
 
@@ -736,10 +758,15 @@ configuration): a `modelRequestMs` or `httpToolTimeoutMs` longer than it is cut 
 
 What stays fixed, because a dependency or a standard fixes it: S2's 1 MiB record, the Harness
 API's 64 MiB frame, the longest JavaScript string and timer; a token's size (a bearer or a
-capability link arrives in a request's headers, which Node caps at `http.maxHeaderSize`); an
-artifact name's 255 characters and a folder path's 1,024 (`NAME_MAX`, and macOS's `PATH_MAX`,
-the file systems a workspace lives on), and a skill file's path within that under its mount
-folder; W3C `tracestate`'s 512 characters. A custom endpoint's `contextWindow` and `maxTokens`
+capability link arrives in a request's headers, which Node caps at `http.maxHeaderSize`), and a
+page cursor's, which arrives in a URL; an artifact name's 255 characters and a folder path's
+1,024 (`NAME_MAX`, and macOS's `PATH_MAX`, the file systems a workspace lives on), a link
+target's 4,096 (Linux's `PATH_MAX`), and a skill file's path within that under its mount
+folder; W3C `tracestate`'s 512 characters; a model-facing tool name's 64 characters (what every
+provider takes); a `Content-Type`'s 255 (RFC 6838's two 127-character names). An identifier's
+grammar is the protocol's, so its length is too: an Environment's id (200), a subject (200), a
+manifest's name (64), a credential's name (64), a harness id (63), an application key's id and
+an issuer's name (32), an idempotency key (256), the Harness API's ids (512). A custom endpoint's `contextWindow` and `maxTokens`
 default to 32,768 and 8,192 (`settings` of `PUT /v1/tenant/model`), and a trusted issuer's
 JWKS fetch has its own settings in the identity file (`jwksFetch`).
 
@@ -774,7 +801,12 @@ against, not settings: Node's longest timer (2^31 - 1 ms); S3's part sizes (5 Mi
 its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes service's longest
 `?wait=` (30 s) and its 4096-byte pod variables; the
 `environment.egress` event's 16 running turns (its contract); W3C Trace Context's 512-character
-`tracestate`; and the 24-hour floor of a wake's dedupe key (Durable Session Execution §12.3).
+`tracestate`; the 24-hour floor of a wake's dedupe key (Durable Session Execution §12.3); and
+Postgres's 65,535 bind parameters a statement, which bound `postgres.contentBatchRows`. Token
+lifetimes are checked against each other: `keys.runTokenTtlSeconds` and
+`keys.hostTokenTtlSeconds` at most `keys.tokenTtlMaxSeconds`, `keys.runTokenRenewSeconds`
+below the run token's, the host token's longer than `harness.podRenewMs`, and
+`execution.advanceDeadlineMs` below `restate.inactivityMs`.
 
 ### Keys, the Harness API and the API
 
@@ -786,6 +818,12 @@ its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes se
 | `keys.leafLifetimeMs` | 1 h | How long a leaf certificate egress-gate presents is valid |
 | `keys.caBackdateMs` | 1 h | How far before now the egress CA is valid from (0 allowed) |
 | `keys.caLifetimeDays` | 3650 | How many days a new egress CA is valid |
+| `keys.tokenTtlMaxSeconds` | 900 | The longest life of a token the Runtime signs (a user's access token, a capability link; a longer `expiresIn` gets this); a key rotation waits it out |
+| `keys.runTokenTtlSeconds` | 900 | How long a run token lives |
+| `keys.runTokenRenewSeconds` | 300 | A lease re-mints its run token with less than this left |
+| `keys.hostTokenTtlSeconds` | 900 | How long a pod's host and egress tokens live |
+| `keys.tokenLifetimeSlackSeconds` | 60 | How far a token's `exp` may be past its `iat` beyond its lifetime (0 allowed) |
+| `keys.clockToleranceSeconds` | 30 | The clock skew accepted on a token's times, the Runtime's and a trusted issuer's (0 allowed) |
 | `harnessApi.joinBodyBytes` | 8 KiB | The largest `host/join` or `host/renew` body |
 | `harnessApi.reportBodyBytes` | 64 KiB | The largest setup report a pod's engine posts |
 | `harnessApi.closeGraceMs` | 1 s | How long the listener waits for connections to close before it ends them (0 allowed) |
@@ -799,6 +837,9 @@ its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes se
 | `api.eventStreamKeepaliveMs` | 15 s | How often a session event stream sends a keepalive |
 | `host.shutdownGraceMs` | 10 s | How long shutdown waits for requests in progress (0 allowed) |
 | `host.readinessTimeoutMs` | 2 s | The bound on one `/ready` pass |
+| `host.operateReadyTimeoutMs` | 5 s | How long `nylorun-operate status` waits for the running Host's `/ready` (it reads the container's `NYLORUN_TUNING`) |
+| `host.credentialLockPollMs` | 25 ms | How often the project credential store's writer checks its lock... |
+| `host.credentialLockAttempts` | 100 | ...and how many times before it gives up |
 | `objectStore.partSizeBytes` | 8 MiB | One part of a multipart upload: 5 MiB to 5 GiB |
 | `objectStore.attempts` | 3 | Tries of a request answered `5xx` or `429`, or unreachable |
 | `objectStore.retryBaseMs` | 100 ms | The wait after the first failed try, doubled after each |
@@ -825,9 +866,12 @@ its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes se
 | `sweep.outboxGraceMs` | 30 s | How old an outbox row is before the sweep delivers it (0 allowed) |
 | `sweep.orphanScanMs` | 60 s | How often the orphan scan and the stale pod check run |
 | `sweep.drainBudgetMs` | 2 s | How long one pass may spend on the outbox, and on orphaned sessions |
+| `sweep.armConcurrency` | 16 | Tenant sweeps the Host arms at once when it starts |
 | `sweep.outboxAttempts` | 10 | Failed deliveries after which an outbox row is parked |
 | `sweep.outboxRetry` | 5 s to 10 min | The wait after an outbox row's failed delivery |
 | `sweep.stalePodMs` | 60 s | How long a pod row may go unchanged before the sweep reconciles it |
+| `execution.advanceDeadlineMs` | 50 min | How long one advance may run before its signal aborts; below `restate.inactivityMs` |
+| `execution.advanceGraceMs` | 30 s | How long an aborted advance has to settle before it is abandoned (0 allowed) |
 | `execution.stopGraceMs` | 30 s | How long stopping waits for running handlers; keep it at the advance grace (0 allowed) |
 | `execution.dedupeRetentionMs` | 24 h | How long a wake's dedupe key merges repeated wakes; at least 24 h |
 | `execution.memoryRetryMs` | 50 ms | The in-process execution's first retry of a throwing handler |
@@ -844,7 +888,8 @@ its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes se
 | `restate.registrationRequestTimeoutMs` | 30 s | How long one registration request may take |
 | `restate.queryTimeoutMs` | 10 s | How long one admin query may take |
 | `restate.closeGraceMs` | 2 s | How long stopping lets Restate read answers before it drops connections (0 allowed) |
-| `restate.staleSweepMinMs` | 60 s | A sweep chain is stale past three intervals, never sooner than this |
+| `restate.staleSweepIntervals` | 3 | A sweep chain is stale past this many sweep intervals... |
+| `restate.staleSweepMinMs` | 60 s | ...and never sooner than this |
 | `restate.stuckListDefault` | 100 | Stuck invocations one status lists by default... |
 | `restate.stuckListMax` | 1000 | ...and at most |
 
@@ -866,9 +911,12 @@ its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes se
 | `postgres.controlWindowSeconds` | 120 | How far back a read-back looks; longer than the poll |
 | `postgres.controlRetry` | 100 ms to 5 s | How the control bus listens again after its connection ends |
 | `postgres.replicationRetryMs` | 5 s | How soon the stream relay and trace projector try again to take their slot |
+| `postgres.replicationPoolSize` | 2 | The replication service's connections (the stream relay, the trace projector) |
+| `postgres.contentBatchRows` | 1000 | Rows one statement writes or looks up when a folder version or a definition names many files; at most 16,383 (Postgres's 65,535 parameters, four a row) |
 | `streams.retry` | 100 ms to 2 s | Session stream reads, basin deletions and repairs |
 | `streams.basinRetryMaxMs` | 5 s | The longest wait between two basin repairs |
 | `streams.basinRepairCooldownMs` | 1 s | A repair this soon after the last waits for the next failure (0 allowed) |
+| `streams.basinLogEveryFailures` | 10 | A repair that keeps failing is logged on its first failure and every this many after |
 | `streams.feedCheckMs` | 30 s | How often every session stream is checked against its session |
 | `streams.retireGraceMs` | 60 s | How long a retired basin stays for readers that have not moved (0 allowed) |
 | `streams.retireAttempts` | 5 | Attempts to delete a retired basin before the next open tries again |
@@ -911,6 +959,7 @@ its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes se
 | `egress.headersTimeoutMs` | 10 s | The proxy listener's header timeout |
 | `egress.requestTimeoutMs` | 15 s | The proxy listener's request timeout |
 | `egress.credentialsHeadersTimeoutMs` | 60 s | The header timeout of a tunnel whose TLS the gate terminates for a bound secret |
+| `egress.credentialsMaxSockets` | 8 | The upstream sockets one such tunnel opens at once |
 
 ### Sandbox pods, harnesses and traces
 
@@ -925,6 +974,8 @@ its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes se
 | `pods.readyProbeTimeoutMs` | 3 s | Its `/ready` probe |
 | `pods.waitMs` | 30 s | How long a `?wait=` request waits; the service takes 30 s at most |
 | `pods.waitSlackMs` | 10 s | Added to a `?wait=` request's timeout for its answer to arrive (0 allowed) |
+| `pods.enginePollMs` | 250 ms | How often a disk copy or a seed checks whether a pod's engine has connected |
+| `pods.memoryFloorMiB` | 128 | The least memory a sandbox gets; a manifest or a Tenant limit asking less rounds up |
 | `harness.pingMs` | 30 s | How often core pings a harness's WebSocket |
 | `harness.silenceMs` | 90 s | How long either end may hear nothing before it drops the connection |
 | `harness.reconnect` | 500 ms to 10 s | How a harness reconnects to core's Harness API, with jitter |
@@ -935,6 +986,13 @@ its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes se
 | `harness.runTokensMax` | 10,000 | The sessions whose last run token a harness keeps |
 | `harness.mcpSweepMs` | 60 s | How often a harness closes idle MCP connections |
 | `harness.mcpIdleMs` | 15 min | How long one may sit unused |
+| `harness.mcpListPages` | 100 | The most `tools/list` pages one MCP server's listing reads (discovery and previews); later pages are left out |
+| `harness.mcpDiagnosticChars` | 500 | How much of an MCP connection's error its discovery diagnostic keeps |
+| `harness.helperCommandTimeoutMs` | 60 s | How long one of the Runtime's own commands in a sandbox may take (folders, skill mounts, tool helpers) |
+| `harness.helperCommandExcerptChars` | 120 | How much of such a command a failure quotes |
+| `harness.scrubMinChars` | 8 | The shortest credential value scrubbed from what a tool, command or model returns; every process that scrubs reads it |
+| `harness.execCommandChars` | 500 | How much of a command an `environment.exec` event keeps |
+| `harness.commandStreamBytes` | 4 MiB | The local sandbox backend: what it keeps of each of a command's output streams |
 | `harness.podRenewMs` | 5 min | How often a pod's engine renews its host and egress tokens |
 | `harness.podRenewEarlyMs` | 60 s | It renews before a call when its token expires sooner than this (0 allowed) |
 | `harness.podJoinTimeoutMs` | 15 s | How long `host/join` and `host/renew` may take |
@@ -970,11 +1028,28 @@ each option left out is the engine's own default, listed with `createHarness` in
 | `engine.leaseRetryMs` | 100 ms | How soon a failed `lease` request is sent again |
 | `engine.resendDelaysMs` | `[1000, 2000, 4000]` | The waits before each resend of a tool call whose gate hop lost its answer; the last repeats |
 | `engine.partialOutputChars` | 4000 | How much of a failed agent-as-tool's last output its parent sees |
+| `engine.flowValueChars` | 80 | How much of a value a flow's failure message quotes |
 | `engine.compaction` | `DEFAULT_COMPACTION_CONFIG` | `keepTokens` (20,000), `keepShare` (0.3), `reserveTokens` (8,192), `maxReserveTokens` (16,384), `maxReserveShare` (0.25), `clipChars` (2,000), `summaryOverheadTokens` (1,024), `imageTokens` (1,600), `fileBytesPerToken` (8), `fileTokensMax` (100,000), `minChunkTokens` (1,000), `minSummaryTokens` (256), `summaryShare` (0.8), `charsPerToken` (4) |
 | `engine.sandboxTools` | `DEFAULT_SANDBOX_TOOL_LIMITS` | The `bash` timeouts and output, `read`, `grep` and `glob` counts |
 | `engine.mcpTools` | `DEFAULT_MCP_TOOL_CONFIG` | When MCP tools are deferred, and `tool_search`'s limits |
-| `engine.toolResults` | `DEFAULT_TOOL_RESULT_CONFIG` | Inline caps, previews and the step budget of tool results |
+| `engine.toolResults` | `DEFAULT_TOOL_RESULT_CONFIG` | Inline caps, previews (the smallest a stub keeps, `minPreviewBytes`, 64) and the step budget of tool results |
 | `engine.outputs` | `DEFAULT_OUTPUTS_CONFIG` | The outputs folder (`dir`, absolute) and the most bytes one save stores |
+
+### The CLI
+
+`nylorun`'s own waits are its tuning, one JSON object in `NYLORUN_CLI_TUNING` in the shell that
+runs it, read each time a value is used; what is left out keeps its default (the value it used
+before), and an unknown key or a value that is not a positive whole number stops the command.
+
+```sh
+NYLORUN_CLI_TUNING='{"stack":{"healthWaitMs":120000},"compose":{"healthchecks":{"harness":{"retries":180}}}}' nylorun start
+```
+
+| Group | Settings (defaults) |
+| --- | --- |
+| `stack` | `probeTimeoutMs` (3 s), `healthWaitMs` and `tenantWaitMs` (60 s), `pollMs` (500 ms), `operateEveryPolls` (10), `composeWaitSeconds` (300) and `studioWaitSeconds` (120) for `docker compose up --wait-timeout`, `loginWaitMs` (15 s), `loginRequestMs` (5 s), `keyCheckMs` (10 s), the key file's `lockWaitMs` (30 s), `lockStaleMs` (60 s) and `lockPollMs` (100 ms), `portAttempts` (20), `seedRequestMs` (15 s) |
+| `compose` | `walKeepSizeMb` (4096: Postgres's `max_slot_wal_keep_size`), and `healthchecks.<service>` `{ intervalSeconds, timeoutSeconds, retries }` for `postgres`, `restate`, `rustfs` and `studio` (2, 5, 30), `gateway` and `runtime` (2, 5, 60), `harness` (2, 5, 90), `sandboxes` (5, 5, 24) |
+| `sandbox` | `kubectlTimeoutMs` (300 s) and `kubectlMarginMs` (20 s), `manifestDownloadMs` (60 s), `crdWaitSeconds` (60), `rolloutWaitSeconds` (180), `tokenWaitMs` (60 s), `pollMs` (1 s), `composeWaitSeconds` (120), `infoRequestMs` (5 s), `probeWgetSeconds` (3), `probeExecMs` (20 s), `probeReadySeconds` (180), `policyTimeoutMs` (30 s), `prepullMs` (300 s), `prepullPollMs` (2 s), the probe pods' `probeGraceSeconds` (1, 0 allowed), `probeCpu` (`200m`) and `probeMemory` (`64Mi`) |
 
 ## MCP servers and HTTP tools
 

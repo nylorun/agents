@@ -209,8 +209,9 @@ export function environmentRequest(
   const pod = kind === "pod";
   const cpusText = form.cpus.trim();
   const cpus = cpusText ? Number(cpusText) : undefined;
-  if (cpus !== undefined && (!Number.isInteger(cpus) || cpus < 1 || cpus > 64))
-    throw new Error("CPUs must be a whole number from 1 to 64.");
+  // The most is the Tenant's (`limits.resources.cpus`), which the Runtime checks.
+  if (cpus !== undefined && (!Number.isInteger(cpus) || cpus < 1))
+    throw new Error("CPUs must be a whole number of at least 1.");
   const memory = size("Memory", form.memory);
   const storage = size("Storage", form.storage);
   const hosts = parseHosts(form.allowedHosts);

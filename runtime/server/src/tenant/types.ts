@@ -5,7 +5,6 @@ import type {
   TenantEnvelope,
 } from "@nylorun/core/contracts";
 import type { HarnessChannel } from "@nylorun/core/harness-api";
-import type { FlowLimits } from "../core/limits.js";
 import type { HarnessPeer } from "../harness-api/server.js";
 import type { HostAuthority } from "../sandbox/join.js";
 import type { SessionStore } from "../store/types.js";
@@ -73,13 +72,6 @@ export interface TenantConfig {
    * own.
    */
   sweepIntervalMs?: number;
-  /** Operator flow limits (`RuntimeOptions.flow` / `workflows.md` §13). */
-  flow?: Partial<FlowLimits>;
-  /**
-   * Optional env snapshot for `NYLORUN_FLOW_*`. Host passes this; the Runtime
-   * never reads ambient process environment for flow limits.
-   */
-  flowEnv?: Readonly<Record<string, string | undefined>>;
   /**
    * The trusted issuers whose JWTs the Runtime API accepts (Host feature `trusted-issuers`), from
    * the identity file (`NYLORUN_IDENTITY_FILE`). Absent: none.

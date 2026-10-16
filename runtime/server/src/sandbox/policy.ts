@@ -4,6 +4,7 @@ import {
   type SandboxManifest,
 } from "@nylorun/core/define";
 import type { ResolvedNetwork } from "./types.js";
+import { hostTuning } from "../tuning.js";
 
 /** Docker Official Image: Debian with bash, coreutils and Python 3; small first pull. */
 export const DEFAULT_SANDBOX_IMAGE = "python:3.13-slim";
@@ -71,7 +72,7 @@ export function memoryMiBOf(manifest: SandboxManifest | undefined): number {
   const bytes = manifest?.resources?.memory
     ? parseSandboxSize(manifest.resources.memory)
     : undefined;
-  return bytes ? Math.max(128, Math.ceil(bytes / 1024 ** 2)) : DEFAULT_SANDBOX_MEMORY_MIB;
+  return bytes ? Math.max(hostTuning().pods.memoryFloorMiB, Math.ceil(bytes / 1024 ** 2)) : DEFAULT_SANDBOX_MEMORY_MIB;
 }
 
 export function describeNetwork(network: ResolvedNetwork): string {

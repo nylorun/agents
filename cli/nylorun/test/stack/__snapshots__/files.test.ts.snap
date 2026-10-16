@@ -68,7 +68,7 @@ services:
     image: postgres:17.11
     container_name: nylorun-shop-postgres
     labels: *tenant
-    # Logical replication feeds the stream relay; a stuck slot is capped at 4 GB of WAL.
+    # Logical replication feeds the stream relay; a stuck slot's WAL is capped (compose.walKeepSizeMb).
     command: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=4GB"]
     environment:
       POSTGRES_USER: nylorun

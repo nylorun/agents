@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { decodeCursor } from "../record/index.js";
 import { fail } from "../tenant/http.js";
+import { maxHeaderSize } from "node:http";
 
 const schema = z
   .object({
@@ -26,7 +27,8 @@ export function readCursor(tenant: string, route: string, filters: Record<string
       Buffer.from(JSON.stringify({ version: 1, binding, key })).toString("base64url"),
     decode(value: string | undefined): (string | null)[] | undefined {
       if (value === undefined) return undefined;
-      if (value.length > 4096 || !/^[A-Za-z0-9_-]+$/.test(value))
+      // A cursor comes back in a URL, which Node refuses past `http.maxHeaderSize` anyway.
+      if (value.length > maxHeaderSize || !/^[A-Za-z0-9_-]+$/.test(value))
         return fail(400, "Invalid cursor", { code: "cursor_invalid" });
       let parsed;
       try {

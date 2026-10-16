@@ -24,9 +24,8 @@ import type {
   SandboxProbe,
 } from "../../sandbox/types.js";
 import { SandboxFileTooLargeError } from "../../sandbox/types.js";
+import { hostTuning } from "../../tuning.js";
 
-/** The most of each stream kept from one command (the tools keep 30 000 characters of it). */
-const STREAM_LIMIT = 4 * 1024 * 1024;
 
 export interface LocalBackendOptions {
   /** Default `/workspace`. */
@@ -47,18 +46,22 @@ function baseEnv(env: Readonly<Record<string, string | undefined>>, workspace: s
   return { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8", TERM: "dumb", ...out, HOME: workspace };
 }
 
-/** Collects a stream, keeping at most `STREAM_LIMIT` bytes (head first). */
+/**
+ * Collects a stream, keeping at most `harness.commandStreamBytes` (Host tuning) of it, head first;
+ * the tools keep less of it (`engine.sandboxTools.outputChars`).
+ */
 function collector() {
+  const limit = hostTuning().harness.commandStreamBytes;
   const chunks: Buffer[] = [];
   let size = 0;
   let dropped = 0;
   return {
     push(chunk: Buffer) {
-      if (size >= STREAM_LIMIT) {
+      if (size >= limit) {
         dropped += chunk.length;
         return;
       }
-      const room = STREAM_LIMIT - size;
+      const room = limit - size;
       const kept = chunk.length > room ? chunk.subarray(0, room) : chunk;
       chunks.push(kept);
       size += kept.length;

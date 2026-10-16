@@ -117,7 +117,7 @@ export type {
   ArtifactDiff,
   FolderEntry,
 } from "@nylorun/core/contracts";
-export { ENVIRONMENT_EVENT_TYPES, SUBJECT_SCOPES } from "@nylorun/core/contracts";
+export { ENVIRONMENT_EVENT_TYPES, RUNTIME_LIMIT_DEFAULTS, SUBJECT_SCOPES } from "@nylorun/core/contracts";
 export { AgentsClient, SessionClient, createClient } from "./client.js";
 export { ArtifactsClient } from "./artifacts.js";
 export { FilesClient, definitionFileHash } from "./files.js";

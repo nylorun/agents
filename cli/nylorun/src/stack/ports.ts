@@ -1,4 +1,5 @@
 import { createServer } from "node:net";
+import { cliTuning } from "../tuning.js";
 
 export const DEFAULT_PORTS = {
   runtime: 8787,
@@ -49,7 +50,7 @@ export async function choosePort(
 ): Promise<number> {
   if (persisted !== undefined && !taken.has(persisted)) return persisted;
   if (!taken.has(preferred) && (await probe.isFree(preferred))) return preferred;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < cliTuning().stack.portAttempts; attempt += 1) {
     const port = await probe.pickFree();
     if (!taken.has(port)) return port;
   }

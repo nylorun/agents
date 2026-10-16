@@ -33,6 +33,7 @@ import {
 import { usesFixtureModel } from "../tenant/model-setting.js";
 import { currentModelDescriptor } from "../model/descriptor.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
+import { flowLimitsOf } from "../core/limits.js";
 import { turnManifestOf } from "../tenant/session.js";
 import { mcpFactsOf } from "../mcp/snapshot.js";
 import { bulkOutcomes } from "./record.js";
@@ -175,7 +176,7 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     transcript: { cursor: segment.cursor },
     options: {
       ...(flow
-        ? { flowLimits: ctx.flowLimits }
+        ? { flowLimits: flowLimitsOf(segment.limits) }
         : { yieldAfter: yieldAfterOf(ctx) }),
       fixtureModel: segment.fixtureModel,
     },

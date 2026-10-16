@@ -70,7 +70,14 @@ import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
 import { deleteDiskArtifact, forkSeedOf, runPendingSeed, snapshotEnvironment } from "../artifacts/disk.js";
 import { manifestChanges, manifestRecipeRequest } from "./environment-manifests.js";
-import { labelIssues, limitIssues, limitsInForce, manifestShapeIssues, readTenantLimits } from "./limits.js";
+import {
+  labelIssues,
+  limitIssues,
+  limitsInForce,
+  manifestShapeIssues,
+  readTenantLimits,
+  secretRequestIssues,
+} from "./limits.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail, failRetryLater } from "./http.js";
@@ -546,6 +553,19 @@ export async function putEnvironment(
  * accepted only when its binding is the slot's. Without slots, today's typed body.
  */
 export async function secretRequestFor(
+  ctx: TenantContext,
+  id: string,
+  name: string,
+  raw: unknown,
+): Promise<PutEnvironmentSecretRequest> {
+  const request = await parseSecretRequest(ctx, id, name, raw);
+  // Within the Tenant's Runtime limits `secretValueChars` and `secretHosts`, read for the write.
+  const issues = secretRequestIssues(request, await ctx.store.tx((t) => readRuntimeLimits(t)));
+  if (issues.length > 0) fail(400, issues.join(" "));
+  return request;
+}
+
+async function parseSecretRequest(
   ctx: TenantContext,
   id: string,
   name: string,
@@ -1065,7 +1085,10 @@ export async function environmentEventsOf(
   query: EnvironmentEventsQuery = {},
 ) {
   reachable(environmentGrantsOf(scope), id);
-  return ctx.store.tx(async (t) => ({ events: await t.environmentEvents(id, query) }));
+  // One read returns at most the Tenant's Runtime limit `environmentEventItems`; `from` reads on.
+  return ctx.store.tx(async (t) => ({
+    events: await t.environmentEvents(id, { ...query, limit: (await readRuntimeLimits(t)).environmentEventItems }),
+  }));
 }
 
 /**

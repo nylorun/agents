@@ -20,6 +20,7 @@ export {
   flowDelegatesOf,
   flowDelegateManifest,
   isFlowDelegate,
+  MODEL_TOOL_NAME_MAX,
 } from "./definition/delegate.js";
 export type { Delegate } from "./definition/delegate.js";
 export { tool } from "./definition/helpers.js";

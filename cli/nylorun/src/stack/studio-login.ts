@@ -1,4 +1,5 @@
 import { STACK_CLIENT_HOST } from "./host-files.js";
+import { cliTuning } from "../tuning.js";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -29,7 +30,7 @@ export async function mintStudioLogin(input: {
     },
     body: "{}",
     redirect: "error",
-    signal: AbortSignal.timeout(input.timeoutMs ?? 5000),
+    signal: AbortSignal.timeout(input.timeoutMs ?? cliTuning().stack.loginRequestMs),
   });
   if (!response.ok)
     throw new Error(`Studio refused a login token (HTTP ${response.status}).`);

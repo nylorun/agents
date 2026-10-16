@@ -208,8 +208,9 @@ export async function callsCommand(deps: StackDeps, args: readonly string[]): Pr
   const after = flags.values.get("--after");
   const limitFlag = flags.values.get("--limit");
   const limit = limitFlag === undefined ? undefined : Number(limitFlag);
-  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= 1000))
-    throw usageError("--limit is a whole number from 1 to 1000.");
+  // A page holds at most the Runtime limit exportPageItems; a larger --limit gets that many.
+  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1))
+    throw usageError("--limit is a whole number of at least 1.");
   const admin = await client(deps, flags.values.get("--tenant"));
   let next: string | null = null;
   for await (const page of admin.models.exportCalls({

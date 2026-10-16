@@ -127,7 +127,7 @@ export type StudioServerOptions = Readonly<{
   analyticsId?: string;
   /**
    * The largest file a message attachment uploads through the proxy (`POST /v1/artifacts`).
-   * Default 32 MiB (`MAX_UPLOAD_BYTES`).
+   * Default: none of Studio's own; the Runtime holds it to the Tenant's artifact limits.
    */
   maxUploadBytes?: number;
   /** Where Studio logs state changes made by an embedded session. Default: stdout. */

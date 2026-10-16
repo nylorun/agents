@@ -24,6 +24,7 @@ import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { runTurn } from "./run.js";
 import { TranscriptCache } from "./transcript-cache.js";
 import { loopConfigOf } from "../loop/config.js";
+import { DEFAULT_FLOW_VALUE_CHARS } from "../flow/limits.js";
 import type { CompactionConfig } from "../loop/compaction/config.js";
 
 /** The transcript cache's budget when the harness sets none, in MiB. */
@@ -65,6 +66,11 @@ export interface HarnessOptions {
    * `DEFAULT_PARTIAL_OUTPUT_CHARS` (4,000).
    */
   readonly partialOutputChars?: number;
+  /**
+   * How many characters of a value a flow's failure message quotes. Default
+   * `DEFAULT_FLOW_VALUE_CHARS` (80).
+   */
+  readonly flowValueChars?: number;
   /**
    * The most bytes one `read_artifact` page holds, escaped as JSON: what one call shows the model
    * of a text artifact. Default `DEFAULT_ARTIFACT_PAGE_BYTES` (32 KiB). A page is also held to the
@@ -159,6 +165,7 @@ export function createHarness(options: HarnessOptions): Harness {
         ? {}
         : { partialOutputChars: options.partialOutputChars }),
     }),
+    flowValueChars: options.flowValueChars ?? DEFAULT_FLOW_VALUE_CHARS,
     resendDelaysMs: options.resendDelaysMs?.length
       ? options.resendDelaysMs
       : DEFAULT_RESEND_DELAYS_MS,

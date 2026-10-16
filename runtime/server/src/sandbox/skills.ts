@@ -9,8 +9,9 @@
  * them and the next call mounts them again.
  */
 import { posix } from "node:path";
-import { HELPER_COMMAND_TIMEOUT_MS, quote } from "./tools.js";
+import { helperCommandTimeoutMs, quote } from "./tools.js";
 import type { SandboxFileBytes, SandboxHandle } from "./types.js";
+import { hostTuning } from "../tuning.js";
 
 /** A folder's files, by path in it, as `sha256:<hex>`. */
 export type FolderFiles = Readonly<Record<string, string>>;
@@ -28,9 +29,9 @@ export async function mountFolderFiles(
   signal: AbortSignal
 ): Promise<void> {
   const exec = async (command: string) => {
-    const result = await handle.exec({ command, cwd: "/", timeoutMs: HELPER_COMMAND_TIMEOUT_MS }, signal);
+    const result = await handle.exec({ command, cwd: "/", timeoutMs: helperCommandTimeoutMs() }, signal);
     if (result.exitCode !== 0)
-      throw new Error(`${command.slice(0, 120)} failed: ${result.stderr.trim() || `exit ${result.exitCode}`}`);
+      throw new Error(`${command.slice(0, hostTuning().harness.helperCommandExcerptChars)} failed: ${result.stderr.trim() || `exit ${result.exitCode}`}`);
   };
   const directories = new Set<string>([root]);
   for (const path of Object.keys(files)) directories.add(posix.dirname(posix.join(root, path)));

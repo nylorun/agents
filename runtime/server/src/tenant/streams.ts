@@ -350,7 +350,7 @@ function basinKeeper(
           maxMs: hostTuning().streams.basinRetryMaxMs,
           signal,
           onError: (error) => {
-            if (failures === 1 || failures % 10 === 0) onError(error);
+            if (failures === 1 || failures % hostTuning().streams.basinLogEveryFailures === 0) onError(error);
           },
         }).then(
           () => (repairedAt = Date.now()),
