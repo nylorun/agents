@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { Agent, type ToolDefinition } from "@nylorun/core/define";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  CODE_MODE_RULE,
-  CODE_MODE_USAGE,
-  codeMode,
-} from "../agents/code-mode/tools.js";
+  PTC_RULE,
+  PTC_USAGE,
+  programmaticToolCalling,
+} from "../agents/ptc/tools.js";
 import { invokeTool } from "./support.js";
 
 const temps: string[] = [];
@@ -20,20 +20,20 @@ afterEach(async () => {
 
 function catalogTool(
   name: string,
-  mode: Awaited<ReturnType<typeof codeMode>>
+  mode: Awaited<ReturnType<typeof programmaticToolCalling>>
 ): ToolDefinition {
   const found = mode.tools.find((tool) => tool.name === name);
   if (!found) throw new Error(`Missing tool ${name}`);
   return found;
 }
 
-describe("codeMode()", () => {
+describe("programmaticToolCalling()", () => {
   it("offers only run_code and a generated SDK for the tools catalog", async () => {
-    const mode = await codeMode();
+    const mode = await programmaticToolCalling();
     expect(mode.tools.map((tool) => tool.name)).toEqual(["run_code"]);
     expect(mode.instructions).toEqual([
-      CODE_MODE_RULE,
-      CODE_MODE_USAGE,
+      PTC_RULE,
+      PTC_USAGE,
       expect.stringContaining("declare const tools:"),
     ]);
     const sdk = mode.instructions[2] ?? "";
@@ -44,7 +44,7 @@ describe("codeMode()", () => {
   });
 
   it("runs a program that composes calculate then convert", async () => {
-    const mode = await codeMode();
+    const mode = await programmaticToolCalling();
     await expect(
       invokeTool(catalogTool("run_code", mode), {
         code: [
@@ -81,7 +81,7 @@ describe("codeMode()", () => {
   });
 
   it("rejects a failed binding as ToolCallError that the program can catch", async () => {
-    const mode = await codeMode();
+    const mode = await programmaticToolCalling();
     await expect(
       invokeTool(catalogTool("run_code", mode), {
         code: [
@@ -119,7 +119,7 @@ describe("codeMode()", () => {
   });
 
   it("rejects an unknown tools binding", async () => {
-    const mode = await codeMode();
+    const mode = await programmaticToolCalling();
     await expect(
       invokeTool(catalogTool("run_code", mode), {
         code: "await tools.missing({});",
@@ -133,19 +133,19 @@ describe("codeMode()", () => {
   });
 
   it("omits the transport when the directory has no catalog modules", async () => {
-    const root = await mkdtemp(join(tmpdir(), "code-mode-test-"));
+    const root = await mkdtemp(join(tmpdir(), "ptc-test-"));
     temps.push(root);
-    await expect(codeMode({ directory: root })).resolves.toEqual({
+    await expect(programmaticToolCalling({ directory: root })).resolves.toEqual({
       instructions: [],
       tools: [],
     });
   });
 
-  it("builds the code-mode agent with only run_code on the model surface", async () => {
-    const mode = await codeMode();
+  it("builds the PTC agent with only run_code on the model surface", async () => {
+    const mode = await programmaticToolCalling();
     const agent = Agent({
-      id: "code-mode",
-      name: "Code Mode",
+      id: "ptc",
+      name: "Programmatic Tool Calling",
     })
       .instructions("Be concise.", ...mode.instructions)
       .tools(...mode.tools)

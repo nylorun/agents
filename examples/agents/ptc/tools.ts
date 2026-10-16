@@ -6,10 +6,10 @@ import { loadToolsFromDirectory } from "../shared/tools/load.js";
 
 export { renderToolsSdk, ToolCallError } from "./executor.js";
 
-export const CODE_MODE_RULE =
+export const PTC_RULE =
   "Only `run_code` may be called directly. Call every other tool from inside a `run_code` program as `await tools.name(args)`.";
 
-export const CODE_MODE_USAGE = [
+export const PTC_USAGE = [
   "## Writing code for run_code",
   "",
   "`run_code` takes two required arguments: `code` — the body of an async JavaScript function (no `enum`, namespaces, or type annotations; the SDK types are for reference) — and `description`, a short summary of what the program does. Inside the program:",
@@ -23,22 +23,22 @@ export const CODE_MODE_USAGE = [
   "The available tools:",
 ].join("\n");
 
-export type CodeModeSource = { readonly directory: string };
+export type PtcSource = { readonly directory: string };
 
-export type CodeMode = {
+export type Ptc = {
   readonly instructions: readonly string[];
   readonly tools: readonly ToolDefinition[];
 };
 
 /** The catalog as a generated SDK in the instructions, and `run_code` as the one tool. */
-export async function codeMode(
-  source: CodeModeSource = { directory: TOOLS_CATALOG },
-): Promise<CodeMode> {
+export async function programmaticToolCalling(
+  source: PtcSource = { directory: TOOLS_CATALOG },
+): Promise<Ptc> {
   const roster = await loadToolsFromDirectory(source.directory);
   if (roster.length === 0) return { instructions: [], tools: [] };
 
   return {
-    instructions: [CODE_MODE_RULE, CODE_MODE_USAGE, renderToolsSdk(roster)],
+    instructions: [PTC_RULE, PTC_USAGE, renderToolsSdk(roster)],
     tools: [runCodeTool(roster)],
   };
 }
