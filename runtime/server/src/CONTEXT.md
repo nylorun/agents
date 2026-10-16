@@ -277,13 +277,21 @@ section resolved against the Tenant's limits) and one **vault** (D56). The store
 most of the sandbox, vault and disk code call this part the Agent's environment
 (`Environment`, `environmentId`, `t.environment(id)`), keyed by the Agent's id. `PUT`/`GET`/`DELETE
 /v1/agents/{id}`, `GET /v1/agents?label=k=v&state=&manifest=`, `POST .../stop|reset|fork`; ids are
-`/`-separated segments, sent percent-encoded as one path segment. Made from a saved manifest only;
-it never changes what it runs after that: a `PUT` on an existing id may change labels and the owner
-guard, a manifest naming what it runs is accepted, and any other is
-`409 agent_upgrade_unavailable` (track T3 moves a tracking Agent on). Creating one opens no session:
+`/`-separated segments, sent percent-encoded as one path segment. Made from a saved manifest only,
+it runs one version of it at a time and evolves (track T3, D73, `tenant/agent-versions.ts`): a
+`PUT` on an existing id may change labels and the owner guard and **moves** it to the version its
+`manifest` names (`moveAgent`; `?dryRun=true` answers the plan), and a save moves every Agent that
+tracks the manifest. A move changes no data. A harness-only change applies at once; a runtime change
+a pod applies only when it starts (image, resources, network, setup, files) leaves it **outdated**
+(`targetVersion`, the target's runtime in `recipe`) until its pod's next start (`switchTo` in
+`wantRunning` and `newVolume`); a version adding a required secret with no value waits for one
+(`resumeMove` after each secret write). Its manifest's name, kind, harness and storage are fixed
+(`409 agent_fixed_field`): a fork changes them. Creating one opens no session:
 no session is special (D71), and the app opens sessions on it with ids it picks. When its manifest
-declares secret **slots** (`recipe.secrets`, D64), a secret write sends only the value
-(`secretRequestFor`) and a name it does not declare is `409 secret_not_in_manifest`. A session
+declares secret **slots** (`recipe.secrets`, D64; while it moves, the target's), a secret write
+sends only the value (`secretRequestFor`) and a name it does not declare is
+`409 secret_not_in_manifest`. Only a **live** credential is used, one that fills a slot of the
+runtime it applies (`slotHolds`); another stays in the vault, **dormant** (T3). A session
 names one with `agent` (`Session.agentId`, and `environmentId` for its environment, always the
 same id), pins its manifest version (`Session.definition`) and its sandbox spec then
 (`Session.sandbox`, `sandbox/resolve.ts` `sandboxSpecOf`), and a turn's first segment pins
@@ -295,7 +303,8 @@ grants, a disk copy in progress and the **owner guard** (`owner`: only that owne
 run on it; `403 agent_owner_mismatch`, the opaque `404` to a caller acting for a person) in
 `checkAgentTurn`. Its **state** is derived on read (`stateOf`): `paused` (desired `off`, track
 T6), `failing` (its compute failed or was lost, or a session's last turn failed), `input_required`
-(a session paused or uncertain), `working` (a turn runs), `sleeping`; `attention` names the
+(a session paused or uncertain, or a move waiting for its secrets), `working` (a turn runs),
+`sleeping`; `attention` names the
 sessions behind each state that holds; the compute's own word is `compute.state`.
 `lifecycle.idle` (at most the Tenant's) stops a pod; `lifecycle.deleteAfter` deletes an Agent
 unused that long, counted from `lastUsedAt` (a turn's end, a `PUT`, a secret write, a stop or reset)
@@ -307,8 +316,8 @@ the session's log records `agent.attached`. Every egress connection goes there t
 _Avoid_: "scope" for who uses an Agent (the app maps people to ids, D70), "main session" (D71),
 "space", "Environment" on the API (protocol 15 and before).
 
-**Fork**: How an Agent gets a new manifest version before track T3 (Q15, `forkAgent` in
-`tenant/agents.ts`), since none ever changes what it runs: `POST /v1/agents/{id}/fork` makes a new
+**Fork**: How an Agent changes what is fixed for its life (its manifest, kind, harness or storage;
+Q15, `forkAgent` in `tenant/agents.ts`): `POST /v1/agents/{id}/fork` makes a new
 Agent from the version (default the source's manifest name at its latest), its disk
 seeded from a version of the source's (`latest` snapshots first) and its secrets copied inside the
 Runtime (`Keys.sealEnvironmentSecretCopies`: unsealed and sealed again under the new vault's ids

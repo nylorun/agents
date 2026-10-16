@@ -3,8 +3,9 @@
  * manifest (`client.agentManifests`): one environment of the manifest's runtime kind (`virtual`,
  * `pod` or `none`), one vault of secrets for its shell, MCP servers and HTTP tools, and the
  * sessions that run on it. It is made only from a saved manifest, `name` (tracking) or `name@n`
- * (pinned), resolves the version once when it is made and keeps it; a different manifest on an
- * existing Agent is `409 agent_upgrade_unavailable`, and `fork` makes a new Agent instead. It has
+ * (pinned), and runs one version of it at a time: `put` with another version moves it, and a save
+ * moves every Agent that tracks the manifest (track T3). Its manifest, kind, harness and storage
+ * are fixed (`409 agent_fixed_field`): `fork` makes a new Agent to change them. It has
  * its own id and outlives its sessions; whether it serves one person or a project is the app's
  * choice, made by its id:
  *
@@ -156,8 +157,10 @@ export class AgentInstancesClient {
    * Creates the Agent, its vault and its compute from a saved agent manifest, or finds the one
    * with this id (`PUT /v1/agents/{id}`): `{ manifest: "name" }` tracks the manifest (its latest
    * version when the Agent is made), `"name@n"` pins version n. On an existing Agent, labels
-   * replace and `owner` sets or clears the owner guard; a manifest that names what it runs is
-   * accepted, and any other is `409 agent_upgrade_unavailable` (fork it instead).
+   * replace, `owner` sets or clears the owner guard, and `manifest` moves it to that version of
+   * its manifest (track T3): at once, at its pod's next start for a runtime change (`targetVersion`,
+   * `waitingFor: "start"`), or once a required secret the version adds is set. Another manifest,
+   * kind, harness or storage is `409 agent_fixed_field` (fork it instead).
    */
   async put(agentId: string, input: AgentInput, options: { signal?: AbortSignal } = {}): Promise<AgentView> {
     return this.transport.json(this.path(agentId), "PUT", { requestId: id(), ...input }, options.signal);
@@ -221,8 +224,8 @@ export class AgentInstancesClient {
   }
 
   /**
-   * Forks the Agent into a new one, `options.id` (Q15): how an Agent moves to a newer manifest
-   * version before track T3. It is made from `options.manifest` (default the source's manifest,
+   * Forks the Agent into a new one, `options.id` (Q15): how an Agent changes what is fixed for its
+   * life (its manifest, kind, harness or storage). It is made from `options.manifest` (default the source's manifest,
    * tracking), its disk starts from `options.disk` (`latest`, the default, snapshots first; a
    * version; or `empty`) and the secrets the new manifest declares are copied
    * (`options.secrets: "none"` copies none). The source keeps what it runs, its disk and its

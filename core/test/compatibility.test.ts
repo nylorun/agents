@@ -189,8 +189,9 @@ describe("checkCompatibility", () => {
     // Protocol 15: a message may name any file; the harness decides how the model sees it.
     expect(ERROR_CODES).not.toContain("attachment_unsupported");
     expect(MODEL_FAILURE_CODES).toContain("unsupported_input");
-    for (const code of ["agent_upgrade_unavailable", "secret_not_in_manifest", "manifest_inconsistent", "manifest_changed"])
+    for (const code of ["agent_fixed_field", "secret_not_in_manifest", "manifest_inconsistent", "manifest_changed"])
       expect(ERROR_CODES).toContain(code);
+    expect(ERROR_CODES).not.toContain("agent_upgrade_unavailable");
     for (const code of ["environment_immutable", "environment_unsuitable", "environment_busy"])
       expect(ERROR_CODES).not.toContain(code);
     // Protocol 11 removed sandbox resources (R2d): no `sandboxes` Host feature.

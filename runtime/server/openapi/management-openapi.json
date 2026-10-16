@@ -108,7 +108,7 @@
               "credential_rejected",
               "mcp_preview_failed",
               "credential_conflict",
-              "agent_upgrade_unavailable",
+              "agent_fixed_field",
               "secret_not_in_manifest",
               "manifest_inconsistent",
               "manifest_not_found",

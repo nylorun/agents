@@ -1,9 +1,17 @@
 /**
- * An Agent's versions (track T3, D73): which version of its agent manifest a session's turn runs.
+ * An Agent's versions (track T3, D73): which version of its agent manifest it runs, how it moves
+ * to another, and which version a session's turn runs.
  *
  * - **One version at a time.** An Agent runs one version of its manifest (`manifestVersion`),
  *   both sections together: the loop manifest its harness section makes, and the runtime its
  *   compute applies (`applied`). A session pins all of it (`pinOf`) when it opens.
+ * - **A move** (`moveAgent`: `PUT /v1/agents/{id}`, and a save for each Agent that tracks the
+ *   manifest) changes no data: its id, disk, vault and sessions stay. A version whose runtime a
+ *   pod applies only when it starts (`START_FIELDS`) makes the Agent outdated (`targetVersion`,
+ *   with the target's runtime in `recipe`) until its pod's next start switches it (`switchTo`);
+ *   any other applies at once. A version that adds a required secret with no value the version
+ *   can use waits for it (`resumeMove` after each secret write). Its manifest's name, kind,
+ *   harness and storage are fixed for its life (`409 agent_fixed_field`).
  * - **A turn takes the Agent's version.** A turn's first segment re-pins its session to the
  *   version the Agent runs when that changed since the session's last turn (`repinTurn`), before
  *   anything of the turn has run: no effect is journaled for it yet. The turn keeps that version
@@ -13,15 +21,21 @@
  * Re-pinning at the first segment, not when the message is accepted, keeps a turn that waits for
  * its compute to start on a version the Agent has at that start.
  */
+import type { AgentMovePlan, EnvironmentRecipe, EnvironmentSecretSlot } from "@nylorun/core/contracts";
 import { hashManifest } from "@nylorun/core/compatibility";
-import { loopManifestOf, type SandboxManifest } from "@nylorun/core/define";
+import { loopManifestOf, runtimeOf, type SandboxManifest } from "@nylorun/core/define";
 import { isWorkflowManifest } from "../core/flow-host.js";
+import { canonical } from "../store/canonical.js";
 import type { AgentManifestRow, Environment, Tx } from "../store/types.js";
-import { sandboxSpecOf } from "../sandbox/resolve.js";
+import { resolveRecipe, sandboxSpecOf } from "../sandbox/resolve.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import { HARNESS_ID } from "../sandbox/placement.js";
+import { slotHolds } from "../vault/service.js";
+import { manifestRecipeRequest, sectionChanges } from "./agent-manifests.js";
 import { harnessOf, type Session } from "./context.js";
 import { fail } from "./http.js";
+import { limitIssues, manifestShapeIssues, readTenantLimits } from "./limits.js";
+import { readRuntimeLimits } from "./runtime-limits.js";
 
 /** What a session pins of the version its Agent runs. */
 export interface SessionPin {
@@ -112,4 +126,222 @@ export async function repinTurn(t: Tx, session: Session): Promise<boolean> {
     delete session.mcpDiagnostics;
   }
   return true;
+}
+
+/** The runtime fields a pod applies only when it starts: a change waits for its next start. */
+const START_FIELDS = ["image", "resources", "network", "setup", "files"] as const;
+
+/** Whether pod Agent `agent` applies `recipe` only at its next start. */
+function needsStart(agent: Environment, recipe: EnvironmentRecipe): boolean {
+  return agent.kind === "pod" && START_FIELDS.some((field) => canonical(recipe[field]) !== canonical(agent.applied[field]));
+}
+
+/** What a move of `agent` to `target` would do, and the target's runtime resolved. */
+export interface Move {
+  plan: AgentMovePlan;
+  target: AgentManifestRow;
+  recipe: EnvironmentRecipe;
+}
+
+/**
+ * The plan of moving `agent` to version `target` of its manifest, named `tracking` after it:
+ * the target's runtime resolved against the Tenant's limits (a `400` when it no longer fits),
+ * what it changes, the fixed fields it would change, and the required secrets it would wait for.
+ */
+export async function planMove(
+  t: Tx,
+  agent: Environment,
+  target: AgentManifestRow,
+  tracking: Environment["manifestRef"],
+): Promise<Move> {
+  const runtime = runtimeOf(target.body);
+  const recipe = target.version === agent.manifestVersion ? agent.applied : await resolvedRuntime(t, target);
+  const refusals: AgentMovePlan["refusals"] = [];
+  const fixed = (field: string, from: unknown, to: unknown) => {
+    if (canonical(from) !== canonical(to))
+      refusals.push({ field, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) });
+  };
+  fixed("kind", agent.kind, runtime.kind);
+  fixed("harness", agent.applied.harness, recipe.harness);
+  fixed("storage", agent.applied.storage, recipe.storage);
+  const { missing, dormant } = await secretsOf(t, agent.id, recipe.secrets);
+  const current = await t.agentManifest(agent.manifestName, agent.manifestVersion);
+  const from = agent.manifestVersion;
+  const applies: AgentMovePlan["applies"] =
+    refusals.length > 0
+      ? "refused"
+      : target.version === from
+        ? "none"
+        : missing.length > 0
+          ? "secrets"
+          : needsStart(agent, recipe)
+            ? "next_start"
+            : "now";
+  return {
+    target,
+    recipe,
+    plan: {
+      agent: agent.id,
+      manifest: tracking === "tracking" ? target.name : `${target.name}@${target.version}`,
+      from,
+      to: target.version,
+      tracking,
+      applies,
+      changes: target.version === from ? [] : sectionChanges(current?.body, target.body),
+      missingSecrets: missing,
+      dormantSecrets: dormant,
+      refusals,
+      sessions: (await t.sessionsOnEnvironment(agent.id)).length,
+    },
+  };
+}
+
+/**
+ * Version `target`'s runtime resolved against the Tenant's limits now, as a create resolves it:
+ * `400` when it no longer fits them. (What an Agent runs already stays, whatever its limits.)
+ */
+async function resolvedRuntime(t: Tx, target: AgentManifestRow): Promise<EnvironmentRecipe> {
+  const runtime = runtimeOf(target.body);
+  const resolved = resolveRecipe(runtime.kind, manifestRecipeRequest(target.body), effectiveSandboxConfig(await readSandboxConfig(t)));
+  const errors = [
+    ...(resolved.kind === "error" ? resolved.errors : []),
+    ...limitIssues(runtime.limits, await readTenantLimits(t)),
+    ...manifestShapeIssues(runtime, await readRuntimeLimits(t)),
+  ];
+  if (resolved.kind === "error" || errors.length > 0)
+    return fail(400, `${target.name}@${target.version} does not fit this Tenant's limits now: ${errors.join(" ")}`);
+  return resolved.recipe;
+}
+
+/**
+ * Of Agent `id`'s vault and the secret slots `slots` of a version: each required slot with no
+ * value that fills it (`slotHolds`), and each secret that fills none, which stays dormant.
+ */
+async function secretsOf(
+  t: Tx,
+  id: string,
+  slots: Record<string, EnvironmentSecretSlot> | undefined,
+): Promise<{ missing: string[]; dormant: string[] }> {
+  const vault = await t.vaultOfEnvironment(id);
+  const rows = vault ? (await t.credentialsForVault(vault.id)).filter((row) => row.type !== "model") : [];
+  if (slots === undefined) return { missing: [], dormant: [] };
+  const fills = (name: string) => rows.some((row) => row.name === name && slotHolds(slots[name]!, row));
+  return {
+    missing: Object.entries(slots)
+      .filter(([name, slot]) => slot.required === true && !fills(name))
+      .map(([name]) => name)
+      .sort(),
+    dormant: rows
+      .filter((row) => slots[row.name] === undefined || !slotHolds(slots[row.name]!, row))
+      .map((row) => row.name)
+      .sort(),
+  };
+}
+
+/** The `409 agent_fixed_field` of a move that would change what is fixed for an Agent's life. */
+export function refuseFixed(agentId: string, plan: Pick<AgentMovePlan, "refusals" | "to" | "from">): never {
+  return fail(
+    409,
+    `Agent ${agentId}'s ${plan.refusals.map((refusal) => refusal.field).join(", ")} ${plan.refusals.length === 1 ? "is" : "are"} fixed for its life, and version ${plan.to} changes ${plan.refusals.length === 1 ? "it" : "them"}: fork it into a new Agent with POST /v1/agents/${encodeURIComponent(agentId)}/fork.`,
+    { code: "agent_fixed_field", details: { fields: plan.refusals, from: plan.from, to: plan.to } },
+  );
+}
+
+/**
+ * Moves `agent` (locked, live) per `move` (`planMove`), in the caller's transaction. A move
+ * replaces a pending one: the runtime it waited to apply is dropped first. `none` (back to what it
+ * runs) only clears the target; `now` switches; `next_start` keeps the target's runtime in
+ * `recipe` for the pod's next start (`switchTo`); `secrets` names the target and waits.
+ * Returns when it applies.
+ */
+export async function moveAgent(t: Tx, agent: Environment, move: Move, now: string): Promise<AgentMovePlan["applies"]> {
+  const { plan, target, recipe } = move;
+  if (plan.applies === "refused") refuseFixed(agent.id, plan);
+  // Asked again while it waits for secrets: nothing new.
+  if (plan.applies === "secrets" && agent.targetVersion === plan.to && agent.appliedVersion === agent.version) {
+    if (agent.manifestRef !== plan.tracking) await t.updateEnvironment(agent.id, { manifestRef: plan.tracking }, now);
+    return plan.applies;
+  }
+  const pending = agent.appliedVersion !== agent.version;
+  // What it runs, with no pending runtime: the base every move starts from.
+  const version = pending ? agent.version + 1 : agent.version;
+  const base = pending ? { recipe: agent.applied, version, appliedVersion: version } : {};
+  const ref = { manifestRef: plan.tracking };
+  switch (plan.applies) {
+    case "none":
+      await t.updateEnvironment(agent.id, { ...base, ...ref, targetVersion: null }, now);
+      break;
+    case "secrets":
+      await t.updateEnvironment(agent.id, { ...base, ...ref, targetVersion: plan.to }, now);
+      await t.agentEvent(agent.id, "agent.outdated", { from: plan.from, to: plan.to, waitingFor: "secrets" });
+      break;
+    case "next_start":
+      // `applied` stays what runs: `recipe` differs from it until the start applies it.
+      await t.updateEnvironment(agent.id, { ...ref, recipe, version: agent.version + 1, targetVersion: plan.to }, now);
+      await t.agentEvent(agent.id, "agent.outdated", { from: plan.from, to: plan.to, waitingFor: "start" });
+      break;
+    case "now":
+      await t.updateEnvironment(
+        agent.id,
+        {
+          ...ref,
+          recipe,
+          applied: recipe,
+          version: version + 1,
+          appliedVersion: version + 1,
+          manifestVersion: target.version,
+          manifestHash: target.hash,
+          targetVersion: null,
+        },
+        now,
+      );
+      await t.agentEvent(agent.id, "agent.version_changed", { from: plan.from, to: plan.to });
+      break;
+  }
+  return plan.applies;
+}
+
+/**
+ * After a secret write: an Agent that waits for its secrets moves on once the target's required
+ * slots are filled (`moveAgent` again, to the same target). In the caller's transaction.
+ */
+export async function resumeMove(t: Tx, agent: Environment, now: string): Promise<void> {
+  if (agent.targetVersion === undefined || agent.appliedVersion !== agent.version) return;
+  const target = await t.agentManifest(agent.manifestName, agent.targetVersion);
+  if (!target) return void (await t.updateEnvironment(agent.id, { targetVersion: null }, now));
+  const move = await planMove(t, agent, target, agent.manifestRef);
+  if (move.plan.applies === "refused") return;
+  await moveAgent(t, agent, move, now);
+}
+
+/**
+ * At a pod Agent's start (`wantRunning`, `newVolume`): switches `agent` (locked) to the version it
+ * moves to when its runtime waits for this start. Applies the target's runtime and version, and
+ * drops the pinned image digest when the image changed. Returns whether it switched.
+ */
+export async function switchTo(t: Tx, agent: Environment, now: string): Promise<boolean> {
+  if (agent.targetVersion === undefined || agent.appliedVersion === agent.version) return false;
+  const target = await t.agentManifest(agent.manifestName, agent.targetVersion);
+  if (!target) return false;
+  await t.updateEnvironment(
+    agent.id,
+    {
+      applied: agent.recipe,
+      appliedVersion: agent.version,
+      manifestVersion: target.version,
+      manifestHash: target.hash,
+      targetVersion: null,
+    },
+    now,
+  );
+  if (agent.pod?.imageDigest !== undefined && canonical(agent.recipe.image) !== canonical(agent.applied.image))
+    await t.updateEnvironmentPod(agent.id, { imageDigest: null }, now);
+  await t.agentEvent(agent.id, "agent.version_changed", { from: agent.manifestVersion, to: target.version });
+  return true;
+}
+
+/** What an outdated Agent waits for: its secrets, or its pod's next start; `null` when it is not. */
+export function waitingFor(agent: Pick<Environment, "targetVersion" | "appliedVersion" | "version">): "secrets" | "start" | null {
+  if (agent.targetVersion === undefined) return null;
+  return agent.appliedVersion === agent.version ? "secrets" : "start";
 }

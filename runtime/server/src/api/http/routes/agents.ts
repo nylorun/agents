@@ -37,6 +37,7 @@ import {
   ListAgentEventsResponse,
   ListAgentSecretsResponse,
   ListAgentsResponse,
+  PutAgentDryRunResponse,
   PutAgentRequest,
   PutAgentSecretRequest,
   PutAgentSecretValueRequest,
@@ -51,9 +52,11 @@ import {
   forkAgent,
   getAgent,
   listAgents,
+  planAgentPut,
   putAgent,
   resetAgent,
   secretRequestFor,
+  secretWritten,
   stopAgent,
 } from "../../../tenant/agents.js";
 import type { TenantEnv } from "../app.js";
@@ -132,7 +135,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Agents"],
       summary: "List Agents",
       description:
-        "Every Agent with all the labels asked for, in `state` and made from `manifest` when given, by id. A token caller sees only the Agents its grants reach, and a caller acting for a person only that person's sessions on each. `limit` opts into pages.",
+        "Every Agent with all the labels asked for, in `state`, made from `manifest` and `outdated` (moving to another version, track T3) when given, by id. A token caller sees only the Agents its grants reach, and a caller acting for a person only that person's sessions on each. `limit` opts into pages.",
       request: {
         query: pageQuery.extend({
           label: z
@@ -141,6 +144,10 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
             .meta({ description: "`key=value`; repeat it to require several labels" }),
           state: z.string().optional().meta({ description: "Only Agents in this state (`input_required`, …)" }),
           manifest: z.string().optional().meta({ description: "Only Agents made from this agent manifest" }),
+          outdated: z
+            .enum(["true", "false"])
+            .optional()
+            .meta({ description: "`true`: only Agents moving to another version of their manifest (waiting for secrets or a start); `false`: only the others" }),
         }),
       },
       responses: {
@@ -151,10 +158,13 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       const state = c.req.query("state");
       if (state !== undefined && !(AGENT_STATES as readonly string[]).includes(state))
         fail(400, `state must be one of ${AGENT_STATES.join(", ")}`);
+      const outdated = c.req.query("outdated");
+      if (outdated !== undefined && outdated !== "true" && outdated !== "false") fail(400, "outdated must be true or false");
       const filters = {
         labels: labelsOf(c.req.queries("label")),
         ...(state === undefined ? {} : { state }),
         ...(c.req.query("manifest") === undefined ? {} : { manifest: c.req.query("manifest")! }),
+        ...(outdated === undefined ? {} : { outdated: outdated === "true" }),
       };
       const limit = c.req.query("limit");
       if (limit === undefined) {
@@ -178,25 +188,31 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       method: "put",
       path: "/v1/agents/{agentId}",
       tags: ["Agents"],
-      summary: "Create or find an Agent",
+      summary: "Create, find or move an Agent",
       description:
-        "Creates the Agent, its vault and its compute from a saved agent manifest, within the Tenant's limits, or answers the one with this id, so get-or-create is one call. `manifest: \"name\"` records that it tracks the manifest and `\"name@n\"` that it is pinned; either way it resolves once, now, into `resolvedVersion`, and keeps that version (track T3 moves a tracking Agent on). On an existing one, labels replace and `owner` sets or (with `null`) clears the owner guard; a manifest that names what it runs is accepted, and any other is `409 agent_upgrade_unavailable`, which names the fork that makes a new Agent instead. Creating an Agent opens no session (D71). Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
+        "Creates the Agent, its vault and its compute from a saved agent manifest, within the Tenant's limits, or answers the one with this id, so get-or-create is one call. `manifest: \"name\"` records that it tracks the manifest (its latest version, and each version saved later) and `\"name@n\"` that it is pinned; the version it runs is `resolvedVersion`. On an existing one, labels replace, `owner` sets or (with `null`) clears the owner guard, and `manifest` moves it (track T3) with its id, disk, vault and sessions: a harness-only change applies at once (each session's next turn runs it), a runtime change of a pod at its next start (`targetVersion`, `waitingFor: start`), and a version that adds a required secret once a value is set (`waitingFor: secrets`). Its manifest's name, kind, harness and storage are fixed (`409 agent_fixed_field`): fork it to change them. `?dryRun=true` answers the move's plan and changes nothing. Creating an Agent opens no session (D71). Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
       request: {
         params: agentId,
+        query: z.object({
+          dryRun: z.enum(["true", "false"]).optional().meta({ description: "`true`: the plan of moving the existing Agent, with nothing changed" }),
+        }),
         body: { required: true, content: { "application/json": { schema: PutAgentRequest } } },
       },
       responses: {
-        200: json(AgentView, "The Agent"),
-        404: { description: "No agent manifest has this name or version (`manifest_not_found`)" },
+        200: json(z.union([AgentView, PutAgentDryRunResponse]), "The Agent, or with `dryRun` the plan of its move"),
+        404: { description: "No agent manifest has this name or version (`manifest_not_found`), or a dry run names no Agent" },
         409: {
           description:
-            "An Agent with this id runs another manifest version (`agent_upgrade_unavailable`), the Tenant holds as many Agents as it allows (`limit_exceeded`), kind pod without sandbox pods (`agent_unavailable`), or it is being deleted (`agent_busy`)",
+            "A move would change its manifest's name, its kind, harness or storage (`agent_fixed_field`), the Tenant holds as many Agents as it allows (`limit_exceeded`), kind pod without sandbox pods (`agent_unavailable`), or it is being deleted (`agent_busy`)",
         },
       },
     },
     async (c) => {
       const id = idOf(c.req.param("agentId"));
       const body = PutAgentRequestSchema.parse(await readJson(c));
+      const dryRun = c.req.query("dryRun");
+      if (dryRun !== undefined && dryRun !== "true" && dryRun !== "false") fail(400, "dryRun must be true or false");
+      if (dryRun === "true") return jsonResponse(200, await planAgentPut(c.env.tenant, id, body, c.get("scope")));
       return jsonResponse(200, await putAgent(c.env.tenant, id, body, c.get("scope")));
     },
   );
@@ -230,7 +246,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Agents"],
       summary: "Read an Agent's events",
       description:
-        "`agent.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, and `agent.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
+        "`agent.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, `.forked`, a move's `.outdated` and `.version_changed` (track T3), and `agent.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
       request: {
         params: agentId,
         query: z.object({
@@ -388,7 +404,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Agents"],
       summary: "Fork an Agent",
       description:
-        "Copies the Agent into a new one, which is how an Agent moves to a newer manifest version before track T3 (Q15): a new Agent `id`, made from `manifest` (default the source's manifest name, tracking, at its latest version), its disk started from a version of this one's (`disk`: `latest`, the default, takes a snapshot first; a version number; or `empty`) and its secrets copied inside the Runtime (`secrets`: `copy`, the default, copies those the new manifest declares; `none`). On a fork onto other setup the new manifest's setup runs on the copied disk before its first turn. This Agent keeps what it runs, its disk and its sessions. `dryRun` answers the plan and makes nothing.",
+        "Copies the Agent into a new one (Q15), which is how an Agent changes what is fixed for its life: a new Agent `id`, made from `manifest` (default the source's manifest name, tracking, at its latest version), its disk started from a version of this one's (`disk`: `latest`, the default, takes a snapshot first; a version number; or `empty`) and its secrets copied inside the Runtime (`secrets`: `copy`, the default, copies those the new manifest declares; `none`). On a fork onto other setup the new manifest's setup runs on the copied disk before its first turn. This Agent keeps what it runs, its disk and its sessions. `dryRun` answers the plan and makes nothing. To move an Agent to another version of the same manifest, with the same kind, harness and storage, `PUT` it instead (track T3).",
       request: {
         params: agentId,
         body: { required: true, content: { "application/json": { schema: ForkAgentRequest } } },
@@ -497,7 +513,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Agents"],
       summary: "Write an Agent's secret",
       description:
-        "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (D64), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`.",
+        "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (D64; while it moves to another version, that version's), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`.",
       request: {
         params: secretPath,
         body: {
@@ -516,7 +532,10 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       assertReaches(scope, id);
       const name = c.req.param("name") ?? "";
       const body = await secretRequestFor(c.env.tenant, id, name, await readJson(c));
-      return jsonResponse(200, await c.env.tenant.keys.putEnvironmentSecret(id, name, body, actorOf(scope)));
+      const secret = await c.env.tenant.keys.putEnvironmentSecret(id, name, body, actorOf(scope));
+      // A move that waited for this secret goes on (track T3).
+      await secretWritten(c.env.tenant, id);
+      return jsonResponse(200, secret);
     },
   );
 

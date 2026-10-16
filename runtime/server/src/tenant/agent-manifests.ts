@@ -6,16 +6,18 @@
  *
  * - **Versions.** A save whose manifest hashes the same as the latest answers it unchanged; any
  *   other writes the next version. A version is never changed or deleted alone.
- * - **No Agent changes.** Saving a version reaches no Agent: an Agent is made from one version and
- *   keeps it (`putAgent`; track T3 moves a tracking one on). The plan counts those behind.
+ * - **Tracking Agents move.** Saving a version moves every Agent that tracks the manifest to it
+ *   (track T3, `moveAgent`), in the save's transaction: at once, at its pod's next start, or once
+ *   its required secrets are set. A pinned Agent stays, and so does one the version cannot move
+ *   (a fixed field) or whose start failed on it. The plan counts both.
  * - **Both sections at once.** The Runtime sees both sections, so it checks them against each
  *   other (`sectionGaps`): every gap is named in one `422 manifest_inconsistent`, which is what
  *   `requires` checked when a session opened before protocol 16. Each section's own checks run
  *   too: the harness's (no code tools, no approvals, HTTP tool timeouts, the skill files) and the
  *   runtime's (the Tenant's limits, its files).
  * - **Plan and drift.** `?dryRun=true` answers what a save would do and saves nothing: the
- *   changes from the latest by section, every reason the Runtime would refuse it, warnings, and
- *   how many Agents stay on older versions. `If-Match: <version>` refuses
+ *   changes from the latest by section, every reason the Runtime would refuse it, warnings, the
+ *   Agents it moves and how many stay on older versions. `If-Match: <version>` refuses
  *   (`412 manifest_changed`) a save whose latest version moved since the client read it; `0` asks
  *   for a manifest that does not exist yet.
  * - **Every client is equal** (Q12): a version records who saved it (`savedBy`).
@@ -42,7 +44,7 @@ import {
   sectionGaps,
 } from "@nylorun/core/define";
 import { canonical } from "../store/canonical.js";
-import type { AgentManifestRow, Tx } from "../store/types.js";
+import type { AgentManifestRow, Environment, Tx } from "../store/types.js";
 import { resolveRecipe, type RecipeRequest } from "../sandbox/resolve.js";
 import { declaredSandboxes } from "../sandbox/share.js";
 import { httpToolTimeoutIssues } from "../gates/http-tool.js";
@@ -51,6 +53,7 @@ import { readRuntimeLimits } from "./runtime-limits.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import type { AuthScope, TenantContext } from "./context.js";
 import { actorOf, fileErrors } from "./agents.js";
+import { moveAgent, planMove } from "./agent-versions.js";
 import { definitionFileIssues } from "./definition-files.js";
 import { fail } from "./http.js";
 
@@ -152,8 +155,55 @@ export function sectionChanges(before: Partial<AgentManifestV8> | undefined, aft
   return changes;
 }
 
+/** The Agents a save of version `to` moves (track T3), by when it applies, and those that stay behind. */
+interface Moves {
+  now: number;
+  nextStart: number;
+  secrets: number;
+  behind: number;
+}
+
+/**
+ * Each live Agent of manifest `name` on another version than `to`, and whether a save of `to`
+ * moves it: it tracks the manifest, is not moving to `to` already, and `to` did not fail to start on it.
+ */
+async function agentsBehind(t: Tx, name: string, to: number): Promise<{ agent: Environment; moves: boolean }[]> {
+  return (await t.listEnvironments())
+    .filter((agent) => agent.manifestName === name && agent.pod?.desired !== "deleted" && agent.manifestVersion !== to)
+    .map((agent) => ({
+      agent,
+      moves: agent.manifestRef === "tracking" && agent.targetVersion !== to && agent.failedVersion !== to,
+    }));
+}
+
+/**
+ * Plans (or with `apply`, makes) the move of each Agent that tracks manifest `version.name` to
+ * `version` (track T3): each under its row lock, in the save's transaction.
+ */
+async function moveTracking(t: Tx, version: AgentManifestRow, apply: boolean): Promise<Moves> {
+  const moves: Moves = { now: 0, nextStart: 0, secrets: 0, behind: 0 };
+  const now = new Date().toISOString();
+  for (const { agent: listed, moves: tracks } of await agentsBehind(t, version.name, version.version)) {
+    const agent = tracks && apply ? await t.environment(listed.id, { lock: true }) : listed;
+    if (!agent || !tracks) {
+      if (agent && agent.targetVersion !== version.version) moves.behind++;
+      continue;
+    }
+    const move = await planMove(t, agent, version, "tracking");
+    if (move.plan.applies === "refused") {
+      moves.behind++;
+      continue;
+    }
+    const applies = apply ? await moveAgent(t, agent, move, now) : move.plan.applies;
+    if (applies === "now") moves.now++;
+    else if (applies === "next_start") moves.nextStart++;
+    else if (applies === "secrets") moves.secrets++;
+  }
+  return moves;
+}
+
 /** What a save of `manifest` should tell its saver, though it would be saved. */
-function warningsOf(ctx: TenantContext, manifest: AgentManifestV8, behind: Map<number, number>): AgentManifestWarning[] {
+function warningsOf(ctx: TenantContext, manifest: AgentManifestV8, to: number, moves: Moves | undefined): AgentManifestWarning[] {
   const warnings: AgentManifestWarning[] = [];
   const runtime = runtimeOf(manifest);
   if (runtime.image !== undefined && !runtime.image.includes("@sha256:"))
@@ -166,12 +216,24 @@ function warningsOf(ctx: TenantContext, manifest: AgentManifestV8, behind: Map<n
       code: "pods_unavailable",
       message: "runtime.kind pod needs sandbox pods, which this Tenant does not have: an Agent made from it is refused until `nylorun local sandbox enable`.",
     });
-  for (const [version, agents] of [...behind].sort(([a], [b]) => a - b))
-    if (agents > 0)
-      warnings.push({
-        code: "agents_behind",
-        message: `${agents} Agent${agents === 1 ? " was" : "s were"} made from ${manifest.name}@${version} and stay${agents === 1 ? "s" : ""} on it until upgrades ship (track T3).`,
-      });
+  if (moves === undefined) return warnings;
+  const moved = moves.now + moves.nextStart + moves.secrets;
+  if (moved > 0) {
+    const parts = [
+      ...(moves.now > 0 ? [`${moves.now} at once`] : []),
+      ...(moves.nextStart > 0 ? [`${moves.nextStart} at their pod's next start`] : []),
+      ...(moves.secrets > 0 ? [`${moves.secrets} once their required secrets are set`] : []),
+    ];
+    warnings.push({
+      code: "agents_move",
+      message: `${moved} Agent${moved === 1 ? " tracks" : "s track"} ${manifest.name} and move${moved === 1 ? "s" : ""} to version ${to}: ${parts.join(", ")}.`,
+    });
+  }
+  if (moves.behind > 0)
+    warnings.push({
+      code: "agents_behind",
+      message: `${moves.behind} Agent${moves.behind === 1 ? " stays" : "s stay"} on an older version of ${manifest.name}: pinned, or ${moves.behind === 1 ? "it" : "they"} cannot move to version ${to} (move or fork ${moves.behind === 1 ? "it" : "them"}).`,
+    });
   return warnings;
 }
 
@@ -261,21 +323,25 @@ export async function saveAgentManifest(
     const unchanged = latest?.hash === hash;
     const to = unchanged ? latest!.version : (latest?.version ?? 0) + 1;
     const counts = await t.agentsOfManifest(name);
-    const behind = new Map([...counts].filter(([version]) => version < to));
-    const warnings = warningsOf(ctx, manifest, behind);
     const checked = await errorsOf(t, manifest);
+    // The version as it would be saved, for the plan of the Agents it moves.
+    const row: AgentManifestRow = unchanged
+      ? latest!
+      : { name, version: to, body: manifest, hash, savedBy: { actor: actorOf(scope) }, createdAt: new Date().toISOString() };
     if (options.dryRun) {
-      let behindCount = 0;
-      for (const n of behind.values()) behindCount += n;
+      const errors = [...gaps, ...checked.errors];
+      // A save with errors moves nothing; one that changes nothing moves no Agent either.
+      const moves = errors.length > 0 || unchanged ? undefined : await moveTracking(t, row, false);
       return {
         name,
         from: latest?.version ?? null,
         to,
         unchanged,
         changes: unchanged ? [] : sectionChanges(latest?.body, manifest),
-        warnings,
-        errors: [...gaps, ...checked.errors],
-        behind: behindCount,
+        warnings: warningsOf(ctx, manifest, to, moves),
+        errors,
+        behind: moves?.behind ?? (await agentsBehind(t, name, to)).length,
+        moves: { now: moves?.now ?? 0, nextStart: moves?.nextStart ?? 0, secrets: moves?.secrets ?? 0 },
       };
     }
     if (gaps.length > 0)
@@ -294,21 +360,15 @@ export async function saveAgentManifest(
         details: { limitBytes: checked.limitBytes, skills: checked.oversized },
       });
     if (checked.errors.length > 0) fail(400, checked.errors.join(" "));
-    if (unchanged) return { manifest: viewOf(latest!, counts), unchanged: true, warnings };
-    const row: AgentManifestRow = {
-      name,
-      version: to,
-      body: manifest,
-      hash,
-      savedBy: { actor: actorOf(scope) },
-      createdAt: new Date().toISOString(),
-    };
+    if (unchanged) return { manifest: viewOf(latest!, counts), unchanged: true, warnings: warningsOf(ctx, manifest, to, undefined) };
     await t.insertAgentManifest(row);
     // Its files by hash, skills' and runtime files' alike, for the sweep that deletes unused ones.
     const shas = new Set(definitionFilesOf(loopManifestOf(manifest)));
     for (const file of runtimeOf(manifest).files ?? []) if ("files" in file) for (const sha of Object.values(file.files)) shas.add(sha);
     if (shas.size > 0) await t.insertDefinitionFileUses(manifestFileOwner(name), hash, [...shas]);
-    return { manifest: viewOf(row, counts), unchanged: false, warnings };
+    // Every Agent that tracks the manifest moves to the new version (track T3).
+    const moves = await moveTracking(t, row, true);
+    return { manifest: viewOf(row, await t.agentsOfManifest(name)), unchanged: false, warnings: warningsOf(ctx, manifest, to, moves) };
   });
 }
 
