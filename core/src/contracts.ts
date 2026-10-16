@@ -1053,8 +1053,19 @@ export const AgentViewSchema = z
     targetVersion: z.number().int().positive().nullable(),
     /** What the move to `targetVersion` waits for, else `null`. */
     waitingFor: z.enum(["secrets", "start"]).nullable(),
-    /** A version that failed to start: a tracking Agent does not move to it again on its own. */
+    /**
+     * A version that failed to start: the Agent went back to the one it ran, and a tracking Agent
+     * does not move to it again on its own. `null` once a start on a new version succeeds.
+     */
     failedVersion: z.number().int().positive().nullable(),
+    /**
+     * While its pod starts on a new version: the version it ran before, which a failed start
+     * goes back to, and since when it starts. `null` otherwise.
+     */
+    startCheck: z
+      .object({ from: z.number().int().positive(), startedAt: z.string() })
+      .strict()
+      .nullable(),
     kind: z.enum(ENVIRONMENT_KINDS),
     /** The harness that runs its loop: its manifest's `harness.id`, else `nylorun`. */
     harness: z.string(),
@@ -1255,6 +1266,7 @@ export const AGENT_EVENT_TYPES = [
   // Moved to another version of its manifest (track T3, D73).
   "agent.outdated",
   "agent.version_changed",
+  "agent.start_failed",
   // egress-gate: every connection the Agent opens (R7, D67).
   "agent.egress",
 ] as const;
@@ -1287,7 +1299,7 @@ export const AGENT_EVENT_PAYLOADS = {
   /** A pod joined and serves the Agent. */
   "agent.running": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again. */
-  "agent.suspended": z.object({ reason: z.enum(["stop", "idle"]) }).passthrough(),
+  "agent.suspended": z.object({ reason: z.enum(["stop", "idle", "restart"]) }).passthrough(),
   /** Its pod was replaced (same volume): the old pod's host token no longer works. */
   "agent.relaunched": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Its volume or node is gone: turns are refused until a reset. */
@@ -1319,6 +1331,18 @@ export const AGENT_EVENT_PAYLOADS = {
   /** Runs version `to` of its manifest now: turns that start from here run it (track T3). */
   "agent.version_changed": z
     .object({ from: z.number().int().positive(), to: z.number().int().positive() })
+    .passthrough(),
+  /**
+   * Its pod did not start on version `to` (its setup failed, the pod failed, or it took longer
+   * than the Host allows): it went back to version `from`, with its disk as it was (track T3).
+   */
+  "agent.start_failed": z
+    .object({
+      from: z.number().int().positive(),
+      to: z.number().int().positive(),
+      reason: z.string(),
+      reverted: z.boolean(),
+    })
     .passthrough(),
   /** A connection through egress-gate, with the turns running as it opened (D67). */
   "agent.egress": EgressConnectionPayloadSchema,
@@ -2143,6 +2167,15 @@ export const AgentMovePlanSchema = z
   })
   .strict();
 export type AgentMovePlan = z.infer<typeof AgentMovePlanSchema>;
+/**
+ * `POST /v1/agents/{id}/restart` (track T3): applies a pending version now. A running pod stops,
+ * so the next turn starts it on the version (a stopped one starts at once); `retry` first moves
+ * it to the version that failed to start (`failedVersion`) again.
+ */
+export const RestartAgentRequestSchema = z
+  .object({ requestId: RequestIdSchema.optional(), retry: z.boolean().optional() })
+  .strict();
+export type RestartAgentRequest = z.infer<typeof RestartAgentRequestSchema>;
 export const PutAgentDryRunResponseSchema = z
   .object({ dryRun: z.literal(true), plan: AgentMovePlanSchema })
   .strict();

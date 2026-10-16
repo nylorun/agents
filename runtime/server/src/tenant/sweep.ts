@@ -52,6 +52,7 @@ import {
 import type { PendingRequest } from "../store/types.js";
 import type { TenantContext } from "./context.js";
 import { hostTuning } from "../tuning.js";
+import { sweepStartChecks } from "./agent-versions.js";
 
 /*
  * The sweep's timings are the Host tuning's `sweep` group (`tuning.ts`):
@@ -129,6 +130,8 @@ export async function sweep(ctx: TenantContext): Promise<void> {
       : []),
     // Environments unused for their `lifecycle.deleteAfter`: one query when none is due.
     ["agents", () => sweepUnusedAgents(ctx, now.getTime())],
+    // Pods slower than `tenant.upgradeStartMs` to start on a new version go back (track T3).
+    ["starts", () => sweepStartChecks(ctx, now.getTime())],
     // Seeds of new volumes whose engine is connected and no process copies (R2d step 3).
     ["seeds", () => sweepPendingSeeds(ctx)],
     // A harness elsewhere closes its own idle MCP connections.

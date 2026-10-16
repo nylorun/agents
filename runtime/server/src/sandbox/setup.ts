@@ -10,8 +10,12 @@
  * a pod reads the artifact versions and the definition files by hash (Q6) its own recipe names,
  * and nothing else of the Object store.
  *
+ * The plan's `setupHash` names its commands and files: the engine runs the setup again on a volume
+ * whose marker names another (a new version's setup, track T3).
+ *
  * A failed command fails the pod (`observed: failed`, a reason that starts `setup:`, and
- * `agent.failed` with the command, its exit code and the end of its output): the turn that
+ * `agent.failed` with the command, its exit code and the end of its output), or, on a start on
+ * a new version, takes the Agent back to the version it ran (`revertStart`, T3): the turn that
  * waits for it fails with that reason (`podUnusable`, `tenant/advance.ts`), the failure stays
  * until a turn start asks the pod to run again (`wantRunning`), and the engine, polling, runs the
  * setup again then.
@@ -21,7 +25,9 @@ import {
   type EnvironmentRecipe,
   type FolderManifest,
 } from "@nylorun/core/contracts";
+import { createHash } from "node:crypto";
 import { parseSandboxDuration } from "@nylorun/core/define";
+import { canonical } from "../store/canonical.js";
 import { contentKey, readManifest } from "../artifacts/folders.js";
 import { contentTypeFor } from "@nylorun/core/contracts";
 import { definitionFileKey } from "../tenant/definition-files.js";
@@ -29,6 +35,7 @@ import type { Environment, Tx } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
 import { SETUP_FAILED } from "./pods/lifecycle.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
+import { revertStart } from "../tenant/agent-versions.js";
 
 export { SETUP_FAILED };
 
@@ -37,6 +44,8 @@ export { SETUP_FAILED };
 export interface SetupPlan {
   /** The applied recipe's version: written into the volume's marker. */
   readonly recipeVersion: number;
+  /** The sha256 of the commands and files: a marker with another runs the setup again (T3). */
+  readonly setupHash: string;
   readonly commands: readonly { readonly command: string; readonly cwd: string; readonly timeoutMs: number }[];
   /** Each input file by its index into the recipe's `files`, and where it goes. */
   readonly files: readonly { readonly index: number; readonly path: string }[];
@@ -58,6 +67,7 @@ export async function setupPlanOf(
     Math.min(parseSandboxDuration(timeout ?? ENVIRONMENT_SETUP_TIMEOUT_DEFAULT)!, setupCommandMs);
   return {
     recipeVersion: environment.appliedVersion,
+    setupHash: createHash("sha256").update(canonical({ setup: recipe.setup ?? [], files: recipe.files ?? [] })).digest("hex"),
     commands: (recipe.setup ?? []).map((command) => ({
       command: command.command,
       cwd: command.cwd ?? "/workspace",
@@ -123,7 +133,6 @@ export async function recordSetup(
       command === undefined ? "copying the input files failed" : `command ${report.index! + 1} (${command.command.slice(0, setupCommandExcerptChars)}) exited ${report.exitCode ?? "abnormally"}`;
     const tail = output.trim().slice(-setupReasonChars);
     const reason = `${SETUP_FAILED} ${what}${tail ? `: ${tail}` : ""}`;
-    await t.updateEnvironmentPod(id, { observed: "failed", reason }, new Date().toISOString());
     await t.agentEvent(id, "agent.failed", {
       reason,
       setup: {
@@ -132,6 +141,9 @@ export async function recordSetup(
         output,
       },
     });
+    // On a start on a new version (track T3), back to the version it ran; else failed.
+    if (!(await revertStart(t, environment, reason, new Date().toISOString())))
+      await t.updateEnvironmentPod(id, { observed: "failed", reason }, new Date().toISOString());
   });
   if (report.status === "failed")
     ctx.config.logger.warn("environment setup failed", { environmentId: id, index: report.index, exitCode: report.exitCode });

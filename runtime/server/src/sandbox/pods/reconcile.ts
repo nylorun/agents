@@ -26,6 +26,7 @@ import type { PodStatus } from "./client.js";
 import { decide, type PodRow, type PodTimer, type PodTrigger } from "./lifecycle.js";
 import { podLifecycleConfig, podSpecOf } from "./spec.js";
 import { hostTuning } from "../../tuning.js";
+import { idleMsOf, revertStart } from "../../tenant/agent-versions.js";
 
 /** What a reconcile asks of the `Sandbox` object next. */
 export interface SandboxReconcileResult {
@@ -63,7 +64,8 @@ export async function reconcileSandbox(
       return undefined;
     }
   };
-  const lifecycle = podLifecycleConfig(config, row.recipe);
+  // While a start would apply a new version (track T3), it idles at most `tenant.upgradeIdleMs`.
+  const lifecycle = { ...podLifecycleConfig(config, row.recipe), idleMs: idleMsOf(config, row) };
   const decision = decide({
     row,
     image: row.applied.image ?? DEFAULT_SANDBOX_IMAGE,
@@ -155,6 +157,12 @@ export async function reconcileSandbox(
       await t.updateEnvironmentPod(sandboxId, finalPatch, new Date().toISOString());
     for (const item of decision.events) await t.agentEvent(sandboxId, item.type, item.payload as never);
     if (epochMoved) await t.signal({ type: "host.revoked", sandboxId, epoch: finalPatch.hostEpoch! });
+    // A pod that failed to start on a new version goes back to the version it ran (track T3).
+    if (finalPatch.observed === "failed" && current.startCheck) {
+      const failed = (await t.environment(sandboxId, { lock: true }))!;
+      await revertStart(t, failed, finalPatch.reason ?? "The pod failed", new Date().toISOString());
+      return { kind: "changed" as const };
+    }
     return { kind: "written" as const };
   });
   if (written.kind === "changed") return { retryAfterMs: 0 };

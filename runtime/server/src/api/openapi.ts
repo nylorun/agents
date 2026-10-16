@@ -188,6 +188,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "GET /v1/agents/{agentId}/events",
       "POST /v1/agents/{agentId}/stop",
       "POST /v1/agents/{agentId}/reset",
+      "POST /v1/agents/{agentId}/restart",
       "DELETE /v1/agents/{agentId}",
       "GET /v1/agents/{agentId}/secrets",
       "GET /v1/agents/{agentId}/secrets/{name}",

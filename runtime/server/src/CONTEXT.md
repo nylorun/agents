@@ -286,7 +286,13 @@ a pod applies only when it starts (image, resources, network, setup, files) leav
 (`targetVersion`, the target's runtime in `recipe`) until its pod's next start (`switchTo` in
 `wantRunning` and `newVolume`); a version adding a required secret with no value waits for one
 (`resumeMove` after each secret write). Its manifest's name, kind, harness and storage are fixed
-(`409 agent_fixed_field`): a fork changes them. Creating one opens no session:
+(`409 agent_fixed_field`): a fork changes them. A pod's start on a new version is checked
+(`startCheck`, cleared when the new pod's harness says `hello`): a failed setup, a failed pod or a
+start past `tenant.upgradeStartMs` goes back to what it ran (`revertStart`: the definition, not the
+disk) and names the version `failedVersion` (state `failing`) until a later start succeeds. A new
+version's setup runs on the same volume when its `setupHash` differs from the volume's marker.
+While outdated, a pod idles at most `tenant.upgradeIdleMs`; `POST .../restart` (with `retry`, the
+failed version again) applies the version now. Creating one opens no session:
 no session is special (D71), and the app opens sessions on it with ids it picks. When its manifest
 declares secret **slots** (`recipe.secrets`, D64; while it moves, the target's), a secret write
 sends only the value (`secretRequestFor`) and a name it does not declare is

@@ -71,6 +71,7 @@ import { RecordEntryTooLargeError } from "../record/index.js";
 import { redactTokens } from "./redact.js";
 import { beat, renewEveryMs, tokenOf } from "./renew.js";
 import { hostTuning } from "../tuning.js";
+import { passStartCheck } from "../tenant/agent-versions.js";
 
 /** Who is on the other end of a connection. */
 export interface HarnessPeer {
@@ -394,6 +395,8 @@ export function createHarnessApiServer(
           "invalid",
           `Environment ${connection.host.sandboxId} runs the ${expected} harness, and this pod says ${name}`
         );
+      // Its pod started on the version it switched to, setup done (track T3): the start check passed.
+      if (environment?.startCheck) await passStartCheck(ctx, connection.host.sandboxId, connection.host.epoch);
     }
     return name;
   };
