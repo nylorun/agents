@@ -1996,8 +1996,8 @@ export const RunTriggerResponseSchema = z.object({ run: TriggerRunSchema }).stri
 /**
  * What the Runtime provides around the loop: the `runtime` section of agent manifest v8, with
  * environment manifest v1's fields but its identity and its `harness` (now `harness.id`).
- * `triggers` (track T4, D74) start the Agent's turns with no client connected; `selfWake` is
- * reserved for T4's next step and refused until then.
+ * `triggers` (track T4, D74) start the Agent's turns with no client connected; `selfWake` offers
+ * the agent `schedule_wake`, which books its session's next turn (D77).
  */
 const runtimeSectionObject = z
   .strictObject(
@@ -2020,9 +2020,8 @@ const runtimeSectionObject = z
         .meta({ description: "What starts the Agent's turns with no client connected, by trigger id (D74)" }),
       selfWake: z
         .boolean()
-        .refine((value) => value === undefined, { message: "runtime.selfWake is not available yet" })
         .optional()
-        .meta({ description: "Reserved for schedule_wake (D77); refused for now" }),
+        .meta({ description: "Offer the agent schedule_wake: it books its session's next turn itself (D77)" }),
     },
     { error: removedFieldError(REMOVED_RUNTIME_SECTION_FIELDS) },
   )
@@ -2979,10 +2978,11 @@ export const ContextCompactedPayloadSchema = z
 export const TOOL_CALL_STATUSES = ["completed", "failed", "cancelled"] as const;
 /**
  * Where a tool call ran (R5.1), its effect's target kind (protocol 15): an MCP server, an HTTP
- * tool's URL, the session's sandbox, or the harness that runs the turn (`harness`: a tool it runs
- * in its own process, such as our engine's skill, artifact and `tool_search` tools).
+ * tool's URL, the session's sandbox, the harness that runs the turn (`harness`: a tool it runs
+ * in its own process, such as our engine's skill, artifact and `tool_search` tools), or the
+ * Runtime itself (`runtime`: `schedule_wake`, track T4).
  */
-export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "harness"] as const;
+export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "harness", "runtime"] as const;
 /**
  * What the Tenant's tool policy did with a tool call (R5 step 2), when it did more than allow
  * it: `deny` refused it unsent; `ask` held it for a person, who approved it (`approvedBy`, when
@@ -3127,6 +3127,14 @@ export const TurnCancelledPayloadSchema = z
 export const MessageQueuedPayloadSchema = z
   .object({ queuedMessageId: z.string(), position: z.number().int().positive(), requestId: z.string() })
   .passthrough();
+/**
+ * `wake.booked` (track T4, D77): the session's agent booked its next turn with `schedule_wake`,
+ * at `at`, replacing any booking before. `wake.cancelled`: it cancelled its booking.
+ */
+export const WakeBookedPayloadSchema = z
+  .object({ at: z.string(), note: z.string(), effectId: z.string(), replaced: z.boolean() })
+  .passthrough();
+export const WakeCancelledPayloadSchema = z.object({ effectId: z.string() }).passthrough();
 /** `queue.taken` (protocol 17): the turn that started with the queued messages, in order. */
 export const QueueTakenPayloadSchema = z
   .object({ turnId: z.string(), queuedMessageIds: z.array(z.string()).min(1) })
@@ -3447,6 +3455,8 @@ export const EVENT_CATALOG = {
   "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1 },
   "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1 },
   "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
+  "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1 },
+  "wake.cancelled": { payload: WakeCancelledPayloadSchema, source: "api", version: 1 },
   "message.assistant": { payload: AssistantMessagePayloadSchema, source: "loop", version: 1 },
   "model.failed": { payload: ModelFailedPayloadSchema, source: "loop", version: 1 },
   "context.compacted": { payload: ContextCompactedPayloadSchema, source: "loop", version: 1 },

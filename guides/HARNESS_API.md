@@ -212,10 +212,11 @@ What an intent carries:
     | `{kind: "http", tool}` | the call's agent declares an HTTP tool named `tool` | you, through the Tool Gate |
     | `{kind: "sandbox"}` | the session has a sandbox and `toolName` is one of `bash`, `read`, `write`, `edit`, `grep`, `glob` | you, in the session's sandbox |
     | `{kind: "harness"}` | always: your own process, whose egress gate is its only control | you |
+    | `{kind: "runtime", operation: "schedule_wake"}` | the session's version sets `runtime.selfWake` (`turn.start.agent.selfWake`); input `{in \| at, note}` or `{cancel: true}` | core, in the intent's own transaction: answered `completed`, never `execute` |
     Each refusal is answered `completed` with a failure and never runs: an MCP tool the session
     did not discover is `tool.unknown`, one the turn disabled `tool.disabled`, and a call with no
     target, or an HTTP tool or sandbox the session lacks, `tool.unavailable`. Core runs no tool
-    itself: `tool_search` over deferred tools is yours (ours is a `harness` call), and the
+    itself but `schedule_wake` (track T4): `tool_search` over deferred tools is yours (ours is a `harness` call), and the
     deferred tool's call names its own MCP target. A tool of yours may take any name; a name two
     of the model's tools share is yours to refuse. `skill` (optional) names the skill the call
     ran.

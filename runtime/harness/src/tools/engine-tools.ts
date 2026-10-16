@@ -6,7 +6,8 @@
  *
  * - instructions: the skills' usage and catalog; the sandbox note; the skills' folder note;
  *   the artifact notes;
- * - tools: the six sandbox tools; the skill tools; `save_artifact`; `read_artifact`.
+ * - tools: the six sandbox tools; the skill tools; `save_artifact`; `read_artifact`; and
+ *   `schedule_wake` when the session's version sets `runtime.selfWake` (track T4).
  *
  * They come after the agent's own and before the session's MCP tools (`mcpToolSet`), and are
  * not hashed.
@@ -17,6 +18,7 @@ import type { DurableSessionTool } from "../run/durable.js";
 import { artifactInstructions, artifactToolsFor } from "./artifacts.js";
 import { sandboxInstructions, sandboxTools, type SandboxToolLimits } from "./sandbox.js";
 import { skillCatalogText, skillFolderNote, skillTools } from "./skills.js";
+import { wakeTool } from "./wake.js";
 import type { McpToolConfig } from "./mcp.js";
 import type { ToolResultConfig } from "./results.js";
 import type { OutputsConfig } from "./outputs.js";
@@ -59,11 +61,15 @@ export function engineToolsFor(
     if (skills.length > 0) instructions.push(skillFolderNote(skills));
   }
   instructions.push(...artifactInstructions(sandboxed));
+  // A session that may book its own next turn (track T4, D77).
+  const wake = runsOn?.selfWake === true ? wakeTool() : undefined;
+  if (wake) instructions.push(wake.instructions);
   return {
     tools: [
       ...(sandboxed ? sandboxTools(options.sandboxTools, workspace) : []),
       ...skillTools(skills),
       ...artifactToolsFor(sandboxed, { pageBytes: options.artifactPageBytes }),
+      ...(wake ? [wake.tool] : []),
     ],
     instructions,
   };

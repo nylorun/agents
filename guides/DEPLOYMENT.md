@@ -758,6 +758,8 @@ What only the Runtime checks:
 | `triggerJitterMaxMs` | The most that offset may be | 5 min | A JavaScript timer |
 | `triggerPromptChars` | One trigger's `prompt` | 8,000 characters | One record entry, escaped |
 | `triggerRunRetentionMs` | How long an Agent's runs are kept | 30 days | A JavaScript number; floor 24 h (runs dedupe repeated fires) |
+| `wakeMaxAheadMs` | How far ahead `schedule_wake` may book a session's next turn (and at least `triggerMinIntervalMs` ahead) | 30 days | A JavaScript number; a long wait is armed in steps |
+| `wakeNoteChars` | The longest note a booked wake carries to its turn | 2,000 characters | One record entry, escaped |
 | `webhookBodyBytes` | The largest delivery a webhook endpoint reads, before it verifies it (`413` past it) | 256 KiB | 960 KiB: the payload goes into one record entry |
 
 A limit above its ceiling, or under its floor, is `400`, naming the bound and why, and nothing changes.

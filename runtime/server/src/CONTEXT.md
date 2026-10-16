@@ -917,6 +917,20 @@ it is data from an outside sender that cannot approve anything: a label, not a d
 senders are relayed by an app. _Avoid_: "hook URL", "inbound webhook" for the endpoint; "token" for
 the secret.
 
+**Booked wake** (track T4, D77): A turn a session's agent booked for itself with `schedule_wake`,
+which our engine offers when the version the session runs sets `runtime.selfWake`
+(`turn.start.agent.selfWake`). The call is a `runtime` effect (`EffectTarget {kind: "runtime",
+operation: "schedule_wake"}`): `recordIntent` serves it in the call's own transaction
+(`serveRuntimeTool`), so a replayed turn books once, and answers it `completed`; no harness runs
+it. A session holds one booking, its Agent's trigger `wake:<sessionId>` (kind `wake`, with
+`sessionId`, `note` and `effectId`): a new one replaces it (`wake.booked`, `replaced`), `cancel`
+removes it (`wake.cancelled`), and a sessions reset drops it. It is at least
+`triggerMinIntervalMs` and at most `wakeMaxAheadMs` ahead, its note at most `wakeNoteChars`. The
+sweep's next pass arms it (moved triggers), and it fires as a trigger does: a run of kind `wake`
+counted in `triggerRunsPerHour`, queued on a busy session, its note the message with
+`cause.kind: "self"`, unwrapped (the model's own words); then the row goes. _Avoid_: "reminder",
+"alarm", "self-trigger".
+
 ## Runtime architecture
 
 One line each; the module named is where the term lives in code.
