@@ -92,6 +92,12 @@ export const EffectTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("http"), tool: z.string().min(1) }).strict(),
   z.object({ kind: z.literal("sandbox") }).strict(),
   z.object({ kind: z.literal("harness") }).strict(),
+  /**
+   * An operation the Runtime itself serves, in the transaction that journals the call, keyed by
+   * the effect id (track T4): `schedule_wake` books the session's next turn (D77). Answered
+   * `completed` at once; the harness never executes it.
+   */
+  z.object({ kind: z.literal("runtime"), operation: z.enum(["schedule_wake"]) }).strict(),
 ]);
 
 /**
@@ -339,6 +345,11 @@ export const TurnAgentSchema = z
     kind: z.enum(ENVIRONMENT_KINDS),
     /** Present when the session has a sandbox. */
     sandbox: z.object({ workspace: z.string().regex(/^\//) }).strict().optional(),
+    /**
+     * The version the session runs sets `runtime.selfWake` (track T4, D77): our engine offers
+     * `schedule_wake`, a `runtime` effect.
+     */
+    selfWake: z.boolean().optional(),
   })
   .strict();
 

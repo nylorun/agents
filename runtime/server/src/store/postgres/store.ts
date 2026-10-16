@@ -2041,6 +2041,8 @@ class PostgresTx implements Tx {
     const db = this.db;
     if (scope === "sessions" || scope === "all") {
       for (const table of SESSION_TABLES) await db.delete(table);
+      // A session's booked wake (T4) goes with it.
+      await db.delete(agentTriggers).where(eq(agentTriggers.kind, "wake"));
       await db.delete(toolCrossings);
       // A session's artifacts go with it (their versions by cascade).
       await db.delete(artifacts).where(isNotNull(artifacts.sessionId));

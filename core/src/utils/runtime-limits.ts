@@ -172,6 +172,9 @@ const harnessLimits = {
  *   its runs, as a part of its interval and at most.
  * - `triggerPromptChars`: the longest prompt one trigger holds.
  * - `triggerRunRetentionMs`: how long runs are kept; they dedupe repeated fires, so at least a day.
+ * - `wakeMaxAheadMs`: how far ahead `schedule_wake` may book a session's next turn (D77); at least
+ *   `triggerMinIntervalMs` ahead too. A long wait is armed in steps, so it has no timer ceiling.
+ * - `wakeNoteChars`: the longest note a booked wake carries to its turn.
  * - `webhookBodyBytes`: the largest delivery a webhook endpoint reads, before it verifies it
  *   (`413` past it); the payload goes into the turn's message, one record entry.
  *
@@ -240,6 +243,8 @@ export const RuntimeLimitsSchema = z
     triggerPromptChars: z.number().int().positive(),
     triggerRunRetentionMs: z.number().int().positive(),
     webhookBodyBytes: z.number().int().positive(),
+    wakeMaxAheadMs: z.number().int().positive(),
+    wakeNoteChars: z.number().int().positive(),
     sessionQueuedMessages: z.number().int().positive(),
     flowConcurrency: z.number().int().positive(),
     flowMapItems: z.number().int().positive(),
@@ -453,6 +458,8 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
   triggerJitterMaxMs: timer("the offset is waited"),
   triggerPromptChars: quoted("the prompt"),
   triggerRunRetentionMs: counted("milliseconds", "the age is reckoned from the clock"),
+  wakeMaxAheadMs: counted("milliseconds", "the time is reckoned from the clock"),
+  wakeNoteChars: quoted("the note"),
   webhookBodyBytes: {
     value: recordEntryCeiling,
     unit: "bytes",
@@ -531,6 +538,8 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   triggerPromptChars: 8_000,
   triggerRunRetentionMs: 30 * 24 * 3_600_000,
   webhookBodyBytes: 256 * 1024,
+  wakeMaxAheadMs: 30 * 24 * 3_600_000,
+  wakeNoteChars: 2_000,
   sessionQueuedMessages: 100,
   flowConcurrency: 8,
   flowMapItems: 1_000,

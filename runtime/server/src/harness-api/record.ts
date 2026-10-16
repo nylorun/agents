@@ -65,6 +65,7 @@ import { redactTokens } from "./redact.js";
 import { toolCallDecision } from "../gates/policy.js";
 import type { Tx } from "../store/types.js";
 import { traceKey } from "../traces/key.js";
+import { serveRuntimeTool } from "../tenant/triggers.js";
 import { effectSpanOf, traceparentOf, turnTraceIdOf, type TraceKey } from "../traces/ids.js";
 import {
   firstSend,
@@ -204,6 +205,13 @@ export async function recordIntent(
     }
     const agentManifest = manifestFor(s.manifest, request.agent);
     if (!agentManifest) throw new Error(`Agent '${request.agent?.id ?? ""}' is not used as a tool`);
+    // An operation the Runtime serves itself (track T4): settled here, in the call's own
+    // transaction, keyed by its effect id, so a replay finds it completed.
+    if (request.kind === "tool" && request.target?.kind === "runtime") {
+      const row: StoredEffect = { request, requestHash, status: "invoking", ...firstSend(toolKindOf(s, agentManifest, request)) };
+      const outcome = await settleToolRow(t, s, row, await serveRuntimeTool(t, s, request), { writer: coreIn(scope) });
+      return { status: "completed", outcome };
+    }
     const refused = request.kind === "tool" ? refusal(s, request) : undefined;
     if (refused) {
       // A call with no target (an author's code tool, refused at save, so a backstop), or one
@@ -252,6 +260,7 @@ export async function recordIntent(
  * - `http`: an HTTP tool its agent declares under that name (R2 M3), which crosses the Tool Gate;
  * - `sandbox`: one of the sandbox operations, in a session with a sandbox;
  * - `harness`: a tool the harness runs in its own process; its egress gate is its only control.
+ * - `runtime`: served by `recordIntent` itself, before this (`schedule_wake`, track T4).
  *
  * No target, and anything else, runs nothing (`tool.unavailable`).
  */

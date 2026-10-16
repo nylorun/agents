@@ -136,7 +136,7 @@ export async function startSegment(
         limits,
         outcomes: current.checkpoint ? await bulkOutcomes(t, current, current.checkpoint) : [],
         sandbox,
-        ...(resource ? { agent: agentOf(resource, current.sandbox) } : {}),
+        ...(resource ? { agent: agentOf(resource, current.sandbox, await selfWakeOf(t, current)) } : {}),
         ...(key && turnId ? { trace: turnContextOf(key, ctx.store.tenantId, current, turnId) } : {}),
         ...(resource?.pod
           ? {
@@ -217,12 +217,21 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
 function agentOf(
   resource: { readonly id: string; readonly kind: TurnAgent["kind"] },
   spec: SandboxManifest | undefined,
+  selfWake: boolean,
 ): TurnAgent {
   return {
     id: resource.id,
     kind: resource.kind,
     ...(spec === undefined ? {} : { sandbox: { workspace: SANDBOX_WORKSPACE } }),
+    ...(selfWake ? { selfWake: true } : {}),
   };
+}
+
+/** Whether the manifest version the session runs sets `runtime.selfWake` (track T4, D77). */
+async function selfWakeOf(t: Tx, s: Pick<Session, "definition">): Promise<boolean> {
+  if (!s.definition) return false;
+  const version = await t.agentManifest(s.definition.name, s.definition.version);
+  return version?.body.runtime?.selfWake === true;
 }
 
 /**

@@ -20,7 +20,8 @@ Additive: the Runtime serves protocol 16 and 17, and Harness API 5 is unchanged.
   Standard Webhooks deliveries with no credential: make its signing secret with
   `POST /v1/agents/{id}/triggers/{triggerId}/secret` (`nylorun agents triggers new-secret`) and
   give the sender the secret and the trigger's `webhookUrl`. Relay other senders (GitHub, Stripe,
-  Slack) through your app. `selfWake` is still refused. A Runtime on the internet should sit
+  Slack) through your app. `runtime.selfWake: true` offers the agent `schedule_wake`, which books
+  its session's next turn (one booking per session). A Runtime on the internet should sit
   behind a proxy that limits requests to `/v1/webhooks/`.
 - **Custom harnesses.** A turn that takes more than one queued message starts from
   `checkpoint.input` `{kind: "messages", messages: [...]}`, each one of the input shapes a single
