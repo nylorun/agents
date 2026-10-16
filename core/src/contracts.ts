@@ -2329,11 +2329,19 @@ const commandBase = {
   requestId: RequestIdSchema,
   idempotencyKey: IdempotencyKeySchema,
 };
+/**
+ * What a message to a busy session does (protocol 17, D76): `queue` waits for the running turn to
+ * end and starts the next one; `reject` is refused with `409 session_busy`. A protocol 17 client's
+ * default is `queue`, a protocol 16 client's `reject`.
+ */
+export const MessageDeliverySchema = z.enum(["queue", "reject"]);
+export type MessageDelivery = z.infer<typeof MessageDeliverySchema>;
 const messageBase = {
   ...commandBase,
   type: z.literal("message"),
   /** Optional turn manifest (Loop patch); validated as a variant of the pinned agent. */
   manifest: AgentManifestSchema.optional(),
+  delivery: MessageDeliverySchema.optional(),
 };
 /**
  * One part of a user message (protocol 6): text, or a file by artifact id. A file part without
@@ -2533,6 +2541,21 @@ export const AcceptedResponseSchema = z.object({
   requestId: z.string(),
 });
 export type AcceptedResponse = z.infer<typeof AcceptedResponseSchema>;
+/**
+ * A message the session queued because a turn runs or waits (protocol 17): it starts the next
+ * turn when this one ends. `position` counts from 1, the first to go.
+ */
+export const QueuedResponseSchema = z.object({
+  status: z.literal("queued"),
+  queuedMessageId: z.string(),
+  position: z.number().int().positive(),
+  cursor: z.string().nullable(),
+  requestId: z.string(),
+});
+export type QueuedResponse = z.infer<typeof QueuedResponseSchema>;
+/** What a session command answers: accepted, or, for a message, queued. */
+export const CommandResponseSchema = z.union([AcceptedResponseSchema, QueuedResponseSchema]);
+export type CommandResponse = z.infer<typeof CommandResponseSchema>;
 export const RejectedResponseSchema = z.object({
   status: z.literal("rejected"),
   code: z.enum(ERROR_CODES),
@@ -2815,6 +2838,18 @@ export const TurnFailedPayloadSchema = z
 export const TurnCancelledPayloadSchema = z
   .object({ reason: z.string().optional(), ...turnEndFacts })
   .passthrough();
+/**
+ * `message.queued` (protocol 17): a message arrived while the session's turn ran or waited, and
+ * waits in its queue. `position` counts from 1; the message's `command.message` is written when
+ * a turn takes it.
+ */
+export const MessageQueuedPayloadSchema = z
+  .object({ queuedMessageId: z.string(), position: z.number().int().positive(), requestId: z.string() })
+  .passthrough();
+/** `queue.taken` (protocol 17): the turn that started with the queued messages, in order. */
+export const QueueTakenPayloadSchema = z
+  .object({ turnId: z.string(), queuedMessageIds: z.array(z.string()).min(1) })
+  .passthrough();
 /** Lifecycle of an agent used as a tool. `agent.delegationId` is the parent call's invocation. */
 export const DelegationPayloadSchema = z
   .object({
@@ -2851,6 +2886,9 @@ export const CommandMessagePayloadSchema = z
     parts: z.array(MessagePartSchema).optional(),
     /** The turn manifest the message carried, if any. */
     manifest: z.unknown().optional(),
+    delivery: MessageDeliverySchema.optional(),
+    /** Set when the message waited in the session's queue (protocol 17): its id there. */
+    queuedMessageId: z.string().optional(),
     /**
      * The W3C trace context the message was sent with (R7.4): the turn's trace is the caller's,
      * and its root span the child of the caller's span.
@@ -3118,6 +3156,8 @@ export const EVENT_CATALOG = {
   "turn.paused": { payload: TurnPausedPayloadSchema, source: "loop", version: 1 },
   "turn.failed": { payload: TurnFailedPayloadSchema, source: "loop", version: 1 },
   "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1 },
+  "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1 },
+  "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
   "message.assistant": { payload: AssistantMessagePayloadSchema, source: "loop", version: 1 },
   "model.failed": { payload: ModelFailedPayloadSchema, source: "loop", version: 1 },
   "context.compacted": { payload: ContextCompactedPayloadSchema, source: "loop", version: 1 },
@@ -3849,6 +3889,8 @@ export const SessionViewSchema = z
     manifestHash: z.string(),
     status: z.enum(SESSION_STATUSES),
     activeTurnId: z.string().nullable(),
+    /** Messages waiting in the session's queue for the next turn (protocol 17). */
+    queuedMessages: z.number().int().nonnegative(),
     /**
      * The harness that runs the session's turns, pinned when it opened (track R4): its
      * manifest's `harness.id`, else `nylorun`.
@@ -4211,7 +4253,6 @@ export type StreamClosedFrame = z.infer<typeof StreamClosedFrameSchema>;
  */
 export const AgUiRunErrorCodeSchema = z.enum([
   ...ERROR_CODES,
-  "session_busy",
   "runtime_error",
 ]);
 export type AgUiRunErrorCode = z.infer<typeof AgUiRunErrorCodeSchema>;

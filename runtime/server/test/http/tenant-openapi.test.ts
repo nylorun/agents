@@ -108,8 +108,9 @@ it("documents session commands for every caller that sends them, with their head
   expect(Object.keys(op.responses)).toEqual(
     expect.arrayContaining(["200", "400", "401", "403", "404", "409", "426", "503"]),
   );
-  // Turn limits per role are gone (protocol 7): the operator's proxy limits requests.
-  expect(op.responses["429"]).toBeUndefined();
+  // Turn limits per role are gone (protocol 7): the operator's proxy limits requests. A 429 is
+  // the session's full queue (protocol 17).
+  expect(op.responses["429"].description).toContain("queue_full");
 });
 
 it("documents session events as server-sent catalog events, ending with the closed frame", () => {

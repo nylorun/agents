@@ -162,6 +162,10 @@ const harnessLimits = {
  *   longest `reason` or `matches` expression.
  * - `modelBudgets`: the most model budgets the Tenant sets.
  *
+ * Sessions:
+ * - `sessionQueuedMessages`: the most messages one session's queue holds while its turn runs or
+ *   waits (protocol 17); one more is `429 queue_full`.
+ *
  * Flows (`workflows.md` §13):
  * - `flowConcurrency`: the most effects one flow turn runs at once; the rest wait their turn.
  * - `flowMapItems`: the most items one map stage may fan out to (`map.too-many-items` past it).
@@ -215,6 +219,7 @@ export const RuntimeLimitsSchema = z
     toolRuleFieldChars: z.number().int().positive(),
     toolRuleTextChars: z.number().int().positive(),
     modelBudgets: z.number().int().positive(),
+    sessionQueuedMessages: z.number().int().positive(),
     flowConcurrency: z.number().int().positive(),
     flowMapItems: z.number().int().positive(),
     flowLoopIterations: z.number().int().positive(),
@@ -414,6 +419,7 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
   toolRuleFieldChars: inRequestText("a selector"),
   toolRuleTextChars: inRequestText("a text"),
   modelBudgets: inRequest("budgets", { scope: "tenant" }),
+  sessionQueuedMessages: counted("entries", "queued messages are counted"),
   flowConcurrency: counted("effects", "running effects are counted"),
   flowMapItems: counted("entries", "items are counted"),
   flowLoopIterations: counted("iterations", "iterations are counted"),
@@ -478,6 +484,7 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   toolRuleFieldChars: 200,
   toolRuleTextChars: 500,
   modelBudgets: 100,
+  sessionQueuedMessages: 100,
   flowConcurrency: 8,
   flowMapItems: 1_000,
   flowLoopIterations: 100,

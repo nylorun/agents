@@ -67,7 +67,7 @@ nylorun agents secrets list|get|put|rm <id> [<name>] [<secret.json|->]   # put w
 nylorun sessions list [--agent <id>] [--manifest <name>] [--status <s>] [--owner <user>] [--limit <n>] [--cursor <c>] [--json]
 nylorun sessions create --agent <id> --owner <user> [--id <id>] [--info <json>]   # a session on Agent <id>
 nylorun sessions get <id>
-nylorun sessions send <id> [<text>] [--data <json>] [--file <artifact>[@<version>]]... [--idempotency-key <k>]
+nylorun sessions send <id> [<text>] [--data <json>] [--file <artifact>[@<version>]]... [--idempotency-key <k>] [--reject-if-busy]   # queued while a turn runs
 nylorun sessions approve <id> <interaction> [--deny]
 nylorun sessions respond <id> <interaction> <json>
 nylorun sessions cancel <id> [--reason <text>]

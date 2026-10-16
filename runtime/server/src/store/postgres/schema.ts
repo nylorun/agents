@@ -502,6 +502,32 @@ export const modelBudgets = nylorun.table(
 );
 
 /**
+ * Each session's queue (protocol 17, D76): messages that arrived while its turn ran or waited, in
+ * order (`seq`), until a turn takes them. A row holds the command as sent, the turn input its
+ * message gives the engine (file parts pinned when it was queued), and who sent it.
+ */
+export const sessionQueue = nylorun.table(
+  "session_queue",
+  {
+    id: textC().primaryKey(),
+    sessionId: textC().notNull(),
+    seq: bigint({ mode: "number" }).notNull(),
+    /** The `message` command as sent (`command.message`'s payload when a turn takes it). */
+    command: jsonText().notNull(),
+    /** The engine's input for it: an agent's message input, or a workflow's input value. */
+    input: jsonText().notNull(),
+    /** The artifacts its file parts named, which the session may read again. */
+    fileArtifacts: jsonText().notNull(),
+    /** Who sent it (`EventWriter`). */
+    writer: jsonText().notNull(),
+    /** The W3C trace context it was sent with. */
+    trace: jsonText(),
+    createdAt: textC().notNull(),
+  },
+  (t) => [uniqueIndex("session_queue_order").on(t.sessionId, t.seq)],
+);
+
+/**
  * The Tool Gate's keyed MCP calls (F4.1 G3): one row per call, written by the gates service
  * before it calls the server and given the answer after. A re-send whose row has an answer
  * gets it; one whose row has none, and that the gateway no longer runs, was lost with an
@@ -789,6 +815,7 @@ export type SigningKeyRow = typeof signingKeys.$inferSelect;
 export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
+export type QueuedMessageRow = typeof sessionQueue.$inferSelect;
 export type EnvironmentRowColumns = typeof agents.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;

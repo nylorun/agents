@@ -200,6 +200,7 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
     manifestHash: s.manifestHash,
     status: s.status,
     activeTurnId: s.activeTurnId,
+    queuedMessages: await t.countQueuedMessages(s.id),
     harness: harnessOf(s),
     ...(s.closedReason === undefined ? {} : { closedReason: s.closedReason }),
     mcpSnapshot: s.mcpSnapshot ?? null,

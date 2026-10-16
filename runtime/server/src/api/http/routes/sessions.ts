@@ -7,6 +7,7 @@ import type { IncomingMessage } from "node:http";
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import { z } from "zod";
+import { PROTOCOL_HEADER } from "@nylorun/core/compatibility";
 import {
   PutSessionRequestSchema,
   SessionCommandSchema,
@@ -15,6 +16,7 @@ import { handleSessionSandboxTool, SandboxRouteError } from "../../../core/sandb
 import { traceContextOf } from "../../../traces/ids.js";
 import {
   AcceptedResponse,
+  QueuedResponse,
   ListSessionsResponse,
   SessionPage,
   HistoryPage,
@@ -80,6 +82,15 @@ async function sessionBelow(
   return requestCursor(incoming, urlOf(incoming));
 }
 
+/**
+ * What a message to a busy session does when it says nothing (D76): a protocol 17 client's waits
+ * in the queue; a protocol 16 client's is refused, as before.
+ */
+function deliveryFor(headers: Headers): "queue" | "reject" {
+  const protocol = Number(headers.get(PROTOCOL_HEADER)?.trim());
+  return Number.isInteger(protocol) && protocol >= 17 ? "queue" : "reject";
+}
+
 export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
   tenantRoute(
     api,
@@ -90,11 +101,12 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sessions"],
       summary: "Send a command to a session",
       description:
-        "A message starts a turn; the others answer what the session waits on, or cancel. Idempotent on the command's `idempotencyKey`.",
+        "A message starts a turn, or waits in the session's queue while a turn runs or waits (protocol 17; `delivery: \"reject\"` is refused with `409 session_busy` instead); the others answer what the session waits on, or cancel. Idempotent on the command's `idempotencyKey`.",
       request: { params: sessionId, body: body(SessionCommand), headers: TraceHeaders },
       responses: {
-        200: json(AcceptedResponse, "The command, accepted"),
-        409: { description: "A turn is running, or the session does not wait on this" },
+        200: json(z.union([AcceptedResponse, QueuedResponse]), "The command, accepted; a message may be queued"),
+        409: { description: "A turn is running (`session_busy`), or the session does not wait on this" },
+        429: { description: "The session's queue is full (`queue_full`)" },
       },
     },
     async (c) => {
@@ -107,7 +119,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
           c.req.param("sessionId")!,
           SessionCommandSchema.parse(await readJson(c)),
           c.get("scope"),
-          trace ? { trace } : {},
+          { ...(trace ? { trace } : {}), delivery: deliveryFor(c.req.raw.headers) },
         ),
       );
     },

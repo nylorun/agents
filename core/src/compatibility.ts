@@ -1,6 +1,16 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 17: a queue per session (track T4, D76). A message sent while the session's turn runs,
+ * or while it waits on an approval, an answer or an uncertain call, is queued
+ * (`{status: "queued", queuedMessageId, position}`, `message.queued`) instead of refused, unless
+ * it asks `delivery: "reject"`; the refusal now has a code, `409 session_busy`. When the turn ends
+ * (completed, failed or cancelled), every queued message starts one turn, in order, each its own
+ * user message (`queue.taken`); our engine's turn input for more than one is
+ * `{kind: "messages", messages}` (Harness API 5, additive). Past the Runtime limit
+ * `sessionQueuedMessages` a message is `429 queue_full`. Session reads count `queuedMessages`. The
+ * Host serves protocol 16 and 17: a message from a protocol 16 client is `reject` unless it says
+ * otherwise, so its sessions answer `409` as before.
  * Protocol 16: Agents from one manifest (track T2), a fresh start. An agent manifest (v8) is one
  * versioned document at `/v1/agent-manifests/{name}` with a `harness` section (what runs inside
  * the loop, including the harness's id) and a `runtime` section (what an environment manifest
@@ -90,7 +100,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 17;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -133,6 +143,11 @@ export const PROTOCOL_FEATURES = [
    * granted.
    */
   "agents",
+  /**
+   * Protocol 17: a queue per session (D76). A message to a busy session is queued unless it asks
+   * `delivery: "reject"`, and the busy refusal is `409 session_busy`.
+   */
+  "session-queue",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -199,13 +214,14 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 /**
- * What this Host serves: protocol 16. Protocol 16 replaced agent definitions and Environments
- * with agent manifests and Agents, so an older client is answered `426` naming the protocol it
- * needs rather than routes it cannot use.
+ * What this Host serves: protocol 16 and 17. Protocol 16 replaced agent definitions and
+ * Environments with agent manifests and Agents, so an older client is answered `426` naming the
+ * protocol it needs rather than routes it cannot use. Protocol 17 is additive: a protocol 16
+ * client's messages default to `delivery: "reject"`.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 16,
-  max: 16,
+  max: 17,
   features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
@@ -258,6 +274,17 @@ export const ERROR_CODES = [
   "subject_required",
   /** A token caller's Agent grants do not reach the Agent. */
   "agent_not_granted",
+  /**
+   * A message to a session whose turn runs, or that waits on an approval, an answer or an
+   * uncertain call, sent with `delivery: "reject"` (protocol 17): `409`. Without it the message is
+   * queued.
+   */
+  "session_busy",
+  /**
+   * The session already holds the Runtime limit `sessionQueuedMessages` queued messages
+   * (protocol 17): `429`. They start a turn when the running one ends.
+   */
+  "queue_full",
   /** Disk work (snapshot, restore, stop, reset) while a turn runs, or a turn while a disk copy runs. */
   "agent_busy",
   /** The Agent is gone, or its kind cannot run on this Runtime. */

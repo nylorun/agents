@@ -88,6 +88,7 @@ import type {
   ModelUsageWrite,
   PrincipalRow,
   ToolCrossingRow,
+  QueuedMessageRow,
   SigningKeyRow,
   VaultAuditRow,
   VaultCredentialRow,
@@ -354,6 +355,7 @@ export type {
   ModelUsageRow,
   ModelUsageWrite,
   ToolCrossingRow,
+  QueuedMessageRow,
   PrincipalRow,
   SigningKeyRow,
   VaultAuditRow,
@@ -793,6 +795,14 @@ export interface Tx {
     filter?: { kinds?: readonly EffectKind[] },
   ): Promise<T[]>;
 
+  // Session queues (protocol 17, D76); the caller holds the session's lock.
+  /** Adds a message at the end of its session's queue; returns its position in the queue's order. */
+  enqueueMessage(row: Omit<QueuedMessageRow, "seq">): Promise<number>;
+  /** A session's queued messages, first to go first. */
+  queuedMessages(sessionId: string): Promise<QueuedMessageRow[]>;
+  countQueuedMessages(sessionId: string): Promise<number>;
+  /** Removes queued messages a turn took. */
+  deleteQueuedMessages(ids: readonly string[]): Promise<void>;
   /** Links of one workflow session joined to their existing agent sessions, ordered by agent session id. */
   linkedSessions<S extends SessionDoc = SessionDoc>(
     workflowSessionId: string,

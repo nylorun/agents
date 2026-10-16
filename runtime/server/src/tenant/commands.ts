@@ -14,9 +14,22 @@
  * same transaction; the engine host sees it before its next effect and before settlement on
  * any Worker. It then aborts an advance running on this process (`ctx.abortLocal`); every
  * other process aborts its own on the signal (`control.ts`).
+ *
+ * A message to a session whose turn runs or waits (protocol 17, D76) is queued
+ * (`session_queue`, `message.queued`) unless it asks `delivery: "reject"`, which is
+ * `409 session_busy`. A turn that ends takes every queued message in the same transaction
+ * (`startQueuedTurn`): client messages and queued ones start a turn through one door,
+ * `beginMessageTurn`, which writes each one's `command.message`.
  */
 import { randomUUID } from "node:crypto";
-import type { EventPrincipal, EventWriter, LiveEvent, SessionCommand } from "@nylorun/core/contracts";
+import type {
+  EventPrincipal,
+  EventWriter,
+  LiveEvent,
+  MessageDelivery,
+  MessageEventBody,
+  SessionCommand,
+} from "@nylorun/core/contracts";
 import {
   createDurableCheckpoint,
   createFlowCheckpoint,
@@ -42,7 +55,8 @@ import {
   type Session,
   type TenantContext,
 } from "./context.js";
-import { fail } from "./http.js";
+import { fail, HttpError } from "./http.js";
+import { readRuntimeLimits } from "./runtime-limits.js";
 import { settleToolRow, type ToolRow } from "../harness-api/tool-journal.js";
 import { accessOf } from "./auth.js";
 import { checkAgentTurn } from "./agents.js";
@@ -67,10 +81,19 @@ export async function command(
    * The W3C trace context the request carried (R7.4): a `message` records it on its
    * `command.message`, and the turn joins the caller's trace. Not part of the command's identity.
    */
-  options: { trace?: TraceContext } = {}
+  options: {
+    trace?: TraceContext;
+    /**
+     * What a message to a busy session does when it says nothing (`delivery`): the route's
+     * answer to the caller's protocol (`queue` from 17). Core's own messages and the AG-UI and
+     * A2A adapters, which stream the run they start, take `reject`.
+     */
+    delivery?: MessageDelivery;
+  } = {}
 ): Promise<unknown> {
   const { store } = ctx;
   const cascadeCancelIds: string[] = [];
+  let cancelledTurn: string | null = null;
   const response = await store.tx(async (t) => {
     const s = await lockedSession(t, id, accessOf(scope));
     const command = input;
@@ -95,8 +118,11 @@ export async function command(
     let held: ToolRow | undefined;
     // The turn a `cancel` ended, if one was active.
     let cancelledTurnId: string | null = null;
+    /** A message's answer: accepted with its turn, or queued (protocol 17). */
+    let answer: Record<string, unknown> | undefined;
     if (command.type === "cancel") {
       cancelledTurnId = s.activeTurnId;
+      cancelledTurn = cancelledTurnId;
       const workflowCancel = isWorkflowManifest(s.manifest);
       // Linked sessions this one started: a workflow's agents, or flow agents an agent
       // uses as tools.
@@ -183,71 +209,52 @@ export async function command(
           { code: "session_closed" }
         );
       if (command.type === "message") {
-        if (!["idle", "completed", "failed", "cancelled"].includes(s.status))
-          fail(409, "Session has active or unresolved work");
+        const delivery = command.delivery ?? options.delivery ?? "reject";
+        const takes = takesMessages(s);
+        const waiting = await t.countQueuedMessages(id);
+        if (!takes && delivery === "reject")
+          fail(409, "Session has active or unresolved work", { code: "session_busy" });
         // Every turn start on a sandbox: it exists, the token's grants reach it, and no other
-        // session's turn holds it.
+        // session's turn holds it. A queued message is checked when it is queued, too.
         await checkAgentTurn(t, s, scope, ctx);
-        s.turnStartState = s.state;
-        // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
-        if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };
-        s.activeTurnId = randomUUID();
-        startTurn(s);
-        if (options.trace) s.turnTrace = options.trace;
-        else delete s.turnTrace;
-        // File parts name artifacts the caller may read; each is pinned to a version now. Any
-        // file goes (protocol 15): the harness decides how the model sees it, and a workflow
-        // passes it on as data.
-        const parts =
-          "parts" in command
-            ? await resolveMessageParts(t, command.parts, id, accessOf(scope))
-            : undefined;
-        // The files the session's messages named: `read_artifact` reads them again (protocol 12).
-        if (parts) {
-          const named = parts.pinned.flatMap((part) => (part.type === "file" ? [part.artifactId] : []));
-          if (named.length > 0) s.fileArtifacts = [...new Set([...(s.fileArtifacts ?? []), ...named])];
-        }
-        const data = "data" in command ? (command.data as JsonValue) : undefined;
-        if (isWorkflowManifest(s.manifest)) {
-          const input: JsonValue =
-            "content" in command
-              ? command.content
-              : parts
-              ? ({ parts: parts.pinned } as unknown as JsonValue)
-              : data!;
-          s.checkpoint = createFlowCheckpoint({
-            manifest: s.manifest,
-            sessionId: id,
-            turnId: s.activeTurnId,
-            input,
-          });
+        const message = await turnMessage(t, s, id, command, scope, options.trace);
+        if (takes && waiting === 0) {
+          event = await beginMessageTurn(t, s, id, [message]);
+          answer = { status: "accepted", turnId: s.activeTurnId, cursor: event.cursor };
         } else {
-          // Optional message.manifest: validate as variant, pin by hash, apply this turn only.
-          const resolved = resolveMessageManifest({
-            pinned: s.manifest,
-            pinnedHash: s.manifestHash,
-            messageManifest: command.manifest,
-            store: variantStore(s),
+          // The turn runs or waits, or earlier messages still wait: this one waits behind them.
+          const { sessionQueuedMessages } = await readRuntimeLimits(t);
+          if (waiting >= sessionQueuedMessages)
+            fail(
+              429,
+              `Session ${id} already holds ${waiting} queued messages, the Runtime limit sessionQueuedMessages (PUT /v1/tenant/limits); they start a turn when the running one ends.`,
+              { code: "queue_full" }
+            );
+          const queuedMessageId = randomUUID();
+          await t.enqueueMessage({
+            id: queuedMessageId,
+            sessionId: id,
+            command: message.command,
+            input: message.input,
+            fileArtifacts: message.fileArtifacts,
+            writer: message.writer,
+            trace: message.trace ?? null,
+            createdAt: new Date().toISOString(),
           });
-          if (!resolved.ok) {
-            fail(400, resolved.message);
-          } else {
-            s.checkpoint = createDurableCheckpoint({
-              manifest: resolved.manifest,
-              sessionId: id,
-              turnId: s.activeTurnId,
-              input:
-                "content" in command
-                  ? command.content
-                  : parts
-                  ? { content: parts.engine }
-                  : typeof data === "string"
-                  ? data
-                  : JSON.stringify(data),
-              state: s.state,
-              info: s.info,
-            });
-          }
+          const position = waiting + 1;
+          event = await t.event(
+            id,
+            s.activeTurnId,
+            "message.queued",
+            { queuedMessageId, position, requestId: command.requestId },
+            message.writer
+          );
+          answer = { status: "queued", queuedMessageId, position, cursor: event.cursor };
+          // An idle session whose queue was left waiting (its Agent was unavailable when the last
+          // turn ended) starts a turn with all of them now, this one last.
+          const started = takes ? await startQueuedTurn(ctx, t, s, id) : undefined;
+          if (started?.taken.includes(queuedMessageId))
+            answer = { status: "accepted", turnId: started.turnId, cursor: started.cursor };
         }
       } else if (
         command.type === "approve" &&
@@ -326,6 +333,8 @@ export async function command(
           segment: (s.checkpoint?.segment ?? 0) + 1,
         });
       }
+    }
+    if (command.type !== "cancel" && command.type !== "message") {
       // A paused turn goes on: its wait for a person is not its running time (R7.1).
       resumeTurn(s);
       s.status = "runnable";
@@ -333,7 +342,7 @@ export async function command(
       // A flow answers each interaction in the same segment, as a held tool call's approval is
       // answered (R5 step 2): the interaction names the cause.
       const cause =
-        command.type !== "message" && (isWorkflowManifest(s.manifest) || held !== undefined)
+        isWorkflowManifest(s.manifest) || held !== undefined
           ? command.interactionId
           : s.checkpoint!.segment;
       const commandWake = {
@@ -341,14 +350,10 @@ export async function command(
         dedupeKey: `${command.type}:${s.activeTurnId}:${cause}`,
       };
       await t.wake(id, commandWake);
-      event = await t.event(
-        id,
-        s.activeTurnId,
-        `command.${command.type}`,
-        command.type === "message" && options.trace ? { ...command, trace: options.trace } : command,
-        commandWriter(scope)
-      );
+      event = await t.event(id, s.activeTurnId, `command.${command.type}`, command, commandWriter(scope));
     }
+    // A cancel ends the turn, not the queue: the messages waiting start the next one.
+    if (command.type === "cancel") await startQueuedTurn(ctx, t, s, id);
     await t.put("sessions", id, s);
     // Direct cancel of a linked agent fails that node with agent.cancelled (WF-R54). The agent
     // session is locked above, before wakeLinkedWorkflow locks its workflow.
@@ -361,15 +366,17 @@ export async function command(
         error: "Agent turn was cancelled",
       });
     const response = {
-      status: "accepted",
-      turnId: s.activeTurnId,
-      cursor: event.cursor,
+      ...(answer ?? {
+        status: "accepted",
+        turnId: command.type === "cancel" ? null : s.activeTurnId,
+        cursor: event!.cursor,
+      }),
       requestId: command.requestId,
     };
     await t.put("commands", key, { command, response });
     return response;
   });
-  if (input.type === "cancel") ctx.abortLocal(id);
+  if (input.type === "cancel") ctx.abortLocal(id, cancelledTurn ?? undefined);
   // Cascade cancel linked agents deepest-first under existing fencing (WF-R53).
   for (const agentId of cascadeCancelIds) {
     try {
@@ -389,6 +396,196 @@ export async function command(
     }
   }
   return response;
+}
+
+/** Statuses in which a session takes a message as a new turn; in the others a turn runs or waits. */
+const TAKES_MESSAGES: readonly string[] = ["idle", "completed", "failed", "cancelled"];
+
+const takesMessages = (s: Session): boolean => TAKES_MESSAGES.includes(s.status);
+
+/** A message ready to start a turn: as sent, its engine input and who sent it. */
+interface TurnMessage {
+  command: MessageEventBody;
+  /** An agent's message input, or a workflow's input value. */
+  input: unknown;
+  /** The artifacts its file parts named. */
+  fileArtifacts: string[];
+  writer: EventWriter;
+  /** Set for a message that waited in the session's queue. */
+  queuedMessageId?: string;
+  trace?: TraceContext;
+}
+
+/**
+ * Resolves a message for a turn, now or when it leaves the queue: file parts name artifacts the
+ * caller may read, each pinned to a version (any file goes since protocol 15: the harness decides
+ * how the model sees it, and a workflow passes it on as data), and a turn manifest must be a
+ * variant of the pinned agent.
+ */
+async function turnMessage(
+  t: Tx,
+  s: Session,
+  id: string,
+  command: MessageEventBody,
+  scope: AuthScope,
+  trace: TraceContext | undefined
+): Promise<TurnMessage> {
+  const parts =
+    "parts" in command ? await resolveMessageParts(t, command.parts, id, accessOf(scope)) : undefined;
+  const fileArtifacts = (parts?.pinned ?? []).flatMap((part) => (part.type === "file" ? [part.artifactId] : []));
+  const data = "data" in command ? (command.data as JsonValue) : undefined;
+  let input: unknown;
+  if (isWorkflowManifest(s.manifest))
+    input =
+      "content" in command
+        ? command.content
+        : parts
+        ? ({ parts: parts.pinned } as unknown as JsonValue)
+        : data!;
+  else {
+    const resolved = resolveMessageManifest({
+      pinned: s.manifest,
+      pinnedHash: s.manifestHash,
+      messageManifest: command.manifest,
+      store: variantStore(s),
+    });
+    if (!resolved.ok) fail(400, resolved.message);
+    input =
+      "content" in command
+        ? command.content
+        : parts
+        ? { content: parts.engine }
+        : typeof data === "string"
+        ? data
+        : JSON.stringify(data);
+  }
+  return { command, input, fileArtifacts, writer: commandWriter(scope), ...(trace ? { trace } : {}) };
+}
+
+/**
+ * Starts a turn on session `s` (locked, taking messages) with `messages`, in order: the one door
+ * for a client's message and queued ones (protocol 17). Our engine reads more than one as
+ * `{kind: "messages", messages}`, each its own user message; a workflow takes one. The checkpoint
+ * is made before the session changes, so a manifest that no longer resolves changes nothing.
+ * Writes each message's `command.message` and returns the last.
+ */
+async function beginMessageTurn(
+  t: Tx,
+  s: Session,
+  id: string,
+  messages: readonly TurnMessage[]
+): Promise<LiveEvent> {
+  const turnId = randomUUID();
+  const first = messages[0]!;
+  let checkpoint: Session["checkpoint"];
+  if (isWorkflowManifest(s.manifest))
+    checkpoint = createFlowCheckpoint({
+      manifest: s.manifest,
+      sessionId: id,
+      turnId,
+      input: first.input as JsonValue,
+    });
+  else {
+    const resolved = resolveMessageManifest({
+      pinned: s.manifest,
+      pinnedHash: s.manifestHash,
+      messageManifest: first.command.manifest,
+      store: variantStore(s),
+    });
+    if (!resolved.ok) return fail(400, resolved.message);
+    checkpoint = createDurableCheckpoint({
+      manifest: resolved.manifest,
+      sessionId: id,
+      turnId,
+      input: (messages.length === 1
+        ? first.input
+        : { kind: "messages", messages: messages.map((message) => message.input) }) as any,
+      state: s.state,
+      info: s.info,
+    });
+  }
+  s.turnStartState = s.state;
+  // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
+  if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };
+  s.activeTurnId = turnId;
+  startTurn(s);
+  if (first.trace) s.turnTrace = first.trace;
+  else delete s.turnTrace;
+  // The files the session's messages named: `read_artifact` reads them again (protocol 12).
+  const named = messages.flatMap((message) => message.fileArtifacts);
+  if (named.length > 0) s.fileArtifacts = [...new Set([...(s.fileArtifacts ?? []), ...named])];
+  s.checkpoint = checkpoint;
+  s.status = "runnable";
+  s.waits = undefined;
+  await t.wake(id, { reason: "message", dedupeKey: `message:${turnId}:${checkpoint!.segment}` });
+  let event: LiveEvent | undefined;
+  for (const message of messages)
+    event = await t.event(
+      id,
+      turnId,
+      "command.message",
+      {
+        ...message.command,
+        ...(message.queuedMessageId === undefined ? {} : { queuedMessageId: message.queuedMessageId }),
+        ...(message.trace ? { trace: message.trace } : {}),
+      },
+      message.writer
+    );
+  return event!;
+}
+
+/** Who checks a queued message's turn start: core, since the sender's grants were checked when it was queued. */
+const QUEUE_SCOPE: AuthScope = { kind: "application", principalId: "queue" };
+
+/**
+ * Starts the next turn of session `s` (locked) from its queue, when it takes messages and messages
+ * wait (protocol 17, D76): in the transaction that ended the last turn, or a cancel's. Our engine
+ * takes every queued message that carries the same turn manifest as the first, a workflow one.
+ * Writes `queue.taken`. Returns nothing when nothing started: an empty queue, or an Agent that
+ * cannot take a turn now, whose messages wait for the next message or turn end.
+ */
+export async function startQueuedTurn(
+  ctx: TenantContext,
+  t: Tx,
+  s: Session,
+  id: string
+): Promise<{ turnId: string; taken: string[]; cursor: string } | undefined> {
+  if (s.closedReason !== undefined || !takesMessages(s) || s.activeTurnId !== null) return undefined;
+  const queued = await t.queuedMessages(id);
+  if (queued.length === 0) return undefined;
+  const manifestOf = (row: (typeof queued)[number]) => canonical((row.command as MessageEventBody).manifest ?? null);
+  const batch = isWorkflowManifest(s.manifest) ? [queued[0]!] : [];
+  if (batch.length === 0)
+    for (const row of queued) {
+      if (manifestOf(row) !== manifestOf(queued[0]!)) break;
+      batch.push(row);
+    }
+  try {
+    await checkAgentTurn(t, s, QUEUE_SCOPE, ctx);
+    await beginMessageTurn(
+      t,
+      s,
+      id,
+      batch.map((row) => ({
+        command: row.command as MessageEventBody,
+        input: row.input,
+        fileArtifacts: row.fileArtifacts as string[],
+        writer: row.writer as EventWriter,
+        queuedMessageId: row.id,
+        ...(row.trace ? { trace: row.trace as TraceContext } : {}),
+      }))
+    );
+  } catch (error) {
+    if (error instanceof HttpError) return undefined;
+    throw error;
+  }
+  const taken = batch.map((row) => row.id);
+  await t.deleteQueuedMessages(taken);
+  const event = await t.event(id, s.activeTurnId, "queue.taken", {
+    turnId: s.activeTurnId!,
+    queuedMessageIds: taken,
+  });
+  return { turnId: s.activeTurnId!, taken, cursor: event.cursor };
 }
 
 /** Core's own commands (R4.9): the flow host's, and a drain's cancels. */

@@ -60,21 +60,23 @@ it("C3: the Admin API's old paths require the protocol first, as any route does"
   expect(bad.status).toBe(426);
 });
 
-it("P16: the Host serves protocol 16 clients only, and refuses 4 to 15 and 17 with 426", async () => {
+it("P17: the Host serves protocol 16 and 17 clients, and refuses 4 to 15 and 18 with 426", async () => {
   const { url } = await startTestHost({ module: createFakeModule() });
-  for (const version of ["4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "17"]) {
+  for (const version of ["4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "18"]) {
     const { status, body } = await getJson(`${url}/v1/agents`, {
       headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: version },
     });
     expect(status, `protocol ${version}`).toBe(426);
-    expect(ProtocolRejectedResponseSchema.parse(body).protocol).toMatchObject({ min: 16, max: 16 });
+    expect(ProtocolRejectedResponseSchema.parse(body).protocol).toMatchObject({ min: 16, max: 17 });
   }
   // Protocol 16 makes Environments Agents, made from agent manifests: a fresh start, so 15 is
-  // not served.
-  const { status } = await getJson(`${url}/v1/agents`, {
-    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "16" },
-  });
-  expect(status, "protocol 16").toBe(200);
+  // not served. Protocol 17 (the session queue) is additive.
+  for (const version of ["16", "17"]) {
+    const { status } = await getJson(`${url}/v1/agents`, {
+      headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: version },
+    });
+    expect(status, `protocol ${version}`).toBe(200);
+  }
   // Only a capability link is served without the header (protocol 6).
   const { [PROTOCOL_HEADER]: _protocol, ...unversioned } = tenantHeaders();
   const link = await getJson(`${url}/v1/artifact-links/not-a-token`, { headers: unversioned });

@@ -1,3 +1,21 @@
+# A queue per session (protocol 17)
+
+Additive: the Runtime serves protocol 16 and 17, and Harness API 5 is unchanged.
+
+- **A message to a busy session is queued.** From protocol 17, a `message` sent while the
+  session's turn runs, or while it waits on an approval, an answer or an uncertain call, is
+  answered `{status: "queued", queuedMessageId, position}` and starts the next turn when this one
+  ends, with every message that waited, each its own user message. A client that serializes its
+  own messages and wants the old refusal sends `delivery: "reject"` (the SDK's
+  `input(value, { delivery: "reject" })`, the CLI's `sessions send --reject-if-busy`): it is
+  `409 session_busy`. A protocol 16 client's messages are `reject` unless they say otherwise.
+- **The busy refusal has a code.** `409 session_busy`, where it had none.
+- **The queue is bounded.** At most the Runtime limit `sessionQueuedMessages` (default 100) wait;
+  one more is `429 queue_full`. Session reads count `queuedMessages`.
+- **Custom harnesses.** A turn that takes more than one queued message starts from
+  `checkpoint.input` `{kind: "messages", messages: [...]}`, each one of the input shapes a single
+  message has. Write each as its own `input` transcript entry.
+
 # Agents from one manifest (protocol 16, Harness API 5)
 
 A fresh start for agents, Environments and sessions: the Runtime speaks protocol 16 only, and

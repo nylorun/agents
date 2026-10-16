@@ -243,12 +243,38 @@ export function validateExecutionState(value: unknown): ExecutionState {
   }
 }
 
+/** Queued messages (protocol 17), each its own user message of the turn they start. */
+export interface MessagesInput {
+  readonly kind: "messages";
+  readonly events: readonly InputEvent[];
+}
+
 export function normalizeInput(
   value: ExecutionInput,
-): InputEvent | Extract<ExecutionInput, { kind: "continue" | "settle" }> {
+): InputEvent | MessagesInput | Extract<ExecutionInput, { kind: "continue" | "settle" }> {
   try {
     if (typeof value === "string") return { kind: "user-message", text: value };
     assertJson(value);
+    if ("kind" in value && value.kind === "messages") {
+      const messages = (value as { messages?: unknown }).messages;
+      if (!Array.isArray(messages) || messages.length === 0)
+        throw new HarnessError(
+          "execution.invalid-input",
+          "messages must list at least one message",
+        );
+      return {
+        kind: "messages",
+        events: messages.map((message) => {
+          const event = normalizeInput(message as ExecutionInput);
+          if (event.kind !== "user-message")
+            throw new HarnessError(
+              "execution.invalid-input",
+              "each of messages must be a user message",
+            );
+          return event;
+        }),
+      };
+    }
     if ("kind" in value && value.kind === "continue")
       return z
         .object({ kind: z.literal("continue") })

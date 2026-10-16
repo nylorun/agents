@@ -15,6 +15,11 @@ import type {
 export type ExecutionInput =
   | MessageInput
   | InputEvent
+  /**
+   * Messages that waited in the session's queue while a turn ran (protocol 17): one turn takes
+   * them all, each its own user message, in order.
+   */
+  | { readonly kind: "messages"; readonly messages: readonly MessageInput[] }
   | { readonly kind: "continue" }
   | {
       readonly kind: "settle";
