@@ -71,6 +71,7 @@
     "@restatedev/restate-sdk-clients": "1.17.3",
     "@s2-dev/streamstore": "0.28.0",
     "aws4fetch": "1.0.20",
+    "croner": "^9.1.0",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.13",
     "jose": "^6.2.12",

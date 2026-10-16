@@ -70,8 +70,16 @@ describe("agent manifest v8 (protocol 16)", () => {
     expect(JSON.stringify(requires.error?.issues)).toContain("harness.requires left the API");
     const harness = RuntimeSectionSchema.safeParse({ kind: "pod", harness: "acme" });
     expect(JSON.stringify(harness.error?.issues)).toContain("runtime.harness moved to harness.id");
-    const triggers = RuntimeSectionSchema.safeParse({ kind: "pod", triggers: [{ schedule: "0 9 * * *" }] });
-    expect(JSON.stringify(triggers.error?.issues)).toContain("runtime.triggers are not available yet");
+    // Triggers (track T4): a map by id, each with exactly one of schedule, at or webhook.
+    const triggers = RuntimeSectionSchema.safeParse({ kind: "pod", triggers: { daily: { schedule: "0 9 * * *", session: "s", prompt: "Wake." } } });
+    expect(triggers.success).toBe(true);
+    const both = RuntimeSectionSchema.safeParse({
+      kind: "pod",
+      triggers: { daily: { schedule: "0 9 * * *", at: "2030-01-01T00:00:00Z", session: "s", prompt: "Wake." } },
+    });
+    expect(JSON.stringify(both.error?.issues)).toContain("exactly one of schedule, at or webhook");
+    const list = RuntimeSectionSchema.safeParse({ kind: "pod", triggers: [{ schedule: "0 9 * * *" }] });
+    expect(list.success).toBe(false);
     expect(RuntimeSectionSchema.safeParse({ image: "x" }).success).toBe(false);
     expect(AgentManifestV8Schema.safeParse({ ...triage(), name: "a/b" }).success).toBe(false);
   });

@@ -288,6 +288,11 @@ export const ERROR_CODES = [
    * (protocol 17): `429`. They start a turn when the running one ends.
    */
   "queue_full",
+  /**
+   * `POST /v1/agents/{id}/triggers/{triggerId}/resume` on an `at` trigger whose time has passed
+   * (track T4): `409`. Save a manifest version with a new time.
+   */
+  "trigger_expired",
   /** Disk work (snapshot, restore, stop, reset) while a turn runs, or a turn while a disk copy runs. */
   "agent_busy",
   /** The Agent is gone, or its kind cannot run on this Runtime. */

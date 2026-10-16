@@ -72,6 +72,13 @@ NYLORUN_TOKEN).
                                       create or replace a secret: {"type": "bearer", ...}, read
                                       from a file or standard input
   secrets rm <id> <name>
+  triggers list <id>                  its triggers: status, next and last run, as JSON
+  triggers pause|resume <id> <trigger>
+  triggers run <id> <trigger> [--idempotency-key <k>]
+                                      run it once now, as if it fired
+  runs <id> [--trigger <id>] [--limit <n>] [--cursor <c>]
+                                      what each fire came to (started, queued, skipped,
+                                      failed), newest first, as JSON
 
 ${runtimeFlagsUsage}`;
 
@@ -383,6 +390,68 @@ async function secrets(deps: StackDeps, args: readonly string[]): Promise<number
   throw usageError(`Usage: nylorun agents secrets <list|get|put|rm> …\n\n${agentsUsage}`);
 }
 
+/** `nylorun agents triggers <list|pause|resume|run> …` (track T4). */
+async function triggers(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const [verb, ...rest] = args;
+  if (verb === "list" || verb === "ls") {
+    const usage = "nylorun agents triggers list <id>";
+    const flags = parseFlags(rest, {}, usage);
+    const [id] = positional(flags, 1, usage);
+    const { client } = await runtimeClient(deps, flags);
+    printJson(deps, await runtimeCall(() => client.agents.triggers(id!)));
+    return 0;
+  }
+  if (verb === "pause" || verb === "resume") {
+    const usage = `nylorun agents triggers ${verb} <id> <trigger>`;
+    const flags = parseFlags(rest, {}, usage);
+    const [id, trigger] = positional(flags, 2, usage);
+    const { client } = await runtimeClient(deps, flags);
+    printJson(
+      deps,
+      await runtimeCall(() =>
+        verb === "pause" ? client.agents.pauseTrigger(id!, trigger!) : client.agents.resumeTrigger(id!, trigger!),
+      ),
+    );
+    return 0;
+  }
+  if (verb === "run") {
+    const usage = "nylorun agents triggers run <id> <trigger> [--idempotency-key <k>]";
+    const flags = parseFlags(rest, { values: ["--idempotency-key"] }, usage);
+    const [id, trigger] = positional(flags, 2, usage);
+    const key = flags.values.get("--idempotency-key");
+    const { client } = await runtimeClient(deps, flags);
+    printJson(
+      deps,
+      await runtimeCall(() => client.agents.runTrigger(id!, trigger!, key === undefined ? {} : { idempotencyKey: key })),
+    );
+    return 0;
+  }
+  throw usageError(`Usage: nylorun agents triggers <list|pause|resume|run> …\n\n${agentsUsage}`);
+}
+
+/** `nylorun agents runs <id>` (track T4). */
+async function runs(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const usage = "nylorun agents runs <id> [--trigger <id>] [--limit <n>] [--cursor <c>]";
+  const flags = parseFlags(args, { values: ["--trigger", "--limit", "--cursor"] }, usage);
+  const [id] = positional(flags, 1, usage);
+  const limit = flags.values.get("--limit");
+  if (limit !== undefined && !/^[1-9]\d*$/.test(limit)) throw usageError("--limit must be a positive number.");
+  const trigger = flags.values.get("--trigger");
+  const cursor = flags.values.get("--cursor");
+  const { client } = await runtimeClient(deps, flags);
+  printJson(
+    deps,
+    await runtimeCall(() =>
+      client.agents.runs(id!, {
+        ...(trigger === undefined ? {} : { triggerId: trigger }),
+        ...(limit === undefined ? {} : { limit: Number(limit) }),
+        ...(cursor === undefined ? {} : { cursor }),
+      }),
+    ),
+  );
+  return 0;
+}
+
 const COMMANDS: Record<string, (deps: StackDeps, args: readonly string[]) => Promise<number>> = {
   list,
   ls: list,
@@ -402,6 +471,8 @@ const COMMANDS: Record<string, (deps: StackDeps, args: readonly string[]) => Pro
   events,
   secrets,
   fork,
+  triggers,
+  runs,
 };
 
 /** `nylorun agents <command> ...` */

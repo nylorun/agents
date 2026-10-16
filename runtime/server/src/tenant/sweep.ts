@@ -34,6 +34,8 @@
  *    orphan scan, pod Environments whose change stalled get a reconcile (`reconcileStalePods`).
  *    Environments unused for their `lifecycle.deleteAfter` are deleted
  *    (`sweepUnusedAgents`).
+ *    Triggers (track T4, `triggers.ts`): on this process's first pass every active trigger's
+ *    timer is armed, later overdue ones only, and runs past `triggerRunRetentionMs` are deleted.
  * 5. **Control signals.** Signals on the control bus older than `sweep.signalRetentionMs` are
  *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
  * 6. **Hooks.** Callbacks registered with `ctx.onSweep`.
@@ -44,6 +46,7 @@
  * reports it.
  */
 import { sweepUnusedAgents } from "./agents.js";
+import { reconcileTriggers } from "./triggers.js";
 import { sweepPendingSeeds } from "../artifacts/disk.js";
 import {
   pendingAgentEffects,
@@ -132,6 +135,9 @@ export async function sweep(ctx: TenantContext): Promise<void> {
     ["agents", () => sweepUnusedAgents(ctx, now.getTime())],
     // Pods slower than `tenant.upgradeStartMs` to start on a new version go back (track T3).
     ["starts", () => sweepStartChecks(ctx, now.getTime())],
+    // Triggers (track T4): every active one armed on this process's first pass, overdue ones after;
+    // runs past their retention deleted.
+    ["triggers", () => reconcileTriggers(ctx, first)],
     // Seeds of new volumes whose engine is connected and no process copies (R2d step 3).
     ["seeds", () => sweepPendingSeeds(ctx)],
     // A harness elsewhere closes its own idle MCP connections.

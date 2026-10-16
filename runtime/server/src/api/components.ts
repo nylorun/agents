@@ -7,6 +7,9 @@
 import { z } from "zod";
 import {
   QueuedResponseSchema,
+  TriggerListSchema,
+  TriggerRunPageSchema,
+  RunTriggerResponseSchema,
   AgentManifestV8Schema,
   EnvironmentSecretSlotsSchema,
   DeleteAgentManifestResponseSchema,
@@ -186,6 +189,9 @@ export const ArtifactDiff = named("ArtifactDiff", ArtifactDiffSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
 export const QueuedResponse = named("QueuedResponse", QueuedResponseSchema);
+export const TriggerList = named("TriggerList", TriggerListSchema);
+export const TriggerRunPage = named("TriggerRunPage", TriggerRunPageSchema);
+export const RunTriggerResponse = named("RunTriggerResponse", RunTriggerResponseSchema);
 
 export const ListSessionsResponse = named("ListSessionsResponse", ListSessionsResponseSchema);
 export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSchema);

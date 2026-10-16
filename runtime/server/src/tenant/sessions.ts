@@ -92,53 +92,67 @@ export async function putSession(
     fail(403, "ownerUserId must be the subject");
   // An Agent the subject may not use is the 404 of a missing one.
   if (!reachesAgent(access, body.agent)) fail(404, "Agent not found");
-  return ctx.store.tx(async (t) => {
-    const prior = await t.lockSession<Session>(id);
-    if (opaque && prior && (prior.ownerUserId !== access.owner || !reachesAgent(access, prior.agentId)))
+  return ctx.store.tx((t) => openSessionIn(ctx, t, id, body, access, options));
+}
+
+/**
+ * `putSession`'s work in transaction `t`: also how a trigger's first run opens the session it
+ * names (track T4), in the run's transaction.
+ */
+export async function openSessionIn(
+  ctx: TenantContext,
+  t: Tx,
+  id: string,
+  body: PutSessionRequest,
+  access?: SessionAccess,
+  options: { createOnly?: boolean; agentGrants?: readonly string[] } = {}
+): Promise<Session> {
+  const opaque = access !== undefined;
+  const prior = await t.lockSession<Session>(id);
+  if (opaque && prior && (prior.ownerUserId !== access.owner || !reachesAgent(access, prior.agentId)))
+    fail(404, "Session not found");
+  if (prior && options.createOnly) {
+    if (prior.ownerUserId !== body.ownerUserId || prior.agentId !== body.agent)
       fail(404, "Session not found");
-    if (prior && options.createOnly) {
-      if (prior.ownerUserId !== body.ownerUserId || prior.agentId !== body.agent)
-        fail(404, "Session not found");
-      return prior;
-    }
-    if (prior) {
-      if (sessionIdentity(prior.creation) !== sessionIdentity(body))
-        fail(409, "Session already exists with different creation parameters");
-      return prior;
-    }
-    const agent = await openAgent(t, body.agent, {
-      ...(options.agentGrants === undefined ? {} : { grants: options.agentGrants }),
-      ownerUserId: body.ownerUserId,
-      opaque,
-    });
-    // The version the Agent runs, both sections (T3): its loop manifest, harness and sandbox spec.
-    const { pin } = await pinOf(t, agent);
-    await checkSkillLimit(t, pin.manifest, agent);
-    const config = await readSandboxConfig(t);
-    // Placement (D38, D52): where this session's harness may run, decided now and kept.
-    checkPlacement(config, agent.kind, pin.harness);
-    if (agent.kind === "pod") await requirePods(ctx.pods, `Agent ${agent.id}`);
-    const created: Session = {
-      id,
-      agentId: agent.id,
-      ownerUserId: body.ownerUserId,
-      manifest: pin.manifest,
-      manifestHash: pin.manifestHash,
-      definition: { ...pin.definition },
-      ...(pin.loop === undefined ? {} : { loop: pin.loop }),
-      info: body.info,
-      status: "idle",
-      activeTurnId: null,
-      creation: body,
-      harness: pin.harness,
-      environmentId: agent.id,
-      environmentVersion: agent.version,
-      ...(pin.sandbox === undefined ? {} : { sandbox: pin.sandbox }),
-    };
-    await t.put("sessions", id, created);
-    await recordAttachment(t, id, agent.id);
-    return created;
+    return prior;
+  }
+  if (prior) {
+    if (sessionIdentity(prior.creation) !== sessionIdentity(body))
+      fail(409, "Session already exists with different creation parameters");
+    return prior;
+  }
+  const agent = await openAgent(t, body.agent, {
+    ...(options.agentGrants === undefined ? {} : { grants: options.agentGrants }),
+    ownerUserId: body.ownerUserId,
+    opaque,
   });
+  // The version the Agent runs, both sections (T3): its loop manifest, harness and sandbox spec.
+  const { pin } = await pinOf(t, agent);
+  await checkSkillLimit(t, pin.manifest, agent);
+  const config = await readSandboxConfig(t);
+  // Placement (D38, D52): where this session's harness may run, decided now and kept.
+  checkPlacement(config, agent.kind, pin.harness);
+  if (agent.kind === "pod") await requirePods(ctx.pods, `Agent ${agent.id}`);
+  const created: Session = {
+    id,
+    agentId: agent.id,
+    ownerUserId: body.ownerUserId,
+    manifest: pin.manifest,
+    manifestHash: pin.manifestHash,
+    definition: { ...pin.definition },
+    ...(pin.loop === undefined ? {} : { loop: pin.loop }),
+    info: body.info,
+    status: "idle",
+    activeTurnId: null,
+    creation: body,
+    harness: pin.harness,
+    environmentId: agent.id,
+    environmentVersion: agent.version,
+    ...(pin.sandbox === undefined ? {} : { sandbox: pin.sandbox }),
+  };
+  await t.put("sessions", id, created);
+  await recordAttachment(t, id, agent.id);
+  return created;
 }
 
 /**

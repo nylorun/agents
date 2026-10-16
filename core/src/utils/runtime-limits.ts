@@ -162,6 +162,17 @@ const harnessLimits = {
  *   longest `reason` or `matches` expression.
  * - `modelBudgets`: the most model budgets the Tenant sets.
  *
+ * Triggers (track T4, D74; checked when a manifest is saved, and when a trigger fires):
+ * - `triggersPerAgent`: the most triggers one agent manifest declares.
+ * - `triggerMinIntervalMs`: the shortest gap between two runs of one schedule (cron is minute
+ *   grained, so at least a minute), checked over its next fires at save.
+ * - `triggerRunsPerHour`: the most runs one Agent's triggers start or queue in any hour; later
+ *   ones are skipped (`rate_limited`). The guard against an Agent triggering itself.
+ * - `triggerJitterPercent`, `triggerJitterMaxMs`: how far each schedule's fixed offset may move
+ *   its runs, as a part of its interval and at most.
+ * - `triggerPromptChars`: the longest prompt one trigger holds.
+ * - `triggerRunRetentionMs`: how long runs are kept; they dedupe repeated fires, so at least a day.
+ *
  * Sessions:
  * - `sessionQueuedMessages`: the most messages one session's queue holds while its turn runs or
  *   waits (protocol 17); one more is `429 queue_full`.
@@ -219,6 +230,13 @@ export const RuntimeLimitsSchema = z
     toolRuleFieldChars: z.number().int().positive(),
     toolRuleTextChars: z.number().int().positive(),
     modelBudgets: z.number().int().positive(),
+    triggersPerAgent: z.number().int().positive(),
+    triggerMinIntervalMs: z.number().int().positive(),
+    triggerRunsPerHour: z.number().int().positive(),
+    triggerJitterPercent: z.number().int().nonnegative(),
+    triggerJitterMaxMs: z.number().int().nonnegative(),
+    triggerPromptChars: z.number().int().positive(),
+    triggerRunRetentionMs: z.number().int().positive(),
     sessionQueuedMessages: z.number().int().positive(),
     flowConcurrency: z.number().int().positive(),
     flowMapItems: z.number().int().positive(),
@@ -244,6 +262,8 @@ export function harnessLimitsOf(limits: RuntimeLimits): HarnessLimits {
 
 /** What a limit counts. */
 export type RuntimeLimitUnit =
+  | "percent"
+  | "runs"
   | "bytes"
   | "entries"
   | "characters"
@@ -419,6 +439,17 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
   toolRuleFieldChars: inRequestText("a selector"),
   toolRuleTextChars: inRequestText("a text"),
   modelBudgets: inRequest("budgets", { scope: "tenant" }),
+  triggersPerAgent: inRequest("triggers", { a: { at: "2026-01-01T00:00:00Z", session: "a", prompt: "a" } }),
+  triggerMinIntervalMs: counted("milliseconds", "the gap is reckoned from the clock"),
+  triggerRunsPerHour: counted("runs", "runs are counted"),
+  triggerJitterPercent: {
+    value: 50,
+    unit: "percent",
+    why: "an offset past half the interval could move a run past the next one",
+  },
+  triggerJitterMaxMs: timer("the offset is waited"),
+  triggerPromptChars: quoted("the prompt"),
+  triggerRunRetentionMs: counted("milliseconds", "the age is reckoned from the clock"),
   sessionQueuedMessages: counted("entries", "queued messages are counted"),
   flowConcurrency: counted("effects", "running effects are counted"),
   flowMapItems: counted("entries", "items are counted"),
@@ -484,6 +515,13 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   toolRuleFieldChars: 200,
   toolRuleTextChars: 500,
   modelBudgets: 100,
+  triggersPerAgent: 20,
+  triggerMinIntervalMs: 60_000,
+  triggerRunsPerHour: 60,
+  triggerJitterPercent: 10,
+  triggerJitterMaxMs: 300_000,
+  triggerPromptChars: 8_000,
+  triggerRunRetentionMs: 30 * 24 * 3_600_000,
   sessionQueuedMessages: 100,
   flowConcurrency: 8,
   flowMapItems: 1_000,
@@ -503,9 +541,26 @@ export function runtimeLimitsOf(set: Partial<RuntimeLimits> | undefined): Runtim
   return limits;
 }
 
-/** Why `set` cannot be put: each limit above its ceiling, naming the ceiling and its dependency. */
+/**
+ * Limits with a floor, which no setting may go under, and why: a schedule's cron is minute
+ * grained, and runs dedupe repeated fires for as long as the execution's own dedupe lasts (a day).
+ */
+export const RUNTIME_LIMIT_FLOORS: { readonly [K in RuntimeLimit]?: { readonly value: number; readonly why: string } } = {
+  triggerMinIntervalMs: { value: 60_000, why: "cron fires at most once a minute" },
+  triggerRunRetentionMs: {
+    value: 24 * 3_600_000,
+    why: "a run row dedupes a repeated fire or delivery, which Durable Session Execution may send again for a day",
+  },
+};
+
+/** Why `set` cannot be put: each limit above its ceiling or under its floor, naming why. */
 export function runtimeLimitIssues(set: Partial<RuntimeLimits> | undefined): string[] {
   const issues: string[] = [];
+  for (const [name, floor] of Object.entries(RUNTIME_LIMIT_FLOORS) as [RuntimeLimit, { value: number; why: string }][]) {
+    const asked = set?.[name];
+    if (asked !== undefined && asked < floor.value)
+      issues.push(`limits.${name} asks for ${asked}; its floor is ${floor.value}: ${floor.why}.`);
+  }
   for (const name of Object.keys(RUNTIME_LIMIT_CEILINGS) as RuntimeLimit[]) {
     const asked = set?.[name];
     const ceiling = RUNTIME_LIMIT_CEILINGS[name];

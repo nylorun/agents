@@ -871,6 +871,33 @@ wait (`429 queue_full`); session reads count `queuedMessages`. The queue is per 
 of one Agent still run their turns side by side (D66).
 _Avoid_: "inbox", "backlog", "pending messages".
 
+**Trigger** (track T4, D74): What starts an Agent's turns with no client connected, declared in its
+manifest's `runtime.triggers` by id: a `schedule` (five-field cron in an IANA `timezone`, UTC by
+default) or an `at` (one time), each with the `session` its runs go to (a session id of the Agent,
+opened on its first run and owned by the Agent's owner or `installation`, or `new` for
+`run-<runId>`) and its `prompt`. The manifest owns what a trigger is; the Agent owns its status
+(`agent_triggers`: `active`, `paused` with a reason, `completed` for an `at` that ran), its next
+time and its runs. Triggers start active with a new Agent (`createAgentTriggers`) and go with it.
+Postgres holds the truth and one durable timer per active trigger wakes it (`ctx.timer`,
+`trigger:<agentId>:<triggerId>`; a wait past `TIMER_MAX_MS` is armed in steps): `fireTimer` (the
+Worker's `fire`) locks the row, runs it (`deliverRun`) and arms the next time from `max(now, due)`,
+so after downtime one fire runs, `late` past `triggers.lateGraceMs`, and none is backfilled; the
+sweep arms every active trigger on its first pass on a process and overdue ones after
+(`reconcileTriggers`). A schedule's runs move by a fixed offset from a hash of its ids (jitter,
+`triggerJitterPercent`, `triggerJitterMaxMs`). A **run** (`trigger_runs`, `GET /v1/agents/{id}/runs`)
+is one fire, keyed by its cause (`fire:<trigger>:<due ms>`, `manual:<trigger>:<key>`), so a
+repeated fire or request makes one run; in its transaction it checks the Agent is on,
+`triggerRunsPerHour` (`skipped`, `rate_limited`: the guard against an Agent triggering itself),
+the session's Agent (`failed`, `session_conflict`) and the busy rule (a schedule adds at most one
+queued message to its session; later fires are `skipped`, `overlap`), then sends the prompt
+through the session queue's door (`acceptMessage`): `started` or `queued`. The message's writer is
+the core principal `trigger`, and its `command.message` carries `cause {kind: "trigger",
+triggerId, runId}`. `POST .../triggers/{id}/pause|resume|run` (run keyed by `Idempotency-Key`).
+Checked at save (`triggerIssues`): `triggersPerAgent`, croner's cron and zone,
+`triggerMinIntervalMs` over the next `triggers.intervalCheckFires` fires, an `at` in the future,
+`triggerPromptChars`. _Avoid_: "automation", "routine", "job", "cron job" for a trigger; "execution"
+for a run.
+
 ## Runtime architecture
 
 One line each; the module named is where the term lives in code.

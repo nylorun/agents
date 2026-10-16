@@ -89,6 +89,8 @@ import type {
   PrincipalRow,
   ToolCrossingRow,
   QueuedMessageRow,
+  AgentTriggerRow,
+  TriggerRunRow,
   SigningKeyRow,
   VaultAuditRow,
   VaultCredentialRow,
@@ -376,6 +378,8 @@ export type {
   ModelUsageWrite,
   ToolCrossingRow,
   QueuedMessageRow,
+  AgentTriggerRow,
+  TriggerRunRow,
   PrincipalRow,
   SigningKeyRow,
   VaultAuditRow,
@@ -829,6 +833,37 @@ export interface Tx {
   countQueuedMessages(sessionId: string): Promise<number>;
   /** Removes queued messages a turn took. */
   deleteQueuedMessages(ids: readonly string[]): Promise<void>;
+  // Triggers (track T4, D74); runs are ordered by id, which `newRunId` makes increase with time.
+  agentTriggers(agentId: string): Promise<AgentTriggerRow[]>;
+  /** One trigger's state; with `lock`, its row is locked until the transaction ends. */
+  agentTrigger(agentId: string, triggerId: string, options?: { lock?: boolean }): Promise<AgentTriggerRow | undefined>;
+  /** Inserts or replaces a trigger's state (its `createdAt` is kept). */
+  putAgentTrigger(row: AgentTriggerRow): Promise<void>;
+  deleteAgentTrigger(agentId: string, triggerId: string): Promise<void>;
+  /** Deletes an Agent's triggers and runs. */
+  deleteAgentTriggers(agentId: string): Promise<void>;
+  /**
+   * Active triggers with a next fire time (due by `dueBefore`, changed since `changedSince`, when
+   * given), by Agent and trigger id.
+   */
+  activeTriggers(options: {
+    dueBefore?: string;
+    changedSince?: string;
+    after?: { agentId: string; triggerId: string };
+    limit: number;
+  }): Promise<AgentTriggerRow[]>;
+  /** The earliest next fire time of an Agent's active triggers, or `null`. */
+  nextWakeAt(agentId: string): Promise<string | null>;
+  /** Records a run; false when one with the same `runKey` exists for the Agent. */
+  insertTriggerRun(row: TriggerRunRow): Promise<boolean>;
+  triggerRunByKey(agentId: string, runKey: string): Promise<TriggerRunRow | undefined>;
+  updateTriggerRun(id: string, patch: Partial<Omit<TriggerRunRow, "id">>): Promise<void>;
+  /** An Agent's runs fired at or after `since` with one of `statuses`. */
+  countTriggerRuns(agentId: string, since: string, statuses: readonly TriggerRunRow["status"][]): Promise<number>;
+  /** An Agent's runs, newest first, before run id `before`. */
+  listTriggerRuns(agentId: string, options: { triggerId?: string; before?: string; limit: number }): Promise<TriggerRunRow[]>;
+  /** Deletes runs fired before `before`; returns how many. */
+  pruneTriggerRuns(before: string): Promise<number>;
   /** Links of one workflow session joined to their existing agent sessions, ordered by agent session id. */
   linkedSessions<S extends SessionDoc = SessionDoc>(
     workflowSessionId: string,

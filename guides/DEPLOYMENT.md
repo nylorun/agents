@@ -750,8 +750,16 @@ What only the Runtime checks:
 | `flowConcurrency` | Effects one flow turn runs at once; the rest wait their turn | 8 | A JavaScript number |
 | `flowMapItems` | Items one map stage fans out to (`map.too-many-items` past it) | 1,000 | A JavaScript number |
 | `flowLoopIterations` | Iterations one loop stage runs (`loop.too-many-iterations` past it) | 100 | A JavaScript number |
+| `sessionQueuedMessages` | Messages one session's queue holds while its turn runs or waits (`429 queue_full` past it) | 100 | A JavaScript number |
+| `triggersPerAgent` | Triggers one agent manifest's `runtime.triggers` declares, checked when it is saved | 20 | One request body |
+| `triggerMinIntervalMs` | The shortest gap between two runs of one schedule, checked at save over its next fires | 60 s | A JavaScript number; floor 60 s (cron is minute grained) |
+| `triggerRunsPerHour` | Runs one Agent's triggers start or queue in any hour; later ones are skipped (`rate_limited`) | 60 | A JavaScript number |
+| `triggerJitterPercent` | How far a schedule's fixed offset may move its runs, as a part of its interval | 10 | 50 |
+| `triggerJitterMaxMs` | The most that offset may be | 5 min | A JavaScript timer |
+| `triggerPromptChars` | One trigger's `prompt` | 8,000 characters | One record entry, escaped |
+| `triggerRunRetentionMs` | How long an Agent's runs are kept | 30 days | A JavaScript number; floor 24 h (runs dedupe repeated fires) |
 
-A limit above its ceiling is `400`, naming the ceiling and its dependency, and nothing changes.
+A limit above its ceiling, or under its floor, is `400`, naming the bound and why, and nothing changes.
 Each limit is read where it is checked, so a new value holds for the next request, write, call
 or turn. Past one, a write into the record is `413 limit_exceeded`
 (`details.limit: "recordEntryBytes"`) to an API client, and `limit_exceeded` to a harness; a
@@ -879,6 +887,8 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `sweep.outboxAttempts` | 10 | Failed deliveries after which an outbox row is parked |
 | `sweep.outboxRetry` | 5 s to 10 min | The wait after an outbox row's failed delivery |
 | `sweep.stalePodMs` | 60 s | How long a pod row may go unchanged before the sweep reconciles it |
+| `triggers.lateGraceMs` | 2 min | How long after it was due a trigger's fire counts as late, and how overdue an active trigger is before the sweep arms its timer again |
+| `triggers.intervalCheckFires` | 100 | How many upcoming fires the save check reads to find a schedule's smallest gap |
 | `execution.advanceDeadlineMs` | 50 min | How long one advance may run before its signal aborts; below `restate.inactivityMs` |
 | `execution.advanceGraceMs` | 30 s | How long an aborted advance has to settle before it is abandoned (0 allowed) |
 | `execution.stopGraceMs` | 30 s | How long stopping waits for running handlers; keep it at the advance grace (0 allowed) |

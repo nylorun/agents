@@ -45,6 +45,7 @@ import { harnessOf, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 import { limitIssues, manifestShapeIssues, readTenantLimits } from "./limits.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
+import { mergeAgentTriggers } from "./triggers.js";
 
 /** What a session pins of the version its Agent runs. */
 export interface SessionPin {
@@ -312,6 +313,7 @@ export async function moveAgent(t: Tx, agent: Environment, move: Move, now: stri
         now,
       );
       await t.agentEvent(agent.id, "agent.version_changed", { from: plan.from, to: plan.to });
+      await mergeAgentTriggers(t, { ...agent, manifestVersion: target.version }, agent.manifestVersion);
       break;
   }
   return plan.applies;
@@ -362,6 +364,7 @@ export async function switchTo(t: Tx, agent: Environment, now: string): Promise<
   if (agent.pod?.imageDigest !== undefined && canonical(agent.recipe.image) !== canonical(agent.applied.image))
     await t.updateEnvironmentPod(agent.id, { imageDigest: null }, now);
   await t.agentEvent(agent.id, "agent.version_changed", { from: agent.manifestVersion, to: target.version });
+  await mergeAgentTriggers(t, { ...agent, manifestVersion: target.version }, agent.manifestVersion);
   return true;
 }
 
@@ -435,6 +438,7 @@ export async function revertStart(t: Tx, agent: Environment, reason: string, now
     reverted: true,
   });
   await t.agentEvent(agent.id, "agent.version_changed", { from: agent.manifestVersion, to: check.from.manifestVersion });
+  await mergeAgentTriggers(t, { ...agent, manifestVersion: check.from.manifestVersion }, agent.manifestVersion);
   await t.signalSandbox(agent.id, { kind: "reconcile" });
   return true;
 }

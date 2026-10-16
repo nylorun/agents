@@ -196,6 +196,25 @@ describe.skipIf(!STACK_ENABLED)("Restate execution", () => {
     expect(fired).toHaveLength(1);
   });
 
+  it("runs a timer set again from inside its own fire after that fire (track T4's re-arm)", async () => {
+    // A trigger arms its next time from inside `fire`: the `set` waits behind the running
+    // handler, so the handler's own clear of the old time cannot erase the new one.
+    const fired: number[] = [];
+    const { tenantId } = ids();
+    const key = `t-${randomUUID()}`;
+    let execution: RestateExecution;
+    execution = await started(10, "rearm", {
+      fire: async () => {
+        fired.push(Date.now());
+        if (fired.length === 1) await execution.timer(tenantId, key, new Date(Date.now() + 300));
+      },
+    });
+    await execution.timer(tenantId, key, new Date(Date.now() + 100));
+    await eventually(() => expect(fired).toHaveLength(2));
+    await sleep(500);
+    expect(fired).toHaveLength(2);
+  });
+
   it("pauses an advance that keeps failing and lists it as stuck", async () => {
     let calls = 0;
     const execution = await started(

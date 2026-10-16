@@ -210,52 +210,13 @@ export async function command(
         );
       if (command.type === "message") {
         const delivery = command.delivery ?? options.delivery ?? "reject";
-        const takes = takesMessages(s);
         const waiting = await t.countQueuedMessages(id);
-        if (!takes && delivery === "reject")
+        if (!takesMessages(s) && delivery === "reject")
           fail(409, "Session has active or unresolved work", { code: "session_busy" });
         // Every turn start on a sandbox: it exists, the token's grants reach it, and no other
         // session's turn holds it. A queued message is checked when it is queued, too.
         await checkAgentTurn(t, s, scope, ctx);
-        const message = await turnMessage(t, s, id, command, scope, options.trace);
-        if (takes && waiting === 0) {
-          event = await beginMessageTurn(t, s, id, [message]);
-          answer = { status: "accepted", turnId: s.activeTurnId, cursor: event.cursor };
-        } else {
-          // The turn runs or waits, or earlier messages still wait: this one waits behind them.
-          const { sessionQueuedMessages } = await readRuntimeLimits(t);
-          if (waiting >= sessionQueuedMessages)
-            fail(
-              429,
-              `Session ${id} already holds ${waiting} queued messages, the Runtime limit sessionQueuedMessages (PUT /v1/tenant/limits); they start a turn when the running one ends.`,
-              { code: "queue_full" }
-            );
-          const queuedMessageId = randomUUID();
-          await t.enqueueMessage({
-            id: queuedMessageId,
-            sessionId: id,
-            command: message.command,
-            input: message.input,
-            fileArtifacts: message.fileArtifacts,
-            writer: message.writer,
-            trace: message.trace ?? null,
-            createdAt: new Date().toISOString(),
-          });
-          const position = waiting + 1;
-          event = await t.event(
-            id,
-            s.activeTurnId,
-            "message.queued",
-            { queuedMessageId, position, requestId: command.requestId },
-            message.writer
-          );
-          answer = { status: "queued", queuedMessageId, position, cursor: event.cursor };
-          // An idle session whose queue was left waiting (its Agent was unavailable when the last
-          // turn ended) starts a turn with all of them now, this one last.
-          const started = takes ? await startQueuedTurn(ctx, t, s, id) : undefined;
-          if (started?.taken.includes(queuedMessageId))
-            answer = { status: "accepted", turnId: started.turnId, cursor: started.cursor };
-        }
+        answer = await acceptMessage(ctx, t, s, id, await turnMessage(t, s, id, command, scope, options.trace), waiting);
       } else if (
         command.type === "approve" &&
         (held = await heldCall(t, s, command.interactionId)) !== undefined
@@ -401,10 +362,10 @@ export async function command(
 /** Statuses in which a session takes a message as a new turn; in the others a turn runs or waits. */
 const TAKES_MESSAGES: readonly string[] = ["idle", "completed", "failed", "cancelled"];
 
-const takesMessages = (s: Session): boolean => TAKES_MESSAGES.includes(s.status);
+export const takesMessages = (s: Session): boolean => TAKES_MESSAGES.includes(s.status);
 
 /** A message ready to start a turn: as sent, its engine input and who sent it. */
-interface TurnMessage {
+export interface TurnMessage {
   command: MessageEventBody;
   /** An agent's message input, or a workflow's input value. */
   input: unknown;
@@ -414,6 +375,75 @@ interface TurnMessage {
   /** Set for a message that waited in the session's queue. */
   queuedMessageId?: string;
   trace?: TraceContext;
+  /** What sent it when not a client (track T4): a trigger's run, or the session's own wake. */
+  cause?: MessageCause;
+}
+
+/** What sent a message when not a client (`command.message`'s `cause`). */
+export interface MessageCause {
+  kind: "trigger" | "self";
+  triggerId: string;
+  runId: string;
+}
+
+/** How a message was taken: it started a turn, or waits in the session's queue. */
+export type MessageAnswer =
+  | { status: "accepted"; turnId: string; cursor: string }
+  | { status: "queued"; queuedMessageId: string; position: number; cursor: string };
+
+/**
+ * Takes a resolved message on session `s` (locked) in transaction `t`: it starts a turn when the
+ * session takes messages and none wait, else it waits in the queue behind them (protocol 17), and
+ * an idle session whose queue was left waiting (its Agent was unavailable when the last turn
+ * ended) starts a turn with all of them, this one last. Past `sessionQueuedMessages` it is
+ * `429 queue_full`. `waiting` is the queue's length, read under the session's lock.
+ */
+export async function acceptMessage(
+  ctx: TenantContext,
+  t: Tx,
+  s: Session,
+  id: string,
+  message: TurnMessage,
+  waiting?: number
+): Promise<MessageAnswer> {
+  const queued = waiting ?? (await t.countQueuedMessages(id));
+  const takes = takesMessages(s);
+  if (takes && queued === 0) {
+    const event = await beginMessageTurn(t, s, id, [message]);
+    return { status: "accepted", turnId: s.activeTurnId!, cursor: event.cursor };
+  }
+  // The turn runs or waits, or earlier messages still wait: this one waits behind them.
+  const { sessionQueuedMessages } = await readRuntimeLimits(t);
+  if (queued >= sessionQueuedMessages)
+    fail(
+      429,
+      `Session ${id} already holds ${queued} queued messages, the Runtime limit sessionQueuedMessages (PUT /v1/tenant/limits); they start a turn when the running one ends.`,
+      { code: "queue_full" }
+    );
+  const queuedMessageId = randomUUID();
+  await t.enqueueMessage({
+    id: queuedMessageId,
+    sessionId: id,
+    command: message.command,
+    input: message.input,
+    fileArtifacts: message.fileArtifacts,
+    writer: message.writer,
+    trace: message.trace ?? null,
+    cause: message.cause ?? null,
+    createdAt: new Date().toISOString(),
+  });
+  const position = queued + 1;
+  const event = await t.event(
+    id,
+    s.activeTurnId,
+    "message.queued",
+    { queuedMessageId, position, requestId: message.command.requestId },
+    message.writer
+  );
+  const started = takes ? await startQueuedTurn(ctx, t, s, id) : undefined;
+  if (started?.taken.includes(queuedMessageId))
+    return { status: "accepted", turnId: started.turnId, cursor: started.cursor };
+  return { status: "queued", queuedMessageId, position, cursor: event.cursor };
 }
 
 /**
@@ -528,6 +558,7 @@ async function beginMessageTurn(
         ...message.command,
         ...(message.queuedMessageId === undefined ? {} : { queuedMessageId: message.queuedMessageId }),
         ...(message.trace ? { trace: message.trace } : {}),
+        ...(message.cause ? { cause: message.cause } : {}),
       },
       message.writer
     );
@@ -535,7 +566,7 @@ async function beginMessageTurn(
 }
 
 /** Who checks a queued message's turn start: core, since the sender's grants were checked when it was queued. */
-const QUEUE_SCOPE: AuthScope = { kind: "application", principalId: "queue" };
+export const QUEUE_SCOPE: AuthScope = { kind: "application", principalId: "queue" };
 
 /**
  * Starts the next turn of session `s` (locked) from its queue, when it takes messages and messages
@@ -573,6 +604,7 @@ export async function startQueuedTurn(
         writer: row.writer as EventWriter,
         queuedMessageId: row.id,
         ...(row.trace ? { trace: row.trace as TraceContext } : {}),
+        ...(row.cause ? { cause: row.cause as MessageCause } : {}),
       }))
     );
   } catch (error) {

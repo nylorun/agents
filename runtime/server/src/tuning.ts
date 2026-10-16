@@ -223,6 +223,16 @@ export const HostTuningSchema = z
       /** How long a pod row may go unchanged before the sweep checks it. */
       stalePodMs: ms(MINUTE),
     }),
+    /** Triggers (track T4, D74): server timing; the Tenant's own bounds are its Runtime limits. */
+    triggers: group({
+      /**
+       * How long after it was due a fire counts as late (the server was down or asleep), and how
+       * overdue an active trigger is before the sweep arms it again.
+       */
+      lateGraceMs: ms(2 * MINUTE),
+      /** How many upcoming fires the save check reads to find a cron's smallest gap. */
+      intervalCheckFires: count(100, 2, 10_000),
+    }),
     /** Durable Session Execution: Restate, or the in-process execution. */
     execution: group({
       /**

@@ -88,6 +88,7 @@ import {
   secretRequestIssues,
 } from "./limits.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
+import { armAgentTriggers, createAgentTriggers } from "./triggers.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail, failRetryLater } from "./http.js";
 import type { SealedSecretCopies } from "../vault/service.js";
@@ -224,6 +225,7 @@ async function viewOf(
     state,
     attention,
     desired: environment.desiredState,
+    nextWakeAt: await t.nextWakeAt(environment.id),
     compute: {
       state: pod ? podState(pod) : environment.kind === "none" ? "ready" : (record?.state ?? "ready"),
       ...(pod
@@ -525,6 +527,8 @@ export async function putAgent(
       deleting(again);
       return found(again);
     }
+    // Its triggers start active (D74); armed after the commit.
+    await createAgentTriggers(t, row);
     const vaultId = await ctx.vault.createEnvironmentVault(t, id, actorOf(scope), fork?.sealed?.vaultId);
     if (fork?.sealed)
       fork.copied = await ctx.vault.insertEnvironmentSecretCopies(t, vaultId, fork.source, actorOf(scope), fork.sealed.copies);
@@ -550,6 +554,7 @@ export async function putAgent(
     }
     return viewOf(ctx, t, row, subjectOf(scope));
   });
+  await armAgentTriggers(ctx, id);
   // A virtual fork's workspace is written at once (a pod's once its engine connects).
   if (body.from !== undefined && view.kind === "virtual") {
     await runPendingSeed(ctx, id);
@@ -965,6 +970,8 @@ async function deleteIn(
 ): Promise<string[]> {
   const id = environment.id;
   await t.agentEvent(id, "agent.deleted", { reason });
+  // Its triggers and their runs go with it; a timer still armed finds no row.
+  await t.deleteAgentTriggers(id);
   await ctx.vault.deleteEnvironmentVault(t, id, actor);
   // Its disk versions go with it; their manifests' bytes are the caller's, after the commit.
   const keys = await deleteDiskArtifact(ctx, t, id);

@@ -306,6 +306,78 @@ export const agents = nylorun.table(
 );
 
 /**
+ * An Agent's triggers (track T4, D74): what its manifest's `runtime.triggers` declares is the
+ * manifest's; whether each one is on and when it fires next is the Agent's, here. A booked wake
+ * (D77) is a row of kind `wake` with id `wake:<sessionId>`. Postgres holds the truth: one
+ * durable timer per active trigger is armed from `nextFireAt`, and the sweep re-arms an overdue
+ * one, so the execution's timers can be rebuilt from these rows.
+ */
+export const agentTriggers = nylorun.table(
+  "agent_triggers",
+  {
+    agentId: textC().notNull(),
+    triggerId: textC().notNull(),
+    kind: text({ enum: ["schedule", "at", "webhook", "wake"] }).notNull(),
+    status: text({ enum: ["active", "paused", "completed"] }).notNull(),
+    /** `manual`, or `new` for a trigger an upgrade added. */
+    pausedReason: text(),
+    /** Bumped when its timing changes, so a timer armed for an older time does nothing. */
+    generation: integer().notNull().default(0),
+    /** When it fires next (ISO), while active; a schedule's includes its jitter. */
+    nextFireAt: textC(),
+    lastFireAt: textC(),
+    /** A webhook trigger's endpoint id (`wh_…`), kept across upgrades. */
+    endpointId: textC(),
+    /**
+     * A webhook trigger's signing secret, sealed with the Tenant's vault key: only the keys service
+     * opens it, to verify a delivery (D75).
+     */
+    sealedSecret: jsonText(),
+    /** A booked wake's session, its note and the effect that booked it. */
+    sessionId: textC(),
+    note: text(),
+    effectId: text(),
+    createdAt: textC().notNull(),
+    updatedAt: textC().notNull(),
+  },
+  (t) => [
+    primaryKey({ name: "agent_triggers_pkey", columns: [t.agentId, t.triggerId] }),
+    index("agent_triggers_due").on(t.status, t.nextFireAt),
+    uniqueIndex("agent_triggers_endpoint").on(t.endpointId).where(sql`endpoint_id IS NOT NULL`),
+  ],
+);
+
+/**
+ * Each run of an Agent's triggers (D74): one per fire, delivery or run by hand, keyed by what
+ * caused it (`runKey`: `fire:<trigger>:<due ms>`, `webhook:<trigger>:<delivery id>`,
+ * `manual:<trigger>:<idempotency key>`), so a repeated cause makes no second run. Kept for the
+ * Runtime limit `triggerRunRetentionMs`.
+ */
+export const triggerRuns = nylorun.table(
+  "trigger_runs",
+  {
+    id: textC().primaryKey(),
+    agentId: textC().notNull(),
+    triggerId: textC().notNull(),
+    kind: text({ enum: ["schedule", "at", "webhook", "wake"] }).notNull(),
+    runKey: textC().notNull(),
+    dueAt: textC().notNull(),
+    firedAt: textC().notNull(),
+    late: boolean().notNull().default(false),
+    status: text({ enum: ["started", "queued", "skipped", "failed"] }).notNull(),
+    reason: text(),
+    sessionId: textC(),
+    turnId: textC(),
+    queuedMessageId: textC(),
+  },
+  (t) => [
+    uniqueIndex("trigger_runs_key").on(t.agentId, t.runKey),
+    index("trigger_runs_agent").on(t.agentId, t.id),
+    index("trigger_runs_fired").on(t.firedAt),
+  ],
+);
+
+/**
  * An agent manifest's versions (protocol 16): a named, versioned document with a harness and a
  * runtime section. A version is written once and never changed; a save whose body hashes the
  * same as the latest writes nothing.
@@ -534,6 +606,8 @@ export const sessionQueue = nylorun.table(
     writer: jsonText().notNull(),
     /** The W3C trace context it was sent with. */
     trace: jsonText(),
+    /** What sent it when not a client (track T4): a trigger's run, or the session's own wake. */
+    cause: jsonText(),
     createdAt: textC().notNull(),
   },
   (t) => [uniqueIndex("session_queue_order").on(t.sessionId, t.seq)],
@@ -828,6 +902,8 @@ export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
 export type QueuedMessageRow = typeof sessionQueue.$inferSelect;
+export type AgentTriggerRow = typeof agentTriggers.$inferSelect;
+export type TriggerRunRow = typeof triggerRuns.$inferSelect;
 export type EnvironmentRowColumns = typeof agents.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;
