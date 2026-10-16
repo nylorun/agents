@@ -66,6 +66,7 @@ import { toolCallDecision } from "../gates/policy.js";
 import type { Tx } from "../store/types.js";
 import { traceKey } from "../traces/key.js";
 import { serveRuntimeTool } from "../tenant/triggers.js";
+import { serveMemoryTool } from "../memory/tool.js";
 import { effectSpanOf, traceparentOf, turnTraceIdOf, type TraceKey } from "../traces/ids.js";
 import {
   firstSend,
@@ -209,7 +210,9 @@ export async function recordIntent(
     // transaction, keyed by its effect id, so a replay finds it completed.
     if (request.kind === "tool" && request.target?.kind === "runtime") {
       const row: StoredEffect = { request, requestHash, status: "invoking", ...firstSend(toolKindOf(s, agentManifest, request)) };
-      const outcome = await settleToolRow(t, s, row, await serveRuntimeTool(t, s, request), { writer: coreIn(scope) });
+      const served =
+        request.target.operation === "memory" ? await serveMemoryTool(t, s, request) : await serveRuntimeTool(t, s, request);
+      const outcome = await settleToolRow(t, s, row, served, { writer: coreIn(scope) });
       return { status: "completed", outcome };
     }
     const refused = request.kind === "tool" ? refusal(s, request) : undefined;

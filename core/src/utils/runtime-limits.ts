@@ -181,6 +181,8 @@ const harnessLimits = {
  * Memory (track T5, D72; checked on every write):
  * - `memoryBytes`: the largest memory, in UTF-8 bytes.
  * - `memoriesPerAgent`: the most memories one Agent holds.
+ * - `memoryIndexLines`, `memoryIndexBytes`: the most lines and UTF-8 bytes of the index a session
+ *   pins at its start (`turn.start.memory.index`); the newest memories come first.
  *
  * Sessions:
  * - `sessionQueuedMessages`: the most messages one session's queue holds while its turn runs or
@@ -251,6 +253,8 @@ export const RuntimeLimitsSchema = z
     wakeNoteChars: z.number().int().positive(),
     memoryBytes: z.number().int().positive(),
     memoriesPerAgent: z.number().int().positive(),
+    memoryIndexLines: z.number().int().positive(),
+    memoryIndexBytes: z.number().int().positive(),
     sessionQueuedMessages: z.number().int().positive(),
     flowConcurrency: z.number().int().positive(),
     flowMapItems: z.number().int().positive(),
@@ -472,6 +476,12 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
     why: `a memory reaches a harness in one Harness API frame (${HARNESS_MAX_PAYLOAD} bytes), as JSON, whose escapes may double it`,
   },
   memoriesPerAgent: counted("entries", "memories are counted"),
+  memoryIndexLines: counted("entries", "the lines are counted"),
+  memoryIndexBytes: {
+    value: HARNESS_MAX_PAYLOAD / 4,
+    unit: "bytes",
+    why: `the index crosses in turn.start, one Harness API frame (${HARNESS_MAX_PAYLOAD} bytes), beside the harness's state and the rest`,
+  },
   webhookBodyBytes: {
     value: recordEntryCeiling,
     unit: "bytes",
@@ -554,6 +564,8 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   wakeNoteChars: 2_000,
   memoryBytes: 100 * 1024,
   memoriesPerAgent: 10_000,
+  memoryIndexLines: 200,
+  memoryIndexBytes: 25 * 1024,
   sessionQueuedMessages: 100,
   flowConcurrency: 8,
   flowMapItems: 1_000,

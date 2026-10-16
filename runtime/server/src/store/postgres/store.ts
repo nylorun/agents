@@ -1750,6 +1750,16 @@ class PostgresTx implements Tx {
     return Number(row?.n ?? 0);
   }
 
+  async recentMemories(agentId: string, limit: number): Promise<Pick<MemoryRow, "path" | "description" | "bytes">[]> {
+    this.check();
+    return this.db
+      .select({ path: memories.path, description: memories.description, bytes: memories.bytes })
+      .from(memories)
+      .where(eq(memories.agentId, agentId))
+      .orderBy(desc(memories.updatedAt), memories.path)
+      .limit(limit);
+  }
+
   async putMemory(row: MemoryRow): Promise<void> {
     this.check();
     const { agentId: _a, path: _p, ...set } = row;

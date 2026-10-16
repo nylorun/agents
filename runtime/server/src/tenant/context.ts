@@ -99,6 +99,11 @@ export interface Session {
    * and the context core hands on (to the harness, tools and sandbox commands) is in it.
    */
   turnTrace?: TraceContext;
+  /**
+   * What started the active turn when not a client (track T4): the trigger's run, or the session's
+   * own booked wake. A memory version written in the turn names its run (track T5).
+   */
+  turnCause?: { kind: "trigger" | "self"; triggerId: string; runId: string };
   creation: unknown;
   mcpSnapshot?: McpSnapshot;
   mcpDiagnostics?: readonly McpDiagnostic[];

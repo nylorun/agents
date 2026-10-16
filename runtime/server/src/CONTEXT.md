@@ -945,7 +945,14 @@ ending in `.md`, no `.`, `..` or empty segment, at most 512 characters; a folder
 The API (`/v1/agents/{id}/memories`, `/memory_versions`) lists, reads, writes whole (with a
 `content_sha256` precondition, `409 memory_conflict`), deletes and pages versions. A fork copies
 the memories at version 1 with no history; a delete removes them and their versions. Versions are
-kept while the Agent exists. _Avoid_: "memory store" for an Agent's memories (Managed Agents'
+kept while the Agent exists. A model reaches them with the `memory` tool, a `runtime` effect
+(`EffectTarget {kind: "runtime", operation: "memory"}`) that `recordIntent` serves in the call's own
+transaction (`serveMemoryTool`, `memory/tool.ts`), so a replayed turn applies a write once and sees
+the same view; it checks each command's parameters, refuses a write from a `read_only` agent or a
+sub-agent (`memory.forbidden`), versions a write as `agent:<manifest>@<n>` with the session, turn
+and the trigger run that started the turn (`Session.turnCause`), and records `memory.updated` and
+`agent.memory_updated`. `turn.start.memory` carries the access, the agent's instructions and the
+index, newest first within `memoryIndexLines` and `memoryIndexBytes`. _Avoid_: "memory store" for an Agent's memories (Managed Agents'
 term for a shared resource); "knowledge base".
 
 ## Runtime architecture
