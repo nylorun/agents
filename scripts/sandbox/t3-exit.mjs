@@ -132,7 +132,7 @@ await withStack({ name: "nylorun-t3-exit", images }, async (stack) => {
   check(second.end?.payload?.manifest?.version === 2 && second.stdout === "kept:steady", `turn 2 ran version ${second.end?.payload?.manifest?.version}: ${JSON.stringify(second.stdout)}`);
 
   step("a runtime change waits for the pod's next start, then runs on the same volume");
-  check((await save(manifest("Answer as version three.", { resources: { cpus: 1, memory: "1Gi" } }))) === 3, "saved evolve version 3");
+  check((await save(manifest("Answer as version three.", { resources: { cpus: 1, memory: "1GiB" } }))) === 3, "saved evolve version 3");
   const outdated = await agent();
   check(
     outdated.resolvedVersion === 2 && outdated.targetVersion === 3 && outdated.waitingFor === "start",
@@ -150,7 +150,7 @@ await withStack({ name: "nylorun-t3-exit", images }, async (stack) => {
 
   step("a version whose setup fails goes back to the version it ran");
   check(
-    (await save(manifest("Answer as version four.", { resources: { cpus: 1, memory: "1Gi" }, setup: [{ command: "echo broken; exit 7" }] }))) === 4,
+    (await save(manifest("Answer as version four.", { resources: { cpus: 1, memory: "1GiB" }, setup: [{ command: "echo broken; exit 7" }] }))) === 4,
     "saved evolve version 4",
   );
   await ok("POST", "/v1/agents/evolve/restart", { requestId: randomUUID() });
