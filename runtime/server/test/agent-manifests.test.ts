@@ -406,6 +406,7 @@ describe("forking", { timeout: 60_000 }, () => {
           expect.objectContaining({ path: "secrets.PYPI" }),
         ]),
         sessions: 1,
+        memories: 0,
       },
     });
     expect((await call("GET", agents("forks/v2"))).status).toBe(404);

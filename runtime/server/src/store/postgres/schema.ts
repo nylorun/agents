@@ -348,6 +348,54 @@ export const agentTriggers = nylorun.table(
 );
 
 /**
+ * An Agent's memories (track T5, D72): one row per Markdown file under `/memories`, its content
+ * inline (the Runtime limit `memoryBytes`, 100 KB by default, bounds it). `version` counts the
+ * changes to this path; `description` is its frontmatter's, for the pinned index. A write locks the
+ * one row it changes, so writes to different memories never wait on each other.
+ */
+export const memories = nylorun.table(
+  "memories",
+  {
+    agentId: textC().notNull(),
+    path: textC().notNull(),
+    content: text().notNull(),
+    contentSha256: text().notNull(),
+    bytes: integer().notNull(),
+    description: text(),
+    version: integer().notNull(),
+    updatedAt: textC().notNull(),
+  },
+  (t) => [primaryKey({ name: "memories_pkey", columns: [t.agentId, t.path] })],
+);
+
+/**
+ * One row per change to an Agent's memories (D72): what changed it, the content it left (`null`
+ * for a delete), and who made it, with the session, turn and trigger run of a turn's write.
+ * Versions belong to the Agent, so they outlive a deleted memory; they go with the Agent. Ids
+ * increase with time (`newMemoryVersionId`), so they page newest first.
+ */
+export const memoryVersions = nylorun.table(
+  "memory_versions",
+  {
+    id: textC().primaryKey(),
+    agentId: textC().notNull(),
+    path: textC().notNull(),
+    /** A rename's old path. */
+    fromPath: textC(),
+    operation: text({ enum: ["create", "str_replace", "insert", "delete", "rename"] }).notNull(),
+    content: text(),
+    contentSha256: text(),
+    bytes: integer(),
+    actor: text().notNull(),
+    sessionId: textC(),
+    turnId: textC(),
+    triggerRunId: textC(),
+    createdAt: textC().notNull(),
+  },
+  (t) => [index("memory_versions_agent").on(t.agentId, t.id), index("memory_versions_path").on(t.agentId, t.path, t.id)],
+);
+
+/**
  * Each run of an Agent's triggers (D74): one per fire, delivery or run by hand, keyed by what
  * caused it (`runKey`: `fire:<trigger>:<due ms>`, `webhook:<trigger>:<delivery id>`,
  * `manual:<trigger>:<idempotency key>`), so a repeated cause makes no second run. Kept for the
@@ -904,6 +952,8 @@ export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
 export type QueuedMessageRow = typeof sessionQueue.$inferSelect;
 export type AgentTriggerRow = typeof agentTriggers.$inferSelect;
 export type TriggerRunRow = typeof triggerRuns.$inferSelect;
+export type MemoryRow = typeof memories.$inferSelect;
+export type MemoryVersionRow = typeof memoryVersions.$inferSelect;
 export type EnvironmentRowColumns = typeof agents.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;

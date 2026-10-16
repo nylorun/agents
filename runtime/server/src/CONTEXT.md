@@ -931,6 +931,23 @@ counted in `triggerRunsPerHour`, queued on a busy session, its note the message 
 `cause.kind: "self"`, unwrapped (the model's own words); then the row goes. _Avoid_: "reminder",
 "alarm", "self-trigger".
 
+**Memory** (track T5, D72): An Agent's Markdown files under `/memories`, kept across sessions,
+wakes and upgrades, turned on by its manifest's `harness.memory` (`access`, `read_write` or
+`read_only`, the same in every turn whoever starts it; `instructions`). Postgres holds them: one
+`memories` row per path, content inline (at most `memoryBytes`, `memoriesPerAgent` per Agent), and
+one `memory_versions` row per change (`create`, `str_replace`, `insert`, `delete`, `rename`), with
+the content it left and its actor (`agent:<manifest>@<n>` with session, turn and trigger run for a
+turn's write; `human:<subject>` or `application` for the API). Every write goes through
+`applyMemoryCommand` (`memory/service.ts`), Anthropic's memory tool commands with their result
+strings; it locks each path it touches (`pg_advisory_xact_lock` on the path, then the row), and
+never rewrites what was written. Paths follow `memoryPathOf` (`@nylorun/core`): `/memories/…`,
+ending in `.md`, no `.`, `..` or empty segment, at most 512 characters; a folder is only a prefix.
+The API (`/v1/agents/{id}/memories`, `/memory_versions`) lists, reads, writes whole (with a
+`content_sha256` precondition, `409 memory_conflict`), deletes and pages versions. A fork copies
+the memories at version 1 with no history; a delete removes them and their versions. Versions are
+kept while the Agent exists. _Avoid_: "memory store" for an Agent's memories (Managed Agents'
+term for a shared resource); "knowledge base".
+
 ## Runtime architecture
 
 One line each; the module named is where the term lives in code.

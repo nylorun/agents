@@ -529,6 +529,8 @@ export async function putAgent(
     }
     // Its triggers start active (D74); armed after the commit.
     await createAgentTriggers(t, row);
+    // A fork starts with the source's memories as they are now, with no history (T5).
+    if (fork) await t.copyMemories(fork.source, id, now);
     const vaultId = await ctx.vault.createEnvironmentVault(t, id, actorOf(scope), fork?.sealed?.vaultId);
     if (fork?.sealed)
       fork.copied = await ctx.vault.insertEnvironmentSecretCopies(t, vaultId, fork.source, actorOf(scope), fork.sealed.copies);
@@ -801,6 +803,7 @@ export async function forkAgent(
       },
       changes: manifestChanges(source.applied, recipe),
       sessions: (await t.sessionsOnEnvironment(sourceId)).length,
+      memories: await t.countMemories(sourceId),
     };
     const slots =
       recipe.secrets === undefined
@@ -972,6 +975,8 @@ async function deleteIn(
   await t.agentEvent(id, "agent.deleted", { reason });
   // Its triggers and their runs go with it; a timer still armed finds no row.
   await t.deleteAgentTriggers(id);
+  // So do its memories and their versions (T5).
+  await t.deleteAgentMemories(id);
   await ctx.vault.deleteEnvironmentVault(t, id, actor);
   // Its disk versions go with it; their manifests' bytes are the caller's, after the commit.
   const keys = await deleteDiskArtifact(ctx, t, id);

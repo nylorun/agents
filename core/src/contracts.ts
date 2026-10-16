@@ -39,9 +39,24 @@ export { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId };
 import { isDefinitionFileHash, skillFilesIssue } from "./utils/definition-files.js";
+import { MEMORY_ACCESS, MEMORY_INSTRUCTIONS_MAX, MEMORY_OPERATIONS } from "./utils/memory.js";
+export {
+  MEMORY_ACCESS,
+  MEMORY_DESCRIPTION_MAX,
+  MEMORY_INSTRUCTIONS_MAX,
+  MEMORY_OPERATIONS,
+  MEMORY_PATH_MAX,
+  MEMORY_ROOT,
+  memoryDescriptionOf,
+  memoryPathOf,
+  memoryPathWithin,
+  type MemoryAccess,
+  type MemoryOperation,
+} from "./utils/memory.js";
 export type {
   AgentHarnessSection,
   AgentManifest,
+  AgentMemorySettings,
   HarnessMcpServer,
   HarnessSection,
   HarnessSkill,
@@ -1772,6 +1787,21 @@ const harnessIdField = HarnessIdSchema.optional().meta({
 const harnessLoopField = definitionJson
   .optional()
   .meta({ description: "The harness's own settings, passed to it in turn.start; the Runtime never reads them" });
+/**
+ * `harness.memory` (track T5, D72): turns the Agent's memory on. Its `access` holds in every turn,
+ * whoever starts it; `instructions` follow the engine's own memory rules.
+ */
+const harnessMemoryField = z
+  .strictObject({
+    access: z.enum(MEMORY_ACCESS).optional().meta({ description: "`read_write` (the default) or `read_only`" }),
+    instructions: z
+      .string()
+      .max(MEMORY_INSTRUCTIONS_MAX)
+      .optional()
+      .meta({ description: "What this agent should remember, after the engine's own memory rules" }),
+  })
+  .optional()
+  .meta({ description: "The Agent's memory: Markdown files under /memories it keeps across sessions (D72)" });
 /** Fields the harness section refuses with where they went. */
 const REMOVED_HARNESS_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   requires:
@@ -1793,6 +1823,7 @@ const agentHarnessObject = z
       plugins: z.array(pluginLabelSchema).optional(),
       outputSchema: definitionJson.optional(),
       loop: harnessLoopField,
+      memory: harnessMemoryField,
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
     },
     { error: removedFieldError(REMOVED_HARNESS_FIELDS) },
@@ -1994,6 +2025,75 @@ export const WebhookAcceptedResponseSchema = z
 export const RunTriggerResponseSchema = z.object({ run: TriggerRunSchema }).strict();
 
 /**
+ * One of an Agent's memories (track T5, D72), as `GET /v1/agents/{id}/memories` lists it: its
+ * path under `/memories`, size, content hash (the precondition a `PUT` may send), the
+ * `description` of its frontmatter when it has one, and its version, which every change bumps.
+ */
+export const MemorySummarySchema = z
+  .object({
+    path: z.string(),
+    bytes: z.number().int().nonnegative(),
+    contentSha256: z.string(),
+    description: z.string().nullable(),
+    version: z.number().int().positive(),
+    updatedAt: z.string(),
+  })
+  .strict();
+export type MemorySummary = z.infer<typeof MemorySummarySchema>;
+/** `GET /v1/agents/{id}/memories`: memories by path. */
+export const MemoryListSchema = z
+  .object({ memories: z.array(MemorySummarySchema), nextCursor: z.string().nullable() })
+  .strict();
+export type MemoryList = z.infer<typeof MemoryListSchema>;
+/** `GET /v1/agents/{id}/memories/{path}`: one memory with its content. */
+export const MemorySchema = MemorySummarySchema.extend({ content: z.string() }).strict();
+export type Memory = z.infer<typeof MemorySchema>;
+/**
+ * `PUT /v1/agents/{id}/memories/{path}`: the memory's whole content, creating it or replacing it.
+ * With `contentSha256`, the write applies only while the memory's content still has that hash
+ * (`409 memory_conflict` with the current text otherwise); an empty string requires that no
+ * memory has the path.
+ */
+export const PutMemoryRequestSchema = z
+  .object({
+    content: z.string(),
+    contentSha256: z.string().optional(),
+  })
+  .strict();
+export type PutMemoryRequest = z.infer<typeof PutMemoryRequestSchema>;
+/**
+ * One change to a memory: what changed it (`create`, `str_replace`, `insert`, `delete`,
+ * `rename`), the content it left (`null` for a delete), and who made it: `agent:<manifest>@<n>`
+ * for a turn, with its session, turn and trigger run, or the principal of an API call. A rename's
+ * version is on the new path and names the old one in `fromPath`.
+ */
+export const MemoryVersionSchema = z
+  .object({
+    id: z.string(),
+    path: z.string(),
+    fromPath: z.string().nullable(),
+    operation: z.enum(MEMORY_OPERATIONS),
+    bytes: z.number().int().nonnegative().nullable(),
+    contentSha256: z.string().nullable(),
+    actor: z.string(),
+    sessionId: z.string().nullable(),
+    turnId: z.string().nullable(),
+    triggerRunId: z.string().nullable(),
+    createdAt: z.string(),
+  })
+  .strict();
+export type MemoryVersion = z.infer<typeof MemoryVersionSchema>;
+/** `GET /v1/agents/{id}/memory_versions/{versionId}`: one version with the content it left. */
+export const MemoryVersionDetailSchema = MemoryVersionSchema.extend({ content: z.string().nullable() })
+  .strict();
+export type MemoryVersionDetail = z.infer<typeof MemoryVersionDetailSchema>;
+/** `GET /v1/agents/{id}/memory_versions`: versions, newest first. */
+export const MemoryVersionPageSchema = z
+  .object({ versions: z.array(MemoryVersionSchema), nextCursor: z.string().nullable() })
+  .strict();
+export type MemoryVersionPage = z.infer<typeof MemoryVersionPageSchema>;
+
+/**
  * What the Runtime provides around the loop: the `runtime` section of agent manifest v8, with
  * environment manifest v1's fields but its identity and its `harness` (now `harness.id`).
  * `triggers` (track T4, D74) start the Agent's turns with no client connected; `selfWake` offers
@@ -2075,6 +2175,7 @@ export const HarnessManifestFileSchema = z
     plugins: z.array(z.union([pathField("an Agent Plugin folder"), pluginLabelSchema])).optional(),
     outputSchema: definitionJson.optional(),
     loop: harnessLoopField,
+    memory: harnessMemoryField,
     /** MCP server or HTTP tool name → the `runtime.secrets` slot it authenticates with. */
     credentials: z.record(z.string().min(1), z.string().min(1)).optional(),
     /** What this harness needs of any runtime it is combined with; checked by the composer only. */
@@ -2275,6 +2376,8 @@ export const AgentForkPlanSchema = z
     ),
     /** The source's sessions: they stay on it. */
     sessions: z.number().int().nonnegative(),
+    /** The source's memories (track T5): copied as they are now, each at version 1, with no history. */
+    memories: z.number().int().nonnegative(),
   })
   .strict();
 export type AgentForkPlan = z.infer<typeof AgentForkPlanSchema>;

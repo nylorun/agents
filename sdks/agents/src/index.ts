@@ -176,6 +176,7 @@ export type {
 export {
   AgentInstancesClient,
   AgentManifestsClient,
+  AgentMemoriesClient,
   AgentSecretsClient,
   ManifestGapsError,
   agentManifest,

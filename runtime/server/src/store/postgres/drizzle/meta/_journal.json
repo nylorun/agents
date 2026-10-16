@@ -253,6 +253,13 @@
       "when": 1792164194039,
       "tag": "0035_t4_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792172016681,
+      "tag": "0036_t5_memories",
+      "breakpoints": true
     }
   ]
 }

@@ -217,6 +217,18 @@ export interface AgentHarnessSection {
   readonly outputSchema?: JsonObject;
   /** The harness's own settings: passed to it in `turn.start`, never read by the Runtime. */
   readonly loop?: JsonObject;
+  /** Turns on the Agent's memory (track T5, D72): Markdown files it keeps across sessions. */
+  readonly memory?: AgentMemorySettings;
+}
+
+/**
+ * `harness.memory` (track T5, D72): the Agent's memory, the same in every turn whoever starts it.
+ * `access` is `read_write` (the default) or `read_only`; `instructions` tell the model what this
+ * agent should remember, after the engine's own memory rules.
+ */
+export interface AgentMemorySettings {
+  readonly access?: "read_write" | "read_only";
+  readonly instructions?: string;
 }
 
 /**

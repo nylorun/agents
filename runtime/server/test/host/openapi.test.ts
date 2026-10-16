@@ -85,6 +85,7 @@ it("describes and groups the tags, every operation in one of them, in the order 
     "Definition files",
     "Agents",
     "Triggers",
+    "Memory",
   ]);
   for (const path of Object.keys(runtime.paths)) expect(path).not.toMatch(/^\/v1\/environment/);
   expect(runtime["x-tagGroups"].find((group) => group.name === "Sessions")?.tags).toEqual([
